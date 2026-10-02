@@ -266,12 +266,15 @@ and negative selection/gate evidence before pushing; do not change branch
 protection merely to get a newly skipped job accepted.
 
 Merge-group candidates use `node typescript/scripts/ci-scope.mjs merge-group
-"$BASE_SHA" "$HEAD_SHA"` with the event's exact base/head SHAs. The two-dot diff
-covers the cumulative group; docs-only groups skip native suites, Squad-only
-groups run Squad checks, and shared changes select the full native scope. Empty
-or unreadable diffs fail closed to full native/Office verification with both E2E
-shards, and the selection summary reports the fallback. PR merge-base selection
-is unchanged. The macOS exception is described in the runtime smoke matrix below.
+"$HEAD_SHA"` with the event's exact head SHA, after fetching full history. The
+selector diffs `merge-base(refs/remotes/origin/main, head)..head`: under HEADGREEN,
+the event base can be a preceding pending queue commit, so it must not be used
+as the cumulative baseline. A site-only tip still selects checks for earlier
+pending release version/lock changes. Docs-only groups skip native suites,
+Squad-only groups run Squad checks, and shared changes select the full native
+scope. Missing, unreadable, ambiguous or empty range evidence fails closed to
+full native/Office verification with both E2E shards, and the selection summary
+reports the fallback. PR merge-base selection is unchanged. The macOS exception is described in the runtime smoke matrix below.
 Check event wiring with `pnpm exec vitest run test/tooling/ci-scope.test.ts`
 from `typescript/` and `actionlint .github/workflows/ci.yml` from the root.
 [Architecture](ARCHITECTURE.md) owns the event, gate and main-ref cache policy;

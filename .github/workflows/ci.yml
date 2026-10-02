@@ -66,9 +66,8 @@ jobs:
         if: github.event_name == 'merge_group'
         id: queue
         env:
-          BASE_SHA: ${{ github.event.merge_group.base_sha }}
           HEAD_SHA: ${{ github.event.merge_group.head_sha }}
-        run: node typescript/scripts/ci-scope.mjs merge-group "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+        run: node typescript/scripts/ci-scope.mjs merge-group "$HEAD_SHA" >> "$GITHUB_OUTPUT"
       - name: Select consumers from both sides of the diff
         if: github.event_name == 'pull_request'
         id: scope

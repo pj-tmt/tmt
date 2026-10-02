@@ -676,8 +676,10 @@ workers; the outer verification gates remain skipped.
 
 `ci.yml` owns all four required checks: Code quality, Unit tests, Docker E2E and
 Native package matrix. Both pull requests and `merge_group` candidates run those
-checks. Merge groups select paths from `merge_group.base_sha..head_sha`, the
-cumulative group-head diff used by HEADGREEN. PRs retain merge-base (`...`)
+checks. Merge groups select paths from the common ancestor of fetched
+`origin/main` and `merge_group.head_sha` through that queue head. Under HEADGREEN,
+the event's `base_sha` can be a preceding queued commit; using it would omit earlier
+pending changes and let a prose-only tip skip their checks. PRs retain merge-base (`...`)
 selection. Both use the same component-map rules, scopes and E2E partitions;
 empty or unreadable merge-group diffs fall back to full native and Office
 verification. The changes job fetches full history, and missing commit objects

@@ -1193,9 +1193,10 @@ describe('CI diff and command integration', () => {
     try {
       git(['init', '--quiet']);
       const base = commit('README.md', 'base');
+      git(['update-ref', 'refs/remotes/origin/main', base]);
       commit('docs/first.md', 'first PR');
       const docs = commit('docs/second.md', 'second PR');
-      const docsRun = select(['merge-group', base, docs]);
+      const docsRun = select(['merge-group', docs]);
       expect(docsRun.outputs).toMatchObject({
         native: 'false',
         office: 'false',
@@ -1208,7 +1209,7 @@ describe('CI diff and command integration', () => {
       expect(docsRun.evidence).toContain('docs/second.md');
       expect(docsRun.outputs).toEqual(select([base, docs]).outputs);
       const squad = commit('extensions/tmt-squad/rust/tmt-squad/src/main.rs', '// squad');
-      const squadRun = select(['merge-group', base, squad]);
+      const squadRun = select(['merge-group', squad]);
       expect(squadRun.outputs).toMatchObject({
         native: 'true',
         office: 'false',
@@ -1219,24 +1220,53 @@ describe('CI diff and command integration', () => {
       expect(squadRun.outputs).toEqual(select([base, squad]).outputs);
       const shared = commit('unknown-input', 'shared');
       const full = select(['full']).outputs;
-      expect(select(['merge-group', base, shared]).outputs).toEqual(full);
-      const empty = select(['merge-group', docs, docs]);
+      expect(select(['merge-group', shared]).outputs).toEqual(full);
+      git(['update-ref', 'refs/remotes/origin/main', docs]);
+      const empty = select(['merge-group', docs]);
+      git(['update-ref', 'refs/remotes/origin/main', base]);
       expect(empty.outputs).toEqual(full);
       expect(empty.evidence).toContain('diff is empty; using full verification');
       for (const args of [
-        ['merge-group', '0'.repeat(40), docs],
-        ['merge-group', base, '0'.repeat(40)],
-        ['merge-group', '--help', docs],
+        ['merge-group', '0'.repeat(40)],
+        ['merge-group', '--help'],
+        ['merge-group', base, docs],
         ['merge-group'],
       ]) {
         const fallback = select(args);
         expect(fallback.outputs).toEqual(full);
         expect(fallback.evidence).toContain('diff unreadable; using full verification');
       }
-      // Divergent endpoints prove queue mode uses two-dot rather than PR merge-base selection.
+      // The earlier queued release selects native, even when HEADGREEN's last tip is site-only.
+      git(['checkout', '--quiet', '--detach', base]);
+      mkdirSync(path.join(root, 'rust'), { recursive: true });
+      writeFileSync(
+        path.join(root, 'rust/Cargo.toml'),
+        '[workspace.package]\nversion = "5.0.0-alpha.35"\n'
+      );
+      writeFileSync(
+        path.join(root, 'rust/Cargo.lock'),
+        '[[package]]\nname = "tmt-cli"\nversion = "5.0.0-alpha.35"\n'
+      );
+      const release = commit('.release-please-manifest.json', '{".":"5.0.0-alpha.35"}\n');
+      const siteTip = commit('site/src/chapters/start.mdx', 'site-only tip');
+      // The old event-base range contains no native files: this is the causal negative control.
+      expect(select([release, siteTip]).outputs.native_scope).toBe('none');
+      const pending = select(['merge-group', siteTip]);
+      expect(pending.outputs).toEqual(full);
+      expect(pending.evidence).toContain(`${base.slice(0, 12)}..${siteTip.slice(0, 12)}`);
+      for (const file of ['rust/Cargo.toml', 'rust/Cargo.lock', '.release-please-manifest.json']) {
+        expect(pending.evidence).toContain(file);
+      }
+      git(['update-ref', '-d', 'refs/remotes/origin/main']);
+      const absentTarget = select(['merge-group', siteTip]);
+      expect(absentTarget.outputs).toEqual(full);
+      expect(absentTarget.evidence).toContain('diff unreadable; using full verification');
+      git(['update-ref', 'refs/remotes/origin/main', base]);
+      // Divergent target/head histories use their common ancestor, excluding target-only work.
       git(['checkout', '--quiet', '--detach', base]);
       const core = commit('rust/fixture.rs', '// core');
-      expect(select(['merge-group', core, docs]).outputs.native_scope).toBe('full');
+      git(['update-ref', 'refs/remotes/origin/main', core]);
+      expect(select(['merge-group', docs]).outputs.native_scope).toBe('none');
       expect(select([core, docs]).outputs.native_scope).toBe('none');
       // A real shallow checkout lacks the base object: it must not become an empty/none diff.
       const shallow = path.join(root, 'shallow');
@@ -1249,7 +1279,7 @@ describe('CI diff and command integration', () => {
         `file://${root}`,
         shallow,
       ]);
-      const fallback = select(['merge-group', base, core], shallow);
+      const fallback = select(['merge-group', core], shallow);
       expect(fallback.outputs).toEqual(full);
       expect(fallback.evidence).toContain('diff unreadable; using full verification');
     } finally {
@@ -1736,10 +1766,10 @@ describe('required CI gate', () => {
     expect(workflow).toContain('macos: ${{ steps.event.outputs.macos }}');
     expect(workflow).toContain("MACOS: ${{ github.event_name != 'merge_group' }}");
     expect(workflow).toContain('fetch-depth: 0');
-    expect(workflow).toContain('BASE_SHA: ${{ github.event.merge_group.base_sha }}');
+    expect(workflow).not.toContain('github.event.merge_group.base_sha');
     expect(workflow).toContain('HEAD_SHA: ${{ github.event.merge_group.head_sha }}');
     expect(workflow).toContain(
-      'run: node typescript/scripts/ci-scope.mjs merge-group "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"'
+      'run: node typescript/scripts/ci-scope.mjs merge-group "$HEAD_SHA" >> "$GITHUB_OUTPUT"'
     );
     const cachePolicies = workflow.match(/^\s+save-if:.*$/gm) ?? [];
     const writers = cachePolicies.filter((line) => line.trim() !== 'save-if: false');
