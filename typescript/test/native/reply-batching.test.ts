@@ -37,7 +37,19 @@ function commands(sandbox: Sandbox) {
 function state(sandbox: Sandbox, typing: boolean) {
   fs.writeFileSync(path.join(sandbox.root, 'typing'), typing ? 'pending' : 'quiet');
 }
-async function fixture(sandbox: Sandbox, window: number) {
+function pendingKeyEvidence(sandbox: Sandbox) {
+  const file = path.join(sandbox.root, 'key-evidence.jsonl');
+  return fs.existsSync(file)
+    ? fs
+        .readFileSync(file, 'utf8')
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { pending: boolean; activity: number })
+        .filter((evidence) => evidence.pending && evidence.activity > 0).length
+    : 0;
+}
+async function fixture(sandbox: Sandbox, window: number, coldHost = false) {
   const created = await runCli(sandbox, ['identity', 'create', 'sender', '--json']);
   expect(created.status).toBe(0);
   const identity = (parseWholeStdout(created).identity as { id: string }).id;
@@ -88,13 +100,28 @@ async function fixture(sandbox: Sandbox, window: number) {
   ].join('__TMT_FIELD_4f1c__');
   fs.writeFileSync(path.join(sandbox.root, 'endpoint'), row);
   const helper = fileURLToPath(new URL('./fixtures/reply-notice-host.cjs', import.meta.url));
-  fs.writeFileSync(
-    path.join(directory, 'tmux'),
-    `#!${process.execPath}\nrequire(${JSON.stringify(helper)});\n`
-  );
-  fs.chmodSync(path.join(directory, 'tmux'), 0o755);
+  const host = path.join(directory, 'tmux');
+  // Fault injection models a cold executable that cannot enter the helper
+  // within a one-second product probe. Readiness must await its actual close.
+  const startup = coldHost
+    ? `const fs = require('node:fs'); if (!fs.existsSync(${JSON.stringify(path.join(sandbox.root, 'host-ready'))})) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1500);\n`
+    : '';
+  fs.writeFileSync(host, `#!${process.execPath}\n${startup}require(${JSON.stringify(helper)});\n`);
+  fs.chmodSync(host, 0o755);
   sandbox.env.PATH = `${directory}${path.delimiter}${sandbox.env.PATH ?? ''}`;
   sandbox.env.TMT_954_ROOT = sandbox.root;
+  // Keep first-exec assessment outside unchanged product deadlines. The shared
+  // runner waits for child close and confirms process-group cleanup.
+  const ready = await runCli(
+    { ...sandbox, cli: { executable: host, args: [] } },
+    ['__tmt_fixture_ready'],
+    { deadlineMs: 30_000 }
+  );
+  expect(ready.status, ready.stderr).toBe(0);
+  expect(ready.signal).toBeNull();
+  expect(ready.stdout).toBe('');
+  expect(fs.readFileSync(path.join(sandbox.root, 'host-ready'), 'utf8')).toBe('ready');
+  expect(commands(sandbox)).toEqual([]);
   const seed = (id: string) => {
     const item = seedResponse(sandbox.database, id);
     const db = new Database(sandbox.database);
@@ -168,17 +195,56 @@ async function cleanup(sandbox: Sandbox) {
 }
 
 describe('native reply notice process scheduling', () => {
+  it('prepares a cold host before timed probes without emitting protocol commands', async () => {
+    await withSandbox(async (sandbox) => {
+      const f = await fixture(sandbox, 1500, true);
+      try {
+        expect((await reply(sandbox, f.seed('cold-host'))).notification).toBe('queued');
+        const first = batches(sandbox)[0];
+        await waitFor(() => batches(sandbox).length === 0, 'prepared cold host delivery');
+        await reaped(first.worker_pid);
+        expect(fs.readdirSync(path.join(sandbox.globalDir, 'reply-notice-workers'))).toEqual([]);
+        expect(sql(sandbox, 'SELECT reply_state FROM request_notifications')).toEqual([
+          { reply_state: 'sent' },
+        ]);
+        expect(commands(sandbox).filter((args) => args.includes('paste-buffer'))).toHaveLength(1);
+        expect(
+          parseWholeStdout(await runCli(sandbox, ['result', 'cold-host', '--json']))
+        ).toMatchObject({ response: 'answer cold-host' });
+      } finally {
+        await cleanup(sandbox);
+      }
+    });
+  });
   it('persists three independent replies in one fixed batch and delivers once', async () => {
     await withSandbox(async (sandbox) => {
       const f = await fixture(sandbox, 1500);
+      state(sandbox, true);
       try {
         const items = ['notice-one', 'notice-two', 'notice-three'].map(f.seed);
         expect((await reply(sandbox, items[0])).notification).toBe('queued');
         const first = batches(sandbox)[0];
+        // The elapsed window and pending keys hold membership open. Later accepts
+        // need not win a wall-clock race against the 1500 ms window.
+        await waitFor(() => pendingKeyEvidence(sandbox) >= 1, 'pending batch key evidence');
         for (const item of items.slice(1)) await reply(sandbox, item);
         expect(batches(sandbox)).toMatchObject([
-          { id: first.id, due_ms: first.due_ms, members: 3 },
+          {
+            id: first.id,
+            due_ms: first.due_ms,
+            worker_pid: first.worker_pid,
+            members: 3,
+            sending: 0,
+          },
         ]);
+        expect(
+          sql(sandbox, 'SELECT request_id, attempted FROM reply_notices ORDER BY request_id')
+        ).toEqual(
+          items
+            .map((item) => ({ request_id: item.requestId, attempted: 0 }))
+            .sort((a, b) => a.request_id.localeCompare(b.request_id))
+        );
+        state(sandbox, false);
         await waitFor(() => batches(sandbox).length === 0, 'batch settled');
         await reaped(first.worker_pid);
         const workerLogs = path.join(sandbox.globalDir, 'reply-notice-workers');
@@ -224,10 +290,19 @@ describe('native reply notice process scheduling', () => {
       try {
         await reply(sandbox, f.seed('typing-one'));
         const first = batches(sandbox)[0];
-        await waitFor(
-          () => commands(sandbox).filter((args) => args.includes('list-clients')).length >= 3,
-          'multiple typing rechecks'
-        );
+        await waitFor(() => pendingKeyEvidence(sandbox) >= 3, 'multiple typing rechecks');
+        expect(batches(sandbox)).toMatchObject([
+          {
+            id: first.id,
+            due_ms: first.due_ms,
+            worker_pid: first.worker_pid,
+            members: 1,
+            sending: 0,
+          },
+        ]);
+        expect(sql(sandbox, 'SELECT request_id, attempted FROM reply_notices')).toEqual([
+          { request_id: 'typing-one', attempted: 0 },
+        ]);
         expect(commands(sandbox).filter((args) => args.includes('paste-buffer'))).toEqual([]);
         await reply(sandbox, f.seed('typing-two'));
         expect(batches(sandbox)[0]).toMatchObject({
@@ -239,6 +314,15 @@ describe('native reply notice process scheduling', () => {
         await waitFor(() => batches(sandbox).length === 0, 'quiet delivery');
         await reaped(first.worker_pid);
         expect(commands(sandbox).filter((args) => args.includes('paste-buffer'))).toHaveLength(1);
+        expect(sql(sandbox, 'SELECT reply_state FROM request_notifications')).toEqual([
+          { reply_state: 'sent' },
+          { reply_state: 'sent' },
+        ]);
+        for (const id of ['typing-one', 'typing-two']) {
+          expect(parseWholeStdout(await runCli(sandbox, ['result', id, '--json']))).toMatchObject({
+            response: `answer ${id}`,
+          });
+        }
       } finally {
         await cleanup(sandbox);
       }
