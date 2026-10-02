@@ -182,7 +182,7 @@ export function MeetScene() {
   return (
     <div className="grid content-center gap-3">
       <MeetScreen index={0} mode="host" />
-      <div className="text-center font-mono text-xs font-semibold text-waiting">
+      <div className="text-center font-mono text-xs font-semibold text-muted">
         {scenes.meetArrow} <New>{scenes.planned}</New>
       </div>
     </div>

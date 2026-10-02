@@ -53,8 +53,8 @@ export function Journey() {
               }`}
             >
               <b className="font-mono text-sm text-text">
-                <span className={k === index ? "text-accent" : "text-dim"}>
-                  {k < index ? "●" : k === index ? "◆" : "○"}
+                <span aria-hidden="true" className="inline-block w-[1ch] text-accent">
+                  {k === index ? "›" : ""}
                 </span>{" "}
                 {journey.steps[k].title}
               </b>
