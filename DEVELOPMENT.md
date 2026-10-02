@@ -1652,3 +1652,69 @@ independent namespace/sign-in oracle, use Python with `cryptography` installed:
 `python3 extensions/tmt-colab/contracts/vectors/authority-reference.py` from the
 repository root; add `--write` only after reviewing changed bytes. Fixture keys
 are public test data. This foundation does not satisfy the complete L1 gates.
+
+## Project release tracking
+
+`project-release.yml` records published core `v5.*`, Squad and Office releases in
+the release project ([pj-tmt organization project 1](https://github.com/orgs/pj-tmt/projects/1)).
+The updater mints a per-run installation token with the existing release GitHub
+App using `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` in the `release`
+environment. Ben grants the App **Organization projects: read and write**, plus
+pull-request and issue read access to `pj-tmt/tmt`. The SHA-pinned token action
+requests only those permissions for owner `pj-tmt` and repository `tmt`, revoking
+the token on cleanup. Only the reconciliation step receives it. The separate
+read-only `GITHUB_TOKEN` reads repository release/compare metadata. No PAT or
+`PROJECT_TOKEN` is used. Missing App credentials fail before API reads; missing
+App permissions fail token minting or the API request visibly.
+
+The `release` environment's protection policy allows only branch `main`, with no
+required reviewers or wait timer. No separate environment is needed. Because a
+`release:published` run has a tag ref, the updater uses completion of **Native
+release artifacts**, a daily catch-up at 04:23 UTC, and main-only manual replay.
+CLI, Office and Squad share that actual publishing workflow; `Release` only
+creates drafts. Owner/manual publication (including a manually released hold)
+is picked up by the next publisher completion or daily run while within the
+latest-ten window; use explicit tag replay for immediate tracking or older tags.
+This updater never publishes releases. Missing configuration fails its separate
+workflow without blocking publication. After Ben grants the App permissions,
+the first live run must be a manual dry-run replay of a recent tag; review its
+proposed fields before a write-enabled replay. [Architecture](ARCHITECTURE.md)
+owns the selection and terminal-state contract.
+
+Automatic runs reconcile the latest ten published supported releases, including
+publications followed by failed downstream checks. A publisher run exceeding the ten-release window fails with replay guidance. The window bounds
+recovery from replaced pending workflow runs; older missed tags require replay.
+Manual dispatch defaults to dry-run and requires a published tag:
+
+```bash
+gh workflow run project-release.yml --repo pj-tmt/tmt --ref main \
+  -f tag=tmt-squad-v0.1.0-alpha.9 -f dry_run=true
+# After reviewing the proposed item/field changes, replay the same tag with dry_run=false.
+```
+
+Each run has at most 60 GraphQL requests (reads and writes together), 250 REST
+requests, ten pages per connection and 250 PR references per resolution batch.
+PR queries and field mutations batch up to 25 aliases. Requests have a 30-second
+bound and are not polled or retried; the job has a 15-minute deadline. The script
+checks the remaining write/readback budget before mutation. It reports selected
+releases, resolved PRs/issues, non-project issues, planned/changed fields and exact
+request counts to the log and job summary. Dry-run performs selection and reads
+but no mutations. Replays skip already-recorded release entries and never lower
+Status; text is written before Status so interrupted writes remain retryable.
+Project-wide workflow serialization avoids competing automated appends; avoid
+manual edits to these two fields while a live updater is running.
+
+Release-please's same-repository `/issues/` links are type-checked as merged PRs;
+pre-transfer `wkh237/tmt` links are accepted for this repository. Missing PR notes
+fall back to the preceding published version of the same product and paginated
+commit-associated PRs. A first release without PR references is a visible error,
+not permission to guess issue ownership. The updater never adds missing project
+items. Test locally without credentials or mutations:
+
+```bash
+cd typescript
+corepack pnpm exec vitest run test/tooling/project-release.test.ts
+corepack pnpm check:tooling
+cd ..
+actionlint .github/workflows/project-release.yml
+```
