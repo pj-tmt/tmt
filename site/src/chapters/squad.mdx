@@ -69,7 +69,7 @@ By default the board is **team**: the squad's members as rows, the selected memb
 | a                        | `annotate`: send the lead a note about this row (below).                                                                                                                                                                                                               |
 | o · y                    | `open` the row's pull request or first link · `copy` a status line such as `auth-fix: rotate session tokens (blocked)`. Copy works over SSH too.                                                                                                                       |
 | / · tab · s              | search · next pane · switch to any tab                                                                                                                                                                                                                                 |
-| d · ctrl-r               | fold or unfold the detail pane (see Panes below) · refresh now                                                                                                                                                                                                         |
+| d · ctrl-r               | fold or unfold detail and replies (see Panes below) · refresh now                                                                                                                                                                                                      |
 
 ### Token rate
 
@@ -108,9 +108,9 @@ The board is made of panes: **rows** (the list above), **notes** (the lead's own
 
 The notes pane shows the lead's own notebook, the file `tmt notes path --identity <lead>` prints. There is no separate squad notebook, and the board never creates one: a lead without a notebook shows `(no notes yet)`, and a temporary lead can't keep one. Leads keep a short **Current state** section at the top, with **Now**, **Next** and **Blocked** in a few lines, so the board shows what the squad is doing.
 
-In split mode, press **d** to fold or unfold the detail pane, or click any pane's title. A folded pane shrinks to its `▸ name` title and its neighbours take the space; unfolding brings back the sizes you set. Tab skips folded panes. Folds last for the board session and never change your config; tabs mode doesn't fold.
+In split mode, press **d** to fold or unfold whichever of detail and replies exist. With both panes, if either is open it folds both; otherwise it unfolds both. With neither, it does nothing silently. Click any pane's title to toggle it alone. Footer and help show the pane titles and state: `d detail+replies ▾` when any is open, or `d detail+replies ▸` when both are folded. The footer drops the whole hint when space is short. A folded pane shrinks to its `▸ name` title and its neighbours take the space; unfolding brings back the sizes you set. Tab skips folded panes. Fold state belongs to each squad, survives tab switches and reloads within the session, and resets on restart. A manual toggle wins over automatic narrow-width folding until the board config changes, including after resizing in either direction. Folding a focused pane moves focus to the rows when they are visible, otherwise to the next open pane; unfolding keeps the current focus. Folds never change your config; tabs mode doesn't fold.
 
-To start with a pane folded, add `collapsed = ["detail"]` under `[squad.product.board]`. To fold another pane with a key, bind it, such as `D = "toggle notes"`.
+To start with a pane folded, add `collapsed = ["detail"]` under `[squad.product.board]`. To toggle another pane or group with a key, bind it, such as `D = "toggle notes"` or `d = "toggle detail replies"`. Duplicate and unknown names are configuration errors; the action toggles the named panes present on the board and does nothing silently if none are present.
 
 <SplitBoardSketch />
 
@@ -120,6 +120,7 @@ To start with a pane folded, add `collapsed = ["detail"]` under `[squad.product.
 - **Row notes.** The lead can give each member a one-line note, shown under its row.
 - **Detail shows every column.** Besides the member's task, note and links, the detail pane lists the full value of every other board column, in column order. Long values wrap instead of being cut; a failed field shows `?` and a missing value `–`.
 - **Notes read like notes.** The notes pane renders common Markdown: headings, lists, bold and italic, inline code and links. Anything else shows as plain text. Lines wrap to the pane, wide characters like Chinese stay aligned, and terminal escape codes are removed. You never edit the lead's notes from the board, so they keep one author.
+- **Replies stay complete.** Available reply bodies use the notes pane's safe Markdown styles and wrap without a line cap. Prompts wrap too. Focus replies to scroll with arrows or j/k, PgUp/PgDn and Home/End, or use the wheel over the pane. Older replies without a loaded body keep their `tmt result <id>` hint; reading and scrolling acknowledge nothing.
 
 ### Make it yours
 
@@ -132,7 +133,7 @@ Nothing on the board is fixed. Pick a layout preset, then override any part of i
 | pr-queue      | one list, oldest first                                   | preparing · ready · sent · merged                  |
 | minimal       | name and state only                                      | whatever your lead writes                          |
 
-**team** puts the rows beside the selected member's detail and the latest replies, with the lead's notes underneath. Each row shows the member, its state, its task, its pull request and its model, with what it's waiting on you for on a second line. On a narrow terminal it adapts on its own: the columns shrink, then the model steps aside, then the pull request, and below 100 columns detail and replies fold into their titles so the rows get the room (**d** brings detail back). A squad that already sets its own `direction`, `panes` or `sizes` under `[squad.<name>.board]` keeps **crew** until you set `layout`.
+**team** puts the rows beside the selected member's detail and the latest replies, with the lead's notes underneath. Each row shows the member, its state, its task, its pull request and its model, with what it's waiting on you for on a second line. On a narrow terminal it adapts on its own: the columns shrink, then the model steps aside, then the pull request, and below 100 columns detail and replies fold into their titles so the rows get the room (**d** brings detail and replies back together). A squad that already sets its own `direction`, `panes` or `sizes` under `[squad.<name>.board]` keeps **crew** until you set `layout`.
 
 You can change the panes and their arrangement; add your own **sections**, each a titled list with a filter and a sort; and choose the **columns**, the **states** with their colors and order, and how links open. You also set what every key or click does. A binding is an event (a key like `o`, or `click`, `double-click`) and one line: `jump`, `jump lead`, `back`, `talk`, `reply`, `annotate lead`, `open {pr_link}`, `copy {name}: {task}`, or `run <program> {field}…`, where `{field}` is filled from the row. A section can have its own bindings.
 
@@ -393,7 +394,7 @@ A pinned tab keeps its place when the tab line scrolls, and the other tabs can't
 | `refresh`                      | reload now                                                       |
 | `theme`                        | open the theme picker                                            |
 | `next-pane`                    | focus the next pane                                              |
-| `toggle <pane>`                | fold or unfold `rows`, `notes`, `detail` or `replies`            |
+| `toggle <pane>...`             | toggle unique `rows`, `notes`, `detail` or `replies`             |
 | `menu`                         | open the row's action menu, which Enter does in a plain terminal |
 | `tab`                          | open the row's squad tab, which Enter does on the **all** tab    |
 
