@@ -85,18 +85,18 @@ fn layout_keeps_partial_and_nondefault_labels_and_steps_aside() {
     let compact = meter.layout(full.width - 1).unwrap();
     assert!(!compact.spark);
     assert!(compact.label.is_some());
-    let short = meter.layout(14).unwrap();
-    assert_eq!(short.unit, " /s");
+    let short = meter.layout(13).unwrap();
+    assert_eq!(short.unit, "/s");
     assert!(short.label.is_some());
-    assert!(meter.layout(13).is_none());
+    assert!(meter.layout(12).is_none());
     meter.sample(Ok(&input(100)), now + Duration::from_secs(60));
     assert!(meter.full_default());
-    let short = meter.layout(10).unwrap();
-    assert_eq!(short.unit, " /s");
+    let short = meter.layout(9).unwrap();
+    assert_eq!(short.unit, "/s");
     assert!(short.label.is_none());
     meter.select(TokenWindow::Hour, now + Duration::from_secs(60));
     assert!(!meter.full_default());
-    assert!(meter.layout(10).is_none());
+    assert!(meter.layout(9).is_none());
 }
 
 #[test]

@@ -212,10 +212,10 @@ impl Meter {
         let make = |spark: bool, show_label: bool, short: bool| Layout {
             label: show_label.then(|| label.clone()),
             spark,
-            unit: if short { " /s" } else { " tok/s" },
+            unit: if short { "/s" } else { " tok/s" },
             width: NUMBER_WIDTH
                 + if show_label { 4 } else { 0 }
-                + if short { 3 } else { 6 }
+                + if short { 2 } else { 6 }
                 + if spark { 9 } else { 0 },
         };
         [
