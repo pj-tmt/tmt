@@ -34,15 +34,23 @@ it(
         expect(result.status, result.stdout + result.stderr).toBe(0);
         return parseWholeStdout(result);
       };
+      // Retained-install fixture: public Office acquisition is frozen.
       const artifact = await createArtifact(sandbox, '0.1.0-alpha.4', new Uint8Array(), 'office');
-      await office([
-        'install',
-        '--yes',
+      const installed = await runCli(sandbox, [
+        '__native-install',
+        '--product',
+        'office',
+        '--channel',
+        'alpha',
+        '--prefix',
+        prefix,
+        '--json',
         '--archive',
         artifact.archive,
         '--manifest',
         artifact.manifest,
       ]);
+      expect(installed.status, installed.stdout + installed.stderr).toBe(0);
       // A fresh install holds only seeded catalogs: nothing to move, no hint.
       const fresh = await run(['status']);
       expect(fresh.status, fresh.stderr).toBe(0);
@@ -193,16 +201,26 @@ it(
       // own 5 s readiness wait plus the core/companion launches and response.
       const run = (args: string[]) =>
         runCli(named, ['office', '--prefix', prefix, ...args], { deadlineMs: 15_000 });
+      // Retained-install fixture: public Office acquisition is frozen.
       const artifact = await createArtifact(sandbox, '0.1.0-alpha.4', new Uint8Array(), 'office');
-      const installed = await run([
-        'install',
-        '--yes',
-        '--archive',
-        artifact.archive,
-        '--manifest',
-        artifact.manifest,
-        '--json',
-      ]);
+      const installed = await runCli(
+        named,
+        [
+          '__native-install',
+          '--product',
+          'office',
+          '--channel',
+          'alpha',
+          '--prefix',
+          prefix,
+          '--archive',
+          artifact.archive,
+          '--manifest',
+          artifact.manifest,
+          '--json',
+        ],
+        { deadlineMs: 15_000 }
+      );
       expect(installed.status, installed.stdout + installed.stderr).toBe(0);
       const posted = await run([
         'board',

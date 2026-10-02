@@ -2774,8 +2774,9 @@ bounded release lookup (`latest_release_version`, metadata only), and a failed
 lookup reports `unknown`. Shadowing canonicalizes every `tmt-<name>` on PATH and
 reports those that resolve elsewhere, without executing them. Root help groups
 discovered extension names that resolve to the same file (`squad (also: sq)`).
-`tmt office install|upgrade|status|rm` keeps its own Office-specific
-flow for now.
+`tmt office install|upgrade` calls the same CLI-owned `require_installable`
+guard before entering the Office handler, retaining one frozen rule and message.
+The facade's status and removal operations keep their Office-specific flow.
 
 An extension's agent skills belong to one owner named after it (`squad`,
 `office`) in the owned-skill registry (`skill_installation::owned`). After
@@ -3445,7 +3446,9 @@ Shared setup lives in `test/support`, while assertions remain in the scenarios.
 The native process suite proves parser, configuration, identity, notes,
 response, exchange, talk, installation and skill contracts through the real executable.
 Docker E2E supplies private tmux, caller, lifecycle, transport and cross-process
-evidence. Storage adapter tests prove migrations, transaction rollback,
+evidence. The Office command and terminal-inspection scenarios are associated with Office
+through the component map's `selectedBy` entries; retained-release setup uses the private installer, while
+frozen public acquisition refusal is covered by the native Office lifecycle suite. Storage adapter tests prove migrations, transaction rollback,
 contention, crash cleanup, retention, acknowledgment and late-final behavior.
 Tooling tests prove release-script policy and bounded command wrappers; they do
 not count as native runtime or release-archive proof.

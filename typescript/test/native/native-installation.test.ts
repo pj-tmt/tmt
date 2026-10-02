@@ -82,14 +82,24 @@ esac
         });
       expect(
         (
-          await office([
-            'install',
-            '--yes',
-            '--archive',
-            fixture.archive,
-            '--manifest',
-            fixture.manifest,
-          ])
+          await runCli(
+            sandbox,
+            [
+              '__native-install',
+              '--product',
+              'office',
+              '--channel',
+              'alpha',
+              '--prefix',
+              prefix,
+              '--archive',
+              fixture.archive,
+              '--manifest',
+              fixture.manifest,
+              '--json',
+            ],
+            { deadlineMs: 30_000 }
+          )
         ).status
       ).toBe(0);
 

@@ -85,6 +85,7 @@ describe('frozen Office extension lifecycle', () => {
         writeFileSync(data, 'retained Office data');
 
         let frozenMessage: string | undefined;
+        let frozenJson: string | undefined;
         for (const operation of ['install', 'upgrade']) {
           for (const yes of [[], ['--yes']]) {
             const result = await runCli(managed, [
@@ -100,9 +101,50 @@ describe('frozen Office extension lifecycle', () => {
             const message = (parseWholeStdout(result).error as { message: string }).message;
             expect(message).toContain('office is frozen');
             frozenMessage ??= message;
+            frozenJson ??= result.stdout;
             expect(message).toBe(frozenMessage);
           }
         }
+        for (const [operation, flags] of [
+          ['install', []],
+          ['install', ['--yes']],
+          ['install', ['--yes', '--force']],
+          [
+            'install',
+            [
+              '--yes',
+              '--archive',
+              path.join(sandbox.root, 'missing.tar.gz'),
+              '--manifest',
+              path.join(sandbox.root, 'missing-manifest.json'),
+            ],
+          ],
+          ['upgrade', []],
+          ['upgrade', ['--force']],
+        ] as const) {
+          const result = await runCli(managed, [
+            'office',
+            operation,
+            '--prefix',
+            prefix,
+            ...flags,
+            '--json',
+          ]);
+          expectError(result, 'EXTENSION_FROZEN');
+          expect((parseWholeStdout(result).error as { message: string }).message).toBe(
+            frozenMessage
+          );
+          expect(result.stdout).toBe(frozenJson);
+        }
+        const officialHuman = await runCli(managed, [
+          'extension',
+          'install',
+          'office',
+          '--prefix',
+          prefix,
+        ]);
+        const facadeHuman = await runCli(managed, ['office', 'install', '--prefix', prefix]);
+        expect(facadeHuman).toEqual(officialHuman);
         const repair = await runCli(managed, [
           'extension',
           'install',
