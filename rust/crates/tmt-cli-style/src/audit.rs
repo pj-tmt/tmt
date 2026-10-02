@@ -1,5 +1,5 @@
 //! The grammar walk: every visible command in a CLI follows the help rules in
-//! `docs/cli-style.md`, and its examples parse through the CLI's real grammar.
+//! `design/cli-style.md`, and its examples parse through the CLI's real grammar.
 //! The CLI supplies a [`Probe`] over its own parser and help rendering, so the
 //! walk checks what a user sees without dispatching any command.
 

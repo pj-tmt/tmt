@@ -1,0 +1,33 @@
+{
+  "source": "03-furniture-source.png",
+  "sha256": "0eaf07c6a6a769b902835255c1e114484f563a888bc3e8bc94e72084adcb8c49",
+  "size": [1254, 1254],
+  "label": "Modular lounge",
+  "output": "../../../../contracts/modular-lounge-v2.tmtprop.json",
+  "props": [
+    {
+      "key": "lounge-sofa",
+      "label": "Workshop velvet sofa",
+      "side": 128,
+      "crops": [[23, 756, 374, 917]]
+    },
+    {
+      "key": "lounge-armchair",
+      "label": "Workshop lounge armchair",
+      "side": 64,
+      "crops": [[413, 740, 606, 921]]
+    },
+    {
+      "key": "lounge-table",
+      "label": "Workshop oval coffee table",
+      "side": 80,
+      "crops": [[639, 791, 863, 908]]
+    },
+    {
+      "key": "lounge-plant",
+      "label": "Workshop tall plant",
+      "side": 64,
+      "crops": [[67, 957, 230, 1198]]
+    }
+  ]
+}

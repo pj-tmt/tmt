@@ -85,6 +85,20 @@ pub(super) fn remember(
     files::atomic_write(&path(global), &bytes)
 }
 
+/// Retire completed removals, including conflicts the user chose to keep.
+/// Their old publication intent must not make future upgrades claim them.
+/// Call while holding the skill installation lock.
+pub(super) fn forget(global: &Path, targets: &[PathBuf]) -> io::Result<()> {
+    let mut entries = read(global)?;
+    if targets.iter().all(|target| !entries.contains(target)) {
+        return Ok(());
+    }
+    entries.retain(|target| !targets.contains(target));
+    let bytes =
+        serde_json::to_vec(&json!({"version": 1, "targets": entries})).map_err(|_| invalid())?;
+    files::atomic_write(&path(global), &bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

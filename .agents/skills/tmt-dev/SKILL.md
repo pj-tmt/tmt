@@ -14,6 +14,7 @@ Read the repository guidance before planning work:
 - [`ARCHITECTURE.md`](../../../ARCHITECTURE.md) — current and target boundaries, legacy debt, and architecture change triggers.
 - [`CONVENTIONS.md`](../../../CONVENTIONS.md) — code and test style.
 - [`DEVELOPMENT.md`](../../../DEVELOPMENT.md) — commands and the focused verification matrix.
+- [`tmt-layout`](../tmt-layout/SKILL.md) when adding or moving repository files.
 - [`tmt-e2e`](../tmt-e2e/SKILL.md) for Docker/tmux integration work.
 - [`tmt-release`](../tmt-release/SKILL.md) for release-line or packaged-install work.
 
@@ -43,7 +44,8 @@ Read the repository guidance before planning work:
    correctness/security blockers and confirmed duplicate responsibilities in
    scope are resolved, and deferred risks are explicit. A broad audit is not a
    demand to find nothing else to improve. Follow AGENTS for authorized merge,
-   tracker updates and safe cleanup: when the PR merges, remove its worktree
+   tracker updates, [Project status](../../../DEVELOPMENT.md#project-tracking)
+   and safe cleanup: when the PR merges, remove its worktree
    with `scripts/dev-worktree-remove.sh` and then that worktree's Docker images
    in the same turn (the DEVELOPMENT disk section has the exact steps; if the
    script refuses, stop and ask), and start the next task in a clean existing
@@ -52,7 +54,7 @@ Read the repository guidance before planning work:
 ## Architecture maintenance
 
 Rust is the sole CLI runtime; the optional Office SPA is a separate browser
-application. Read [Office architecture](../../../docs/office/architecture.md)
+application. Read [Office architecture](../../../extensions/tmt-office/docs/architecture.md)
 when touching the app, workspace or planned cloud/connector boundaries. Node
 modules under scripts and test directories are developer tooling. Keep Office,
 native process, Docker and tooling checks distinct,

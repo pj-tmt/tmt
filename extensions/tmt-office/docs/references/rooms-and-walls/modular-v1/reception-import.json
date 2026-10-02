@@ -1,0 +1,21 @@
+{
+  "source": "03-furniture-source.png",
+  "sha256": "0eaf07c6a6a769b902835255c1e114484f563a888bc3e8bc94e72084adcb8c49",
+  "size": [1254, 1254],
+  "label": "Modular reception",
+  "output": "../../../../contracts/modular-reception-v2.tmtprop.json",
+  "props": [
+    {
+      "key": "reception-armchair",
+      "label": "Workshop reception armchair",
+      "side": 96,
+      "crops": [[413, 740, 606, 921]]
+    },
+    {
+      "key": "reception-table",
+      "label": "Workshop reception coffee table",
+      "side": 128,
+      "crops": [[639, 791, 863, 908]]
+    }
+  ]
+}

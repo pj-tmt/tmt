@@ -130,6 +130,10 @@ pub enum Invocation {
         provider: String,
         worker: bool,
     },
+    ReplyNoticeWorker {
+        batch_id: String,
+        log_id: String,
+    },
     RequestObserver {
         request_id: String,
     },

@@ -111,7 +111,7 @@ async function waitForDurableReply(
   );
 }
 
-describe.sequential('scoped identity operations in a large tmux session', () => {
+describe('scoped identity operations in a large tmux session', { concurrent: false }, () => {
   it(
     'keeps fresh binding, routing, conflicts, and inspection cost scoped to selected panes',
     { timeout: 60_000 },

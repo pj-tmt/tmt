@@ -33,6 +33,22 @@ impl<T, E> ActionResult<T, E> {
     }
 }
 
+/// Key-input evidence from an attached client showing the target pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputActivity {
+    /// Milliseconds since the most recent real key from a viewing client.
+    ElapsedMs(u64),
+    Unknown,
+}
+
+/// Core policy over recent activity; no application buffer is inspected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputState {
+    Empty,
+    Pending,
+    Unknown,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeliveryAcceptance {
     /// Submitted to the interface, not proof of model execution or a final reply.
@@ -43,6 +59,15 @@ pub enum DeliveryAcceptance {
     /// or may not have been seen. It is terminal for routing (no fallback, no
     /// resend), and callers must not report it as delivered.
     Unacknowledged,
+}
+
+/// A message as it is typed into an agent's pane, as raw input or a prompt,
+/// on every host. Coding-agent shells can read an ASCII `!` as a bash-mode
+/// shortcut before the text reaches the agent, so each becomes a fullwidth
+/// `！`. This is delivery policy, not output rewriting: stored requests keep
+/// the original text.
+pub fn pane_input_text(message: &str) -> String {
+    message.replace('!', "\u{ff01}")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -200,6 +225,16 @@ pub fn observe_driver_hook<O: HookObserver>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pane_input_turns_every_ascii_bang_fullwidth_and_nothing_else() {
+        // Non-ASCII fixture text is intentional Unicode transport data.
+        assert_eq!(
+            pane_input_text("! if (!ready)!\n尾 ！ --x \"q\" $v `c`"),
+            "！ if (！ready)！\n尾 ！ --x \"q\" $v `c`"
+        );
+        assert_eq!(pane_input_text(""), "");
+    }
 
     struct Unsupported;
     impl Driver for Unsupported {

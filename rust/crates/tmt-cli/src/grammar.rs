@@ -3,7 +3,7 @@ use tmt_cli_style::CommandSpec;
 use tmt_core::driver::descriptor::DriverDescriptor;
 
 /// A command's help: its summary and one to three examples, which the
-/// grammar walk parses (docs/cli-style.md#help).
+/// grammar walk parses (design/cli-style.md#help).
 macro_rules! spec {
     ($name:literal, $summary:literal, [$($note:literal => $command:literal),+ $(,)?]) => {
         &tmt_cli_style::CommandSpec {
@@ -136,6 +136,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     .subcommand(installation::hook(hooked))
     .subcommand(launch::channel_server())
     .subcommand(requests::request_observer())
+    .subcommand(requests::reply_notice_worker())
     .subcommand(
         general(spec!(
             "completion",
@@ -322,7 +323,7 @@ fn option(id: &'static str) -> Arg {
         "version" => tmt_cli_style::version_arg(ArgAction::SetTrue),
         "wait" => flag("Retired; use timeout or detach").hide(true),
         "detach" => flag("Return after sending"),
-        "inbox" => flag("Queue for an identity without tmux delivery"),
+        "inbox" => flag("Queue only for recipient pull; use plain talk for live notification"),
         "incoming" => flag("Use recipient-facing request attention"),
         "no-preamble" => flag("Skip the recipient preamble"),
         "stdin" => flag("Read complete input through EOF"),

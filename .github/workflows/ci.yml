@@ -16,6 +16,10 @@ on:
     - cron: '17 3 * * 1'
   workflow_dispatch:
 
+env:
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_INCREMENTAL: 0
+
 permissions:
   contents: read
 
@@ -32,6 +36,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       verify: ${{ steps.event.outputs.verify }}
+      macos: ${{ steps.event.outputs.macos }}
       native: ${{ steps.scope.outputs.native || steps.queue.outputs.native || steps.seed.outputs.native }}
       office: ${{ steps.scope.outputs.office || steps.queue.outputs.office || steps.seed.outputs.office }}
       native_scope: ${{ steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}
@@ -43,7 +48,8 @@ jobs:
         id: event
         env:
           VERIFY: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
-        run: printf 'verify=%s\n' "$VERIFY" >> "$GITHUB_OUTPUT"
+          MACOS: ${{ github.event_name != 'merge_group' }}
+        run: printf 'verify=%s\nmacos=%s\n' "$VERIFY" "$MACOS" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -56,10 +62,13 @@ jobs:
         id: seed
         # A seeding run builds the whole workspace, so its scope is the full one.
         run: printf 'native=true\noffice=false\nnative_scope=full\n' >> "$GITHUB_OUTPUT"
-      - name: Select full verification for the merge group
+      - name: Select consumers from the cumulative merge-group diff
         if: github.event_name == 'merge_group'
         id: queue
-        run: node typescript/scripts/ci-scope.mjs full >> "$GITHUB_OUTPUT"
+        env:
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+        run: node typescript/scripts/ci-scope.mjs merge-group "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
       - name: Select consumers from both sides of the diff
         if: github.event_name == 'pull_request'
         id: scope
@@ -97,6 +106,9 @@ jobs:
       - name: Install dependencies
         working-directory: typescript
         run: pnpm --filter tmux-team install --frozen-lockfile
+      - name: Install pinned release-config test API
+        working-directory: .github/release-please
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Run code quality checks
         working-directory: typescript
         run: |
@@ -116,13 +128,21 @@ jobs:
           pnpm --filter @tmt/remote-client --fail-if-no-match check
           pnpm --filter @tmt/remote-client --fail-if-no-match test
 
-  native-rust-checks:
-    name: Native Rust checks
+      - name: Install locked colab-client tools
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-client install --frozen-lockfile --ignore-scripts
+      - name: Verify colab-client on every pull request
+        working-directory: typescript
+        run: |
+          pnpm --filter @tmt/colab-client --fail-if-no-match check
+          pnpm --filter @tmt/colab-client --fail-if-no-match test
+
+  native-clippy:
+    name: Native Rust clippy
     needs: changes
     if: needs.changes.outputs.native == 'true'
     runs-on: ubuntu-latest
-    # Retain the measured serial budget until the remaining checks are split (#851).
-    timeout-minutes: 25
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -136,70 +156,195 @@ jobs:
         with:
           workspaces: rust
           shared-key: native-rust
-          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
-      - name: Verify Squad quality and locked builds
-        if: needs.changes.outputs.native_scope == 'squad'
-        working-directory: rust
-        run: |
-          cargo fmt --all --check
-          cargo clippy --locked -p tmt-squad --all-targets -- -D warnings
-          cargo test --locked -p tmt-squad
-          cargo test --locked -p tmt-cli --test architecture
-      - name: Build Squad process fixtures
-        if: needs.changes.outputs.native_scope == 'squad'
-        working-directory: rust
-        env:
-          CARGO_PROFILE_DEV_DEBUG: 0
-        run: |
-          cargo build --locked -p tmt-squad
-          cargo build --locked --release -p tmt-cli
+          save-if: false
       - name: Reject an unknown native scope
         if: needs.changes.outputs.native_scope != 'full' && needs.changes.outputs.native_scope != 'squad'
         run: |
           echo "No native checks are defined for scope '${{ needs.changes.outputs.native_scope }}'." >&2
           exit 1
-      - name: Verify native quality and locked builds
+      - name: Check Rust formatting
+        working-directory: rust
+        run: cargo fmt --all --check
+      - name: Lint workspace
         if: needs.changes.outputs.native_scope == 'full'
         working-directory: rust
         run: |
-          cargo fmt --all --check
           cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Lint Squad
+        if: needs.changes.outputs.native_scope == 'squad'
+        working-directory: rust
+        run: |
+          cargo clippy --locked -p tmt-squad --all-targets -- -D warnings
+
+  native-workspace-tests:
+    name: Native Rust workspace tests
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchains
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}
+      - name: Test and build workspace
+        if: needs.changes.outputs.native_scope == 'full'
+        working-directory: rust
+        run: |
           remote_tests="$(cargo test --locked -p tmt-remote -- --list)"
           printf '%s\n' "$remote_tests"
           grep -q ': test$' <<< "$remote_tests"
           cargo test --locked --workspace
           cargo build --locked --workspace
-          cargo build --locked --example storage-probe
-      - name: Build independent native process fixtures
-        if: needs.changes.outputs.native_scope == 'full'
+      - name: Test Squad and architecture
+        if: needs.changes.outputs.native_scope == 'squad'
         working-directory: rust
-        env:
-          CARGO_PROFILE_DEV_DEBUG: 0
         run: |
-          cargo build --locked -p tmt-office
-          cargo build --locked --release -p tmt-cli
+          cargo test --locked -p tmt-squad
+          cargo test --locked -p tmt-cli --test architecture
+
+  native-office-build:
+    name: Build Office native fixture
+    needs: changes
+    if: needs.changes.outputs.native_scope == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchains
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: false
       - name: Set up Node.js and pnpm test tooling
         uses: ./.github/actions/setup-tooling
+      - name: Install test dependencies
+        working-directory: typescript
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Build the independent Office companion
+        working-directory: rust
+        run: cargo build --locked -p tmt-office
+      - name: Build the embedded local Office companion
+        working-directory: typescript
+        run: |
+          pnpm office:build:local
+          cd ../rust
+          TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo build --locked -p tmt-office --features local-service
+      - name: Record the verified companion bytes
+        working-directory: rust/target/debug
+        run: sha256sum tmt-office > tmt-office.sha256
+      - name: Share the verified companion with native tests
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-office-companion
+          path: |
+            rust/target/debug/tmt-office
+            rust/target/debug/tmt-office.sha256
+            target/office-spa
+          if-no-files-found: error
+          retention-days: 1
+
+  native-office:
+    name: Native Rust Office local service
+    needs: [changes, native-office-build]
+    if: needs.changes.outputs.native_scope == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchains
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: false
+      - name: Download the Office fixture and embedded SPA
+        uses: actions/download-artifact@v4
+        with:
+          name: native-office-companion
+          path: .
+      - name: Verify embedded local Office companion
+        working-directory: rust
+        run: |
+          TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo clippy --locked -p tmt-office --features local-service -- -D warnings
+          TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo test --locked -p tmt-office --features local-service
+
+  native-process-tests:
+    name: Native process contracts
+    needs: [changes, native-office-build]
+    if: ${{ always() && needs.changes.outputs.native == 'true' && (needs.changes.outputs.native_scope == 'squad' || needs.native-office-build.result == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchains
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: false
+      - name: Set up Node.js and pnpm test tooling
+        uses: ./.github/actions/setup-tooling
+      - name: Install test dependencies
+        working-directory: typescript
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Install shell test dependency
         uses: ./.github/actions/apt-install
         with:
           packages: zsh
-      - name: Install test dependencies
-        working-directory: typescript
-        run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Verify embedded local Office companion
+      - name: Build independent native process fixtures
         if: needs.changes.outputs.native_scope == 'full'
-        working-directory: typescript
-        env:
-          # This rebuild replaces the companion used by native process fixtures.
-          # Keep its debug-info policy consistent with their initial build.
-          CARGO_PROFILE_DEV_DEBUG: 0
+        working-directory: rust
         run: |
-          pnpm office:build:local
-          cd ../rust
-          TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo clippy --locked -p tmt-office --features local-service -- -D warnings
-          TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo build --locked -p tmt-office --features local-service
-          TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo test --locked -p tmt-office --features local-service
+          cargo build --locked -p tmt-squad
+          cargo build --locked --example storage-probe
+          cargo build --locked --release -p tmt-cli
+      - name: Build Squad process fixtures
+        if: needs.changes.outputs.native_scope == 'squad'
+        working-directory: rust
+        run: |
+          cargo build --locked -p tmt-squad
+          cargo build --locked --release -p tmt-cli
+      - name: Download the verified Office companion
+        if: needs.changes.outputs.native_scope == 'full'
+        uses: actions/download-artifact@v4
+        with:
+          name: native-office-companion
+          path: .
+      - name: Verify Office companion identity and executable mode
+        if: needs.changes.outputs.native_scope == 'full'
+        working-directory: rust/target/debug
+        run: |
+          sha256sum --check tmt-office.sha256
+          chmod +x tmt-office
       - name: Verify native process and shared parser contracts
         if: needs.changes.outputs.native_scope == 'full'
         working-directory: typescript
@@ -240,16 +385,24 @@ jobs:
         with:
           workspaces: rust
           shared-key: native-rust-msrv
-          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
+          save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}
       - name: Check all workspace targets at MSRV
         working-directory: rust
         run: cargo +"$MSRV" check --locked --workspace --all-targets
 
   native-rust:
     name: Native Rust contracts
-    needs: [changes, native-rust-checks, native-msrv]
+    needs:
+      [
+        changes,
+        native-clippy,
+        native-workspace-tests,
+        native-office,
+        native-process-tests,
+        native-msrv,
+      ]
     # Preserve the outer gate's skipped result for scope none. Missing selection
-    # must still reach this gate and fail, even when both workers were skipped.
+    # must still reach this gate and fail, even when all workers were skipped.
     if: ${{ always() && needs.changes.outputs.native_scope != 'none' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -263,9 +416,12 @@ jobs:
       - name: Require every selected Rust worker
         env:
           NATIVE_SCOPE: ${{ needs.changes.outputs.native_scope }}
-          CHECKS_RESULT: ${{ needs.native-rust-checks.result }}
+          CLIPPY_RESULT: ${{ needs.native-clippy.result }}
+          TESTS_RESULT: ${{ needs.native-workspace-tests.result }}
+          OFFICE_RESULT: ${{ needs.native-office.result }}
+          NATIVE_RESULT: ${{ needs.native-process-tests.result }}
           MSRV_RESULT: ${{ needs.native-msrv.result }}
-        run: node typescript/scripts/ci-scope.mjs gate-rust "$NATIVE_SCOPE" "$CHECKS_RESULT" "$MSRV_RESULT"
+        run: node typescript/scripts/ci-scope.mjs gate-rust "$NATIVE_SCOPE" "$CLIPPY_RESULT" "$TESTS_RESULT" "$OFFICE_RESULT" "$NATIVE_RESULT" "$MSRV_RESULT"
 
   unit-tests:
     name: Unit tests
@@ -287,6 +443,9 @@ jobs:
       - name: Install dependencies
         working-directory: typescript
         run: pnpm --filter tmux-team install --frozen-lockfile
+      - name: Install pinned release-config test API
+        working-directory: .github/release-please
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Download the native executable for tooling tests
         uses: actions/download-artifact@v4
         with:
@@ -366,21 +525,17 @@ jobs:
     if: needs.changes.outputs.native_scope == 'full'
     strategy:
       fail-fast: false
-      # Runner allocation for the four targets owned by dist-workspace.toml.
+      # Linux targets; macOS has separate jobs so its skipped result is observable.
       # These are raw PR executables, not cargo-dist release archives.
       matrix:
         include:
-          - target: x86_64-apple-darwin
-            runner: macos-15-intel
-          - target: aarch64-apple-darwin
-            runner: macos-15
           - target: x86_64-unknown-linux-musl
             runner: ubuntu-latest
           - target: aarch64-unknown-linux-musl
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
-    steps:
+    steps: &native-runtime-build-steps
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -396,7 +551,7 @@ jobs:
         with:
           workspaces: rust
           shared-key: runtime-${{ matrix.target }}
-          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
+          save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}
       - name: Build the reviewed native runtime
         working-directory: rust
         env:
@@ -416,6 +571,22 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  native-runtime-build-macos:
+    name: Build native runtime (${{ matrix.target }})
+    needs: changes
+    if: needs.changes.outputs.macos == 'true' && needs.changes.outputs.native_scope == 'full'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+          - target: aarch64-apple-darwin
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps: *native-runtime-build-steps
+
   packed-native-install:
     # Preserve required historical check names while replacing the retired npm
     # product. Each row now executes native linkage/skill/SQLite runtime proof.
@@ -426,14 +597,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label: macOS x64
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
-            container: false
-          - label: macOS arm64
-            runner: macos-15
-            target: aarch64-apple-darwin
-            container: false
           - label: Linux glibc x64
             runner: ubuntu-latest
             target: x86_64-unknown-linux-musl
@@ -452,7 +615,7 @@ jobs:
             container: true
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
-    steps:
+    steps: &packed-native-install-steps
       - name: Check out repository
         uses: actions/checkout@v4
         with:
@@ -498,6 +661,26 @@ jobs:
             --version "$(cat runtime/version.txt)" \
             --skill /verification/skills/tmux-team/SKILL.md
 
+  packed-native-install-macos:
+    name: Packed install (${{ matrix.label }})
+    needs: [changes, native-runtime-build-macos]
+    if: needs.changes.outputs.macos == 'true' && needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS x64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            container: false
+          - label: macOS arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+            container: false
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps: *packed-native-install-steps
+
   native-install-gate:
     name: Native package matrix
     if: ${{ always() && needs.changes.outputs.verify != 'false' }}
@@ -510,6 +693,8 @@ jobs:
         docker-e2e-shard-2,
         native-runtime-build,
         packed-native-install,
+        native-runtime-build-macos,
+        packed-native-install-macos,
       ]
     runs-on: ubuntu-latest
     steps:
@@ -528,5 +713,8 @@ jobs:
           SHARD_2_RESULT: ${{ needs.docker-e2e-shard-2.result }}
           BUILD_RESULT: ${{ needs.native-runtime-build.result }}
           MATRIX_RESULT: ${{ needs.packed-native-install.result }}
+          MACOS_BUILD_RESULT: ${{ needs.native-runtime-build-macos.result }}
+          MACOS_MATRIX_RESULT: ${{ needs.packed-native-install-macos.result }}
+          MACOS_SELECTED: ${{ needs.changes.outputs.macos }}
         run: |
-          node typescript/scripts/ci-scope.mjs gate-native "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$SHARD_1_RESULT" "$SHARD_2_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT"
+          node typescript/scripts/ci-scope.mjs gate-native "$MACOS_SELECTED" "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$SHARD_1_RESULT" "$SHARD_2_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT" "$MACOS_BUILD_RESULT" "$MACOS_MATRIX_RESULT"

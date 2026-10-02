@@ -6,9 +6,11 @@ import { Aside } from "../components/marks";
 Like running the command yourself, with a name attached. Options for tmt go before the name; everything after it belongs to the agent. tmt remembers which agent you used, never your arguments or secrets. Ctrl-C, Ctrl-Z and `fg` behave as usual, and the agent's exit code comes back unchanged.
 
 <Cmd>{`
-$ tmt run reviewer              # start the remembered agent
-$ source <(tmt completion zsh)  # Tab-complete names, then the agent's own flags
+$ tmt run reviewer claude --model sonnet   # name this pane and start Claude Code
+$ tmt run reviewer                         # later: start the remembered agent
 `}</Cmd>
+
+You can also start first and name later. `tmt run claude` starts the agent at once under a temporary name such as `claude-12ab34cd56ef`, and prints one line saying how to rename it. From the agent's shell tool, `tmt this reviewer` gives it its real name and keeps the same conversation. Naming doesn't save the name: add `-s` to `tmt this` or `tmt run` for that. Naming never merges two identities, so if one is already called `claude`, `tmt run claude` refuses. Use `tmt run claude claude` to launch that one, or `tmt run reviewer claude` for another name.
 
 ### `tmt resume`
 
@@ -21,18 +23,122 @@ $ tmt resume --forget reviewer  # drop the remembered conversation
 
 tmt only remembers what a driver reports through the agent's hooks. `/clear` or a new session replaces it, and switching an identity to another agent program drops the old one. Removing the identity deletes it too. If the conversation no longer exists, tmt says so and doesn't start a fresh one behind your back. Start fresh on purpose with `tmt run reviewer`. You pick the pane: tmt doesn't reopen your tmux layout. `tmt run --resume <name>` still works as an alias.
 
+When a resume fails before the agent confirms the session, tmt marks it stale and won't try it again until you decide: `tmt resume --retry reviewer` tries once more, and `--forget` drops it. Ctrl-C never marks a session stale.
+
+### Rename, retire and create names
+
+Names are global and temporary unless you save them. `tmt mv` renames one and keeps everything that belongs to it: its conversation, role, notes, metadata, rooms and history. Requests sent before the rename still reach it; new ones must use the new name. `tmt rm` retires a name and leaves its pane running. A saved name needs `--force`, which also removes its role and preamble; its exchanges are kept.
+
+<Cmd>{`
+$ tmt mv reviewer code-review
+$ tmt rm builder                  # a temporary name
+$ tmt rm --force planner          # a saved one
+$ tmt unbind                      # in a pane: detach it; a temporary name is retired, a saved one goes offline
+`}</Cmd>
+
+`tmt add <pane> <name>` binds another pane. The pane is a tmux pane id such as `%12`, a `window.pane` or a `session:window.pane`. `tmt marked <name>` binds the pane you marked in tmux, never the active one. Add `-s` to either to save the name.
+
+A name doesn't need a pane. `tmt identity create coordinator` makes a saved name with no pane yet, and requests sent to it wait in its inbox. `tmt identity show coordinator` and `tmt identity ls` read names without tmux; add `--json` for scripts. You can attach searchable facts to a name and filter by them:
+
+<Cmd>{`
+$ tmt identity meta set --identity reviewer project tmt
+$ tmt identity meta ls --identity reviewer
+$ tmt identity ls --where project=tmt --has capability.review
+`}</Cmd>
+
+A key is lowercase, such as `project` or `capability.review`, and a value is text of up to 1024 bytes. A name holds at most 64 entries, and several filters must all match. Metadata is not authentication, authorization or a place for secrets.
+
 ### `tmt talk` and `tmt reply`
 
-`talk` waits for the agent to submit its reply with `tmt reply`, not for the terminal to go quiet. The reply is stored, so a timeout never loses it. With `--detach`, tmt returns right away and your pane gets one line when the reply arrives. There's no reminder while you wait, because you chose not to wait.
+`talk` waits for the agent to submit its reply with `tmt reply`, not for the terminal to go quiet. The request the agent receives carries a request ID and a receipt, and the agent answers with exactly those. The reply is stored, so a timeout never loses it. `talk` waits 180 seconds unless you pass `--timeout`, such as `--timeout 10m`, up to 24 hours. When it gives up it exits with `TIMEOUT`. That ends only your waiting: the request stays open, and `tmt result <request-id>` prints the reply once it has arrived. With `--detach`, tmt returns right away and your pane gets one line when the reply arrives. There's no reminder while you wait, because you chose not to wait.
 
 <Cmd>{`[tmt] reply from builder to req_9ba4…: tmt result req_9ba4…`}</Cmd>
 
-If the agent is offline, the request waits in its inbox and the agent sees it at its next start.
+These lines are grouped per pane. Every reply that arrives within 5 seconds of the first becomes one paste. While someone is typing in that pane, tmt holds the paste until the keys have been quiet for 2 seconds, but never more than 30 seconds after that window ends. A pane enrolled in a channel still gets each notice on its own. Both waits are [settings](/working/settings).
+
+The agent submits its reply with the receipt it was given, as a message, a file or standard input. Sending the same body again changes nothing; a different one is refused, so the first reply stays final.
+
+<Cmd>{`
+$ tmt reply req_9ba4… --receipt v2_… --message "Done: tests pass"
+$ tmt reply req_9ba4… --receipt v2_… --file answer.md
+`}</Cmd>
+
+If the agent is offline, `talk` says so at once, the request waits in its inbox, and the agent sees it at its next start.
 
 <Aside title="Don't resend on silence.">
   If delivery is uncertain, look first with <code>tmt check builder</code>. The work may already be
   running.
 </Aside>
+
+Requests addressed to you wait in your inbox. You answer them by the sender's name, with no receipt. When one sender has several open requests, `tmt answer` sends nothing and lists them; pick one with `--request`.
+
+<Cmd>{`
+$ tmt inbox                              # what is waiting on you, oldest first
+$ tmt answer reviewer "Yes, ship it."    # answer reviewer's open request
+$ tmt answer reviewer "Yes" --request req_9ba4…
+`}</Cmd>
+
+### Look at an agent
+
+`tmt check` shows the agent's recent pane output, for diagnosis only: it never decides that a request is done. `tmt focus` switches your own tmux client to the agent's pane, even in another session, after checking that the pane still belongs to that name. It never types into the pane. Run it inside tmux.
+
+<Cmd>{`
+$ tmt check builder 50      # the last 50 lines of builder's pane
+$ tmt focus builder         # jump to builder's pane
+$ tmt focus %2              # and back to the pane you came from
+$ tmt focus --client        # which client would move, and which pane it shows
+`}</Cmd>
+
+`tmt focus --json` records where you were and which client moved, so a script can return. Outside tmux, or when no client shows your session, `focus` changes nothing and says why.
+
+### Recover requests
+
+After a timeout, a detach, a restart or a lost pane, your requests are still there. `tmt x` lists the ones you started that you haven't acknowledged. Requests sent to you are in `tmt inbox`; add `--incoming` to `x show`, `x ack` and `x ackall` to work with those.
+
+<Cmd>{`
+$ tmt x                                  # your unacknowledged requests
+$ tmt x show req_9ba4…                   # the original request and its reply
+$ tmt x ack req_9ba4… --revision 3       # mark the revision you read as handled
+$ tmt x ackall                           # acknowledge everything listed so far
+$ tmt result req_9ba4…                   # just the reply
+`}</Cmd>
+
+`ack` needs the revision that `x` or `x show` printed, so an acknowledgement can't hide a reply you haven't seen. Reading never marks anything, never cancels the work and never extends how long a request is kept: 90 days for new requests, unless you change `exchange.retentionDays`.
+
+Outside a named pane, say who you are with `--identity`, after the command's own name. This records who asked. It is attribution on your machine, not authentication.
+
+<Cmd>{`
+$ tmt talk reviewer "Review the release notes." --identity coordinator --detach
+$ tmt x --identity coordinator
+`}</Cmd>
+
+### Delivery details
+
+- **Paste, wait, Enter.** tmt pastes the whole message into the pane, waits half a second, then presses Enter. `pasteEnterDelayMs` changes the wait. Line breaks are kept.
+- **`!` becomes `！`.** An ASCII `!` is sent as the fullwidth `！`, so a message can't start an agent's shell mode. Code such as `if (!ready)` therefore isn't delivered byte for byte; the stored request keeps the original text.
+- **Uncertain means look.** If the text may have reached the pane but tmt can't tell, `talk` fails with `DELIVERY_UNCERTAIN` and never sends again by itself. Look with `tmt check`, then decide. A timeout or a quiet pane doesn't prove nothing ran.
+- **tmux can't see approval prompts.** A delivered message says nothing about whether the agent is ready to act on it. A host that does report that the agent is waiting on its user (an approval or a question) makes `talk` fail with `DELIVERY_AWAITING_APPROVAL`: nothing was sent, the request stays queued, and tmt never types around the prompt. Retry once the agent has continued.
+- **No pane, no paste.** An ended or unbound recipient gets the request in its inbox, never in a shell.
+- **`--inbox` only queues.** It is for queue-only delivery: tmt makes no live attempt, even when the agent is ready, and coming online doesn't deliver the backlog. The recipient has to pull it with `tmt inbox`. The output you get back says so and prints the commands the recipient runs; with `--json` it also carries `notification: "not_attempted"` and `waitingFor: "recipient_inbox_pull"`. Use plain `talk` when you want a live message.
+- **Waiting for inbox work.** `tmt x listen --identity reviewer` waits for new inbox work. It waits, up to `--timeout`, and then exits; there is no background listener.
+- **A nudge at each prompt.** With the agent's hooks installed (see [`tmt setup`](#tmt-setup)), a prompt the agent submits carries one extra line while something is waiting in its inbox, such as `Incoming X items: 2 unacknowledged; pull with tmt inbox --identity '4f3793b4-…' --json`. The identity in it is the agent's own id. The line is absent when nothing is waiting, and it changes nothing about how requests are delivered.
+
+### Notes, roles and preambles
+
+Three small things that stay with a saved identity through pane loss and restarts:
+
+- **Notes** are one Markdown file you and the agent can both edit. `tmt notes path` prints its location and creates an empty file the first time. tmt never rewrites, trims or locks it.
+- **A role** is a stored profile, shown in the short summary a session gets at start. It is never added to messages.
+- **A preamble** is text added to the requests an agent receives: with the first one, then with every third (`preambleEvery`). `--no-preamble` skips it for one request, and `preambleMode disabled` or `preambleEvery 0` turns it off.
+
+<Cmd>{`
+$ tmt notes path --identity coordinator
+$ tmt role set "Review correctness before style." --identity reviewer
+$ tmt preamble set reviewer "Be concise and cite evidence."
+$ tmt preamble show reviewer
+`}</Cmd>
+
+Notes need a saved identity; a temporary one gets an error. The notes file follows the identity, not its name, so a new identity that reuses a name starts with a new file.
 
 ### `tmt setup`
 
@@ -44,7 +150,7 @@ $ tmt setup claude       # hooks for one agent
 $ tmt setup codex --remove
 `}</Cmd>
 
-Your existing settings stay byte for byte apart from tmt's hooks, a backup is written first, and a failing hook never blocks the agent.
+Your existing settings stay byte for byte apart from tmt's hooks, a backup is written first, and a failing hook never blocks the agent. `--usage` adds the optional [usage counters](/drivers#usage-counters).
 
 ### `tmt uninstall`
 
@@ -54,3 +160,5 @@ Removes exactly what tmt installed: its hooks, skills, extensions and the `tmt` 
 $ tmt uninstall          # show what goes and what stays, then ask once
 $ tmt uninstall --purge  # also delete your tmt data
 `}</Cmd>
+
+[Settings, shell completion and fixes for common problems →](/working/settings)

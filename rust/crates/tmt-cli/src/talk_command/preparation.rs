@@ -113,6 +113,7 @@ pub(super) fn prepare(
             .clone()
             .or_else(|| observed.as_ref().and_then(|value| value.identity.clone())),
         inbox: input.options.inbox || offline,
+        explicit_inbox: input.options.inbox,
         offline,
         delivery_uncertain: false,
     };

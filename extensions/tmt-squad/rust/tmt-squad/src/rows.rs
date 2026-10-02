@@ -11,7 +11,7 @@ use crate::{
     source::{ColumnSource, Format, PATHS},
 };
 use serde_json::{Value, json};
-use tmt_cli_style::grid::{Align, Basis, Overflow, Track, Truncate};
+use tmt_cli_style::grid::{self, Align, Basis, Overflow, Track, Truncate};
 use toml_edit::{Item, TableLike};
 
 const MAX_COLUMNS: usize = 12;
@@ -97,6 +97,9 @@ impl Column {
     /// already been projected into the document's full row fields.
     pub fn display(field: &str, value: &Value) -> Self {
         let mut column = Self::new(field, value["title"].as_str());
+        if value["valueOnly"] == true {
+            return column;
+        }
         column.width = value["width"]
             .as_u64()
             .map(|width| Basis::Cells(width as usize))
@@ -257,6 +260,33 @@ impl Rows {
         Self { columns, lines }
     }
 
+    /// Cells cover consecutive tracks from zero, including empty cells.
+    /// Columns beyond the longest line provide values but reserve no width.
+    pub fn covered_tracks(&self) -> usize {
+        self.lines
+            .iter()
+            .map(|line| line.iter().map(|cell| cell.span).sum::<usize>())
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// Solve only covered tracks; retain positional indices for row spans.
+    pub fn solve(
+        &self,
+        natural: impl Fn(usize) -> usize,
+        available: usize,
+        gap: usize,
+    ) -> Vec<Option<usize>> {
+        let tracks: Vec<_> = self.columns[..self.covered_tracks()]
+            .iter()
+            .enumerate()
+            .map(|(index, column)| column.track(natural(index)))
+            .collect();
+        let mut widths = grid::solve(&tracks, Some(available), gap);
+        widths.resize(self.columns.len(), None);
+        widths
+    }
+
     /// The fields `ls` shows, in order: the first line's, then any that only
     /// later lines show.
     pub fn fields(&self) -> Vec<&str> {
@@ -293,7 +323,7 @@ impl Rows {
             Truncate::Middle => "middle",
         };
         json!({
-            "columns": self.columns.iter().map(|column| {
+            "columns": self.columns.iter().enumerate().map(|(index, column)| {
                 let mut value = json!({
                 "field": column.field, "title": column.title, "width": width_value(column.width),
                 "min": column.min, "max": column.max, "grow": column.grow,
@@ -302,6 +332,9 @@ impl Rows {
                 "from": column.from.as_ref().map(|from| from.path.as_str()),
                 "format": column.format.as_str(),
                 });
+                if index >= self.covered_tracks() {
+                    value["valueOnly"] = json!(true);
+                }
                 if let Some(mode) = column.overflow {
                     value["overflow"] = json!(if matches!(mode, Overflow::Wrap { .. }) { "wrap" } else { "ellipsis" });
                     if let Overflow::Wrap { max_lines } = mode { value["max_lines"] = json!(max_lines); }
@@ -482,6 +515,7 @@ pub fn read(squad: Option<&dyn TableLike>, name: &str) -> Result<Rows, SquadErro
     let percent: u16 = result
         .columns
         .iter()
+        .take(result.covered_tracks())
         .map(|column| match column.width {
             Some(Basis::Percent(percent)) => u16::from(percent),
             _ => 0,

@@ -1,0 +1,56 @@
+{
+  "source": "whiteboard-source.png",
+  "sha256": "7a328a888c96a52fb907de54a8ec0d5059d038c053813cedd04132e7eabde948",
+  "size": [1254, 1254],
+  "label": "Directional facilities",
+  "credit": "TMT · generated directional furniture artwork",
+  "output": "../../../contracts/directional-facilities-v2.tmtprop.json",
+  "props": [
+    {
+      "key": "lobby-whiteboard",
+      "label": "Workshop whiteboard",
+      "side": 128,
+      "sharedScale": true,
+      "crops": [
+        [140, 161, 777, 557],
+        [947, 708, 1040, 1103],
+        [140, 707, 777, 1092],
+        [970, 161, 1064, 557]
+      ]
+    },
+    {
+      "key": "lobby-discussion-board",
+      "label": "Workshop discussion board",
+      "side": 96,
+      "sharedScale": true,
+      "sheet": {
+        "source": "discussion-source.png",
+        "sha256": "7b2686a71e247e666bc6b12bf221b433251c46bc2cdf1c13dace9d2a805ac5b5",
+        "size": [1254, 1254]
+      },
+      "crops": [
+        [141, 115, 612, 535],
+        [902, 99, 976, 548],
+        [141, 715, 612, 1132],
+        [899, 700, 974, 1142]
+      ]
+    },
+    {
+      "key": "lobby-radio",
+      "label": "Workshop broadcast radio",
+      "side": 64,
+      "sharedScale": true,
+      "sheet": {
+        "source": "radio-source.png",
+        "sha256": "bc082073fc0ed34121e3f4e555ec280937d714136cbd3c9e126ee4369d6bb14f",
+        "size": [1254, 1254]
+      },
+      "crops": [
+        [89, 193, 627, 551],
+        [816, 193, 1153, 554],
+        [85, 715, 623, 1100],
+        [794, 715, 1136, 1101]
+      ]
+    }
+  ]
+}

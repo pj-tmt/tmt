@@ -1,0 +1,24 @@
+[package]
+workspace = "../../../../rust"
+name = "tmt-colab-model"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+hpke.workspace = true
+aes-gcm.workspace = true
+base64.workspace = true
+ed25519-dalek.workspace = true
+getrandom.workspace = true
+hmac.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+x25519-dalek.workspace = true
+
+[lints]
+workspace = true

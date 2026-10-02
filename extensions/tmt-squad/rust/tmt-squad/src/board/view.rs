@@ -2,13 +2,13 @@
 //! cells so wide characters never misalign columns.
 
 use super::{
-    app::{App, Hit, Item, Notes, Switcher, TabHit},
+    app::{App, Hit, Item, Notes, Switcher, TabHit, TitleHit},
     markdown,
     notes::{sanitize, wrap},
 };
 use crate::{
     attention::Attention,
-    config::{BoardMode, Direction, NotesRender, Pane, TabColors},
+    config::{BoardMode, NotesRender, Pane, TabColors},
     requests::{BODIES, age},
     rows::{Cell as RowCell, Rows},
     split::Split,
@@ -24,6 +24,7 @@ use serde_json::Value;
 use tmt_cli_style::{
     Role,
     grid::{self, Align, Truncate},
+    mark::Mark,
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -31,6 +32,7 @@ const KEYS: &[&str] = &[
     "↑ ↓ / j k   select a row; in a focused notes, detail or replies pane, scroll it",
     "PgUp PgDn   page the focused pane; Home End go to its top and bottom",
     "wheel       scroll the pane under the pointer",
+    "title click fold or expand a split pane (▸ means folded)",
     "Shift-drag  select text to copy (Option-drag in some terminals)",
     "← →         switch tab; Shift+← → or drag a tab to move it",
     "/           search; Esc clears",
@@ -41,18 +43,29 @@ const KEYS: &[&str] = &[
 ];
 
 /// The footer names what the most used keys do for the selected row.
-fn hints(app: &App) -> String {
+fn hints(app: &App, width: usize) -> String {
     let bindings = app.bindings();
     let mut hints: Vec<String> = [
         ("enter", "⏎"),
         ("o", "o"),
         ("y", "y"),
+        ("d", "d"),
         ("tab", "tab"),
         ("ctrl-r", "ctrl-r"),
+        ("T", "T"),
     ]
     .into_iter()
     .filter_map(|(event, label)| {
         let action = bindings.get(event)?;
+        if event == "d" {
+            return app
+                .view
+                .as_ref()
+                .filter(|view| {
+                    view.board.mode == BoardMode::Split && view.board.panes.contains(&Pane::Detail)
+                })
+                .map(|_| format!("{label} {}", action.text));
+        }
         Some(format!("{label} {}", action.verb.name()))
     })
     .collect();
@@ -64,7 +77,19 @@ fn hints(app: &App) -> String {
     if app.view.as_ref().is_some_and(|view| view.me.is_none()) {
         hints.push(crate::status::UNKNOWN_YOU.to_owned());
     }
-    hints.join("  ")
+    let mut shown = String::new();
+    for hint in hints {
+        let next = if shown.is_empty() {
+            hint
+        } else {
+            format!("{shown}  {hint}")
+        };
+        if next.width() > width {
+            break;
+        }
+        shown = next;
+    }
+    shown
 }
 
 /// Fixed keys, then every binding for the selected row.
@@ -114,6 +139,7 @@ fn grid_line(
     cells: &[RowCell],
     row: &Value,
     first: bool,
+    selected: bool,
 ) -> Option<Vec<Vec<Span<'static>>>> {
     let mut fitted = Vec::new();
     let mut position = 0;
@@ -153,10 +179,16 @@ fn grid_line(
             look.named(token)
         } else if failed {
             // A field provider's run failed: its `?` stays quiet.
-            look.named("dim")
+            look.role(Role::Dim)
         } else {
             Style::new()
         };
+        let emphasize = value.is_some_and(|value| !value.is_empty())
+            && (matches!(cell.field.as_deref(), Some("state" | "pending"))
+                || token
+                    .and_then(crate::look::role)
+                    .is_some_and(|role| matches!(role, Role::Waiting | Role::Blocked)));
+        let style = look.row_span(selected, style, emphasize);
         fitted.push((
             grid::fit_lines(
                 text,
@@ -201,12 +233,21 @@ fn grid_line(
 
 /// Puts a row's age at the right edge of its first line when it fits after
 /// the cells; a narrow board drops it before any cell.
-fn age_mark(spans: &mut Vec<Span<'static>>, age: &str, width: usize, look: crate::look::Look) {
+fn age_mark(
+    spans: &mut Vec<Span<'static>>,
+    age: &str,
+    width: usize,
+    look: crate::look::Look,
+    selected: bool,
+) {
     let used: usize = spans.iter().map(Span::width).sum();
     let mark = age.width();
     if used + GAP + mark <= width {
         spans.push(Span::raw(" ".repeat(width - used - mark)));
-        spans.push(Span::styled(age.to_owned(), look.role(Role::Dim)));
+        spans.push(Span::styled(
+            age.to_owned(),
+            look.row_span(selected, look.role(Role::Dim), false),
+        ));
     }
 }
 
@@ -241,7 +282,10 @@ pub(super) fn time_marks(app: &App, now: u64) -> Vec<String> {
         return Vec::new();
     };
     let visible = match view.board.mode {
-        BoardMode::Split => view.board.panes.contains(&Pane::Replies),
+        BoardMode::Split => {
+            view.board.panes.contains(&Pane::Replies)
+                && !app.collapsed_panes().contains(&Pane::Replies)
+        }
         BoardMode::Tabs => app.focused() == Pane::Replies,
     };
     if !visible {
@@ -257,19 +301,39 @@ pub(super) fn time_marks(app: &App, now: u64) -> Vec<String> {
 /// one is bracketed, the others padded.
 fn pane_tab(look: crate::look::Look, name: &str, selected: bool) -> Span<'static> {
     if selected {
+        let selection = look.selection();
         Span::styled(
             format!("[{name}]"),
-            look.role(Role::Accent).add_modifier(Modifier::BOLD),
+            Style {
+                bg: selection.bg,
+                ..look
+                    .role(Role::Accent)
+                    .add_modifier(Modifier::BOLD | selection.add_modifier)
+            },
         )
     } else {
         Span::styled(format!(" {name} "), look.role(Role::Muted))
     }
 }
 
-/// One tab. Selection uses bold focus color, never extra characters,
+/// A tab or switcher entry names its attention with the same shared marks.
+fn tab_label(name: &str, attention: Attention) -> String {
+    let mut text = format!(" {name}");
+    for (mark, count) in [
+        (Mark::Decision, attention.waiting),
+        (Mark::Failed, attention.blocked),
+    ] {
+        if count > 0 {
+            text.push_str(&format!(" {}{count}", mark.symbol()));
+        }
+    }
+    text
+}
+
+/// One tab. Selection adds a background tint to bold focus color, never extra characters,
 /// so switching never moves the tabs beside it (#504). The tab's attention
 /// colors it and, so color never carries meaning alone, also adds counts:
-/// `◆2` members waiting on you, `!1` blocked.
+/// `◆2` members waiting on you, `✗1` blocked.
 fn tab(
     look: crate::look::Look,
     name: &str,
@@ -277,13 +341,7 @@ fn tab(
     attention: Attention,
     colors: &TabColors,
 ) -> Span<'static> {
-    let mut text = format!(" {name}");
-    if attention.waiting > 0 {
-        text.push_str(&format!(" ◆{}", attention.waiting));
-    }
-    if attention.blocked > 0 {
-        text.push_str(&format!(" !{}", attention.blocked));
-    }
+    let mut text = tab_label(name, attention);
     text.push(' ');
     let style = match attention.state() {
         "waiting" => look.named(&colors.waiting),
@@ -292,11 +350,10 @@ fn tab(
         _ => look.role(Role::Muted),
     };
     let style = if selected {
-        let style = style.add_modifier(Modifier::BOLD);
-        if look.role(Role::Accent).fg.is_none() {
-            style.add_modifier(Modifier::REVERSED)
-        } else {
-            style
+        let selection = look.selection();
+        Style {
+            bg: selection.bg,
+            ..style.add_modifier(Modifier::BOLD | selection.add_modifier)
         }
     } else {
         style
@@ -369,7 +426,7 @@ fn tab_line(app: &App, area: Rect) -> Line<'_> {
         match sum.state() {
             "waiting" => look.named(&colors.waiting),
             "blocked" => look.named(&colors.blocked),
-            _ => look.named("dim"),
+            _ => look.role(Role::Dim),
         }
     };
     let mut line = Vec::new();
@@ -414,7 +471,7 @@ fn tab_line(app: &App, area: Rect) -> Line<'_> {
         let frame = (started.elapsed().as_millis() / 100) as usize % SPINNER.len();
         line.push(Span::styled(
             format!("{} loading", SPINNER[frame]),
-            look.named("dim"),
+            look.role(Role::Dim),
         ));
     }
     Line::from(line)
@@ -517,7 +574,7 @@ fn summary_line(app: &App) -> Line<'_> {
     if view.document["olderRequestsNotShown"] == true {
         spans.push(Span::styled(
             " · older requests not shown",
-            look.named("dim"),
+            look.role(Role::Dim),
         ));
     }
     if let Some(notice) = &view.theme_notice {
@@ -534,6 +591,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     app.hits.borrow_mut().clear();
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
+    app.title_hits.borrow_mut().clear();
     app.scrolls.begin_frame();
     let [tabs, summary, body, footer] = Layout::vertical([
         Constraint::Length(1),
@@ -550,11 +608,14 @@ pub fn render(frame: &mut Frame, app: &App) {
     } else if app.searching {
         Line::from(format!("/{}▏", app.search))
     } else if let Some(notice) = &app.notice {
-        Line::from(Span::styled(notice.as_str(), look.named("amber")))
+        Line::from(Span::styled(notice.as_str(), look.role(Role::Waiting)))
     } else if let Some(error) = &app.error {
-        Line::from(Span::styled(error.as_str(), look.named("red")))
+        Line::from(Span::styled(error.as_str(), look.role(Role::Blocked)))
     } else {
-        Line::from(Span::styled(hints(app), look.role(Role::Muted)))
+        Line::from(Span::styled(
+            hints(app, usize::from(footer.width)),
+            look.role(Role::Muted),
+        ))
     };
     frame.render_widget(Paragraph::new(footer_line), footer);
     if app.help {
@@ -605,6 +666,9 @@ pub fn render(frame: &mut Frame, app: &App) {
     if let Some(switcher) = &app.switcher {
         render_switcher(frame, app, switcher, body);
     }
+    if let Some(picker) = &app.theme_picker {
+        super::theme_picker::render(frame, picker, look, body);
+    }
 }
 
 /// The quick switcher: the query, then the matching tabs with their counts
@@ -632,18 +696,12 @@ fn render_switcher(frame: &mut Frame, app: &App, switcher: &Switcher, body: Rect
     if found.is_empty() {
         lines.push(Line::from(Span::styled(
             " (no matching tab)",
-            look.named("dim"),
+            look.role(Role::Dim),
         )));
     }
     for (index, key) in found.iter().enumerate().skip(first).take(shown) {
         let attention = app.attention.get(*key).copied().unwrap_or_default();
-        let mut text = format!(" {}", super::tabs::label(key));
-        if attention.waiting > 0 {
-            text.push_str(&format!(" ◆{}", attention.waiting));
-        }
-        if attention.blocked > 0 {
-            text.push_str(&format!(" !{}", attention.blocked));
-        }
+        let mut text = tab_label(super::tabs::label(key), attention);
         if app.hidden.contains(*key) {
             text.push_str(" (hidden)");
         }
@@ -679,7 +737,7 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
         return;
     };
     let board = &view.board;
-    let focused = app.focused();
+    let focused = app.focused_pane();
     let pane_block = |pane: Pane| {
         let title = match pane {
             // The lead's notes nobody updated for a while say how long.
@@ -697,15 +755,15 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
             }
             other => Line::from(format!(" {} ", other.title())),
         };
-        let style = if pane == focused && board.panes.len() > 1 {
+        let style = if Some(pane) == focused && board.panes.len() > 1 {
             look.role(Role::Accent).add_modifier(Modifier::BOLD)
         } else {
-            look.named("dim")
+            look.role(Role::Dim)
         };
         Block::new()
             .borders(Borders::ALL)
             .border_style(style)
-            .title_style(if pane == focused && board.panes.len() > 1 {
+            .title_style(if Some(pane) == focused && board.panes.len() > 1 {
                 look.role(Role::Accent).add_modifier(Modifier::BOLD)
             } else {
                 look.role(Role::Muted)
@@ -713,9 +771,12 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
             .title(title)
     };
     match board.mode {
-        BoardMode::Split if board.panes.len() == 1 => render_pane(frame, app, board.panes[0], area),
+        BoardMode::Split if board.panes.len() == 1 && app.collapsed_panes().is_empty() => {
+            render_pane(frame, app, board.panes[0], area)
+        }
         BoardMode::Split => render_split(frame, app, &board.split, area, &pane_block),
         BoardMode::Tabs => {
+            let focused = app.focused();
             let [bar, rest] =
                 Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
             let mut spans = Vec::new();
@@ -741,24 +802,39 @@ fn render_split(
     area: Rect,
     pane_block: &dyn Fn(Pane) -> Block<'static>,
 ) {
-    match split {
-        Split::Pane(pane) => {
-            let block = pane_block(*pane);
+    let collapsed = app.collapsed_panes();
+    for (pane, area) in split.solve(area, &collapsed) {
+        if area.is_empty() {
+            continue;
+        }
+        let title = Rect { height: 1, ..area };
+        app.title_hits
+            .borrow_mut()
+            .push(TitleHit { pane, area: title });
+        if collapsed.contains(&pane) {
+            let mut text = format!("▸ {}", pane.title());
+            if pane == Pane::Notes
+                && let Some(view) = &app.view
+            {
+                if let Some(lead) = view.document["squad"]["lead"]["name"].as_str() {
+                    text.push_str(&format!(" · {}", sanitize(lead)));
+                }
+                if let Some(age) =
+                    crate::staleness::label(&view.document["squad"]["notesStaleness"])
+                {
+                    text.push_str(&format!(" · {age}"));
+                }
+            }
+            frame.render_widget(
+                Paragraph::new(Line::styled(text, app.look().role(Role::Muted))),
+                title,
+            );
+        } else {
+            let block = pane_block(pane);
             let inner = block.inner(area);
             frame.render_widget(block, area);
-            render_pane(frame, app, *pane, inner);
-        }
-        Split::Group {
-            direction,
-            children,
-        } => {
-            let constraints = children.iter().map(|(size, _)| size.constraint());
-            let areas = match direction {
-                Direction::LeftRight => Layout::horizontal(constraints).split(area),
-                Direction::TopBottom => Layout::vertical(constraints).split(area),
-            };
-            for ((_, child), rect) in children.iter().zip(areas.iter()) {
-                render_split(frame, app, child, *rect, pane_block);
+            if !inner.is_empty() {
+                render_pane(frame, app, pane, inner);
             }
         }
     }
@@ -788,7 +864,7 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
     if derived
         .notes
         .as_ref()
-        .is_none_or(|(cached_width, _)| *cached_width != width)
+        .is_none_or(|(cached_width, cached_look, _)| *cached_width != width || *cached_look != look)
     {
         let lines: Vec<Line> = match (&view.notes, view.render) {
             (Notes::Text(text), NotesRender::Markdown) => markdown::render(text, width, look),
@@ -797,14 +873,14 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
             }
             _ => wrap(text, width)
                 .into_iter()
-                .map(|line| Line::styled(line, look.named("dim")))
+                .map(|line| Line::styled(line, look.role(Role::Dim)))
                 .collect(),
         };
-        derived.notes = Some((width, lines));
+        derived.notes = Some((width, look, lines));
     }
-    let lines = &derived.notes.as_ref().expect("prepared notes").1;
+    let lines = &derived.notes.as_ref().expect("prepared notes").2;
     app.scrolls
-        .show(frame, Pane::Notes, area, lines, look.named("dim"));
+        .show(frame, Pane::Notes, area, lines, look.role(Role::Dim));
 }
 
 /// Lines of one reply body shown before it is cut.
@@ -831,7 +907,7 @@ pub fn reply_lines(
         )));
         lines.push(Line::styled(
             fit(&format!("  › {}", text("prompt")), width),
-            look.named("dim"),
+            look.role(Role::Dim),
         ));
         match reply["response"].as_str() {
             Some(response) => {
@@ -840,7 +916,7 @@ pub fn reply_lines(
                     lines.push(Line::from(format!("  {line}")));
                 }
                 if body.len() > BODY_LINES {
-                    lines.push(Line::styled("  …", look.named("dim")));
+                    lines.push(Line::styled("  …", look.role(Role::Dim)));
                 }
             }
             None => {
@@ -850,7 +926,7 @@ pub fn reply_lines(
                 } else {
                     format!("  (final {})", text("status"))
                 };
-                lines.push(Line::styled(fit(&hint, width), look.named("dim")));
+                lines.push(Line::styled(fit(&hint, width), look.role(Role::Dim)));
             }
         }
         lines.push(Line::from(""));
@@ -868,7 +944,7 @@ fn render_replies(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 "(no replies to your squad requests yet)"
             },
-            look.named("dim"),
+            look.role(Role::Dim),
         )]
     } else {
         let now = std::time::SystemTime::now()
@@ -877,7 +953,7 @@ fn render_replies(frame: &mut Frame, app: &App, area: Rect) {
         reply_lines(look, &view.replies, usize::from(area.width), now)
     };
     app.scrolls
-        .show(frame, Pane::Replies, area, lines, look.named("dim"));
+        .show(frame, Pane::Replies, area, lines, look.role(Role::Dim));
 }
 
 /// Fields already shown by detail's header, body or links line.
@@ -902,7 +978,7 @@ fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     let Some(row) = app.selected_row() else {
         frame.render_widget(
-            Paragraph::new(Span::styled("(no row selected)", look.named("dim"))),
+            Paragraph::new(Span::styled("(no row selected)", look.role(Role::Dim))),
             area,
         );
         return;
@@ -915,7 +991,7 @@ fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
     if let Some(pending) = row["pending"].as_str() {
         lines.push(Line::styled(
             format!("waiting on you: {pending}"),
-            look.named("amber"),
+            look.role(Role::Waiting),
         ));
     }
     let place = [&row["pane"]["target"], &row["pane"]["cwd"]]
@@ -991,7 +1067,7 @@ fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
     app.scrolls
-        .show(frame, Pane::Detail, area, lines, look.named("dim"));
+        .show(frame, Pane::Detail, area, lines, look.role(Role::Dim));
 }
 
 fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
@@ -1028,14 +1104,11 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 .max()
                 .unwrap_or(0)
         };
-        let tracks: Vec<_> = (0..rows.columns.len())
-            .map(|index| rows.columns[index].track(natural(index)))
-            .collect();
         // Two cells for the row mark, and room at the right for the widest age
         // mark when a row has one, unless that would hide a column: then the
         // marks give way.
         let available = usize::from(area.width).saturating_sub(2);
-        let widths = grid::solve(&tracks, Some(available), GAP);
+        let widths = rows.solve(natural, available, GAP);
         let ages = app
             .items()
             .into_iter()
@@ -1047,7 +1120,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
             .max();
         let widths = match ages {
             Some(age) => {
-                let reserved = grid::solve(&tracks, Some(available.saturating_sub(age)), GAP);
+                let reserved = rows.solve(natural, available.saturating_sub(age), GAP);
                 let shown = |widths: &[Option<usize>]| widths.iter().flatten().count();
                 if shown(&reserved) == shown(&widths) {
                     reserved
@@ -1114,15 +1187,23 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 };
                 for (index, cells) in rows.lines.iter().enumerate() {
                     let first = index == 0;
-                    let Some(cells) = grid_line(look, rows, widths, cells, row, first) else {
+                    let Some(cells) = grid_line(look, rows, widths, cells, row, first, selected)
+                    else {
                         continue;
                     };
                     for (visual, cells) in cells.into_iter().enumerate() {
                         let initial = first && visual == 0;
-                        let mut spans = vec![Span::raw(if initial { marker } else { "  " })];
+                        let mut spans = vec![Span::styled(
+                            if initial { marker } else { "  " },
+                            look.row_span(
+                                selected,
+                                Style::new(),
+                                initial && row["pending"].is_string(),
+                            ),
+                        )];
                         spans.extend(cells);
                         if let Some(age) = age.as_deref().filter(|_| initial) {
-                            age_mark(&mut spans, age, usize::from(area.width), look);
+                            age_mark(&mut spans, age, usize::from(area.width), look, selected);
                         }
                         row_lines.push((lines.len(), row_index));
                         lines.push(Line::from(spans).style(style));
@@ -1131,7 +1212,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 if let Some(note) = row["note"].as_str().filter(|_| !note_column) {
                     lines.push(Line::from(Span::styled(
                         fit(&format!("    note {note}"), usize::from(area.width)),
-                        look.named("dim"),
+                        look.role(Role::Dim),
                     )));
                     row_lines.push((lines.len() - 1, row_index));
                 }
@@ -1142,7 +1223,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                             &format!("    ✎ sent to {to}: {text}"),
                             usize::from(area.width),
                         ),
-                        look.named("dim"),
+                        look.role(Role::Dim),
                     )));
                     row_lines.push((lines.len() - 1, row_index));
                 }
@@ -1160,7 +1241,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 "  (no matching members)"
             },
-            look.named("dim"),
+            look.role(Role::Dim),
         )));
     }
     // The selection stays on screen until the wheel moves the rows away from
@@ -1171,7 +1252,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
     }
     let (offset, viewport) = app
         .scrolls
-        .show(frame, Pane::Rows, area, lines, look.named("dim"));
+        .show(frame, Pane::Rows, area, lines, look.role(Role::Dim));
     app.hits.borrow_mut().extend(
         row_lines
             .into_iter()
@@ -1188,13 +1269,33 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::app::{Notes, Snapshot, View};
+    use crate::board::app::{Effect, Notes, Snapshot, View};
     use crate::config::{BoardMode, Direction, Pane};
-    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
     use ratatui::{Terminal, backend::TestBackend};
     use serde_json::json;
     use std::collections::BTreeMap;
     use unicode_width::UnicodeWidthChar;
+
+    #[test]
+    fn footer_omits_whole_hints_instead_of_clipping_words() {
+        let mut app = App::new(Some("product".into()));
+        app.apply(crate::board::app::tests::snapshot("product", json!([])));
+        let full = hints(&app, usize::MAX);
+        assert!(full.contains("T theme"));
+        for width in [0, 1, 20, 40, 108, 112] {
+            let shown = hints(&app, width);
+            assert!(shown.width() <= width);
+            assert!(full.starts_with(&shown));
+            assert!(
+                shown.is_empty() || full == shown || full[shown.len()..].starts_with("  "),
+                "partial hint at {width}: {shown}"
+            );
+        }
+        assert!(!draw(&app, 108, 8).last().unwrap().ends_with("◆ ne"));
+    }
 
     /// Rows read from a squad config snippet, as `squad.toml` would give them.
     fn rows_from(text: &str) -> Rows {
@@ -1274,12 +1375,52 @@ mod tests {
         row
     }
 
-    /// The board as every preset draws it: the default columns, read from
-    /// an empty config.
+    #[test]
+    fn uncovered_source_columns_do_not_squeeze_the_drawn_grid() {
+        let config: toml_edit::DocumentMut = include_str!("../rows/fixtures/uncovered-tracks.toml")
+            .parse()
+            .unwrap();
+        let rows =
+            crate::rows::read(config["squad"]["checkout"].as_table_like(), "checkout").unwrap();
+        let task = "long task ".repeat(60);
+        let sections = json!([{"title": null, "rows": [row("worker", "working", &task, json!({
+            "fields": {"state": "working", "task": task, "pr_state": "#42 OPEN", "ctx": "487k", "model": "test-model"}
+        }))]}]);
+        for width in [146, 200] {
+            let mut full = board(sections.clone());
+            full.view.as_mut().unwrap().rows = rows.clone();
+            let mut covered = board(sections.clone());
+            let mut trimmed = rows.clone();
+            trimmed.columns.truncate(4);
+            covered.view.as_mut().unwrap().rows = trimmed;
+            let actual = draw(&full, width, 20);
+            assert_eq!(actual, draw(&covered, width, 20));
+            assert!(
+                actual
+                    .iter()
+                    .any(|line| line.contains("487k") && line.contains("test-model"))
+            );
+            assert_eq!(
+                full.view
+                    .as_ref()
+                    .unwrap()
+                    .derived
+                    .borrow()
+                    .grid
+                    .as_ref()
+                    .unwrap()
+                    .widths[4..],
+                [None, None]
+            );
+        }
+    }
+
+    /// Explicit crew keeps its original columns and rendering byte for byte.
     fn preset_board() -> App {
         let path = std::env::temp_dir().join(format!("squad-golden-{}.toml", std::process::id()));
-        let _ = std::fs::remove_file(&path);
-        let config = crate::config::Config::read(path).unwrap();
+        std::fs::write(&path, "[squad.product]\nlayout = \"crew\"\n").unwrap();
+        let config = crate::config::Config::read(path.clone()).unwrap();
+        std::fs::remove_file(&path).unwrap();
         let mut app = board(json!([
             {"title": "Needs me", "rows": [
                 row("auth-fix", "blocked", "rotate session tokens without logging everyone out", json!({
@@ -1294,6 +1435,55 @@ mod tests {
         ]));
         app.view.as_mut().unwrap().rows = config.rows("product").unwrap();
         app
+    }
+
+    #[test]
+    fn default_team_is_readable_at_80_120_and_200_columns() {
+        let path =
+            std::env::temp_dir().join(format!("squad-team-responsive-{}.toml", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let config = crate::config::Config::read(path).unwrap();
+        let mut app = preset_board();
+        let view = app.view.as_mut().unwrap();
+        view.rows = config.rows("product").unwrap();
+        view.board = config.board("product").unwrap();
+        for width in [80, 120, 200] {
+            app.set_body_width(width);
+            let screen = draw(&app, width, 42);
+            let widths = app
+                .view
+                .as_ref()
+                .unwrap()
+                .derived
+                .borrow()
+                .grid
+                .as_ref()
+                .unwrap()
+                .widths
+                .clone();
+            assert!(
+                widths[..3].iter().all(Option::is_some),
+                "essential columns at {width}"
+            );
+            assert!(widths[3].is_some(), "PR remains visible at {width}");
+            assert_eq!(widths[4].is_some(), width == 200, "model steps aside first");
+            assert!(
+                screen.iter().any(|line| line.contains("TASK")),
+                "task title at {width}"
+            );
+            assert_eq!(app.collapsed_panes().contains(&Pane::Detail), width < 100);
+            assert_eq!(app.collapsed_panes().contains(&Pane::Replies), width < 100);
+        }
+        // Manual expansion at 80 keeps essentials readable even without auto-fold.
+        app.set_body_width(80);
+        app.perform(&crate::action::Action::parse("toggle detail").unwrap());
+        app.perform(&crate::action::Action::parse("toggle replies").unwrap());
+        draw(&app, 80, 42);
+        let view = app.view.as_ref().unwrap();
+        let derived = view.derived.borrow();
+        let widths = &derived.grid.as_ref().unwrap().widths;
+        assert!(widths[..3].iter().all(Option::is_some));
+        assert!(widths[3..].iter().all(Option::is_none));
     }
 
     /// Golden: every preset's board as drawn before the rows moved onto the
@@ -1537,7 +1727,7 @@ columns = [{ name = "member", width = "30%" },
 
         app.view.as_mut().unwrap().bindings = crate::action::preset(false);
         app.help = true;
-        let help = draw(&app, 60, 26);
+        let help = draw(&app, 60, 29);
         assert!(
             help.iter().any(|line| line == "y           copy"),
             "{help:#?}"
@@ -1548,7 +1738,7 @@ columns = [{ name = "member", width = "30%" },
             "{help:#?}"
         );
         app.view.as_mut().unwrap().refresh = None;
-        let help = draw(&app, 60, 26);
+        let help = draw(&app, 60, 29);
         assert!(
             help.iter()
                 .any(|line| line == "reload      automatic reload is off"),
@@ -1673,14 +1863,120 @@ columns = [{ name = "member", width = "30%" },
         for state in ["blocked", "blocked-on-ci"] {
             let row =
                 json!({"state": state, "fields": {"state": state}, "colors": {"state": "review"}});
-            let spans = grid_line(look, &rows, &[Some(20)], &rows.lines[0], &row, true).unwrap();
+            let spans =
+                grid_line(look, &rows, &[Some(20)], &rows.lines[0], &row, true, false).unwrap();
             assert_eq!(spans.len(), 1);
             assert_eq!(spans[0][0].style.fg, look.named("review").fg);
             assert_eq!(spans[0][0].content.trim(), state);
             let plain = json!({"state": state, "fields": {"state": state}});
-            let spans = grid_line(look, &rows, &[Some(20)], &rows.lines[0], &plain, true).unwrap();
+            let spans = grid_line(
+                look,
+                &rows,
+                &[Some(20)],
+                &rows.lines[0],
+                &plain,
+                true,
+                false,
+            )
+            .unwrap();
             assert_eq!(spans.len(), 1);
             assert_eq!(spans[0][0].style, Style::new());
+        }
+    }
+
+    #[test]
+    fn selected_reverse_rows_are_uniform_across_wrapping_empty_pending_and_age() {
+        let mut app = board(json!([{"title": null, "rows": [
+            row("auth-fix", "working", "rotate session tokens for the rollout", json!({
+                "pending": "approve the rollout plan",
+                "fields": {"state": "working", "task": "rotate session tokens for the rollout", "pr": "#42"},
+                "colors": {"state": "working", "task": "waiting", "pr": "review"},
+                "staleness": {"state": "stale", "ageMs": 3 * 3_600_000},
+            })),
+            row("docs", "review", "guide", json!({"colors": {"state": "review"}})),
+        ]}]));
+        app.view.as_mut().unwrap().rows = rows_from(
+            r#"[p.rows]
+columns = [
+    { name = "member", width = 12 },
+    { name = "state", width = 9 },
+    { name = "task", width = 12, overflow = "wrap", max_lines = 2 },
+    { name = "pr", width = 8 },
+    { name = "empty", width = 5 },
+]
+lines = [
+    ["member", "state", "task", "pr", "empty"],
+    ["", { field = "pending", span = 4 }],
+]
+"#,
+        );
+        let text = draw(&app, 80, 12);
+        for base in tmt_cli_style::Base::ALL {
+            for depth in [
+                tmt_cli_style::Depth::TrueColor,
+                tmt_cli_style::Depth::Ansi16,
+                tmt_cli_style::Depth::None,
+            ] {
+                let look = crate::look::Look {
+                    theme: tmt_cli_style::Theme::new(base),
+                    depth,
+                };
+                if look.selection().bg.is_some() {
+                    continue;
+                }
+                app.view.as_mut().unwrap().look = look;
+                let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+                terminal.draw(|frame| render(frame, &app)).unwrap();
+                let buffer = terminal.backend().buffer();
+                let screen = draw(&app, 80, 12);
+                assert_eq!(
+                    screen, text,
+                    "{base:?} {depth:?}: text and geometry stay exact"
+                );
+                let first = screen
+                    .iter()
+                    .position(|line| line.contains("auth-fix"))
+                    .unwrap();
+                let end = screen
+                    .iter()
+                    .position(|line| line.contains("docs "))
+                    .unwrap();
+                assert!(end - first >= 3, "wrapping and pending line are present");
+                assert!(screen[first].contains('–'));
+                assert!(screen[first].ends_with("stale 3h"));
+                let selection = look.selection();
+                let view = app.view.as_ref().unwrap();
+                let derived = view.derived.borrow();
+                let widths = &derived.grid.as_ref().unwrap().widths;
+                let grid_width = 2 + grid::span(widths, 0..view.rows.columns.len(), GAP);
+                for y in first..end {
+                    // The first line's age extends to the edge; later lines
+                    // keep the existing fixed-width grid extent.
+                    let width = if y == first { 80 } else { grid_width as u16 };
+                    for x in 0..width {
+                        let cell = &buffer[(x, y as u16)];
+                        assert_eq!(
+                            cell.fg,
+                            selection.fg.unwrap_or_default(),
+                            "{base:?} {depth:?} {x},{y}"
+                        );
+                        assert_eq!(cell.bg, selection.bg.unwrap_or_default());
+                        assert!(
+                            cell.modifier.contains(Modifier::REVERSED),
+                            "{base:?} {depth:?} {x},{y}: {cell:?}"
+                        );
+                        assert!(!cell.modifier.contains(Modifier::DIM));
+                    }
+                }
+                for word in ["◆", "working", "rotate", "approve"] {
+                    let y = screen.iter().position(|line| line.contains(word)).unwrap();
+                    let x = screen[y][..screen[y].find(word).unwrap()].chars().count() as u16;
+                    assert!(
+                        buffer[(x, y as u16)].modifier.contains(Modifier::BOLD),
+                        "{word}"
+                    );
+                }
+            }
         }
     }
 
@@ -1781,8 +2077,118 @@ columns = [{ name = "member", width = "30%" },
             );
             assert_eq!(
                 buffer[(1, 0)].modifier.contains(Modifier::REVERSED),
-                depth == tmt_cli_style::Depth::None
+                depth != tmt_cli_style::Depth::TrueColor
             );
+        }
+    }
+
+    #[test]
+    fn selected_tabs_keep_foregrounds_and_geometry_with_selection_background() {
+        for base in tmt_cli_style::Base::ALL {
+            for depth in [
+                tmt_cli_style::Depth::TrueColor,
+                tmt_cli_style::Depth::Ansi16,
+                tmt_cli_style::Depth::None,
+            ] {
+                let look = crate::look::Look {
+                    theme: tmt_cli_style::Theme::new(base),
+                    depth,
+                };
+                let selection = look.selection();
+                for attention in [
+                    Attention::default(),
+                    Attention {
+                        waiting: 2,
+                        blocked: 1,
+                    },
+                    Attention {
+                        waiting: 0,
+                        blocked: 1,
+                    },
+                ] {
+                    let selected = tab(look, "product", true, attention, &TabColors::default());
+                    let unselected = tab(look, "product", false, attention, &TabColors::default());
+                    assert_eq!(selected.content, unselected.content);
+                    assert_eq!(selected.width(), unselected.width());
+                    let foreground = match attention.state() {
+                        "waiting" => look.role(Role::Waiting),
+                        "blocked" => look.role(Role::Blocked),
+                        _ => look.role(Role::Accent),
+                    };
+                    assert_eq!(selected.style.fg, foreground.fg);
+                    assert_eq!(selected.style.bg, selection.bg);
+                    assert!(selected.style.add_modifier.contains(Modifier::BOLD));
+                    assert_eq!(
+                        selected.style.add_modifier.contains(Modifier::REVERSED),
+                        selection.bg.is_none()
+                    );
+                    let unchanged = match attention.state() {
+                        "waiting" => look.role(Role::Waiting),
+                        "blocked" => look.role(Role::Blocked),
+                        _ => look.role(Role::Muted),
+                    };
+                    assert_eq!(unselected.style, unchanged);
+                    let width = selected.width() as u16;
+                    let mut terminal = Terminal::new(TestBackend::new(width, 1)).unwrap();
+                    terminal
+                        .draw(|frame| {
+                            frame.render_widget(
+                                Paragraph::new(selected.clone()),
+                                Rect::new(0, 0, width, 1),
+                            )
+                        })
+                        .unwrap();
+                    for x in 0..width {
+                        let cell = &terminal.backend().buffer()[(x, 0)];
+                        assert_eq!(
+                            cell.bg,
+                            selection.bg.unwrap_or_default(),
+                            "{base:?} {depth:?} at {x}"
+                        );
+                        assert_eq!(cell.fg, foreground.fg.unwrap_or_default());
+                        assert!(cell.modifier.contains(Modifier::BOLD));
+                    }
+                    assert_eq!(terminal.backend().buffer()[(0, 0)].symbol(), " ");
+                    assert_eq!(terminal.backend().buffer()[(width - 1, 0)].symbol(), " ");
+                }
+                let selected = pane_tab(look, "detail", true);
+                let unselected = pane_tab(look, "detail", false);
+                assert_eq!(selected.content, "[detail]");
+                assert_eq!(unselected.content, " detail ");
+                assert_eq!(selected.width(), unselected.width());
+                assert_eq!(selected.style.fg, look.role(Role::Accent).fg);
+                assert_eq!(selected.style.bg, selection.bg);
+                assert!(selected.style.add_modifier.contains(Modifier::BOLD));
+                assert_eq!(
+                    selected.style.add_modifier.contains(Modifier::REVERSED),
+                    selection.bg.is_none()
+                );
+                assert_eq!(unselected.style, look.role(Role::Muted));
+            }
+        }
+    }
+
+    #[test]
+    fn tab_fallback_depends_on_background_even_with_an_accent_foreground() {
+        let look = crate::look::Look {
+            theme: tmt_cli_style::Theme::parse("theme", [("base", "terminal"), ("accent", "blue")])
+                .unwrap(),
+            depth: tmt_cli_style::Depth::TrueColor,
+        };
+        assert!(look.role(Role::Accent).fg.is_some());
+        assert!(look.selection().bg.is_none());
+        for span in [
+            tab(
+                look,
+                "product",
+                true,
+                Attention::default(),
+                &TabColors::default(),
+            ),
+            pane_tab(look, "detail", true),
+        ] {
+            assert_eq!(span.style.fg, look.role(Role::Accent).fg);
+            assert!(span.style.add_modifier.contains(Modifier::REVERSED));
         }
     }
 
@@ -1868,6 +2274,8 @@ columns = [{ name = "member", width = "30%" },
         use crate::split::{Size, Split};
         let board = crate::config::Board {
             mode: BoardMode::Split,
+            collapsed: Default::default(),
+            fold_below: None,
             panes: vec![Pane::Rows, Pane::Detail, Pane::Notes],
             split: Split::Group {
                 direction: Direction::LeftRight,
@@ -2178,7 +2586,7 @@ columns = [{ name = "member", width = "30%" },
             .map(|x| buffer[(x, 0)].symbol().to_owned())
             .collect();
         // Counts say what the color says, so no meaning is color-only.
-        assert_eq!(tabs.trim_end(), " product ◆1 !1   reviews !2");
+        assert_eq!(tabs.trim_end(), " product ◆1 ✗1   reviews ✗2");
         let column = |name: &str| tabs[..tabs.find(name).unwrap()].chars().count() as u16;
         let product = &buffer[(column("product"), 0)];
         // Waiting wins over blocked; selection is bold without moving the tab.
@@ -2216,6 +2624,36 @@ columns = [{ name = "member", width = "30%" },
             app.look().role(Role::Review).fg.unwrap_or_default()
         );
         assert_eq!(draw(&app, 60, 6)[1], "no lead · 1 member");
+    }
+
+    #[test]
+    fn attention_counts_keep_shared_marks_and_tab_width_without_color() {
+        let mut app = board(json!([{"title": null, "rows": []}]));
+        app.view.as_mut().unwrap().look.depth = tmt_cli_style::Depth::None;
+        let counts = Attention {
+            waiting: 2,
+            blocked: 1,
+        };
+        app.attention.insert("product".into(), counts);
+        assert_eq!(Mark::Failed.symbol().width(), 1);
+        assert_eq!(tab_label("product", Attention::default()), " product");
+        let colors = TabColors::default();
+        let plain = tab(app.look(), "product", false, counts, &colors);
+        let selected = tab(app.look(), "product", true, counts, &colors);
+        assert_eq!(selected.content, " product ◆2 ✗1 ");
+        assert_eq!(selected.content, plain.content);
+        assert_eq!(selected.width(), " product ◆2 ✗1 ".width());
+        assert_eq!(selected.style.fg, None);
+        assert!(draw(&app, 60, 8)[0].contains("product ◆2 ✗1"));
+        app.switcher = Some(Switcher {
+            query: "product".into(),
+            selected: 0,
+        });
+        assert!(
+            draw(&app, 60, 8)
+                .iter()
+                .any(|line| line.contains("product ◆2 ✗1"))
+        );
     }
 
     #[test]
@@ -2841,7 +3279,7 @@ columns = [{ name = "member", width = "30%" },
             .notes
             .as_ref()
             .unwrap()
-            .1
+            .2
             .clone();
         draw(&app, 25, 12);
         assert_ne!(
@@ -2853,7 +3291,7 @@ columns = [{ name = "member", width = "30%" },
                 .notes
                 .as_ref()
                 .unwrap()
-                .1,
+                .2,
             lines
         );
         app.apply(crate::board::app::tests::snapshot("product", json!([])));
@@ -2877,5 +3315,307 @@ columns = [{ name = "member", width = "30%" },
         assert!(!first.is_empty());
         assert_eq!(first, time_marks(&app, 61_200));
         assert_ne!(first, time_marks(&app, 121_000));
+    }
+    fn fold(app: &mut App, pane: Pane) {
+        app.perform(&crate::action::Action::parse(&format!("toggle {}", pane.title())).unwrap());
+    }
+    fn click_title(app: &mut App, pane: Pane) {
+        let hit = *app
+            .title_hits
+            .borrow()
+            .iter()
+            .find(|hit| hit.pane == pane)
+            .unwrap();
+        assert_eq!(
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: hit.area.x,
+                    row: hit.area.y,
+                    modifiers: KeyModifiers::NONE
+                },
+                std::time::Instant::now()
+            ),
+            Effect::None
+        );
+    }
+
+    #[test]
+    fn fold_render_restores_both_directions_and_keeps_the_mark_muted() {
+        for direction in [Direction::LeftRight, Direction::TopBottom] {
+            for base in [tmt_cli_style::Base::Tmt, tmt_cli_style::Base::TmtLight] {
+                let mut app = paned(
+                    split(direction, vec![Pane::Rows, Pane::Detail], vec![60, 40]),
+                    Notes::NotShown,
+                );
+                app.view.as_mut().unwrap().look.theme = tmt_cli_style::Theme::new(base);
+                let expanded = draw(&app, 80, 23);
+                assert!(expanded.iter().any(|line| line.contains("┌ detail")));
+                fold(&mut app, Pane::Detail);
+                let folded = draw(&app, 80, 23);
+                let hit = *app
+                    .title_hits
+                    .borrow()
+                    .iter()
+                    .find(|hit| hit.pane == Pane::Detail)
+                    .unwrap();
+                assert!(
+                    folded[hit.area.y as usize].contains("▸ detail"),
+                    "{folded:#?}"
+                );
+                assert_eq!(hit.area.height, 1);
+                if direction == Direction::LeftRight {
+                    assert_eq!(hit.area.x, 72);
+                    let title = &folded[hit.area.y as usize];
+                    assert_eq!(title.chars().nth(hit.area.x as usize - 1), Some(' '));
+                    assert_eq!(title.chars().nth(hit.area.x as usize - 2), Some('┐'));
+                } else {
+                    assert_eq!(hit.area.y, 22 - 1);
+                }
+                assert!(!folded.iter().any(|line| line.contains("waiting on you:")));
+                assert!(app.scrolls.pane_at(hit.area.x, hit.area.y).is_none());
+                let mut terminal = Terminal::new(TestBackend::new(80, 23)).unwrap();
+                terminal.draw(|frame| render(frame, &app)).unwrap();
+                assert_eq!(
+                    terminal.backend().buffer()[(hit.area.x, hit.area.y)].fg,
+                    app.look().role(Role::Muted).fg.unwrap()
+                );
+                click_title(&mut app, Pane::Detail);
+                assert_eq!(draw(&app, 80, 23), expanded);
+            }
+        }
+    }
+
+    #[test]
+    fn nested_and_all_folded_render_titles_only_and_tiny_hits_stay_disjoint() {
+        use crate::split::{Size, Split};
+        let panes = vec![Pane::Rows, Pane::Detail, Pane::Notes, Pane::Replies];
+        let board = crate::config::Board {
+            mode: BoardMode::Split,
+            panes: panes.clone(),
+            collapsed: Default::default(),
+            fold_below: None,
+            split: Split::Group {
+                direction: Direction::LeftRight,
+                children: vec![
+                    (Size::Percent(60), Split::Pane(Pane::Rows)),
+                    (
+                        Size::Percent(40),
+                        Split::simple(Direction::TopBottom, &panes[1..], &[30, 30, 40]),
+                    ),
+                ],
+            },
+        };
+        let mut app = paned(board, Notes::Text("SECRET NOTE BODY".into()));
+        for pane in &panes[1..] {
+            fold(&mut app, *pane);
+        }
+        let screen = draw(&app, 100, 23);
+        assert_eq!(
+            app.title_hits
+                .borrow()
+                .iter()
+                .find(|hit| hit.pane == Pane::Detail)
+                .unwrap()
+                .area
+                .x,
+            91
+        );
+        assert!(!screen.iter().any(|line| line.contains("SECRET")));
+        fold(&mut app, Pane::Rows);
+        let screen = draw(&app, 100, 23);
+        assert!(
+            screen
+                .iter()
+                .any(|line| line.starts_with("▸ rows ▸ detail"))
+        );
+        assert!(app.hits.borrow().is_empty());
+        assert_eq!(app.focused_pane(), None);
+        for (w, h) in [(20, 9), (10, 6), (3, 4), (1, 1), (0, 0)] {
+            draw(&app, w, h);
+            let hits = app.title_hits.borrow();
+            for (i, hit) in hits.iter().enumerate() {
+                assert!(hit.area.right() <= w && hit.area.bottom() <= h);
+                for other in &hits[..i] {
+                    assert!(hit.area.intersection(other.area).is_empty());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn title_clicks_bypass_row_bindings_overlays_and_double_click_history() {
+        let mut app = paned(
+            split(
+                Direction::TopBottom,
+                vec![Pane::Rows, Pane::Detail],
+                vec![50, 50],
+            ),
+            Notes::NotShown,
+        );
+        app.view.as_mut().unwrap().bindings.extend([
+            (
+                "click".into(),
+                crate::action::Action::parse("refresh").unwrap(),
+            ),
+            (
+                "double-click".into(),
+                crate::action::Action::parse("refresh").unwrap(),
+            ),
+        ]);
+        draw(&app, 80, 23);
+        let selected = app.selected;
+        app.help = true;
+        click_title(&mut app, Pane::Detail);
+        assert!(app.collapsed_panes().is_empty());
+        app.help = false;
+        click_title(&mut app, Pane::Rows);
+        assert_eq!(app.selected, selected);
+        draw(&app, 80, 23);
+        assert!(app.hits.borrow().is_empty());
+        click_title(&mut app, Pane::Rows);
+        draw(&app, 80, 23);
+        let hit = app.hits.borrow()[0];
+        let result = app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: hit.x,
+                row: hit.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            std::time::Instant::now(),
+        );
+        assert_eq!(
+            result,
+            Effect::Refresh,
+            "title clicks never become a row action"
+        );
+    }
+
+    #[test]
+    fn fold_preserves_scroll_and_the_borderless_single_pane_path() {
+        let mut app = paned(
+            split(
+                Direction::LeftRight,
+                vec![Pane::Rows, Pane::Notes],
+                vec![60, 40],
+            ),
+            Notes::Text(
+                (0..100)
+                    .map(|n| format!("line {n}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
+        );
+        draw(&app, 80, 23);
+        app.scrolls
+            .scroll(Pane::Notes, super::super::scroll::Step::Lines(12));
+        fold(&mut app, Pane::Notes);
+        draw(&app, 80, 23);
+        fold(&mut app, Pane::Notes);
+        draw(&app, 80, 23);
+        assert_eq!(app.scrolls.offset(Pane::Notes), 12);
+        let mut app = paned(
+            split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
+            Notes::NotShown,
+        );
+        let before = draw(&app, 60, 12);
+        assert!(app.title_hits.borrow().is_empty());
+        fold(&mut app, Pane::Rows);
+        assert_eq!(draw(&app, 60, 12)[2], "▸ rows");
+        click_title(&mut app, Pane::Rows);
+        assert_eq!(draw(&app, 60, 12), before);
+        assert!(app.title_hits.borrow().is_empty());
+    }
+
+    #[test]
+    fn folded_rows_clear_visual_positions_and_resume_wrapped_paging_after_expansion() {
+        let mut app = board(json!([{ "title": null, "rows": [
+            row("a", "", "alpha beta gamma delta", json!({})),
+            row("b", "", "alpha beta gamma delta", json!({})),
+            row("c", "", "alpha beta gamma delta", json!({})),
+            row("d", "", "alpha beta gamma delta", json!({})),
+        ] }]));
+        let view = app.view.as_mut().unwrap();
+        view.board = split(
+            Direction::TopBottom,
+            vec![Pane::Rows, Pane::Detail],
+            vec![50, 50],
+        );
+        view.rows = rows_from(
+            r#"[p.rows]
+columns = [{ name = "member", width = "30%" },
+           { name = "task", width = "70%", overflow = "wrap", max_lines = 2 }]
+"#,
+        );
+        app.selected = 1;
+        draw(&app, 20, 10);
+        assert_eq!(*app.row_starts.borrow(), [1, 3, 5, 7]);
+        fold(&mut app, Pane::Rows);
+        draw(&app, 20, 10);
+        assert!(app.row_starts.borrow().is_empty());
+        app.key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        assert_eq!(app.selected, 1, "paging detail cannot move hidden rows");
+        fold(&mut app, Pane::Detail);
+        draw(&app, 20, 10);
+        assert_eq!(app.focused_pane(), None);
+        for key in [KeyCode::PageDown, KeyCode::Home, KeyCode::End] {
+            app.key(KeyEvent::new(key, KeyModifiers::NONE));
+            assert_eq!(
+                app.selected, 1,
+                "all-folded navigation cannot page stale rows"
+            );
+        }
+        fold(&mut app, Pane::Rows);
+        draw(&app, 20, 10);
+        assert_eq!(*app.row_starts.borrow(), [1, 3, 5, 7]);
+        assert_eq!(app.focused_pane(), Some(Pane::Rows));
+        app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+        app.key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        assert!(app.selected > 0, "expanded rows resume visual paging");
+    }
+
+    #[test]
+    fn footer_hints_are_conditional_and_effective_bindings_remain_visible() {
+        let mut app = paned(
+            split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
+            Notes::NotShown,
+        );
+        assert!(!hints(&app, usize::MAX).contains("d toggle"));
+        app.view.as_mut().unwrap().board = split(
+            Direction::TopBottom,
+            vec![Pane::Rows, Pane::Detail],
+            vec![60, 40],
+        );
+        assert!(hints(&app, usize::MAX).contains("d toggle detail"));
+        assert!(draw(&app, 48, 12)[11].contains("d toggle detail"));
+        app.view
+            .as_mut()
+            .unwrap()
+            .bindings
+            .insert("d".into(), crate::action::Action::parse("refresh").unwrap());
+        assert!(hints(&app, usize::MAX).contains("d refresh"));
+        assert!(
+            help_lines(&app)
+                .iter()
+                .any(|line| line.trim_end() == "d           refresh")
+        );
+    }
+    #[test]
+    fn folded_reply_age_never_invalidates_the_visible_frame() {
+        let mut app = paned(
+            split(
+                Direction::TopBottom,
+                vec![Pane::Rows, Pane::Replies],
+                vec![60, 40],
+            ),
+            Notes::NotShown,
+        );
+        app.view.as_mut().unwrap().replies = vec![json!({"submittedAtMs":40_000})];
+        assert!(!time_marks(&app, 60_000).is_empty());
+        fold(&mut app, Pane::Replies);
+        assert!(time_marks(&app, 60_000).is_empty());
+        fold(&mut app, Pane::Replies);
+        assert!(!time_marks(&app, 60_000).is_empty());
     }
 }

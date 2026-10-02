@@ -6,7 +6,7 @@ use crate::palette::Token;
 pub enum Mark {
     /// `●` running or active.
     Running,
-    /// `○` offline.
+    /// `○` offline or ended.
     Offline,
     /// `◌` bound to a pane with no agent running.
     Idle,
@@ -15,9 +15,9 @@ pub enum Mark {
     Resumable,
     /// `✓` done.
     Done,
-    /// `✗` failed.
+    /// `✗` failed or blocked.
     Failed,
-    /// `!` needs attention.
+    /// `!` warning.
     Warning,
     /// `◆` waits on the reader's decision, such as a squad member that owes
     /// the reader an answer.
@@ -46,6 +46,20 @@ impl Mark {
             Self::Failed => "✗",
             Self::Warning => "!",
             Self::Decision => "◆",
+        }
+    }
+
+    /// The canonical meaning registered in the design tokens.
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Running => "running or active",
+            Self::Offline => "offline or ended",
+            Self::Idle => "bound to a pane, no agent running",
+            Self::Resumable => "leads a resume action, never a row's state",
+            Self::Done => "done",
+            Self::Failed => "failed or blocked",
+            Self::Warning => "warning",
+            Self::Decision => "waits on your decision",
         }
     }
 

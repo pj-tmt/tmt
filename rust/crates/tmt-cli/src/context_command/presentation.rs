@@ -89,20 +89,29 @@ pub(super) fn extension_line(name: &str, summary: &Value) -> String {
     format!("Extension {name} (informational): {summary}\n")
 }
 
-pub(super) fn bounded_extensions(extensions: &[Contribution]) -> String {
+pub(super) fn bounded_prompt(count: u64, identity: &str, extensions: &[Contribution]) -> String {
+    // This is unacknowledged attention, not a count of unsent requests.
+    let incoming = if count == 0 {
+        String::new()
+    } else {
+        let identity = identity.replace('\'', "'\\''");
+        format!(
+            "Incoming X items: {count} unacknowledged; pull with tmt inbox --identity '{identity}' --json\n"
+        )
+    };
     let mut lines: Vec<String> = extensions
         .iter()
         .map(|item| extension_line(&item.extension, &json!(item.summary)))
         .collect();
-    let mut length: usize = lines.iter().map(String::len).sum();
+    let mut length: usize = incoming.len() + lines.iter().map(String::len).sum::<usize>();
     if length <= OUTPUT_LIMIT {
-        return lines.concat();
+        return incoming + &lines.concat();
     }
     while length + SHORTENED.len() > OUTPUT_LIMIT {
         let Some(line) = lines.pop() else { break };
         length -= line.len();
     }
-    lines.concat() + SHORTENED
+    incoming + &lines.concat() + SHORTENED
 }
 
 pub(super) fn bounded(mut document: Value, json_mode: bool) -> io::Result<String> {
@@ -146,15 +155,39 @@ mod tests {
                 summary: "☃".repeat(240),
             })
             .collect();
-        let text = bounded_extensions(&contributions);
+        let text = bounded_prompt(0, "identity", &contributions);
         assert!(text.len() <= OUTPUT_LIMIT);
         assert!(text.ends_with(SHORTENED));
         assert!(text.starts_with(&extension_line("ext0", &json!(contributions[0].summary))));
         assert_eq!(
-            bounded_extensions(&contributions[..1]),
+            bounded_prompt(0, "identity", &contributions[..1]),
             extension_line("ext0", &json!(contributions[0].summary))
         );
-        assert_eq!(bounded_extensions(&[]), "");
+        assert_eq!(bounded_prompt(0, "identity", &[]), "");
+    }
+
+    #[test]
+    fn prompt_incoming_attention_is_nonzero_only_and_survives_extension_truncation() {
+        assert_eq!(bounded_prompt(0, "recipient", &[]), "");
+        let line = "Incoming X items: 2 unacknowledged; pull with tmt inbox --identity 'recipient' --json\n";
+        assert_eq!(bounded_prompt(2, "recipient", &[]), line);
+        let contributions: Vec<_> = (0..20)
+            .map(|index| Contribution {
+                extension: format!("ext{index}"),
+                summary: "☃".repeat(240),
+            })
+            .collect();
+        let output = bounded_prompt(2, "recipient", &contributions);
+        assert!(output.starts_with(line));
+        assert!(output.ends_with(SHORTENED));
+        assert!(output.len() <= OUTPUT_LIMIT);
+        assert_eq!(output.matches("Incoming X items:").count(), 1);
+        assert!(bounded_prompt(1, "id'quote", &[]).contains("'id'\\''quote'"));
+        // No incoming attention preserves the existing escaped extension bytes.
+        assert_eq!(
+            bounded_prompt(0, "recipient", &contributions[..1]),
+            extension_line("ext0", &json!(contributions[0].summary))
+        );
     }
 
     #[test]

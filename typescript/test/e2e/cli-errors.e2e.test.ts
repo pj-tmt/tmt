@@ -19,7 +19,7 @@ function expectError(result: CliResult, exitCode: number, code: string): ErrorRe
   return output;
 }
 
-describe.sequential('single JSON command error boundary', () => {
+describe('single JSON command error boundary', { concurrent: false }, () => {
   it('preserves missing target and binding conflict exits without extra output', async () => {
     await withE2EFixture(async (fixture) => {
       expectError(await fixture.runJsonCli(['check', 'missing']), 3, 'NAME_NOT_FOUND');

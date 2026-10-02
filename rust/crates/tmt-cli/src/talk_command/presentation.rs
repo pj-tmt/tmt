@@ -14,11 +14,11 @@ pub(super) fn json_document(
     if !correlation.inbox {
         value["pane"] = correlation.pane.clone().into();
     }
-    if let Some(identity) = correlation.identity {
+    if let Some(identity) = &correlation.identity {
         value["identity"] =
             serde_json::json!({"name": identity.name, "canonicalName": identity.canonical_name});
         if correlation.inbox {
-            value["recipientIdentityId"] = identity.id.into();
+            value["recipientIdentityId"] = identity.id.clone().into();
         }
     }
     if let Some(response) = response {
@@ -30,6 +30,10 @@ pub(super) fn json_document(
         value["status"] = if correlation.inbox { "queued" } else { "sent" }.into();
         if correlation.offline {
             value["offline"] = true.into();
+        }
+        if correlation.explicit_inbox {
+            value["notification"] = "not_attempted".into();
+            value["waitingFor"] = "recipient_inbox_pull".into();
         }
     }
     if correlation.delivery_uncertain {
@@ -49,12 +53,13 @@ pub(super) fn unconfirmed_handoff(correlation: &Correlation) -> String {
 
 pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
     let correlation = report.correlation;
+    let completed = report.response.is_some();
     let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     let terminal = stdout.terminal();
     if mode.json {
         writeln!(stdout, "{}", json_document(correlation, report.response))?;
     } else {
-        if let Some(response) = report.response {
+        if let Some(response) = &report.response {
             let text = if correlation.inbox {
                 format!(
                     "Completed queued request {} for {}",
@@ -108,6 +113,11 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
                 ),
             )?;
         }
+        if correlation.explicit_inbox && !completed {
+            for hint in inbox_hints(&correlation) {
+                tmt_cli_style::message::hint(&mut stdout, terminal, &hint)?;
+            }
+        }
         tmt_cli_style::message::hint(
             &mut stdout,
             terminal,
@@ -118,4 +128,21 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
         )?;
     }
     Ok(0)
+}
+
+/// Commands use the retained recipient UUID, never a possibly reused display name.
+pub(super) fn inbox_hints(correlation: &Correlation) -> Vec<String> {
+    let mut hints =
+        vec!["no live notification was attempted; waiting for the recipient's inbox pull".into()];
+    if let Some(identity) = &correlation.identity {
+        hints.push(format!(
+            "recipient pull: tmt inbox --identity '{}' --json",
+            identity.id
+        ));
+        hints.push(format!(
+            "recipient inspection: tmt x show {} --incoming --identity '{}' --json",
+            correlation.request_id, identity.id
+        ));
+    }
+    hints
 }

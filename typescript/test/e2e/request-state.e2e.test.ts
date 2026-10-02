@@ -17,7 +17,7 @@ function cadence(fixture: E2EFixture): number {
   return counts[0];
 }
 
-describe.sequential('transactional live request bookkeeping', () => {
+describe('transactional live request bookkeeping', { concurrent: false }, () => {
   it('keeps overlapping same-pane waits independent through timeout and interruption', async () => {
     await withE2EFixture(
       async (fixture) => {

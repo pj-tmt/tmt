@@ -9,6 +9,7 @@ export interface ComponentMap {
     readonly name: string;
     readonly package?: string;
     readonly release?: boolean;
+    readonly releaseConsumers: readonly string[];
     readonly owns: readonly string[];
     readonly excludes: readonly string[];
     readonly migrations: readonly string[];
@@ -50,6 +51,8 @@ export interface NativeJobResults {
   readonly e2eShard2: string;
   readonly runtimeBuild: string;
   readonly packedInstall: string;
+  readonly macosRuntimeBuild: string;
+  readonly macosPackedInstall: string;
 }
 
 export interface E2eShardResults {
@@ -75,6 +78,7 @@ export function scopedChecks(
 export function nativeGatePasses(
   scope: string,
   results: NativeJobResults,
+  macos: string,
   map?: ComponentMap
 ): boolean;
 export function rustGatePasses(
@@ -90,8 +94,14 @@ export function renderSelectionEvidence(input: {
   readonly areas: CiAreas;
   readonly digest: string;
   readonly nativeScope?: string;
+  readonly range?: '..' | '...';
 }): string;
-export function readChangedCiSelection(base: string, head: string, cwd: string): CiSelection;
+export function readChangedCiSelection(
+  base: string,
+  head: string,
+  cwd: string,
+  range?: '..' | '...'
+): CiSelection;
 export function readChangedCiAreas(base: string, head: string, cwd: string): CiAreas;
 export function runCiScope(
   args: readonly string[],
@@ -106,3 +116,5 @@ export function ciGatePasses(selected: string, results: readonly string[]): bool
 export const NATIVE_OFFICE_UNREACHABLE: Readonly<
   Record<'tmt-adapters' | 'tmt-core', readonly string[]>
 >;
+
+export const RUST_WORKERS: readonly ['clippy', 'tests', 'office', 'process', 'msrv'];

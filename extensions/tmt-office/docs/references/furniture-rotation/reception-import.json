@@ -1,0 +1,39 @@
+{
+  "source": "armchair-source.png",
+  "sha256": "ca11464bfff446afe187e76bd3f1bd9fdd44a9d87c4c3f9aeb598363e998f2b8",
+  "size": [1254, 1254],
+  "label": "Directional reception",
+  "credit": "TMT · generated directional furniture artwork",
+  "output": "../../../contracts/directional-reception-v2.tmtprop.json",
+  "props": [
+    {
+      "key": "reception-armchair",
+      "label": "Workshop reception armchair",
+      "side": 96,
+      "sharedScale": true,
+      "crops": [
+        [113, 138, 576, 557],
+        [733, 688, 1143, 1109],
+        [110, 707, 573, 1106],
+        [751, 140, 1148, 557]
+      ]
+    },
+    {
+      "key": "reception-table",
+      "label": "Workshop reception coffee table",
+      "side": 128,
+      "sharedScale": true,
+      "sheet": {
+        "source": "table-source.png",
+        "sha256": "96485ad0697b127232a560e019879246d1411fbffd141d2cac20d5f6396eab09",
+        "size": [1254, 1254]
+      },
+      "crops": [
+        [76, 213, 629, 468],
+        [817, 133, 1115, 488],
+        [76, 812, 629, 1065],
+        [817, 733, 1115, 1088]
+      ]
+    }
+  ]
+}

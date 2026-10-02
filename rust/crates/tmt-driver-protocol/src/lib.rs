@@ -52,6 +52,7 @@ pub enum Op {
     Clear,
     Capture,
     Input,
+    Prompt,
     Focus,
 }
 
@@ -67,7 +68,7 @@ const SMALL: usize = 4 * 1024;
 const LARGE: usize = 1024 * 1024;
 
 impl Op {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Capabilities,
         Self::Caller,
         Self::Server,
@@ -78,6 +79,7 @@ impl Op {
         Self::Clear,
         Self::Capture,
         Self::Input,
+        Self::Prompt,
         Self::Focus,
     ];
 
@@ -94,6 +96,7 @@ impl Op {
             Self::Clear => "clear",
             Self::Capture => "capture",
             Self::Input => "input",
+            Self::Prompt => "prompt",
             Self::Focus => "focus",
         }
     }
@@ -114,7 +117,7 @@ impl Op {
             | Self::Clear
             | Self::Focus => (300, SMALL),
             Self::Snapshot | Self::Probe | Self::Capture => (2000, LARGE),
-            Self::Input => (2000, SMALL),
+            Self::Input | Self::Prompt => (2000, SMALL),
         };
         OpLimits {
             deadline: Duration::from_millis(millis),

@@ -83,19 +83,16 @@ jobs:
           LIVE: ${{ steps.mode.outputs.live }}
         run: |
           set -o pipefail
-          dry=--dry-run
+          dry=" (dry run)"
           if [ "$LIVE" = true ]; then dry=; fi
           for command in release-pr github-release; do
-            printf '### release-please %s%s\n\n```\n' "$command" "${dry:+ (dry run)}" >> "$GITHUB_STEP_SUMMARY"
-            # The config and manifest paths are in the repository: release-please reads them from
-            # the target branch through the API, not from this checkout. $dry is empty or one flag.
-            # shellcheck disable=SC2086
-            pnpm exec release-please "$command" $dry \
-              --token "$RELEASE_TOKEN" \
-              --repo-url "$GITHUB_REPOSITORY" \
-              --target-branch main \
-              --config-file release-please-config.json \
-              --manifest-file .release-please-manifest.json 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+            if [ "$command" = release-pr ]; then
+              decision=$(node ../../typescript/scripts/release-please-queue.mjs)
+              if [ "$decision" = skip ]; then continue; fi
+            fi
+            printf '### release-please %s%s\n\n```\n' "$command" "$dry" >> "$GITHUB_STEP_SUMMARY"
+            # The wrapper uses the pinned API; config, manifest and component map come from main.
+            node ../../typescript/scripts/release-please-run.mjs "$command" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
             printf '```\n\n' >> "$GITHUB_STEP_SUMMARY"
           done
       # Release pull requests merge through the normal required checks, never around them.

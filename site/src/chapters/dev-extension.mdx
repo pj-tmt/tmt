@@ -42,16 +42,17 @@ If you want completion, handle one extra call. tmt runs `tmt-<name> __complete -
 Never open tmt's database yourself. Use the same doors as any other program:
 
 - **Ordinary commands with `--json`** for anything a person would also run: `whoami`, `identity show`, `list`, `room show`, `x`, `reply`, `result`.
-- **`tmt api`** for machine-shaped work: one versioned JSON request on stdin, one JSON answer on stdout. The full contract is in [docs/extension-api.md](https://github.com/wkh237/tmt/blob/main/docs/extension-api.md).
+- **`tmt api`** for machine-shaped work: one versioned JSON request on stdin, one JSON answer on stdout. The full contract is in [contracts/extension-api.md](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md).
 
 <Cmd>{`
 $ printf '%s' '{"version":1,"operation":"capabilities","input":{}}' | "$TMT_EXECUTABLE" api
-{"version":1,"supported":{"min":1,"max":1},"operations":["capabilities","requests.list",
- "requests.show","dispatch.show","dispatch.create","rooms.write","rooms.roster","notes.read", ...]}
+{"version":1,"supported":{"min":1,"max":1},"operations":["capabilities","storage.root",
+ "changes.cursor","requests.list","requests.show","dispatch.show","dispatch.create", ...],...}
 `}</Cmd>
 
 | Operation            | Use it to                                                                                                                                          |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| storage.root         | Find tmt's data directory. Keep your own files under `<dataRoot>/<your-name>/`, and never open tmt's database or settings.                         |
 | requests.list / show | Page through request history for an agent or room, and read one request with its reply. Reading never marks anything as read.                      |
 | dispatch.create      | Send work to one or more agents. You choose an `operationId` first; sending the same one again returns the original receipt and never sends twice. |
 | dispatch.show        | Recover the receipt for an `operationId` after a crash or timeout.                                                                                 |
@@ -61,9 +62,11 @@ $ printf '%s' '{"version":1,"operation":"capabilities","input":{}}' | "$TMT_EXEC
 These are the main ones; `capabilities` lists every operation the installed tmt supports.
 
 <Aside title="Writes name who's writing.">
-  <code>dispatch.create</code> and <code>rooms.write</code> take an <code>identity</code>. This is a
-  local interface for the same user, not a security boundary: it records who acted and grants
-  nothing extra.
+  Writes (<code>dispatch.create</code>, <code>rooms.write</code> and <code>rooms.retire</code>) name
+  one originator: an <code>identity</code>, or <code>"originator":"anonymous"</code> to store no
+  writer, exactly like the CLI without <code>--identity</code>. Naming both or neither is refused.
+  This is a local interface for the same user, not a security boundary: it records who acted and
+  grants nothing extra.
 </Aside>
 
 ### A complete example
@@ -74,9 +77,8 @@ These are the main ones; `capabilities` lists every operation the installed tmt 
 set -e
 if [ "$1" = "__complete" ]; then printf '%s\\n' --loud; exit 0; fi
 if [ "$1" = "--help" ]; then echo "usage: tmt hello [--loud]"; exit 0; fi
-
-me=$("$TMT*EXECUTABLE" whoami --json) # fails clearly outside a named pane
-greeting="hello from $(printf '%s' "$me" | sed -n 's/.*"name":"\\([^"]\_\\)".\*/\\1/p')"
+me=$("$TMT_EXECUTABLE" whoami --json) # fails clearly outside a named pane
+greeting="hello from $(printf '%s' "$me" | sed -n 's/.*"name":"\\([^"]*\\)".*/\\1/p')"
 [ "$1" = "--loud" ] && greeting=$(printf '%s' "$greeting" | tr a-z A-Z)
 echo "$greeting"
 `}</Code>
@@ -87,8 +89,10 @@ An extension on PATH runs only when someone invokes it. To react when identities
 
 <Cmd>{`
 $ tmt extension hooks enable hello    # trust tmt-hello on PATH
-$ tmt extension hooks list
+$ tmt extension hooks ls
 $ tmt extension hooks disable hello
 `}</Cmd>
 
-Enabling requires an executable the user owns that no one else can modify, and records exactly that file; after an upgrade or any change, the user enables it again. Hooks receive only IDs and states, never names or messages, and can't block or change a command. An extension with hooks enabled can also add one labelled, informational line to `tmt whoami --context` and to the context agents receive at start. The event and field contract is in [docs/extension-api.md](https://github.com/wkh237/tmt/blob/main/docs/extension-api.md).
+Enabling requires an executable the user owns, with neither the file nor its directory writable by anyone else, and records exactly that file; after an upgrade or any change, the user enables it again. After a command has committed, tmt runs `tmt-<name> __tmt-hooks 1 observe` with the events (an identity or a room created, renamed or retired) as JSON on stdin. Hooks receive only IDs and states, never names or messages, and can't block or change a command. Treat an event as a nudge to look again: events can be dropped or repeated.
+
+An extension with hooks enabled can also add one informational line, at most 240 characters, to `tmt whoami --context`, to the context an agent receives when a session starts and, once `tmt setup` has installed the prompt hook, to the context of each prompt. tmt names the extension and labels the line `(informational)`, so never phrase it as an instruction. The event and field contract is in [contracts/extension-api.md](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md).

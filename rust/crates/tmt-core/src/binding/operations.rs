@@ -51,36 +51,61 @@ pub fn bind_identity_with_creation_at<R: BindingRepository, O: BindingEndpoint>(
     name: &str,
     save: bool,
 ) -> Result<BoundIdentity, BindingError<R::Error, O::Error>> {
+    bind_with_origin(repository, endpoint, pane_id, target, name, save, false)
+}
+
+/// Only the launcher may create an identity with automatic-name provenance.
+pub fn bind_auto_identity<R: BindingRepository, O: BindingEndpoint>(
+    repository: &mut R,
+    endpoint: &mut O,
+    pane_id: &str,
+    name: &str,
+    save: bool,
+) -> Result<BoundIdentity, BindingError<R::Error, O::Error>> {
+    bind_with_origin(repository, endpoint, pane_id, None, name, save, true)
+}
+
+fn bind_with_origin<R: BindingRepository, O: BindingEndpoint>(
+    repository: &mut R,
+    endpoint: &mut O,
+    pane_id: &str,
+    target: Option<&BindingTargetEvidence>,
+    name: &str,
+    save: bool,
+    auto_named: bool,
+) -> Result<BoundIdentity, BindingError<R::Error, O::Error>> {
     endpoint.begin_coordination();
     let preflight = endpoint
         .current_snapshot(&[pane_id.into()])
         .map_err(BindingError::Endpoint)?;
     target_pane(&preflight, pane_id, target)?;
-    // Reconcile only the requested old name before creation. Conclusively lost
-    // temporary identities release their name; create_or_resolve then allocates
-    // a new UUID instead of resurrecting that old identity's history.
-    repository.with_binding_transaction(|records| {
-        endpoint.begin_coordination();
-        if let Some(entry) = named_entry(records, name)? {
-            let probe = observe(endpoint, &entry).map_err(BindingError::Endpoint)?;
-            if entry.binding.is_some()
-                && evaluate_binding(&entry, &probe) == BindingEvidence::Unknown
-            {
-                return Err(BindingError::Unverified);
+    // A generated-name collision must not reconcile somebody else's identity.
+    // Explicit names retain their normal stale-binding reconciliation.
+    if !auto_named {
+        repository.with_binding_transaction(|records| {
+            endpoint.begin_coordination();
+            if let Some(entry) = named_entry(records, name)? {
+                let probe = observe(endpoint, &entry).map_err(BindingError::Endpoint)?;
+                if entry.binding.is_some()
+                    && evaluate_binding(&entry, &probe) == BindingEvidence::Unknown
+                {
+                    return Err(BindingError::Unverified);
+                }
+                reconcile(records, entry, &probe)?;
             }
-            reconcile(records, entry, &probe)?;
-        }
-        deadline(endpoint)
-    })?;
-    let created = identity::create_or_resolve(
-        repository,
-        name,
-        if save {
-            Lifetime::Saved
-        } else {
-            Lifetime::Temporary
-        },
-    )
+            deadline(endpoint)
+        })?;
+    }
+    let lifetime = if save {
+        Lifetime::Saved
+    } else {
+        Lifetime::Temporary
+    };
+    let created = if auto_named {
+        identity::create_auto_named(repository, name, lifetime)
+    } else {
+        identity::create_or_resolve(repository, name, lifetime)
+    }
     .map_err(|error| match error {
         IdentityError::InvalidName(error) => BindingError::InvalidName(error),
         IdentityError::Repository(error) => BindingError::Repository(error),
@@ -378,5 +403,83 @@ pub fn rename_identity<R: BindingRepository, O>(
             identity,
             binding: entry.binding,
         })
+    })
+}
+
+/// Name only the verified caller's auto-named identity. Verification, collision
+/// checks, promotion and provenance consumption share one write transaction.
+/// Ordinary panes return None and retain the existing bind policy.
+pub fn name_auto_identity<R: BindingRepository, O: BindingEndpoint>(
+    repository: &mut R,
+    endpoint: &mut O,
+    pane_id: &str,
+    new: &str,
+    save: bool,
+) -> Result<Option<BoundIdentity>, BindingError<R::Error, O::Error>> {
+    let name = crate::names::validate_name(new).map_err(BindingError::InvalidName)?;
+    repository.with_binding_transaction(|records| {
+        endpoint.begin_coordination();
+        let snapshot = endpoint
+            .current_snapshot(&[pane_id.into()])
+            .map_err(BindingError::Endpoint)?;
+        target_pane(&snapshot, pane_id, None)?;
+        let Some(entry) =
+            records.entry_by_pane(snapshot.server.host, pane_id, &snapshot.server.server_id)?
+        else {
+            return Ok(None);
+        };
+        if !records.is_auto_named(&entry.identity.id)? {
+            return Ok(None);
+        }
+        let BindingEvidence::Active(pane) =
+            evaluate_binding(&entry, &EndpointProbe::Live(snapshot))
+        else {
+            return Err(BindingError::Unverified);
+        };
+        if records
+            .find_identity(name.canonical_name())?
+            .is_some_and(|other| other.id != entry.identity.id)
+        {
+            return Err(BindingError::NameTaken(name.display_name().into()));
+        }
+        let mut identity = records.rename_identity(&entry.identity, &name)?;
+        if save && identity.lifetime == Lifetime::Temporary {
+            identity = records.save_identity(&identity)?;
+        }
+        deadline(endpoint)?;
+        Ok(Some(BoundIdentity {
+            presence: IdentityPresence {
+                identity,
+                binding: entry.binding,
+                presence: Presence::Active,
+                pane: Some(*pane),
+            },
+            created: false,
+        }))
+    })
+}
+
+/// A spawn failed before any child existed. Retire only this exact unchanged
+/// temporary automatic binding, never a replacement or a saved identity.
+pub fn retire_failed_auto_launch<R: BindingRepository, O: BindingEndpoint>(
+    repository: &mut R,
+    endpoint: &mut O,
+    binding: &Binding,
+) -> Result<(), BindingError<R::Error, O::Error>> {
+    repository.with_binding_transaction(|records| {
+        let Some(entry) = records.entry_by_id(&binding.identity_id)? else {
+            return Ok(());
+        };
+        if entry.identity.lifetime != Lifetime::Temporary
+            || entry.binding.as_ref() != Some(binding)
+            || !records.is_auto_named(&entry.identity.id)?
+        {
+            return Ok(());
+        }
+        endpoint.begin_coordination();
+        let probe = observe(endpoint, &entry).map_err(BindingError::Endpoint)?;
+        clear_observed(endpoint, &entry, &evaluate_binding(&entry, &probe))?;
+        records.retire_identity(&entry.identity, true)?;
+        deadline(endpoint)
     })
 }

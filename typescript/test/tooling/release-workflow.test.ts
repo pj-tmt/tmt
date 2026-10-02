@@ -229,20 +229,29 @@ describe('release workflow (release.yml)', () => {
     expect(release.match(/^ {4}environment:/gm)).toHaveLength(1);
   });
 
-  it('runs release-please as the pinned CLI, and as a dry run unless the run is live', () => {
+  it('runs the pinned release-please API wrapper with the mode gate result', () => {
     const releasePlease = job(release, 'release-please');
     expect(releasePlease).toContain('pnpm install --frozen-lockfile --ignore-scripts');
     expect(releasePlease).toContain('working-directory: .github/release-please');
     expect(releasePlease).toContain('for command in release-pr github-release; do');
-    expect(releasePlease).toContain('dry=--dry-run');
-    expect(releasePlease).toContain('if [ "$LIVE" = true ]; then dry=; fi');
+    expect(releasePlease).toContain('LIVE: ${{ steps.mode.outputs.live }}');
     expect(releasePlease).toContain('set -o pipefail');
-    // release-please reads both files from the target branch through the API, not from here.
-    expect(releasePlease).toContain('--config-file release-please-config.json');
-    expect(releasePlease).toContain('--manifest-file .release-please-manifest.json');
-    expect(releasePlease).not.toContain('../');
-    expect(releasePlease).toContain('--target-branch main');
+    expect(releasePlease).toContain(
+      'node ../../typescript/scripts/release-please-run.mjs "$command"'
+    );
+    // Candidate construction and dry/live mutation controls are exercised by release-config tests.
     expect(releasePlease).not.toMatch(/googleapis\/release-please-action/);
+  });
+
+  it('installs the isolated release pin only in CI jobs that run release-config tests', () => {
+    const ci = read('.github/workflows/ci.yml');
+    const consumers = [...jobs(ci)]
+      .filter(([, text]) => text.includes('working-directory: .github/release-please'))
+      .map(([name, text]) => {
+        expect(text).toContain('run: pnpm install --frozen-lockfile --ignore-scripts');
+        return name;
+      });
+    expect(consumers).toEqual(['code-quality', 'unit-tests']);
   });
 
   it('merges release pull requests through the required checks and never around them', () => {
@@ -328,7 +337,7 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
     expect(upgrade).toMatch(/type: choice\n {8}options:\n {10}- cli\n {10}- office\n {10}- squad/);
     // The publication run reads the outcome and the reason, whatever the run's own result is.
     expect(upgrade).toMatch(
-      /^ {4}outputs:\n {6}outcome:\n(?: {8}[^\n]*\n)* {8}value: \$\{\{ jobs\.fetch\.outputs\.outcome \}\}\n {6}reason:\n(?: {8}[^\n]*\n)* {8}value: \$\{\{ jobs\.fetch\.outputs\.reason \}\}\n/m
+      /^ {4}outputs:\n {6}outcome:\n(?: {8}[^\n]*\n)* {8}value: \$\{\{ jobs\.fetch\.outputs\.outcome \}\}\n {6}reason:\n(?: {8}[^\n]*\n)* {8}value: \$\{\{ jobs\.conclude\.outputs\.reason \}\}\n/m
     );
   });
 
@@ -367,6 +376,31 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
     expect(fetch).toContain('actions/upload-artifact@');
     expect(prove).toContain('actions/download-artifact@');
     expect(prove).toContain(`name: ${name}`);
+  });
+
+  it('names why a host failed from its log, as data, without a flag the release commit may lack', () => {
+    const prove = job(upgrade, 'prove');
+    const conclude = job(upgrade, 'conclude');
+    // The release commit's own script runs the proof: only the flags every commit has reach it, and
+    // the log is kept by the step around it.
+    const call =
+      /node typescript\/scripts\/release-upgrade\.mjs prove[^\n]*\n[^\n]*\n/.exec(prove)?.[0] ?? '';
+    expect(call).not.toMatch(/--failure|--reason|--log/);
+    expect(prove).toContain('set -o pipefail');
+    expect(prove).toContain('2>&1 | tee "$RUNNER_TEMP/upgrade-proof.log"');
+    expect(prove).toMatch(
+      /if: failure\(\)\n {8}uses: actions\/upload-artifact@v4\n {8}with:\n {10}name: upgrade-proof-log-\$\{\{ matrix\.target \}\}/
+    );
+    // The conclusion runs this repository's code on the default ref and only reads the logs.
+    expect(conclude).toMatch(/^ {4}permissions:\n {6}contents: read\n/m);
+    expect(conclude).not.toMatch(/ref:|GH_TOKEN|contents: write/);
+    expect(conclude).toContain('pattern: upgrade-proof-log-*');
+    expect(conclude).toContain(
+      'release-upgrade.mjs reason --directory "$RUNNER_TEMP/upgrade-logs"'
+    );
+    expect(conclude).toContain(
+      'reason: ${{ steps.failure.outputs.reason || needs.fetch.outputs.reason }}'
+    );
   });
 
   it('runs the proof from the commit of the release, and says when that commit predates it', () => {

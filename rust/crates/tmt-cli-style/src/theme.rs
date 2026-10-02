@@ -1,12 +1,14 @@
 //! Color themes: what each color role looks like, for the command line and
 //! full-screen views alike. The roles and the built-in values are the design
-//! tokens (`site/src/design/tokens.json`, checked against this file by a
+//! tokens (`design/tokens/tokens.json`, checked against this file by a
 //! test); a theme is a base plus per-role overrides. Nothing outside this
 //! crate names a literal color: callers ask a [`Theme`] for a role's style at
 //! the [`Depth`] their stream supports.
 
 use anstyle::{AnsiColor, Color, Effects, RgbColor, Style};
 use std::fmt;
+
+pub mod background;
 
 /// What a color means. Every state also shows as a mark or a word, so a
 /// role never carries meaning by color alone.
@@ -211,6 +213,8 @@ impl Paint {
 /// A built-in theme.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Base {
+    /// Match a detected terminal background, falling back to the dark palette.
+    Auto,
     /// Soft truecolor for dark terminals; the default.
     Tmt,
     /// The same palette for light backgrounds.
@@ -222,10 +226,17 @@ pub enum Base {
 }
 
 impl Base {
-    pub const ALL: [Self; 4] = [Self::Tmt, Self::TmtLight, Self::Terminal, Self::Mono];
+    pub const ALL: [Self; 5] = [
+        Self::Auto,
+        Self::Tmt,
+        Self::TmtLight,
+        Self::Terminal,
+        Self::Mono,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
+            Self::Auto => "auto",
             Self::Tmt => "tmt",
             Self::TmtLight => "tmt-light",
             Self::Terminal => "terminal",
@@ -233,8 +244,28 @@ impl Base {
         }
     }
 
+    /// A short description shared by theme lists and pickers.
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Auto => "match your terminal (light or dark)",
+            Self::Tmt => "soft truecolor for dark terminals",
+            Self::TmtLight => "the same palette for light terminals",
+            Self::Terminal => "your terminal's own 16 colors",
+            Self::Mono => "bold and dim only",
+        }
+    }
+
     pub fn parse(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|base| base.name() == name)
+    }
+
+    /// Resolve only an automatic choice; concrete bases always win.
+    pub fn resolve(self, background: Option<background::Background>) -> Self {
+        match (self, background) {
+            (Self::Auto, Some(background::Background::Light)) => Self::TmtLight,
+            (Self::Auto, _) => Self::Tmt,
+            (base, _) => base,
+        }
     }
 
     /// The design tokens' terminal column: what `terminal` shows, and what
@@ -243,7 +274,7 @@ impl Base {
         match role {
             Role::Text => Paint::Plain,
             Role::Muted => Paint::Ansi(AnsiColor::White),
-            Role::Dim => Paint::Ansi(AnsiColor::BrightBlack),
+            Role::Dim => Paint::Dimmed,
             Role::Accent => Paint::Ansi(AnsiColor::Blue),
             Role::Waiting => Paint::Ansi(AnsiColor::Yellow),
             Role::Working => Paint::Ansi(AnsiColor::Green),
@@ -283,7 +314,7 @@ impl Base {
 
     fn paint(self, role: Role) -> Paint {
         match self {
-            Self::Tmt => Self::truecolor(role, false),
+            Self::Auto | Self::Tmt => Self::truecolor(role, false),
             Self::TmtLight => Self::truecolor(role, true),
             Self::Terminal => Self::terminal(role),
             Self::Mono => Self::mono(role),
@@ -339,8 +370,9 @@ impl Theme {
                 message,
             };
             if key == "base" {
-                theme.base = Base::parse(value)
-                    .ok_or_else(|| error("must be tmt, tmt-light, terminal or mono.".to_owned()))?;
+                theme.base = Base::parse(value).ok_or_else(|| {
+                    error("must be auto, tmt, tmt-light, terminal or mono.".to_owned())
+                })?;
             } else {
                 let role = Role::parse(key).ok_or_else(|| {
                     error(format!(
@@ -364,6 +396,13 @@ impl Theme {
         Ok(theme)
     }
 
+    /// Resolve an automatic base without changing any token overrides.
+    /// Detection is supplied by the caller; rendering never reads the terminal.
+    pub fn resolve(mut self, background: Option<background::Background>) -> Self {
+        self.base = self.base.resolve(background);
+        self
+    }
+
     /// This theme with one role changed, as a per-squad override does.
     pub fn with(mut self, role: Role, paint: Paint) -> Self {
         self.overrides[role.index()] = Some(paint);
@@ -377,7 +416,7 @@ impl Theme {
         match (self.base, depth) {
             // A 16-color terminal gets the designed fallback, not the
             // nearest shade of a truecolor value.
-            (Base::Tmt | Base::TmtLight, Depth::Ansi16) => Base::terminal(role),
+            (Base::Auto | Base::Tmt | Base::TmtLight, Depth::Ansi16) => Base::terminal(role),
             (base, _) => base.paint(role),
         }
     }

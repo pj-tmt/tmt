@@ -1,0 +1,33 @@
+{
+  "source": "04-mounted-functional-source.png",
+  "sha256": "2bbe7815dcf5ba26d217d267e0ee4d3da70cffc0b16b42977dbe4336bf5a1e6c",
+  "size": [1254, 1254],
+  "label": "Modular wall objects",
+  "output": "../../../../contracts/modular-mounted-v2.tmtprop.json",
+  "props": [
+    {
+      "key": "mounted-window",
+      "label": "Workshop celestial window",
+      "side": 128,
+      "crops": [[39, 132, 362, 329]]
+    },
+    {
+      "key": "mounted-sconce",
+      "label": "Workshop brass sconce",
+      "side": 48,
+      "crops": [[1068, 132, 1149, 325]]
+    },
+    {
+      "key": "mounted-frame",
+      "label": "Workshop picture frame",
+      "side": 64,
+      "crops": [[64, 414, 302, 632]]
+    },
+    {
+      "key": "mounted-shelf",
+      "label": "Workshop planted shelf",
+      "side": 80,
+      "crops": [[958, 434, 1236, 662]]
+    }
+  ]
+}

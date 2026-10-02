@@ -1,4 +1,80 @@
 use super::*;
+use crate::mark::Mark;
+
+fn design_tokens() -> serde_json::Value {
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../design/tokens/tokens.json");
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+fn registered_marks(tokens: &serde_json::Value) -> Result<(), String> {
+    let marks = tokens["mark"].as_object().unwrap();
+    for mark in Mark::ALL {
+        if marks.get(mark.symbol()).and_then(serde_json::Value::as_str) != Some(mark.description())
+        {
+            return Err(format!(
+                "{mark:?} must register {:?}: {:?}",
+                mark.symbol(),
+                mark.description()
+            ));
+        }
+    }
+    for symbol in ["✎", "‹ ›", "▸"] {
+        if !marks.contains_key(symbol) {
+            return Err(format!("missing board-only mark {symbol}"));
+        }
+    }
+    for (symbol, meaning) in marks {
+        if Mark::ALL.into_iter().any(|mark| mark.symbol() == symbol) {
+            continue;
+        }
+        let meaning = meaning.as_str().unwrap_or_default();
+        if !meaning.contains("board only") && !meaning.contains("board meter only") {
+            return Err(format!("{symbol} must be labelled board only"));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn every_mark_is_registered_with_its_canonical_meaning() {
+    registered_marks(&design_tokens()).unwrap();
+}
+
+#[test]
+fn mark_registry_rejects_missing_or_changed_shared_meanings() {
+    let tokens = design_tokens();
+    registered_marks(&tokens).unwrap();
+    for mark in Mark::ALL {
+        let mut missing = tokens.clone();
+        missing["mark"]
+            .as_object_mut()
+            .unwrap()
+            .remove(mark.symbol());
+        assert!(registered_marks(&missing).is_err(), "missing {mark:?}");
+        let mut changed = tokens.clone();
+        changed["mark"][mark.symbol()] = "an unrelated meaning".into();
+        assert!(registered_marks(&changed).is_err(), "changed {mark:?}");
+    }
+}
+
+#[test]
+fn board_only_marks_are_registered_without_shared_variants() {
+    let mut tokens = design_tokens();
+    tokens["mark"]["≥"] = "board meter only: a known lower bound".into();
+    registered_marks(&tokens).unwrap();
+    for symbol in ["✎", "‹ ›", "▸", "≥"] {
+        assert!(!Mark::ALL.into_iter().any(|mark| mark.symbol() == symbol));
+        let mut changed = tokens.clone();
+        changed["mark"][symbol] = "a board mark without its scope label".into();
+        assert!(registered_marks(&changed).is_err(), "unlabelled {symbol}");
+    }
+    for symbol in ["✎", "‹ ›", "▸"] {
+        let mut missing = tokens.clone();
+        missing["mark"].as_object_mut().unwrap().remove(symbol);
+        assert!(registered_marks(&missing).is_err(), "missing {symbol}");
+    }
+}
 
 #[test]
 fn roles_and_bases_are_named_as_the_design_tokens() {
@@ -170,7 +246,7 @@ fn mistakes_name_the_setting() {
     };
     assert_eq!(
         error(&[("base", "dark")]),
-        "`squad.product.theme.base` must be tmt, tmt-light, terminal or mono."
+        "`squad.product.theme.base` must be auto, tmt, tmt-light, terminal or mono."
     );
     assert!(error(&[("error", "red")]).starts_with(
         "`squad.product.theme.error` is not a theme setting; use base or a token: text, muted,"
@@ -185,10 +261,7 @@ fn mistakes_name_the_setting() {
 /// never drift apart.
 #[test]
 fn built_in_values_match_the_design_tokens() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../site/src/design/tokens.json");
-    let tokens: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let tokens = design_tokens();
     let colors = tokens["color"].as_object().unwrap();
     let names: Vec<&str> = colors.keys().map(String::as_str).collect();
     let mut expected: Vec<&str> = Role::ALL.map(Role::name).to_vec();
@@ -226,7 +299,8 @@ fn screens_get_the_same_style() {
     let selected = screen::style(&tmt, Role::Selection, Depth::TrueColor);
     assert_eq!(selected.bg, Some(ScreenColor::Rgb(0x28, 0x34, 0x57)));
     let dim = screen::style(&tmt, Role::Dim, Depth::Ansi16);
-    assert_eq!(dim.fg, Some(ScreenColor::DarkGray));
+    assert_eq!(dim.fg, None);
+    assert!(dim.add_modifier.contains(Modifier::DIM));
     let mono = screen::style(&Theme::new(Base::Mono), Role::Blocked, Depth::TrueColor);
     assert!(mono.add_modifier.contains(Modifier::BOLD));
     assert_eq!(mono.fg, None);
@@ -256,10 +330,7 @@ fn command_line_tokens_have_their_design_token() {
 /// representative terminal backgrounds. Selection itself is a background.
 #[test]
 fn design_tokens_keep_text_readable_on_board_backgrounds() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../site/src/design/tokens.json");
-    let tokens: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let tokens = design_tokens();
     let luminance = |hex: &str| {
         let Paint::Rgb(r, g, b) = Paint::parse(hex).unwrap() else {
             panic!("expected an RGB token: {hex}");

@@ -311,7 +311,7 @@ async function exerciseBoundMockPane(
   });
 }
 
-describe.sequential('grouped and linked tmux pane identity evidence', () => {
+describe('grouped and linked tmux pane identity evidence', { concurrent: false }, () => {
   it('deduplicates grouped-session caller evidence for a cold stripped descendant', async () => {
     await withObservableCleanup(async (fixture) => {
       const trace = installTmuxTrace(fixture);

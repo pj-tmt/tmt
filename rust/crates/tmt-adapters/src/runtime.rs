@@ -13,6 +13,7 @@ use tmt_core::{
 };
 
 pub mod channel;
+pub mod consumption;
 pub mod driver_state;
 pub(crate) mod evidence;
 pub mod hook_protocol;
@@ -361,6 +362,15 @@ impl RuntimeRegistry {
     pub fn remembered_usage(&self, session: &RememberedSession) -> Option<driver_state::Usage> {
         self.lifecycle(&session.harness)?
             .state_usage(session.state.as_ref()?)
+    }
+
+    /// Completed-request counters projected by the remembered driver.
+    pub fn remembered_consumption(
+        &self,
+        session: &RememberedSession,
+    ) -> Option<consumption::Consumption> {
+        self.lifecycle(&session.harness)?
+            .state_consumption(session.state.as_ref()?)
     }
 
     /// Harness IDs with a registration, for purging sessions of removed drivers.
@@ -760,10 +770,11 @@ mod tests {
     }
 
     #[test]
-    fn channel_registration_is_harness_owned_and_only_claude_has_one_so_far() {
+    fn channel_registration_is_harness_owned_and_never_given_twice() {
         let mut registry = RuntimeRegistry::first_party();
+        // Both first-party drivers register their channel.
         assert!(registry.channel(&id("claude")).is_some());
-        assert!(registry.channel(&id("codex")).is_none());
+        assert!(registry.channel(&id("codex")).is_some());
         assert!(
             registry
                 .register_channel(&id("missing"), Box::new(CommunityChannel))
@@ -785,11 +796,14 @@ mod tests {
             .unwrap();
         assert!(registry.channel(&id("community")).is_some());
         // A harness that already has a channel cannot be given a second one.
-        assert!(
-            registry
-                .register_channel(&id("claude"), Box::new(CommunityChannel))
-                .is_err()
-        );
+        for first_party in ["claude", "codex"] {
+            assert!(
+                registry
+                    .register_channel(&id(first_party), Box::new(CommunityChannel))
+                    .is_err(),
+                "{first_party}"
+            );
+        }
         assert!(
             registry
                 .register_channel(&id("community"), Box::new(CommunityChannel))

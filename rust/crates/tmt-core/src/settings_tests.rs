@@ -326,6 +326,23 @@ fn apply_has_last_write_precedence_across_all_setting_kinds() {
             paste_enter_delay_ms: 0.5,
             retention_days: 3650,
             pane_badge: PaneBadge::Off,
+            reply_batch_window_ms: 5_000,
+            typing_quiet_ms: 2_000,
         }
     );
+}
+
+#[test]
+fn reply_notice_settings_are_bounded_global_millisecond_integers() {
+    for (key, maximum) in [
+        (SettingKey::ReplyBatchWindowMs, 60_000),
+        (SettingKey::TypingQuietMs, 30_000),
+    ] {
+        assert!(Setting::edit(key.name(), "0", Scope::Global).is_ok());
+        assert!(Setting::edit(key.name(), &maximum.to_string(), Scope::Global).is_ok());
+        assert!(Setting::edit(key.name(), &(maximum + 1).to_string(), Scope::Global).is_err());
+        assert!(Setting::edit(key.name(), "2s", Scope::Global).is_err());
+        assert!(Setting::edit(key.name(), "100", Scope::Local).is_err());
+        assert!(LocalClear::parse(Some(key.name())).is_err());
+    }
 }

@@ -4,7 +4,7 @@ import { durableState } from './identity-state-oracle.js';
 
 const inputLog = { mode: 'input-log' } as const;
 
-describe.sequential('profile ownership across binding transitions', () => {
+describe('profile ownership across binding transitions', { concurrent: false }, () => {
   it('uses the verified temporary caller for metadata and rejects tampered caller writes', async () => {
     await withE2EFixture(async (fixture) => {
       const named = await fixture.runJsonCli<{ id: string; lifetime: string }>(['name', 'Alice']);

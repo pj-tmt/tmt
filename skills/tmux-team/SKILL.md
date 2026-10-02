@@ -48,6 +48,15 @@ for pane death.
 Check the selected executable's help instead of inferring capabilities from
 a remembered version number.
 
+The opt-in `tmt setup --usage` hook can expose `resume.usage` (context size) and
+optional `resume.consumption` in ls/identity JSON. Consumption reports cumulative
+completed-request counters; measure changes within an epoch. Cached input
+already belongs to input.
+Use its epoch/sequence and completeness/gap evidence, never context-size
+differences or a missing value as zero. Hook timestamps are not heartbeats.
+The [handbook](https://pj-tmt.github.io/tmt/working) owns user instructions and ARCHITECTURE.md owns the bounded
+provider normalization and scan contract.
+
 ## Delivery safety
 
 ### Caller identity
@@ -117,6 +126,10 @@ with `tmt check <target>` and establish whether work started before deciding
 what to do next. Missing visible output is not proof that nothing executed.
 Successful submission also does not guarantee exactly-once agent processing.
 
+`DELIVERY_AWAITING_APPROVAL` (exit 1) means the recipient's agent is waiting on
+its user, so nothing was sent and the request stays queued. Retry after it
+continues; never type into its pane to get around it.
+
 `talk` waits for the complete durable reply by default. It never treats terminal
 markers, idle output, a summary, or process exit as completion. A cooperating
 recipient must invoke `tmt reply`; otherwise there is no final result yet.
@@ -184,7 +197,11 @@ received `talk` instruction, including detached requests. Never manufacture a
 receipt, select the latest request, or infer a current pane. Both `reply` and
 `result` work without a live pane on this same local TMT database. Result reads
 are storage-only; first reply acceptance may also attempt an independent
-originator hint. A failed hint does not invalidate the stored reply. This is
+originator hint. Ordinary pane reply notices batch for 5 s and debounce recent
+attached-client keys for a 2 s quiet period, bounded to 30 s after the window. Unknown input
+activity delivers after the window; channels retain individual driver notices.
+JSON `notification: "queued"` means the notice is persisted, not sent. A failed
+hint does not invalidate the stored reply. This is
 not remote transport or authentication.
 
 Reply input is one exact valid UTF-8 body up to 1 MiB, preserving empty,
@@ -473,8 +490,14 @@ tmt x ack <request-id> --incoming --revision <revision> --identity reviewer --js
 tmt x ackall --incoming --identity reviewer --json
 ```
 
-`--inbox` accepts one existing non-retired identity, reports `queued`, and never
-attempts or falls back to tmux delivery. Listen returns a trailing-edge debounced
+`--inbox` is for intentional queue-only delivery: it accepts one existing
+non-retired identity, reports `queued`, and never attempts live notification or
+falls back to tmux delivery. The recipient must pull with `tmt inbox`; coming
+online or enrolling a channel does not deliver the backlog. Use plain `talk`
+when you want live notification. Human queue output gives the recipient pull
+and correlated inspection commands; JSON adds `notification:"not_attempted"`
+and `waitingFor:"recipient_inbox_pull"`, preserving exit 0 and the request ID.
+Listen returns a trailing-edge debounced
 unread batch, with a 15-minute hard deadline and 10-second quiet default. An idle
 deadline is successful `reason:"timeout"`. Listening/showing never acknowledges,
 and recipient acknowledgment cannot consume originator response attention. Full
@@ -593,6 +616,7 @@ Use `ls` for full active discovery; it is not a prerequisite for `talk` or `chec
 tmt ls
 tmt name <global-name>               # bind temporarily; add -s to save
 tmt this <global-name>               # exact supported alias for `name`
+tmt run <agent> [args...]             # auto-name temporarily; use tmt this later
 tmt run [-s] <global-name> <command...> # bind and launch; options before the name
 tmt add <pane-target> <global-name>  # bind an explicit pane by stable `%pane_id`
 tmt marked <global-name>             # bind the explicit tmux mark; add -s to save
@@ -648,6 +672,22 @@ command. Do not delete old user files as a migration workaround.
 
 ### Foreground identity launch
 
+`tmt run <registered-agent> [args...]` starts immediately under a generated
+temporary name such as `claude-12ab34cd56ef`, with one naming hint and no prompt.
+Inside the agent, `tmt this <name>` (or `name`) renames only a verified auto-named
+identity, preserving its UUID, binding, session and any opted-in channel.
+Naming does not save: use `tmt this --save <name>` or `tmt run --save <agent>`.
+Normal exit keeps the binding; temporary retirement still follows unbind or
+conclusive pane loss. A failed spawn retires only the new temporary auto-name.
+An existing destination name refuses without merging identities. Ordinary named
+panes retain their conflict rules; intentional later renaming uses `tmt mv`.
+If an identity holds the executable name, shorthand refuses: use
+`tmt run claude claude` for that identity or `tmt run <new-name> claude`.
+TMT options precede the first operand; shorthand provider arguments stay verbatim.
+Resume still needs the hook-recorded session; naming preserves it but never guesses
+one. Save to keep resume coordinates across pane loss. `--channel` remains opt-in,
+and naming an enrolled launch neither restarts its channel nor enables paste fallback.
+
 `tmt run [-s] <name> <command...>` binds this tmux pane and starts the exact
 command with its terminal streams and normal Ctrl-C/Ctrl-Z/`fg` job control.
 TMT options, including `-s`/`--save` and `--resume`, go before the name; every
@@ -673,7 +713,7 @@ that fails before the provider confirms the session marks it stale; a stale
 session needs `tmt resume --retry <name>` or `tmt resume --forget <name>`. Never
 combine `--resume` with an explicit command, and never resend a task after a
 failed resume. Details:
-<https://github.com/wkh237/tmt/blob/main/USER-GUIDE.md#resume-a-remembered-session>.
+<https://pj-tmt.github.io/tmt/working#tmt-resume>.
 
 TMT records the owned command's exit and keeps the pane binding. Its exit status
 is the command's status, or 128 plus a terminating signal number. It reaps only
@@ -756,6 +796,13 @@ the paste-to-Enter delay. Preamble frequency is bounded to a safe integer;
 paste delay is at most 2147483647 milliseconds.
 The default paste-to-Enter delay is 500 milliseconds; `config show` reports
 the effective value after global and local overrides.
+
+`tmt config set notifications.replyBatchWindowMs 5000 --global` sets the fixed
+reply-notice window (`0..60000` integer milliseconds); `0` disables grouping.
+`tmt config set notifications.typingQuietMs 2000 --global` sets the key debounce
+quiet period (`0..30000` integer milliseconds). Both are global-only; new notices
+never reset the batch deadline. tmux activity has second resolution, so quiet
+detection can take an extra second. It does not prove the input buffer is empty.
 
 `tmt config set exchange.retentionDays 90 --global` sets the duration for new
 requests only, from 1 through 3650 integer days. It uses `exchange.retentionDays`

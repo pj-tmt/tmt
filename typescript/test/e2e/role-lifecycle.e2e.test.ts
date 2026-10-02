@@ -39,7 +39,7 @@ async function showOffline(fixture: E2EFixture, identity: string): Promise<RoleR
   );
 }
 
-describe.sequential('durable role profiles', () => {
+describe('durable role profiles', { concurrent: false }, () => {
   it('preserves one identity profile through unbind, pane death, restart, and rebind', async () => {
     await withE2EFixture(async (fixture) => {
       expect((await fixture.runJsonCli(['name', 'Alice', '-s'])).code).toBe(0);

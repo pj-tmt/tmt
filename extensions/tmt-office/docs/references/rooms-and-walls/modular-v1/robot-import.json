@@ -1,0 +1,13 @@
+{
+  "source": "05-robots-source.png",
+  "sha256": "f9c1d1e09b9f2420d8497c4a1460b9afc6e0be7128e7ca7ae58ed4500d8b0b55",
+  "size": [1254, 1254],
+  "label": "Modular office robots",
+  "output": "../../../../contracts/modular-robots-v2.tmtavatar.json",
+  "avatars": [
+    {"key": "moss", "label": "Moss", "crops": [[105, 100, 285, 340]]},
+    {"key": "azure", "label": "Azure", "crops": [[105, 375, 285, 615]]},
+    {"key": "ember", "label": "Ember", "crops": [[105, 650, 285, 890]]},
+    {"key": "iris", "label": "Iris", "crops": [[105, 925, 285, 1175]]}
+  ]
+}

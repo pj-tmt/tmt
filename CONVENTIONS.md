@@ -40,7 +40,7 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
   and units for changed commands. Prefer one structured result/error in JSON mode
   without progress text mixed into it. Uniformity is a target with known gaps;
   preserve public behavior unless the issue explicitly changes it.
-- Human output and help follow the [CLI style](docs/cli-style.md): render through
+- Human output and help follow the [CLI style](design/cli-style.md): render through
   `tmt-cli-style` and register commands with its `CommandSpec`, rather than
   printing or building help directly.
 - Use the native grammar/invocation and explicit command error mappings as
@@ -70,7 +70,7 @@ Use TanStack Router for navigation and Jotai for shared cross-view presentation
 state; component-local forms and selection may use React state.
 Do not parse URLs or invent an application-wide store in view components.
 Remote state gets one owner, not mirrored Query/Jotai/Firestore copies. See
-[Office architecture](docs/office/architecture.md) before adding a service,
+[Office architecture](extensions/tmt-office/docs/architecture.md) before adding a service,
 contract, drawing dependency or cross-package abstraction.
 
 The separate Office Functions package uses NodeNext TypeScript, Vitest, Oxlint

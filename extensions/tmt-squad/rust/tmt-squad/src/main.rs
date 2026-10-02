@@ -35,6 +35,7 @@ mod status;
 mod template;
 #[cfg(test)]
 mod test_support;
+mod theme;
 
 use crate::{
     config::Config, consent::Consent, core::Core, core::SquadError, membership::Outcome,
@@ -251,6 +252,7 @@ fn grammar() -> Command {
                 )
                 .arg(squad_option()),
         )
+        .subcommand(theme::grammar())
         .subcommand(playbook::grammar())
         .subcommand(
             build(specs::SKILL)
@@ -478,6 +480,7 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
         "ls" | "board" => status::text(document, terminal),
         "hotkeys" => hotkeys_text(document, terminal),
         "playbook" => playbook::text(document, terminal),
+        "theme" => theme::text(document, terminal),
         "jump" => {
             let mut output = done(
                 terminal,
@@ -749,6 +752,9 @@ fn run(
         return member_actions::back(&core);
     }
     let mut config = Config::load(&core)?;
+    if command == "theme" {
+        return theme::run(&mut config, matches).map(Outcome::from);
+    }
     if command == "hotkeys" {
         let (action, flags) = matches.subcommand().expect("subcommand required");
         let flag = |name: &str| flags.try_get_one::<bool>(name).ok().flatten() == Some(&true);
@@ -984,7 +990,7 @@ fn main() -> ExitCode {
     if command == "board" && interaction.view() == Mode::Interactive {
         let squad = sub.get_one::<String>("squad").cloned();
         let popup = sub.get_flag("popup");
-        return match Core::discover().and_then(|core| board::run(core, squad, popup)) {
+        return match Core::discover().and_then(|core| board::run(core, squad, popup, interaction)) {
             Ok(signal) => ExitCode::from(board::exit_status(signal)),
             Err(failure) => {
                 report(&failure);
@@ -1104,7 +1110,11 @@ mod tests {
                 continue;
             }
             let output = std::panic::catch_unwind(|| {
-                human(command, &serde_json::json!({}), Terminal::PLAIN)
+                human(
+                    command,
+                    &serde_json::json!({"action": "ls"}),
+                    Terminal::PLAIN,
+                )
             });
             assert!(output.is_ok(), "tmt squad {command} has no human output");
         }
@@ -1187,7 +1197,7 @@ mod tests {
             complete(&words("-- ")),
             [
                 "add", "annotate", "back", "board", "copy", "help", "hotkeys", "init", "jump",
-                "lead", "ls", "me", "open", "playbook", "rm", "set", "skill"
+                "lead", "ls", "me", "open", "playbook", "rm", "set", "skill", "theme"
             ]
         );
         assert_eq!(complete(&words("-- h")), ["help", "hotkeys"]);

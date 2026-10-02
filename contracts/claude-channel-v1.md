@@ -4,7 +4,7 @@ This document owns the launch opt-in, the channel endpoint, the enrollment
 lifecycle, the delivery result mapping and the supported provider range.
 [ARCHITECTURE.md](../ARCHITECTURE.md) owns module boundaries; the request
 lifecycle is owned by the request service and
-[REQUEST-RESPONSE.md](../REQUEST-RESPONSE.md).
+[contracts/request-response-v1.md](request-response-v1.md).
 
 ## Status
 

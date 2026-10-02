@@ -35,7 +35,7 @@ async function identityId(fixture: E2EFixture, name: string): Promise<string> {
   return json(shown).identity.id;
 }
 
-describe.sequential('TMT-55 request context and provenance', () => {
+describe('TMT-55 request context and provenance', { concurrent: false }, () => {
   it('escapes sender markup without changing stored attribution or exact replies', async () => {
     await withE2EFixture(async (fixture) => {
       const peer = await fixture.createMockPane('escaped-sender-peer');

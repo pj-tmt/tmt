@@ -18,9 +18,18 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
 - The native version is owned by `rust/Cargo.toml` and exposed through Cargo's package version; there is no TypeScript fallback. Keep any retained developer package version and public release instructions consistent when changing versions. The native skill ships with the CLI; there is no separately versioned plugin or marketplace.
 - Follow `AGENTS.md` for GitHub issue state, branch and pull-request links, verification evidence, and safe worktree cleanup.
 
+## Private-leaf attribution
+
+The component map's `releaseConsumers` currently attributes private TUI changes to Squad.
+The release workflow's small `release-please-run.mjs` wrapper adds only in-memory consumer paths
+before release-please's splitter and cutoffs; 17.11.2 has no `additional-paths` config option.
+Keep its pinned API shape verified by tooling tests loading the release job's isolated install.
+Follow DEVELOPMENT's generator and real-candidate checks before changing this consumption rule
+or upgrading release-please. This does not change publication authorization or private-leaf version ownership.
+
 ## Promotion and prerelease checks
 
-Read the complete [native release verification guide](../../../docs/native-release-verification.md)
+Read the complete [native release verification section](../../../DEVELOPMENT.md#native-release-verification)
 before archive, installer, upgrade, bootstrap or publication work. It owns the
 procedures referenced below; DEVELOPMENT owns ordinary native checks.
 
@@ -76,7 +85,7 @@ The owner chose a trunk-based alpha channel: there is no separate edge channel, 
 (the owner's decisions on #497). That choice is the owner's standing authorization for **the
 pipeline** to publish alpha releases from `main`; it is recorded here so that the written rule
 matches practice. The
-[native release verification guide](../../../docs/native-release-verification.md) owns the
+[native release verification section](../../../DEVELOPMENT.md#native-release-verification) owns the
 gates, the markers and the procedures; this section owns who may publish what.
 
 - Covered: an alpha draft of the CLI, Office or Squad (a version `X.Y.Z-alpha.N`, enforced by

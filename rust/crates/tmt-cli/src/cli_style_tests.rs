@@ -1,5 +1,5 @@
 //! The #436 help guard for `tmt`, Office's facade tree included: every visible
-//! command follows `docs/cli-style.md` and its examples parse through the real
+//! command follows `design/cli-style.md` and its examples parse through the real
 //! parser, except the commands still listed in `cli_style_allowlist.rs`.
 
 use crate::{extension_command::Discovered, help_output, invocation::Invocation, parser};

@@ -17,12 +17,15 @@ mod delivery;
 pub(crate) mod driver;
 pub mod external;
 
+use external::ExternalCaller;
+
 use crate::{
     herdr::{self, Herdr, HerdrError},
     process::{CommandError, CommandRunner, UnixCommandRunner},
     tmux::{self, Tmux, TmuxError},
 };
 use std::{
+    collections::BTreeMap,
     ffi::OsString,
     fmt,
     time::{Duration, Instant},
@@ -53,16 +56,28 @@ pub struct CallerEnvironment {
     pub herdr_pane: Option<OsString>,
     pub herdr_socket: Option<OsString>,
     pub process_id: u64,
+    /// The variables approved drivers declared for `caller`, those set and
+    /// non-empty; nothing else of the environment reaches a driver.
+    pub driver_env: BTreeMap<String, OsString>,
 }
 
 impl CallerEnvironment {
     pub fn current() -> Self {
+        let driver_env = external::approved()
+            .iter()
+            .flat_map(|record| record.capabilities.caller_env.iter())
+            .filter_map(|name| {
+                let value = std::env::var_os(name).filter(|value| !value.is_empty())?;
+                Some((name.clone(), value))
+            })
+            .collect();
         Self {
             tmux: std::env::var_os("TMUX"),
             pane: std::env::var_os("TMUX_PANE"),
             herdr_pane: std::env::var_os("HERDR_PANE_ID"),
             herdr_socket: std::env::var_os("HERDR_SOCKET_PATH"),
             process_id: u64::from(std::process::id()),
+            driver_env,
         }
     }
 
@@ -85,6 +100,21 @@ pub enum HostError {
     Herdr(HerdrError),
     /// A host no installed driver serves; nothing was attempted.
     Unavailable(String),
+    /// An external host's driver could not be run or broke the protocol.
+    Driver(external::CallError),
+    /// An external host's driver answered with an error.
+    Refused {
+        driver: String,
+        code: tmt_driver_protocol::ErrorCode,
+        message: String,
+    },
+    /// Core's own evidence about an external host contradicts the request.
+    Evidence {
+        driver: String,
+        reason: &'static str,
+    },
+    /// TMT could not record an external server's incarnation.
+    ServerIds(Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl HostError {
@@ -92,14 +122,24 @@ impl HostError {
         match self {
             Self::Tmux(error) => error.cleanup_failed(),
             Self::Herdr(error) => error.cleanup_failed(),
-            Self::Unavailable(_) => false,
+            Self::Driver(external::CallError::Process { error, .. }) => error.cleanup_failed(),
+            Self::Unavailable(_)
+            | Self::Driver(_)
+            | Self::Refused { .. }
+            | Self::Evidence { .. }
+            | Self::ServerIds(_) => false,
         }
     }
 
     pub fn socket_permission_denied(&self) -> bool {
         match self {
             Self::Tmux(error) => error.socket_permission_denied(),
-            Self::Herdr(_) | Self::Unavailable(_) => false,
+            Self::Herdr(_)
+            | Self::Unavailable(_)
+            | Self::Driver(_)
+            | Self::Refused { .. }
+            | Self::Evidence { .. }
+            | Self::ServerIds(_) => false,
         }
     }
 }
@@ -123,7 +163,26 @@ impl fmt::Display for HostError {
             Self::Tmux(error) => error.fmt(output),
             Self::Herdr(error) => error.fmt(output),
             Self::Unavailable(name) => write!(output, "Host driver {name} is not installed."),
+            Self::Driver(error) => error.fmt(output),
+            // The driver's message is untrusted text, bounded and free of
+            // control characters by the protocol.
+            Self::Refused {
+                driver, message, ..
+            } => write!(output, "Host driver {driver}: {message}"),
+            Self::Evidence { driver, reason } => write!(output, "Host driver {driver}: {reason}."),
+            Self::ServerIds(error) => write!(output, "Could not record the host server: {error}"),
         }
+    }
+}
+
+/// A host error as the cause of a failed pane input (a driver's `input`).
+impl DeliveryCause for HostError {
+    fn socket_permission_denied(&self) -> bool {
+        HostError::socket_permission_denied(self)
+    }
+
+    fn cleanup_failed(&self) -> bool {
+        HostError::cleanup_failed(self)
     }
 }
 
@@ -132,7 +191,9 @@ impl std::error::Error for HostError {
         match self {
             Self::Tmux(error) => error.source(),
             Self::Herdr(error) => error.source(),
-            Self::Unavailable(_) => None,
+            Self::Driver(error) => Some(error),
+            Self::ServerIds(error) => Some(error.as_ref()),
+            Self::Unavailable(_) | Self::Refused { .. } | Self::Evidence { .. } => None,
         }
     }
 }
@@ -178,6 +239,7 @@ pub struct Host<R = UnixCommandRunner> {
     primary: HostKind,
     tmux: Tmux<R>,
     herdr: Herdr<R>,
+    external: external::Drivers<R>,
 }
 
 impl Host {
@@ -185,29 +247,60 @@ impl Host {
     /// the caller's nearest ancestor. Without a host in the environment,
     /// tmux's default server serves, as it always has.
     pub fn for_caller(environment: &CallerEnvironment) -> Self {
-        Self::for_caller_with(environment, UnixCommandRunner)
+        Self::for_caller_with_drivers(environment, UnixCommandRunner, external::approved())
     }
 
     /// The host that runs a known server.
     pub fn for_server(server: &ServerEvidence) -> Self {
-        Self::for_server_with(server, UnixCommandRunner)
+        Self::for_server_with(server, UnixCommandRunner).with_drivers(external::approved())
     }
 
     /// The host whose syntax an explicit pane target uses; text that no host
     /// reads as a target is resolved by name elsewhere.
     pub fn for_target(target: &str) -> Self {
         let canonical = tmt_core::names::normalize_name(target);
-        let host = if HostKind::Herdr.is_target(&canonical) {
-            HostKind::Herdr
-        } else {
-            HostKind::Tmux
-        };
-        Self::of(host, UnixCommandRunner, None)
+        // The syntaxes are disjoint (approval refuses an overlap); tmux, the
+        // broadest, is the default.
+        let host = HostKind::all()
+            .filter(|host| *host != HostKind::Tmux)
+            .find(|host| host.is_target(&canonical))
+            .unwrap_or(HostKind::Tmux);
+        Self::of(host, UnixCommandRunner, None).with_drivers(external::approved())
     }
 }
 
 impl<R: CommandRunner + Clone> Host<R> {
+    /// The caller's host among tmux and Herdr; the `_with` constructors
+    /// approve no driver.
     pub fn for_caller_with(environment: &CallerEnvironment, runner: R) -> Self {
+        Self::for_caller_with_drivers(environment, runner, Vec::new())
+    }
+
+    /// The caller's host, external ones included: the nearest verified pane
+    /// wins, as between tmux and Herdr. Without a verified external pane the
+    /// choice is exactly the built-in one.
+    pub fn for_caller_with_drivers(
+        environment: &CallerEnvironment,
+        runner: R,
+        records: Vec<external::registry::DriverRecord>,
+    ) -> Self {
+        let builtin = Self::for_builtin_caller(environment, runner.clone());
+        if environment.driver_env.is_empty() || records.is_empty() {
+            return builtin.with_drivers(records);
+        }
+        let probe = builtin.with_drivers(records.clone());
+        match probe.nearest_external(environment) {
+            Some(caller) => {
+                let host =
+                    Self::of(HostKind::External(caller.host), runner, None).with_drivers(records);
+                host.external.set_caller(caller);
+                host
+            }
+            None => probe,
+        }
+    }
+
+    fn for_builtin_caller(environment: &CallerEnvironment, runner: R) -> Self {
         let socket = environment
             .herdr_socket
             .as_ref()
@@ -225,17 +318,36 @@ impl<R: CommandRunner + Clone> Host<R> {
 
     pub fn for_server_with(server: &ServerEvidence, runner: R) -> Self {
         let host = Self::of(server.host, runner, Some(server.socket_path.clone()));
-        if server.host == HostKind::Herdr {
-            host.herdr.set_resolved(server.clone());
+        match server.host {
+            HostKind::Tmux => {}
+            HostKind::Herdr => host.herdr.set_resolved(server.clone()),
+            HostKind::External(_) => host.external.set_resolved(server.clone()),
         }
         host
+    }
+
+    /// The drivers this handle may run for external hosts. The `_with`
+    /// constructors approve none, so tests never read the user's registry.
+    pub fn with_drivers(self, records: Vec<external::registry::DriverRecord>) -> Self {
+        let runner = self.herdr.runner().clone();
+        let resolved = self.external.resolved().cloned();
+        let caller = self.external.caller().cloned();
+        let external = external::Drivers::new(runner, records);
+        if let Some(server) = resolved {
+            external.set_resolved(server);
+        }
+        if let Some(caller) = caller {
+            external.set_caller(caller);
+        }
+        Self { external, ..self }
     }
 
     fn of(primary: HostKind, runner: R, herdr_socket: Option<String>) -> Self {
         Self {
             primary,
             tmux: Tmux::new(runner.clone()),
-            herdr: Herdr::new(runner, herdr_socket),
+            herdr: Herdr::new(runner.clone(), herdr_socket),
+            external: external::Drivers::new(runner, Vec::new()),
         }
     }
 }
@@ -257,6 +369,32 @@ impl<R: CommandRunner> Host<R> {
             Ok(Some(tmux)) if tmux < herdr.depth => HostKind::Tmux,
             _ => HostKind::Herdr,
         }
+    }
+
+    /// The nearest verified external pane of the caller, unless a built-in
+    /// host's pane is nearer. Failures prove nothing and keep the built-in
+    /// choice.
+    fn nearest_external(&self, environment: &CallerEnvironment) -> Option<ExternalCaller> {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let external = self
+            .external
+            .callers(environment, deadline)
+            .ok()?
+            .into_iter()
+            .next()?;
+        let tmux = environment
+            .names_tmux()
+            .then(|| self.tmux.caller_depth(environment).ok().flatten())
+            .flatten();
+        let herdr = environment
+            .names_herdr()
+            .then(|| self.herdr.caller(environment, deadline).ok().flatten())
+            .flatten()
+            .map(|pane| pane.depth);
+        let builtin = tmux.into_iter().chain(herdr).min();
+        builtin
+            .is_none_or(|depth| external.depth < depth)
+            .then_some(external)
     }
 
     /// The server a caller's environment selects on this handle's host, for
@@ -285,6 +423,9 @@ impl<R: CommandRunner> Host<R> {
     /// transaction; tmux keeps its own in a server option. A server without
     /// panes stays unresolved: there is nothing on it to bind.
     pub fn resolve_servers<I: HostServerIds>(&self, ids: &mut I) -> Result<(), HostError> {
+        if let HostKind::External(host) = self.primary {
+            return self.external.resolve_server(host, ids);
+        }
         if self.primary != HostKind::Herdr || self.herdr.resolved().is_some() {
             return Ok(());
         }
@@ -320,7 +461,7 @@ impl<R: CommandRunner> Host<R> {
             primary: self.primary,
             tmux: tmux::BindingSession::new(&self.tmux),
             herdr: herdr::Session::new(&self.herdr),
-            unavailable: driver::Unavailable::default(),
+            external: external::Session::new(&self.external),
         }
     }
 
@@ -334,7 +475,11 @@ impl<R: CommandRunner> Host<R> {
                 .herdr
                 .caller(environment, Instant::now() + Duration::from_secs(1))?
                 .map(|pane| pane.terminal_id)),
-            HostKind::External(_) => Ok(None),
+            HostKind::External(host) => Ok(self
+                .external
+                .caller()
+                .filter(|caller| caller.host == host)
+                .map(|caller| caller.pane_id.clone())),
         }
     }
 
@@ -358,7 +503,14 @@ impl<R: CommandRunner> Host<R> {
         match self.primary {
             HostKind::Tmux => Ok(self.tmux.resolve_target(target, options)?),
             HostKind::Herdr => Ok(self.herdr.resolve_target(target, options.deadline)?),
-            HostKind::External(_) => Ok(None),
+            HostKind::External(host) => {
+                // `server` (when no caller names the socket), then `resolve-target`.
+                let bound = Instant::now() + Duration::from_secs(1);
+                let deadline = options
+                    .deadline
+                    .map_or(bound, |deadline| deadline.min(bound));
+                self.external.resolve_target(host, target, deadline)
+            }
         }
     }
 
@@ -366,7 +518,10 @@ impl<R: CommandRunner> Host<R> {
         match self.primary {
             HostKind::Tmux => Ok(self.tmux.snapshot(options)?),
             HostKind::Herdr => Ok(self.herdr_session(options).snapshot(options.pane_ids)?),
-            other => Err(HostError::Unavailable(other.as_str().to_owned())),
+            HostKind::External(host) => self
+                .external_session(options)
+                .driver(host)
+                .snapshot(options.pane_ids.unwrap_or_default()),
         }
     }
 
@@ -377,8 +532,18 @@ impl<R: CommandRunner> Host<R> {
         match self.primary {
             HostKind::Tmux => Ok(self.tmux.observe_snapshot(options)?),
             HostKind::Herdr => Ok(self.herdr_session(options).snapshot(options.pane_ids)?),
-            other => Err(HostError::Unavailable(other.as_str().to_owned())),
+            HostKind::External(host) => self
+                .external_session(options)
+                .driver(host)
+                .snapshot(options.pane_ids.unwrap_or_default()),
         }
+    }
+
+    fn external_session(&self, options: OperationOptions<'_>) -> external::Session<'_, R> {
+        let mut session = external::Session::new(&self.external);
+        session.begin_coordination();
+        session.limit(options.deadline);
+        session
     }
 
     fn herdr_session(&self, options: OperationOptions<'_>) -> herdr::Session<'_, R> {
@@ -403,7 +568,10 @@ impl<R: CommandRunner> Host<R> {
                 .herdr_session(options)
                 .probe(server, options.pane_ids.unwrap_or_default())?),
             // Without its driver nothing is known, and unknown never retires.
-            HostKind::External(_) => Ok(EndpointProbe::Unknown),
+            HostKind::External(host) => self
+                .external_session(options)
+                .driver(host)
+                .probe(server, options.pane_ids.unwrap_or_default()),
         }
     }
 
@@ -415,7 +583,12 @@ impl<R: CommandRunner> Host<R> {
                     .capture_on(&endpoint.server.socket_path, &endpoint.pane_id, lines)?)
             }
             HostKind::Herdr => Err(HerdrError::unsupported("Reading a Herdr pane").into()),
-            other => Err(HostError::Unavailable(other.as_str().to_owned())),
+            HostKind::External(host) => self.external.capture(
+                host,
+                &endpoint.server.socket_path,
+                &endpoint.pane_id,
+                u32::try_from(lines).unwrap_or(u32::MAX),
+            ),
         }
     }
 
@@ -429,10 +602,17 @@ impl<R: CommandRunner> Host<R> {
             HostKind::Tmux => self.tmux.send_on(
                 &endpoint.server.socket_path,
                 &endpoint.pane_id,
-                message,
+                &tmt_core::driver::pane_input_text(message),
                 enter_delay,
             ),
-            HostKind::Herdr | HostKind::External(_) => Err(DeliveryError::unsupported()),
+            HostKind::External(host) => self.external.send(
+                host,
+                &endpoint.server.socket_path,
+                &endpoint.pane_id,
+                &tmt_core::driver::pane_input_text(message),
+                enter_delay,
+            ),
+            HostKind::Herdr => Err(DeliveryError::unsupported()),
         }
     }
 
@@ -500,8 +680,8 @@ pub struct BindingSession<'a, R> {
     primary: HostKind,
     tmux: tmux::BindingSession<'a, R>,
     herdr: herdr::Session<'a, R>,
-    /// Any other host, which no driver serves here yet.
-    unavailable: driver::Unavailable,
+    /// Every other host, through its approved driver, one per host.
+    external: external::Session<'a, R>,
 }
 
 impl<R: CommandRunner> BindingSession<'_, R> {
@@ -514,6 +694,7 @@ impl<R: CommandRunner> BindingSession<'_, R> {
     /// Preserve the caller's configured transport delay; it is not routing policy.
     pub fn with_enter_delay(mut self, delay: Duration) -> Self {
         self.tmux = self.tmux.with_enter_delay(delay);
+        self.external = self.external.with_enter_delay(delay);
         self
     }
 
@@ -522,40 +703,48 @@ impl<R: CommandRunner> BindingSession<'_, R> {
         match host {
             HostKind::Tmux => &mut self.tmux,
             HostKind::Herdr => &mut self.herdr,
-            other => {
-                self.unavailable = driver::Unavailable::of(other);
-                &mut self.unavailable
-            }
+            HostKind::External(host) => self.external.driver(host),
         }
     }
 
-    fn driver_ref(&self, host: HostKind) -> &dyn driver::HostDriver {
-        match host {
-            HostKind::Tmux => &self.tmux,
-            HostKind::Herdr => &self.herdr,
-            // Its runtime is never observed: its binding is never present.
-            _ => &self.unavailable,
-        }
+    /// Recent user keys in a verified binding, without provider buffer guesses.
+    pub fn input_activity(
+        &mut self,
+        entry: &BindingEntry,
+    ) -> Result<tmt_core::driver::InputActivity, ActionError> {
+        driver::input_activity(self.driver(binding_host(entry, self.primary)), entry)
     }
 
     /// Runtime liveness after the caller verified this binding's endpoint.
     pub fn observed_runtime(&self, binding: &Binding) -> Result<RuntimeState, ActionError> {
-        self.driver_ref(binding.server.host)
-            .observed_runtime(binding)
-            .map_err(ActionError::Process)
+        match binding.server.host {
+            HostKind::Tmux => driver::HostDriver::observed_runtime(&self.tmux, binding),
+            HostKind::Herdr => driver::HostDriver::observed_runtime(&self.herdr, binding),
+            HostKind::External(_) => self.external.observed_runtime(binding),
+        }
+        .map_err(ActionError::Process)
     }
 }
 
 impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
     type Error = HostError;
 
+    fn current_host(&self) -> HostKind {
+        self.primary
+    }
+
     fn begin_coordination(&mut self) {
         self.tmux.begin_coordination();
         self.herdr.begin_coordination();
+        self.external.begin_coordination();
     }
 
     fn budget_available(&self) -> bool {
-        self.driver_ref(self.primary).budget_available()
+        match self.primary {
+            HostKind::Tmux => driver::HostDriver::budget_available(&self.tmux),
+            HostKind::Herdr => driver::HostDriver::budget_available(&self.herdr),
+            HostKind::External(_) => self.external.budget_available(),
+        }
     }
 
     fn current_snapshot(&mut self, panes: &[String]) -> Result<EndpointSnapshot, Self::Error> {

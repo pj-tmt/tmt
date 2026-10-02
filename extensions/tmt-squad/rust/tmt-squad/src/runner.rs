@@ -1,26 +1,20 @@
-//! Minimal bounded child runner. Squad links no TMT crate, so it cannot reuse
-//! the core process owner; this keeps only what one-shot core calls need.
+//! Squad's command/error mapping over the neutral bounded process owner.
 
 use std::{
     ffi::OsString,
-    io::{self, Write},
     path::Path,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
 };
-use subprocess::{Exec, ExecExt, Job, JobExt, Redirection};
-
-const KILL: i32 = 9;
-const CLEANUP: Duration = Duration::from_secs(1);
+use tmt_invoke::{Cleanup, FailureKind, LaunchOptions, ProcessGroup, Request};
 
 #[derive(Debug)]
 pub struct Finished {
     pub success: bool,
-    /// Core reports results and structured errors on stdout; stderr is only
-    /// drained within the same bound so the child can never block on it.
+    /// Core results/errors use stdout. Invoke also drains bounded stderr.
     pub stdout: Vec<u8>,
 }
 
@@ -33,30 +27,19 @@ pub enum RunError {
     Cancelled,
 }
 
-/// One board load's generation. Superseding a switch also cancels a child
-/// currently being read, without changing deadlines for ordinary commands.
-#[derive(Clone)]
-pub struct Cancellation {
-    generation: Arc<AtomicU64>,
-    expected: u64,
-}
+/// One generation's stop flag, set by the refresh owner and never reset.
+#[derive(Clone, Default)]
+pub struct Cancellation(Arc<AtomicBool>);
 
 impl Cancellation {
-    pub fn new(generation: Arc<AtomicU64>, expected: u64) -> Self {
-        Self {
-            generation,
-            expected,
-        }
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::Release);
     }
     pub fn cancelled(&self) -> bool {
-        self.generation.load(Ordering::Acquire) != self.expected
+        self.0.load(Ordering::Acquire)
     }
 }
 
-const CANCEL_WAIT: Duration = Duration::from_millis(20);
-
-/// Runs `program args` with `input` on stdin in its own process group. A
-/// deadline or output-limit failure kills that group and reaps the child.
 pub fn run(
     program: &Path,
     args: &[OsString],
@@ -76,30 +59,27 @@ pub fn run_cancellable(
     cancellation: Option<&Cancellation>,
 ) -> Result<Finished, RunError> {
     check_cancelled(cancellation)?;
-    let deadline = Instant::now() + timeout;
-    let mut job = Exec::cmd(program)
-        .args(args.iter().cloned())
-        .stdin(input.to_vec())
-        .stdout(Redirection::Pipe)
-        .stderr(Redirection::Pipe)
-        .setpgid()
-        .start()
-        .map_err(|_| RunError::Spawn)?;
-    let result = communicate(&mut job, deadline, max_output_bytes, cancellation);
-    if result.is_err() {
-        // Best effort by design: the failure is already reported, and a
-        // stuck child must not turn into an unbounded destructor wait.
-        let _ = job.send_signal_group(KILL);
-        if !matches!(job.wait_timeout(CLEANUP), Ok(Some(_))) {
-            job.detach();
-        }
-    }
-    result
+    let output = tmt_invoke::invoke(
+        Request {
+            program,
+            args,
+            input,
+            deadline: Instant::now() + timeout,
+            max_stream_bytes: max_output_bytes,
+            launch: Default::default(),
+        },
+        cancellation.map(|token| token.0.as_ref()),
+    )
+    .map_err(|error| run_error(error.kind))?;
+    check_cancelled(cancellation)?;
+    Ok(Finished {
+        success: output.status.success(),
+        stdout: output.stdout,
+    })
 }
 
-/// Read-only context calls inherit the hook's isolated host-owned group.
-/// A failed communication aborts that invocation instead of handing off
-/// partial context or leaving a descendant beyond the deadline.
+/// Context runs inside the hook's isolated host-owned group; a started failure
+/// aborts that invocation, never an interactive caller's group.
 pub fn run_inherited(
     program: &Path,
     args: &[OsString],
@@ -112,32 +92,33 @@ pub fn run_inherited(
         unistd::{getpgrp, getpid},
     };
     let owner = getpid();
-    // A live process cannot have its PID recycled. Equality proves it owns
-    // this group; an interactive caller's group is never a signal target.
     if getpgrp() != owner {
         return Err(RunError::Spawn);
     }
-    remaining(deadline)?;
-    let mut job = Exec::cmd(program)
-        .args(args.iter().cloned())
-        .stdin(input.to_vec())
-        .stdout(Redirection::Pipe)
-        .stderr(Redirection::Pipe)
-        .start()
-        .map_err(|_| RunError::Spawn)?;
-    let result = communicate(&mut job, deadline, max_output_bytes, None);
-    if result.is_err() {
-        let _ = killpg(owner, Signal::SIGKILL);
-        job.detach();
-    }
-    result
-}
-
-fn remaining(deadline: Instant) -> Result<Duration, RunError> {
-    deadline
-        .checked_duration_since(Instant::now())
-        .filter(|left| !left.is_zero())
-        .ok_or(RunError::Timeout)
+    let output = tmt_invoke::invoke(
+        Request {
+            program,
+            args,
+            input,
+            deadline,
+            max_stream_bytes: max_output_bytes,
+            launch: LaunchOptions {
+                process_group: ProcessGroup::InheritCaller,
+                ..Default::default()
+            },
+        },
+        None,
+    )
+    .map_err(|error| {
+        if matches!(error.cleanup, Cleanup::CallerOwned) {
+            let _ = killpg(owner, Signal::SIGKILL);
+        }
+        run_error(error.kind)
+    })?;
+    Ok(Finished {
+        success: output.status.success(),
+        stdout: output.stdout,
+    })
 }
 
 fn check_cancelled(cancellation: Option<&Cancellation>) -> Result<(), RunError> {
@@ -148,86 +129,13 @@ fn check_cancelled(cancellation: Option<&Cancellation>) -> Result<(), RunError> 
     }
 }
 
-fn wait_budget(
-    deadline: Instant,
-    cancellation: Option<&Cancellation>,
-) -> Result<Duration, RunError> {
-    check_cancelled(cancellation)?;
-    let left = remaining(deadline)?;
-    Ok(if cancellation.is_some() {
-        left.min(CANCEL_WAIT)
-    } else {
-        left
-    })
-}
-
-fn communicate(
-    job: &mut Job,
-    deadline: Instant,
-    limit: usize,
-    cancellation: Option<&Cancellation>,
-) -> Result<Finished, RunError> {
-    let mut stdout = Capped::new(limit);
-    let mut stderr = Capped::new(limit);
-    {
-        let mut communication = job.communicate().map_err(|_| RunError::Io)?;
-        loop {
-            communication = communication.limit_time(wait_budget(deadline, cancellation)?);
-            match communication.read_to(&mut stdout, &mut stderr) {
-                Ok(()) => break,
-                Err(_) if stdout.exceeded || stderr.exceeded => return Err(RunError::OutputLimit),
-                Err(error) if error.kind() == io::ErrorKind::TimedOut => {
-                    remaining(deadline)?;
-                }
-                Err(_) => return Err(RunError::Io),
-            }
-        }
-    }
-    // Pipes can close before the child exits. Cancellation and the original
-    // deadline cover this phase too, with the same cleanup owner.
-    let status = loop {
-        if let Some(status) = job
-            .wait_timeout(wait_budget(deadline, cancellation)?)
-            .map_err(|_| RunError::Io)?
-        {
-            break status;
-        }
-    };
-    check_cancelled(cancellation)?;
-    Ok(Finished {
-        success: status.success(),
-        stdout: stdout.bytes,
-    })
-}
-
-struct Capped {
-    bytes: Vec<u8>,
-    limit: usize,
-    exceeded: bool,
-}
-
-impl Capped {
-    fn new(limit: usize) -> Self {
-        Self {
-            bytes: Vec::new(),
-            limit,
-            exceeded: false,
-        }
-    }
-}
-
-impl Write for Capped {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        if bytes.len() > self.limit.saturating_sub(self.bytes.len()) {
-            self.exceeded = true;
-            return Err(io::Error::other("output limit exceeded"));
-        }
-        self.bytes.extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
+fn run_error(kind: FailureKind) -> RunError {
+    match kind {
+        FailureKind::Spawn => RunError::Spawn,
+        FailureKind::Deadline => RunError::Timeout,
+        FailureKind::Interrupted => RunError::Cancelled,
+        FailureKind::OutputLimit(_) => RunError::OutputLimit,
+        FailureKind::Io(_) => RunError::Io,
     }
 }
 
@@ -283,24 +191,9 @@ mod tests {
     }
 
     #[test]
-    fn a_timed_out_group_is_killed_including_descendants() {
-        let marker = std::env::temp_dir().join(format!("tmt-squad-runner-{}", std::process::id()));
-        let _ = std::fs::remove_file(&marker);
-        let script = format!("(sleep 1; touch '{}') & sleep 30", marker.display());
-        assert_eq!(
-            sh(&script, Duration::from_millis(200), 64).unwrap_err(),
-            RunError::Timeout
-        );
-        std::thread::sleep(Duration::from_millis(1500));
-        assert!(
-            !marker.exists(),
-            "the background descendant was killed with its group"
-        );
-    }
-    #[test]
     fn cancellation_prevents_spawn_and_preserves_output_across_read_slices() {
-        let generation = Arc::new(AtomicU64::new(1));
-        let obsolete = Cancellation::new(Arc::clone(&generation), 0);
+        let obsolete = Cancellation::default();
+        obsolete.cancel();
         assert_eq!(
             run_cancellable(
                 Path::new("/nonexistent/tmt"),
@@ -313,7 +206,7 @@ mod tests {
             .unwrap_err(),
             RunError::Cancelled
         );
-        let current = Cancellation::new(generation, 1);
+        let current = Cancellation::default();
         let finished = run_cancellable(
             Path::new("/bin/sh"),
             &[
@@ -338,8 +231,8 @@ mod tests {
             std::fs::create_dir(&root).unwrap();
             let ready = root.join("ready");
             let survived = root.join("survived");
-            let generation = Arc::new(AtomicU64::new(0));
-            let cancellation = Cancellation::new(Arc::clone(&generation), 0);
+            let generation = Cancellation::default();
+            let cancellation = generation.clone();
             let script = format!(
                 "{} (sleep 1; touch '{}') & touch '{}'; sleep 30",
                 if closed { "exec >/dev/null 2>&1;" } else { "" },
@@ -362,7 +255,7 @@ mod tests {
             }
             assert!(ready.exists(), "child reached the cancellable wait");
             let cancelled = Instant::now();
-            generation.store(1, Ordering::Release);
+            generation.cancel();
             assert_eq!(child.join().unwrap().unwrap_err(), RunError::Cancelled);
             assert!(cancelled.elapsed() < Duration::from_secs(1));
             std::thread::sleep(Duration::from_millis(1100));
@@ -371,3 +264,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "runner_inherited_tests.rs"]
+mod inherited_tests;

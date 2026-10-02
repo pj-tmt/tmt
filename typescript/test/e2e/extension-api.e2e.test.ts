@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { withE2EFixture } from './harness.js';
 import { expectJsonResult } from './cli-assertions.js';
 
-describe.sequential('non-Office extension API delivery', () => {
+describe('non-Office extension API delivery', { concurrent: false }, () => {
   it.each(['live', 'uncertain'] as const)(
     'keeps %s wake one-shot across extension retries',
     async (mode) => {

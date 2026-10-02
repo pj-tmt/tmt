@@ -106,6 +106,8 @@ function expectNativeSchema(
       version: 42,
       name: "record the observed pane process incarnation beside each binding's pane pid",
     },
+    { version: 43, name: 'record explicit automatic identity name provenance' },
+    { version: 44, name: 'persist pane reply notice batches and one-shot worker claims' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -137,6 +139,8 @@ function expectNativeSchema(
       'office_whiteboard_snapshot_images',
       'request_recipient_attention_identities',
       'request_notifications',
+      'reply_notice_batches',
+      'reply_notices',
     ].sort()
   );
   expect(table(migrated, 'office_avatar_catalog').rows).toEqual([
@@ -453,9 +457,15 @@ function expectNativeSchema(
   expect(newIdentities.columns.slice(5)).toEqual([
     { cid: 5, name: 'lifetime', type: 'TEXT', notnull: 1, dflt_value: "'saved'", pk: 0 },
     { cid: 6, name: 'retired_at_ms', type: 'INTEGER', notnull: 0, dflt_value: null, pk: 0 },
+    { cid: 7, name: 'auto_named', type: 'INTEGER', notnull: 1, dflt_value: '0', pk: 0 },
   ]);
   expect(newIdentities.rows).toEqual(
-    oldIdentities.rows.map((row) => ({ ...row, lifetime: 'saved', retired_at_ms: null }))
+    oldIdentities.rows.map((row) => ({
+      ...row,
+      lifetime: 'saved',
+      retired_at_ms: null,
+      auto_named: 0,
+    }))
   );
   expect(newIdentities.foreignKeys).toEqual(oldIdentities.foreignKeys);
   expect(newIdentities.indexes).toHaveLength(oldIdentities.indexes.length);
@@ -644,24 +654,24 @@ describe('native SQLite lifecycle compatibility', () => {
         ).toThrow(/UNIQUE/);
         expect(() =>
           database.exec(
-            "INSERT INTO identities VALUES ('invalid-lifetime', 'Invalid', 'invalid-lifetime', 'created', 'updated', 'permanent', NULL)"
+            "INSERT INTO identities (id, name, canonical_name, created_at, updated_at, lifetime, retired_at_ms) VALUES ('invalid-lifetime', 'Invalid', 'invalid-lifetime', 'created', 'updated', 'permanent', NULL)"
           )
         ).toThrow(/CHECK/);
         expect(() =>
           database.exec(
-            "INSERT INTO identities VALUES ('invalid-retired-zero', 'Invalid', 'invalid-retired-zero', 'created', 'updated', 'saved', 0)"
+            "INSERT INTO identities (id, name, canonical_name, created_at, updated_at, lifetime, retired_at_ms) VALUES ('invalid-retired-zero', 'Invalid', 'invalid-retired-zero', 'created', 'updated', 'saved', 0)"
           )
         ).toThrow(/CHECK/);
         expect(() =>
           database.exec(
-            "INSERT INTO identities VALUES ('invalid-retired-large', 'Invalid', 'invalid-retired-large', 'created', 'updated', 'saved', 9007199254740992)"
+            "INSERT INTO identities (id, name, canonical_name, created_at, updated_at, lifetime, retired_at_ms) VALUES ('invalid-retired-large', 'Invalid', 'invalid-retired-large', 'created', 'updated', 'saved', 9007199254740992)"
           )
         ).toThrow(/CHECK/);
         database.exec(
           "UPDATE identities SET lifetime = 'temporary', retired_at_ms = 9007199254740991 WHERE id = 'id'"
         );
         database.exec(
-          "INSERT INTO identities VALUES ('new-id', 'ALICE', 'alice', 'created-new', 'updated-new', 'saved', NULL)"
+          "INSERT INTO identities (id, name, canonical_name, created_at, updated_at, lifetime, retired_at_ms) VALUES ('new-id', 'ALICE', 'alice', 'created-new', 'updated-new', 'saved', NULL)"
         );
         expect(
           database.prepare('SELECT id, lifetime, retired_at_ms FROM identities ORDER BY id').all()

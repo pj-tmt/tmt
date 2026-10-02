@@ -3,10 +3,9 @@
 The shipped CLI runtime is the Rust workspace in `rust/`. An optional Office
 SPA foundation lives in `extensions/tmt-office/typescript/apps/office`; it is not a CLI fallback or a
 shipped connector. The nested `typescript` pnpm workspace owns Vitest, fixture
-and release-verification tooling; the repository root has no Node package. Nx
-orchestrates explicit Rust and TypeScript targets through the pinned non-JavaScript
-wrapper, with caching disabled. Neither Nx nor the pnpm workspace is a second CLI
-runtime, an npm product, or a source-install fallback. A native source checkout selects
+and release-verification tooling; the repository root has no Node package.
+Contributors run Cargo and the nested pnpm scripts directly. The pnpm workspace
+is not a second CLI runtime, an npm product, or a source-install fallback. A native source checkout selects
 `rust/target/debug/tmt` (or an explicitly supplied native executable); a missing
 native build is an error. No test, script, or installer may silently execute an
 installed host `tmt` or a retired TypeScript product implementation. Node may
@@ -25,11 +24,63 @@ Any retained `better-sqlite3` use belongs to private developer tooling as an
 independent oracle. It is not a Rust runtime dependency or an alternate owner
 of native schema and application state.
 
+## Repository layout
+
+This section owns the repository layout map; the infra squad reviews layout changes.
+The machine-readable top-level allowlist is
+[`.github/repository-layout.json`](.github/repository-layout.json). It lists permanent
+entries and current exceptions with their removal issues. Component ownership comes
+from [`.github/components.json`](.github/components.json), through `ci-scope.ownerOf`;
+layout permission does not change component ownership, CI selection or release policy.
+
+| Home                      | Responsibility                                                                                                                         |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository root           | Short entry points, contributor guidance, license and required repository/tool configuration; no product source or generated evidence. |
+| `.agents/`                | Repository contributor procedures.                                                                                                     |
+| `.github/`                | Component ownership, layout allowlist, workflows, shared Actions and isolated release tooling.                                         |
+| `rust/`                   | Native CLI, core, adapters and shared Rust leaves; extension crates remain under their extension.                                      |
+| `typescript/`             | Private developer tooling, tests and shared fixture support; no product-runtime fallback.                                              |
+| `extensions/<extension>/` | Feature-owned runtimes, contracts, skills, documentation and assets.                                                                   |
+| `contracts/`              | Core public contracts and their normative fixtures.                                                                                    |
+| `scripts/`                | Shared root shell/build/development helpers.                                                                                           |
+| `skills/`                 | Canonical bundled user-agent guidance.                                                                                                 |
+| `site/`                   | User handbook and its build; handbook text remains owned by tmt-lead.                                                                  |
+| `design/`                 | Shared design tokens and CLI style guidance.                                                                                           |
+
+Current temporary homes and pending moves:
+
+Core public process and request/response contracts live in `contracts/extension-api.md`
+and `contracts/request-response-v1.md`; the Remote channel contract lives in
+`contracts/remote-channel-v1.md`. CLI style guidance lives in `design/cli-style.md`.
+Release-verification procedures belong to
+[DEVELOPMENT's release section](DEVELOPMENT.md#native-release-verification).
+
+- The handbook owns user guidance. Office documentation and art helpers live in
+  `extensions/tmt-office/docs/` and `extensions/tmt-office/scripts/art/`.
+  `docs/` remains a temporary home under #998.
+  `docs/NATIVE-INSTALL.md` and `docs/performance.md` stay there pending their move to
+  `site/` under #998; the directory exception remains until its retained contents move.
+
+New homes or exceptions require an infra-reviewed proposal with a component owner
+and bounded responsibility. Update this map and the JSON allowlist together;
+remove an exception when its last tracked entry moves or is deleted. The tooling
+layout test checks every tracked file's component owner and that tracked top-level
+entries are a subset of the allowlist, and rejects temporary exceptions with no
+tracked entry; ignored local outputs are outside that map.
+For add/move review and rename hygiene, use the
+[layout procedure](.agents/skills/tmt-layout/SKILL.md).
+
+Shared visual tokens have one owner: `design/tokens/tokens.json`, maintained by
+the design lead. `design/tokens/tokens-plugin.ts` projects them into CSS for Vite
+consumers without a runtime or package dependency. The handbook imports that
+source; Rust CLI theme tests check its built-in palette against the same file.
+
 ## TypeScript workspace boundary
 
 The `typescript` pnpm workspace has one lockfile, retained Node tooling and tests,
 the `@tmt/office` SPA, the `@tmt/office-service` trusted pairing service,
-and the private `@tmt/browser-addon` demo shell.
+the private `@tmt/browser-addon` demo shell and `@tmt/remote-client` byte codecs,
+and the private `@tmt/colab-client` WebCrypto primitive library.
 The two Office packages live under `extensions/tmt-office/typescript` as
 parent-relative members of that same workspace and lockfile. They resolve only
 their declared dependencies, never root-hoisted tooling packages; Office browser
@@ -38,12 +89,13 @@ Rust, root shell launchers, shared contracts and canonical skills remain outside
 that boundary. `contracts/` holds core contracts only; Office contracts, vectors
 and the Office skill sources live under `extensions/tmt-office/`; the proposed
 colab contract lives under `extensions/tmt-colab/contracts/` (see the
-[colab boundary](#colab-extension-proposal)). The Nx task graph orders only the Office SPA producer, embedded
-native companion and installed-browser acceptance chain; ordinary CLI targets
-remain independent. Read
-[Office architecture](docs/office/architecture.md) for current SPA ownership,
+[colab boundary](#colab-extension-proposal)). The Office SPA build must finish before building the embedded
+native companion, followed by installed-browser acceptance; ordinary CLI builds
+remain independent. [DEVELOPMENT.md](DEVELOPMENT.md#office-browser-verification)
+owns the direct commands and their order. Read
+[Office architecture](extensions/tmt-office/docs/architecture.md) for current SPA ownership,
 the chosen React/Vite/TanStack/Jotai stack and the
-[Office design](docs/office/design.md) for planned trust/lifecycle semantics.
+[Office design](extensions/tmt-office/docs/design.md) for planned trust/lifecycle semantics.
 Office runtime code must not import local SQLite/process adapters or native test helpers.
 The accepted [World extension design](extensions/tmt-office/contracts/functional-props.md)
 separates spatial composition from concrete board/notebook/broadcast features.
@@ -323,7 +375,7 @@ overwritten by its older local inverse. History is session-local, with an explic
 update-byte-budget checkpoint, not stored in SQLite. Domain decoders still admit
 projections. `use-world-editor` retains the existing serialized JSON/CAS persistence
 and pauses on conflicts; Yjs adds no provider, remote authority or second database.
-See [Office architecture](docs/office/architecture.md) for history lifecycle and limits.
+See [Office architecture](extensions/tmt-office/docs/architecture.md) for history lifecycle and limits.
 The [world value foundation](extensions/tmt-office/contracts/world-v1.md) composes that map with
 stable placement IDs. `tmt-office-model::office_world` validates floor/wall support,
 door clearance and window exclusions over the map index. Shared prop appearance
@@ -385,7 +437,7 @@ inspection requires the same bearer/Origin admission as dispatch. Operation look
 and dispatch replay share the existing immutable ledger decoder; lookup cannot
 resubmit. Browser `LocalRuntime.requests` owns only bounded typed transport and
 response-scope checks, not another request cache or completion policy.
-The [workshop references](docs/office/references/workshop/README.md)
+The [workshop references](extensions/tmt-office/docs/references/workshop/README.md)
 own visual intent, not evidence that proposed extension APIs are implemented.
 Its browser E2E may reuse the established test-only process and artifact owners.
 The pairing issuer is implemented for local emulator verification and disabled
@@ -503,7 +555,7 @@ projection, not the scene state owner; see the versioned
 schema 18 do not change avatar admission or unrelated command envelopes.
 Reviewed modular source art is encoded offline into the same immutable v2 prop
 packs; both native and browser registries admit those exact contract bytes.
-The optional `scripts/art` authoring tool is not a runtime decoder or validator.
+The optional `extensions/tmt-office/scripts/art` authoring tool is not a runtime decoder or validator.
 Its source-hashed crop manifest and derivative policy live with the visual package.
 `props/furniture-upgrades` maps reviewed static furniture to compatible directional
 successors only during authoring. It is not a render-time alias: retained digests
@@ -546,7 +598,7 @@ bounded space projection. The pairing transaction reserves that source grant
 with a transfer receipt and records immutable approval intent; no second
 assignment registry or resource copy is introduced.
 The detailed lifecycle and verification map lives only in
-[Office architecture](docs/office/architecture.md); exact persisted data belongs
+[Office architecture](extensions/tmt-office/docs/architecture.md); exact persisted data belongs
 in [Office contracts](extensions/tmt-office/contracts/README.md).
 
 `extensions/tmt-office/typescript/services/office` owns isolated emulator infrastructure, Rules and the trusted
@@ -567,8 +619,10 @@ removal leaves the reference intact and falls back to the stored default appeara
 Avatar built-ins use the same validated native registry for list/show, profile
 admission and the authenticated browser catalog. They do not seed database rows
 or consume retained-pack quotas; custom catalog revisions remain storage-owned.
-Community exchange and exploration remain a [sandbox plan](docs/office/sandbox.md), not a
+Community exchange and exploration remain a [sandbox plan](extensions/tmt-office/docs/sandbox.md), not a
 runtime SDK, identity registry or alternate exchange engine.
+
+### CI selection and worker model
 
 `.github/components.json` is the one component map: who owns the CLI, Office and Squad
 paths, and the ordered rules that say which CI consumers a path selects and why.
@@ -595,32 +649,51 @@ weights in `typescript/test/e2e/shard-weights.json` (the first shard also runs t
 tests): it requires both shards when native work is selected, the first alone for a scoped
 component and neither when nothing native is selected, so a skipped, cancelled or missing
 selected shard fails it, and a guard proves every scenario file is in exactly one shard. Existing required check names
-remain; `Native Rust contracts` aggregates the runtime checks and the parallel
-workspace/all-targets MSRV check. Both workers must succeed for full and Squad
-scopes; scope `none` skips the aggregate, while missing scope fails closed.
-`Code quality` gates selected Office verification and `Native package
+remain; `Code quality` gates selected Office verification and `Native package
 matrix` gates all selected native jobs. Selected skipped, cancelled or failed
 jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
-Rust dependency caches (`Swatinem/rust-cache`, pinned by commit SHA) serve `Native
-Rust checks` and the native runtime builds. The parallel MSRV check reads the
-minimum version from the workspace manifest and owns a separate
-`native-rust-msrv` cache. Each cache is saved only by its owning job on a
-`refs/heads/main` push, schedule or manual dispatch; PR and merge-group runs
-only restore. Main pushes that change `Cargo.lock`, `Cargo.toml`, the toolchain file
-or `ci.yml`, weekly schedules and manual dispatch run the seeding jobs. The Rust
-aggregate validates these workers on seeding runs too; the outer merge gates do
-not run. A seeding run has no diff to select from, so it takes the full native scope.
+`Native Rust contracts` aggregates independent fmt/Clippy, workspace test/build,
+Office local-service and native process workers, plus an MSRV worker that reads
+`rust/Cargo.toml` and checks every workspace target. Full scope requires all five;
+Squad requires all except Office, and none skips the aggregate. Missing, failed,
+cancelled or unexpectedly skipped workers fail closed. The native process worker
+consumes the Office fixture producer's local-service executable through a SHA-256
+checked artifact, preserving the fixture bytes without repeating its feature
+verification. The Office check worker consumes the same embedded SPA; other
+fixtures remain independently built in the native worker.
+
+Rust dependency caches (`Swatinem/rust-cache`, pinned by commit SHA) have one
+main-only writer per key: workspace tests write the shared dev dependency cache,
+MSRV writes its toolchain-specific cache, and each native runtime target writes
+its own cache. Every writer uses the single seed-event classification (`verify=false`)
+and the main ref; PR and merge-group runs only restore. Other workers restore
+the shared cache without saving. Dev debug
+information and incremental compilation are disabled across CI; release profiles
+retain their manifest policy. Main cache seeding runs on selected Cargo/workflow
+changes, weekly and manually; feature-branch dispatches only restore. A seeding
+run has no diff and takes full native scope. Its Rust aggregate still checks the
+workers; the outer verification gates remain skipped.
 
 `ci.yml` owns all four required checks: Code quality, Unit tests, Docker E2E and
 Native package matrix. Both pull requests and `merge_group` candidates run those
-checks. Merge groups use the selector's explicit `full` mode, selecting native
-and Office verification plus both disjoint E2E shards, without path filtering.
-The same fail-closed aggregators apply to the combined queue candidate. Advisory
-Office browser checks remain separate. Workflow support does not enable the
-merge queue; the repository owner configures the ruleset after rollout.
+checks. Merge groups select paths from `merge_group.base_sha..head_sha`, the
+cumulative group-head diff used by HEADGREEN. PRs retain merge-base (`...`)
+selection. Both use the same component-map rules, scopes and E2E partitions;
+empty or unreadable merge-group diffs fall back to full native and Office
+verification. The changes job fetches full history, and missing commit objects
+cannot yield a successful empty selection.
+
+The changes job also owns the `macos` classification: false only for
+`merge_group`. Separate macOS raw-runtime build and packed-install jobs consume
+that output, sharing their verification steps with Linux through YAML anchors.
+The native aggregate requires a valid classification and exact `skipped` macOS
+results when false; full-scope PRs require success. Missing, failed or unexpected
+results never pass. All selected Linux rows remain required. Release builds and
+archive verification retain macOS before publication. Advisory Office browser
+checks remain separate; the repository owner controls merge-queue rulesets.
 
 The advisory Office browser workflow has a separate ownership-based PR flag,
-`office_browser`: Office-owned component paths, `docs/office/**` and the browser
+`office_browser`: Office-owned component paths and the browser
 verification machinery select its emulator/image work. The selector owns the
 browser-specific workflow/emulator/context-policy exception so that machinery
 exercises itself. Shared dependency/selector/generic fixture changes, ordinary
@@ -634,9 +707,10 @@ generates `release-please-config.json` from the map (one release-please package 
 component root, minus its excludes), the Cargo workspace (which crates declare their own
 version, which path dependencies a component links, which crates have a `Cargo.lock`
 entry, which files are tracked) and `native-release-policy.mjs`, the one owner of tags and publication flags. Its
-`readWorkspace()` exposes Cargo-resolved crate versions through bounded, offline metadata; native
-CLI version expectations reuse that reader once per suite instead of parsing TOML separately. A
-`Cargo.lock` line is updated by whichever component declares that crate's version: a crate
+`readWorkspace()` exposes Cargo-resolved crate versions through bounded, offline metadata. Native
+CLI version expectations and Office installation/hook fixtures select their crate from that
+reader once per suite instead of parsing TOML separately. A `Cargo.lock` line is updated by
+whichever component declares that crate's version: a crate
 that inherits the workspace version is declared by the owner of `rust/Cargo.toml`, even when
 a private `release: false` component owns the crate, because the next locked build fails
 when that release leaves its entry behind. Office is parked this way: it owns its files and
@@ -646,11 +720,18 @@ release-please attributes a commit to a package by the files it touches under th
 path and can only drop paths, so the CLI's `exclude-paths` lists everything under each
 extension root except the crates the CLI links (today the Office model, command and service
 crates), and a change to those crates counts toward the CLI release as well as Office's. The
-reverse direction cannot be expressed: a change to a core crate an extension links opens an
-extension release only together with a change under that extension's own path.
+reverse direction has no release-please config option. The map's private TUI leaf declares
+`releaseConsumers: ["squad"]`. `release-please-run.mjs` wraps the pinned public commit iterator
+and adds a consumer-root marker to each matching commit's in-memory file list before the normal
+split, excludes and per-product release cutoff. Original files and ordering are preserved;
+no source file, private-leaf version or release manifest entry is created. TUI-only fixes therefore
+propose Squad, while the CLI remains excluded. Other shared leaves retain package-root attribution;
+expanding consumption requires a separate ownership review.
 `.release-please-manifest.json` holds the last published versions and belongs to
 release-please after its first release pull request. The CLI is pinned with a lockfile in
-`.github/release-please/`, outside the `typescript` workspace so no other job installs it.
+`.github/release-please/`, outside the `typescript` workspace. Only the release job and CI jobs running
+release-config tests install it; tests load that same isolated pin to verify the wrapper's API shape
+and real Manifest attribution, without adding release tooling to other workspace installs.
 The config sets `always-update`: release-please otherwise leaves an open release pull request
 untouched while its notes are unchanged, so a conflict with `main` (every release pull request
 edits the shared manifest, and adjacent lines conflict) would never clear.
@@ -706,14 +787,17 @@ The Rust crates have deliberately narrow responsibilities:
 
 `rust/crates/tmt-command-output` owns shared command output/error values and
 formatting. It renders human text through `rust/crates/tmt-cli-style`, the one
-implementation of the [CLI style](docs/cli-style.md) (palette, themes over the
+implementation of the [CLI style](design/cli-style.md) (palette, themes over the
 design tokens, marks, values, messages, lists, tables, the one column-width solver `grid` that tables and
 extension boards share, the help registration contract and the one
 interaction decision, `Interaction`). Migrated command
 modules, starting with `binding_command` (`tmt ls`, `name`, `add`, `rm`,
 `whoami`, `unbind`), also render through it directly and write through its
 `stream`. That crate is a leaf with no TMT dependency, so extension CLIs may
-share it; the architecture guard enforces both. `extensions/tmt-office/rust/tmt-office-command` owns the public Office
+share it; the architecture guard enforces both. `mark::Mark` owns each shared
+mark's symbol, canonical description and style token. Theme tests compare the
+design registry against those descriptions; board-only registry entries remain
+outside the shared enum. `extensions/tmt-office/rust/tmt-office-command` owns the public Office
 grammar, typed requests and handlers. Core's reserved `tmt office` facade mounts
 that grammar and calls the same handlers through an in-process `CoreAccess` port.
 `tmt-cli/src/office_facade.rs` is the sole core registration and command-library
@@ -731,10 +815,12 @@ facade, which PR B of #355 removes.
 `rust/crates/tmt-tui` is an internal, unpublished presentation leaf for TMT
 markup. Its version-1 structural admission accepts bounded XML and produces a
 template with source locations, not a renderable scene. It refuses declarations
-and excessive depth before tree allocation and bounds parser nodes. Utility,
-binding, geometry and paint stages are not implemented yet. No product consumes
-it. The guard permits only XML parsing and the shared style leaf, never core,
-adapters or extension behavior; reverse product edges require adoption review.
+and excessive depth before tree allocation and bounds parser nodes. Static
+classes, wrap and literal tokens compile into `style::CellStyle` during admission,
+including every repeat template. Tokens use `tmt-cli-style::theme::Role`; no
+palette is resolved or copied. Binding, geometry and paint stages are not
+implemented yet. No product consumes it. The guard permits only XML parsing
+and the shared style leaf, never core, adapters or extension behavior; reverse product edges require adoption review.
 The private component has no release; its inherited version/lock entry follows
 the workspace, while product notices include only their actual dependency graph.
 
@@ -747,7 +833,7 @@ and the invoke leaf remains guarded for every dependency kind. The guard fails c
 module remapping or incomplete discovery. It also checks that the CLI crates
 reach the terminal only through `tmt_cli_style::stream`, and a grammar walk in
 each CLI checks every command's help against the style
-([enforcement](docs/cli-style.md#enforcement)). It is a syntactic guard and never
+([enforcement](design/cli-style.md#enforcement)). It is a syntactic guard and never
 replaces review of behavior or effects.
 
 The optional `extensions/tmt-office/rust/tmt-office` executable remains a member
@@ -1108,7 +1194,7 @@ snapshot or change feed. X attention retains its separate revision cursor.
 Inspection does not acknowledge work or renew retention. Dispatch operation IDs
 recover immutable acceptance; replay never wakes again. Clients must recover a
 receipt or current room revision after interrupted writes, not invent a new
-operation ID and resend. See [extension API usage](docs/extension-api.md).
+operation ID and resend. See [extension API usage](contracts/extension-api.md).
 
 ### Extension hooks (v1)
 
@@ -1160,10 +1246,12 @@ layout, opening both databases read-only and never through
 reconciles or creates files.
 
 Provider `UserPromptSubmit` hooks use the same generic callback and aggregate
-budget, returning only the attributed extension lines as event-specific
-`additionalContext`. A consent-file capability check returns immediately when no
-extension has consented to context, before host probes or storage reads. Otherwise,
-they require an already running, verified binding whose
+budget, returning attributed extension lines and, only when nonzero, one incoming
+unacknowledged-attention count with an explicit-identity inbox pull command as
+event-specific `additionalContext`. The count reuses the existing read-only
+context snapshot; it is not a count of unsent or unanswered requests. No worker,
+new counter or automatic delivery is created. Zero attention with no extension
+contributions emits nothing. Hooks require an already running, verified binding whose
 provider session and runtime incarnation match the caller, and recheck the
 binding/preferences after callbacks before handing context to the provider.
 They neither admit a session nor replay the SessionStart identity preamble.
@@ -1342,7 +1430,7 @@ Binding queries still read tmux rows only until the core endpoint types carry
 the host.
 
 Schema 40 adds the change cursor behind the `changes.cursor` API operation
-(contract in [extension-api.md](docs/extension-api.md)). It is a one-row
+(contract in [extension-api.md](contracts/extension-api.md)). It is a one-row
 `change_cursor` counter. Every core-owned table has three AFTER triggers,
 `<table>_advances_change_cursor_on_{insert,update,delete}`, that advance it
 inside the writing transaction, so no write path can forget. Migration
@@ -1391,12 +1479,28 @@ from a host's or driver's text.
   matching what `ProcessIncarnation` accepts.
 - **Cursor:** the bindings cursor update trigger compares the column.
 
+Schema 43 adds `identities.auto_named`, a private boolean defaulting to false.
+Only an unnamed registered-runtime launch inserts true, independently of temporary
+or saved lifetime. No name pattern or user-editable metadata grants this provenance.
+The identities change-cursor trigger includes it. Existing identities remain explicit.
+Caller-scoped `name`/`this` checks the exact live binding and this flag inside one
+binding transaction, checks name uniqueness, renames the same UUID, optionally
+promotes its lifetime and consumes the flag. Binding/session rows are unchanged;
+ordinary binding and `add`/`marked` keep their existing conflict behavior. An ordinary
+`mv` also consumes provenance when it changes the name.
+
 The claude and codex drivers implement persistence with one document
 (`runtime::driver_state`): version 1 is `{"model": <slug>}`, and version 2 adds
 `"usage": {"tokens", "windowTokens"?, "observedAtMs"}` (the model is then
 optional). Version 3 additionally stores session-scoped main-turn activity,
 including the exact provider session and process incarnation. Documents without
-activity retain versions 1/2, byte for byte; all three versions are read. The model's only source is the `model` field
+activity retain versions 1/2, byte for byte. Version 4 adds optional cumulative
+consumption and its private source cursor; all four versions are read. Optional
+consumption is omitted if it would exceed the existing 1 KiB DriverState cap,
+preserving model/context/activity evidence. Reading versions 1–3 retains their
+model/context/activity without inventing counters; their first consumption
+observation starts a new epoch with gap=true and complete=false. Older readers discard an unknown
+version under the existing reconciliation contract. The model's only source is the `model` field
 of a starting hook event, which both providers document (see
 `runtime/fixtures/README.md`). Claude may omit it, for example after `/clear`, and
 then the previous model stays. When a provider sends no model, nothing is stored.
@@ -1443,12 +1547,53 @@ only for usage numbers:
 - the path must be a regular `.jsonl` file under the driver's own tree
   (`~/.claude/projects`, or `$CODEX_HOME/sessions`);
 - it is opened without following a final symlink and without blocking;
-- only the last MiB is read, and a line cut by that window is skipped.
+- context usage reads at most the last MiB, skipping a line cut by that window;
+- consumption reads at most one additional MiB (plus a boundary byte), from the
+  appended Claude cursor or the latest Codex tail. No polling is introduced.
 
-Anything unexpected writes nothing. A start that changes the context
+Unusable context usage writes nothing for that value. A start that changes the context
 (startup, clear, compact) drops usage; a resumed Claude start records the
 `context_tokens` it reports. Core never parses the document:
 `RuntimeRegistry::remembered_usage` projects it as `resume.usage`.
+
+Completed-request consumption (#872) is separate from context size.
+RuntimeLifecycle/RuntimeRegistry project the driver's counters as optional
+`resume.consumption` in ls/identity JSON: `inputTokens`, `outputTokens`,
+`cachedInputTokens`, epoch, sequence, `observedAtMs`, complete and gap.
+Cached input is a subset of input. Claude input adds uncached input, cache-read
+and cache-creation; cached input is cache-read. Codex uses `total_token_usage`
+input/output/cached fields; reasoning is already in output. Input plus output
+counts provider-reported token units, not cost or interchangeable text volume.
+These are accepted completed-request observations, not streaming throughput.
+
+The first Claude observation baselines at current EOF with zero counters and
+retains the last main message ID's hash; historical requests are not replayed.
+The append-only scan counts each new contiguous `message.id` group once, carries
+the last ID across reads, cross-checks `requestId` and usage equality, and skips
+sidechains/synthetic records. Private dev/inode/offset and hashed IDs retain
+equality without transcript text or paths. Counter evidence and its cursor use
+the same trusted descriptor and captured file end. Noncontiguous older ID repeats are
+not expected and may count again: exact historical-ID dedup is deliberately
+outside the bounded one-KiB contract. In-place rewrites that retain inode and
+do not shrink also violate the append-only assumption. A partial final line
+waits for its newline, with `complete=false` and `gap=false`. Cursor loss, shrink,
+replacement, a scan over one MiB, invalid main records or overflow starts a new
+epoch at current EOF with `gap=true` and `complete=false`; a cut fragment is
+discarded through its next newline, and history is never recounted.
+
+Codex's first observation baselines at the provider's cumulative totals.
+Unterminated final records wait for a newline with complete=false; an invalid
+newest token_count is unavailable rather than falling back to older totals.
+A component decrease, file shrink or replacement starts a new epoch/gap.
+Epochs and sequence are driver measurement coordinates, not provider IDs;
+sequence increases within an epoch when source evidence advances.
+`observedAtMs` is acceptance time, not token generation time or a heartbeat.
+Duplicate hooks without source changes retain the counter's timestamp/sequence.
+A later complete scan clears the gap flag within its new epoch. Every start
+resets consumption; failed reads leave it absent or unchanged rather than
+inventing zero. Rate consumers baseline first/reset/gap observations and never
+differentiate context usage. All writer verification/CAS/deadline behavior stays
+with the existing hook owner; core does not parse the cursor or counters.
 
 Runtime observations retain a driver-supplied PID/start-identity pair and an
 optional provider session ID. Schema 34 additionally retains an optional launch
@@ -1587,6 +1732,16 @@ configuration selection, and storage startup/close in the facade. Private
 `run_command/run.rs` owns the bound foreground launch and completion;
 `run_command/resume.rs` owns command selection, resume pending marks and settlement.
 The existing flow separates command selection, binding, spawn and runtime admission.
+A first operand recognized as a registered bare runtime executable selects an
+auto-named launch only when no active identity holds that token. A colliding bare
+or flag-bearing shorthand refuses with explicit named-command alternatives; the
+explicit name plus executable form retains its meaning. The parser admits opaque
+provider tails, while authoritative identity lookup and runtime recognition stay
+in launch composition. Auto-name creation uses the normal binding lifecycle and
+prints one line before spawn. Failed spawn retires only its exact unchanged,
+new temporary automatic binding; saved identities and renamed/replaced bindings
+remain. Provider hooks, foreground completion and channel enrollment retain the
+same UUID/binding owners across naming, without a separate anonymous session store.
 A verified live or stopped previous runtime prevents a second launch.
 An inconclusive previous-runtime probe permits a degraded launch only after
 fencing that same attachment's stored Running state to Unknown; known Ended is
@@ -1617,8 +1772,10 @@ Unavailable discovery is not evidence that an identity does not exist; binding
 and launch still perform their normal authoritative checks.
 The CLI's hidden completion query resolves the unfinished operand through the
 same public Clap grammar and emits only a context tag, candidate names or command
-offset. Shell adapters retain generated static completion and delegate arguments
-after `run`'s identity to the command's own shell completion. They do not own a
+offset. Shell adapters retain generated static completion and delegate `run` arguments
+to the command's own shell completion. Launch completion includes registered
+executables and identities; its storage-only composition resolves whether the
+command begins at the first operand or after an explicit identity. They do not own a
 second TMT parser or runtime-driver list. Discovery failures are silent and do
 not initialize storage. `run -s` uses the existing binding lifetime promotion;
 without it a new identity is temporary and an existing saved one stays saved.
@@ -1718,8 +1875,8 @@ uses the existing no-follow path traversal without opening the notebook content
 or creating a notebook. CLI presentation bounds the complete human/JSON output
 to 4 KiB, preserves counts and inspect commands when shortening role/path content,
 and marks truncation. No request IDs, bodies, receipts or notebook contents enter context.
-The extension contribution slot is currently empty; this path neither discovers
-nor executes extensions. Session-only interfaces remain unimplemented as above.
+Consented extension contributions share this bounded context owner as defined
+above. Session-only interfaces remain unimplemented as above.
 Binding SQLite reads and writes reuse `endpoint::valid_process_id` with checked
 signed/unsigned conversion. Invalid stored PIDs fail decoding
 without repair or retirement, and invalid inputs fail before insertion.
@@ -1745,7 +1902,8 @@ Conclusive pane/server death or explicit unbind retires temporary names without
 erasing retained exchanges; saved identities remain available offline. Saved
 removal requires explicit force. Neither removal nor unbind kills a pane.
 `ls` may show verified foreign-server identities, but `talk`/`check` routing
-remains current-server-only. Pane number, presentation title and socket pathname
+remains current-server-only: a name bound on another host reads as not active
+without asking the caller's host, and one on another socket fails closed. Pane number, presentation title and socket pathname
 alone are not endpoint identity. Publication and recovery preserve the full
 server/pane process evidence; ambiguous observations fail closed.
 
@@ -1807,10 +1965,30 @@ set `theme.base`, `tmt` sets the process theme once
 `stream::stderr` apply at the stream's color depth. A missing or invalid theme
 leaves every command on the terminal's own 16 colors. The Squad board reads the
 same resolved theme from `config show` and layers `[squad.<name>.theme]` over it
-(`look`), defaulting to `tmt`; a bad global theme is a notice on the board, a
-bad squad theme a `squad.toml` error. Only `tmt-cli-style` names colors: the
+(`look`), defaulting to `auto`; a bad global theme is a notice on the board, a
+bad squad theme a `squad.toml` error. The global `appearance::parse` rejects
+`auto` with a board-only hint; the shared parser accepts it for `squad.toml`
+`[board.theme]` and `[squad.<name>.theme]`, including both picker scopes. No CLI
+auto resolution path exists. `tmt-cli-style::theme::background` owns pure COLORFGBG/OSC 11 parsing and
+luminance classification. Its bounded reader takes injected read/clock functions;
+it opens no terminal and retains received bytes for the caller's input owner.
+`Base::Auto` and `Theme::resolve` consume a supplied background signal without
+changing token overrides or `Theme::default()`. The executable owns environment
+observation, query eligibility, terminal I/O and detection lifetime. Squad's
+`board::terminal` queries after raw-mode entry and before the input and refresh
+workers start, then `look` caches the optional signal for this process. Concrete
+bases do not query; COLORFGBG wins without I/O. The 100 ms query discards received
+startup input, and its input-thread filter removes late OSC 11 responses before
+board actions. Picker previews consume the same cached signal. Plain theme
+listings read COLORFGBG only, report an unknown resolved base as null, and retain
+configuration provenance separately from detected provenance.
+Only `tmt-cli-style` names colors: the
 native architecture test (`colors`) rejects color literals in other production
-code, the Rust extensions included.
+code, the Rust extensions included. `Look::row_span` owns the board's selected
+reverse-fallback span policy: cells, pending text/mark and age labels share one
+foreground, with semantic bold; real-background and unselected spans keep their
+original styles. The view supplies selection and semantic context, never a
+second depth/fallback decision.
 
 `json_document` owns editable config/tmux metadata number compatibility:
 IEEE-754 values with non-finite opaque values serialized as null. Known invalid
@@ -1820,7 +1998,7 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 42, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 44, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
@@ -1910,7 +2088,7 @@ request open until a final or its acceptance deadline. `answer_target` selects
 one open request by recipient and originator, never guessing among several, and
 derives the route proof in-process from the recorded attempt, so `tmt answer`
 submits through the same acceptance path as `reply` without exposing a receipt
-([contract](REQUEST-RESPONSE.md#inbox-and-answer)).
+([contract](contracts/request-response-v1.md#inbox-and-answer)).
 
 `RequestRoute` distinguishes unbound direct-pane delivery from durable identity inbox
 queueing. Identified talk is Inbox-first with one claimed full-payload live wake;
@@ -1919,6 +2097,11 @@ the resolved active recipient UUID and settle as `queued`, never `sent`.
 `RequestService::enqueue` prepares the attempt, stores its exact prompt and
 publishes recipient attention in one repository transaction. CLI inbox sends use
 this path; pane effects retain the separate prepare/send/settle lifecycle.
+`talk_command` preserves explicit inbox selection separately from its offline or
+live-wake projection. Pending explicit-inbox output says no notification was
+attempted and recipient pull is required; this presentation never changes the
+route, claims, attention or queue acceptance. The public output contract is in
+[contracts/request-response-v1.md](contracts/request-response-v1.md).
 Both paths reuse the same preparation and queue-transition policy. Database
 errors roll back all enqueue writes. A recipient found inactive commits a failed,
 non-waiting attempt without recipient attention, matching the prepared queue path.
@@ -1948,8 +2131,35 @@ waiter ownership inside it. Acceptance and notification outcomes remain separate
 `delivery` composes registered runtime send with verified host fallback through
 the core routing policy; accepted, uncertain, denied and approval-required sends
 never fall through. Drivers own fresh runtime proof and sticky-Ended recovery.
+Schema 44 persists fixed reply-notice windows and rendered notice members under
+`storage::requests::reply_batch`, independently of immutable final bodies and X
+attention. `request::notification::batch` owns the quiet/deadline policy;
+`reply_notice` composes enrollment evidence, enqueue, binding-fenced delivery and
+one-shot settlement. `reply_notice_command` schedules finite detached workers,
+with process-incarnation CAS claims before waits, sealed batch membership, and
+per-frame attempt evidence before transport. An approval-blocked registered frame
+is settled definitely unsent and does not stop independent later frames; joined
+host notices retain the host's single final approval result without input fallback.
+A unique SQLite sending claim serializes worker transport per binding, including
+separate zero-window notices.
+Only exact process-death evidence may release a stranded sending claim; attempted
+frames retire uncertain and untouched members remain queued. Workers hold no
+transaction while sleeping or probing. A failed send never replays; later eligible enqueue can
+recover a proven-dead worker's never-attempted frames while settling its unresolved
+attempted frames uncertain. Clean workers remove their own logs; failed workers
+retain them.
+Channel enrollment bypasses enqueue, and enrollment beginning during a window
+keeps individual driver notices. The delivery owner retains all routing and paste
+gates. `HostDriver::input_activity` reports elapsed real key evidence or Unknown;
+core applies the configured quiet period. Ordinary missing evidence is Unknown;
+failed probe cleanup aborts the worker and retains diagnostics. tmux matches attached clients' current
+pane and reads `client_activity`; other hosts explicitly report Unknown. No
+screen contents or provider prompt buffer is interpreted as typing. See
+[request notification behavior](contracts/request-response-v1.md) for timing and limits.
+
 `process::detached` owns startup acknowledgment and failure cleanup for one
-request deadline observer, and the observer's removal of its own stderr log
+request deadline observer or reply notice worker, and the worker's removal of its
+own stderr log
 after a clean exit, only when the path still names that same file (device and
 inode). Failed and crashed observers keep their log as bounded diagnostics;
 there is no sweeper. `request_observer_command` owns the per-request log path
@@ -1962,7 +2172,7 @@ request.
 schema, connection or alternate final-submission path. Input is bounded and
 validated before storage effects. A malformed receipt, a stale revision, an
 unknown identity and an uncertain transport outcome remain distinct failures.
-The [request contract](REQUEST-RESPONSE.md#talk-completion) owns talk interruption
+The [request contract](contracts/request-response-v1.md#talk-completion) owns talk interruption
 and retry guidance on either side of preparation.
 
 Talk preparation renders `<tmt-reply from="…">` using the same resolved
@@ -2068,10 +2278,18 @@ and clipboard are extension features). Names that a later host reads as targets
 one keeps it for lookup and marker checks, and explicit resolution prefers it.
 
 `tmux` uses explicit socket/server evidence, bounded command budgets,
-owned buffers and no ambient host fallback. A failed paste or Enter is an
+owned buffers and no ambient host fallback. Explicit target resolution preserves
+command deadline, I/O, spawn, output-limit and signal failures through the host
+port as `RECONCILIATION_FAILED` (exit 1), rather than `PANE_NOT_FOUND` (exit 3).
+A completed unsuccessful lookup or a successful reply without a valid pane ID
+still yields no target; socket denial remains `TMUX_PERMISSION_DENIED` (exit 1),
+and failed cleanup is never suppressed. Optional caller evidence retains its
+best-effort absence policy. A failed paste or Enter is an
 uncertain delivery and is never retried as if unsent.
 Message delivery changes ASCII `!` to fullwidth `！` to avoid agent bash-mode
-shortcuts; this is transport policy, not arbitrary output rewriting. `check`
+shortcuts (`tmt_core::driver::pane_input_text`). It is core's delivery policy
+for any text typed into a pane, raw input or a prompt, on every host; hosts
+and drivers add nothing. It is not arbitrary output rewriting. `check`
 remains bounded terminal diagnostics, not a fallback response channel.
 
 `response_input` owns bounded file/stdin acquisition and regular-file checks. It
@@ -2110,7 +2328,7 @@ Only those two places spell a driver's name. The tmt-cli architecture test
 fails on a production string literal equal to a driver name anywhere else.
 Stored harness IDs are the descriptor names, so storage is unchanged.
 
-### Codex queue transport groundwork
+### Codex native channel
 
 `drivers/codex/queue` owns exact native request/receipt validation, while
 `drivers/codex/transport` owns synchronous WebSocket framing and the absolute
@@ -2118,32 +2336,41 @@ I/O deadline. The only new transport dependency is adapter-local tungstenite,
 exactly pinned with default features disabled and `handshake` enabled; no TLS
 or async runtime enters core or shared ports. The architecture dependency guard
 permits it only in adapters. The [Codex channel contract](contracts/codex-channel-v1.md)
-owns limits, version qualification and receipt semantics. These modules are
-unregistered groundwork (#736): endpoint/launch ownership and terminal consumer
-integration must be proven before user-facing activation in the later #719 slices.
+owns limits, version qualification and receipt semantics. Provider-private enrollment and the shared launcher establish authority before
+this transport is used; no arbitrary endpoint becomes a delivery target.
 
 `drivers/codex/record` adds provider-private opt-in/readiness persistence (#737),
 using the existing nonblocking file lock for compare/write/remove. It stores
 exact launch/process/thread coordinates but no capability material and owns no
 binding transaction. The launcher must validate new-launch authority before
 calling it; record-level takeover and withdrawal remain generation/incarnation
-scoped. The same contract owns this persistence definition and its still-pending
-launcher/crash-cleanup integration. This adds no user-facing registration.
+scoped. The same contract owns this persistence definition and its launcher/crash-cleanup rules. The registered consumer composes these records through the shared channel port.
 
-`drivers/codex/server` and `attachment` add unregistered endpoint/foreground
-planning (#738). A launch-owned process group and private capability share one
+`drivers/codex/server` and `attachment` own endpoint/foreground
+planning. A launch-owned process group and private capability share one
 cleanup owner; process cleanup precedes inode-checked file removal. Attachment
 planning resolves cwd once and names an exact thread. The channel contract owns
-the startup, credential and failure limits; real continuity and launcher crash
-recovery remain final consumer acceptance gates.
+the startup, credential and failure limits; live-provider continuity and model-free product routing have separate evidence.
+Codex owns folder-trust onboarding: its user answers the TUI prompt; the channel
+never approves it or writes trust configuration (see the channel contract).
 
-The unregistered #785 foundations extend that record with persisted pane
-attribution and Unknown/Known foreground state. The record owns exact takeover,
-pruning and withdrawal; a server alone never proves an Unknown foreground ended.
-Startup errors carry cleanup certainty to their eventual lease caller. Permission
-planning routes supported typed settings to the server/thread and refuses generic
-permission overrides before spawn. No shared routing or registration changes in
-this slice; the [contract](contracts/codex-channel-v1.md) owns these definitions.
+`drivers/codex/lease`, `supervisor`, `delivery` and `channel_hooks` compose the
+native consumer (#739). The supervisor owns the original
+endpoint process handle; launcher EOF requests endpoint cleanup but preserves
+the provider enrollment. Explicit withdrawal is reserved for no-child or
+confirmed foreground reap. Pre-handoff startup failures retire only after
+confirmed cleanup; a complete Ready frame may already have escaped, so a later
+flush failure retains evidence. Provider records retain the pre-spawn pane address
+and Unknown/Known foreground state; app-server readiness is never foreground
+lifetime proof. The channel contract owns takeover, pruning and manual recovery
+limits. Codex registers through the shared `Runtime.channel` port; native enrollment
+selects the one terminal route before provider preference. Both the identity and
+raw-pane paste boundaries query provider evidence, including reply notifications.
+The shared launcher owns admission and confirmed-only withdrawal; the provider
+owns its endpoint, record, foreground planning and one-shot queue transport.
+The contract distinguishes accepted provider attachment evidence from the real
+CLI/router tests. Permission options configure the owned thread and server,
+not remote resume; unsupported forms fail in enroll before any spawn.
 
 ### Provider channels
 
@@ -2256,7 +2483,23 @@ environment `caller` may read, and `tmt-core` may depend on it to recognize an
 external host's stored pane IDs without taking on the wire crate or serde. The
 protocol crate otherwise depends only on `serde` and `serde_json`, so a
 community driver builds against these two small crates alone. The architecture
-guard allows exactly those edges. Nothing in `tmt` uses a driver for a host yet.
+guard allows exactly those edges.
+
+`rust/crates/tmt-driver-herdr` is the first driver built this way (#479). The
+`tmt-driver-herdr` executable depends on the protocol crate, `tmt-invoke` (its
+bounded process owner), `serde_json` and `semver`, and never on core or the
+adapters; the architecture guard holds it to those edges. It answers `caller`,
+`server`, `resolve-target`, `snapshot`, `publish` and `clear` through Herdr's
+documented CLI (floor 0.9.1) and `ps`. Its children get an allowlisted
+environment without `TMT_DRIVER_CALL`. Herdr reports no server pid, so `server`
+names the parent of a pane's shell, and a server with no pane reads as no
+server. `publish` refuses with `not_found` unless the pane still runs `panePid`,
+then reads the marker back. The marker tokens are the built-in Herdr host's,
+byte for byte: both crates test against one fixture
+(`tmt-driver-herdr/src/fixtures/builtin-marker.json`). The driver doesn't yet
+declare `capture`, `input`, `prompt` or `focus`, isn't packaged, and doesn't
+serve `HostKind::Herdr`; the built-in `herdr/` adapter does until the driver
+replaces it.
 
 `tmt-adapters::host::external` holds the core side of that boundary:
 
@@ -2271,11 +2514,51 @@ guard allows exactly those edges. Nothing in `tmt` uses a driver for a host yet.
   process.
 - **Recursion guard:** a `tmt` started with `TMT_DRIVER_CALL` refuses every
   command but help and `--version` (`DRIVER_CALL_REFUSED`).
+- **`Drivers` and `ExternalDriver`:** a `Host` carries the approved drivers
+  (production constructors read the registry; the test `_with` constructors
+  approve none). A binding session opens one driver per external host on first
+  use and serves it as an ordinary `HostDriver`: `snapshot`, `publish`, `clear`,
+  runtime and the pane incarnation. A host without a usable driver, removed or
+  changed since approval, answers `Unavailable`, which never proves loss.
+- **Core-led evidence:** an external server's identity is core's own `ps` start
+  token for the pid the driver's `server` names; the driver's `startTime` is
+  advisory and never stored. A probe is decided by core: the recorded server
+  process gone or replaced is Dead, the same process plus the driver's snapshot
+  is Live, anything else is Unknown. The driver's optional `probe` operation is
+  not called. One batched `ps` (`process::runtime::observe_starts`) covers the
+  server and the scoped pane shells.
+- **Caller and targets:** `CallerEnvironment` carries only the variables
+  approved drivers declare for `caller` (`driver_env`). A driver's `caller`
+  names a pane; core counts it only when that pane's shell is an ancestor of
+  the caller (`process::ancestry`), and the nearest verified pane wins across
+  tmux, Herdr and external hosts. Without a verified external pane the choice
+  is exactly the built-in one. The handle then keeps that pane and its socket
+  for `caller_pane`, server resolution and `resolve-target`. `Host::for_target`
+  picks the host whose registered grammar reads the text as a target (tmux, the
+  broadest, is the default), and an external target resolves through the
+  driver on the caller's server or the driver's default one. Only a definite
+  answer (no such pane, no server, no approved driver) is "not found"; a
+  driver that fails or runs late is a failure (`RECONCILIATION_FAILED`).
+  Caller detection stays best-effort: a failing driver is just not the
+  caller.
+- **Delivery and inspection:** a driver that declares `input` takes messages.
+  The prompt-first `send` asks its `prompt` when declared and maps the answer
+  as the contract says (`no_agent` or `unsupported` falls back to raw input;
+  `blocked` is `AwaitingApproval`; `not_ready`, `not_found` and `bad_request`
+  were not sent; anything else is uncertain). Raw input is staged like tmux:
+  paste with `enter: false`, core's paste-to-Enter delay, then Enter alone,
+  each call with its operation's own deadline. A pane-addressed message
+  (`Host::send`), `check` (`capture`) and `focus` go through the driver too;
+  focus on an external host needs no tmux client, and its `viewer` names the
+  server whose views moved.
 
 The atomic owner-only replacement of such settings files is `private_file`,
 shared with the extension hook consents. The approved drivers' syntax is
-registered with core at start (see the host section above); running their
-operations for a host is still to come in slice 3b.
+registered with core at start (see the host section above). Bindings on an
+external host are made from its caller or an explicit target, and read,
+published, cleared, messaged, captured and focused through its driver. A driver
+without `input` keeps today's behavior: a send is `Unsupported`, the request is
+kept, and `--inbox` queues.
 
 ## Managed skills and native installation
 
@@ -2298,6 +2581,14 @@ an owned core skill. CLI upgrades refresh recorded Office links without creating
 missing integrations. The driver descriptors (see Agent drivers) are the only
 provider inventory. Skill installation does not open application configuration, SQLite
 or tmux, and never silently replaces an unmanaged path.
+Ownership requires a matching known skill name and a link into this TMT home's
+canonical `skill-assets` store. Existing generations retain digest and inventory
+validation; a missing generation is a dangling TMT link, eligible for refresh or
+removal. A real directory, mismatched name, outside link, or modified source is
+preserved as a conflict. Historical bundled Office target intents join owner
+records for explicit extension removal, and completed removal retires those
+intents, including preserved user conflicts, so core refresh cannot resurrect
+or reclaim an integration the user removed.
 
 Extension-owned skills arrive as bytes through the local API
 (`skills.install`/`skills.remove`, both requiring explicit `consent: true` from
@@ -2353,8 +2644,9 @@ facade's `release_verifier` until PR B of #355.
 Removal (`uninstall_extension`, for any extension product) validates ownership
 of every command link, refuses a foreign same-named command, and deactivates the
 links without deleting releases or application data. It is recoverable, not a multi-file atomic deletion:
-a missing command link with a retained activation is reported as invalid and
-explicit uninstall can finish that state.
+a missing command link with a retained activation is reported by `extension ls`
+as `partiallyRemoved` with an exact removal command, and explicit uninstall
+can finish that state. Listing this state does not execute or mutate it.
 
 `tmt extension install|upgrade|rm|ls` (`tmt-cli::extension_install_command`)
 is the public surface for the official extensions over this path. Its facade
@@ -2437,6 +2729,11 @@ version pin; extension verification and skill settlement retain their existing o
 JSON/non-terminal runs without `--yes` report `consentRequired` without mutation.
 Product failures remain independent in the aggregate report; CLI failure stops the
 extension phase, while a pinned CLI permits it. No rollback or second installer exists.
+`NATIVE_UPGRADE_FAILED` includes an explicit diagnostic `cause` in JSON. HTTPS
+failures retain the transport cause or diagnostic class without echoing rejected
+URI/proxy credentials. Managed-skill conflict reports retain the path array and
+provide one shell-quoted backup command per preserved entry; recovery moves the
+entry outside skill discovery without changing its source.
 
 Explicit extension `install --repair` is a separate recovery composition in
 `native_install::repair`, for GitHub and local-archive receipts. `receipt`
@@ -2486,11 +2783,11 @@ reached through the external command contract as `tmt squad` and, through a
 `tmt-sq` link to the same file, `tmt sq`. Its command name is fixed, never taken
 from argv[0], so both spellings share one help text, error set and completion.
 It is a workspace member for the shared lockfile and toolchain only. It depends
-on no TMT crate except the leaf `tmt-cli-style`, which carries no TMT behavior,
+on the neutral leaves `tmt-cli-style` and `tmt-invoke`, which carry no core behavior,
 and no TMT crate depends on it; the architecture guard enforces both directions
 for Cargo dependencies and source references. Squad reaches TMT
 through `TMT_EXECUTABLE` (or `tmt` on PATH), using public `--json` commands and
-`tmt api`, with its own minimal bounded child runner.
+`tmt api`, with `runner` mapping results/errors to `tmt-invoke` for bounded capture.
 
 Squad keeps no store. A squad is the core room `squad-<name>`. Member fields are
 identity metadata `squad.<name>.<field>`, so one identity can belong to several
@@ -2563,7 +2860,14 @@ load's members to one fetcher thread that runs due work off the paint path and
 again at the shortest `every`; a save moves the cache directory's stamp, which
 `board::changes` watches, so the board reloads early. The board sizes it with `tmt-cli-style`'s one solver
 (`grid::solve`, `grid::span`, `grid::fit`, `grid::fit_lines`). `rows::Column`
-uses `grid::Basis` for cell or percent widths; bounds stay in cells. The solver
+uses `grid::Basis` for cell or percent widths; bounds stay in cells. `rows::Rows`
+owns positional coverage: cells start at track zero, so the maximum line span
+covers a prefix, including empty cells. `Rows::solve` passes only that prefix to
+the shared solver and pads uncovered trailing positions with `None`, retaining
+span indices. Uncovered columns remain projection sources; their JSON metadata
+adds optional `valueOnly: true`, omitted for covered columns. `Column::display`
+ignores their sizing settings so flat text lists retain natural values. No shared
+solver or all-covered output contract changes. The solver
 resolves percentages against data width after marks/borders/gaps, rounds by
 largest remainder, clamps cell bounds (percent columns default to a four-cell minimum, capped by an explicit max), then grows. Hiding recomputes the shown set.
 `grid::fit_lines` owns escaped, exact-cell-width bounded wrapping, with a final
@@ -2588,10 +2892,13 @@ painted data. Input, snapshots and deferred tab attention share one event channe
 a snapshot wakes the painter directly. The input loop rebuilds only after a
 state/input/resize change or when displayed clock text or the delayed spinner
 changes. Each immutable view owns disposable markdown wrapping and grid-width
-derivations keyed by effective pane width (and grid search); replacing the view
+derivations keyed by effective pane width (and grid search); markdown also keys
+its styled lines by the active look so theme previews repaint them. Replacing the view
 invalidates them, and the scroll renderer copies only visible lines.
 A switch advances the worker's generation, cancelling superseded core reads in
-Squad's existing bounded process-group runner. Cancellation kills and reaps the
+the shared `tmt-invoke` bounded process owner. The refresh worker owns one never-reset stop flag per generation; preemption
+and shutdown set that flag while the generation counter still fences events.
+Cancellation kills and reaps the
 child group without changing ordinary command deadlines or output bounds;
 queued results carry their generation and cannot replace a newer view. Worker
 shutdown cancels its core read, disconnects requests and joins after terminal
@@ -2625,12 +2932,38 @@ stays visible until that generation's update arrives; a newer switch preempts
 this lower-priority work. The cross-squad leads/all views still read the rosters
 needed for their own rows before publication.
 
+Squad's `theme` command module registers `theme ls` (hidden `list` alias),
+`set` and `rm`; bare `theme` lists. Lists and the board picker consume names and
+descriptions from `tmt-cli-style::Base`, never a Squad palette. The effective
+base source is `default`, `cli`, `board` or `squad`; token overrides resolve
+independently. `config::Config` reads core's resolved appearance through public
+`config show`, then applies `[board.theme]` and `[squad.<name>.theme]` in
+`squad.toml` through `look::board_theme`. Invalid core appearance falls back to
+the built-in base with a notice; invalid Squad layers are configuration errors.
+All bases and token overrides are validated per layer, including masked values.
+Named `Config::set_theme_base` and `remove_theme_base` change only `base` through
+the existing writer, keeping token overrides and unrelated content. Squad never
+writes `config.json`, and command/picker text states that CLI colors stay unchanged.
+
+The bindable `theme` action (`T` in both host presets and the all tab) opens a
+small overlay owned by `board::theme_picker`. The session reads its Config at
+opening and keeps that baseline across refreshes. Preview applies the same
+in-memory layer edit as CLI set, cached when selection or scope changes, with no
+write; `App::look` supplies it to every
+pane and tab. Tab changes board/squad scope; built-in tabs have only board scope,
+and a masking squad base is named. Overlay input cannot operate underlying rows,
+tabs or panes. Enter calls the named Config edit once; failed saves retain the
+draft and notice without retry, while Esc drops preview and uses the latest
+saved view. A refreshed config cannot replace the opening baseline and permit an
+overwrite. No settings-view framework or core configuration writer is introduced.
+
 Squad `config::duration` owns UTF-8-safe whole-unit suffix conversion for provider,
 board refresh and reminder timing. Callers retain their accepted units, numeric
 forms, ranges and key-specific error messages; refresh alone wraps `"off"`.
 
 Optional `[squad.<name>.reminders]` config is parsed by
-`Config::reminders`: disabled by default, 30 minutes, whole `s`/`m`/`h` values
+`Config::reminders`: enabled for the `team` layout, disabled for the
+other layouts, 30 minutes, whole `s`/`m`/`h` values
 from 1 minute through 24 hours. `staleness` owns observed raw task/state and
 exact lead-notebook content age, separate from providers and column bindings.
 `observe` is the one read sequence for a squad's status, used by `ls` and the
@@ -2719,11 +3052,46 @@ runs only when `tmt_cli_style::Interaction::view()` is `Interactive` (decided
 once in `main`); otherwise it is `ls`. `tmt squad` with no command is `board`. Consent for hotkeys and playbooks is
 likewise a `Consent` decided in `main` from `--yes` and `prompt()`. `[squad.<name>.board]` selects
 split or tabs panes (rows, notes, detail, replies) over a per-layout preset,
-validated before raw mode. `split` owns how panes sit: a tree of row and column
+validated before raw mode. Squads with no layout key use team unless they set the simple board form, which keeps crew. Explicit
+`crew`, `pr-queue` and `minimal` retain their presets. `Config::resolve_layout`
+owns the shared decision for the layout and board readers. The `team` preset uses the same `Layout`/`Board::preset` and ordinary config readers: a
+60/40 top-bottom split, rows beside detail/replies at 62/38 in the top, detail
+above replies at 50/50, and full-width lead notes underneath. Its crew states,
+pending-first ordering, member/state/task/pr/model grid with a pending line,
+60-second `github-pr` field and 30-minute observed-age default are all
+configurable; existing presets keep their defaults. A user `rows` or legacy
+`columns` table replaces the grid, `fields.<name>` replaces that provider's
+whole table, additional provider names retain `pr`, and reminder keys override
+individually. The nested board requires a full `layout` or `panes` override;
+partial `direction`/`sizes` overrides are rejected. Model reads the existing
+session projection, and providers remain on the existing fetcher path.
+`split` owns how panes sit: a tree of row and column
 splits whose children have a percentage or a grow share (ratatui `Percentage`
 and `Fill`), nested up to three levels; `layout` is its full form and the
-`direction`/`panes`/`sizes` keys its one-level form, and the board draws either
-by one recursive walk. The tree's reading order is the focus order. The detail pane appends full projected `row.fields` values for board columns not already represented by its header, task, note, activity or links, in column order; it escapes and wraps them without grid fitting, source lookups or provider calls. The notes pane reads the lead's notebook only through
+`direction`/`panes`/`sizes` keys its one-level form, and split solves either
+by one recursive walk before the board draws the resulting panes. The tree's reading order is the focus order, skipping folded panes. `split::Split::solve` receives
+an explicit runtime fold set: vertical folded children reserve one title line,
+horizontal folded children reserve a compact title-width column, and a fully
+folded subtree propagates its title footprint. Expanded siblings divide the
+remaining space by their configured percentage/grow shares. An empty fold set
+uses the original constraints. The configured Board/Split never changes during
+a toggle. `Config::board` strictly validates the initial `collapsed` pane list
+for split mode, plus `fold_below = { width, panes }` with width 1–1000 and
+panes present in the resolved layout. Team sets width 100 for detail and replies.
+`App` resolves the effective fold set from board body width and immutable defaults;
+per-pane user overrides win at either width. The terminal draw owner supplies the
+full-width body measurement before rendering; the view only passes the resulting
+set to `Split::solve`. `App` owns bounded per-tab session overrides, preserving them
+through unchanged refreshes and cached switches, resetting them on changed board
+configuration, and dropping removed tabs. Restarting uses config again. The
+existing `action` parser/dispatcher owns `toggle <pane>` (`d` defaults to detail).
+Each render records the visible title hit regions; a left press toggles before
+row dispatch, without selecting a row or contributing to row double-click history. Folded
+bodies produce no row/scroll hits. Collapsing focus advances to the next expanded
+pane; with every pane folded there is no body focus. Expanding from that state
+focuses the expanded pane. The notes action expands notes before focusing it.
+Single expanded panes keep their existing borderless rendering; their folded
+title is clickable to expand. The detail pane appends full projected `row.fields` values for board columns not already represented by its header, task, note, activity or links, in column order; it escapes and wraps them without grid fitting, source lookups or provider calls. The notes pane reads the lead's notebook only through
 `tmt api notes.read` (bounded, never creating a file); `board::notes` removes
 every escape sequence, control character and hidden bidi/format character before
 display, since notes are agent-written. `board::markdown` is a thin
@@ -2806,9 +3174,12 @@ changes. Bodies are agent-written and are sanitized like notes before display.
 Membership commands are sequences of idempotent core commands, not one
 transaction; each reports what it applied, and a re-run converges. `squad.toml`,
 beside the global config that `tmt config show` reports, is the user's file.
-Squad writes only the top-level `me` and `me_id` (the UUID `me` named), together,
-with a changed-input check and atomic replacement that preserves the rest of the
-document. Nothing asks for `me`: `init` only creates the room (`--me`, for
+`Config::write` owns format-preserving replacement for `me`/`me_id`, tab order
+and board theme bases. It checks the original bytes, edits a cloned document,
+skips unchanged bytes and assigns the new document only after successful
+publication. A changed file is refused, not overwritten. Its byte check and
+atomic replacement are not a locking transaction; backups are not created.
+`me` and `me_id` (the UUID `me` named) are written together. Nothing asks for `me`: `init` only creates the room (`--me`, for
 scripts, is checked before any effect), and `tmt squad me [<name>|--clear]`
 shows, records or removes it. The UUID decides, as it
 does for binding markers: while `me_id` names an active identity, that identity is
@@ -2852,7 +3223,10 @@ Geometry, gesture history and native durability retain their existing test owner
 
 Retained tests are organized under `typescript/test/native/`, `typescript/test/e2e/`,
 `typescript/test/tooling/` and `typescript/test/support/`, with Rust unit/integration tests beside
-their owners. They use independent SQL/schema oracles for SQLite behavior and
+their owners. The CLI's `tests/support` module owns the isolated environment and
+direct-child lifetime shared by its stdin-signal and request-observer fixtures;
+[Development](DEVELOPMENT.md#native-process-and-shared-tests) owns the isolation contract.
+They use independent SQL/schema oracles for SQLite behavior and
 frozen fixtures from `typescript/test/fixtures/storage-history/`; implementation reads
 must not generate their own expected results. Native process tests use absolute
 task-owned executables, bounded subprocesses and cleanup that stops, reaps and
@@ -2871,6 +3245,10 @@ fixture files for diagnosis. Sandbox disposal cancels outstanding runs before
 removing files. This is not containment of descendants that create new sessions,
 and does not replace the separate Docker harness or release verifier.
 
+Real-companion native scenarios live in Office-owned `office-*.test.ts` suites;
+core-only uninstall, legacy skill recovery and hook cases stay in their core suites.
+Shared setup lives in `test/support`, while assertions remain in the scenarios.
+
 The native process suite proves parser, configuration, identity, notes,
 response, exchange, talk, installation and skill contracts through the real executable.
 Docker E2E supplies private tmux, caller, lifecycle, transport and cross-process
@@ -2878,14 +3256,27 @@ evidence. Storage adapter tests prove migrations, transaction rollback,
 contention, crash cleanup, retention, acknowledgment and late-final behavior.
 Tooling tests prove release-script policy and bounded command wrappers; they do
 not count as native runtime or release-archive proof.
+The public-install smoke keeps short issue reasons and separate bounded command
+diagnostics in its run log and result artifact; the packed runner owns stream capture.
 
 Docker E2E `harness.ts` retains scenario imports; `harness/fixture.ts` owns
 fixture resources and process registries.
 `harness/readiness.ts` observes caller-supplied events, panes and process state;
-`harness/cleanup.ts` stops and checks owned process groups and clients. The
-fixture retains cleanup ordering and error precedence. `harness/types.ts` owns
+`harness/cleanup.ts` stops and checks owned process groups and clients. Unknown
+group inspection remains pending within the one-second cleanup bound; unresolved
+inspection or surviving groups fail cleanup. The fixture retains cleanup ordering
+and error precedence. `harness/types.ts` owns
 their suite-local result, event and option shapes; the helpers do not own a second
 fixture lifetime.
+
+`typescript/test/tooling/architecture.test.ts` guards literal test import directions:
+shared support imports no suite; native and E2E import neither each other nor tooling;
+harness helpers do not import the fixture, and root/extension E2E scenarios enter the
+root harness through `harness.ts`. Focused tooling tests may import suite-local helpers.
+The shared `test/support/source-imports.ts` AST extractor includes no-substitution
+literal templates and the first argument of dynamic imports with options; computed
+loaders stay outside this static guard. TypeScript module resolution uses the root
+compiler options for these test boundaries.
 
 Within Docker E2E, `cli-assertions.ts` owns the repeated strict success envelope
 (zero exit, empty stderr, defined parsed JSON), not domain validation or command
@@ -2916,6 +3307,15 @@ must run, and a missing default native build must fail clearly. No Rust coverage
 percentage is compared with the retired TypeScript source or reported as a
 zero-file success.
 
+`typescript/scripts/merge-queue-metrics.mjs` is read-only developer tooling,
+not a CI selector or queue controller. It owns bounded REST evidence collection,
+local cache reuse and metric calculation, using the existing bounded command
+process owner. Its tests own deterministic API/timeline fixtures; production
+job and step evidence stays in local report artifacts. The reporting definitions,
+limits and invocation belong to [DEVELOPMENT](DEVELOPMENT.md#merge-queue-metrics).
+It never changes workflows, rulesets or PR state; unknown causes/inclusion remain
+explicit rather than becoming inferred delivery decisions.
+
 ## Release boundary
 
 `dist-workspace.toml`, `scripts/build-native-artifact.sh`,
@@ -2925,6 +3325,23 @@ workflow builds the four supported cargo-dist targets, creates target-filtered
 third-party notices (including Vite's bundled frontend inventory for Office), and verifies runtime bytes, linkage, checksums, archive
 inventory and executable behavior on matching hosts. CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
+
+`project-release.mjs` owns release-to-Project delivery evidence, separately from
+publication. `project-release.yml` runs on completion of `Native release artifacts`,
+daily catch-up and manual replay. All execute on main so the release environment
+can mint a short-lived release-App token scoped to org-project writes and tmt
+repository reads. Direct release-tag events cannot use that main-only environment. It executes main's tooling, never code
+from release tags or artifacts. Automatic runs reconcile the latest ten published
+supported releases under one project-wide concurrency group, recovering replaced
+pending events. The release-please links or same-product compare range identify
+merged PRs; GitHub's paginated `closingIssuesReferences` is the issue authority.
+Only existing issue items in pj-tmt organization project 1 are updated: distinct component/version
+lines append to `Released in`, then Status becomes terminal `Released`. No issue,
+release, membership or earlier status is written. Replays preserve existing text
+and skip completed entries; partial text writes can be retried before status.
+The full read plan precedes bounded batched mutations and a single readback.
+Request/window caps fail visibly with manual replay guidance, never silent
+truncation. DEVELOPMENT owns token setup, budgets and dry-run commands.
 
 The release workflow is a product-selected preparation, verification and publication
 workflow; publication is authorized by the owner: the standing trunk-based alpha authorization
@@ -2944,6 +3361,12 @@ GitHub App token, created only in that job and only in a live run on `main`, is 
 the release pull requests run the required checks; the job runs in the `release`
 Environment and the App credentials are secrets of that Environment, restricted to `main`.
 Until they exist every push is a dry run that opens, merges, creates and starts nothing.
+`typescript/scripts/release-please-queue.mjs` owns the read-only queue pre-check:
+a workflow-token GraphQL query skips `release-pr` while any open release PR is
+queued, preserving the candidate and continuing `github-release`. Query errors
+and release-please errors remain failures. The check is not atomic with a later
+branch update; [Development](DEVELOPMENT.md#queued-release-pull-requests) owns
+its race, token and recovery behavior.
 `release.yml` never publishes. `native-release-upgrade.yml` proves, for a draft or
 published release, its upgrade from the last published release of the same product on the
 four matching hosts. It only reads releases: a write-token job on `main`'s code fetches the
@@ -2988,7 +3411,7 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 as `tmt remote`. `main` owns style/foreground composition and one bounded
 startup capabilities call. `core::CoreClient` owns fixed public `api`/`ls`
 subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
-`rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf. Request-carried launch options preserve environment inheritance by default or explicitly clear it and copy only named allowlisted caller variables, preserving OS-string bytes and leaving the caller environment unchanged. This policy is configured through the existing invocation entry point; it supplies no memory sandbox or resource-limit guarantee.
+`rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf. Request-carried launch options preserve environment inheritance by default or explicitly clear it and copy only named allowlisted caller variables, preserving OS-string bytes and leaving the caller environment unchanged. This policy is configured through the existing invocation entry point; it supplies no memory sandbox or resource-limit guarantee. `LaunchOptions::process_group` defaults to `New`, preserving owned group creation/termination. Explicit `InheritCaller` omits group creation; a started failure detaches and returns `Cleanup::CallerOwned` without signalling or waiting for cleanup. Pre-start failures remain `NotStarted`. The caller must supervise that group. Squad's context wrapper retains its live group-leader check and whole-group abort on a started failure; capture/deadlines/caps remain invoke-owned. Ordinary Squad, Remote and Colab calls use `New`. The shared 20 ms `PULSE` bounds stop-flag observation latency; each wait is also bounded by the remaining request deadline.
 
 `http::Door` owns finite IPv4-loopback sockets, strict framing, acquisition,
 connection/rate bounds and shutdown. It has no CoreClient/storage reference.
@@ -3009,7 +3432,7 @@ new production dependencies are the contract's pinned Ed25519 and HMAC primitive
 with the existing pinned SHA-256 dependency. Real Chrome MV3 security and browser
 interoperability remain later gates; local Node conformance does not replace them.
 
-[`contracts/remote-client-v1.md`](contracts/remote-client-v1.md) owns the proposed
+[`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns the proposed
 remote channel: one device identity, trust grants (direct by default, hold opt-in),
 the admitted operations, the extension channel API (device context, route mounting,
 opaque relay, operations, agent status) and backends/deploy. Extensions such as colab
@@ -3036,7 +3459,7 @@ and authority definition owner.
 
 ## Colab extension proposal
 
-**Status: persistence and foreground deny-all executable implemented; model,
+**Status: persistence and foreground deny-all executable and model foundation implemented;
 authentication, sync, decoder, browser and backend work remains proposed.** The local-build-only pilot lives under
 `extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
 owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
@@ -3053,20 +3476,51 @@ the embedded app and bridge remain proposed. Core access is only through the abs
 `tmt-core`, `tmt-adapters`, Office or Remote behavior dependencies, core SQLite
 or pane scraping. Shared crypto extraction requires actual consumers and review.
 
-Proposed extension-relative browser packages are `typescript/colab-client`
-(client crypto/log verification, Yjs state and SyncBinding) and `typescript/app`
-(trusted React/Vite chrome and renderer); backend packages are separate. They
-join the existing pnpm workspace/lockfile and pins when implemented. Shared
+The extension-relative `typescript/colab-client` is a private pnpm member for
+client primitives; log verification, Yjs state and SyncBinding are planned additions.
+`typescript/app` (trusted React/Vite chrome and renderer) and backend packages
+remain separate proposals joining the workspace/lockfile when implemented. Shared
 workspace/component edits follow the two-lead rule; architecture guards and
-full runtime CI-scope coverage include the persistence library. The component map gives the
-contract directory private file ownership (`release: false`) and excludes it from
-CLI releases. #841 gates yrs adoption. Official registration/packaging is separate.
+full runtime CI-scope coverage include the persistence library. Runtime
+consumers require their own adoption review. The private component
+(`release: false`) excludes all colab files from CLI releases; the Rust rule
+retains full native and Office coverage. #841 gates yrs adoption. Official
+registration/packaging is separate.
+
+`rust/tmt-colab-model` under the extension is the pure Rust foundation: value
+syntax, deterministic Ed25519/X25519 public derivation, bounded LP framing,
+strict Ed25519, sign-in HMAC/possession, management
+bytes, namespace-bound cuts and immutable object codecs/seal/open. Its only OS
+operations are crypto-only entropy for internal object IDs and fresh HPKE
+ephemeral keys. Long-term key generation stays in the executable keyring; no
+filesystem, process or network use. No core or extension behavior
+crate depends on it yet; the architecture guard rejects runtime/core dependencies
+and unreviewed consumers. Envelope syntax/signature success does not establish
+log, session, role, epoch or sequence authority; callers admit those before open.
+The model also owns device/chain syntax, purpose-separated link keys and
+owner-authenticated HPKE Base wraps. Caller-owned live-issuer/history/transition
+policy still gates application. Strict bounded operation payloads and owner
+statement hash-chain fencing also belong to the model. Retained heads pin the
+revision-1 editor management member and reject successor reuse of its ID/keys;
+signing derives revision and previous hash from that head. Verification does not
+apply a transition. Shared baseline descriptor admission and exact management
+frame decoding stay here; sync/control transport DTOs belong to the server.
+The private browser client owns canonical values/LP/JSON, strict Ed25519,
+immutable object envelopes and sign-in/management bytes, using WebCrypto only.
+Its typed statement/certificate/cut ports mirror the model; fixed-suite HPKE
+opening keeps native recipient keys opaque. The caller supplies the pinned URL
+root and highest retained head, live issuer/recipient bindings and epoch policy.
+Its test-only three-engine harness fails closed on incomplete engines/corpora and
+checks ciphertext both ways through a developer-only Rust example. No app or
+transport is implemented. Pairing/send/baseline builders remain later L1 work. Frozen vectors are contract-owned;
+Rust tests read them without Python. Regeneration uses an independent Python
+cryptography oracle; the retained #829 corpus tests all 148 strict policy rows.
 
 All extension state stays in `<core-reported data root>/colab/`, with 0700
 directories and 0600 files, separate from core SQLite and provider configuration.
 The extension owns its ciphertext database/blobs, keyring, machine grants and
 bridge ledger. Colab is an app on remote: the
-[remote channel contract](contracts/remote-client-v1.md#extension-channel-api) owns
+[remote channel contract](contracts/remote-channel-v1.md#extension-channel-api) owns
 owner-device identity, door route mounting, the opaque relay, agent operations and
 backends/deploy, and colab-v1 marks which of its sections move there or retire.
 Colab keeps page membership, content keys, epochs and before-effect verification;

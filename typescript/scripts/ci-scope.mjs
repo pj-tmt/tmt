@@ -62,6 +62,10 @@ export function parseComponentMap(text) {
     name,
     package: component.package,
     release: component.release,
+    releaseConsumers:
+      component.releaseConsumers === undefined
+        ? []
+        : nonEmptyStrings(component.releaseConsumers, `components.${name}.releaseConsumers`),
     owns: nonEmptyStrings(component.owns, `components.${name}.owns`),
     excludes: component.excludes ?? [],
     migrations:
@@ -181,7 +185,7 @@ function consumedCratePath(path) {
  * and test support) with their separate image.
  */
 const NATIVE_OFFICE_UNRELATED = [
-  /^(?!docs\/office\/)(?:docs\/.+|[^/]+)\.md$/,
+  /^(?!docs\/office\/)(?:docs\/.+|design\/cli-style|[^/]+)\.md$/,
   /^typescript\/test\/(?:native|tooling)\//,
   /^typescript\/test\/e2e\/(?:[^/]+\.e2e\.test\.ts|Dockerfile)$/,
 ];
@@ -244,12 +248,7 @@ const OFFICE_BROWSER_INPUTS = new Set([
  * Empty or unknown paths select no browser work; required CI stays conservative.
  */
 export function selectOfficeBrowser(paths, map = componentMap()) {
-  return paths.some(
-    (path) =>
-      ownerOf(path, map) === 'office' ||
-      path.startsWith('docs/office/') ||
-      OFFICE_BROWSER_INPUTS.has(path)
-  );
+  return paths.some((path) => ownerOf(path, map) === 'office' || OFFICE_BROWSER_INPUTS.has(path));
 }
 
 /**
@@ -276,7 +275,15 @@ export function scopedChecks(scope, map = componentMap()) {
 const EVIDENCE_ROWS = 100;
 
 /** Markdown for `$GITHUB_STEP_SUMMARY` and the log: one row per changed path. */
-export function renderSelectionEvidence({ base, head, rows, areas, digest, nativeScope }) {
+export function renderSelectionEvidence({
+  base,
+  head,
+  rows,
+  areas,
+  digest,
+  nativeScope,
+  range = '...',
+}) {
   const selects = (row) =>
     [row.native && 'native', row.office && 'office', row.nativeOffice && 'native_office']
       .filter(Boolean)
@@ -284,7 +291,7 @@ export function renderSelectionEvidence({ base, head, rows, areas, digest, nativ
   const lines = [
     '### CI selection',
     '',
-    `Diff \`${base.slice(0, 12)}...${head.slice(0, 12)}\`, ${rows.length} changed path(s), component map \`sha256:${digest}\`.`,
+    `Diff \`${base.slice(0, 12)}${range}${head.slice(0, 12)}\`, ${rows.length} changed path(s), component map \`sha256:${digest}\`.`,
     '',
     `Selected: native=${areas.native}, office=${areas.office}, native_office=${areas.nativeOffice}` +
       (nativeScope ? `, native scope ${nativeScope}.` : '.'),
@@ -320,8 +327,12 @@ const NATIVE_JOBS = [
   'e2eShard2',
   'runtimeBuild',
   'packedInstall',
+  'macosRuntimeBuild',
+  'macosPackedInstall',
 ];
 const E2E_JOBS = ['e2eShard1', 'e2eShard2'];
+/** Positional result order accepted by the gate-rust CLI. */
+export const RUST_WORKERS = ['clippy', 'tests', 'office', 'process', 'msrv'];
 
 /**
  * What each native job must have reported for the scope. A scoped component runs
@@ -331,8 +342,14 @@ const E2E_JOBS = ['e2eShard1', 'e2eShard2'];
  * unknown scope, fails: a selected job that was skipped, cancelled or missing is as
  * wrong as a job that ran when the selector skipped it.
  */
-function expectedNativeResults(scope, map) {
-  if (scope === 'full') return Object.fromEntries(NATIVE_JOBS.map((job) => [job, 'success']));
+function expectedNativeResults(scope, map, macos = 'true') {
+  if (scope === 'full') {
+    return {
+      ...Object.fromEntries(NATIVE_JOBS.map((job) => [job, 'success'])),
+      macosRuntimeBuild: macos === 'false' ? 'skipped' : 'success',
+      macosPackedInstall: macos === 'false' ? 'skipped' : 'success',
+    };
+  }
   if (scope === 'none') return Object.fromEntries(NATIVE_JOBS.map((job) => [job, 'skipped']));
   if (!map.components.some((component) => component.name === scope && component.scopedChecks)) {
     return undefined;
@@ -344,18 +361,30 @@ function expectedNativeResults(scope, map) {
     e2eShard2: 'skipped',
     runtimeBuild: 'skipped',
     packedInstall: 'skipped',
+    macosRuntimeBuild: 'skipped',
+    macosPackedInstall: 'skipped',
   };
 }
 
-function gatePasses(jobs, scope, results, map) {
-  const expected = expectedNativeResults(scope, map);
+function expectedRustResults(scope, map) {
+  const native = expectedNativeResults(scope, map)?.nativeRust;
+  if (!native) return undefined;
+  return {
+    ...Object.fromEntries(RUST_WORKERS.map((worker) => [worker, native])),
+    office: scope === 'squad' ? 'skipped' : native,
+  };
+}
+
+function gatePasses(jobs, scope, results, map, macos) {
+  const expected = expectedNativeResults(scope, map, macos);
   if (!expected || jobs.some((job) => typeof results?.[job] !== 'string')) return false;
   return jobs.every((job) => results[job] === expected[job]);
 }
 
 /** `Native package matrix`: every native job, the two E2E shards included. */
-export function nativeGatePasses(scope, results, map = componentMap()) {
-  return gatePasses(NATIVE_JOBS, scope, results, map);
+export function nativeGatePasses(scope, results, macos, map = componentMap()) {
+  if (!['true', 'false'].includes(macos)) return false;
+  return gatePasses(NATIVE_JOBS, scope, results, map, macos);
 }
 
 /** `Docker E2E`: the two shards alone, with the same expectations. */
@@ -363,20 +392,24 @@ export function e2eGatePasses(scope, results, map = componentMap()) {
   return gatePasses(E2E_JOBS, scope, results, map);
 }
 
-/** `Native Rust contracts`: runtime checks and MSRV, selected together. */
+/** `Native Rust contracts`: clippy, tests, Office feature, native fixtures and MSRV. */
 export function rustGatePasses(scope, results, map = componentMap()) {
-  const expected = expectedNativeResults(scope, map)?.nativeRust;
-  if (!expected || results?.length !== 2) return false;
-  return results.every((result) => result === expected);
+  const expected = expectedRustResults(scope, map);
+  if (!expected || results?.length !== RUST_WORKERS.length) return false;
+  const byWorker = Object.fromEntries(
+    RUST_WORKERS.map((worker, index) => [worker, results[index]])
+  );
+  return RUST_WORKERS.every((worker) => byWorker[worker] === expected[worker]);
 }
 
-export function readChangedCiSelection(base, head, cwd) {
+export function readChangedCiSelection(base, head, cwd, range = '...') {
+  if (!['..', '...'].includes(range)) throw new Error('Unknown diff range.');
   if ([base, head].some((sha) => !/^[a-f0-9]{40}$/.test(sha ?? ''))) {
     throw new Error('Expected exact base and head commit SHAs.');
   }
   const changed = runPackedCommand(
     'git',
-    ['diff', '--no-renames', '--name-only', '-z', `${base}...${head}`, '--'],
+    ['diff', '--no-renames', '--name-only', '-z', `${base}${range}${head}`, '--'],
     { cwd, env: process.env }
   );
   const paths = changed.split('\0').filter(Boolean);
@@ -427,9 +460,9 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     return;
   }
   if (args[0] === 'gate-native') {
-    const [, scope, ...values] = args;
+    const [, macos, scope, ...values] = args;
     const results = Object.fromEntries(NATIVE_JOBS.map((job, index) => [job, values[index]]));
-    if (values.length !== NATIVE_JOBS.length || !nativeGatePasses(scope, results)) {
+    if (values.length !== NATIVE_JOBS.length || !nativeGatePasses(scope, results, macos)) {
       throw new Error(
         'Selected native CI work did not complete successfully, or skip evidence is invalid.'
       );
@@ -437,17 +470,33 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     return;
   }
   const full = args.length === 1 && args[0] === 'full';
-  if (!full && args.length !== 2) {
+  const queue = args[0] === 'merge-group';
+  if (!full && !queue && args.length !== 2) {
     throw new Error('Expected exact base and head commit SHAs.');
   }
-  const selection = full
-    ? { paths: [], areas: selectCiAreas([]), nativeScope: selectNativeScope([]) }
-    : readChangedCiSelection(args[0], args[1], cwd);
+  const [base, head] = queue ? args.slice(1) : args;
+  const range = queue ? '..' : '...';
+  let fallback;
+  let selection;
+  if (!full) {
+    try {
+      if (queue && args.length !== 3) throw new Error('Expected merge-group base and head SHAs.');
+      selection = readChangedCiSelection(base, head, cwd, range);
+      if (queue && selection.paths.length === 0) {
+        fallback = 'Merge-group diff is empty; using full verification.';
+        selection = null;
+      }
+    } catch (error) {
+      if (!queue) throw error;
+      fallback = `Merge-group diff unreadable; using full verification. ${error.message}`;
+    }
+  }
+  selection ??= { paths: [], areas: selectCiAreas([]), nativeScope: selectNativeScope([]) };
   const officeBrowser = selectOfficeBrowser(selection.paths);
   const evidence =
-    (full
-      ? '### CI selection\n\nFull verification for a merge-group candidate; no path filtering.\n'
-      : renderSelectionEvidence({ base: args[0], head: args[1], ...selection })) +
+    (full || fallback
+      ? `### CI selection\n\n${fallback ?? 'Full verification; no path filtering.'}\n`
+      : renderSelectionEvidence({ base, head, range, ...selection })) +
     `\nOffice browser PR selection (Office ownership or verification machinery): ${officeBrowser}.\n`;
   stderr.write(evidence);
   if (summaryFile) appendFileSync(summaryFile, evidence);

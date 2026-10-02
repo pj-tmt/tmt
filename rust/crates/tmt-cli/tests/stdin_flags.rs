@@ -1,6 +1,8 @@
 //! Real CLI cancellation must not change its launcher's shared stdin description.
 #![cfg(unix)]
 
+mod support;
+
 use nix::{
     errno::Errno,
     fcntl::{FcntlArg, OFlag, fcntl},
@@ -12,46 +14,34 @@ use std::{
     fs,
     os::{fd::AsFd, unix::process::ExitStatusExt},
     path::PathBuf,
-    process::{Child, Command, ExitStatus, Stdio},
-    thread,
-    time::{Duration, Instant},
+    process::{Child, ExitStatus, Stdio},
+    time::Duration,
 };
 
 struct Fixture {
-    home: PathBuf,
+    root: PathBuf,
     child: Option<Child>,
 }
 
 impl Fixture {
     fn new(signal: Signal) -> Self {
-        let home =
+        let root =
             std::env::temp_dir().join(format!("tmt-stdin-flags-{}-{signal}", std::process::id()));
-        fs::create_dir(&home).expect("create owned disposable home");
-        Self { home, child: None }
+        fs::create_dir(&root).expect("create owned disposable home");
+        Self { root, child: None }
     }
 
     fn wait(&mut self) -> ExitStatus {
-        let deadline = Instant::now() + Duration::from_secs(2);
-        loop {
-            if let Some(status) = self.child.as_mut().unwrap().try_wait().unwrap() {
-                self.child = None;
-                return status;
-            }
-            assert!(Instant::now() < deadline, "signalled CLI did not exit");
-            thread::sleep(Duration::from_millis(10));
-        }
+        support::wait(&mut self.child, Duration::from_secs(2))
+            .wait()
+            .unwrap()
     }
 }
 
 impl Drop for Fixture {
     fn drop(&mut self) {
-        if let Some(child) = &mut self.child
-            && !matches!(child.try_wait(), Ok(Some(_)))
-        {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-        fs::remove_dir_all(&self.home).expect("remove owned disposable home");
+        support::stop(&mut self.child);
+        fs::remove_dir_all(&self.root).expect("remove owned disposable home");
     }
 }
 
@@ -94,26 +84,11 @@ fn shared_pipe_after_signal(signal: Signal) {
     assert_eq!(poll(&mut readiness, 0u16).unwrap(), 0);
 
     let child_reader = reader.try_clone().unwrap();
-    let mut command = Command::new(env!("CARGO_BIN_EXE_tmt"));
+    let mut command = support::command(&fixture.root, &["api"]);
     command
-        .args(["api"])
         .stdin(Stdio::from(child_reader))
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .current_dir(&fixture.home)
-        .env_remove("TMUX")
-        .env_remove("TMUX_PANE")
-        .env_remove("TMT_DRIVER_CALL");
-    for variable in [
-        "HOME",
-        "XDG_CONFIG_HOME",
-        "XDG_DATA_HOME",
-        "XDG_STATE_HOME",
-        "XDG_CACHE_HOME",
-        "TMT_GLOBAL_DIR",
-    ] {
-        command.env(variable, &fixture.home);
-    }
+        .stderr(Stdio::null());
     fixture.child = Some(command.spawn().unwrap());
     drop(command);
     assert_eq!(
@@ -148,11 +123,17 @@ fn shared_pipe_after_signal(signal: Signal) {
         "signal termination changed parent-shared stdin"
     );
     assert_eq!(during, original, "acquisition changed parent-shared stdin");
-    assert_eq!(
-        fs::read_dir(&fixture.home).unwrap().count(),
-        0,
+    assert!(
+        !support::state_dir(&fixture.root).exists(),
         "input opened storage"
     );
+    for directory in fs::read_dir(&fixture.root).unwrap() {
+        assert_eq!(
+            fs::read_dir(directory.unwrap().path()).unwrap().count(),
+            0,
+            "input wrote fixture state"
+        );
+    }
 }
 
 #[test]

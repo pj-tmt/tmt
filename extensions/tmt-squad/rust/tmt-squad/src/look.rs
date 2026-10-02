@@ -1,9 +1,33 @@
-//! How Squad draws: the user's theme, from TMT's global config, with a
-//! squad's own `[squad.<name>.theme]` over it. Squad names no colors of its
+//! How Squad draws: core's resolved theme, then `[board.theme]`, then
+//! `[squad.<name>.theme]` in Squad's own configuration. Squad names no colors of its
 //! own; every color is a design token that tmt-cli-style renders.
 
 use ratatui::style::{Modifier, Style};
-use tmt_cli_style::{Depth, Role, Theme, theme::screen};
+use tmt_cli_style::{
+    Depth, Role, Theme,
+    theme::{
+        background::{self, Background},
+        screen,
+    },
+};
+
+static BACKGROUND: std::sync::OnceLock<Option<Background>> = std::sync::OnceLock::new();
+
+/// The signal shared by tabs, refreshes and picker previews in this process.
+/// Plain commands only inspect COLORFGBG; the board initializes before workers.
+pub(crate) fn background() -> Option<Background> {
+    *BACKGROUND.get_or_init(|| {
+        std::env::var("COLORFGBG")
+            .ok()
+            .as_deref()
+            .and_then(background::colorfgbg)
+    })
+}
+
+pub(crate) fn configure_background(signal: Option<Background>) {
+    let first = BACKGROUND.set(signal).is_ok();
+    debug_assert!(first, "background detection precedes every board reader");
+}
 
 /// A color named in `squad.toml` or a layout default: a design token, or one
 /// of the names Squad accepted before tokens, kept as their token.
@@ -38,16 +62,16 @@ pub fn names() -> String {
 pub enum Problem {
     /// TMT's global `theme`: not the squad file's mistake.
     Global(String),
+    /// The board-wide `[board.theme]`.
+    Board(String),
     /// The squad's own `[squad.<name>.theme]`.
     Squad(String),
 }
 
-/// The board's theme: the squad's base, else the global one, else `tmt`;
-/// then the global overrides, then the squad's, the later winning. Each
-/// layer is checked on its own, so a mistake names its layer and its place
-/// (`theme.<key>` or `squad.<name>.theme.<key>`).
-pub fn theme(
+/// Resolve each token and base through core, board and squad layers.
+pub fn board_theme(
     global: &[(String, String)],
+    board: &[(String, String)],
     squad: &[(String, String)],
     place: &str,
 ) -> Result<Theme, Problem> {
@@ -61,6 +85,7 @@ pub fn theme(
         .map_err(|error| error.to_string())
     };
     check("theme", global).map_err(Problem::Global)?;
+    check("board.theme", board).map_err(Problem::Board)?;
     check(place, squad).map_err(Problem::Squad)?;
     let base = |settings: &[(String, String)]| {
         settings
@@ -69,12 +94,14 @@ pub fn theme(
             .map(|(_, value)| value.clone())
     };
     let base = base(squad)
+        .or_else(|| base(board))
         .or_else(|| base(global))
-        .unwrap_or_else(|| "tmt".into());
+        .unwrap_or_else(|| "auto".into());
     let mut merged = vec![("base".to_owned(), base)];
     merged.extend(
         global
             .iter()
+            .chain(board)
             .chain(squad)
             .filter(|(key, _)| key != "base")
             .cloned(),
@@ -104,7 +131,7 @@ impl Look {
     /// The board draws on a terminal; `NO_COLOR` still turns color off.
     pub fn new(theme: Theme) -> Self {
         Self {
-            theme,
+            theme: theme.resolve(background()),
             depth: Depth::from_env(std::env::var_os("NO_COLOR").is_none()),
         }
     }
@@ -119,6 +146,20 @@ impl Look {
         let style = self.role(Role::Text).patch(self.role(Role::Selection));
         if style.bg.is_none() {
             style.add_modifier(Modifier::REVERSED)
+        } else {
+            style
+        }
+    }
+
+    /// A selected reverse row has one foreground; its semantic spans use bold.
+    /// Real selection backgrounds and unselected spans keep their exact style.
+    pub fn row_span(&self, selected: bool, style: Style, emphasize: bool) -> Style {
+        if selected && self.selection().bg.is_none() {
+            Style::new().add_modifier(if emphasize {
+                Modifier::BOLD
+            } else {
+                Modifier::empty()
+            })
         } else {
             style
         }
@@ -156,11 +197,11 @@ mod tests {
     #[test]
     fn the_board_is_tmt_unless_a_base_is_chosen_and_the_squad_wins() {
         let fg = |theme: Theme, role: Role| theme.style(role, Depth::TrueColor).get_fg_color();
-        let none = theme(&[], &[], "squad.p.theme").unwrap();
-        assert_eq!(none.base, tmt_cli_style::Base::Tmt);
+        let none = board_theme(&[], &[], &[], "squad.p.theme").unwrap();
+        assert_eq!(none.base, tmt_cli_style::Base::Auto);
         let global = settings(&[("base", "mono"), ("waiting", "red"), ("accent", "blue")]);
         let squad = settings(&[("waiting", "#010203")]);
-        let merged = theme(&global, &squad, "squad.p.theme").unwrap();
+        let merged = board_theme(&global, &[], &squad, "squad.p.theme").unwrap();
         assert_eq!(merged.base, tmt_cli_style::Base::Mono);
         let expected = Theme::parse(
             "theme",
@@ -174,19 +215,20 @@ mod tests {
         );
         assert_ne!(fg(merged, Role::Waiting), fg(none, Role::Waiting));
         assert_eq!(fg(merged, Role::Accent), fg(expected, Role::Accent));
-        let own = theme(
+        let own = board_theme(
             &global,
+            &[],
             &settings(&[("base", "tmt-light")]),
             "squad.p.theme",
         )
         .unwrap();
         assert_eq!(own.base, tmt_cli_style::Base::TmtLight);
         assert!(matches!(
-            theme(&[], &settings(&[("waiting", "orange")]), "squad.p.theme"),
+            board_theme(&[], &[], &settings(&[("waiting", "orange")]), "squad.p.theme"),
             Err(Problem::Squad(message)) if message.starts_with("`squad.p.theme.waiting`")
         ));
         assert!(matches!(
-            theme(&settings(&[("base", "dark")]), &[], "squad.p.theme"),
+            board_theme(&settings(&[("base", "dark")]), &[], &[], "squad.p.theme"),
             Err(Problem::Global(message)) if message.starts_with("`theme.base`")
         ));
     }
@@ -208,6 +250,33 @@ mod tests {
                     background.is_none(),
                     "{base:?} {depth:?}: selection stays visible",
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn row_spans_change_only_for_selected_reverse_fallbacks() {
+        for base in tmt_cli_style::Base::ALL {
+            for depth in [Depth::TrueColor, Depth::Ansi16, Depth::None] {
+                let look = Look {
+                    theme: Theme::new(base),
+                    depth,
+                };
+                for role in Role::ALL {
+                    let original = look.role(role);
+                    for emphasize in [false, true] {
+                        assert_eq!(look.row_span(false, original, emphasize), original);
+                        let selected = look.row_span(true, original, emphasize);
+                        if look.selection().bg.is_some() {
+                            assert_eq!(selected, original);
+                        } else {
+                            assert_eq!(selected.fg, None);
+                            assert_eq!(selected.bg, None);
+                            assert!(!selected.add_modifier.contains(Modifier::DIM));
+                            assert_eq!(selected.add_modifier.contains(Modifier::BOLD), emphasize);
+                        }
+                    }
+                }
             }
         }
     }

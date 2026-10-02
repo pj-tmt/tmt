@@ -60,7 +60,179 @@ function identityId(fixture: E2EFixture, name: string): string {
   }
 }
 
-describe.sequential('foreground identity launch', () => {
+describe('foreground identity launch', { concurrent: false }, () => {
+  it('auto-names a launch, names the same live identity, and resumes its hook-recorded session', async () => {
+    await withE2EFixture(async (fixture) => {
+      const pane = fixture.createShellPane('auto-run').pane;
+      const scenario = path.join(fixture.root, 'auto-scenario.json');
+      const report = path.join(fixture.root, 'auto-report.json');
+      const checkpoint = path.join(fixture.root, 'before-name');
+      const resumedScenario = path.join(fixture.root, 'resumed-scenario.json');
+      const resumedReport = path.join(fixture.root, 'resumed-report.json');
+      const resumedArgs = path.join(fixture.root, 'resumed-args');
+      const session = '12345678-1234-4234-8234-123456789abc';
+      const start = (source: string) => ({
+        args: ['__hook', 'claude'],
+        input: {
+          hook_event_name: 'SessionStart',
+          session_id: session,
+          source,
+        },
+      });
+      writeFileSync(
+        scenario,
+        JSON.stringify([
+          start('startup'),
+          { args: ['whoami', '--json'] },
+          { checkpoint, args: ['this', 'Reviewer', '--json'] },
+          { args: ['whoami', '--json'] },
+        ])
+      );
+      writeFileSync(
+        resumedScenario,
+        JSON.stringify([start('resume'), { args: ['whoami', '--json'] }])
+      );
+      const fake = path.join(fixture.wrapperDir, 'claude');
+      const script = `#!/bin/sh
+if [ "$1" = "--resume" ]; then
+  printf '%s\\n' "$@" > ${quote(resumedArgs)}
+  exec /opt/tmt-tests/claude ${quote(fixture.executables.cli.executable)} ${quote(resumedScenario)} ${quote(resumedReport)}
+fi
+exec /opt/tmt-tests/claude "$@"
+`;
+      execFileSync('/bin/sh', ['-c', 'cat > "$1" && chmod 700 "$1"', 'sh', fake], {
+        input: script,
+      });
+      const home = path.join(fixture.root, 'auto-home');
+      mkdirSync(home);
+      const status = path.join(fixture.root, 'auto.status');
+      submit(
+        fixture,
+        pane,
+        ['run', 'claude', fixture.executables.cli.executable, scenario, report],
+        status,
+        { HOME: home }
+      );
+      await waitForFileContent(checkpoint, { description: 'provider reached naming checkpoint' });
+      const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+      try {
+        const before = db.prepare('SELECT * FROM identities WHERE auto_named = 1').get() as {
+          id: string;
+          name: string;
+          lifetime: string;
+        };
+        expect(before.name).toMatch(/^claude-[0-9a-f]{12}$/);
+        expect(before.lifetime).toBe('temporary');
+        const binding = db.prepare('SELECT id FROM bindings WHERE identity_id = ?').get(before.id);
+        expect(preferences(fixture).find((row) => row.identity_id === before.id)).toMatchObject({
+          preferred_harness: 'claude',
+          provider_session_id: session,
+        });
+        writeFileSync(checkpoint, 'continue');
+        expect(await waitForFileContent(status, { description: 'named launch exit' })).toBe('0');
+        const results = JSON.parse(readFileSync(report, 'utf8')) as Array<{
+          code: number;
+          stdout: string;
+        }>;
+        expect(results.every((result) => result.code === 0)).toBe(true);
+        expect(JSON.parse(results[1].stdout)).toMatchObject({ id: before.id, name: before.name });
+        expect(JSON.parse(results[3].stdout)).toMatchObject({
+          id: before.id,
+          name: 'Reviewer',
+          sessionState: 'running',
+        });
+        expect(
+          db
+            .prepare('SELECT id, name, lifetime, auto_named FROM identities WHERE id = ?')
+            .get(before.id)
+        ).toEqual({ id: before.id, name: 'Reviewer', lifetime: 'temporary', auto_named: 0 });
+        expect(db.prepare('SELECT id FROM bindings WHERE identity_id = ?').get(before.id)).toEqual(
+          binding
+        );
+        const resumeStatus = path.join(fixture.root, 'auto-resume.status');
+        submit(fixture, pane, ['resume', 'Reviewer'], resumeStatus, { HOME: home });
+        expect(
+          await waitForFileContent(resumeStatus, { description: 'renamed identity resumed' })
+        ).toBe('0');
+        expect(readFileSync(resumedArgs, 'utf8').trim().split('\n')).toEqual(['--resume', session]);
+        const resumed = JSON.parse(readFileSync(resumedReport, 'utf8')) as Array<{
+          code: number;
+          stdout: string;
+        }>;
+        expect(resumed.every((result) => result.code === 0)).toBe(true);
+        expect(JSON.parse(resumed[1].stdout)).toMatchObject({ id: before.id, name: 'Reviewer' });
+        expect(db.prepare('SELECT id FROM bindings WHERE identity_id = ?').get(before.id)).toEqual(
+          binding
+        );
+      } finally {
+        db.close();
+      }
+    });
+  });
+
+  it('cleans up a failed temporary automatic spawn but retains an explicitly saved identity', async () => {
+    await withE2EFixture(async (fixture) => {
+      const pane = fixture.createShellPane('auto-spawn-failure').pane;
+      const fake = path.join(fixture.wrapperDir, 'claude');
+      execFileSync('/bin/sh', ['-c', 'cat > "$1" && chmod 700 "$1"', 'sh', fake], {
+        input: '#!/nonexistent-tmt-fixture-interpreter\n',
+      });
+      const failed = await fixture.runCli(['run', 'claude'], { pane });
+      expect(failed.code).toBe(1);
+      expect(failed.stderr).toContain('Could not start');
+      expect(
+        failed.stderr.split('\n').filter((line) => line.startsWith('tmt: Temporary name:'))
+      ).toHaveLength(1);
+      const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+      try {
+        expect(
+          db.prepare('SELECT lifetime, retired_at_ms FROM identities WHERE auto_named = 1').all()
+        ).toEqual([{ lifetime: 'temporary', retired_at_ms: expect.any(Number) }]);
+        expect(db.prepare('SELECT * FROM bindings WHERE pane_id = ?').all(pane)).toEqual([]);
+        const saved = await fixture.runCli(['run', '--save', 'claude'], { pane });
+        expect(saved.code).toBe(1);
+        const row = db
+          .prepare(
+            'SELECT id, name, lifetime FROM identities WHERE auto_named = 1 AND retired_at_ms IS NULL'
+          )
+          .get() as { id: string; name: string; lifetime: string };
+        expect(row).toMatchObject({
+          lifetime: 'saved',
+          name: expect.stringMatching(/^claude-[0-9a-f]{12}$/),
+        });
+        const named = expectJsonResult(
+          await fixture.runJsonCli<{ id: string; lifetime: string }>(['this', 'Saved'], { pane })
+        );
+        expect(named).toMatchObject({ id: row.id, lifetime: 'saved' });
+      } finally {
+        db.close();
+      }
+    });
+  });
+
+  it('refuses runtime-name collisions and accepts the explicit identity-command form', async () => {
+    await withE2EFixture(async (fixture) => {
+      const pane = fixture.createShellPane('auto-collision').pane;
+      expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'claude']));
+      const fake = path.join(fixture.wrapperDir, 'claude');
+      execFileSync('/bin/sh', ['-c', 'cat > "$1" && chmod 700 "$1"', 'sh', fake], {
+        input: '#!/bin/sh\nexit 17\n',
+      });
+      for (const [label, args, code] of [
+        ['bare', ['run', 'claude'], '5'],
+        ['flags', ['run', 'claude', '--model', 'anything'], '5'],
+        ['explicit', ['run', 'claude', 'claude'], '17'],
+      ] as const) {
+        const status = path.join(fixture.root, `${label}.status`);
+        submit(fixture, pane, [...args], status);
+        expect(await waitForFileContent(status, { description: label })).toBe(code);
+      }
+      const text = fixture.tmux(['capture-pane', '-p', '-t', pane]);
+      expect(text).toContain('tmt run claude claude');
+      expect(text).toContain('tmt run <new-name> claude');
+    });
+  });
+
   it('resumes only the exact remembered session, never starts fresh and marks only trustworthy failures stale', async () => {
     await withE2EFixture(async (fixture) => {
       const pane = fixture.createShellPane('run-resume').pane;
@@ -237,6 +409,11 @@ describe.sequential('foreground identity launch', () => {
         5000,
         'wrapper and child suspended together'
       );
+      // Stopped processes do not prove Bash has reclaimed the terminal. Its
+      // continuation writes this status only after returning from the stopped job.
+      await waitForFileContent(firstStatus, {
+        description: 'shell continuation after suspension',
+      });
       const rejectedStatus = path.join(fixture.root, 'stopped-conflict.status');
       const forbidden = path.join(fixture.root, 'must-not-launch');
       submit(

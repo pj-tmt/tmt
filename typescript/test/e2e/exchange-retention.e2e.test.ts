@@ -11,7 +11,7 @@ interface TalkOutput {
   submittedAtMs?: number;
 }
 
-describe.sequential('frozen Exchange retention through the public CLI', () => {
+describe('frozen Exchange retention through the public CLI', { concurrent: false }, () => {
   it('freezes preparation policy and accepts a gated final despite invalid current config', async () => {
     await withE2EFixture(
       async (fixture) => {

@@ -16,9 +16,10 @@ fn validate_target(socket: &str, pane: &str) -> Result<(), TmuxError> {
     Ok(())
 }
 
-fn protected_payload(message: &str) -> String {
-    // Coding-agent shells can interpret ASCII ! as bash mode before input reaches the agent.
-    let mut payload = message.replace('!', "\u{ff01}");
+/// The caller has already applied core's pane input policy
+/// (`tmt_core::driver::pane_input_text`); the paste only ends in a newline.
+fn pasted_payload(message: &str) -> String {
+    let mut payload = message.to_owned();
     if !payload.ends_with('\n') {
         payload.push('\n');
     }
@@ -90,7 +91,7 @@ impl<R: CommandRunner> Tmux<R> {
                 TmuxError::evidence("Transport text cannot contain NUL"),
             ));
         }
-        let payload = protected_payload(message);
+        let payload = pasted_payload(message);
         let buffer = format!("tmt-{}-{}", std::process::id(), uuid::Uuid::new_v4());
         let run = |args| {
             self.transport_run(socket, args, SEND_MAX_OUTPUT)

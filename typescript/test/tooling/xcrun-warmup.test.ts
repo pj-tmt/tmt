@@ -31,49 +31,64 @@ function jobs(workflow: string): Map<string, string> {
  * alias such as `matrix: *native-targets`, whose anchor is in another job.
  */
 function runsOnMacOs(workflow: string, job: string): boolean {
-  const anchored = [...job.matchAll(/\*([\w-]+)\n/g)].map(([, alias]) => {
+  const anchored = [...job.matchAll(/matrix: \*([\w-]+)\n/g)].map(([, alias]) => {
     const start = workflow.indexOf(`&${alias}\n`);
     return workflow.slice(start, workflow.indexOf('runs-on:', start));
   });
   return [job, ...anchored].some((text) => /runner: macos-/.test(text));
 }
 
-const steps = (job: string) => job.split(/\n(?=      - )/).slice(1);
+/** Shared step anchors must be inspected at their definition, not skipped. */
+function steps(workflow: string, job: string): string[] {
+  const alias = job.match(/^ {4}steps: \*([\w-]+)$/m)?.[1];
+  const source = alias
+    ? [...jobs(workflow).values()].find((block) => block.includes(`steps: &${alias}\n`))
+    : job;
+  if (!source) throw new Error(`Missing shared steps anchor: ${alias}`);
+  return source.split(/\n(?=      - )/).slice(1);
+}
 
 describe('macOS toolchain warm-up before the native runtime proof', () => {
   it('finds the proof consumers the workflows run', () => {
     expect(proofConsumers()).toEqual(['verify-native-artifact.mjs', 'verify-native-runtime.mjs']);
   });
 
-  it.each([
-    ['.github/workflows/ci.yml', 'packed-native-install'],
-    ['.github/workflows/native-release-bundle.yml', 'verify'],
-  ])('warms xcrun on macOS before the verifier in %s job %s', (workflow, name) => {
-    const text = read(workflow);
-    const job = jobs(text).get(name);
-    expect(job, `${workflow} has no job ${name}`).toBeDefined();
-    expect(runsOnMacOs(text, job as string), `${name} has no macOS runner`).toBe(true);
-    const list = steps(job as string);
-    const warm = list.findIndex((step) => step.includes(warmUp));
-    const verifier = list.findIndex((step) =>
-      proofConsumers().some((script) => step.includes(`${scripts}/${script}`))
-    );
-    expect(warm, 'the warm-up step is missing').toBeGreaterThanOrEqual(0);
-    expect(verifier, 'the verifier step is missing').toBeGreaterThanOrEqual(0);
-    expect(warm).toBeLessThan(verifier);
-    expect(list[warm]).toContain("if: runner.os == 'macOS'");
-  });
-
-  it('runs every job that executes a proof consumer on a runner that warms first', () => {
-    for (const workflow of ['ci.yml', 'native-release-bundle.yml']) {
-      const text = read(`.github/workflows/${workflow}`);
-      for (const [name, job] of jobs(text)) {
-        const runsProof = proofConsumers().some((script) => job.includes(`${scripts}/${script}`));
-        if (runsProof && runsOnMacOs(text, job)) {
-          expect(job, `${workflow} job ${name}`).toContain(warmUp);
-        }
+  it.each(['.github/workflows/ci.yml', '.github/workflows/native-release-bundle.yml'])(
+    'warms xcrun before every macOS verifier in %s',
+    (workflow) => {
+      const text = read(workflow);
+      const consumers = [...jobs(text)].filter(
+        ([, job]) =>
+          runsOnMacOs(text, job) &&
+          steps(text, job).some((step) =>
+            proofConsumers().some((script) => step.includes(`${scripts}/${script}`))
+          )
+      );
+      expect(consumers.length, `${workflow} has no macOS proof jobs`).toBeGreaterThan(0);
+      for (const [name, job] of consumers) {
+        const list = steps(text, job);
+        const warm = list.findIndex((step) => step.includes(warmUp));
+        const verifier = list.findIndex((step) =>
+          proofConsumers().some((script) => step.includes(`${scripts}/${script}`))
+        );
+        expect(warm, `${name}: the warm-up step is missing`).toBeGreaterThanOrEqual(0);
+        expect(verifier, `${name}: the verifier step is missing`).toBeGreaterThanOrEqual(0);
+        expect(warm, name).toBeLessThan(verifier);
+        expect(list[warm], name).toContain("if: runner.os == 'macOS'");
       }
     }
+  );
+
+  it('keeps runner selection independent from shared steps and rejects missing anchors', () => {
+    const text = read('.github/workflows/ci.yml');
+    const linux = jobs(text).get('packed-native-install') as string;
+    const macos = jobs(text).get('packed-native-install-macos') as string;
+    expect(runsOnMacOs(text, linux)).toBe(false);
+    expect(runsOnMacOs(text, macos)).toBe(true);
+    expect(steps(text, macos)).toEqual(steps(text, linux));
+    expect(() =>
+      steps(text, macos.replace('*packed-native-install-steps', '*missing-steps'))
+    ).toThrow('Missing shared steps anchor');
   });
 
   it('warms through the bounded retry and only on macOS', () => {

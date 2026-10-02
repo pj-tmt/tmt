@@ -9,7 +9,7 @@ function extension(sandbox: Sandbox, name: string, script: string): string {
   const file = path.join(directory, `tmt-${name}`);
   writeFileSync(file, `#!/bin/sh\n${script}\n`);
   chmodSync(file, 0o700);
-  sandbox.env.PATH = `${directory}${path.delimiter}${process.env.PATH ?? ''}`;
+  sandbox.env.PATH = `${directory}${path.delimiter}${sandbox.env.PATH ?? ''}`;
   return file;
 }
 
@@ -82,7 +82,9 @@ describe('PATH extension command contract', () => {
       }
       expect((await runCli(sandbox, ['office', '--help'])).stdout).not.toContain('WRONG EXTENSION');
       expect((await runCli(sandbox, ['ls', '--help'])).stdout).not.toContain('WRONG EXTENSION');
-      expect((await runCli(sandbox, ['__complete', '--', 'run', ''])).stdout).toBe('identities\n');
+      expect((await runCli(sandbox, ['__complete', '--', 'run', ''])).stdout).toBe(
+        'identities\nclaude\ncodex\n'
+      );
       const help = await runCli(sandbox, ['help']);
       expect(help.stdout).toContain('\nExtensions:\n');
       expect(help.stdout).toMatch(/^ {2}example +\S/m);

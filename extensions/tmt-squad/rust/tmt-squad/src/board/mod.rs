@@ -10,6 +10,7 @@ mod refresh;
 mod scroll;
 mod tabs;
 mod terminal;
+mod theme_picker;
 mod view;
 
 pub use tabs::{ALL, LEADS};
@@ -68,11 +69,34 @@ pub(super) enum BoardEvent {
     },
 }
 
-fn spawn_input(sender: Sender<BoardEvent>) {
+fn spawn_input(sender: Sender<BoardEvent>, mut filter: Option<terminal::background::ReplyFilter>) {
     std::thread::spawn(move || {
-        while let Ok(event) = event::read() {
-            if sender.send(BoardEvent::Input(event)).is_err() {
-                break;
+        loop {
+            match event::poll(INPUT_WAIT) {
+                Ok(true) => {
+                    let Ok(event) = event::read() else {
+                        break;
+                    };
+                    let events = match &mut filter {
+                        Some(filter) => filter.push(event, Instant::now()),
+                        None => vec![event],
+                    };
+                    for event in events {
+                        if sender.send(BoardEvent::Input(event)).is_err() {
+                            return;
+                        }
+                    }
+                }
+                Ok(false) => {
+                    if let Some(filter) = &mut filter {
+                        for event in filter.expire(Instant::now()) {
+                            if sender.send(BoardEvent::Input(event)).is_err() {
+                                return;
+                            }
+                        }
+                    }
+                }
+                Err(_) => break,
             }
         }
         let _ = sender.send(BoardEvent::InputClosed);
@@ -152,7 +176,8 @@ fn session(
     input: &Receiver<BoardEvent>,
     request: impl Fn(Option<String>, bool),
     mut act: impl FnMut(Request) -> Result<String, String>,
-    mut draw: impl FnMut(&App) -> io::Result<()>,
+    mut theme_config: impl FnMut() -> Result<Config, String>,
+    mut draw: impl FnMut(&mut App) -> io::Result<()>,
 ) -> io::Result<Option<i32>> {
     let mut refreshed = Instant::now();
     let mut dirty = true;
@@ -228,6 +253,40 @@ fn session(
                 request(app.current.clone(), false);
                 refreshed = Instant::now();
             }
+            Effect::PickTheme => {
+                let squad = app.current.clone().filter(|name| !tabs::builtin(name));
+                match theme_config().and_then(|config| {
+                    theme_picker::Picker::open(config, squad).map_err(|error| error.message)
+                }) {
+                    Ok(picker) => {
+                        app.theme_picker = Some(picker);
+                        app.help = false;
+                    }
+                    Err(error) => app.finished(Err(error)),
+                }
+            }
+            Effect::SaveTheme => {
+                if let Some(picker) = &mut app.theme_picker {
+                    match picker.save() {
+                        Ok(changed) => {
+                            let message = picker.saved_message(changed);
+                            let depth = app
+                                .view
+                                .as_ref()
+                                .map_or(tmt_cli_style::Depth::None, |view| view.look.depth);
+                            let look = picker.preview(depth);
+                            if let Some(view) = &mut app.view {
+                                view.look = look;
+                            }
+                            app.theme_picker = None;
+                            app.finished(Ok(message));
+                            request(app.current.clone(), false);
+                            refreshed = Instant::now();
+                        }
+                        Err(error) => picker.notice = Some(error.message),
+                    }
+                }
+            }
             Effect::Act(action) => {
                 let sends = action.sends();
                 let jump = matches!(action, Request::Jump(_));
@@ -254,9 +313,30 @@ fn session(
 
 /// Returns the signal that ended the board, if any.
 /// `popup` closes the board after a successful jump, as a tmux popup should.
-pub fn run(core: Core, squad: Option<String>, popup: bool) -> Result<Option<i32>, SquadError> {
+pub fn run(
+    core: Core,
+    squad: Option<String>,
+    popup: bool,
+    interaction: tmt_cli_style::Interaction,
+) -> Result<Option<i32>, SquadError> {
     terminal::restore_before_panic_reports();
     let stop = terminal::stop_requested().map_err(failed)?;
+    let config = Config::load(&core)?;
+    let requested = config.theme(squad.as_deref().unwrap_or(""))?.0.base;
+    let value = std::env::var("COLORFGBG").ok();
+    let mut guard = terminal::Guard::enter(terminal::Crossterm).map_err(failed)?;
+    let eligible = terminal::background::allowed(
+        requested,
+        interaction,
+        tmt_cli_style::Terminal::stdout(false).color,
+        std::env::var_os("NO_COLOR").is_some(),
+    );
+    let (signal, query) =
+        terminal::background::observe(value.as_deref(), eligible, || guard.query_background());
+    crate::look::configure_background(signal);
+    let filter = query
+        .as_ref()
+        .map(|reply| terminal::background::ReplyFilter::seed(&reply.received, Instant::now()));
     let (events, input) = mpsc::channel();
     let worker = refresh::Worker::spawn(
         core.clone(),
@@ -266,16 +346,24 @@ pub fn run(core: Core, squad: Option<String>, popup: bool) -> Result<Option<i32>
     worker.request(squad.clone(), false);
     let mut app = App::new(squad);
     app.popup = popup;
-    let mut guard = terminal::Guard::enter(terminal::Crossterm).map_err(failed)?;
     let mut screen = Terminal::new(CrosstermBackend::new(io::stdout())).map_err(failed)?;
-    spawn_input(events);
+    spawn_input(events, filter);
     let result = session(
         &mut app,
         &stop,
         &input,
         |squad, preempt| worker.request(squad, preempt),
         |request| execute(&core, request),
-        |app| screen.draw(|frame| view::render(frame, app)).map(|_| ()),
+        || Config::load(&core).map_err(|error| error.message),
+        |app| {
+            screen
+                .draw(|frame| {
+                    // The vertical board bands, including its body, occupy the full width.
+                    app.set_body_width(frame.area().width);
+                    view::render(frame, app);
+                })
+                .map(|_| ())
+        },
     );
     // Restore first, whatever happened; then report the session's outcome.
     let restored = guard.restore();
@@ -289,6 +377,111 @@ mod tests {
     use super::*;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use std::sync::{atomic::Ordering, mpsc::channel};
+
+    #[test]
+    fn theme_confirm_saves_once_then_restores_normal_row_actions() {
+        let directory =
+            std::env::temp_dir().join(format!("tmt-theme-session-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("squad.toml");
+        std::fs::write(&path, "# kept\n[board.theme]\nbase = \"tmt\"\n").unwrap();
+        let (events, input) = channel();
+        let mut app = App::new(Some("product".into()));
+        app.apply(app::tests::snapshot(
+            "product",
+            serde_json::json!([{"title":null,"rows":[{"name":"coder"}]}]),
+        ));
+        for code in [
+            KeyCode::Char('T'),
+            KeyCode::Down,
+            KeyCode::Enter,
+            KeyCode::Enter,
+            KeyCode::Char('q'),
+        ] {
+            events.send(key(code)).unwrap();
+        }
+        let mut reads = 0;
+        let mut actions = 0;
+        let reloads = std::cell::Cell::new(0);
+        session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _| reloads.set(reloads.get() + 1),
+            |request| {
+                assert_eq!(request, Request::Jump("coder".into()));
+                actions += 1;
+                Ok("Jumped".into())
+            },
+            || {
+                reads += 1;
+                Config::read(path.clone()).map_err(|error| error.message)
+            },
+            |_| Ok(()),
+        )
+        .unwrap();
+        assert_eq!((reads, actions, reloads.get()), (1, 1, 1));
+        assert!(app.theme_picker.is_none());
+        assert_eq!(app.look().theme.base, tmt_cli_style::Base::TmtLight);
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "# kept\n[board.theme]\nbase = \"tmt-light\"\n"
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn theme_session_reports_stale_save_without_retry_and_escape_never_writes() {
+        let directory =
+            std::env::temp_dir().join(format!("tmt-theme-session-stale-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("squad.toml");
+        std::fs::write(&path, "[board.theme]\nbase = \"tmt\"\n").unwrap();
+        let (events, input) = channel();
+        let mut app = App::new(Some("product".into()));
+        app.apply(app::tests::snapshot("product", serde_json::json!([])));
+        for code in [
+            KeyCode::Char('T'),
+            KeyCode::Down,
+            KeyCode::Enter,
+            KeyCode::Esc,
+            KeyCode::Char('q'),
+        ] {
+            events.send(key(code)).unwrap();
+        }
+        let mut changed = false;
+        let mut failure_shown = false;
+        session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _| panic!("a failed save must not reload or retry"),
+            no_actions,
+            || Config::read(path.clone()).map_err(|error| error.message),
+            |app| {
+                if let Some(picker) = &app.theme_picker {
+                    if !changed {
+                        std::fs::write(&path, "# external edit\n").unwrap();
+                        changed = true;
+                    }
+                    if let Some(notice) = &picker.notice {
+                        assert!(notice.contains("changed") && notice.contains("retry"));
+                        failure_shown = true;
+                    }
+                }
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(failure_shown);
+        assert!(app.theme_picker.is_none());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# external edit\n");
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn no_theme_config() -> Result<Config, String> {
+        panic!("unexpected config read")
+    }
 
     fn no_actions(request: Request) -> Result<String, String> {
         panic!("unexpected {request:?}")
@@ -345,10 +538,7 @@ mod tests {
 
     fn snapshot_event(snapshot: Snapshot) -> BoardEvent {
         BoardEvent::Snapshot {
-            cancellation: crate::runner::Cancellation::new(
-                std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
-                0,
-            ),
+            cancellation: crate::runner::Cancellation::default(),
             snapshot: Box::new(snapshot),
         }
     }
@@ -364,7 +554,16 @@ mod tests {
             events.send(event).unwrap();
             let mut app = App::new(None);
             let stop = AtomicUsize::new(signal);
-            session(&mut app, &stop, &input, |_, _| {}, no_actions, |_| Ok(())).unwrap()
+            session(
+                &mut app,
+                &stop,
+                &input,
+                |_, _| {},
+                no_actions,
+                no_theme_config,
+                |_| Ok(()),
+            )
+            .unwrap()
         };
         assert_eq!(run(key(KeyCode::Char('q')), 0), None);
         assert_eq!(run(BoardEvent::InputClosed, 0), Some(HANGUP));
@@ -402,6 +601,7 @@ mod tests {
                     jumps += 1;
                     outcome.clone()
                 },
+                no_theme_config,
                 |_| Ok(()),
             )
             .unwrap();
@@ -424,6 +624,7 @@ mod tests {
             &input,
             |_, _| {},
             no_actions,
+            no_theme_config,
             |_| Err(io::Error::other("terminal gone")),
         )
         .unwrap_err();
@@ -447,6 +648,7 @@ mod tests {
                 &input,
                 |_, _| {},
                 no_actions,
+                no_theme_config,
                 |app| {
                     painted
                         .send((app.selected, app.view.as_ref().unwrap().document.clone()))
@@ -504,6 +706,7 @@ mod tests {
                         requested.send(squad).unwrap();
                     },
                     no_actions,
+                    no_theme_config,
                     |_| {
                         painted.send(()).unwrap();
                         Ok(())
@@ -544,6 +747,7 @@ mod tests {
                 &input,
                 |_, _| {},
                 no_actions,
+                no_theme_config,
                 |_| {
                     painted.send(()).unwrap();
                     Ok(())
@@ -559,8 +763,8 @@ mod tests {
     }
     #[test]
     fn already_queued_cancelled_snapshots_and_attention_cannot_replace_current_data() {
-        use std::sync::{Arc, atomic::AtomicU64};
-        let generation = Arc::new(AtomicU64::new(1));
+        let generation = crate::runner::Cancellation::default();
+        generation.cancel();
         let (events, input) = channel();
         let mut app = App::new(Some("product".into()));
         let mut current = app::tests::snapshot("product", serde_json::json!([]));
@@ -568,7 +772,7 @@ mod tests {
         app.apply(current);
         events
             .send(BoardEvent::Snapshot {
-                cancellation: crate::runner::Cancellation::new(Arc::clone(&generation), 0),
+                cancellation: generation.clone(),
                 snapshot: Box::new(app::tests::snapshot(
                     "product",
                     serde_json::json!([{ "title": null, "rows": [{"name": "stale"}] }]),
@@ -577,7 +781,7 @@ mod tests {
             .unwrap();
         events
             .send(BoardEvent::Attention {
-                cancellation: crate::runner::Cancellation::new(generation, 0),
+                cancellation: generation,
                 attention: std::collections::BTreeMap::from([(
                     "product".into(),
                     crate::attention::Attention {
@@ -596,6 +800,7 @@ mod tests {
                 &input,
                 |_, _| {},
                 no_actions,
+                no_theme_config,
                 |_| {
                     frames += 1;
                     Ok(())
@@ -634,6 +839,7 @@ mod tests {
                 &input,
                 |_, _| panic!("automatic refresh was turned off by the snapshot"),
                 no_actions,
+                no_theme_config,
                 |_| Ok(())
             )
             .unwrap(),

@@ -77,7 +77,7 @@ async function withTwoServers(callback: (a: E2EFixture, b: E2EFixture) => Promis
   }
 }
 
-describe.sequential('global identities across isolated tmux servers', () => {
+describe('global identities across isolated tmux servers', { concurrent: false }, () => {
   it('cleans both private servers and their shared storage when a scenario throws', async () => {
     await expect(
       withTwoServers(async (a, b) => {

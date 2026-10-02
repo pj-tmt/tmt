@@ -27,7 +27,7 @@ exit 2
 
 const inputLog = { mode: 'input-log' } as const;
 
-describe.sequential('extension contributions to the rehydration context', () => {
+describe('extension contributions to the rehydration context', { concurrent: false }, () => {
   it('adds bounded, attributed, informational lines only for enabled extensions', async () => {
     await withE2EFixture(async (fixture) => {
       const dir = fixture.wrapperDir;

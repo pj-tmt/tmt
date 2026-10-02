@@ -52,6 +52,10 @@ const WORKSPACE_MANIFESTS: &[(&str, &str)] = &[
         "rust/crates/tmt-driver-protocol/Cargo.toml",
     ),
     (
+        "tmt-driver-herdr",
+        "rust/crates/tmt-driver-herdr/Cargo.toml",
+    ),
+    (
         "tmt-host-grammar",
         "rust/crates/tmt-host-grammar/Cargo.toml",
     ),
@@ -82,6 +86,10 @@ const WORKSPACE_MANIFESTS: &[(&str, &str)] = &[
     (
         "tmt-squad",
         "extensions/tmt-squad/rust/tmt-squad/Cargo.toml",
+    ),
+    (
+        "tmt-colab-model",
+        "extensions/tmt-colab/rust/tmt-colab-model/Cargo.toml",
     ),
     (
         "tmt-remote",

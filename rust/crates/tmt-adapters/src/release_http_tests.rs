@@ -477,3 +477,28 @@ fn real_tls_redirect_loop_stops_at_bound_without_external_contact() {
     assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     assert_eq!(server.accepted(), MAX_REDIRECTS + 1);
 }
+
+#[test]
+fn request_errors_retain_causes_without_echoing_rejected_credentials() {
+    let refused = super::map_ureq_error(ureq::Error::Io(io::Error::new(
+        io::ErrorKind::ConnectionRefused,
+        "connection refused by fixture",
+    )));
+    assert_eq!(refused.kind(), io::ErrorKind::Other);
+    assert!(refused.to_string().contains("ConnectionRefused"));
+    assert!(
+        refused
+            .to_string()
+            .contains("connection refused by fixture")
+    );
+    let dns = super::map_ureq_error(ureq::Error::HostNotFound);
+    assert!(dns.to_string().contains("host"));
+    for error in [
+        ureq::Error::BadUri("https://user:secret@invalid".into()),
+        ureq::Error::ConnectProxyFailed("secret proxy response".into()),
+    ] {
+        let message = super::map_ureq_error(error).to_string();
+        assert!(message.contains("HTTPS request failed:"));
+        assert!(!message.contains("secret"));
+    }
+}

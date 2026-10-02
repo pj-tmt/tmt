@@ -137,3 +137,22 @@ fn missing_wrong_type_or_symlinked_bundle_sibling_never_establishes_ownership() 
         assert!(!assets.owns(&source));
     }
 }
+
+#[test]
+fn dangling_generations_require_known_names_inside_the_canonical_store() {
+    let root = TestDirectory::new();
+    let assets = SkillAssets::new(&root.path);
+    let version = assets.root().join("a".repeat(64));
+    let source = version.join("tmux-team");
+    assert!(assets.owns(&source));
+    assert!(!assets.owns(&version.join("unknown-user-skill")));
+    let target = root.path.join("skills/tmt-inbox");
+    fs::create_dir_all(target.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&source, &target).unwrap();
+    assert!(super::managed_link(&target, &assets).unwrap().is_none());
+    fs::create_dir(assets.root()).unwrap();
+    let outside = root.path.join("outside");
+    fs::create_dir(&outside).unwrap();
+    std::os::unix::fs::symlink(&outside, &version).unwrap();
+    assert!(!assets.owns(&source));
+}

@@ -7,10 +7,10 @@ The terms MUST, MUST NOT and SHOULD express implementation requirements.
 
 This document owns colab wire values, cryptography, membership, page state,
 sync, renderer admission and bridge policy. [Architecture](../../../ARCHITECTURE.md#colab-extension-proposal)
-owns placement and dependency direction. The [public extension API](../../../docs/extension-api.md)
+owns placement and dependency direction. The [public extension API](../../../contracts/extension-api.md)
 owns core resources, request/dispatch behavior, errors, limits and retention;
 colab MUST use that API rather than redefine it. The
-[remote-client byte rules](../../../contracts/remote-client-v1.md#bytes-ids-and-the-fixed-m1-suite)
+[remote-client byte rules](../../../contracts/remote-channel-v1.md#bytes-ids-and-the-fixed-m1-suite)
 own LP framing, list framing, exact UTF-8 and canonical binary encodings. Only
 those byte primitives are reused here; the [channel boundary](#channel-boundary)
 names the sections that move to remote. Extension contracts and vectors remain under this extension,
@@ -31,7 +31,7 @@ Baseline and hostile-corpus containment acceptance remain C0 review gates.
 
 ## Channel boundary
 
-Colab is an app on remote. The [remote channel contract](../../../contracts/remote-client-v1.md#extension-channel-api)
+Colab is an app on remote. The [remote channel contract](../../../contracts/remote-channel-v1.md#extension-channel-api)
 owns owner-device identity, door route mounting, the opaque relay, agent
 operations, agent status and backends/deploy; colab consumes that API and ships
 no door, sign-in, pairing or backend of its own once its routes mount on the
@@ -197,6 +197,13 @@ signed descriptor; it MUST NOT advance a stream. `update` and `checkpoint`
 require a positive sequence. An `html` object is `content`; an asset's signed
 descriptor binds its namespace and page reference.
 
+Wrap transport is strict binary JSON `{header, enc, ciphertext, signature}`:
+header is the exact framed wrap input (at most 1,024 bytes), enc is 32 bytes,
+ciphertext is exactly 48 bytes (32-byte epoch secret plus 16-byte tag), and
+signature is the 64-byte owner signature over the wrap-signature input.
+Wrap lists are sorted by `(recipientKind, recipientId)` bytewise, unique and at
+most 512 entries. Invalid or oversized data rejects; it is never truncated.
+
 Wrap recipient kinds are `member`, `device`, `link`, `bridge`. The verified log
 must resolve the recipient ID/key and owner signer; header values are not
 self-authorizing. HPKE all-zero DH results MUST reject. Owner-signed wrapping
@@ -248,7 +255,9 @@ heads, forks or unknown operations report “space state rolled back” and appl
 nothing. Backend membership/index records are only edge-admission projections.
 
 A statement transport contains exactly `{statement, payload, signature}`; exact
-binary payload bytes are hashed in the statement. Payloads decode as strict
+binary payload bytes are hashed in the statement. An owner-statement payload is
+at most 768 KiB serialized, including all nested material; exceeding any cap
+invalidates the statement, never truncates it. Payloads decode as strict
 typed JSON. The operation-specific fields below are exact; keys/digests are
 canonical base64url, IDs/numbers follow the value table. Optional history access
 is explicit, never inferred from possession of a new key.
@@ -308,7 +317,10 @@ or signs in its place. An offline management request remains unavailable; it
 MUST NOT be executed later without rechecking its expiry and expected revision.
 
 `cuts` is a sorted unique list of `{pageId, epoch, namespace, cut}` where `cut`
-is the exact framed stream-cut bytes. Its signed payload scope resolves a single
+is the exact framed stream-cut bytes. At most 512 cuts are allowed, sorted and
+unique by `(pageId bytewise, epoch numerically, namespace bytewise, streamId
+bytewise)`; duplicates or out-of-order entries invalidate the statement.
+Its signed payload scope resolves a single
 device stream and namespace; the framed cut's namespace MUST match that wrapper.
 Both namespaces are committed when affected. The
 checkpoint hash is either hash32 or zero-length `none` paired with checkpoint
@@ -359,7 +371,8 @@ After verifying the code proof and possession, the owner's `tmt colab` issues
 the framed `device.cert` under the owner's member signing key. The owner's
 member ID/key binding is pinned in revision 1's owner-signed `member.add`
 statement with editor role. Only that initial member is the owner's management
-principal; later member additions cannot claim it or reuse its keys. Root
+principal; later member additions cannot claim it or reuse its keys. The owner
+management member cannot be removed or re-roled. Root
 ownership remains implicit and is not a role
 that another member can obtain. This certificate identifies an owner-enrolled
 device for page/management access; it grants no local-agent access. Enrollment
@@ -502,6 +515,14 @@ ends and all their subscriptions terminate in the same transition. Links are
 revoked, not merely hidden by an index/edge projection. Re-enabling link sharing
 requires an explicit owner action creating a NEW link identity; selecting link
 mode never reactivates a removed identity or its old bearer seed.
+
+`page.share` publishedKeys is a list of strict `{epoch, key}` entries: epoch is
+a canonical positive decimal string, key is a canonical binary 32-byte epoch
+secret. Entries are unique, sorted by numeric epoch and at most 64. Public mode
+contains exactly the new current epoch plus earlier epochs only when the page's
+history opt-in is on; all earlier entries are below the current epoch. Other
+modes require an empty or absent list. Null is not a list. These syntax bounds do
+not replace the resulting-mode recipient filtering and atomic transition above.
 
 Leaving public also ends public subscriptions and stops public distribution of
 new keys/objects. Already-public content/history remains public forever. Clients
@@ -715,7 +736,11 @@ records become uncertain, never automatically resend.
 Recovery reads `dispatch.show`: found becomes accepted; not found stays uncertain.
 An explicit same-ID/bytes retry reruns the full fence and requires the original
 child confirmed stopped. Within one live bridge invocation the process owner
-reports `Cleanup::Confirmed`; after a bridge crash today's API does not establish
+reports `Cleanup::Confirmed`. Retry is eligible only on `Confirmed`; any other
+started-failure cleanup, including `CallerOwned`, disables retry and keeps the
+entry uncertain. Colab uses only default fresh-group invocation for core and
+decoder children, so it never receives `CallerOwned`. `NotStarted` means no
+call was made and retains the normal fence/approval path. After a bridge crash today's API does not establish
 original-child identity/termination, so retry remains disabled with that reason.
 No shared API extension is assumed. Abandon stops local tracking and says “may
 still have been delivered”; it neither proves non-delivery nor cancels accepted
@@ -731,7 +756,7 @@ A member with commenter or editor role may Ask agent, but only agents on a
 machine of their own; the owner's agents answer only the owner. The member's
 browser holds a device paired with that machine through remote, and the ask
 travels as an ordinary remote operation under that machine's own grant, as the
-[remote channel contract](../../../contracts/remote-client-v1.md#extension-channel-api)
+[remote channel contract](../../../contracts/remote-channel-v1.md#extension-channel-api)
 defines. The owner's machine never executes it, and page membership adds no
 operation scope anywhere. Owner machines keep `bridge.add`.
 

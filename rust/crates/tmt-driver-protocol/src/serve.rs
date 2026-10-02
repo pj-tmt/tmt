@@ -50,6 +50,9 @@ pub trait Handler {
     fn input(&mut self, request: Request<InputRequest>) -> Result<(), DriverError> {
         Err(unsupported(Op::Input))
     }
+    fn prompt(&mut self, request: Request<PromptRequest>) -> Result<(), DriverError> {
+        Err(unsupported(Op::Prompt))
+    }
     fn focus(&mut self, request: Request<FocusRequest>) -> Result<(), DriverError> {
         Err(unsupported(Op::Focus))
     }
@@ -144,6 +147,7 @@ fn answer(op: Op, input: impl Read, handler: &mut impl Handler) -> Vec<u8> {
         Op::Clear => call(op, &request, |r| handler.clear(r)),
         Op::Capture => call(op, &request, |r| handler.capture(r)),
         Op::Input => call(op, &request, |r| handler.input(r).map(|()| Empty {})),
+        Op::Prompt => call(op, &request, |r| handler.prompt(r).map(|()| Empty {})),
         Op::Focus => call(op, &request, |r| handler.focus(r).map(|()| Empty {})),
     }
 }

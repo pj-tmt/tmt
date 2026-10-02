@@ -58,3 +58,5 @@ export function ghAssetDownloader(input: {
     options: object
   ) => { error?: Error; status: number | null; stdout: Buffer; stderr: Buffer };
 }): (asset: DraftAsset, file: string) => void;
+export function failureCause(log: string): string;
+export function combineFailures(failures: readonly { target: string; log: string }[]): string;

@@ -78,6 +78,10 @@ pub struct ConfigFiles {
 }
 
 impl ConfigFiles {
+    pub fn notification_settings(&self) -> Result<(u64, u64), ConfigError> {
+        document::notification_settings(&self.paths.global_config)
+    }
+
     /// Create the workspace-local settings file without reading or initializing
     /// any other configuration or storage state.
     pub fn initialize_local(&self) -> Result<(), ConfigError> {

@@ -697,6 +697,7 @@ fn every_workspace_crate_reviews_new_dev_dependencies() {
         "tmt-command-output",
         "tmt-host-grammar",
         "tmt-driver-protocol",
+        "tmt-driver-herdr",
         "tmt-invoke",
         "tmt-remote",
         "tmt-squad",
@@ -1134,6 +1135,27 @@ fn the_host_grammar_is_the_only_crate_core_and_the_protocol_share() {
 }
 
 #[test]
+fn the_herdr_driver_reaches_tmt_only_through_the_protocol() {
+    let violations = |dependencies: &[&str]| {
+        policy::dependency_violations(&package(
+            "tmt-driver-herdr",
+            dependencies
+                .iter()
+                .map(|name| dependency(name, "normal", None, None))
+                .collect(),
+        ))
+        .len()
+    };
+    assert_eq!(
+        violations(&["semver", "serde_json", "tmt-driver-protocol", "tmt-invoke"]),
+        0
+    );
+    for crate_name in ["tmt-core", "tmt-adapters", "tmt-host-grammar", "serde"] {
+        assert_eq!(violations(&[crate_name]), 1, "{crate_name}");
+    }
+}
+
+#[test]
 fn squad_and_core_are_independent_in_both_directions() {
     // Squad may use its reviewed third-party crates and the leaf style crate,
     // never a workspace crate with TMT behavior.
@@ -1379,6 +1401,36 @@ fn remote_keeps_public_command_isolation() {
 }
 
 #[test]
+fn squad_may_use_the_neutral_invoke_leaf_but_not_core_process_adapters() {
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-squad",
+            vec![dependency("tmt-invoke", "normal", None, None)]
+        ))
+        .is_empty()
+    );
+    assert_exact(
+        &[syntax("tmt-squad", "runner.rs", "use tmt_invoke::invoke;")],
+        &[],
+    );
+    assert!(
+        !policy::source_violations(&[syntax(
+            "tmt-squad",
+            "runner.rs",
+            "use tmt_adapters::process::UnixCommandRunner;"
+        )])
+        .is_empty()
+    );
+    assert!(
+        !policy::dependency_violations(&package(
+            "tmt-squad",
+            vec![dependency("tmt-invoke", "normal", None, Some("runner"))]
+        ))
+        .is_empty()
+    );
+}
+
+#[test]
 fn invoke_is_a_leaf_even_in_tests_builds_and_target_dependencies() {
     assert!(
         policy::dependency_violations(&package(
@@ -1545,5 +1597,58 @@ fn colab_persistence_keeps_core_remote_and_office_isolated() {
         "use tmt_remote::core::CoreClient;",
     ] {
         assert!(!policy::source_violations(&[syntax("tmt-colab", "lib.rs", code)]).is_empty());
+    }
+}
+
+#[test]
+fn colab_model_has_only_fixed_crypto_and_no_runtime_authority() {
+    for name in [
+        "hpke",
+        "x25519-dalek",
+        "aes-gcm",
+        "base64",
+        "ed25519-dalek",
+        "getrandom",
+        "hmac",
+        "serde",
+        "serde_json",
+        "sha2",
+    ] {
+        assert!(
+            policy::dependency_violations(&package(
+                "tmt-colab-model",
+                vec![dependency(name, "normal", None, None)]
+            ))
+            .is_empty()
+        );
+    }
+    for name in ["tmt-core", "tmt-adapters", "tmt-remote", "rusqlite"] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                "tmt-colab-model",
+                vec![dependency(name, "normal", None, None)]
+            ))
+            .len(),
+            1
+        );
+    }
+    for path in [
+        "std::fs::read",
+        "std::io::stdin",
+        "std::env::var",
+        "std::thread::spawn",
+        "std::net::TcpStream",
+        "std::process::Command",
+        "tmt_core::Identity",
+    ] {
+        assert_eq!(
+            policy::source_violations(&[syntax(
+                "tmt-colab-model",
+                "lib.rs",
+                &format!("use {path};")
+            )])
+            .len(),
+            1
+        );
     }
 }

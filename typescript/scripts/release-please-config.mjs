@@ -87,7 +87,8 @@ function linkedCrates(owned, crates) {
 
 /**
  * release-please attributes a commit to a package by the files it touches under the package
- * path, and has no option to add other directories. A package can only drop paths, so to keep
+ * path, and has no option to add other directories (#912). The release wrapper supplies
+ * declared private-leaf consumption before this split. A package can only drop paths, so to keep
  * the linked crates of an excluded root, everything else under that root is listed instead.
  */
 function excludeAllBut(root, kept, files) {
@@ -120,6 +121,33 @@ function excludedPaths(component, linked, files) {
   });
 }
 
+/** Private source roots and their released consumers, independent of version/CI ownership. */
+export function releaseConsumption(components) {
+  return components.flatMap((leaf) => {
+    if (!leaf.releaseConsumers?.length) return [];
+    if (leaf.release !== false || leaf.owns.length !== 1 || leaf.excludes.length) {
+      throw new Error(`Release consumption requires a private single-root leaf: ${leaf.name}.`);
+    }
+    return [...new Set(leaf.releaseConsumers)].map((name) => {
+      const consumer = components.find((component) => component.name === name);
+      if (
+        !consumer ||
+        consumer.release === false ||
+        consumer.owns.length !== 1 ||
+        !consumer.package
+      ) {
+        throw new Error(`Invalid release consumer ${name} of ${leaf.name}.`);
+      }
+      const [source] = leaf.owns;
+      const [target] = consumer.owns;
+      if (source === '.' || target === '.' || source === target) {
+        throw new Error(`Release consumption requires distinct non-root paths: ${leaf.name}.`);
+      }
+      return { source, target };
+    });
+  });
+}
+
 const byName = (left, right) => left.name.localeCompare(right.name);
 
 /**
@@ -128,6 +156,7 @@ const byName = (left, right) => left.name.localeCompare(right.name);
  * versions from where each crate declares them, and lock entries from the crates that have one.
  */
 export function generateReleasePleaseConfig({ components, workspace }) {
+  releaseConsumption(components);
   const { crates, lockNames, files } = workspace;
   const map = { components };
   const ownerOfCrate = (crate) => ownerOf(crate.manifest, map);
@@ -183,6 +212,7 @@ export function generateReleasePleaseConfig({ components, workspace }) {
     const exclude = excludedPaths(component, linked, files);
     packages[packagePath] = {
       'release-type': 'simple',
+      'prerelease-type': 'alpha',
       component: component.package,
       'include-component-in-tag': includeComponent,
       ...(exclude.length > 0 ? { 'exclude-paths': exclude } : {}),
@@ -191,11 +221,11 @@ export function generateReleasePleaseConfig({ components, workspace }) {
   }
 
   return {
-    $schema: 'https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json',
+    $schema:
+      'https://raw.githubusercontent.com/googleapis/release-please/v17.11.2/schemas/config.json',
     'separate-pull-requests': true,
     'include-v-in-tag': true,
     versioning: 'prerelease',
-    'prerelease-type': 'alpha',
     // release-please reads this twice: for the GitHub prerelease flag and for the version line.
     // Without it, 5.0.0-alpha.8 graduates to 5.0.0. The flags a published release actually
     // carries come from the publication policy when the draft is published, not from here.

@@ -8,6 +8,7 @@ pub(in crate::grammar) fn talk() -> Command {
             general(spec!(
                 "talk",
                 "Send a request and wait for its durable reply",
+                details = "Plain talk attempts live notification. Use --inbox only for intentional queue-only delivery: no live notification is attempted, and the recipient must pull with tmt inbox.",
                 [
                     "Send a message and wait for the reply" => "tmt talk worker \"Run the tests\"",
                     "Send and return at once" => "tmt talk --detach worker \"Deploy when green\"",
@@ -170,4 +171,14 @@ pub(in crate::grammar) fn request_observer() -> Command {
     )
     .hide(true)
     .arg(operand("request-id", true))
+}
+
+pub(in crate::grammar) fn reply_notice_worker() -> Command {
+    internal(
+        "__reply-notice-worker",
+        "Internal bounded reply notice worker",
+    )
+    .hide(true)
+    .arg(operand("batch-id", true))
+    .arg(operand("log-id", true))
 }

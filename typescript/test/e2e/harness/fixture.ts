@@ -28,6 +28,7 @@ import {
   killAndWait,
   processGroupIsRunning,
   requestObserverPids,
+  replyWorkerPids,
   stopAttachedClients,
   processIsRunning,
   serverIsRunning,
@@ -654,6 +655,15 @@ exit ${'$'}status
       const survivors = await killAndWait(owned, 'request observer', recordCleanupError);
       if (survivors.length > 0)
         cleanupError ??= new Error(`Request observers survived cleanup: ${survivors.join(', ')}`);
+    }
+    const replyWorkers = path.join(this.globalDir, 'reply-notice-workers');
+    if (fs.existsSync(replyWorkers)) {
+      const owned = replyWorkerPids(replyWorkers);
+      const survivors = await killAndWait(owned, 'reply notice worker', recordCleanupError);
+      if (survivors.length > 0)
+        cleanupError ??= new Error(
+          `Reply notice workers survived cleanup: ${survivors.join(', ')}`
+        );
     }
     const attachedClients = this.attachedClients.splice(0);
     await stopAttachedClients(attachedClients, recordCleanupError);

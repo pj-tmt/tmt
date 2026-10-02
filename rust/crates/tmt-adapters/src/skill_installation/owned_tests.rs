@@ -238,7 +238,7 @@ fn removal_by_owner_keeps_other_owners_and_anything_the_user_replaced() {
     fs::create_dir(&replaced).unwrap();
     fs::write(replaced.join("SKILL.md"), b"user copy").unwrap();
 
-    let removed = remove_owned(&global, "squad", None).unwrap();
+    let removed = remove_owned(None, &global, "squad", None).unwrap();
     assert_eq!(removed.removed, [root.join("tmt-squad")]);
     assert_eq!(removed.kept, std::slice::from_ref(&replaced));
     assert!(!root.join("tmt-squad").exists());
@@ -248,7 +248,7 @@ fn removal_by_owner_keeps_other_owners_and_anything_the_user_replaced() {
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining["tmt-office"], "office");
     assert!(
-        remove_owned(&global, "squad", None)
+        remove_owned(None, &global, "squad", None)
             .unwrap()
             .removed
             .is_empty(),
@@ -276,7 +276,7 @@ fn removal_by_name_leaves_the_owners_other_skills_and_other_owners_alone() {
         vec!["Tmux-Squad".to_string()],
         vec!["tmux-squad".to_string(), "tmux-squad".to_string()],
     ] {
-        let error = remove_owned(&global, "squad", Some(&bad)).unwrap_err();
+        let error = remove_owned(None, &global, "squad", Some(&bad)).unwrap_err();
         assert!(matches!(refusal(&error.cause), Some(Refusal::Invalid(_))));
         assert_eq!(owners(&global).unwrap(), before);
         assert!(root.join("tmux-squad").exists());
@@ -284,6 +284,7 @@ fn removal_by_name_leaves_the_owners_other_skills_and_other_owners_alone() {
 
     // Names the owner does not hold, or another owner holds, are nothing to remove.
     let none = remove_owned(
+        None,
         &global,
         "squad",
         Some(&["tmt-office".to_string(), "missing".to_string()]),
@@ -292,7 +293,7 @@ fn removal_by_name_leaves_the_owners_other_skills_and_other_owners_alone() {
     assert!(none.removed.is_empty() && none.kept.is_empty());
     assert_eq!(owners(&global).unwrap(), before);
 
-    let removed = remove_owned(&global, "squad", Some(&["tmux-squad".to_string()])).unwrap();
+    let removed = remove_owned(None, &global, "squad", Some(&["tmux-squad".to_string()])).unwrap();
     assert_eq!(removed.removed, [root.join("tmux-squad")]);
     assert!(removed.kept.is_empty());
     assert!(!root.join("tmux-squad").exists());
@@ -302,14 +303,14 @@ fn removal_by_name_leaves_the_owners_other_skills_and_other_owners_alone() {
     assert_eq!(remaining.len(), 2);
     assert_eq!(remaining["tmt-squad"], "squad");
     assert!(
-        remove_owned(&global, "squad", Some(&["tmux-squad".to_string()]))
+        remove_owned(None, &global, "squad", Some(&["tmux-squad".to_string()]))
             .unwrap()
             .removed
             .is_empty(),
         "repeat is a no-op"
     );
     // Without a selection the owner's remaining skill goes as before.
-    let rest = remove_owned(&global, "squad", None).unwrap();
+    let rest = remove_owned(None, &global, "squad", None).unwrap();
     assert_eq!(rest.removed, [root.join("tmt-squad")]);
 }
 
@@ -407,6 +408,32 @@ fn guided_setup_links_recorded_extension_skills_into_new_roots_once() {
     assert_eq!(read_skill(&new_root.join("tmt-squad")), "v1");
     assert!(super::plan_owned(&global, &roots).unwrap().is_empty());
     // Recorded, so removing the owner removes the new link too.
-    let removed = remove_owned(&global, "squad", None).unwrap();
+    let removed = remove_owned(None, &global, "squad", None).unwrap();
     assert!(removed.removed.contains(&new_root.join("tmt-squad")));
+}
+
+#[test]
+fn recorded_owner_retires_dangling_generations_without_removing_a_changed_target() {
+    let (_directory, env, global, root) = fixture();
+    let report =
+        install_owned(&env, &global, "squad", &[skill("tmt-squad", "old")], false).unwrap();
+    let target = &report.published[0].target;
+    let source = fs::read_link(target).unwrap();
+    fs::remove_dir_all(source.parent().unwrap()).unwrap();
+    let removed = remove_owned(None, &global, "squad", None).unwrap();
+    assert_eq!(removed.removed, vec![target.clone()]);
+    assert!(removed.kept.is_empty());
+    assert!(!fs::exists(target).unwrap());
+    assert!(owners(&global).unwrap().is_empty());
+
+    install_owned(&env, &global, "squad", &[skill("tmt-squad", "new")], false).unwrap();
+    fs::remove_file(target).unwrap();
+    fs::create_dir(target).unwrap();
+    fs::write(target.join("SKILL.md"), b"user directory").unwrap();
+    let kept = remove_owned(None, &global, "squad", None).unwrap();
+    assert_eq!(kept.kept, vec![root.join("tmt-squad")]);
+    assert_eq!(
+        fs::read(target.join("SKILL.md")).unwrap(),
+        b"user directory"
+    );
 }

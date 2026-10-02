@@ -112,21 +112,42 @@ pub fn execute(request: ConfigRequest, mode: OutputMode) -> io::Result<u8> {
                 if let Some(problem) = theme_error {
                     let mut stderr = tmt_cli_style::stream::stderr();
                     let terminal = stderr.terminal();
-                    tmt_cli_style::message::error(
-                        &mut stderr,
-                        terminal,
-                        &format!(
-                            "{} {}; commands use the terminal's colors until it is fixed",
-                            problem.key,
-                            problem.message.trim_end_matches('.')
-                        ),
-                        None,
-                    )?;
+                    write_theme_problem(&mut stderr, terminal, &theme, &problem)?;
                 }
             }
         }
     }
     Ok(0)
+}
+
+fn write_theme_problem(
+    output: &mut impl Write,
+    terminal: tmt_cli_style::Terminal,
+    theme: &[(String, String)],
+    problem: &ThemeProblem,
+) -> io::Result<()> {
+    if problem.key == "theme.base"
+        && theme
+            .iter()
+            .any(|(key, value)| key == "base" && value == "auto")
+    {
+        return tmt_cli_style::message::error(
+            output,
+            terminal,
+            "theme.base auto only works for the board, not in config.json",
+            Some("tmt sq theme set auto"),
+        );
+    }
+    tmt_cli_style::message::error(
+        output,
+        terminal,
+        &format!(
+            "{} {}; commands use the terminal's colors until it is fixed",
+            problem.key,
+            problem.message.trim_end_matches('.')
+        ),
+        None,
+    )
 }
 
 /// `theme` is the global file's settings as written (already checked); an
@@ -159,6 +180,7 @@ fn show_json(
                 "pasteEnterDelayMs": settings.paste_enter_delay_ms,
             },
             "exchange": { "retentionDays": settings.retention_days },
+            "notifications": { "replyBatchWindowMs": settings.reply_batch_window_ms, "typingQuietMs": settings.typing_quiet_ms },
             "ui": { "paneBadge": settings.pane_badge.as_str() },
             "theme": theme,
         },
@@ -167,6 +189,7 @@ fn show_json(
             "preambleEvery": loaded.source(SettingKey::PreambleEvery),
             "pasteEnterDelayMs": loaded.source(SettingKey::PasteEnterDelayMs),
             "exchange": { "retentionDays": loaded.source(SettingKey::RetentionDays) },
+            "notifications": { "replyBatchWindowMs": loaded.source(SettingKey::ReplyBatchWindowMs), "typingQuietMs": loaded.source(SettingKey::TypingQuietMs) },
             "ui": { "paneBadge": loaded.source(SettingKey::PaneBadge) },
             "theme": theme_source,
         },
@@ -183,6 +206,16 @@ fn show_text(
 ) -> io::Result<()> {
     let settings = &loaded.settings;
     let rows = [
+        (
+            SettingKey::ReplyBatchWindowMs,
+            "notifications.replyBatchWindowMs",
+            settings.reply_batch_window_ms.to_string(),
+        ),
+        (
+            SettingKey::TypingQuietMs,
+            "notifications.typingQuietMs",
+            settings.typing_quiet_ms.to_string(),
+        ),
         (
             SettingKey::PreambleMode,
             "preambleMode",
@@ -305,4 +338,47 @@ fn show_text(
             ("local", path(&paths.local_config)),
         ],
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn global_auto_has_a_short_error_and_action_hint() {
+        let theme = vec![("base".into(), "auto".into())];
+        let error = crate::appearance::parse(&theme).unwrap_err();
+        let problem = ThemeProblem {
+            key: error.key,
+            message: error.message,
+        };
+        assert!(problem.message.contains("[board.theme]"));
+        assert!(problem.message.contains("[squad.<name>.theme]"));
+        let mut output = Vec::new();
+        write_theme_problem(
+            &mut output,
+            tmt_cli_style::Terminal::PLAIN,
+            &theme,
+            &problem,
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "error: theme.base auto only works for the board, not in config.json\nhint: tmt sq theme set auto\n"
+        );
+    }
+
+    #[test]
+    fn other_theme_errors_keep_their_key_and_consequence() {
+        let problem = ThemeProblem {
+            key: "theme.waiting".into(),
+            message: "unknown color orange.".into(),
+        };
+        let mut output = Vec::new();
+        write_theme_problem(&mut output, tmt_cli_style::Terminal::PLAIN, &[], &problem).unwrap();
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "error: theme.waiting unknown color orange; commands use the terminal's colors until it is fixed\n"
+        );
+    }
 }

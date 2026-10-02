@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:tmt:office:wire:1.0",
   "title": "Office 1.0 work handoff messages (design contract, not a deployed API)",
-  "description": "Authentication and current grants are verified outside the payload. Passing this schema does not authorize an action. See docs/office/design.md for policy and contracts/office/README.md for versioning.",
+  "description": "Authentication and current grants are verified outside the payload. Passing this schema does not authorize an action. See extensions/tmt-office/docs/design.md for policy and contracts/office/README.md for versioning.",
   "oneOf": [
     { "$ref": "#/$defs/hello" },
     { "$ref": "#/$defs/submitWork" },

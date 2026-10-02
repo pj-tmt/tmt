@@ -10,6 +10,8 @@ import {
   PROOF_FILES,
   archiveTargets,
   assessUpgrade,
+  combineFailures,
+  failureCause,
   fetchUpgrade,
   ghAssetDownloader,
   proveStaged,
@@ -550,6 +552,60 @@ describe('ghAssetDownloader', () => {
   });
 });
 
+describe('failureCause and combineFailures', () => {
+  const trace = (error: string) =>
+    `Run the proof\nnode:internal/process/execution:1\n    triggerUncaughtException(\n    ^\n\n${error}\n    at file:///x.mjs:1:1 {\n  code: 'ERR_ASSERTION'\n}\n\nNode.js v22.23.2\nverify-native-extension-upgrade.mjs failed with 1.\n`;
+
+  it('takes the first error line a verifier threw, not the runner’s own closing line', () => {
+    expect(failureCause(trace('Error: Native archive checksum mismatch'))).toBe(
+      'Native archive checksum mismatch'
+    );
+    expect(
+      failureCause(
+        trace(
+          'AssertionError [ERR_ASSERTION]: Packed command failed (exited 1, expected 0): tmt extension install squad: unrecognized subcommand squad\ncommand: x'
+        )
+      )
+    ).toBe(
+      'Packed command failed (exited 1, expected 0): tmt extension install squad: unrecognized subcommand squad'
+    );
+  });
+
+  it('says so when the log shows no error, and keeps one bounded line of printable text', () => {
+    // Only a line that starts with the error counts, not text that mentions one.
+    expect(failureCause('expected output: Error: not thrown\nError: the real one\n')).toBe(
+      'the real one'
+    );
+    expect(failureCause('Run the proof\nverify.mjs failed with 1.\n')).toBe(
+      'the proof failed without an error message'
+    );
+    expect(failureCause('Error: a\u0007b\tc\u001b[31m red')).toBe('a b c [31m red');
+    const long = failureCause(`Error: ${'x'.repeat(1000)}`);
+    expect(long).toHaveLength(300);
+    expect(long.endsWith('...')).toBe(true);
+  });
+
+  it('names each distinct cause once, with the hosts it happened on, sorted', () => {
+    const squad = trace('Error: no squad command');
+    expect(
+      combineFailures([
+        { target: 'x86_64-unknown-linux-musl', log: squad },
+        { target: 'aarch64-apple-darwin', log: squad },
+        { target: 'x86_64-apple-darwin', log: trace('Error: a downgrade was accepted') },
+      ])
+    ).toBe(
+      'no squad command (aarch64-apple-darwin, x86_64-unknown-linux-musl); a downgrade was accepted (x86_64-apple-darwin)'
+    );
+    const many = combineFailures(
+      Array.from({ length: 8 }, (_, index) => ({
+        target: `host-${index}`,
+        log: trace(`Error: cause number ${index} ${'y'.repeat(150)}`),
+      }))
+    );
+    expect(many.length).toBeLessThanOrEqual(600);
+  });
+});
+
 describe('release-upgrade.mjs', () => {
   function fakeGh(releases: DraftRelease[]) {
     const directory = mkdtempSync(path.join(root, 'cli-'));
@@ -631,11 +687,33 @@ describe('release-upgrade.mjs', () => {
     expect(run.ghCalls()).toBe(1);
   });
 
+  it('names why the hosts failed from their logs, offline, and is empty when none failed', () => {
+    const run = fakeGh([]);
+    const logs = path.join(root, 'logs');
+    for (const target of ['aarch64-apple-darwin', 'x86_64-apple-darwin']) {
+      mkdirSync(path.join(logs, `upgrade-proof-log-${target}`), { recursive: true });
+      writeFileSync(
+        path.join(logs, `upgrade-proof-log-${target}`, 'upgrade-proof.log'),
+        'noise\nError: Native archive checksum mismatch\n  at x\n'
+      );
+    }
+    mkdirSync(path.join(logs, 'unrelated'), { recursive: true });
+    const failed = run(['reason', '--directory', logs], { GITHUB_REPOSITORY: '', GH_TOKEN: '' });
+    expect(failed.status).toBe(0);
+    expect(failed.stderr).toContain('The upgrade proof failed: Native archive checksum mismatch');
+    expect(run.output()).toBe(
+      'reason=Native archive checksum mismatch (aarch64-apple-darwin, x86_64-apple-darwin)\n'
+    );
+    const none = run(['reason', '--directory', path.join(root, 'no-logs')]);
+    expect(none.status).toBe(0);
+    expect(run.output().endsWith('\nreason=\n')).toBe(true);
+  });
+
   it('refuses missing options and an unknown command', () => {
     const run = fakeGh([]);
     expect(run(['prove', '--product', 'cli']).stderr).toContain('--tag is required.');
     expect(run(['bogus']).stderr).toContain(
-      'Usage: release-upgrade.mjs resolve|fetch|assess|prove'
+      'Usage: release-upgrade.mjs resolve|fetch|assess|prove|reason'
     );
   });
 });

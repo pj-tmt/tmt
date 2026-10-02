@@ -11,9 +11,8 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import Database from 'better-sqlite3';
 import { parseWholeStdout, runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
-import { createArtifact } from '../support/native-artifact.js';
+import { cli } from '../support/extension-hooks.js';
 
 // A non-Office extension: it answers the hook protocol and records what it sees.
 const FIXTURE = `#!/bin/sh
@@ -55,12 +54,6 @@ function install(sandbox: Sandbox): Fixture {
   sandbox.env.FIXTURE_CAPABILITIES = 'TMT-HOOKS/1\nlifecycle_observations_v1\n';
   sandbox.env.FIXTURE_MODE = '';
   return { bin, executable, log };
-}
-
-async function cli(sandbox: Sandbox, args: string[]) {
-  const result = await runCli(sandbox, [...args, '--json']);
-  expect(result.status, result.stdout + result.stderr).toBe(0);
-  return parseWholeStdout(result);
 }
 
 function observed(fixture: Fixture): unknown[] {
@@ -207,66 +200,6 @@ describe('consented extension hooks', () => {
       await room(sandbox, 'Disabled');
       expect(observed(fixture).length).toBe(2);
       expect(await cli(sandbox, ['extension', 'hooks', 'list'])).toEqual({ extensions: [] });
-    });
-  });
-
-  it('lets the Office companion adopt the contract once the user enables it', async () => {
-    await withSandbox(async (sandbox) => {
-      const prefix = path.join(sandbox.root, 'isolated office');
-      const office = (args: string[]) => cli(sandbox, ['office', '--prefix', prefix, ...args]);
-      const artifact = await createArtifact(sandbox, '0.1.0-alpha.4', new Uint8Array(), 'office');
-      await office([
-        'install',
-        '--yes',
-        '--archive',
-        artifact.archive,
-        '--manifest',
-        artifact.manifest,
-      ]);
-      await cli(sandbox, ['identity', 'create', 'Bea']);
-      await office([
-        'board',
-        'post',
-        '--general',
-        '--identity',
-        'Bea',
-        '--title',
-        'T',
-        '--body',
-        'B',
-      ]);
-      await office(['storage', 'migrate', '--yes']);
-      sandbox.env.PATH = `${path.join(prefix, 'bin')}${path.delimiter}${sandbox.env.PATH ?? ''}`;
-      const enabled = await cli(sandbox, ['extension', 'hooks', 'enable', 'office']);
-      expect(enabled.enabled).toMatchObject({
-        name: 'office',
-        capabilities: ['context_v1', 'lifecycle_observations_v1'],
-      });
-      // Context is a read-only protocol reply; Bea has no desk yet, so no line.
-      const bea = ((await cli(sandbox, ['identity', 'show', 'Bea'])).identity as { id: string }).id;
-      const context = execFileSync(
-        path.join(prefix, 'bin', 'tmt-office'),
-        ['__tmt-hooks', '1', 'context'],
-        {
-          input: JSON.stringify({ version: 1, identityId: bea }),
-          env: { ...sandbox.env, TMT_HOOK_DELIVERY: '1' },
-        }
-      ).toString();
-      expect(JSON.parse(context)).toEqual({ summary: null });
-      await cli(sandbox, ['rm', 'Bea', '--force']);
-      // The retirement observation made Office reconcile before any Office command ran.
-      const marker = new Database(path.join(sandbox.globalDir, 'office', 'office.db'), {
-        readonly: true,
-      });
-      try {
-        expect(
-          marker.prepare('SELECT count(*) AS count FROM office_retired_identities').get()
-        ).toEqual({
-          count: 1,
-        });
-      } finally {
-        marker.close();
-      }
     });
   });
 });

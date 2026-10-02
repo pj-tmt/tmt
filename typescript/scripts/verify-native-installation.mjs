@@ -5,6 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { selectNativeArtifact, withNativeArtifact } from './native-artifact-policy.mjs';
+import {
+  checkMigratedState,
+  expectedMigrations,
+  snapshotState,
+  writePriorState,
+} from './migrated-state.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 
 const { values } = parseArgs({
@@ -88,8 +94,16 @@ await withNativeArtifact(values.archive, current, async (source) => {
       const identity = JSON.parse(
         run(['identity', 'create', 'installation-proof', '--json'])
       ).identity;
+      // Richer state than one identity: the candidate migrates it when it first opens it below.
+      const written = [identity.id, ...writePriorState(run)];
       const database = path.join(state, 'tmux-team.db');
       const originalDatabase = fs.readFileSync(database);
+      const before = snapshotState(database, written);
+      assert.deepEqual(
+        before.missing,
+        [],
+        'The previous release did not keep what the proof wrote'
+      );
 
       const blocked = install(values.archive, values.manifest, [], 1);
       assert.equal(blocked.error.code, 'NATIVE_INSTALL_FAILED');
@@ -124,6 +138,15 @@ await withNativeArtifact(values.archive, current, async (source) => {
       assert.deepEqual(
         JSON.parse(run(['identity', 'show', 'installation-proof', '--json'])).identity,
         identity
+      );
+      assert.deepEqual(
+        checkMigratedState({
+          before,
+          after: snapshotState(database, written),
+          expected: expectedMigrations(),
+        }),
+        [],
+        `The candidate did not migrate the state ${previous.version} wrote cleanly`
       );
       const oldExecutable = path.join(prefix, 'lib/tmux-team', originalPointer, 'tmt');
       assert.equal(

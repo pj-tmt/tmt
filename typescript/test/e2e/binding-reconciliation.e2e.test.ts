@@ -31,7 +31,7 @@ interface Listing {
   identities: Listed[];
 }
 
-describe.sequential('binding publication, reconciliation and presentation', () => {
+describe('binding publication, reconciliation and presentation', { concurrent: false }, () => {
   it('aligns human list columns for live Unicode identities and long pane paths without changing JSON', async () => {
     await withE2EFixture(async (fixture) => {
       // Fullwidth fixture data exposes byte/character-count padding bugs.

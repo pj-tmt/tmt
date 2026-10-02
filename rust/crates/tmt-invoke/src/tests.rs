@@ -12,9 +12,9 @@ use std::{
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
-struct Fixture(PathBuf);
+pub(crate) struct Fixture(pub(crate) PathBuf);
 impl Fixture {
-    fn new(script: &str) -> Self {
+    pub(crate) fn new(script: &str) -> Self {
         let root = std::env::temp_dir().join(format!(
             "tmt-invoke-{}-{}",
             std::process::id(),
@@ -158,8 +158,12 @@ fn each_stream_has_its_own_exact_bound_including_zero() {
 fn stdin_and_both_output_pipes_make_progress_under_pressure() {
     let input = vec![b'i'; 256 * 1024];
     let fixture = Fixture::new("head -c 262144 /dev/zero; head -c 262144 /dev/zero >&2; cat");
+    // Quiet/loaded maxima: 13.7/16.7 ms; ~20 ms at 1 ms pulses with 12 CPU workers.
+    // subprocess 1.2.1 retains write/read progress across TimedOut; no livelock found.
+    // One 5 s Deadline miss under heavy full-workspace load remains unexplained.
+    // 30 s matches real-process success budgets in tmt-adapters host/external/tests.rs.
     let output = fixture
-        .call(&[], &input, Duration::from_secs(5), 512 * 1024, None)
+        .call(&[], &input, Duration::from_secs(30), 512 * 1024, None)
         .unwrap();
     assert_eq!(&output.stdout[..256 * 1024], vec![0; 256 * 1024]);
     assert_eq!(&output.stdout[256 * 1024..], input);
@@ -400,7 +404,10 @@ fn environment_policy_child() {
                 input: b"",
                 deadline: Instant::now() + Duration::from_secs(5),
                 max_stream_bytes: 4096,
-                launch: LaunchOptions { environment },
+                launch: LaunchOptions {
+                    environment,
+                    ..Default::default()
+                },
             },
             None,
         )

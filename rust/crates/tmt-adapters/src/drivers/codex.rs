@@ -6,9 +6,16 @@
 
 pub mod attachment;
 pub mod caller;
+pub mod channel;
+pub mod channel_context;
+pub mod channel_hooks;
+pub mod delivery;
+pub mod lease;
+pub mod pane;
 pub mod queue;
 pub mod record;
 pub mod server;
+pub mod supervisor;
 pub mod transport;
 
 pub use crate::runtime::hook_protocol::encode_context;
@@ -202,7 +209,7 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     runtime: Some(super::Runtime {
         driver: || Box::new(CodexRuntime),
         lifecycle: || Box::new(CodexLifecycle),
-        channel: None,
+        channel: Some(|| Box::new(channel::CodexChannel)),
         identify_caller: Some(identify_caller),
     }),
 };
@@ -268,6 +275,20 @@ impl tmt_core::driver::Driver for CodexRuntime {
 
     fn claims(&self, command: &str) -> Option<tmt_core::binding::session::HarnessId> {
         crate::runtime::claim_named(command, NAME)
+    }
+
+    fn send(
+        &mut self,
+        target: &Self::Target,
+        message: &str,
+    ) -> tmt_core::driver::ActionResult<
+        tmt_core::driver::DeliveryAcceptance,
+        tmt_core::driver::SendFailure<Self::Error>,
+    > {
+        let directory = crate::config::ConfigPaths::discover()
+            .ok()
+            .map(|paths| paths.channel_directory());
+        delivery::send(directory.as_deref(), target, message)
     }
 
     fn resume(
@@ -384,6 +405,13 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         crate::runtime::driver_state::state_activity(state)
     }
 
+    fn state_consumption(
+        &self,
+        state: &tmt_core::binding::session::DriverState,
+    ) -> Option<crate::runtime::consumption::Consumption> {
+        crate::runtime::driver_state::state_consumption(state).map(|state| state.value)
+    }
+
     fn decode_prompt(&self, bytes: &[u8]) -> Option<ProviderSessionId> {
         crate::runtime::hook_protocol::decode_prompt(bytes)
     }
@@ -399,13 +427,24 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         previous: Option<&tmt_core::binding::session::DriverState>,
         now_ms: u64,
     ) -> Option<tmt_core::binding::session::DriverState> {
-        let (tokens, window) = crate::runtime::transcript::latest(
-            &codex_home(environment).join("sessions"),
-            turn.transcript.as_deref()?,
-            transcript_usage,
-        )?;
-        let usage = crate::runtime::driver_state::Usage::new(tokens, window, now_ms)?;
-        crate::runtime::driver_state::after_turn(usage, previous)
+        let root = codex_home(environment).join("sessions");
+        let path = turn.transcript.as_deref()?;
+        let usage = crate::runtime::transcript::latest(&root, path, transcript_usage).and_then(
+            |(tokens, window)| crate::runtime::driver_state::Usage::new(tokens, window, now_ms),
+        );
+        let previous_consumption =
+            previous.and_then(crate::runtime::driver_state::state_consumption);
+        let consumption = (usage.is_some() || previous_consumption.is_some())
+            .then(|| {
+                crate::runtime::consumption::codex(
+                    &root,
+                    path,
+                    previous_consumption.as_ref(),
+                    now_ms,
+                )
+            })
+            .flatten();
+        crate::runtime::driver_state::after_observation(usage, consumption, previous)
     }
 
     fn observe_replacement(
@@ -436,7 +475,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         &self,
         payload: &[u8],
     ) -> Option<Box<dyn crate::runtime::lifecycle::LifecycleObservation>> {
-        decode_hook(payload).map(|value| Box::new(value) as _)
+        channel_hooks::decode(payload)
     }
 
     fn host_evidence(

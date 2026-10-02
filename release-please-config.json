@@ -1,9 +1,8 @@
 {
-  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/v17.11.2/schemas/config.json",
   "separate-pull-requests": true,
   "include-v-in-tag": true,
   "versioning": "prerelease",
-  "prerelease-type": "alpha",
   "prerelease": true,
   "draft": true,
   "always-update": true,
@@ -12,13 +11,16 @@
   "packages": {
     ".": {
       "release-type": "simple",
+      "prerelease-type": "alpha",
       "component": "tmt-cli",
       "include-component-in-tag": false,
       "exclude-paths": [
         "extensions/tmt-office/contracts",
+        "extensions/tmt-office/docs",
         "extensions/tmt-office/rust/tmt-office",
         "extensions/tmt-office/rust/tmt-office-pairing",
         "extensions/tmt-office/rust/tmt-office-storage",
+        "extensions/tmt-office/scripts",
         "extensions/tmt-office/skills",
         "extensions/tmt-office/typescript",
         "extensions/tmt-squad",
@@ -56,6 +58,11 @@
           "type": "toml",
           "path": "rust/Cargo.lock",
           "jsonpath": "$.package[?(@.name.value=='tmt-core')].version"
+        },
+        {
+          "type": "toml",
+          "path": "rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-driver-herdr')].version"
         },
         {
           "type": "toml",
@@ -101,6 +108,7 @@
     },
     "extensions/tmt-squad": {
       "release-type": "simple",
+      "prerelease-type": "alpha",
       "component": "tmt-squad",
       "include-component-in-tag": true,
       "extra-files": [

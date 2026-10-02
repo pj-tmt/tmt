@@ -377,7 +377,7 @@ const b4: Pane = {
   badge: { n: B, s: "on" },
   lines: [
     ...b3lines,
-    { t: 'tmt reply req_4f36… --message "Fixed"' },
+    { t: 'tmt reply req_4f36… --receipt v2_… --message "Fixed"' },
     { r: "Submitted response." },
     { k: "Worked for 41s" },
   ],
