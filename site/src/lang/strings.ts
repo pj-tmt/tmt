@@ -70,7 +70,7 @@ export const english = {
         working: {
           eyebrow: "working",
           title: "A request *travels* pane to pane.",
-          text: "`tmt talk` types your request into the other agent's pane, and its reply comes back to yours with the receipt. You never copy text between windows.",
+          text: "`tmt talk` types your request into the other agent's pane, and its reply comes back to yours, matched by its receipt. You never copy text between windows.",
         },
         squad: {
           eyebrow: "squad",
