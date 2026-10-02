@@ -12,7 +12,7 @@
     "lint": "oxlint --deny-warnings --react-plugin src scripts vite.config.ts",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
-    "check": "pnpm type:check && pnpm lint && pnpm format:check"
+    "check": "pnpm type:check && pnpm lint && pnpm format:check && node scripts/mdx-imports.mjs"
   },
   "dependencies": {
     "@mdx-js/react": "3.1.1",
