@@ -155,7 +155,6 @@ describe('CI area selection', () => {
     'typescript/apps/office/src/main.tsx',
     'contracts/office/request.json',
     'docs/office.md.orig',
-    '.dockerignore',
   ])('keeps native verification without frozen Office work for %s', (file) => {
     expect(selectCiAreas([file])).toEqual({ native: true, office: false, nativeOffice: false });
   });
@@ -171,6 +170,7 @@ describe('CI area selection', () => {
     'extensions/tmt-office/typescript/apps/office-other/file.ts',
     'extensions/tmt-office/rusty/file.rs',
     '.github/workflows/office-browser.yml',
+    '.dockerignore',
     'typescript/scripts/verify-office-emulators.mjs',
   ])('selects Office-owned verification together with native inputs for %s', (file) => {
     expect(selectCiAreas([file])).toEqual({ native: true, office: true, nativeOffice: true });
@@ -669,6 +669,7 @@ describe('Office-owned browser PR selection', () => {
   it.each([
     '.github/workflows/office-browser.yml',
     'typescript/scripts/verify-office-emulators.mjs',
+    '.dockerignore',
     'extensions/tmt-office/typescript/services/office/Dockerfile',
     'extensions/tmt-office/typescript/apps/office/e2e/native-office-fixture.ts',
   ])('verifies browser machinery when it changes: %s', (file) => {
@@ -676,7 +677,6 @@ describe('Office-owned browser PR selection', () => {
   });
 
   it.each([
-    '.dockerignore',
     '.github/components.json',
     'typescript/package.json',
     'typescript/pnpm-lock.yaml',
@@ -1095,6 +1095,28 @@ describe('frozen Office process selection', () => {
     .split('      - name: Verify native process and shared parser contracts\n')[1]
     .split('      - name:')[0];
   const script = step.split('        run: |\n')[1].replace(/^ {10}/gm, '');
+
+  it('keeps the native exclusion aligned with Office component ownership', () => {
+    const map = parseComponentMap(
+      readFileSync(path.join(repository, '.github/components.json'), 'utf8')
+    );
+    const nativeGlobs = map.components
+      .find((component) => component.name === 'office')!
+      .selectedBy.filter(({ glob }) => glob.startsWith('typescript/test/native/'));
+    expect(nativeGlobs.map(({ glob }) => glob)).toEqual(['typescript/test/native/office-*']);
+    const exclude = /--exclude '([^']+)'/.exec(script)?.[1];
+    expect(exclude).toBe(nativeGlobs[0].glob.replace('typescript/', '') + '.test.ts');
+    for (const name of [
+      'office-uninstall',
+      'office-legacy-skills',
+      'office-extension-hooks',
+      'office-native-installation',
+    ]) {
+      const file = `test/native/${name}.test.ts`;
+      expect(globToRegExp(exclude!).test(file), file).toBe(true);
+      expect(ownerOf('typescript/' + file, map), file).toBe('office');
+    }
+  });
 
   it.each(['true', 'false'])('runs a nonempty native selection with Office=%s', (selected) => {
     const files = readdirSync(path.join(repository, 'typescript/test/native')).filter((file) =>

@@ -6,7 +6,6 @@ import { e2eShardFiles } from './e2e-shards.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 
 const COMPONENT_MAP = new URL('../../.github/components.json', import.meta.url);
-const CONSUMERS = ['native', 'office'];
 
 /**
  * `**` matches any path (newlines included: git paths may contain them), `*` and `?`
@@ -88,7 +87,7 @@ export function parseComponentMap(text) {
     ids.add(rule.id);
     if (
       !Array.isArray(rule.consumers) ||
-      rule.consumers.some((consumer) => !CONSUMERS.includes(consumer))
+      rule.consumers.some((consumer) => consumer !== 'native')
     ) {
       throw new Error(`Rule ${rule.id} names an unknown consumer.`);
     }
@@ -157,7 +156,6 @@ export function ownerOf(path, map = componentMap()) {
 export function explainCiSelection(paths, map = componentMap()) {
   return paths.map((path) => {
     const rule = map.rules.find(({ patterns }) => patterns.some((pattern) => pattern.test(path)));
-    const consumers = rule ? rule.consumers : CONSUMERS;
     const office = selectOfficeBrowser([path], map);
     return {
       path,
@@ -166,7 +164,7 @@ export function explainCiSelection(paths, map = componentMap()) {
       why:
         rule?.why ??
         'Unmapped input retains full native verification; frozen Office follows ownership.',
-      native: consumers.includes('native'),
+      native: rule ? rule.consumers.includes('native') : true,
       office,
       nativeOffice: office,
     };
@@ -189,6 +187,7 @@ export function selectCiAreas(paths, map = componentMap()) {
 // dependency and generic fixture changes rely on the weekly/manual safety net.
 const OFFICE_BROWSER_INPUTS = new Set([
   '.github/workflows/office-browser.yml',
+  '.dockerignore',
   'typescript/scripts/verify-office-emulators.mjs',
 ]);
 

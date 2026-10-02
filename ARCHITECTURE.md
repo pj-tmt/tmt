@@ -702,13 +702,15 @@ checks remain separate; the repository owner controls merge-queue rulesets.
 The advisory Office browser workflow has a separate ownership-based PR flag,
 `office_browser`: Office-owned component paths and the browser
 verification machinery select its emulator/image work. The selector owns the
-Office-specific workflow/emulator exception so that machinery
+Office-specific workflow/emulator and Docker context exceptions so that machinery
 exercises itself. Shared dependency/selector/generic fixture changes, ordinary
 core product dependencies and unknown paths do not select
 browser PR work while Office is parked. Scheduled/manual runs cover all twelve
 partitions, including the emulator; the existing native/local PR pauses remain.
 Required native CI keeps conservative selection; the Rust gate validates the explicit
 Office selection and exact worker results in both states.
+`tmt-infra-lead` owns triage of red weekly/manual Office runs, records follow-up issues,
+and routes product failures to the Office owner; freezing does not leave the safety net unowned.
 
 The same map feeds release versioning. `typescript/scripts/release-please-config.mjs`
 generates `release-please-config.json` from the map (one release-please package per

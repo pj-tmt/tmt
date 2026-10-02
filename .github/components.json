@@ -2,7 +2,7 @@
   "$comment": [
     "The one component map. typescript/scripts/ci-scope.mjs reads it to decide which CI consumers a changed path selects, and typescript/scripts/release-please-config.mjs reads the same ownership to generate release-please-config.json.",
     "components: who owns which paths. `owns` roots minus `excludes` decide ownership, a `selectedBy` glob wins over the root, and `package` is the Cargo package.",
-    "rules: ordered, the first rule whose `paths` match a changed path decides which consumers it selects: `native` (the native Rust, tooling and E2E jobs) and `office` (the Office web checks). No match retains full native verification. Frozen Office verification additionally requires Office ownership or Office-specific machinery, as enforced by ci-scope.mjs.",
+    "rules: ordered, the first rule whose `paths` match a changed path decides native verification (Rust, tooling and E2E jobs). No match retains full native verification. Component ownership and Office-specific machinery decide frozen Office verification in ci-scope.mjs; rules do not select Office.",
     "Office SPA, browser and local-service/companion verification share the ownership-only Office selector in ci-scope.mjs; weekly/manual runs cover shared inputs, while merge groups and main pushes never select Office work.",
     "migrations: the source files that list a component's SQLite migrations; outside the alpha channel a release that has more entries in one than the last published release of that component is held for the owner, while an alpha only reports them (typescript/scripts/publication-gates.mjs).",
     "scopedChecks: a component that cannot affect the others (only Squad) lists the native test files and E2E files its own scope runs; ci-scope.mjs turns that into the native_scope outputs.",
@@ -87,7 +87,7 @@
     },
     {
       "id": "consumed-docs",
-      "consumers": ["native", "office"],
+      "consumers": ["native"],
       "why": "Read by build and test inputs: design/cli-style.md by the CLI and Squad style tests, rust/archive/NATIVE-INSTALL.md by the release archive and onboarding checks.",
       "paths": ["design/cli-style.md", "rust/archive/NATIVE-INSTALL.md"]
     },
@@ -124,19 +124,19 @@
     },
     {
       "id": "colab-rust",
-      "consumers": ["native", "office"],
+      "consumers": ["native"],
       "why": "Colab Rust retains full workspace checks and existing Office consumers; private release ownership does not narrow CI coverage.",
       "paths": ["extensions/tmt-colab/rust/**"]
     },
     {
       "id": "remote-rust",
-      "consumers": ["native", "office"],
+      "consumers": ["native"],
       "why": "Remote Rust retains full workspace checks; frozen Office selection follows its own ownership rather than private release ownership.",
       "paths": ["extensions/tmt-remote/rust/**"]
     },
     {
       "id": "office-web",
-      "consumers": ["office"],
+      "consumers": [],
       "why": "The Office application and its documentation: checked by the Office web jobs only.",
       "paths": ["extensions/tmt-office/typescript/apps/office/**", "extensions/tmt-office/docs/**"]
     },

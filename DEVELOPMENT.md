@@ -394,7 +394,9 @@ listed in `selectOfficeBrowser` (the browser workflow, emulator verifier and
 Docker context policy). Shared dependency/selector/generic fixture changes rely
 on the weekly/manual safety net to catch Office build breakage. Scheduled and manual runs cover all twelve
 partitions, including the emulator, regardless of paths. Required CI selection
-remains conservative and independent of this advisory cost policy.
+uses the same frozen Office ownership policy while retaining conservative native coverage.
+For red weekly Office runs, follow the triage ownership in the
+[CI selection and worker model](ARCHITECTURE.md#ci-selection-and-worker-model).
 One `image` job builds the `browser-tests` target once and shares it as a one-day
 artifact; every partition loads that image and never builds it.
 Local partitions do not start Firebase, while native-local shards use the container
