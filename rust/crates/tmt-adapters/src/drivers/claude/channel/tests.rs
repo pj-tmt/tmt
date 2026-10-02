@@ -1696,6 +1696,131 @@ fn a_socket_this_user_cannot_open_fails_the_start_and_is_left_alone() {
 }
 
 #[test]
+fn visible_readiness_already_admits_frames_before_the_record_writer_returns() {
+    let scratch = Scratch::new();
+    let owner = live_owner();
+    publish(&scratch.0, &intent(&owner));
+    let ready = std::sync::atomic::AtomicBool::new(false);
+    let request = ServeRequest {
+        binding_id: BINDING,
+        generation: GENERATION,
+        directory: &scratch.0,
+    };
+    server::publish_with(
+        &request,
+        &Process::of(&owner),
+        &ready,
+        |directory, record| {
+            write_record(directory, record)?;
+            assert!(
+                read_record(directory, BINDING)
+                    .unwrap()
+                    .unwrap()
+                    .claude
+                    .is_some(),
+                "a sender can already discover the ready record"
+            );
+            assert!(
+                ready.load(Ordering::SeqCst),
+                "ingress must admit that sender before the writer returns"
+            );
+            Ok(())
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn publication_failure_after_visibility_keeps_admission_and_returns_the_error() {
+    let scratch = Scratch::new();
+    let owner = live_owner();
+    publish(&scratch.0, &intent(&owner));
+    let ready = std::sync::atomic::AtomicBool::new(false);
+    let request = ServeRequest {
+        binding_id: BINDING,
+        generation: GENERATION,
+        directory: &scratch.0,
+    };
+    let error = server::publish_with(
+        &request,
+        &Process::of(&owner),
+        &ready,
+        |directory, record| {
+            write_record(directory, record)?;
+            // A directory flush can fail after rename made readiness visible.
+            Err(io::Error::other("directory flush failed"))
+        },
+    )
+    .unwrap_err();
+    assert_eq!(error.to_string(), "directory flush failed");
+    assert!(
+        read_record(&scratch.0, BINDING)
+            .unwrap()
+            .unwrap()
+            .claude
+            .is_some()
+    );
+    assert!(
+        ready.load(Ordering::SeqCst),
+        "visible readiness is never reverted"
+    );
+}
+
+#[test]
+fn a_failed_readiness_write_ends_the_server_without_a_channel_notification() {
+    let mut running = start();
+    running.say(initialize());
+    running.hear();
+    let before = fs::read(record_path(&running.scratch.0, BINDING)).unwrap();
+    // A preexisting staging directory deterministically refuses publication without
+    // relying on permission modes (which do not restrict a root test runner).
+    let staging = running
+        .scratch
+        .0
+        .join(format!(".{BINDING}.json.{}.tmp", std::process::id()));
+    fs::create_dir(&staging).unwrap();
+    running.say(serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    let mut output = String::new();
+    assert_eq!(running.stdout.read_line(&mut output).unwrap(), 0);
+    let (scratch, result) = running.stop();
+    assert_eq!(result.unwrap_err().kind(), io::ErrorKind::AlreadyExists);
+    assert!(output.is_empty(), "no notification was reported written");
+    assert!(!socket_path(&scratch.0, BINDING).exists());
+    assert_eq!(fs::read(record_path(&scratch.0, BINDING)).unwrap(), before);
+    assert!(staging.is_dir());
+}
+
+#[test]
+fn a_readiness_publish_for_another_generation_or_owner_never_enables_admission() {
+    let owner = live_owner();
+    for replacement in [
+        Record {
+            generation: "66666666-6666-4666-8666-666666666666".into(),
+            ..intent(&owner)
+        },
+        intent(&provider(1)),
+    ] {
+        let scratch = Scratch::new();
+        publish(&scratch.0, &replacement);
+        let before = fs::read(record_path(&scratch.0, BINDING)).unwrap();
+        let ready = std::sync::atomic::AtomicBool::new(false);
+        server::publish_with(
+            &ServeRequest {
+                binding_id: BINDING,
+                generation: GENERATION,
+                directory: &scratch.0,
+            },
+            &Process::of(&owner),
+            &ready,
+            |_, _| panic!("a stale publisher must not write"),
+        )
+        .unwrap();
+        assert!(!ready.load(Ordering::SeqCst));
+        assert_eq!(fs::read(record_path(&scratch.0, BINDING)).unwrap(), before);
+    }
+}
+
+#[test]
 fn a_late_readiness_publish_cannot_clobber_a_newer_enrollment() {
     let scratch = Scratch::new();
     let owner = live_owner();
@@ -1713,7 +1838,7 @@ fn a_late_readiness_publish_cannot_clobber_a_newer_enrollment() {
     let blocked = std::thread::scope(|scope| {
         locked(&scratch.0, || {
             let publishing =
-                scope.spawn(|| server::publish(&request, &Process::of(&owner), &ready));
+                scope.spawn(|| server::publish(&request, &Process::of(&owner), &ready).unwrap());
             std::thread::sleep(Duration::from_millis(500));
             let blocked = !publishing.is_finished();
             // A newer enrollment lands while the server's publish waits.

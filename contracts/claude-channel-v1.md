@@ -155,9 +155,16 @@ driver keeps its own files under different names or its own subdirectory, and
 neither driver opens the other's files (a record that is not this driver's is never
 parsed as one).
 After Claude completes the MCP handshake (`notifications/initialized`) the server
-observes its parent (Claude), rewrites the record with that process in `claude`
-and only then accepts frames; this is "ready". Frames before that are refused
-(`not_ready`). The record is discovery and evidence only and grants nothing:
+observes its parent (Claude) and validates the enrollment's generation and launch
+owner under the directory lock. It enables ingress admission before rewriting
+the record with that process in `claude`, so a sender that observes the ready
+record cannot be refused because ingress is still unready. Frames admitted while
+publication finishes wait for the calling thread, the sole output writer. A
+publication error ends that server conversation without writing queued frames or
+reporting them written; admission is never reverted while a renamed ready record
+may already be visible. The launch's record remains for normal withdrawal or
+recovery. Frames before handshake admission are refused (`not_ready`). The
+record is discovery and evidence only and grants nothing:
 `send` trusts it only where it agrees with the stored binding, below.
 
 The Unix socket is `<global>/channels/<binding-id>.sock` (0600), never a network
