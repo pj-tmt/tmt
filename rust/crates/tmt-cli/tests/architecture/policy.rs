@@ -227,6 +227,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "unicode-segmentation",
         ],
         "tmt-colab" => &[
+            "tungstenite",
             "serde",
             "yrs",
             "base64",

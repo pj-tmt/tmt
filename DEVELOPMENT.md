@@ -2581,12 +2581,36 @@ The printed `127.0.0.1:<port>` is the only accepted Host and Origin; no localhos
 forwarded-host or DNS-rebinding alias is admitted. The door bounds are named in
 `src/limits.rs`: 16 active sockets, 8 KiB/32 header fields, 64 KiB HTTP bodies,
 2-second total acquisition and 1-second total response. HTTP body capacity is
-for later sign-in/management; page objects use the future sync path. Reserved
-sync limits are 64 KiB frames and 8 queued frames with `RESYNC_REQUIRED` close
-for slow subscribers; no WebSocket is accepted yet. Real socket and foreground
+for later sign-in/management; page objects use the future sync path. The stream sync library enforces 64 KiB frames and 8 queued frames with
+`RESYNC_REQUIRED` close for slow subscribers; the foreground door still accepts no
+WebSocket. Real socket and foreground
 process cleanup tests run lifecycle scenarios twice, with no core calls from
 denied traffic. Owner-key temporary cleanup is publication-locked; it preserves
 foreign file names and refuses unsafe matching files.
+
+### Colab stream sync verification
+
+Run `(cd rust && cargo test --offline --locked -p tmt-colab --test sync)` for
+real duplex-socket tests of append/broadcast, exact retries, durable conflicts,
+gaps, role/signature/epoch denial, capacity, strict frames, revocation and
+slow-subscriber cleanup. Tests drive server turns explicitly without sleeps,
+worker threads, real identities or Docker. An injected write gate over a real
+socket proves that a buffered frame counts toward the queue cap and that
+revocation never flushes blocked ciphertext.
+
+The transport accepts already-upgraded nonblocking streams and a caller-supplied
+`Admission` implementation; it is not wired into `serve`. The caller must drive
+readiness and the one-second blocked-write deadline, drop connections on shutdown,
+and supply current verified membership/device policy. Model statement/certificate
+verification remains that caller's responsibility; a successful upgrade is not
+page authority. Until #1166, `hello` and nonempty cursors return
+`RESYNC_REQUIRED`, and chunks/large-object references are refused. An empty-cursor
+subscription is live-only, not a substitute for catchup. Owner registration is
+#1162. No two-browser catchup or mounted authentication acceptance is claimed.
+
+The only dependency change for this slice is the existing workspace tungstenite
+0.30.0 edge in `tmt-colab` (default features disabled, handshake enabled); there
+are no new package versions or lockfile resolutions.
 
 ### Colab decoder verification
 
