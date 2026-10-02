@@ -604,12 +604,20 @@ jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
 Rust dependency caches (`Swatinem/rust-cache`, pinned by commit SHA) serve `Native
 Rust checks` and the native runtime builds. The parallel MSRV check reads the
 minimum version from the workspace manifest and owns a separate
-`native-rust-msrv` cache, saved only on main. Pull requests only restore caches.
-The other caches are written by non-pull-request runs of those two jobs alone, which run on a `main`
-push that changes `Cargo.lock`, `Cargo.toml`, the toolchain file or `ci.yml`, weekly
-(GitHub evicts unused caches after seven days) and on manual dispatch. The Rust
+`native-rust-msrv` cache. Each cache is saved only by its owning job on a
+`refs/heads/main` push, schedule or manual dispatch; PR and merge-group runs
+only restore. Main pushes that change `Cargo.lock`, `Cargo.toml`, the toolchain file
+or `ci.yml`, weekly schedules and manual dispatch run the seeding jobs. The Rust
 aggregate validates these workers on seeding runs too; the outer merge gates do
 not run. A seeding run has no diff to select from, so it takes the full native scope.
+
+`ci.yml` owns all four required checks: Code quality, Unit tests, Docker E2E and
+Native package matrix. Both pull requests and `merge_group` candidates run those
+checks. Merge groups use the selector's explicit `full` mode, selecting native
+and Office verification plus both disjoint E2E shards, without path filtering.
+The same fail-closed aggregators apply to the combined queue candidate. Advisory
+Office browser checks remain separate. Workflow support does not enable the
+merge queue; the repository owner configures the ruleset after rollout.
 
 The advisory Office browser workflow has a separate ownership-based PR flag,
 `office_browser`: Office-owned component paths, `docs/office/**` and the browser
@@ -3028,6 +3036,7 @@ authentication, sync, decoder, browser and backend work remains proposed.** The 
 owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
 bridge policy and acceptance gates. The #828 design owns product/UI choices;
 #829/#830 are bounded spike evidence. The executable is local-build-only; no deployment or official release is registered.
+The proposed [machine-sender amendment](extensions/tmt-colab/contracts/colab-machines-v1.md) owns the distinct machine principal, destination-local grant and recipient-only result path.
 
 Current executable dependencies are `tmt-invoke`, `tmt-cli-style` and reviewed
 workspace pins. The proposed `tmt-colab-model` integration will own pure values,

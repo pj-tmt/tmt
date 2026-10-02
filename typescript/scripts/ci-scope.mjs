@@ -436,13 +436,18 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     }
     return;
   }
-  if (args.length !== 2) {
+  const full = args.length === 1 && args[0] === 'full';
+  if (!full && args.length !== 2) {
     throw new Error('Expected exact base and head commit SHAs.');
   }
-  const selection = readChangedCiSelection(args[0], args[1], cwd);
+  const selection = full
+    ? { paths: [], areas: selectCiAreas([]), nativeScope: selectNativeScope([]) }
+    : readChangedCiSelection(args[0], args[1], cwd);
   const officeBrowser = selectOfficeBrowser(selection.paths);
   const evidence =
-    renderSelectionEvidence({ base: args[0], head: args[1], ...selection }) +
+    (full
+      ? '### CI selection\n\nFull verification for a merge-group candidate; no path filtering.\n'
+      : renderSelectionEvidence({ base: args[0], head: args[1], ...selection })) +
     `\nOffice browser PR selection (Office ownership or verification machinery): ${officeBrowser}.\n`;
   stderr.write(evidence);
   if (summaryFile) appendFileSync(summaryFile, evidence);
