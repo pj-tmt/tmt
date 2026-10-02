@@ -601,6 +601,8 @@ describe('component map', () => {
     // Tests that name Squad without exercising its executable or sources.
     const namesOnly: Record<string, string> = {
       'typescript/test/native/api.test.ts': 'a room named Squad and squad.* metadata keys',
+      'typescript/test/native/office-freeze.test.ts':
+        'the remaining installable catalog name after Office removal, without Squad execution or sources',
       'typescript/test/native/setup-guided.test.ts': 'the install hint text',
     };
     const mention = /squad/i;
