@@ -21,7 +21,7 @@ homes, responsibilities, pending moves and the linked top-level allowlist.
    verify preservation. Respect the pending-move gates in the map and coordinate
    shared paths with their owners; never move dirty or unowned work.
 4. Stage new files before running the tracked-file layout guard. Run
-   `pnpm exec vitest run test/tooling/repository-layout.test.ts` from `typescript/`,
+   `pnpm exec vp test run --config vitest.config.ts test/tooling/repository-layout.test.ts` from `typescript/`,
    then the affected consumer checks and `pnpm docs:format:check`. Inspect the diff
    for lost contents, stale paths and accidental generated outputs. Remove a
    temporary exception only when its last tracked entry has moved or been deleted.
