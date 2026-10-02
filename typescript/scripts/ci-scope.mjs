@@ -474,13 +474,24 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   if (!full && !queue && args.length !== 2) {
     throw new Error('Expected exact base and head commit SHAs.');
   }
-  const [base, head] = queue ? args.slice(1) : args;
+  let [base, head] = queue ? [undefined, args[1]] : args;
   const range = queue ? '..' : '...';
   let fallback;
   let selection;
   if (!full) {
     try {
-      if (queue && args.length !== 3) throw new Error('Expected merge-group base and head SHAs.');
+      if (queue) {
+        if (args.length !== 2 || !/^[a-f0-9]{40}$/.test(head ?? '')) {
+          throw new Error('Expected an exact merge-group head SHA.');
+        }
+        // HEADGREEN may set the event base to a preceding, still-pending queue commit.
+        // Anchor at fetched main so a later prose-only tip retains earlier native work.
+        base = runPackedCommand('git', ['merge-base', '--all', 'refs/remotes/origin/main', head], {
+          cwd,
+          env: process.env,
+        }).trim();
+        // Multiple merge bases are ambiguous; readChangedCiSelection rejects them.
+      }
       selection = readChangedCiSelection(base, head, cwd, range);
       if (queue && selection.paths.length === 0) {
         fallback = 'Merge-group diff is empty; using full verification.';
