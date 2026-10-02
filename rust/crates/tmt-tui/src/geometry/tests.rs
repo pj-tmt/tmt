@@ -101,7 +101,7 @@ fn nested_flex_and_integer_percentages_keep_css_gaps() {
 fn grid_tracks_fr_minmax_span_and_cumulative_rounding() {
     let root = scene(
         "class='grid grid-cols-[4_minmax(2,1fr)_2fr] gap-1'",
-        "<tmt-cell id='a'/><tmt-cell id='b'/><tmt-cell id='c'/><tmt-cell id='span' class='col-span-[3]' />",
+        "<tmt-cell id='a'/><tmt-cell id='b'/><tmt-cell id='c'/><tmt-cell id='span' class='col-span-3' />",
     );
     let cells = boxes(&root, 15);
     assert_eq!(cells[0].1.x, 0);
@@ -185,7 +185,7 @@ fn text_measure_and_paint_budget_resize_and_ancestor_clips() {
 fn wrapping_clamp_and_fractional_width_use_the_final_measure_budget() {
     let root = scene(
         "class='flex-col'",
-        "<tmt-text id='wrap' class='w-[7] shrink-0' wrap='true'>alpha beta gamma</tmt-text><tmt-text id='clamp' class='w-[7] shrink-0 line-clamp-[2]'>alpha beta gamma</tmt-text><tmt-text id='padded' class='w-[7] px-1 shrink-0' wrap='true'>abcdefghijk</tmt-text><tmt-text id='bounded' class='w-[5] max-w-[20] shrink-0' wrap='true'>abcdefghijk</tmt-text>",
+        "<tmt-text id='wrap' class='w-7 shrink-0' wrap='true'>alpha beta gamma</tmt-text><tmt-text id='clamp' class='w-7 shrink-0 line-clamp-2'>alpha beta gamma</tmt-text><tmt-text id='padded' class='w-7 px-1 shrink-0' wrap='true'>abcdefghijk</tmt-text><tmt-text id='bounded' class='w-5 max-w-20 shrink-0' wrap='true'>abcdefghijk</tmt-text>",
     );
     let cells = boxes(&root, 12);
     assert_eq!((cells[0].1.height, cells[1].1.height), (3, 2));
@@ -226,7 +226,7 @@ fn wrapping_clamp_and_fractional_width_use_the_final_measure_budget() {
 fn flex_basis_bounds_and_shrink_have_literal_results() {
     let root = scene(
         "class='flex-row gap-2'",
-        "<tmt-cell id='fixed' class='basis-[8] shrink-0'/><tmt-cell id='flex' class='basis-[50%] grow min-w-[2] max-w-[6]'/>",
+        "<tmt-cell id='fixed' class='basis-8 shrink-0'/><tmt-cell id='flex' class='basis-[50%] grow min-w-2 max-w-6'/>",
     );
     let a = boxes(&root, 16);
     assert_eq!((a[0].1.width, a[1].1.x, a[1].1.width), (8, 10, 6));

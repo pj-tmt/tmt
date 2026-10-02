@@ -196,10 +196,9 @@ fn tokens_reuse_the_style_owner_without_resolving_a_palette() {
 }
 
 #[test]
-fn grid_and_bracket_utilities_admit_only_the_canonical_vocabulary() {
-    let s = styled(
-        "class='grid grid-cols-[4_30%_2fr_minmax(2,3fr)] gap-[2] col-span-[2] truncate-middle'",
-    );
+fn grid_and_integer_utilities_admit_only_the_canonical_vocabulary() {
+    let s =
+        styled("class='grid grid-cols-[4_30%_2fr_minmax(2,3fr)] gap-2 col-span-2 truncate-middle'");
     assert_eq!(s.display, Display::Grid);
     assert_eq!(s.col_span, 2);
     assert_eq!(s.gap, [2, 2]);
@@ -220,8 +219,7 @@ fn grid_and_bracket_utilities_admit_only_the_canonical_vocabulary() {
             max: Breadth::Fraction(3)
         }
     );
-    let s =
-        styled("class='basis-[30%] w-[100%] h-[50%] min-w-[2] max-w-[20] grow-[3] line-clamp-[2]'");
+    let s = styled("class='basis-[30%] w-[100%] h-[50%] min-w-2 max-w-20 grow-3 line-clamp-2'");
     assert_eq!(
         (s.basis, s.width, s.height),
         (
@@ -255,21 +253,17 @@ fn malformed_grid_tracks_sizes_and_conflicts_have_located_errors() {
         "grid grid-cols-[minmax(2,3,4)]",
         "grid grid-cols-[minmax(1,minmax(2,3))]",
         "grid grid-cols-[auto]",
-        "col-span-[0]",
-        "line-clamp-[0]",
+        "col-span-0",
+        "line-clamp-0",
         "w-[101%]",
         "min-w-[20%]",
-        "basis-3",
-        "col-span-3",
-        "w-[1] w-1",
+        "w-1 w-1",
         "w-[20%] w-full",
         "truncate-middle truncate",
-        "line-clamp-[2] truncate",
+        "line-clamp-2 truncate",
         "grid flex",
         "grid grid-cols-[1] grid-cols-[2]",
         "text-ellipsis-middle",
-        "p-[1]",
-        "shrink-[1]",
     ] {
         let message = invalid(&format!("class='{class}'"));
         assert!(
@@ -279,11 +273,37 @@ fn malformed_grid_tracks_sizes_and_conflicts_have_located_errors() {
     }
     let message = invalid("class='w-30%'");
     assert!(message.contains("w-30%") && message.contains("w-[n%]"));
-    assert!(invalid("class='line-clamp-[2]' wrap='true'").contains("conflicts"));
+    assert!(invalid("class='line-clamp-2' wrap='true'").contains("conflicts"));
 }
 #[test]
 fn repeated_static_track_lists_share_storage() {
     let original = styled("class='grid grid-cols-[1_2_3]'");
     let copied = original.clone();
     assert!(std::sync::Arc::ptr_eq(&original.columns, &copied.columns));
+}
+
+#[test]
+fn bracket_integers_fail_with_the_canonical_bare_hint() {
+    for key in [
+        "w",
+        "h",
+        "grow",
+        "gap",
+        "gap-x",
+        "gap-y",
+        "basis",
+        "min-w",
+        "max-w",
+        "col-span",
+        "line-clamp",
+        "p",
+        "shrink",
+    ] {
+        let class = format!("{key}-[3]");
+        let error = invalid(&format!("class='{class}'"));
+        assert!(
+            error.contains(&class) && error.contains(&format!("hint: use {key}-N")),
+            "{error}"
+        );
+    }
 }

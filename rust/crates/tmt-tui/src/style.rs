@@ -167,6 +167,9 @@ pub(crate) fn admit(kind: Kind, attrs: &BTreeMap<String, String>) -> Result<Cell
             "flex" | "grid" => ("display", None),
             "flex-row" | "flex-col" => ("direction", None),
             "truncate" | "truncate-middle" => ("text-flow", None),
+            "text-ellipsis-middle" => {
+                return Err(format!("unsupported {label}; hint: use truncate-middle"));
+            }
             _ if class.starts_with("grid-cols-[") => ("columns", None),
             "w-full" => ("w", None),
             "h-full" => ("h", None),
@@ -199,25 +202,25 @@ pub(crate) fn admit(kind: Kind, attrs: &BTreeMap<String, String>) -> Result<Cell
                 .ok_or_else(|| {
                     format!("unsupported {label}; hint: use cell utilities or grid-cols-[tracks]")
                 })?;
-                if ["basis", "min-w", "max-w", "col-span", "line-clamp"].contains(&key)
-                    && !raw.starts_with('[')
-                {
-                    return Err(format!("unsupported {label}; hint: use {key}-[n]"));
-                }
-                let raw = if raw.starts_with('[') {
-                    if ["p", "px", "py", "shrink"].contains(&key) {
-                        return Err(format!("unsupported {label}; hint: use {key}-n"));
-                    }
+                let bracketed = raw.starts_with('[');
+                let raw = if bracketed {
                     raw.strip_prefix('[')
                         .and_then(|s| s.strip_suffix(']'))
                         .ok_or_else(|| format!("malformed {label}"))?
                 } else {
                     raw
                 };
-                if raw.ends_with('%') {
-                    if !class.ends_with(']') || !["w", "h", "basis"].contains(&key) {
-                        return Err(format!("unsupported {label}; hint: use {key}-[n%]"));
-                    }
+                let is_percent = raw.ends_with('%');
+                let percent_key = ["w", "h", "basis"].contains(&key);
+                if bracketed != is_percent || (is_percent && !percent_key) {
+                    let hint = if is_percent && percent_key {
+                        format!("{key}-[n%]")
+                    } else {
+                        format!("{key}-N (cells or counts)")
+                    };
+                    return Err(format!("unsupported {label}; hint: use {hint}"));
+                }
+                if is_percent {
                     let n = percent(raw).map_err(|why| format!("{label} {why}"))?;
                     percentage = Some(n);
                     (key, None)

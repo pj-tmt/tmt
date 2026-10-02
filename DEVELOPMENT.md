@@ -1022,24 +1022,28 @@ Decode the cell/style diff and attribute every change to the PR's approved behav
 review hit identities and list bytes too. Unexplained changes block handoff.
 Normal tests never write the fixture; it contains no host paths or clocks.
 
-The internal static subset retains `flex`, `flex-row`, `flex-col`, `w-N`, `h-N`,
-`w-full`, `h-full`, `gap-N`, `gap-x-N`, `gap-y-N`, `p-N`, `px-N`, `py-N`,
-`grow`, `grow-N`, `shrink`, `shrink-N`, and `truncate`. Bracket cell forms are
-`w-[N]`, `h-[N]`, `basis-[N]`, `min-w-[N]`, `max-w-[N]`, `grow-[N]`,
-`gap-[N]`, `gap-x-[N]` and `gap-y-[N]`. `N` is ASCII decimal 0..4096;
-grow/shrink are integer weights. `w-[N%]`, `h-[N%]` and `basis-[N%]` accept
-integer percentages 0..100. Grid uses `grid grid-cols-[tracks]`, with underscore-
-separated cells, percentages, integer `Nfr`, or `minmax(a,b)` (no fr minimum),
-and positive `col-span-[N]`. Text adds `truncate-middle` (terminal extension)
-and positive `line-clamp-[N]`; the former `text-ellipsis-middle` proposal and
-unbracketed percentage forms are rejected. Unknown/malformed utilities and
-overlapping properties, including equal duplicates, fail with located errors.
-No variants, fractional numbers, arbitrary CSS values or CSS units are admitted.
-Padding is symmetric per axis. View/col default to column direction; other
-elements default to row. Sizes/basis default to auto, gaps/padding/grow to zero,
-and shrink to one. Grid conflicts with explicit flex direction. Text defaults
-to clipping; leaf `wrap="true"`/`"false"` conflicts with all text-flow utilities.
-`token` names a shared `Role`; omission preserves inheritance.
+The internal utilities use one spelling per value kind:
+
+- Cells/weights/counts: `w-N`, `h-N`, `basis-N`, `min-w-N`, `max-w-N`,
+  `grow-N`, `shrink-N`, `gap-N`, `gap-x-N`, `gap-y-N`, `p-N`, `px-N`, `py-N`,
+  `col-span-N`, `line-clamp-N`; also `grow`, `shrink`, `w-full`, `h-full`.
+- Percentages/tracks: `w-[N%]`, `h-[N%]`, `basis-[N%]`, `grid-cols-[tracks]`.
+  Grid tracks are underscore-separated cells, percentages, integer `Nfr`, or
+  `minmax(a,b)` (no fr minimum).
+
+`N` is ASCII decimal 0..4096, in terminal cells or integer weights/counts;
+spans/clamps must be positive. Percentages are integers 0..100. Unlike Tailwind,
+`w-4` means four terminal cells, not a rem spacing scale. Bracket integers fail
+with a located error and a bare-form hint. Layout modes are `flex`, `flex-row`,
+`flex-col` and `grid`; grid conflicts with explicit flex direction. Text uses
+`truncate`, `truncate-middle` (terminal extension) and `line-clamp-N`; the former
+`text-ellipsis-middle` proposal and unbracketed percentages are rejected.
+Unknown/malformed utilities, duplicate/overlapping properties, variants,
+fractional numbers and arbitrary CSS values/units fail admission.
+Padding is symmetric. View/col default to column; other elements to row.
+Sizes/basis default to auto, gaps/padding/grow to zero, and shrink to one.
+Text defaults to clipping; leaf `wrap="true"`/`"false"` conflicts with all
+text-flow utilities. `token` names a shared `Role`; omission preserves inheritance.
 
 Geometry consumes already selected tracks: Squad owns priority hiding (#774).
 CSS percentages use the parent's content box; gaps can cause grid overflow.
