@@ -102,6 +102,26 @@ order = ["all", "leads", "product"]
 hide  = ["quiet"]                      # still reachable with s, or tmt sq board --squad quiet
 `}</Code>
 
+### Board views
+
+A view arranges panes and their initial folds. It keeps the squad's states, rows, providers, reminders, token meter and theme. List the five factory views with `tmt sq view ls` (or bare `tmt sq view`):
+
+| View   | Arrangement                                                                                                                                  |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| team   | Today's responsive arrangement: rows beside detail and replies, with full-width lead notes below. Detail and replies fold below 100 columns. |
+| focus  | Rows fill the board above folded detail, replies and notes titles.                                                                           |
+| notes  | Rows take 35% beside lead notes at 65%; detail and replies start folded below them.                                                          |
+| detail | Rows above detail and replies, with notes folded; replies also folds below 100 columns.                                                      |
+| wide   | Rows, detail/replies and notes in three columns at 40/30/30; detail/replies fold below 180 columns.                                          |
+
+<Code>{`
+tmt sq view set notes                      # all boards
+tmt sq view set wide --squad product       # this squad
+tmt sq view rm --squad product             # inherit the arrangement
+`}</Code>
+
+A hand-written `board.layout` or `panes` for a squad always wins, then that squad's `view`, then `[board] view`, then the workflow layout's own arrangement. `view set` changes only the `view` key and refuses a file that changed meanwhile; with `--squad` it also refuses a hand-written layout, so remove that yourself first. `view rm` removes only `view`, so custom layouts and folds stay. Folds you make by hand keep their usual session rules.
+
 ### Panes: rows, notes and replies
 
 The board is made of panes: **rows** (the list above), **notes** (the lead's own `tmt notes`, read-only), **detail** (the selected row) and **replies** (the latest answers from the lead and members). Show the ones you want, split side by side, stacked top and bottom, or as tabs you flip between.
