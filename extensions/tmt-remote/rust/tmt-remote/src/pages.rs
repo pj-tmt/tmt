@@ -1,4 +1,4 @@
-//! Door-served browser assets, disjoint from `/r/` and `/x/`: the pairing page
+//! Door-served browser assets, outside the route prefix: the pairing page
 //! at `/pair/<descriptor>`, the device SDK module at `/sdk/remote-v1.js`, and
 //! `/sdk/mount`, which tells a page this run's identity and which mounted
 //! extension its path belongs to. None of them carries authority.
@@ -84,14 +84,14 @@ impl Pages {
         let Some(path) = path else {
             return Reply::empty(400);
         };
-        let extension = mounts.extension_of(&path);
+        let (extension, mount) = mounts.extension_of(&path).unzip();
         let mut reply = Reply::empty(200);
         reply.body = json!({
             "machineId": self.machine_id,
             "windowId": self.window_id,
             "address": self.address,
             "extension": extension,
-            "mount": extension.map(|name| format!("/x/{name}/")),
+            "mount": mount,
         })
         .to_string()
         .into_bytes();

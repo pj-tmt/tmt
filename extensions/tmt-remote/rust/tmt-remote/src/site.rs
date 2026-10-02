@@ -1,5 +1,6 @@
-//! The door's handler: `/x/<extension>/` mounts, `/pair/` and `/sdk/` browser
-//! assets, and everything else the remote binding.
+//! The door's handler: `<prefix>/x/<extension>/` mounts, `/pair/` and `/sdk/`
+//! browser assets, and everything else the remote binding, whose routes are
+//! disjoint from the mount space.
 use crate::{
     http::{Handler, Head, Reply, Request},
     mount::Mounts,
@@ -14,12 +15,9 @@ pub struct Site {
     /// Present while serve can pair browsers; without it those paths are 404.
     pub pages: Option<Pages>,
 }
-fn mounted(path: &str) -> bool {
-    path.starts_with("/x/")
-}
 impl Handler for Site {
     fn admit(&self, head: &Head<'_>) -> Result<usize, Reply> {
-        if mounted(head.path) {
+        if self.mounts.serves(head.path) {
             self.mounts.admit(head)
         } else if Pages::serves(head.path) {
             self.pages
@@ -30,7 +28,7 @@ impl Handler for Site {
         }
     }
     fn handle(&self, request: Request, client: &mut TcpStream) -> Option<Reply> {
-        if mounted(&request.path) {
+        if self.mounts.serves(&request.path) {
             self.mounts.handle(request, client)
         } else if Pages::serves(&request.path) {
             Some(self.pages.as_ref().map_or(Reply::empty(404), |pages| {

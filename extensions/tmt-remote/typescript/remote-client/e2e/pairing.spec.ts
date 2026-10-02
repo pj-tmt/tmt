@@ -70,7 +70,10 @@ function exited(child: ChildProcessWithoutNullStreams): Promise<unknown> {
 }
 
 let root: string, serve: ChildProcessWithoutNullStreams, browser: Browser, fixture: Server;
-let origin: string, env: NodeJS.ProcessEnv, pair: ChildProcessWithoutNullStreams | undefined;
+let origin: string,
+  mounts: string,
+  env: NodeJS.ProcessEnv,
+  pair: ChildProcessWithoutNullStreams | undefined;
 test.beforeEach(async () => {
   // Short root: Unix socket paths are limited to about 100 bytes.
   root = await mkdtemp('/tmp/tmt-e2e-');
@@ -83,6 +86,8 @@ test.beforeEach(async () => {
   serve = spawn(BINARY, ['serve', '--json'], { env });
   const descriptor = await lines(serve).next();
   origin = new URL(descriptor.address as string).origin;
+  // Mounts live under the machine's unpredictable route prefix.
+  mounts = `${descriptor.address as string}/x/`;
   await mkdir(join(root, 'state/colab'), { recursive: true, mode: 0o700 });
   fixture = await colab(join(root, 'state/colab/door.sock'));
   browser = await chromium.launch();
@@ -127,16 +132,18 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   );
   expect(requested.some((url) => url.includes(code))).toBe(false);
 
-  const cookies = await context.cookies(`${origin}/x/`);
+  const cookies = await context.cookies(mounts);
   expect(cookies).toHaveLength(1);
   expect(cookies[0]).toMatchObject({
     name: 'tmt_door',
-    path: '/x/',
+    path: new URL(mounts).pathname,
     httpOnly: true,
     sameSite: 'Strict',
   });
   const app = await context.newPage();
-  await app.goto(`${origin}/x/colab/home`);
+  // The old root mount space is gone.
+  expect((await app.goto(`${origin}/x/colab/home`))?.status()).toBe(404);
+  await app.goto(`${mounts}colab/home`);
   const device = JSON.parse((await app.locator('#context').textContent())!) as Record<
     string,
     unknown

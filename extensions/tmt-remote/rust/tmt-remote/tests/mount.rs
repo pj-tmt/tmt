@@ -1,5 +1,6 @@
 //! Real-socket mount acceptance: a fixture extension serves an owner-only Unix
-//! socket under an isolated data root; the door forwards `/x/colab/` to it.
+//! socket under an isolated data root; the door forwards `<prefix>/x/colab/`
+//! to it.
 use std::{
     fs,
     io::{Read, Write},
@@ -165,7 +166,7 @@ impl Mounted {
         let origin = door.origin.clone();
         let site = Arc::new(Site {
             routes,
-            mounts: Mounts::with_extensions(root.clone(), &origin, sessions, extensions),
+            mounts: Mounts::with_extensions(root.clone(), &origin, &prefix, sessions, extensions),
             pages: None,
         });
         let stop = Arc::new(AtomicBool::new(false));
@@ -185,6 +186,10 @@ impl Mounted {
     }
     fn extension(&self, behavior: Behavior) -> Fixture {
         Fixture::serve(&self.socket(), behavior)
+    }
+    /// `path` inside the mount space, `<prefix><path>`.
+    fn at(&self, path: &str) -> String {
+        format!("{}{path}", self.prefix)
     }
     fn get(&self, path: &str, headers: &str) -> String {
         format!(
@@ -226,7 +231,7 @@ fn forwards_to_owner_socket_without_device_context_or_cookie() {
     let extension = door.extension(replying(PAGE));
     let reply = door.send(
         door.get(
-            "/x/colab/app/index.html",
+            &door.at("/x/colab/app/index.html"),
             &format!("Accept: text/html\r\nCookie: {OWNER}\r\nTMT-Device-Context: forged\r\nTMT-Mount: /x/evil/\r\nX-Other: dropped\r\n"),
         )
         .as_bytes(),
@@ -246,8 +251,8 @@ fn forwards_to_owner_socket_without_device_context_or_cookie() {
     assert_eq!(
         seen[0],
         format!(
-            "GET /app/index.html HTTP/1.1\r\nhost: {}\r\ntmt-mount: /x/colab/\r\naccept: text/html\r\nconnection: close\r\ncontent-length: 0\r\n\r\n",
-            door.addr
+            "GET /app/index.html HTTP/1.1\r\nhost: {}\r\ntmt-mount: {}/x/colab/\r\naccept: text/html\r\nconnection: close\r\ncontent-length: 0\r\n\r\n",
+            door.addr, door.prefix
         )
     );
 }
@@ -258,7 +263,8 @@ fn owner_session_forwards_exact_device_context_and_body() {
     let extension = door.extension(replying(PAGE));
     let body = "{\"page\":1}";
     let post = format!(
-        "POST /x/colab/api HTTP/1.1\r\nHost: {}\r\nOrigin: {}\r\nCookie: {OWNER}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        "POST {}/x/colab/api HTTP/1.1\r\nHost: {}\r\nOrigin: {}\r\nCookie: {OWNER}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        door.prefix,
         door.addr,
         door.origin,
         body.len()
@@ -274,8 +280,9 @@ fn owner_session_forwards_exact_device_context_and_body() {
     assert_eq!(
         seen[0],
         format!(
-            "POST /api HTTP/1.1\r\nhost: {}\r\ntmt-mount: /x/colab/\r\norigin: {}\r\ncontent-type: application/json\r\ntmt-device-context: {context}\r\nconnection: close\r\ncontent-length: {}\r\n\r\n{body}",
+            "POST /api HTTP/1.1\r\nhost: {}\r\ntmt-mount: {}/x/colab/\r\norigin: {}\r\ncontent-type: application/json\r\ntmt-device-context: {context}\r\nconnection: close\r\ncontent-length: {}\r\n\r\n{body}",
             door.addr,
+            door.prefix,
             door.origin,
             body.len()
         )
@@ -294,8 +301,8 @@ fn origin_method_and_prefix_isolation_refuse_before_forwarding() {
     let origin = format!("Origin: {}\r\n", door.origin);
     let post = |headers: &str| {
         format!(
-            "POST /x/colab/api HTTP/1.1\r\nHost: {}\r\n{headers}Content-Length: 2\r\n\r\n{{}}",
-            door.addr
+            "POST {}/x/colab/api HTTP/1.1\r\nHost: {}\r\n{headers}Content-Length: 2\r\n\r\n{{}}",
+            door.prefix, door.addr
         )
     };
     assert_eq!(door.status(&post(&origin)), 200);
@@ -304,26 +311,29 @@ fn origin_method_and_prefix_isolation_refuse_before_forwarding() {
         (post("Origin: null\r\n"), 403),
         (post("Origin: http://localhost:1\r\n"), 403),
         (
-            door.get("/x/colab/", "Origin: https://evil.invalid\r\n"),
+            door.get(&door.at("/x/colab/"), "Origin: https://evil.invalid\r\n"),
             403,
         ),
-        (door.get("/x/colab", ""), 404),
-        (door.get("/x/Colab/", ""), 404),
-        (door.get("/x/other/", ""), 404),
+        (door.get(&door.at("/x/colab"), ""), 404),
+        (door.get(&door.at("/x/Colab/"), ""), 404),
+        (door.get(&door.at("/x/other/"), ""), 404),
+        (door.get(&door.at("/x/"), ""), 404),
+        // The old root mount space is gone, with no redirect revealing the prefix.
+        (door.get("/x/colab/", ""), 404),
         (door.get("/x/", ""), 404),
-        (door.get("/x/colab/../../r/x/append", ""), 400),
-        (door.get("/x/colab//a", ""), 400),
+        (door.get(&door.at("/x/colab/../../r/x/append"), ""), 400),
+        (door.get(&door.at("/x/colab//a"), ""), 400),
         (
             format!(
-                "OPTIONS /x/colab/ HTTP/1.1\r\nHost: {}\r\n{origin}\r\n",
-                door.addr
+                "OPTIONS {}/x/colab/ HTTP/1.1\r\nHost: {}\r\n{origin}\r\n",
+                door.prefix, door.addr
             ),
             404,
         ),
         (
             format!(
-                "POST /x/colab/api HTTP/1.1\r\nHost: {}\r\n{origin}Content-Length: 65537\r\n\r\n",
-                door.addr
+                "POST {}/x/colab/api HTTP/1.1\r\nHost: {}\r\n{origin}Content-Length: 65537\r\n\r\n",
+                door.prefix, door.addr
             ),
             413,
         ),
@@ -337,7 +347,7 @@ fn origin_method_and_prefix_isolation_refuse_before_forwarding() {
     );
     assert_eq!(door.status(&binding), 404);
     assert_eq!(
-        door.status(&door.get(&format!("/x/colab{}/append", door.prefix), "")),
+        door.status(&door.get(&door.at(&format!("/x/colab{}/append", door.prefix)), "")),
         200
     );
     let seen = extension.seen.all();
@@ -347,6 +357,11 @@ fn origin_method_and_prefix_isolation_refuse_before_forwarding() {
         "only the two admitted mount requests forwarded"
     );
     assert!(seen[1].starts_with(&format!("GET {}/append HTTP/1.1", door.prefix)));
+    // Under the prefix, operation routes and the mount space stay disjoint:
+    // an operation route still refuses any cookie, and reaches no extension.
+    let with_cookie = binding.replace("Content-Type", &format!("Cookie: {OWNER}\r\nContent-Type"));
+    assert_eq!(door.status(&with_cookie), 400);
+    assert_eq!(extension.seen.all().len(), 2);
     drop(extension);
     door.stop();
 }
@@ -354,7 +369,7 @@ fn origin_method_and_prefix_isolation_refuse_before_forwarding() {
 #[test]
 fn unsafe_or_missing_sockets_are_not_mounted() {
     let door = Mounted::new(Arc::new(NoSessions));
-    let get = door.get("/x/colab/", "");
+    let get = door.get(&door.at("/x/colab/"), "");
     assert_eq!(door.status(&get), 404, "no socket");
     {
         let _extension = door.extension(replying(PAGE));
@@ -400,7 +415,7 @@ fn malformed_extension_replies_are_bad_gateway() {
         let door = Mounted::new(Arc::new(NoSessions));
         let _extension = door.extension(replying(reply));
         assert_eq!(
-            door.status(&door.get("/x/colab/", "")),
+            door.status(&door.get(&door.at("/x/colab/"), "")),
             502,
             "{}",
             String::from_utf8_lossy(reply)
@@ -408,14 +423,14 @@ fn malformed_extension_replies_are_bad_gateway() {
     }
     let door = Mounted::new(Arc::new(NoSessions));
     let _extension = door.extension(replying(b"HTTP/1.1 204 No Content\r\n\r\n"));
-    assert_eq!(door.status(&door.get("/x/colab/", "")), 204);
+    assert_eq!(door.status(&door.get(&door.at("/x/colab/"), "")), 204);
     // After the head is streamed, an early extension close yields a body
     // shorter than its declared length, which the client detects.
     let door = Mounted::new(Arc::new(NoSessions));
     let _extension = door.extension(replying(
         b"HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\nshort",
     ));
-    let reply = door.send(door.get("/x/colab/", "").as_bytes());
+    let reply = door.send(door.get(&door.at("/x/colab/"), "").as_bytes());
     assert!(reply.contains("content-length: 9\r\n"));
     assert!(reply.ends_with("\r\n\r\nshort"));
 }
@@ -439,7 +454,7 @@ fn large_replies_stream_exactly() {
         .set_read_timeout(Some(Duration::from_secs(10)))
         .unwrap();
     stream
-        .write_all(door.get("/x/colab/blob", "").as_bytes())
+        .write_all(door.get(&door.at("/x/colab/blob"), "").as_bytes())
         .unwrap();
     let mut reply = Vec::new();
     stream.read_to_end(&mut reply).unwrap();
@@ -481,10 +496,16 @@ fn websocket_bytes_pass_through_unchanged_and_close_with_either_side() {
     let mut door = Mounted::new(Arc::new(NoSessions));
     let extension = door.extension(echo(closed));
     // Unauthenticated-origin upgrades are refused before any forwarding.
-    assert_eq!(door.status(&door.get("/x/colab/sync", UPGRADE)), 403);
+    assert_eq!(
+        door.status(&door.get(&door.at("/x/colab/sync"), UPGRADE)),
+        403
+    );
     let origin = format!("Origin: {}\r\n{UPGRADE}", door.origin);
     assert_eq!(
-        door.status(&door.get("/x/colab/sync", &origin.replace("websocket", "h2c"))),
+        door.status(&door.get(
+            &door.at("/x/colab/sync"),
+            &origin.replace("websocket", "h2c")
+        )),
         400
     );
     assert!(extension.seen.all().is_empty());
@@ -495,7 +516,7 @@ fn websocket_bytes_pass_through_unchanged_and_close_with_either_side() {
             .set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
         client
-            .write_all(door.get("/x/colab/sync", &origin).as_bytes())
+            .write_all(door.get(&door.at("/x/colab/sync"), &origin).as_bytes())
             .unwrap();
         let mut bytes = Vec::new();
         let mut chunk = [0; 4096];
@@ -565,7 +586,7 @@ fn tunnel(door: &Mounted) -> TcpStream {
         .unwrap();
     let origin = format!("Origin: {}\r\n{UPGRADE}", door.origin);
     client
-        .write_all(door.get("/x/colab/sync", &origin).as_bytes())
+        .write_all(door.get(&door.at("/x/colab/sync"), &origin).as_bytes())
         .unwrap();
     let mut head = Vec::new();
     let mut byte = [0; 1];
@@ -598,7 +619,7 @@ fn tunnels_have_their_own_cap_and_idle_bound() {
     assert_eq!(door.status(&binding), 404, "/r/ keeps its edge sockets");
     // A full pool refuses the next upgrade with a retry hint, before reaching the extension.
     let origin = format!("Origin: {}\r\n{UPGRADE}", door.origin);
-    let refused = door.send(door.get("/x/colab/sync", &origin).as_bytes());
+    let refused = door.send(door.get(&door.at("/x/colab/sync"), &origin).as_bytes());
     assert!(refused.starts_with("HTTP/1.1 503"));
     assert!(refused.contains(&format!(
         "retry-after: {}\r\n",
@@ -629,13 +650,45 @@ fn cross_site_fetch_metadata_is_refused() {
     let door = Mounted::new(Arc::new(NoSessions));
     let _extension = door.extension(replying(PAGE));
     assert_eq!(
-        door.status(&door.get("/x/colab/", "Sec-Fetch-Site: cross-site\r\n")),
+        door.status(&door.get(&door.at("/x/colab/"), "Sec-Fetch-Site: cross-site\r\n")),
         403
     );
     for site in ["same-origin", "none"] {
         assert_eq!(
-            door.status(&door.get("/x/colab/", &format!("Sec-Fetch-Site: {site}\r\n"))),
+            door.status(&door.get(
+                &door.at("/x/colab/"),
+                &format!("Sec-Fetch-Site: {site}\r\n")
+            )),
             200
         );
+    }
+}
+
+#[test]
+fn mounted_replies_keep_only_a_referrer_policy_that_hides_the_prefix() {
+    for (policy, sent) in [
+        (None, "no-referrer"),
+        (Some("unsafe-url"), "no-referrer"),
+        (Some("origin"), "no-referrer"),
+        (Some("same-origin"), "same-origin"),
+        (Some("no-referrer"), "no-referrer"),
+    ] {
+        let door = Mounted::new(Arc::new(NoSessions));
+        let header = policy
+            .map(|p| format!("Referrer-Policy: {p}\r\n"))
+            .unwrap_or_default();
+        let reply: &'static [u8] = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n{header}Content-Length: 2\r\n\r\nok"
+        )
+        .into_bytes()
+        .leak();
+        let _extension = door.extension(replying(reply));
+        let response = door.send(door.get(&door.at("/x/colab/"), "").as_bytes());
+        let (head, _) = response.split_once("\r\n\r\n").unwrap();
+        let policies: Vec<&str> = head
+            .lines()
+            .filter_map(|l| l.strip_prefix("referrer-policy: "))
+            .collect();
+        assert_eq!(policies, [sent], "{policy:?}");
     }
 }

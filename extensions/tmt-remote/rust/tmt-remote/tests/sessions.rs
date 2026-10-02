@@ -1,6 +1,6 @@
 //! Door session acceptance on real sockets: a paired test device opens a
 //! session with a signed `session.open`, the door cookie carries its device
-//! context to a fixture extension under `/x/colab/`, and revocation, a newer
+//! context to a fixture extension under `<prefix>/x/colab/`, and revocation, a newer
 //! session or idle expiry end it.
 #[allow(dead_code)]
 #[path = "support/door.rs"]
@@ -266,8 +266,8 @@ fn mounted(h: &Harness, colab: &Colab, cookie: Option<&str>) -> Option<Value> {
     let reply = exchange(
         h,
         &format!(
-            "GET /x/colab/ HTTP/1.1\r\nHost: {}\r\nOrigin: {}\r\n{cookie}\r\n",
-            h.addr, h.origin
+            "GET {}/x/colab/ HTTP/1.1\r\nHost: {}\r\nOrigin: {}\r\n{cookie}\r\n",
+            h.prefix, h.addr, h.origin
         ),
     );
     assert_eq!(reply.status, 200);
@@ -281,8 +281,8 @@ fn tunnel(h: &Harness, cookie: &str) -> TcpStream {
         .unwrap();
     write!(
         client,
-        "GET /x/colab/sync HTTP/1.1\r\nHost: {}\r\nOrigin: {}\r\nCookie: {cookie}\r\n{UPGRADE}\r\n",
-        h.addr, h.origin
+        "GET {}/x/colab/sync HTTP/1.1\r\nHost: {}\r\nOrigin: {}\r\nCookie: {cookie}\r\n{UPGRADE}\r\n",
+        h.prefix, h.addr, h.origin
     )
     .unwrap();
     let mut head = Vec::new();
@@ -334,7 +334,10 @@ fn session_open_returns_a_signed_response_and_a_door_cookie() {
     let token = set_cookie
         .strip_prefix("tmt_door=")
         .unwrap()
-        .strip_suffix("; Path=/x/; HttpOnly; SameSite=Strict")
+        .strip_suffix(&format!(
+            "; Path={}/x/; HttpOnly; SameSite=Strict",
+            h.prefix
+        ))
         .unwrap();
     assert_eq!(token.len(), 43);
     assert!(!reply.body.contains(token));

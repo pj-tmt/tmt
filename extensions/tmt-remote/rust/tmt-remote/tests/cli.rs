@@ -184,7 +184,7 @@ fn startup_reads_capabilities_and_root_mounts_without_core_calls_and_sigterm_rea
             32
         );
         // The running process mounts colab once its owner-only socket appears.
-        let get = format!("GET /x/colab/ HTTP/1.1\r\nHost: {socket}\r\n\r\n");
+        let get = format!("GET /{prefix}/x/colab/ HTTP/1.1\r\nHost: {socket}\r\n\r\n");
         assert!(exchange(socket, &get).starts_with("HTTP/1.1 404"));
         let directory = pilot.root.join("state/colab");
         fs::create_dir_all(&directory).unwrap();

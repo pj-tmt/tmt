@@ -55,11 +55,13 @@ replay, scope expansion and accidental duplicate sends. Loopback, CORS and a rou
 credentials. Same-user malware, a compromised browser/add-on, malicious selected executable and
 compromised OS account are outside this profile. Non-extractability restricts key export; it is not
 hardware isolation or protection from code that can invoke the key. `local-v1` does not encrypt
-operation content; cloud bindings need the encryption profile in
-[Backends and deploy](#backends-and-deploy) before use. Browsers do not isolate cookies by port on
-loopback: another local user's listener on `127.0.0.1` could receive the door session cookie when
-the owner's browser requests it at a matching path. That cookie grants extension page and relay
-access only, until stop, revocation or idle expiry, never an operation or pairing action;
+operation content; cloud bindings need the encryption profile in [Backends and
+deploy](#backends-and-deploy) before use. Browsers do not isolate cookies by port on loopback:
+another local user's listener on `127.0.0.1` could receive the door session cookie when the owner's
+browser requests it at a matching path. The cookie is scoped to the mount space under the machine's
+unpredictable 128-bit route prefix (#1094), so such a listener must already know the prefix; the
+prefix narrows this exposure and is still not a credential. That cookie grants extension page and
+relay access only, until stop, revocation or idle expiry, never an operation or pairing action;
 state-changing operations still need a fresh device signature.
 
 ## Bytes, IDs and the fixed M1 suite
@@ -197,15 +199,15 @@ signature.
 
 A `browser` device on the door's own origin may instead hold a door session: after one signed
 `session.open` over the door, remote sets a 256-bit random token as an HttpOnly, SameSite=Strict
-cookie scoped to `Path=/x/` (Secure on HTTPS), stores only its SHA-256 and binds it to the device,
-grant revision and remote run. Browsers cannot set authorization headers on WebSocket construction,
-so tokens never move into query strings. The cookie is a carrier for the same authenticated device
-context, not a second credential model: every request and upgrade rechecks grant, revocation and
-expiry, and a state-changing operation still needs a fresh device signature over its exact intent.
-Door sessions live only in the running remote: they end on stop, revocation, a newer session for the
-device and after 12 hours without use, and do not survive restart. Reopening is silent: the page
-sends another signed `session.open` from its stored device key, with no owner step or new pairing.
-Ending a session closes the WebSocket tunnels opened under it.
+cookie scoped to `Path=/r/<prefix>/x/`, the mount space (Secure on HTTPS), stores only its SHA-256
+and binds it to the device, grant revision and remote run. Browsers cannot set authorization headers
+on WebSocket construction, so tokens never move into query strings. The cookie is a carrier for the
+same authenticated device context, not a second credential model: every request and upgrade rechecks
+grant, revocation and expiry, and a state-changing operation still needs a fresh device signature
+over its exact intent. Door sessions live only in the running remote: they end on stop, revocation,
+a newer session for the device and after 12 hours without use, and do not survive restart. Reopening
+is silent: the page sends another signed `session.open` from its stored device key, with no owner
+step or new pairing. Ending a session closes the WebSocket tunnels opened under it.
 
 ## Durable log: append, subscribe and ack
 
@@ -534,19 +536,22 @@ extension key to a device; it grants no remote authority by itself, and extensio
 owned by the extension. The extension verifies it against the `publicKey` of a device context with
 the matching `deviceId`.
 
-**Route mounting.** The door mounts each enabled, owner-installed extension under `/x/<extension>/`,
-forwarding HTTP requests, static assets and WebSocket upgrades to the extension process over an
-owner-only local socket in the extension's data subtree, together with the device context. Remote
-owns Host, Origin and CSRF admission, framing and connection/body limits; the extension owns its
-responses, content security policy and headers. All mounted extensions share one browser origin and
-therefore one browser trust domain; mounting is limited to owner-installed extensions, and untrusted
-content renders only in sandboxed opaque-origin frames. The door is loopback-only; other machines
-reach it only through cloud backends.
-Upgraded WebSocket tunnels do not use the door's edge connections, so open pages cannot starve
-remote operations, pairing or page loads. Each mounted extension has its own tunnel cap and idle
-bound: a tunnel with no bytes in either direction for the idle bound is closed, and an upgrade
-beyond the cap is refused with HTTP 503 and `Retry-After` before it reaches the extension. An
-extension keeps one WebSocket per page and reconnects after an idle close or a refusal.
+**Route mounting.** The door mounts each enabled, owner-installed extension under
+`/r/<prefix>/x/<extension>/`, inside the machine's route prefix, forwarding HTTP requests, static
+assets and WebSocket upgrades to the extension process over an owner-only local socket in the
+extension's data subtree, together with the device context. Remote owns Host, Origin and CSRF
+admission, framing and connection/body limits; the extension owns its responses, content security
+policy and headers. All mounted extensions share one browser origin and therefore one browser trust
+domain; mounting is limited to owner-installed extensions, and untrusted content renders only in
+sandboxed opaque-origin frames. There is no mount space at the door root: `/x/` answers 404 without
+a redirect, which would reveal the prefix. Page URLs contain the prefix, so a mounted reply keeps
+the door's `Referrer-Policy: no-referrer` unless it narrows it to `same-origin`; any other policy is
+dropped. The door is loopback-only; other machines reach it only through cloud backends. Upgraded
+WebSocket tunnels do not use the door's edge connections, so open pages cannot starve remote
+operations, pairing or page loads. Each mounted extension has its own tunnel cap and idle bound: a
+tunnel with no bytes in either direction for the idle bound is closed, and an upgrade beyond the cap
+is refused with HTTP 503 and `Retry-After` before it reaches the extension. An extension keeps one
+WebSocket per page and reconnects after an idle close or a refusal.
 
 **Relay.** Remote carries opaque, namespaced logs for extensions and never decrypts or interprets
 their payloads. A namespace is `<extension>:<path>` (for example `colab:<space>/<page>/<stream>`).
@@ -619,12 +624,13 @@ asks for an extension key certificate silently on first use.
 ## Transport binding: `loopback-http`
 
 The door address is `http://127.0.0.1:<port>/`. Remote operations live under `/r/<32 lowercase
-hex>/`, a stable per-machine prefix that is not a credential; extensions live under
-`/x/<extension>/`. Only the running remote binds IPv4 loopback by default. Require exact numeric
-Host/bound port, reject forwarded-host authority, ambient bearer authentication, duplicate framing
-headers, queries/fragments, percent escapes/dot segments or extra slashes on remote routes. Cookies
-are admitted only as the door session described under signed envelopes. No unauthenticated GET
-inventory.
+hex>/`, a stable per-machine prefix that is not a credential; extensions live under its
+`x/<extension>/` subtree. Under the prefix, exactly the four POST operation routes below and that
+subtree exist, and no path reaches both. Only the running remote binds IPv4 loopback by default.
+Require exact numeric Host/bound port, reject forwarded-host authority, ambient bearer
+authentication, duplicate framing headers, queries/fragments, percent escapes/dot segments or extra
+slashes on remote routes. Cookies are admitted only as the door session described under signed
+envelopes. No unauthenticated GET inventory.
 
 | HTTP route        | Message-layer action                                                                                   |
 | ----------------- | ------------------------------------------------------------------------------------------------------ |
@@ -633,7 +639,7 @@ inventory.
 | `POST /ack`       | One signed ack control; no core attention mutation.                                                    |
 | `POST /pair`      | Enrollment fields/proofs for an already machine-opened local offer; no client-created offer.           |
 
-Browser assets live at the door root, disjoint from `/r/` and `/x/`, under the same Host, path and
+Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
 framing rules. `GET /pair/<descriptor>` (1–4096 base64url characters) serves the pairing page with
 `default-src 'none'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none';
 frame-ancestors 'none'`; the descriptor names the offer and never the code, which stays in the
@@ -684,15 +690,15 @@ are regenerated from the independent oracle (#1039); the superseded M1 enrollmen
 removed and envelope bytes are unchanged. The pairing ceremony is implemented through
 `tmt remote pair` and `/pair`: one offer per run, the owner's terminal confirmation, the default
 grant and the receipt with `serverProof` (#1039). Door sessions (`session.open` on `/append`, the
-`/x/` cookie and the device context it carries to mounts) and `tmt remote devices` list and revoke
-are implemented (#1039). The device SDK in `remote-client` (non-extractable WebCrypto device key,
-pairing client with `serverProof` verification, `session.open` client and `tmt-ext-cert-v1`
+mount-space cookie and the device context it carries to mounts) and `tmt remote devices` list and
+revoke are implemented (#1039). The device SDK in `remote-client` (non-extractable WebCrypto device
+key, pairing client with `serverProof` verification, `session.open` client and `tmt-ext-cert-v1`
 certification) and the Rust and Python certificate vectors are implemented, as are the remote-served
 pairing page, `/sdk/remote-v1.js` and `/sdk/mount` (#1039).
 
 Colab's working loopback door, sign-in and sync transport code relocates into `tmt-remote` as the
 local door, device sign-in and relay where it meets this contract, rather than being rewritten.
-The relocated door and `/x/<extension>/` route mounting are implemented (#1039), with only colab
+The relocated door and `/r/<prefix>/x/<extension>/` route mounting are implemented (#1039), with only colab
 allowlisted; mounted requests carry no device context until pairing lands. Local colab keeps
 working until its routes mount on the remote door.
 

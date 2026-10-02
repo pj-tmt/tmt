@@ -300,7 +300,8 @@ fn response(socket: &mut TcpStream, reply: &Reply) -> std::io::Result<()> {
 }
 /// Origin-form target without query, fragment, escapes, dot segments or empty
 /// inner segments; only the last segment may be empty (a directory such as
-/// `/x/colab/`). Prefix isolation between `/r/` and `/x/<extension>/` relies on it.
+/// `<prefix>/x/colab/`). Isolation between the operation routes and the mount
+/// space relies on it.
 fn target(path: &str) -> bool {
     let Some(rest) = path.strip_prefix('/') else {
         return false;

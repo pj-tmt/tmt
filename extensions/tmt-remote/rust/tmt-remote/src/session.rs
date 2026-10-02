@@ -50,6 +50,8 @@ pub struct DoorSessions {
     machine_id: String,
     window_id: String,
     door_origin: String,
+    /// `<prefix>/x/`: the cookie reaches mounted pages only.
+    cookie_path: String,
     machine_key: MachineKey,
     store: Arc<Mutex<Store>>,
     idle: Duration,
@@ -85,6 +87,7 @@ impl DoorSessions {
         machine_id: String,
         window_id: String,
         door_origin: String,
+        cookie_path: String,
         machine_key: MachineKey,
         store: Arc<Mutex<Store>>,
         idle: Duration,
@@ -93,6 +96,7 @@ impl DoorSessions {
             machine_id,
             window_id,
             door_origin,
+            cookie_path,
             machine_key,
             store,
             idle,
@@ -179,8 +183,9 @@ impl DoorSessions {
             response: response.to_string().into_bytes(),
             cookie: token.map(|t| {
                 format!(
-                    "{COOKIE}={}; Path=/x/; HttpOnly; SameSite=Strict",
-                    canonical::base64url(&t)
+                    "{COOKIE}={}; Path={}; HttpOnly; SameSite=Strict",
+                    canonical::base64url(&t),
+                    self.cookie_path
                 )
             }),
         })

@@ -2499,7 +2499,7 @@ paired devices with their four words, and `tmt remote devices revoke
 the pairing link in a browser serves the pairing page, which shows the same four
 words; after the owner confirms, the browser opens a door session with a signed
 `session.open`, and its cookie then carries the device context to mounted pages. Pairing and state tests use short
-roots under `/tmp`, because Unix socket paths are limited to about 100 bytes. It mounts colab under `/x/colab/` while
+roots under `/tmp`, because Unix socket paths are limited to about 100 bytes. It mounts colab under `<prefix>/x/colab/` (the route prefix printed by `serve --json`) while
 `<dataRoot>/colab/door.sock` exists as an owner-only socket in a 0700
 directory; mounted requests carry a device context only under a live door
 session.
