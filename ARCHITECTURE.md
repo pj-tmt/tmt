@@ -3,10 +3,9 @@
 The shipped CLI runtime is the Rust workspace in `rust/`. An optional Office
 SPA foundation lives in `extensions/tmt-office/typescript/apps/office`; it is not a CLI fallback or a
 shipped connector. The nested `typescript` pnpm workspace owns Vitest, fixture
-and release-verification tooling; the repository root has no Node package. Nx
-orchestrates explicit Rust and TypeScript targets through the pinned non-JavaScript
-wrapper, with caching disabled. Neither Nx nor the pnpm workspace is a second CLI
-runtime, an npm product, or a source-install fallback. A native source checkout selects
+and release-verification tooling; the repository root has no Node package.
+Contributors run Cargo and the nested pnpm scripts directly. The pnpm workspace
+is not a second CLI runtime, an npm product, or a source-install fallback. A native source checkout selects
 `rust/target/debug/tmt` (or an explicitly supplied native executable); a missing
 native build is an error. No test, script, or installer may silently execute an
 installed host `tmt` or a retired TypeScript product implementation. Node may
@@ -63,8 +62,6 @@ Current exceptions and moves are **pending**, not shipped:
 - The handbook has resumed (#1000). `docs/` remains a temporary home under #997/#998.
   `docs/NATIVE-INSTALL.md` and `docs/performance.md` stay there pending their move to
   `site/` under #998; the directory exception remains until its retained contents move.
-- #996 removes `nx`, `nx.bat`, `nx.json` and `.nx/`. Whichever PR lands second
-  reconciles those exceptions against its merged base.
 
 New homes or exceptions require an infra-reviewed proposal with a component owner
 and bounded responsibility. Update this map and the JSON allowlist together;
@@ -93,9 +90,10 @@ Rust, root shell launchers, shared contracts and canonical skills remain outside
 that boundary. `contracts/` holds core contracts only; Office contracts, vectors
 and the Office skill sources live under `extensions/tmt-office/`; the proposed
 colab contract lives under `extensions/tmt-colab/contracts/` (see the
-[colab boundary](#colab-extension-proposal)). The Nx task graph orders only the Office SPA producer, embedded
-native companion and installed-browser acceptance chain; ordinary CLI targets
-remain independent. Read
+[colab boundary](#colab-extension-proposal)). The Office SPA build must finish before building the embedded
+native companion, followed by installed-browser acceptance; ordinary CLI builds
+remain independent. [DEVELOPMENT.md](DEVELOPMENT.md#office-browser-verification)
+owns the direct commands and their order. Read
 [Office architecture](docs/office/architecture.md) for current SPA ownership,
 the chosen React/Vite/TanStack/Jotai stack and the
 [Office design](docs/office/design.md) for planned trust/lifecycle semantics.
