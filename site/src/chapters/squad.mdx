@@ -108,9 +108,9 @@ The board is made of panes: **rows** (the list above), **notes** (the lead's own
 
 The notes pane shows the lead's own notebook, the file `tmt notes path --identity <lead>` prints. There is no separate squad notebook, and the board never creates one: a lead without a notebook shows `(no notes yet)`, and a temporary lead can't keep one. Leads keep a short **Current state** section at the top, with **Now**, **Next** and **Blocked** in a few lines, so the board shows what the squad is doing.
 
-In split mode, press **d** to fold or unfold whichever of detail and replies exist. With both panes, if either is open it folds both; otherwise it unfolds both. With neither, it does nothing silently. Click any pane's title to toggle it alone. Footer and help show the pane titles and state: `d detail+replies ▾` when any is open, or `d detail+replies ▸` when both are folded. The footer drops the whole hint when space is short. A folded pane shrinks to its `▸ name` title and its neighbours take the space; unfolding brings back the sizes you set. Tab skips folded panes. Fold state belongs to each squad, survives tab switches and reloads within the session, and resets on restart. A manual toggle wins over automatic narrow-width folding until the board config changes, including after resizing in either direction. Folding a focused pane moves focus to the rows when they are visible, otherwise to the next open pane; unfolding keeps the current focus. Folds never change your config; tabs mode doesn't fold.
+In split mode, press **d** to fold or unfold detail and replies together (if either is open, both fold). Click a pane's title to toggle just that one. The footer shows the state: `d detail+replies ▾` (open) or `d detail+replies ▸` (folded). A folded pane shrinks to its `▸ name` title and its neighbours take the space; unfolding brings back the sizes you set. Tab skips folded panes. Folds last for the session, per squad, and never change your config; a manual fold wins over automatic narrow-width folding. Tabs mode doesn't fold.
 
-To start with a pane folded, add `collapsed = ["detail"]` under `[squad.product.board]`. To toggle another pane or group with a key, bind it, such as `D = "toggle notes"` or `d = "toggle detail replies"`. Duplicate and unknown names are configuration errors; the action toggles the named panes present on the board and does nothing silently if none are present.
+To start with a pane folded, add `collapsed = ["detail"]` under `[squad.product.board]`. To toggle other panes with a key, bind it, such as `D = "toggle notes"` or `d = "toggle detail replies"`; pane names must be known and unique.
 
 <SplitBoardSketch />
 
@@ -381,21 +381,21 @@ A pinned tab keeps its place when the tab line scrolls, and the other tabs can't
 
 **Bindings.** A binding is `event = "action"`. An event is a printable key as you type it (`o` and `O` differ), `enter`, `space`, `tab`, `backspace`, `delete`, `home`, `end`, `pageup`, `pagedown`, `f1` to `f12`, `ctrl-<letter>` (not `ctrl-c`, which always quits), or the mouse: `click` and `double-click`. The keys `q`, `j`, `k`, `/` and `?` are reserved. A section's bindings win over `[bind]`, which wins over the host's defaults. The **leads** and **all** tabs take their own from `[tabs.leads.bind]` and `[tabs.all.bind]`.
 
-| Action                         | What it does                                                     |
-| ------------------------------ | ---------------------------------------------------------------- |
-| `jump` · `jump lead`           | go to the row's member, or to its squad's lead                   |
-| `back`                         | return to where you were                                         |
-| `talk` · `reply`               | write to the member · answer what it waits on                    |
-| `annotate` · `annotate member` | note for the lead (the default) or for the member                |
-| `open` · `open {field}`        | open the row's link, or the link in that field                   |
-| `copy` · `copy <template>`     | copy a line; the default is `{name}: {task} ({state})`           |
-| `run <program> [args…]`        | start a program; each `{field}` fills exactly one argument       |
-| `notes`                        | unfold and focus the notes pane                                  |
-| `refresh`                      | reload now                                                       |
-| `theme`                        | open the theme picker                                            |
-| `next-pane`                    | focus the next pane                                              |
-| `toggle <pane>...`             | toggle unique `rows`, `notes`, `detail` or `replies`             |
-| `menu`                         | open the row's action menu, which Enter does in a plain terminal |
-| `tab`                          | open the row's squad tab, which Enter does on the **all** tab    |
+| Action                         | What it does                                                           |
+| ------------------------------ | ---------------------------------------------------------------------- |
+| `jump` · `jump lead`           | go to the row's member, or to its squad's lead                         |
+| `back`                         | return to where you were                                               |
+| `talk` · `reply`               | write to the member · answer what it waits on                          |
+| `annotate` · `annotate member` | note for the lead (the default) or for the member                      |
+| `open` · `open {field}`        | open the row's link, or the link in that field                         |
+| `copy` · `copy <template>`     | copy a line; the default is `{name}: {task} ({state})`                 |
+| `run <program> [args…]`        | start a program; each `{field}` fills exactly one argument             |
+| `notes`                        | unfold and focus the notes pane                                        |
+| `refresh`                      | reload now                                                             |
+| `theme`                        | open the theme picker                                                  |
+| `next-pane`                    | focus the next pane                                                    |
+| `toggle <pane>...`             | fold or unfold one or more panes: `rows`, `notes`, `detail`, `replies` |
+| `menu`                         | open the row's action menu, which Enter does in a plain terminal       |
+| `tab`                          | open the row's squad tab, which Enter does on the **all** tab          |
 
 Press `?` on the board for the keys and bindings in effect.
