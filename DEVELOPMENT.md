@@ -1002,7 +1002,8 @@ tokens, schema binding, lexical repeats, scoped IDs and exact expansion limits.
 Run the architecture test for dependency changes, and
 `cargo test --locked -p tmt-squad` for its in-memory source adapter and frozen
 board/list parity fixture.
-The parity harness captures all three presets at 120×30, 80×30 and 120×30 again,
+The parity harness captures the three explicit presets and the team default at
+120×30, 80×30 and 120×30 again,
 including every cell's style/state, hits, row starts and list text/JSON. Its source
 revision is recorded in the fixture. After an explicitly reviewed output change,
 regenerate with `cargo test --locked -p tmt-squad regenerate_markup_parity_fixture -- --ignored`;

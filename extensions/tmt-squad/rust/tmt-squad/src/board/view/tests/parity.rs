@@ -1,9 +1,10 @@
-//! Frozen output from main after #808, #880 and #881; markup remains test-scoped.
+//! Frozen output from main after #971 and #948; markup remains test-scoped.
 //! Existing CJK fixture strings intentionally exercise terminal width.
 use super::*;
-use crate::config::Layout;
+use crate::config::{Config, Layout};
 
-fn capture(app: &App, width: u16) -> Value {
+fn capture(app: &mut App, width: u16) -> Value {
+    app.set_body_width(width);
     let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
     terminal.draw(|frame| render(frame, app)).unwrap();
     let mut styles = Vec::new();
@@ -37,20 +38,16 @@ fn capture(app: &App, width: u16) -> Value {
 }
 
 fn baseline() -> Value {
-    let missing =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/missing-parity.toml");
-    assert!(!missing.exists());
-    let config = crate::config::Config::read(missing).unwrap();
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/markup-parity.toml");
+    let config = Config::read(path).unwrap();
     let mut fixtures = Vec::new();
-    for layout in [Layout::Crew, Layout::PrQueue, Layout::Minimal] {
+    for layout in [Layout::Crew, Layout::PrQueue, Layout::Minimal, Layout::Team] {
         let mut app = preset_board();
-        let table: toml_edit::DocumentMut = format!("[p]\nlayout={:?}\n", layout.as_str())
-            .parse()
-            .unwrap();
-        let rows = crate::rows::read(table["p"].as_table_like(), "p").unwrap();
+        assert_eq!(config.layout(layout.as_str()).unwrap(), layout);
         let view = app.view.as_mut().unwrap();
-        view.rows = rows;
-        view.board = config.board("product", layout).unwrap();
+        view.rows = config.rows(layout.as_str()).unwrap();
+        view.board = config.board(layout.as_str()).unwrap();
         view.document["squad"]["layout"] = json!(layout.as_str());
         let projected = view.rows.value();
         view.document["columns"] = projected["columns"].clone();
@@ -58,7 +55,7 @@ fn baseline() -> Value {
         let document = view.document.clone();
         let frames: Vec<_> = [120, 80, 120]
             .into_iter()
-            .map(|width| capture(&app, width))
+            .map(|width| capture(&mut app, width))
             .collect();
         assert_eq!(
             frames[0], frames[2],
@@ -68,7 +65,7 @@ fn baseline() -> Value {
             "ls_text": crate::status::text(&document, tmt_cli_style::Terminal::PLAIN),
             "ls_json": serde_json::to_string(&document).unwrap()}));
     }
-    json!({"source": "66c8f90ebbba9424ebda78c13f7dd81ec777a582", "fixtures": fixtures})
+    json!({"source": "01babc7ada8a1217e83e64ccd33309e9efffd85d", "fixtures": fixtures})
 }
 
 #[test]
