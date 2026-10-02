@@ -397,7 +397,7 @@ export function MarkList() {
     <div className="my-5 grid grid-cols-1 gap-x-6 sm:grid-cols-2">
       {Object.entries(tokens.mark).map(([mark, meaning]) => (
         <div key={mark} className="flex gap-3 border-b border-rule py-2">
-          <span className="w-8 font-mono text-accent">{mark}</span>
+          <span className="w-8 shrink-0 whitespace-nowrap font-mono text-accent">{mark}</span>
           <span>{meaning}</span>
         </div>
       ))}
