@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/start.mdx
-sourceRevision: ce4850ec8d4b0447752efa8d2581f06cc595412d
+sourceRevision: 4816d68ed0c849f3496cf111a77af2958d473407
 title: 給所有 agent 的一條通道
 ---
 
@@ -38,10 +38,10 @@ tmt 內建多數人需要的 driver，不必另外安裝。**tmux** 是 host dri
 
 <h3 id="the-basic-loop">基本流程</h3>
 
-在 tmux 裡，先為 agent 所在的窗格命名，之後就能從任何地方對它說話。頁面頂端的逐步示範播放的就是這個流程。
+在 tmux 裡，先為 agent 所在的窗格命名（`tmt name`，也可以寫成 `tmt this`），之後就能從任何地方對它說話。頁面頂端的逐步示範播放的就是這個流程。
 
 <Cmd>{`
-$ tmt this reviewer                   # 在 agent 的窗格裡：為它命名
+$ tmt name reviewer                   # 在 agent 的窗格裡：為它命名
 $ tmt talk reviewer "Review the diff."  # 從任何窗格：送出，然後等待回覆
 $ tmt reply req_4f36… --receipt v2_… --message "…"   # agent 回覆；talk 會把它印出來
 $ tmt check reviewer                  # 覺得卡住時，看一下窗格的內容
@@ -77,11 +77,11 @@ $ tmt run -s reviewer claude --model sonnet
 $ tmt resume reviewer       # 之後在任何窗格：reviewer 自己的對話
 `}</Cmd>
 
-你也可以先啟動、之後再命名。`tmt run claude` 會立刻以暫時名稱（例如 `claude-12ab34cd56ef`）啟動 Claude Code，再從 agent 的 shell 工具執行 `tmt this reviewer`，就會給它正式的名稱。命名會保留同一段對話，但不會儲存名稱；要儲存請加上 `-s`。
+你也可以先啟動、之後再命名。`tmt run claude` 會立刻以暫時名稱（例如 `claude-12ab34cd56ef`）啟動 Claude Code，再從 agent 的 shell 工具執行 `tmt name reviewer`，就會給它正式的名稱。命名會保留同一段對話，但不會儲存名稱；要儲存請加上 `-s`。
 
 <Cmd>{`
 $ tmt run claude --model sonnet
-$ tmt this -s reviewer      # 從 agent 的 shell 工具：命名，並保留這個名稱
+$ tmt name -s reviewer      # 從 agent 的 shell 工具：命名，並保留這個名稱
 `}</Cmd>
 
 <PaneDemo

@@ -1,7 +1,7 @@
 {
   "$source": {
     "source": "site/src/lang/strings.ts",
-    "sourceRevision": "85ee2702c7f0a55e7b3cfc39523db22fec94976c"
+    "sourceRevision": "0463948902c1892865f41cf285790913270bbc27"
   },
   "ui": {
     "notTranslated": "尚未翻譯，此頁以英文顯示。",
@@ -139,10 +139,7 @@
       "decide": "決定",
       "reviewerSays": "diff 很小，可以發布",
       "meiSays": "可以等文件修正嗎？",
-      "youHost": "你 · 主持",
-      "speaking": "發言中",
-      "meetSays": "兩台機器上的測試都通過了。誰來決定發布時間？",
-      "meetArrow": "舉手的人依序等待 · 由你點名",
+      "meetArrow": "舉手的人（↑）依序等待 · 由你點名",
       "planned": "規劃中"
     }
   }
