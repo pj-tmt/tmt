@@ -46,7 +46,7 @@ const PAIR: CommandSpec = CommandSpec {
 };
 const DEVICES: CommandSpec = CommandSpec {
     name: "devices",
-    summary: "List paired devices or revoke one",
+    summary: "List, revoke or rename paired devices",
     examples: &[
         Example {
             command: "tmt remote devices",
@@ -55,6 +55,10 @@ const DEVICES: CommandSpec = CommandSpec {
         Example {
             command: "tmt remote devices revoke <client-id>",
             note: "End a device's access now",
+        },
+        Example {
+            command: "tmt remote devices rename <client-id> <name>",
+            note: "Change a device's display name",
         },
     ],
     outputs: OutputModes::HumanAndJson,
@@ -69,6 +73,16 @@ const REVOKE: CommandSpec = CommandSpec {
     }],
     outputs: OutputModes::HumanAndJson,
     details: "Revoking a revoked device reports it again. Pair again to trust the device anew.",
+};
+const RENAME: CommandSpec = CommandSpec {
+    name: "rename",
+    summary: "Rename one paired device",
+    examples: &[Example {
+        command: "tmt remote devices rename <client-id> <name>",
+        note: "The client ID is shown by tmt remote devices",
+    }],
+    outputs: OutputModes::HumanAndJson,
+    details: "Names are 1–64 nonblank UTF-8 bytes without controls. Authority stays the same.\nA changed name ends the old door session; the device silently reopens it.\nRepeating the same name preserves the revision. Revoked devices cannot be renamed.",
 };
 const SERVE: CommandSpec = CommandSpec {
     name: "serve",
@@ -97,13 +111,27 @@ fn grammar() -> Command {
         )
         .subcommand(tmt_cli_style::command(&PAIR))
         .subcommand(
-            tmt_cli_style::command(&DEVICES).subcommand(
-                tmt_cli_style::command(&REVOKE).arg(
-                    Arg::new("client-id")
-                        .required(true)
-                        .help("Device client ID from tmt remote devices"),
+            tmt_cli_style::command(&DEVICES)
+                .subcommand(
+                    tmt_cli_style::command(&REVOKE).arg(
+                        Arg::new("client-id")
+                            .required(true)
+                            .help("Device client ID from tmt remote devices"),
+                    ),
+                )
+                .subcommand(
+                    tmt_cli_style::command(&RENAME)
+                        .arg(
+                            Arg::new("client-id")
+                                .required(true)
+                                .help("Device client ID from tmt remote devices"),
+                        )
+                        .arg(
+                            Arg::new("name")
+                                .required(true)
+                                .help("New device display name"),
+                        ),
                 ),
-            ),
         )
 }
 fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
@@ -177,10 +205,11 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
             .with_pairing(Arc::clone(&pairing))
             .with_sessions(Arc::clone(&sessions));
         let address = format!("{}{}", door.origin, routes.prefix());
+        let devices = Arc::new(Devices::new(store, Some(Arc::clone(&sessions))));
         let control = Control::start(
             &serving,
             pairing,
-            Arc::new(Devices::new(store, Some(Arc::clone(&sessions)))),
+            Arc::clone(&devices),
             control::Door {
                 origin: door.origin.clone(),
                 prefix: machine.route_prefix.clone(),
@@ -188,7 +217,12 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         )?;
         let site = Arc::new(Site {
             routes,
-            mounts: Mounts::new(root, &door.origin, &machine.route_prefix, sessions),
+            mounts: Arc::new(Mounts::new(
+                root,
+                &door.origin,
+                &machine.route_prefix,
+                sessions,
+            )),
             pages: Some(Pages::new(
                 &door.origin,
                 machine.id.clone(),
@@ -196,6 +230,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
                 &machine.route_prefix,
             )),
         });
+        let events = devices.start_events(Arc::clone(&site.mounts))?;
         let json_output = serve.get_flag("json");
         let mut output = tmt_cli_style::stream::stdout(json_output);
         if json_output {
@@ -218,6 +253,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         let result = door.run(&stop, site as Arc<dyn Handler>);
         // Stopping cancels any pending pairing before state is released.
         control.stop();
+        drop(events);
         result
     })();
     for id in signals.into_iter().flatten() {
@@ -342,13 +378,20 @@ fn pair(json_output: bool) -> Result<(), RemoteError> {
     }
     paired
 }
-/// `tmt remote devices [revoke <client-id>]`, through the running serve or,
+/// `tmt remote devices [revoke|rename ...]`, through the running serve or,
 /// when none runs, directly under the serve lock.
 fn devices(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
-    let revoke = arguments.subcommand_matches("revoke");
-    let json_output = arguments.get_flag("json") || revoke.is_some_and(|m| m.get_flag("json"));
-    let request = match revoke {
-        Some(m) => json!({"op":"revoke","clientId":m.get_one::<String>("client-id").unwrap()}),
+    let mutation = arguments.subcommand();
+    let json_output =
+        arguments.get_flag("json") || mutation.is_some_and(|(_, m)| m.get_flag("json"));
+    let request = match mutation {
+        Some(("rename", m)) => {
+            json!({"op":"rename","clientId":m.get_one::<String>("client-id").unwrap(), "name":m.get_one::<String>("name").unwrap()})
+        }
+        Some(("revoke", m)) => {
+            json!({"op":"revoke","clientId":m.get_one::<String>("client-id").unwrap()})
+        }
+        Some(_) => unreachable!("typed device grammar"),
         None => json!({"op":"devices"}),
     };
     let stop = AtomicBool::new(false);
@@ -377,11 +420,15 @@ fn devices(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
         Err(error) if error.code == "REMOTE_NOT_RUNNING" => {
             let serving = Layout::open(&root)?.serve_lock()?;
             let devices = Devices::new(Arc::new(Mutex::new(Store::open(&serving)?)), None);
-            match &request["clientId"] {
-                serde_json::Value::String(id) => {
-                    json!({"device": device_json(&devices.revoke(id)?)})
+            match mutation {
+                Some(("rename", m)) => {
+                    json!({"device": device_json(&devices.rename(m.get_one::<String>("client-id").unwrap(), m.get_one::<String>("name").unwrap())?)})
                 }
-                _ => {
+                Some(("revoke", m)) => {
+                    json!({"device": device_json(&devices.revoke(m.get_one::<String>("client-id").unwrap())?)})
+                }
+                Some(_) => unreachable!("typed device grammar"),
+                None => {
                     json!({"devices": devices.list()?.iter().map(device_json).collect::<Vec<_>>()})
                 }
             }
@@ -399,7 +446,14 @@ fn devices(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
         return Ok(tmt_cli_style::message::success(
             &mut output,
             terminal,
-            &format!("Revoked {name}"),
+            &format!(
+                "{} {name}",
+                if request["op"] == "rename" {
+                    "Renamed"
+                } else {
+                    "Revoked"
+                }
+            ),
         )?);
     }
     use tmt_cli_style::{

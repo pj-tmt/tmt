@@ -551,3 +551,41 @@ fn an_idle_session_ends_and_reopens_silently() {
     assert!(mounted(&h, &colab, Some(&fresh)).is_some());
     assert_eq!(h.grants(), 1);
 }
+
+#[test]
+fn rename_preserves_authority_and_reopens_with_the_new_context() {
+    for _ in 0..2 {
+        let h = Harness::new(FAST);
+        let colab = Colab::serve(&h);
+        let device = Device::browser(&h, 7);
+        let client_id = paired(&h, &device);
+        let opened = open_session(&h, &Opening::new(&h, &client_id, &device.key).wire());
+        let cookie = pair_of(&opened.cookie().unwrap());
+        let mut socket = tunnel(&h, &cookie);
+        let before = h.store.lock().unwrap().grant(&client_id).unwrap().unwrap();
+        let renamed = control(
+            &h,
+            json!({"op":"rename","clientId":client_id,"name":"New laptop"}),
+        );
+        assert_eq!(renamed["device"]["revision"], 2);
+        closes(&mut socket);
+        assert_eq!(mounted(&h, &colab, Some(&cookie)), None);
+        let fresh = open_session(&h, &Opening::new(&h, &client_id, &device.key).wire());
+        assert_eq!(fresh.status, 200);
+        let fresh_cookie = pair_of(&fresh.cookie().unwrap());
+        let context = mounted(&h, &colab, Some(&fresh_cookie)).unwrap();
+        assert_eq!(context["deviceId"], client_id);
+        assert_eq!(context["name"], "New laptop");
+        assert_eq!(context["grantRevision"], 2);
+        let repeated = control(
+            &h,
+            json!({"op":"rename","clientId":client_id,"name":"New laptop"}),
+        );
+        assert_eq!(repeated["device"]["revision"], 2);
+        assert!(mounted(&h, &colab, Some(&fresh_cookie)).is_some());
+        let mut after = h.store.lock().unwrap().grant(&client_id).unwrap().unwrap();
+        after.name = before.name.clone();
+        after.revision = before.revision;
+        assert_eq!(after, before);
+    }
+}

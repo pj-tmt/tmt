@@ -21,7 +21,7 @@ clap.workspace = true
 serde_json.workspace = true
 getrandom.workspace = true
 httparse.workspace = true
-nix.workspace = true
+nix = { workspace = true, features = ["socket"] }
 rusqlite.workspace = true
 tmt-invoke.workspace = true
 signal-hook.workspace = true

@@ -3922,7 +3922,7 @@ code until a shared leaf exists (#1041).
 `control::Control` binds `<dataRoot>/remote/control.sock` (0600, in the 0700
 state directory) under the serve lock and speaks one JSON object per line; a
 stale socket from an earlier serve is replaced, anything else refuses. Its
-operations are `pair` (for `tmt remote pair`) and `devices` and `revoke` (for
+operations are `pair` (for `tmt remote pair`) and `devices`, `revoke` and `rename` (for
 `tmt remote devices`). `pairing::Pairing` owns the single offer
 of the current run (window): a random 16-byte code and 128-bit challenge held only
 in serve's memory, a ten-minute deadline, and its phase (open, pinned candidate,
@@ -3966,6 +3966,23 @@ reopening is another signed `session.open`. Every refusal is the generic 404.
 `/r/` routes refuse any cookie, so a cookie alone never reaches an operation or
 pairing. `devices::Devices` lists grants and revokes one by disabling it and
 advancing its revision before acknowledging, then ends the device's session.
+Rename shares pairing's pure name validator, changes only presentation, advances
+the revision only when the name changes, and ends old-revision sessions for silent
+reopening. Revoked grants cannot be renamed. Neither mutation exceeds the JSON
+integer revision bound.
+
+`devices::DeviceEvents` owns one joined worker over current durable grants: each
+sweep delivers disabled tombstones and current names through `mount::Mounts` on
+the existing owner-only socket. There is no journal, cursor or persisted delivery
+state. A committed mutation wakes the worker; successful periodic replay recovers
+extension restarts, and failed sweeps use bounded backoff. Socket I/O happens
+outside the store lock and command acknowledgment. `Mounts` owns private socket
+admission, nonblocking connect, bounded HTTP callback and 2xx acknowledgment;
+the callback's reserved subtree is refused by browser forwarding and its marker
+header is never forwarded from clients. Consumers own durable revision deduplication
+and extension cleanup as specified in the
+[device-event contract](contracts/remote-channel-v1.md#extension-channel-api).
+Shutdown wakes backoff and joins the bounded in-flight attempt before state release.
 
 `site::Site` is the door's handler: the mount space `/r/<prefix>/x/` goes to
 `mount::Mounts`, `/pair/` and `/sdk/` to `pages::Pages`, all others to the

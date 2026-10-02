@@ -10,13 +10,14 @@ use crate::{
     limits,
 };
 use nix::poll::{PollFd, PollFlags, poll};
-use serde_json::json;
+use nix::sys::socket::{AddressFamily, SockFlag, SockType, UnixAddr, connect, socket};
+use serde_json::{Value, json};
 use std::{
     fs,
     io::{self, Read, Write},
     net::{Shutdown, TcpStream},
     os::{
-        fd::AsFd,
+        fd::{AsFd, AsRawFd},
         unix::{
             fs::{FileTypeExt, MetadataExt},
             net::UnixStream,
@@ -59,6 +60,10 @@ pub const SOCKET: &str = "door.sock";
 pub const CONTEXT_HEADER: &str = "tmt-device-context";
 /// The mount the forwarded path was taken from, for example `/r/<prefix>/x/colab/`.
 pub const MOUNT_HEADER: &str = "tmt-mount";
+/// Reserved for remote-to-extension callbacks, never browser mount traffic.
+pub const DEVICE_EVENT_PATH: &str = "/.tmt/remote/device-events";
+pub const DEVICE_EVENT_HEADER: &str = "tmt-device-event";
+const DEVICE_EVENT_WAIT: Duration = Duration::from_secs(1);
 /// Client request headers an extension may see. Cookie (the remote door
 /// session) and anything else are dropped.
 const FORWARDED: [&str; 9] = [
@@ -317,9 +322,12 @@ impl Mounts {
         (private(&directory, false) && private(&socket, true)).then_some(socket)
     }
     pub fn admit(&self, head: &Head<'_>) -> Result<usize, Reply> {
-        let Some((_, extension, _)) = self.extension(head.path) else {
+        let Some((_, extension, rest)) = self.extension(head.path) else {
             return Err(Reply::empty(404));
         };
+        if reserved(rest) {
+            return Err(Reply::empty(404));
+        }
         if !METHODS.contains(&head.method) || (head.upgrade && head.method != "GET") {
             return Err(Reply::empty(404));
         }
@@ -334,6 +342,9 @@ impl Mounts {
     }
     pub fn handle(&self, request: Request, client: &mut TcpStream) -> Option<Reply> {
         let (index, extension, rest) = self.extension(&request.path)?;
+        if reserved(rest) {
+            return Some(Reply::empty(404));
+        }
         let websocket = request.upgrade
             && header(&request.headers, "upgrade")
                 .is_some_and(|v| v.eq_ignore_ascii_case("websocket"));
@@ -433,6 +444,38 @@ impl Mounts {
         })();
         None
     }
+    /// Remote's only event channel uses the same admitted owner-only socket and
+    /// HTTP framing as mounts. Browser headers cannot acquire this marker.
+    /// A 2xx head acknowledges; errors and malformed replies are retryable.
+    pub fn device_event(&self, event: &Value) -> bool {
+        let body = event.to_string();
+        let mut acknowledged = true;
+        for extension in self.extensions {
+            let result = (|| -> io::Result<()> {
+                let path = self.socket(extension).ok_or(io::ErrorKind::NotFound)?;
+                if body.len() > extension.body_bytes {
+                    return Err(io::ErrorKind::InvalidData.into());
+                }
+                let deadline = Instant::now() + DEVICE_EVENT_WAIT;
+                let mut stream = connect_event(&path, deadline)?;
+                let head = format!(
+                    "POST {DEVICE_EVENT_PATH} HTTP/1.1\r\nHost: {}\r\n{DEVICE_EVENT_HEADER}: 1\r\n{MOUNT_HEADER}: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    self.host,
+                    self.mount(extension),
+                    body.len(),
+                );
+                send(&mut stream, head.as_bytes(), deadline)?;
+                send(&mut stream, body.as_bytes(), deadline)?;
+                let reply = read_head(&mut stream, deadline)?;
+                if !(200..300).contains(&reply.status) {
+                    return Err(io::ErrorKind::InvalidData.into());
+                }
+                Ok(())
+            })();
+            acknowledged &= result.is_ok();
+        }
+        acknowledged
+    }
     fn forward(
         &self,
         request: &Request,
@@ -492,6 +535,43 @@ fn write_all(stream: &mut TcpStream, mut bytes: &[u8], deadline: Instant) -> io:
     }
     Ok(())
 }
+fn reserved(path: &str) -> bool {
+    let decoded = path.replace("%2e", ".").replace("%2E", ".");
+    let mut segments = decoded.split('/').filter(|s| !s.is_empty() && *s != ".");
+    let first = segments.next();
+    first == Some(".tmt") || first == Some("..") || segments.any(|s| s == "..")
+}
+
+/// Nonblocking connect also bounds a full extension accept backlog. Unix EAGAIN
+/// means no connection was queued; retry it through the worker's backoff.
+fn connect_event(path: &Path, deadline: Instant) -> io::Result<UnixStream> {
+    let fd = socket(
+        AddressFamily::Unix,
+        SockType::Stream,
+        SockFlag::empty(),
+        None,
+    )?;
+    nix::fcntl::fcntl(
+        &fd,
+        nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
+    )?;
+    let address = UnixAddr::new(path)?;
+    let stream = UnixStream::from(fd);
+    stream.set_nonblocking(true)?;
+    let pending = connect(stream.as_raw_fd(), &address);
+    match pending {
+        Ok(()) => {}
+        Err(nix::errno::Errno::EINPROGRESS) => {
+            ready(&stream, PollFlags::POLLOUT, deadline)?;
+            if let Some(error) = stream.take_error()? {
+                return Err(error);
+            }
+        }
+        Err(error) => return Err(error.into()),
+    }
+    Ok(stream)
+}
+
 /// Wait until `stream` is ready for `flags` or the deadline passes. Polling
 /// replaces per-read socket timeouts, which macOS refuses with EINVAL once
 /// the peer has closed even though buffered bytes remain readable.

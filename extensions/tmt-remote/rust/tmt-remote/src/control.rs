@@ -137,7 +137,7 @@ fn accept_loop(
         pairing.shutdown();
     });
 }
-/// Serve one local client: `pair`, `devices` or `revoke`.
+/// Serve one local client: `pair`, `devices`, `revoke` or `rename`.
 fn session(
     mut stream: UnixStream,
     stop: &AtomicBool,
@@ -170,6 +170,20 @@ fn session(
                     "Revoke needs a clientId.",
                 )),
             }),
+            Some("rename") => Some(
+                match (
+                    request.get("clientId").and_then(Value::as_str),
+                    request.get("name").and_then(Value::as_str),
+                ) {
+                    (Some(client_id), Some(name)) => devices
+                        .rename(client_id, name)
+                        .map(|grant| json!({"device": device_json(&grant)})),
+                    _ => Err(RemoteError::new(
+                        "REMOTE_INPUT_INVALID",
+                        "Rename needs a clientId and name.",
+                    )),
+                },
+            ),
             _ => Some(Err(RemoteError::new(
                 "REMOTE_INPUT_INVALID",
                 "Unknown control operation.",
