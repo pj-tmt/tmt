@@ -126,6 +126,10 @@ with `tmt check <target>` and establish whether work started before deciding
 what to do next. Missing visible output is not proof that nothing executed.
 Successful submission also does not guarantee exactly-once agent processing.
 
+`DELIVERY_AWAITING_APPROVAL` (exit 1) means the recipient's agent is waiting on
+its user, so nothing was sent and the request stays queued. Retry after it
+continues; never type into its pane to get around it.
+
 `talk` waits for the complete durable reply by default. It never treats terminal
 markers, idle output, a summary, or process exit as completion. A cooperating
 recipient must invoke `tmt reply`; otherwise there is no final result yet.

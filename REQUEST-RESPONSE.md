@@ -280,7 +280,10 @@ request or receipt rewrite is made if the runtime ends before input. Confirmed
 full delivery settles recipient attention only, so it does not inflate incoming
 X/listen/context counts. Office's advisory wake does not settle that attention.
 Unavailable or uncertain delivery remains queued; uncertainty still returns
-`DELIVERY_UNCERTAIN`, not permission to resend. Offline recipients produce an
+`DELIVERY_UNCERTAIN`, not permission to resend. A recipient whose host reports
+its agent as waiting on its user (an approval or a question) refuses the
+prompt: `talk` returns `DELIVERY_AWAITING_APPROVAL` (exit 1), nothing reached
+the pane, the request stays queued, and nothing types around the agent. Offline recipients produce an
 immediate `queued` result with `offline:true`, without waiting or pasting into a
 shell. Rebinding or coming online never triggers automatic re-wake. Explicit
 `--inbox` and unbound direct-pane behavior remain distinct.
