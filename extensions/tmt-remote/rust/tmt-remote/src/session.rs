@@ -290,6 +290,7 @@ impl Sessions for DoorSessions {
                 kind: grant.kind,
                 origin: grant.origin,
                 name: grant.name,
+                public_key: grant.public_key,
                 grant_revision: grant.revision,
             },
             session: state,

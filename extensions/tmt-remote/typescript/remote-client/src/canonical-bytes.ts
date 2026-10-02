@@ -199,6 +199,30 @@ export function enrollmentPossessionSigningBytes(
   return concat([lpText('tmt-device-pair-possession-v1'), lp(enrollment), binary(mac, 32)]);
 }
 
+export interface ExtCert {
+  /** Mounted extension name, as under `/x/<extension>/`. */
+  extension: string;
+  purpose: 'sign' | 'enc';
+  /** Raw 32-byte extension public key. */
+  publicKey: Uint8Array;
+  issuedAtMs: number;
+}
+const EXTENSION = /^[a-z][a-z0-9-]{0,31}$/;
+
+/** `tmt-ext-cert-v1` signing input: a device key certifies an extension key. */
+export function extCertSigningBytes(value: ExtCert): Uint8Array {
+  requireValue(typeof value.extension === 'string' && EXTENSION.test(value.extension), 'extension');
+  requireValue(value.purpose === 'sign' || value.purpose === 'enc', 'purpose');
+  requireValue(Number.isSafeInteger(value.issuedAtMs) && value.issuedAtMs >= 0, 'certificate time');
+  return concat([
+    lpText('tmt-ext-cert-v1'),
+    lpText(value.extension),
+    lpText(value.purpose),
+    binary(value.publicKey, 32),
+    lpText(String(value.issuedAtMs)),
+  ]);
+}
+
 /** HMAC input for `K_response`, keyed by the pairing code. */
 export function responseKeyInput(enrollment: Uint8Array): Uint8Array {
   requireValue(enrollment instanceof Uint8Array, 'enrollment bytes');

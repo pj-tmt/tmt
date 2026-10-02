@@ -185,6 +185,40 @@ pub fn possession(enrollment: &[u8], mac: &[u8; 32]) -> Result<Vec<u8>> {
     framed(&[b"tmt-device-pair-possession-v1", enrollment, mac])
 }
 
+/// An extension name as mounted under `/x/<extension>/`: a lowercase ASCII
+/// letter, then lowercase letters, digits or hyphens, at most 32 bytes.
+pub fn extension_name(value: &str) -> bool {
+    value.len() <= 32
+        && value.starts_with(|c: char| c.is_ascii_lowercase())
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+/// Extension key certificate (`tmt-ext-cert-v1`): a device key certifies an
+/// extension-generated key. It binds the key to the device and grants no
+/// remote authority by itself.
+pub struct ExtCert<'a> {
+    pub extension: &'a str,
+    /// `sign` or `enc`.
+    pub purpose: &'a str,
+    pub public_key: &'a [u8; 32],
+    pub issued_at_ms: u64,
+}
+pub fn ext_cert(value: &ExtCert<'_>) -> Result<Vec<u8>> {
+    require(
+        extension_name(value.extension)
+            && matches!(value.purpose, "sign" | "enc")
+            && value.issued_at_ms <= 9_007_199_254_740_991,
+    )?;
+    framed(&[
+        b"tmt-ext-cert-v1",
+        value.extension.as_bytes(),
+        value.purpose.as_bytes(),
+        value.public_key,
+        value.issued_at_ms.to_string().as_bytes(),
+    ])
+}
+
 const BASE32: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 /// The 16-byte pairing code as 26 uppercase RFC 4648 base32 characters,
 /// grouped by four with hyphens for copy/paste.

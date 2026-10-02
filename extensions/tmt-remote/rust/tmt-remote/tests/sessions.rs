@@ -376,6 +376,7 @@ fn session_open_returns_a_signed_response_and_a_door_cookie() {
             "kind": "browser",
             "origin": h.origin,
             "name": "Laptop é",
+            "publicKey": canonical::base64url(&device.public()),
             "owner": true,
             "grantRevision": 1,
         }))

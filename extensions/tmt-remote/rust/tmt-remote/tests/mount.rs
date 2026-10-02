@@ -36,6 +36,7 @@ impl Sessions for OneOwner {
                 kind: "browser".into(),
                 origin: "http://127.0.0.1:1".into(),
                 name: "Laptop \u{e9}\"\n".into(),
+                public_key: [7; 32],
                 grant_revision: 3,
             },
             session: Arc::default(),
@@ -265,7 +266,8 @@ fn owner_session_forwards_exact_device_context_and_body() {
     let seen = extension.seen.all();
     let context = concat!(
         r#"{"deviceId":"00000000-0000-4000-8000-000000000004","kind":"browser","#,
-        r#""origin":"http://127.0.0.1:1","name":"Laptop \u00e9\"\n","owner":true,"#,
+        r#""origin":"http://127.0.0.1:1","name":"Laptop \u00e9\"\n","#,
+        r#""publicKey":"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc","owner":true,"#,
         r#""grantRevision":3}"#
     );
     assert_eq!(

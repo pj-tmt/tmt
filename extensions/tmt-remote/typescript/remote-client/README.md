@@ -1,22 +1,28 @@
-# Canonical byte groundwork
+# Remote device SDK
 
-This private module implements decoded-value envelope, device enrollment and
-possession signing-byte builders, the `K_response` and `serverProof` HMAC inputs,
-pairing-code decoding, strict unpadded base64url and four-word fingerprint
-indexes defined by
-[remote-channel-v1](../../../../contracts/remote-channel-v1.md).
-It is not a usable SDK. Inputs have already been decoded; wire JSON, duplicate
-members, base64url/hex admission and payload operation schemas belong to a future
-wire decoder. Structural checks here enforce framing, exact UTF-8, decimal bounds,
-fixed profile values and kind/origin pairs. They do not establish key validity,
-live grants, timestamp freshness, replay protection or remote authority.
+This private module implements the device side of
+[remote-channel-v1](../../../../contracts/remote-channel-v1.md):
 
-Production uses TextEncoder and native WebCrypto SHA-256; no Node imports or
-third-party crypto. Payload bytes are copied before asynchronous hashing and are
-never parsed, normalized or reserialized. No signing, MAC computation, key
-persistence, pairing ceremony, transport or browser-shell integration is included.
-Fingerprint indexes point into the pinned BIP-39 English list at
-`../../rust/tmt-remote/assets/bip39-english.txt`; callers map indexes to words.
+- `src/canonical-bytes.ts`: decoded-value envelope, device enrollment, possession
+  and `tmt-ext-cert-v1` signing-byte builders, the `K_response` and `serverProof`
+  HMAC inputs, pairing-code decoding, strict unpadded base64url and four-word
+  fingerprint indexes. Inputs are already decoded; structural checks enforce
+  framing, exact UTF-8, decimal bounds, fixed profile values and kind/origin pairs.
+- `src/device.ts`: a non-extractable WebCrypto Ed25519 device key, the pairing link
+  parser and pairing client (retrying a pending candidate and accepting the machine
+  key only after `serverProof` verifies), the `session.open` client that verifies
+  the machine-signed response, and extension key certification.
+
+Network access goes through an injected fetch. The caller persists the device
+key's opaque `CryptoKey` (the browser page uses IndexedDB structured clone); the
+private key is never exported. Byte construction and signatures establish no
+authority: live grants, timestamps and replay are checked by remote.
+
+Production uses TextEncoder and native WebCrypto; no Node imports or third-party
+crypto. Payload bytes are copied before asynchronous hashing and are never parsed,
+normalized or reserialized. Fingerprint indexes point into the pinned BIP-39
+English list at `../../rust/tmt-remote/assets/bip39-english.txt`; callers map
+indexes to words.
 
 From the repository's `typescript` directory with Node 22.12.0 or later, pinned pnpm and Python 3:
 
@@ -42,6 +48,7 @@ contains literal full bytes and SHA-256 values, first established with Python
 3.14.7, rather than generated from the TypeScript implementation. The Unicode
 fixture data deliberately includes astral and decomposed characters. Raw example
 public keys and MACs prove framing only, not valid cryptographic proofs. Regenerate
-with `python3 test/reference.py` from this directory; `--check` verifies fixed
+with `python3 test/reference.py` from this directory, then format `vectors.json`
+with the package's Prettier (`check` requires it); `--check` compares parsed values, verifying fixed
 bytes without rewriting them. The TypeScript tests compare these literal artifacts
 and mutate one condition at a time to demonstrate refusal and exact byte binding.

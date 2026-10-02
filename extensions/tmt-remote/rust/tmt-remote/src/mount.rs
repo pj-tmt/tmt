@@ -3,6 +3,7 @@
 //! subtree, adding the authenticated device context only for owner sessions.
 //! The extension owns its replies: content type, CSP and other headers.
 use crate::{
+    canonical,
     http::{self, Head, Reply, Request},
     limits,
 };
@@ -78,6 +79,9 @@ pub struct DeviceContext {
     pub kind: String,
     pub origin: String,
     pub name: String,
+    /// The grant's raw Ed25519 device key; forwarded only as canonical
+    /// unpadded base64url, so an extension can verify `tmt-ext-cert-v1`.
+    pub public_key: [u8; 32],
     pub grant_revision: u64,
 }
 impl DeviceContext {
@@ -89,6 +93,7 @@ impl DeviceContext {
             "kind": self.kind,
             "origin": self.origin,
             "name": self.name,
+            "publicKey": canonical::base64url(&self.public_key),
             "owner": true,
             "grantRevision": self.grant_revision,
         })
@@ -258,11 +263,7 @@ impl Mounts {
     /// `/x/<name>/<rest>` for an allowlisted name; `rest` keeps its leading slash.
     fn extension<'a>(&self, path: &'a str) -> Option<(usize, &'static Extension, &'a str)> {
         let (name, _) = path.strip_prefix("/x/")?.split_once('/')?;
-        let grammar = name.len() <= 32
-            && name.starts_with(|c: char| c.is_ascii_lowercase())
-            && name
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        let grammar = canonical::extension_name(name);
         let extensions: &'static [Extension] = self.extensions;
         let index = extensions.iter().position(|e| grammar && e.name == name)?;
         Some((index, &extensions[index], &path[3 + name.len()..]))

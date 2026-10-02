@@ -90,7 +90,7 @@ source; Rust CLI theme tests check its built-in palette against the same file.
 
 The `typescript` pnpm workspace has one lockfile, retained Node tooling and tests,
 the `@tmt/office` SPA, the `@tmt/office-service` trusted pairing service,
-the private `@tmt/browser-addon` demo shell and `@tmt/remote-client` byte codecs,
+the private `@tmt/browser-addon` demo shell and `@tmt/remote-client` device SDK,
 and the private `@tmt/colab-client` WebCrypto primitive library.
 The two Office packages live under `extensions/tmt-office/typescript` as
 parent-relative members of that same workspace and lockfile. They resolve only
@@ -3861,7 +3861,8 @@ door's exact Origin for every request except top-level GET navigation and
 for every upgrade, a method allowlist and per-extension request/reply bounds.
 It forwards the path below the prefix, a small header allowlist and a
 `tmt-mount` header, never the door-session cookie; it adds `tmt-device-context`
-(ASCII JSON of the extension channel API's owner device context) only when the
+(ASCII JSON of the extension channel API's owner device context, including the
+grant's device public key) only when the
 `mount::Sessions` port (`DoorSessions` in serve) resolves the door cookie to an
 owner session, and never copies one from a client. Each resolution rechecks the
 grant's revocation, revision and expiry; without a live session a request is
@@ -3887,7 +3888,9 @@ extension reply 502. Mounted traffic makes no core call and never reaches `/r/`.
 no agents, scopes, mode or expiry), the pairing-code text codec (26 base32
 symbols, separators limited to ASCII spaces and hyphens) and the four-word key
 fingerprint over the pinned BIP-39 English list in
-`extensions/tmt-remote/rust/tmt-remote/assets/bip39-english.txt`. `crypto` owns strict Ed25519
+`extensions/tmt-remote/rust/tmt-remote/assets/bip39-english.txt`, the
+`tmt-ext-cert-v1` extension key certificate bytes, and the mounted
+extension-name grammar that `mount` also uses. `crypto` owns strict Ed25519
 verification, full HMAC-SHA256 verification and pure `K_response`/`serverProof`
 derivation. Neither module has I/O, clock, storage or CoreClient access, and
 neither is wired into the deny-all door. Remote-generated IDs remain UUIDv4.
@@ -3915,16 +3918,20 @@ remote versions from real-product releases; cargo-dist excludes this pilot binar
 For shell ownership, see the [browser add-on shell](#browser-add-on-shell).
 
 The private [`remote-client`](extensions/tmt-remote/typescript/remote-client/README.md)
-TypeScript module owns decoded-value envelope, device enrollment and possession
-signing-byte builders, the `K_response`/`serverProof` HMAC inputs, pairing-code
-decoding and fingerprint indexes, with independent exact-byte/SHA-256 fixtures
-shared with the Rust tests. Remote-generated IDs remain UUIDv4, as defined by the
-channel contract. Syntax validation establishes no authority.
-It uses standard UTF-8 and WebCrypto SHA-256 primitives and runs byte conformance in the existing Code
-quality job: the independent Python oracle must pass before the workspace-pinned
-Vitest suite runs. It implements no wire decoder, signing, key persistence, transport,
-runtime authority or browser-shell wiring; the proposed contract remains the wire
-and authority definition owner.
+TypeScript module owns decoded-value envelope, device enrollment, possession and
+`tmt-ext-cert-v1` signing-byte builders, the `K_response`/`serverProof` HMAC inputs,
+pairing-code decoding and fingerprint indexes, with independent exact-byte/SHA-256
+fixtures shared with the Rust tests. Its `device` module is the device SDK: a
+non-extractable WebCrypto Ed25519 device key (the caller persists the opaque
+handle), the pairing link parser and client that accepts the machine key only after
+`serverProof` verifies, the `session.open` client that verifies the machine-signed
+response, and extension key certification. Network access goes through an
+injected fetch. Remote-generated IDs remain UUIDv4, as defined by the channel
+contract. Syntax validation establishes no authority. It uses standard UTF-8 and
+WebCrypto primitives and runs in the existing Code quality job: the independent
+Python oracle must pass before the workspace-pinned Vitest suite runs, and the SDK
+tests drive it against a node:crypto stand-in door. Key storage, the pairing page
+and browser-shell wiring are not part of it yet.
 
 ## Colab extension proposal
 
