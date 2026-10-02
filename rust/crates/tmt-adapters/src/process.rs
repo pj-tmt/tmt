@@ -400,18 +400,184 @@ mod cleanup_policy_tests {
             .parse()
             .unwrap();
         assert_ne!(group, nix::unistd::getpgrp().as_raw());
+    }
 
-        let error = SupervisedProbeRunner
-            .execute(CommandRequest {
-                program: OsStr::new("/bin/sleep"),
-                args: &["20".into()],
+    #[test]
+    fn supervised_timeout_cleans_up_with_and_without_group_ownership() {
+        use crate::test_support::TestDirectory;
+        use nix::sys::signal::kill;
+
+        for mode in ["leader", "supervisor"] {
+            let directory = TestDirectory::new();
+            let args = timeout_fixture_args(mode, &directory.path);
+            // The existing bounded runner owns this fixture group on success,
+            // assertion failure and timeout; never use the test runner's group.
+            let result = UnixCommandRunner.execute(CommandRequest {
+                program: OsStr::new("/usr/bin/env"),
+                args: &args,
                 input: &[],
-                deadline: Instant::now() + Duration::from_millis(50),
-                max_output_bytes: 128,
-            })
-            .unwrap_err();
-        assert_eq!(error.kind, CommandFailure::Timeout);
-        assert!(!error.cleanup_failed());
+                deadline: Instant::now() + Duration::from_secs(15),
+                max_output_bytes: 16_384,
+            });
+            let ready = std::fs::read_to_string(directory.path.join("ready"))
+                .expect("probe published deterministic readiness before timeout");
+            let ids: Vec<i32> = ready
+                .split_whitespace()
+                .map(|id| id.parse().unwrap())
+                .collect();
+            assert_eq!(ids.len(), 2);
+            let (probe, group) = (Pid::from_raw(ids[0]), Pid::from_raw(ids[1]));
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while killpg(group, None) != Err(Errno::ESRCH) {
+                assert!(
+                    Instant::now() < deadline,
+                    "fixture group {group} survived: {result:?}"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            assert_eq!(kill(probe, None), Err(Errno::ESRCH), "probe was not reaped");
+            if mode == "leader" {
+                assert_eq!(
+                    result.unwrap_err().kind,
+                    CommandFailure::Exit {
+                        code: None,
+                        signal: Some(Signal::SIGKILL as i32),
+                    }
+                );
+            } else {
+                result.expect("non-leader helper returned after reaping its probe");
+                assert_eq!(
+                    std::fs::read_to_string(directory.path.join("result")).unwrap(),
+                    "timeout-clean"
+                );
+            }
+        }
+    }
+
+    const TIMEOUT_FIXTURE: &str =
+        "process::cleanup_policy_tests::supervised_timeout_reaps_probe_before_worker_exit";
+    const TIMEOUT_MODE: &str = "TMT_SUPERVISED_TIMEOUT_MODE";
+    const TIMEOUT_DIRECTORY: &str = "TMT_SUPERVISED_TIMEOUT_DIRECTORY";
+
+    fn timeout_fixture_args(mode: &str, directory: &std::path::Path) -> Vec<OsString> {
+        let mut directory_env = OsString::from(format!("{TIMEOUT_DIRECTORY}="));
+        directory_env.push(directory);
+        vec![
+            format!("{TIMEOUT_MODE}={mode}").into(),
+            directory_env,
+            std::env::current_exe().unwrap().into_os_string(),
+            "--exact".into(),
+            TIMEOUT_FIXTURE.into(),
+            "--ignored".into(),
+            "--nocapture".into(),
+            "--test-threads=1".into(),
+        ]
+    }
+
+    #[test]
+    #[ignore = "re-exec helper owned by the supervised timeout test"]
+    fn supervised_timeout_reaps_probe_before_worker_exit() {
+        use crate::test_support::TestChild;
+        use nix::{
+            poll::{PollFd, PollFlags, poll},
+            unistd::{getpgrp, getpid, setpgid},
+        };
+        use std::{
+            io::{BufRead, BufReader, Read},
+            os::{
+                fd::AsFd,
+                unix::net::{UnixListener, UnixStream},
+            },
+            path::PathBuf,
+            process::{Command, Stdio},
+        };
+
+        let Ok(mode) = std::env::var(TIMEOUT_MODE) else {
+            return;
+        };
+        let directory = PathBuf::from(std::env::var_os(TIMEOUT_DIRECTORY).unwrap());
+        let socket = directory.join("probe.sock");
+        // Leave room for the terminator in macOS's 104-byte sockaddr_un.sun_path.
+        assert!(socket.as_os_str().as_encoded_bytes().len() < 104);
+        if mode == "probe" {
+            let mut stream = UnixStream::connect(socket).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(10)))
+                .unwrap();
+            writeln!(stream, "{} {}", getpid(), getpgrp()).unwrap();
+            let mut release = [0];
+            // Readiness is a socket message, not a scheduling delay. The runner
+            // must kill and reap this blocked probe before aborting its worker.
+            let _ = stream.read_exact(&mut release);
+            return;
+        }
+        if mode == "supervisor" {
+            setpgid(Pid::from_raw(0), Pid::from_raw(0)).unwrap();
+            let child = Command::new("/usr/bin/env")
+                .args(timeout_fixture_args("nonleader", &directory))
+                .stdin(Stdio::null())
+                .spawn()
+                .unwrap();
+            let mut child = TestChild::new(child);
+            assert!(child.wait_for_exit(Duration::from_secs(10)).success());
+            return;
+        }
+        if mode == "leader" {
+            setpgid(Pid::from_raw(0), Pid::from_raw(0)).unwrap();
+            assert_eq!(getpid(), getpgrp());
+        } else {
+            assert_eq!(mode, "nonleader");
+            assert_ne!(getpid(), getpgrp());
+        }
+        let listener = UnixListener::bind(socket).unwrap();
+        let args = timeout_fixture_args("probe", &directory);
+        std::thread::scope(|scope| {
+            let worker = scope.spawn(|| {
+                SupervisedProbeRunner.execute(CommandRequest {
+                    program: OsStr::new("/usr/bin/env"),
+                    args: &args,
+                    input: &[],
+                    deadline: Instant::now() + Duration::from_secs(5),
+                    max_output_bytes: 16_384,
+                })
+            });
+            let mut events = [PollFd::new(listener.as_fd(), PollFlags::POLLIN)];
+            assert_eq!(
+                poll(&mut events, 2_000u16).unwrap(),
+                1,
+                "probe readiness deadline"
+            );
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut stream = BufReader::new(stream);
+            let mut ready = String::new();
+            stream.read_line(&mut ready).unwrap();
+            let ids: Vec<i32> = ready
+                .split_whitespace()
+                .map(|id| id.parse().unwrap())
+                .collect();
+            assert_eq!(ids.len(), 2);
+            assert_eq!(
+                ids[1],
+                getpgrp().as_raw(),
+                "probe must inherit worker group"
+            );
+            std::fs::write(directory.join("ready"), ready).unwrap();
+            // Keep the readiness socket open until cleanup has reaped the probe.
+            // A leader never returns here: abort_worker_group kills this process.
+            let error = worker.join().unwrap().unwrap_err();
+            assert_eq!(mode, "nonleader", "group leader must be killed");
+            assert_eq!(error.kind, CommandFailure::Timeout);
+            assert!(!error.cleanup_failed());
+            assert_eq!(
+                nix::sys::signal::kill(Pid::from_raw(ids[0]), None),
+                Err(Errno::ESRCH)
+            );
+            std::fs::write(directory.join("result"), "timeout-clean").unwrap();
+            drop(stream);
+        });
     }
 
     #[test]
