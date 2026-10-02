@@ -2,7 +2,8 @@
 
 This private module implements decoded-value envelope, device enrollment and
 possession signing-byte builders, the `K_response` and `serverProof` HMAC inputs,
-pairing-code decoding and four-word fingerprint indexes defined by
+pairing-code decoding, strict unpadded base64url and four-word fingerprint
+indexes defined by
 [remote-channel-v1](../../../../contracts/remote-channel-v1.md).
 It is not a usable SDK. Inputs have already been decoded; wire JSON, duplicate
 members, base64url/hex admission and payload operation schemas belong to a future

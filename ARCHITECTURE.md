@@ -3442,9 +3442,11 @@ derivation. Neither module has I/O, clock, storage or CoreClient access, and
 neither is wired into the deny-all door. Remote-generated IDs remain UUIDv4.
 Byte construction and valid signatures establish no authority.
 Rust tests consume the independent Python canonical fixtures read-only; Rust-owned
-RFC/Python/WebCrypto vectors exercise cryptographic validity separately. The only
-new production dependencies are the contract's pinned Ed25519 and HMAC primitives,
-with the existing pinned SHA-256 dependency. Real Chrome MV3 security and browser
+RFC/Python/WebCrypto vectors exercise cryptographic validity separately. The codec
+dependencies are the contract's pinned Ed25519 and HMAC primitives, the existing
+pinned SHA-256 dependency and the workspace `base64` engine configured for strict
+unpadded base64url (no padding, no trailing bits), whose refusals have shared
+oracle vectors. Real Chrome MV3 security and browser
 interoperability remain later gates; local Node conformance does not replace them.
 
 [`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns the proposed
