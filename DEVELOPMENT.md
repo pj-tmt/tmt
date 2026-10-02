@@ -567,7 +567,12 @@ exporting its front matter as `frontmatter` (`title` is the page title). A page 
 English page with a "not yet translated" note. The language switcher in the status bar (and in the `[tmt]`
 menu on a narrow screen) keeps the page, remembers the choice in the browser and sets `<html lang>`
 (`zh` is `zh-Hant`). `scripts/spa-routes.mjs` writes each language's route files with their `<html lang>`
-and `hreflang` alternates; set `SITE_ORIGIN` to make the alternates absolute.
+and `hreflang` alternates; `SITE_ORIGIN` makes the alternates fully qualified, and
+`.github/workflows/site.yml` sets it to the Pages origin next to the default `/tmt/` base path.
+The words of the site's own components (home page, status bar, notes around a page) are typed data in
+`site/src/lang/strings.ts`; a language overrides any of them, key by key, in
+`site/src/i18n/<lang>/strings.json`, and what it leaves out stays English. The reserved `$source` key of that
+file is for the staleness check and is never merged.
 Colors, fonts and marks come from `design/tokens/tokens.json`, which the
 stylesheet and the design page read. Anything not in a release is marked
 planned.

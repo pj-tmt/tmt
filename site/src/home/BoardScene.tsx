@@ -1,6 +1,7 @@
 import { boardLines, type BoardSpec, type Row } from "../demos/board";
 import { FitWidth } from "../demos/FitWidth";
 import { TmuxBar, Window } from "../scenes/Window";
+import { useStrings } from "../lang/useStrings";
 import { useFrames } from "../scenes/useFrames";
 
 const builder = (state: string, task: string, pr: string): Row => ["builder", state, task, pr];
@@ -54,10 +55,8 @@ const frames: BoardSpec[] = [
 ];
 const REST = 1;
 
-const LABEL =
-  "A tmt sq board that updates in four steps: builder works on rotating tokens, reviewer starts a review and then waits on you to decide whether to ship, tester starts end-to-end tests, and once you answer the others carry on.";
-
 export function BoardScene() {
+  const { home } = useStrings();
   const { ref, index } = useFrames<HTMLDivElement>(frames.length, {
     intervalMs: 2600,
     rest: REST,
@@ -68,8 +67,8 @@ export function BoardScene() {
     <div ref={ref}>
       <Window
         title="tmt sq board"
-        label={LABEL}
-        footer={<TmuxBar window="2:squad*" message={waiting ? "◆ reviewer waits on you" : null} />}
+        label={home.boardLabel}
+        footer={<TmuxBar window="2:squad*" message={waiting ? home.boardWaits : null} />}
       >
         <div aria-hidden="true" className="px-3.5 py-3">
           <FitWidth width={560}>

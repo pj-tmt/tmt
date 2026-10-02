@@ -2,6 +2,7 @@ import { Link, useLocation } from "@tanstack/react-router";
 import { languages, withLang } from "../lang/languages";
 import { saveLangPreference } from "../lang/preference";
 import { useLang } from "../lang/useLang";
+import { useStrings } from "../lang/useStrings";
 
 // EN · 日本語 · 中文: each is a real link to the same page in that language,
 // and choosing one is remembered for the next visit. The status bar shows it
@@ -14,10 +15,11 @@ export function LanguageSwitcher({
   onPick?: () => void;
 }) {
   const { lang, path } = useLang();
+  const { ui } = useStrings();
   const hash = useLocation().hash;
   const bar = variant === "bar";
   return (
-    <nav aria-label="Language" className="flex items-stretch">
+    <nav aria-label={ui.language} className="flex items-stretch">
       {languages.map((language) => {
         const on = language.code === lang;
         return (
