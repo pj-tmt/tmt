@@ -1219,9 +1219,9 @@ assert the cache-only gate independently. Timeout scenarios establish a gated
 child in the hook's owned process group before exec, so descendant cleanup never
 requires core to start within the 300 ms local or 200 ms outer deadline. Assert
 SIGKILL, empty output, the sub-second bound, unchanged claims and child/group
-absence. Before timed sections, freshly written context, provider and clipboard
-fixtures execute one reserved readiness branch with a 30 s failure ceiling; it
-returns before every payload effect and the file is never rewritten afterward.
+absence. Before timed sections, freshly written context, provider, clipboard and
+reply-notice host fixtures execute one reserved readiness branch with a 30 s
+failure ceiling; it returns before every payload effect and the file is never rewritten afterward.
 This keeps macOS first-exec assessment outside production deadlines. Do not add
 readiness sleeps, retries or larger production budgets.
 
