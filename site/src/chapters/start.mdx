@@ -68,11 +68,11 @@ $ tmt run -s reviewer claude --model sonnet
 $ tmt resume reviewer       # later, in any pane: reviewer's own conversation
 `}</Cmd>
 
-You can also start first and name later. `tmt run claude` starts Claude Code at once under a temporary name such as `claude-12ab34cd56ef`, and `tmt this reviewer`, typed from inside the agent, gives it its real name. Naming keeps the same conversation but doesn't save it; add `-s` for that.
+You can also start first and name later. `tmt run claude` starts Claude Code at once under a temporary name such as `claude-12ab34cd56ef`, and `tmt this reviewer`, run from the agent's shell tool, gives it its real name. Naming keeps the same conversation but doesn't save it; add `-s` for that.
 
 <Cmd>{`
 $ tmt run claude --model sonnet
-$ tmt this -s reviewer      # from inside the agent: name it, and keep the name
+$ tmt this -s reviewer      # from the agent's shell tool: name it, and keep the name
 `}</Cmd>
 
 <PaneDemo
