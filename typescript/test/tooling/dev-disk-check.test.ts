@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
@@ -23,7 +23,18 @@ async function withFixture(run: (fixture: Fixture) => void | Promise<void>) {
   }
 }
 
-/** Puts fake `df` and (optionally) `docker` first on PATH; the fakes record their calls. */
+/** The host tools the script runs besides `df` and `docker`. */
+const hostTools = ['awk', 'dirname'].map((name) => {
+  const found = spawnSync('/bin/sh', ['-c', `command -v ${name}`], { encoding: 'utf8' });
+  if (found.status !== 0) throw new Error(`The disk check fixture needs ${name}.`);
+  return [name, found.stdout.trim()] as const;
+});
+
+/**
+ * Puts fake `df` and (optionally) `docker` on a PATH of their own, beside links to
+ * the host tools, so an absent `docker` stays absent even where the host has one.
+ * The fakes record their calls.
+ */
 function fakeTools(
   sandbox: Fixture,
   options: { freeGb: number; docker?: 'answers' | 'fails' | 'absent' }
@@ -45,7 +56,8 @@ function fakeTools(
   );
   if (options.docker === 'answers') tool('docker', "echo 'TYPE TOTAL'; echo 'Images 3'");
   if (options.docker === 'fails') tool('docker', "echo 'daemon down' >&2; exit 1");
-  sandbox.env.PATH = `${bin}${path.delimiter}/usr/bin:/bin`;
+  for (const [name, target] of hostTools) symlinkSync(target, path.join(bin, name));
+  sandbox.env.PATH = bin;
   return () => (existsSync(calls) ? readFileSync(calls, 'utf8').trim().split('\n') : []);
 }
 
