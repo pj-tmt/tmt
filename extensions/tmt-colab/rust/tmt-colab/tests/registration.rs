@@ -317,7 +317,18 @@ fn changed_binding_conflicts_and_ordered_revocation_survives_restart() {
         .active_device(Some(&context(DEVICE, 7)), NOW)
         .unwrap();
     f.service().revoke(DEVICE, 8).unwrap();
+    let db = f.oracle();
+    db.execute_batch("CREATE TRIGGER no_replay_insert BEFORE INSERT ON device_registrations BEGIN SELECT RAISE(ABORT,'replay writes registration'); END;
+        CREATE TRIGGER no_replay_update BEFORE UPDATE ON devices BEGIN SELECT RAISE(ABORT,'replay writes device'); END;").unwrap();
+    let before = fs::read(f.layout.directory.join("space.db")).unwrap();
     f.service().revoke(DEVICE, 8).unwrap();
+    assert_eq!(
+        fs::read(f.layout.directory.join("space.db")).unwrap(),
+        before,
+        "equal revision must not write"
+    );
+    db.execute_batch("DROP TRIGGER no_replay_insert; DROP TRIGGER no_replay_update;")
+        .unwrap();
     f.reopen();
     assert_eq!(
         register(&mut f, Some(&context(DEVICE, 9)), &b, NOW).unwrap_err(),

@@ -441,7 +441,7 @@ serialized; a context older than the highest observed grant revision is denied.
 The trusted `Registration::revoke(deviceId, grantRevision)` callback records a
 local tombstone, clears the active registration and marks an existing device
 revoked in one transaction. Unknown IDs are tombstoned too; older events are
-ignored and repeated events are idempotent. No later context revives a tombstone.
+ignored; equal revisions return without a database write. No later context revives a tombstone.
 Registered-device admission rechecks durable revocation and certificate expiry.
 Remote event delivery remains #1100; there is no browser revocation route.
 This local tombstone is not the owner-signed `device.revoke` transition with cuts

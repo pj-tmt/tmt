@@ -209,7 +209,8 @@ impl Store {
                 |r| r.get(0),
             )
             .optional()?;
-        if previous.is_some_and(|old| old > revision) {
+        // Level-triggered remote replay must not rewrite an equal revision.
+        if previous.is_some_and(|old| old >= revision) {
             return Ok(());
         }
         tx.execute("INSERT INTO device_registrations VALUES (?,NULL,1,?)

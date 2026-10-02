@@ -2800,7 +2800,7 @@ An existing incompatible management-member key binding fails closed.
 
 The trusted `Registration::revoke(deviceId, grantRevision)` callback removes active
 registration and retains a durable tombstone; older events cannot overwrite newer
-state. Production remote event delivery remains #1100, owner-signed revocation and
+state; equal revisions return without a database write. Production remote event delivery remains #1100, owner-signed revocation and
 page epoch rotation remain #1157, and mounted stream-sync composition remains
 #1211. No registration test claims those integrated flows are complete.
 
