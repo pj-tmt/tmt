@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 roxmltree.workspace = true
+tmt-cli-style.workspace = true
 
 [lints]
 workspace = true

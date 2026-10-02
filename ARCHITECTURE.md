@@ -732,10 +732,12 @@ facade, which PR B of #355 removes.
 `rust/crates/tmt-tui` is an internal, unpublished presentation leaf for TMT
 markup. Its version-1 structural admission accepts bounded XML and produces a
 template with source locations, not a renderable scene. It refuses declarations
-and excessive depth before tree allocation and bounds parser nodes. Utility,
-binding, geometry and paint stages are not implemented yet. No product consumes
-it. The guard permits only XML parsing and the shared style leaf, never core,
-adapters or extension behavior; reverse product edges require adoption review.
+and excessive depth before tree allocation and bounds parser nodes. Static
+classes, wrap and literal tokens compile into `style::CellStyle` during admission,
+including every repeat template. Tokens use `tmt-cli-style::theme::Role`; no
+palette is resolved or copied. Binding, geometry and paint stages are not
+implemented yet. No product consumes it. The guard permits only XML parsing
+and the shared style leaf, never core, adapters or extension behavior; reverse product edges require adoption review.
 The private component has no release; its inherited version/lock entry follows
 the workspace, while product notices include only their actual dependency graph.
 

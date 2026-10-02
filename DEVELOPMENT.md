@@ -944,10 +944,24 @@ I/O; adapters own SQLite/files/processes; CLI owns grammar and composition.
 
 From `rust/`, run `cargo test --locked -p tmt-tui` and
 `cargo +1.95.0 test --locked -p tmt-tui` for structural XML admission and its
-byte/depth/node limits. Run the architecture test for dependency changes.
+byte/depth/node limits, integer utilities, property conflicts and literal theme
+tokens. Run the architecture test for dependency changes.
 The crate has no executable or board consumer; these tests use in-memory XML,
 not application configuration, SQLite or a terminal. Later admission/rendering
-stages must not treat a structural template as a fully validated scene.
+stages must not treat an admitted template as a fully validated scene.
+
+The internal static subset is `flex`, `flex-row`, `flex-col`, `w-N`, `h-N`,
+`w-full`, `h-full`, `gap-N`, `gap-x-N`, `gap-y-N`, `p-N`, `px-N`, `py-N`,
+`grow`, `grow-N`, `shrink`, `shrink-N`, and `truncate`. `N` is ASCII decimal
+0..4096, in cells (grow/shrink are integer weights). Overlapping properties,
+even equal duplicates, fail rather than applying class order. No fractions,
+variants, arbitrary values or CSS units are accepted. Padding is symmetric per
+axis. View/col default to column direction; other elements default to row.
+Sizes default to auto, gaps/padding/grow to zero, and shrink to one. Full means
+the parent's available axis. Text defaults to clipping; leaf `wrap="true"` or
+`wrap="false"` selects wrapping or clipping and conflicts with `truncate`.
+`token` must name a shared `Role`; omission preserves inheritance. Binding
+paths, dynamic tokens and row-track attributes await their owning later stages.
 
 ## Native process and shared tests
 

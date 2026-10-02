@@ -2795,6 +2795,7 @@ name = "tmt-tui"
 version = "5.0.0-alpha.33"
 dependencies = [
  "roxmltree",
+ "tmt-cli-style",
 ]
 
 [[package]]
