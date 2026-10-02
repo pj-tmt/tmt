@@ -112,7 +112,7 @@ mod tests {
                 calls += 1;
                 assert_eq!(
                     url,
-                    "https://api.github.com/repos/wkh237/tmt/releases?per_page=100&page=1"
+                    "https://api.github.com/repos/pj-tmt/tmt/releases?per_page=100&page=1"
                 );
                 Ok(b"[]".to_vec())
             },

@@ -61,8 +61,8 @@ while [ "$#" -gt 1 ]; do
   case "$1" in --output) destination=$2; shift 2 ;; *) shift ;; esac
 done
 case "$1" in
-  "https://github.com/wkh237/tmt/releases/download/v$TMT_FIXTURE_VERSION/dist-manifest.json") source=$TMT_FIXTURE_MANIFEST ;;
-  "https://github.com/wkh237/tmt/releases/download/v$TMT_FIXTURE_VERSION/$TMT_FIXTURE_NAME") source=$TMT_FIXTURE_ARCHIVE ;;
+  "https://github.com/pj-tmt/tmt/releases/download/v$TMT_FIXTURE_VERSION/dist-manifest.json") source=$TMT_FIXTURE_MANIFEST ;;
+  "https://github.com/pj-tmt/tmt/releases/download/v$TMT_FIXTURE_VERSION/$TMT_FIXTURE_NAME") source=$TMT_FIXTURE_ARCHIVE ;;
   *) exit 91 ;;
 esac
 exec cp "$source" "$destination"

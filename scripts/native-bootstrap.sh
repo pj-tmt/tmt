@@ -50,7 +50,7 @@ main() {
   trap 'cleanup' 0
   trap 'exit 130' INT
   trap 'exit 143' TERM HUP
-  base="https://github.com/wkh237/tmt/releases/download/v$version"
+  base="https://github.com/pj-tmt/tmt/releases/download/v$version"
   download "$base/dist-manifest.json" "$stage/dist-manifest.json" @@MANIFEST_SIZE@@
   verify "$stage/dist-manifest.json" @@MANIFEST_SIZE@@ '@@MANIFEST_HASH@@'
   download "$base/$archive" "$stage/$archive" "$archive_size"

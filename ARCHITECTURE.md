@@ -2805,8 +2805,9 @@ stays at 16 KiB.
   forward-only activation; which GitHub prerelease flag a release may carry is
   per product (`Product::accepts_prerelease_flag`, matching the publication
   policy in `native-release-policy.mjs`); a receipt's recorded repository must
-  be `wkh237/tmt` or its pre-rename name `wkh237/tmux-team` (read-only, for
-  receipts from earlier releases); new receipts always record `wkh237/tmt`;
+  be `pj-tmt/tmt` or its historical names `wkh237/tmt` and `wkh237/tmux-team`
+  (read-only compatibility for existing receipts); release lookups and new receipts
+  always use `pj-tmt/tmt`;
 - `native_install_command` and `native_upgrade_command` are thin CLI
   compositions. Application data and provider skills are separate owners.
 

@@ -217,7 +217,7 @@ null for an anonymous originator) plus
 
 A default user identity, so a person outside a named pane need not pass
 `--identity`, is not provided; see
-[#513](https://github.com/wkh237/tmt/issues/513).
+[#513](https://github.com/pj-tmt/tmt/issues/513).
 
 ## Compact receipts
 
@@ -545,6 +545,6 @@ checks complete bodies against independent mock-agent events even when the
 terminal renders only a tail. Terminal echo is not a completion oracle.
 See [Development](../DEVELOPMENT.md) for commands and scenario ownership.
 
-The [historical research record](https://github.com/wkh237/tmt/blob/5b1e9beb6d7deeae955eba3b49ab78bd07c9df1d/REQUEST-RESPONSE.md)
+The [historical research record](https://github.com/pj-tmt/tmt/blob/5b1e9beb6d7deeae955eba3b49ab78bd07c9df1d/REQUEST-RESPONSE.md)
 retains superseded marker/JSON-state behavior and provider research. It does not
 define current commands or authorize new integrations.
