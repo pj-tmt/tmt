@@ -11,8 +11,11 @@ so it is a CRDT generator seed rather than an admitted Colab document.
 
 The integration test reproduces seed `0x830c01ab` and the first 261 cases,
 checks all six dumps byte for byte, and runs each case in a fresh child with
-a one-second deadline and a 45-second suite budget, twice. Production uses
-separate pinned budgets; the archive proves process containment, not a sandbox
+a one-second deadline and a 45-second suite budget, twice. On Linux, case 26
+may instead exit unsuccessfully with an allocation-failure or panic diagnostic
+under the enforced address-space limit; it must never succeed. Other platforms
+retain the deadline requirement. Both outcomes must permit public runner reuse.
+Production uses separate pinned budgets; the archive proves process containment, not a sandbox
 or macOS memory containment. Valid content/own controls are separate tests.
 
 | File           | SHA-256                                                            |
