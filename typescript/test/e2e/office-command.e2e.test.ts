@@ -36,9 +36,14 @@ async function office(fixture: E2EFixture) {
     companion
   );
   expectJsonResult(
-    await run('officefacade', [
-      'install',
-      '--yes',
+    await fixture.runJsonCli([
+      '__native-install',
+      '--product',
+      'office',
+      '--channel',
+      'alpha',
+      '--prefix',
+      prefix,
       '--archive',
       artifact.archive,
       '--manifest',

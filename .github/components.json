@@ -25,7 +25,11 @@
     },
     "office": {
       "package": "tmt-office",
-      "owns": ["extensions/tmt-office"],
+      "owns": [
+        "extensions/tmt-office",
+        "typescript/test/e2e/office-command.e2e.test.ts",
+        "typescript/test/e2e/office-consent.e2e.test.ts"
+      ],
       "release": false,
       "migrations": ["extensions/tmt-office/rust/tmt-office-storage/src/schema.rs"],
       "selectedBy": [
