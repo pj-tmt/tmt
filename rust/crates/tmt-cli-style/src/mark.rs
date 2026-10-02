@@ -15,7 +15,7 @@ pub enum Mark {
     Resumable,
     /// `✓` done.
     Done,
-    /// `✗` failed.
+    /// `✗` failed or blocked.
     Failed,
     /// `!` needs attention.
     Warning,

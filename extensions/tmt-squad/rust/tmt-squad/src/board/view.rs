@@ -24,6 +24,7 @@ use serde_json::Value;
 use tmt_cli_style::{
     Role,
     grid::{self, Align, Truncate},
+    mark::Mark,
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -286,10 +287,24 @@ fn pane_tab(look: crate::look::Look, name: &str, selected: bool) -> Span<'static
     }
 }
 
+/// A tab or switcher entry names its attention with the same shared marks.
+fn tab_label(name: &str, attention: Attention) -> String {
+    let mut text = format!(" {name}");
+    for (mark, count) in [
+        (Mark::Decision, attention.waiting),
+        (Mark::Failed, attention.blocked),
+    ] {
+        if count > 0 {
+            text.push_str(&format!(" {}{count}", mark.symbol()));
+        }
+    }
+    text
+}
+
 /// One tab. Selection adds a background tint to bold focus color, never extra characters,
 /// so switching never moves the tabs beside it (#504). The tab's attention
 /// colors it and, so color never carries meaning alone, also adds counts:
-/// `◆2` members waiting on you, `!1` blocked.
+/// `◆2` members waiting on you, `✗1` blocked.
 fn tab(
     look: crate::look::Look,
     name: &str,
@@ -297,13 +312,7 @@ fn tab(
     attention: Attention,
     colors: &TabColors,
 ) -> Span<'static> {
-    let mut text = format!(" {name}");
-    if attention.waiting > 0 {
-        text.push_str(&format!(" ◆{}", attention.waiting));
-    }
-    if attention.blocked > 0 {
-        text.push_str(&format!(" !{}", attention.blocked));
-    }
+    let mut text = tab_label(name, attention);
     text.push(' ');
     let style = match attention.state() {
         "waiting" => look.named(&colors.waiting),
@@ -657,13 +666,7 @@ fn render_switcher(frame: &mut Frame, app: &App, switcher: &Switcher, body: Rect
     }
     for (index, key) in found.iter().enumerate().skip(first).take(shown) {
         let attention = app.attention.get(*key).copied().unwrap_or_default();
-        let mut text = format!(" {}", super::tabs::label(key));
-        if attention.waiting > 0 {
-            text.push_str(&format!(" ◆{}", attention.waiting));
-        }
-        if attention.blocked > 0 {
-            text.push_str(&format!(" !{}", attention.blocked));
-        }
+        let mut text = tab_label(super::tabs::label(key), attention);
         if app.hidden.contains(*key) {
             text.push_str(" (hidden)");
         }
@@ -2416,7 +2419,7 @@ columns = [{ name = "member", width = "30%" },
             .map(|x| buffer[(x, 0)].symbol().to_owned())
             .collect();
         // Counts say what the color says, so no meaning is color-only.
-        assert_eq!(tabs.trim_end(), " product ◆1 !1   reviews !2");
+        assert_eq!(tabs.trim_end(), " product ◆1 ✗1   reviews ✗2");
         let column = |name: &str| tabs[..tabs.find(name).unwrap()].chars().count() as u16;
         let product = &buffer[(column("product"), 0)];
         // Waiting wins over blocked; selection is bold without moving the tab.
@@ -2454,6 +2457,36 @@ columns = [{ name = "member", width = "30%" },
             app.look().role(Role::Review).fg.unwrap_or_default()
         );
         assert_eq!(draw(&app, 60, 6)[1], "no lead · 1 member");
+    }
+
+    #[test]
+    fn attention_counts_keep_shared_marks_and_tab_width_without_color() {
+        let mut app = board(json!([{"title": null, "rows": []}]));
+        app.view.as_mut().unwrap().look.depth = tmt_cli_style::Depth::None;
+        let counts = Attention {
+            waiting: 2,
+            blocked: 1,
+        };
+        app.attention.insert("product".into(), counts);
+        assert_eq!(Mark::Failed.symbol().width(), 1);
+        assert_eq!(tab_label("product", Attention::default()), " product");
+        let colors = TabColors::default();
+        let plain = tab(app.look(), "product", false, counts, &colors);
+        let selected = tab(app.look(), "product", true, counts, &colors);
+        assert_eq!(selected.content, " product ◆2 ✗1 ");
+        assert_eq!(selected.content, plain.content);
+        assert_eq!(selected.width(), " product ◆2 ✗1 ".width());
+        assert_eq!(selected.style.fg, None);
+        assert!(draw(&app, 60, 8)[0].contains("product ◆2 ✗1"));
+        app.switcher = Some(Switcher {
+            query: "product".into(),
+            selected: 0,
+        });
+        assert!(
+            draw(&app, 60, 8)
+                .iter()
+                .any(|line| line.contains("product ◆2 ✗1"))
+        );
     }
 
     #[test]

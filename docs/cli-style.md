@@ -99,7 +99,7 @@ fold mark below is board-only). A row's leading state mark is
 | `◌`  | bound to a pane, no agent running                                  |
 | `↻`  | leads a resume action (`↻ tmt resume <name>`), never a row's state |
 | `✓`  | done                                                               |
-| `✗`  | failed                                                             |
+| `✗`  | failed or blocked                                                  |
 | `!`  | warning                                                            |
 | `◆`  | waits on your decision                                             |
 | `▸`  | folded Squad board pane (board only)                                |
