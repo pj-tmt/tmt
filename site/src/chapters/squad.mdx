@@ -400,6 +400,8 @@ blocked = "blocked" # and of one with a blocked member
 
 A pinned tab keeps its place when the tab line scrolls, and the other tabs can't be moved past it. A pinned tab that is hidden or missing is skipped. A color is `default` or a theme token. `squad:<name>` names a squad that shares its name with a built-in tab, such as one called `all`. A hidden squad that you open by name or from the switcher leads the tab line, marked `(hidden)`.
 
+Use `tmt sq ls --tab leads` or `tmt sq ls --tab all` for the same rows in text, or add `--json` for the full tab document. Hidden squads remain included. `--tab` cannot be combined with `--squad` or `--refresh-fields`.
+
 **Refresh.** The board reloads on an interval: 5 seconds unless you set `refresh` under `[board]` for every board, or under `[squad.<name>.board]` for one. Use whole seconds or minutes from `"1s"` to `"60m"`, or `"off"` to reload only on **ctrl-r** and the board's own actions.
 
 **Bindings.** A binding is `event = "action"`. An event is a printable key as you type it (`o` and `O` differ), `enter`, `space`, `tab`, `backspace`, `delete`, `home`, `end`, `pageup`, `pagedown`, `f1` to `f12`, `ctrl-<letter>` (not `ctrl-c`, which always quits), or the mouse: `click` and `double-click`. The keys `q`, `j`, `k`, `/` and `?` are reserved. A section's bindings win over `[bind]`, which wins over the host's defaults. The **leads** and **all** tabs take their own from `[tabs.leads.bind]` and `[tabs.all.bind]`.
