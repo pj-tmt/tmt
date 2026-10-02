@@ -1,3 +1,8 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { resolveCliExecutables } from '../support/cli-executable.mjs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import { describe, expect, it } from 'vite-plus/test';
 import { withE2EFixture, type E2EFixture, type MockEvent } from './harness.js';
 
@@ -256,65 +261,141 @@ describe('TMT-39 durable talk contract', { concurrent: false }, () => {
     );
   });
 
-  it('correlates same-pane concurrent replies when the fast reply commits first', async () => {
-    await withE2EFixture(
-      async (fixture) => {
-        const slow = fixture.runCliProcess<TalkResult>([
-          '--json',
-          'talk',
-          fixture.pane,
-          'slow same pane',
-          '--no-preamble',
-          '--timeout',
-          '8',
-        ]);
-        const fast = fixture.runCliProcess<TalkResult>([
-          '--json',
-          'talk',
-          fixture.pane,
-          'fast same pane',
-          '--no-preamble',
-          '--timeout',
-          '8',
-        ]);
-        const slowRequest = await fixture.waitForEvent(
-          (event) => event.event === 'request' && event.message === 'slow same pane'
-        );
-        const fastRequest = await fixture.waitForEvent(
-          (event) => event.event === 'request' && event.message === 'fast same pane'
-        );
-        expect(slowRequest.requestId).toEqual(expect.any(String));
-        expect(fastRequest.requestId).toEqual(expect.any(String));
-        fixture.releaseReplyGate(fastRequest.requestId!);
-        await fixture.waitForEvent(
-          (event) => event.event === 'submitted' && event.requestId === fastRequest.requestId
-        );
-        fixture.releaseReplyGate(slowRequest.requestId!);
-        const [slowResult, fastResult] = await Promise.all([slow.result, fast.result]);
-        expect(slowResult.code).toBe(0);
-        expect(fastResult.code).toBe(0);
-        expect(slowResult.json?.response).toBe('mock-agent response: slow same pane');
-        expect(fastResult.json?.response).toBe('mock-agent response: fast same pane');
-        const submissions = fixture
-          .events()
-          .filter((event) => event.event === 'submitted')
-          .filter(
-            (event) =>
-              event.requestId === slowResult.json?.requestId ||
-              event.requestId === fastResult.json?.requestId
+  it.each([false, true])(
+    'correlates same-pane concurrent replies when the fast reply commits first (held close: %s)',
+    async (holdSlowClose) => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-reply-close-'));
+      let stopped: E2EFixture | undefined;
+      try {
+        const wrapper = path.join(root, 'reply-wrapper');
+        const { peer } = resolveCliExecutables();
+        // The real reply commits successfully, but the mock cannot log submitted
+        // until this wrapper closes. No product or shared harness timing changes.
+        if (holdSlowClose)
+          writeExecutable(
+            wrapper,
+            `#!/bin/sh
+root="$1"
+shift
+previous=''
+request_id=''
+for argument do
+  if [ "$previous" = reply ]; then request_id="$argument"; break; fi
+  previous="$argument"
+done
+"$@"
+status=$?
+[ "$status" = 0 ] || exit "$status"
+if [ -e "$root/$request_id.hold" ]; then
+  touch "$root/$request_id.entered"
+  remaining=400
+  while [ ! -e "$root/$request_id.release" ] && [ "$remaining" -gt 0 ]; do
+    sleep 0.01
+    remaining=$((remaining - 1))
+  done
+  [ -e "$root/$request_id.release" ] || exit 124
+fi
+`,
+            0o755
           );
-        expect(submissions.map((event) => event.message)).toEqual([
-          'fast same pane',
-          'slow same pane',
-        ]);
-        expect(submissions.map((event) => event.body)).toEqual([
-          'mock-agent response: fast same pane',
-          'mock-agent response: slow same pane',
-        ]);
-      },
-      { replyGate: true }
-    );
-  }, 15_000);
+        await withE2EFixture(
+          async (fixture) => {
+            stopped = fixture;
+            const slow = fixture.runCliProcess<TalkResult>([
+              '--json',
+              'talk',
+              fixture.pane,
+              'slow same pane',
+              '--no-preamble',
+              '--timeout',
+              '8',
+            ]);
+            const fast = fixture.runCliProcess<TalkResult>([
+              '--json',
+              'talk',
+              fixture.pane,
+              'fast same pane',
+              '--no-preamble',
+              '--timeout',
+              '8',
+            ]);
+            const slowRequest = await fixture.waitForEvent(
+              (event) => event.event === 'request' && event.message === 'slow same pane'
+            );
+            const fastRequest = await fixture.waitForEvent(
+              (event) => event.event === 'request' && event.message === 'fast same pane'
+            );
+            expect(slowRequest.requestId).toEqual(expect.any(String));
+            expect(fastRequest.requestId).toEqual(expect.any(String));
+            fixture.releaseReplyGate(fastRequest.requestId!);
+            await fixture.waitForEvent(
+              (event) => event.event === 'submitted' && event.requestId === fastRequest.requestId
+            );
+            if (holdSlowClose)
+              fs.writeFileSync(path.join(root, `${slowRequest.requestId}.hold`), 'hold');
+            fixture.releaseReplyGate(slowRequest.requestId!);
+            const [slowResult, fastResult] = await Promise.all([slow.result, fast.result]);
+            expect(slowResult.code).toBe(0);
+            expect(fastResult.code).toBe(0);
+            expect(slowResult.json?.response).toBe('mock-agent response: slow same pane');
+            expect(fastResult.json?.response).toBe('mock-agent response: fast same pane');
+            if (holdSlowClose) {
+              await fixture.waitFor(
+                () => fs.existsSync(path.join(root, `${slowRequest.requestId}.entered`)),
+                2_000,
+                'slow reply committed with wrapper still open'
+              );
+              expect(submittedFor(fixture.events(), slowRequest.requestId!)).toHaveLength(0);
+            }
+            const submissionsReady = (async () => {
+              await Promise.all([
+                waitForSubmitted(fixture, slowRequest.requestId!),
+                waitForSubmitted(fixture, fastRequest.requestId!),
+              ]);
+              return fixture
+                .events()
+                .filter((event) => event.event === 'submitted')
+                .filter(
+                  (event) =>
+                    event.requestId === slowResult.json?.requestId ||
+                    event.requestId === fastResult.json?.requestId
+                );
+            })();
+            if (holdSlowClose) {
+              fs.writeFileSync(path.join(root, `${slowRequest.requestId}.release`), 'release');
+            }
+            const submissions = await submissionsReady;
+            expect(submissions.map((event) => event.message)).toEqual([
+              'fast same pane',
+              'slow same pane',
+            ]);
+            expect(submissions.map((event) => event.body)).toEqual([
+              'mock-agent response: fast same pane',
+              'mock-agent response: slow same pane',
+            ]);
+          },
+          {
+            replyGate: true,
+            executableEnv: holdSlowClose
+              ? {
+                  TMT_TEST_PEER_CLI: JSON.stringify({
+                    executable: wrapper,
+                    args: [root, peer.executable, ...peer.args],
+                  }),
+                }
+              : undefined,
+          }
+        );
+        expect(stopped?.serverIsRunning()).toBe(false);
+        expect(stopped?.mockProcessIsRunning()).toBe(false);
+        expect(fs.existsSync(stopped!.root)).toBe(false);
+        expect(fs.existsSync(stopped!.socketRoot)).toBe(false);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    },
+    15_000
+  );
 
   it('accepts an identical public reply retry without resubmitting a different body', async () => {
     await withE2EFixture(
