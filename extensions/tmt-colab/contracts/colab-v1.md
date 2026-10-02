@@ -26,7 +26,7 @@ and [security acceptance](https://github.com/wkh237/tmt/issues/829#issuecomment-
 The [#830 final report](https://github.com/wkh237/tmt/issues/830#issuecomment-5933724127)
 and [squad acceptance](https://github.com/wkh237/tmt/issues/830#issuecomment-5933744205)
 supply decoder, renderer, anchoring, door and TLS evidence. They leave production
-containment, durable transport and nonce-shell validation to the named slices.
+containment and durable transport to the named slices.
 Baseline and hostile-corpus containment acceptance remain C0 review gates.
 
 ## Channel boundary
@@ -259,24 +259,24 @@ binary payload bytes are hashed in the statement. An owner-statement payload is
 at most 768 KiB serialized, including all nested material; exceeding any cap
 invalidates the statement, never truncates it. Payloads decode as strict
 typed JSON. The operation-specific fields below are exact; keys/digests are
-canonical base64url, IDs/numbers follow the value table. Optional history access
-is explicit, never inferred from possession of a new key.
+canonical base64url, IDs/numbers follow the value table. History access
+follows the page's `page.history` mode, never possession of a new key.
 
-| Operation       | Payload fields / semantic constraints                                                                                                                          |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `member.add`    | `memberId, role, signKey, encKey, pages`; role viewer/commenter/editor; addition under no-history atomically advances each affected page epoch with a baseline |
-| `member.remove` | `memberId, cuts`; remove current authority and advance affected page epochs                                                                                    |
-| `member.role`   | `memberId, role, cuts`; reductions commit affected streams; promotion grants no retroactive authorship                                                         |
-| `link.add`      | `linkId, role, linkSignKey, linkEncKey, pages`; role viewer/commenter/editor; keys match pinned derivations                                                    |
-| `link.remove`   | `linkId, cuts`; revoke every device certified by the link and rotate affected epochs                                                                           |
-| `device.revoke` | `deviceId, cuts`; revoke the selected identity/sessions/grants and rotate affected epochs; a surviving link seed remains a separate bearer capability          |
-| `bridge.add`    | `machineId, machineSignKey, encKey, pages`; an owner machine with the restricted bridge role, not editor                                                       |
-| `epoch.advance` | `pageId, epoch, cuts, baseline, wraps`; next epoch, exact baseline descriptor, remaining-recipient signed wraps                                                |
-| `page.share`    | `pageId, mode, epoch, publishedKeys`; private/link/public; key publication only for local/LAN public mode and explicit history scope                           |
-| `page.scripts`  | `pageId, mode`; interactive/static, owner control only                                                                                                         |
-| `retention.set` | `pageId, days`; positive safe-integer day count or null for forever                                                                                            |
-| `page.archive`  | `pageId`; hide from active lists and freeze writes                                                                                                             |
-| `page.delete`   | `pageId`; cease access and remove backend ciphertext; never revive through replay                                                                              |
+| Operation       | Payload fields / semantic constraints                                                                                                                    |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `member.add`    | `memberId, role, signKey, encKey, pages`; role viewer/commenter/editor; see [history modes](#current-view-baseline-and-history-modes) for earlier epochs |
+| `member.remove` | `memberId, cuts`; remove current authority and advance affected page epochs                                                                              |
+| `member.role`   | `memberId, role, cuts`; reductions commit affected streams; promotion grants no retroactive authorship                                                   |
+| `link.add`      | `linkId, role, linkSignKey, linkEncKey, pages`; role viewer/commenter/editor; keys match pinned derivations                                              |
+| `link.remove`   | `linkId, cuts`; revoke every device certified by the link and rotate affected epochs                                                                     |
+| `device.revoke` | `deviceId, cuts`; revoke the selected identity/sessions/grants and rotate affected epochs; a surviving link seed remains a separate bearer capability    |
+| `bridge.add`    | `machineId, machineSignKey, encKey, pages`; an owner machine with the restricted bridge role, not editor                                                 |
+| `epoch.advance` | `pageId, epoch, cuts, baseline, wraps`; next epoch, exact baseline descriptor, remaining-recipient signed wraps                                          |
+| `page.share`    | `pageId, mode, epoch, publishedKeys`; private/link/public; key publication only for loopback public mode; earlier epochs only under `shared` history     |
+| `page.history`  | `pageId, mode`; `shared` (default when absent) or `current`; owner control only; applies to later joins                                                  |
+| `retention.set` | `pageId, days`; positive safe-integer day count or null for forever                                                                                      |
+| `page.archive`  | `pageId`; hide from active lists and freeze writes                                                                                                       |
+| `page.delete`   | `pageId`; cease access and remove backend ciphertext; never revive through replay                                                                        |
 
 The root owner is implicit, not an assignable member role; v1 has no co-owner
 or signing delegation. Every log statement is produced and signed by the owner's
@@ -437,9 +437,9 @@ into the other writer's document. Conflicting resolution projections MUST use
 verified log revision, then stream sequence and bytewise writer ID as the stable
 tie-break order; they never authorize sends.
 
-### Current-view baseline and no-history admission
+### Current-view baseline and history modes
 
-Every epoch advance, including member addition under the no-history default,
+Every epoch advance, including member addition under `current` history,
 MUST atomically commit an owner-signed baseline descriptor and an encrypted copy
 of the exact current HTML source under the new epoch. The descriptor binds
 `pageId, epoch, sourceDigest, baselineCommitment, title, objectEnvelopeHash, membershipRevision` in
@@ -458,18 +458,26 @@ bytes/commitment, cross-client convergence, old-epoch denial and digest mismatch
 The baseline is an explicit epoch reset, not a checkpoint reattributing others'
 old updates to the owner.
 
-New named members receive current source/title intentionally, but no earlier epoch
-keys, old own streams, deleted text or old snapshots by default. Earlier history
-requires an explicit per-page owner opt-in wrapping earlier keys forward.
+A page's history mode is `shared` by default. A member joining a `shared` page
+receives, in the same owner transition as `member.add`, owner-signed wraps of
+every retained earlier epoch key of that page; no epoch advance is needed, and
+persisted content, own streams, comments, deleted text and snapshots stay
+readable to them. The owner may set `page.history` to `current` per page. A
+member joining a `current` page receives only the current source/title through
+an epoch advance with a baseline, and no earlier epoch keys, old own streams,
+deleted text or old snapshots. A mode change affects later joins only; keys a
+recipient already holds are never recalled. Trusted share UI MUST state which
+mode applies before adding a member or link.
 Existing anchors remap through quote/context at the epoch reset and detach on
 mismatch; old Yjs relative positions MUST NOT be applied to a new document.
 Offline edits in the old epoch MUST NOT be silently reissued under the new one;
 authority and an explicit new edit are required.
 
-A link join receives the current epoch key and therefore can read everything
-in that epoch since its last advance. It does not get earlier epochs by default.
-The share dialog MUST disclose this distinction; an owner can cut that window
-with an epoch advance. There is no automatic per-link-holder history reset.
+Links follow the same mode. Under `shared`, `link.add` carries wraps of the
+retained earlier epoch keys to the link key. Under `current`, a link join reads
+everything in the current epoch since its last advance and no earlier epochs; an
+owner can cut that window with an epoch advance. There is no automatic
+per-link-holder history reset.
 
 ### Rotation and sharing
 
@@ -495,13 +503,13 @@ NEW link identity/seed distributed only to intended holders. Reset link MUST
 perform this removal/rotation, not just change a URL or hide an edge record.
 
 Private pages admit named members only. Link pages additionally admit
-link-certified devices at the link role. Public mode is local/LAN only in v1;
+link-certified devices at the link role. Public mode is loopback-only in v1;
 Firestore and Cloudflare MUST reject public mode and key publication. Going
 public first advances the epoch with a baseline, then publishes only the new
 epoch key in an owner-signed statement. This discloses current live source and
 everything protected by that key thereafter: own streams, comments, intents,
-agent-reply copies and attachments. Earlier epochs remain private unless the
-owner explicitly opted into history. Trusted confirmation MUST state that exact
+agent-reply copies and attachments. Earlier epochs are published too unless the
+page history mode is `current`. Trusted confirmation MUST state that exact
 scope. Public HTML with private discussion is not supported by this key boundary.
 Public readership grants no writing, device certification, grant or Send access.
 
@@ -519,8 +527,8 @@ mode never reactivates a removed identity or its old bearer seed.
 `page.share` publishedKeys is a list of strict `{epoch, key}` entries: epoch is
 a canonical positive decimal string, key is a canonical binary 32-byte epoch
 secret. Entries are unique, sorted by numeric epoch and at most 64. Public mode
-contains exactly the new current epoch plus earlier epochs only when the page's
-history opt-in is on; all earlier entries are below the current epoch. Other
+contains exactly the new current epoch plus, under `shared` history, the retained
+earlier epochs; all earlier entries are below the current epoch. Other
 modes require an empty or absent list. Null is not a list. These syntax bounds do
 not replace the resulting-mode recipient filtering and atomic transition above.
 
@@ -792,33 +800,24 @@ space; there is no separate relay.
 ## Renderer and live anchors
 
 HTML runs in an opaque-origin iframe behind trusted prepended strict CSP.
-Interactive mode uses `sandbox="allow-scripts"`, without same-origin, top
-navigation, popups, forms or modals. Static mode retains `allow-scripts` only for the trusted renderer shell: a
-fresh per-render CSP script nonce authorizes only that shell, blocking page
-script elements and inline handlers. Trusted code removes refresh metadata,
-external href/action/formaction/area/base and SVG navigation affordances before
-rendering; in-page fragment links may remain. Nonce injection must never
-authorize a page-supplied script. The renderer MUST deny app storage,
+Scripts run on every page: the frame uses `sandbox="allow-scripts"`, without
+same-origin, top navigation, popups, forms or modals. There is no static mode.
+The renderer MUST deny app storage,
 keys, cookies/session, bridge access, network APIs, other pages and top navigation.
 It MUST NOT claim complete exfiltration prevention: #830 observed iframe
 self-navigation leakage despite CSP. Tear down any frame navigating after its
-initial render. The #830 no-scripts comparison blocked meta refresh, but does not prove the
-chosen nonce-shell construction. L3 must rerun static attacks with external
-capture, positive shell selection and denied page-script execution, using one
-maintained allowlist sanitizer including namespace, URL, CSS and attribute cases.
-No automatic-leak guarantee applies to the nonce-shell until that gate passes.
-The tested interactive CSP begins `default-src 'none'`, permits inline page
+initial render. The tested CSP begins `default-src 'none'`, permits inline page
 scripts/styles and data images, and denies connect-src, form-action, base-uri,
-object-src and frame-src. Static replaces script permission with only the fresh
-shell nonce. Production CSP/selection message schemas and byte caps must be
+object-src and frame-src. Production CSP/selection message schemas and byte caps must be
 frozen and attacked in L3; a spike CSP is not a general sanitizer audit.
 
-Script policy is an owner-signed page statement plus a viewer's run-as-static
-override, never page content. Default interactive only when all editors are
-owner/named members on a private page; default static for link-editable or public
-pages unless the owner explicitly enables scripts. Enabling scripts discloses
-the self-navigation limit. Editors use a trusted parent source editor bound to
-content; page scripts cannot edit content or change policy. Dashboard record
+There is no script policy and no automatic static mode. Who may view or edit a
+page is the creator's choice through its sharing mode, and the creator owns that
+risk. The share dialog MUST state plainly that anyone who can edit the page can
+change what its scripts do for every viewer, together with the self-navigation
+limit above. Renderer isolation is unconditional. Editors use a trusted parent
+source editor bound to content; page scripts cannot edit content or change
+sharing. Dashboard record
 storage is deferred.
 
 On a content change, debounce about 300 ms and replace the frame with a fresh
@@ -928,15 +927,10 @@ reader can use only an explicitly read-only public session. Public does not
 make write/agent upgrades unauthenticated. DNS rebinding, hostile/missing Origin
 and unauthenticated upgrades MUST reject before effects.
 
-Plain HTTP is loopback-only. Opt-in non-loopback bind MUST use HTTPS and WSS,
-including public pages. Primary certificates are user-supplied (for example
-mkcert/Tailscale). A self-signed fallback requires out-of-band browser trust;
-a printed fingerprint is manual comparison, not authentication bootstrap.
-#830 verifies rustls 0.23.45 (`std,ring,tls12`) / rcgen 0.14.10 (`crypto,ring`),
-ring 0.17.14 and time 0.3.55 with a disposable SAN certificate and explicitly
-trusted Rust client/server on Rust 1.88. L2 must verify product Host allowlisting,
-body/acquisition caps and timeout/shutdown behavior; no live LAN/browser trust
-acceptance follows from that Rust handshake.
+The local space is loopback-only: there is no `--bind`, LAN or other
+non-loopback mode. Other people's machines reach a page only through a cloud
+backend (Firestore, then Cloudflare). L2 verifies Host allowlisting,
+body/acquisition caps and timeout/shutdown behavior.
 
 Firestore uses Hosting, Anonymous Auth for link holders/bridge connector and
 named Google sign-in for named members, Spark by default. Rules admit uid,
@@ -1031,7 +1025,7 @@ epoch admission, Host/Origin/rebinding/upgrade denial and bounded door cleanup.
 L3/L4 prove two browsers and CLI concurrently edit/annotate, persist/reopen,
 namespace/role isolation, decoder hostile-corpus containment, dependency/delete-set
 compaction, concurrent tails, revoked checkpoint replacement, baseline resets,
-no-history joins and snapshot restore after compaction/demotion/public transition.
+`shared` history joins, `current` baseline joins and snapshot restore after compaction/demotion/public transition.
 L3 also proves retained-seed access while a link survives (the documented
 limitation), denial after Reset link plus rotation, and atomic link-to-private /
 public-to-private transitions with links present: removed link-device admission,
@@ -1044,8 +1038,8 @@ L5 proves atomic pairing/receipt recovery, revoked/expired held grants, cross-pa
 machine substitution, operation conflicts, restart uncertainty, confirmed-child
 retry and no duplicate wake. Use an injected core port plus a real built TMT,
 isolated home/private tmux and deterministic agent; observe durable core reply in
-the page. L6 proves management, expiry, archive/delete, local/LAN public disclosure,
-public-to-private subscriptions and HTTPS bind. Acceptance browser suites run
+the page. L6 proves management, expiry, archive/delete, loopback public disclosure
+and public-to-private subscriptions. Acceptance browser suites run
 twice with child/socket/state leak checks. Cloud acceptance is later: demo
 Firestore emulators with two isolated TMT homes, then local workerd/Miniflare
 alarms/R2; injected clocks cover TTL that emulators do not implement.
