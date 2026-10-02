@@ -2129,6 +2129,14 @@ planning resolves cwd once and names an exact thread. The channel contract owns
 the startup, credential and failure limits; real continuity and launcher crash
 recovery remain final consumer acceptance gates.
 
+The unregistered #785 foundations extend that record with persisted pane
+attribution and Unknown/Known foreground state. The record owns exact takeover,
+pruning and withdrawal; a server alone never proves an Unknown foreground ended.
+Startup errors carry cleanup certainty to their eventual lease caller. Permission
+planning routes supported typed settings to the server/thread and refuses generic
+permission overrides before spawn. No shared routing or registration changes in
+this slice; the [contract](contracts/codex-channel-v1.md) owns these definitions.
+
 ### Provider channels
 
 An optional driver port lets a launch hand talk payloads to a running agent

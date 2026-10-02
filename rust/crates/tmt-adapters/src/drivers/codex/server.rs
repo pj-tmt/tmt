@@ -31,14 +31,66 @@ pub struct OwnedServer {
     token: String,
 }
 
+/// Carries teardown certainty across the start boundary. Callers may withdraw
+/// enrollment only when a failed start confirms cleanup.
+#[derive(Debug)]
+pub struct StartError {
+    error: io::Error,
+    cleanup_error: Option<io::Error>,
+}
+impl StartError {
+    pub fn cleanup_confirmed(&self) -> bool {
+        self.cleanup_error.is_none()
+    }
+    pub fn kind(&self) -> io::ErrorKind {
+        self.error.kind()
+    }
+    pub(super) fn after_cleanup(error: io::Error, cleanup: io::Result<()>) -> Self {
+        Self {
+            error,
+            cleanup_error: cleanup.err(),
+        }
+    }
+}
+impl From<io::Error> for StartError {
+    fn from(error: io::Error) -> Self {
+        Self::after_cleanup(error, Ok(()))
+    }
+}
+impl std::fmt::Display for StartError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.error)?;
+        if let Some(error) = &self.cleanup_error {
+            write!(f, "; cleanup unconfirmed: {error}")?;
+        }
+        Ok(())
+    }
+}
+impl std::error::Error for StartError {}
+
 impl OwnedServer {
     pub fn start(
         command: &RuntimeCommand,
         options: &LaunchOptions,
         directory: &Path,
         deadline: Instant,
-    ) -> io::Result<Self> {
-        let mut files = Files::create(directory)?;
+    ) -> Result<Self, StartError> {
+        Self::start_with_environment(command, options, directory, deadline, &[])
+    }
+
+    pub(super) fn start_with_environment(
+        command: &RuntimeCommand,
+        options: &LaunchOptions,
+        directory: &Path,
+        deadline: Instant,
+        environment: &[(std::ffi::OsString, std::ffi::OsString)],
+    ) -> Result<Self, StartError> {
+        let mut files = Files::create(directory).map_err(|error| {
+            StartError::after_cleanup(
+                error,
+                Err(io::Error::other("Generation ownership was not acquired")),
+            )
+        })?;
         let token = format!(
             "{}{}",
             uuid::Uuid::new_v4().simple(),
@@ -58,7 +110,7 @@ impl OwnedServer {
             "--ws-token-file".into(),
             directory.join("capability").into_os_string(),
         ]);
-        let job = Exec::cmd(&command.executable)
+        let mut launch = Exec::cmd(&command.executable)
             .args(&args)
             .cwd(options.working_directory())
             .env("NO_COLOR", "1")
@@ -66,27 +118,37 @@ impl OwnedServer {
             .setpgid()
             .stdin(Redirection::Null)
             .stdout(Redirection::Null)
-            .stderr(log.try_clone()?)
-            .start()?;
-        let resources = Resources {
+            .stderr(log.try_clone()?);
+        for (name, value) in environment {
+            launch = launch.env(name, value);
+        }
+        let job = launch.start()?;
+        let mut resources = Resources {
             process: Process(Some(job)),
             files,
         };
-        let address = wait_address(&mut log, deadline)?;
-        let incarnation = match observe_runtime_process(
-            &UnixCommandRunner,
-            u64::from(resources.process.pid()),
-            deadline,
-        ) {
-            Ok(ProcessObservation::Live(incarnation)) => incarnation,
-            _ => {
-                return Err(io::Error::other(
-                    "Owned Codex app-server could not be observed",
-                ));
-            }
+        let initialized = (|| -> io::Result<_> {
+            let address = wait_address(&mut log, deadline)?;
+            let incarnation = match observe_runtime_process(
+                &UnixCommandRunner,
+                u64::from(resources.process.pid()),
+                deadline,
+            ) {
+                Ok(ProcessObservation::Live(incarnation)) => incarnation,
+                _ => {
+                    return Err(io::Error::other(
+                        "Owned Codex app-server could not be observed",
+                    ));
+                }
+            };
+            let endpoint = Endpoint::new(address, token.clone())
+                .map_err(|_| io::Error::other("Invalid owned Codex listener"))?;
+            Ok((incarnation, endpoint))
+        })();
+        let (incarnation, endpoint) = match initialized {
+            Ok(value) => value,
+            Err(error) => return Err(StartError::after_cleanup(error, resources.stop())),
         };
-        let endpoint = Endpoint::new(address, token.clone())
-            .map_err(|_| io::Error::other("Invalid owned Codex listener"))?;
         Ok(Self {
             resources,
             incarnation,

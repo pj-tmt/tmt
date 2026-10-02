@@ -165,3 +165,96 @@ fn relative_and_absolute_cd_have_one_observable_directory_from_either_spawn_cwd(
         }
     }
 }
+
+#[test]
+fn permission_flags_belong_to_thread_start_never_remote_resume() {
+    for args in [
+        vec!["-s", "read-only", "-a", "on-request"],
+        vec!["--sandbox=read-only", "--ask-for-approval=on-request"],
+    ] {
+        let selected = command(&args);
+        let options = LaunchOptions::parse(&selected, Path::new("/owned")).unwrap();
+        assert_eq!(
+            options.thread_start_params(),
+            serde_json::json!({
+                "cwd":"/owned", "allowProviderModelFallback":false,
+                "sandbox":"read-only", "approvalPolicy":"on-request"
+            })
+        );
+        let foreground = options
+            .foreground(
+                &selected,
+                "ws://127.0.0.1:50000",
+                &ProviderSessionId::new("exact-thread").unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            foreground.args,
+            command(&[
+                "resume",
+                "--remote",
+                "ws://127.0.0.1:50000",
+                "--remote-auth-token-env",
+                TOKEN_ENV,
+                "-C",
+                "/owned",
+                "exact-thread"
+            ])
+            .args
+        );
+        assert_eq!(
+            options.server_arguments(),
+            command(&[
+                "-c",
+                "sandbox_mode=\"read-only\"",
+                "-c",
+                "approval_policy=\"on-request\""
+            ])
+            .args
+        );
+    }
+    let options = LaunchOptions::parse(&command(&[]), Path::new("/owned")).unwrap();
+    assert_eq!(
+        options.thread_start_params(),
+        serde_json::json!({"cwd":"/owned", "allowProviderModelFallback":false})
+    );
+    assert!(options.server_arguments().is_empty());
+}
+
+#[test]
+fn unmapped_permission_config_and_values_are_explicitly_refused() {
+    for key in [
+        "approval_policy",
+        "approvals_reviewer",
+        "sandbox_mode",
+        "default_permissions",
+        "permissions.profile",
+        "network.enabled",
+        "sandbox_workspace_write.network_access",
+        "\"approval_policy\"",
+        "'sandbox_mode'",
+        "permi\\ssions",
+    ] {
+        assert_eq!(
+            LaunchOptions::parse(
+                &command(&["-c", &format!("{key}=true")]),
+                Path::new("/owned")
+            )
+            .unwrap_err(),
+            AttachmentError::UnsupportedConfig,
+            "{key}"
+        );
+    }
+    for (flag, value, named) in [
+        ("-s", "unknown", "--sandbox"),
+        ("-a", "on-failure", "--ask-for-approval"),
+    ] {
+        assert_eq!(
+            LaunchOptions::parse(&command(&[flag, value]), Path::new("/owned")).unwrap_err(),
+            AttachmentError::UnsupportedPermission(named)
+        );
+    }
+    let selected = command(&["-c", "model_reasoning_effort=\"low\""]);
+    let options = LaunchOptions::parse(&selected, Path::new("/owned")).unwrap();
+    assert_eq!(options.server_arguments(), selected.args);
+}
