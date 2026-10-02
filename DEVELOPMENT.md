@@ -1942,6 +1942,36 @@ adapter's acquisition boundary; actual local TLS fixtures use test-only trust.
 Test old/new real release archives separately from synthetic tar fixtures, with
 different embedded skills, to prove the newly active executable supplies refresh.
 
+Channel discovery uses GitHub's product-prefixed `git/matching-refs/tags/<prefix>`
+API and exact-tag release metadata, independent of the repository's total release
+count. Matching refs currently return a complete array without pagination, including
+more than 1,000 refs; the adapter also follows a supplied Link `next` relation, admitting
+only consecutive pages of the same product endpoint. Ref discovery has at most ten
+pages and a total 2 MiB response budget. Only complete discovery permits semantic-version
+selection; ref order and release creation dates do not select a version. The ordinary
+metadata path makes exactly two requests (refs and the highest candidate's release).
+Confirmed missing releases and explicit drafts are the exceptions that require another
+tag lookup, capped at 32 lookups per invocation. Distinct published versions with equal
+precedence fail. Shared deadlines stay at ten seconds for metadata-only checks and
+60 seconds for acquisition, with existing bounded HTTPS redirects and no new retries.
+Incomplete ref discovery or an exhausted candidate scan fails with the unchanged
+`Release discovery exceeds its bound; select an exact version with --to.` error
+(`InvalidData`, surfaced as `NATIVE_UPGRADE_FAILED` by CLI upgrade); an extension check
+reports `unknown` on discovery failure. Oversized HTTP responses retain the transport
+size-limit error. Neither case selects a release from partial evidence.
+
+Verify discovery with injected responses, never live API tests: more than 1,000
+product refs without Link; complete pagination; a winner before and after 300
+interleaved product/channel releases; numeric alpha ordering; stable/alpha/beta/rc
+separation; tagged drafts and tags without releases; malformed refs/links,
+duplicate refs, cross-endpoint pagination, page/byte/request exhaustion and HTTP
+failure without older-version fallback. Assert the two-request common case and
+no release/asset request before complete ref discovery. Retain exact-tag and
+pinned no-network controls and the installer's prior-file/no-staging assertions.
+The generated shell bootstrap fixes a manifest version and uses versioned download
+URLs; it does not perform channel discovery. CLI alpha publication flags make
+`releases/latest` unsuitable for stable-channel selection.
+
 Check pinned no-network behavior, explicit pin/unpin, unchanged release identity,
 preserved old bytes, missing/mutable release rejection, dual digest checks,
 same-version integrity and concurrent pin fencing. Cancellation and finalization

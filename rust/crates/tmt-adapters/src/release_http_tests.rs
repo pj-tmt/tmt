@@ -27,6 +27,7 @@ const SERVER_WAIT: Duration = Duration::from_secs(2);
 struct Response {
     status: u16,
     location: Option<String>,
+    link: Option<String>,
     body: Vec<u8>,
     declared_length: Option<usize>,
     emit_length: bool,
@@ -39,6 +40,7 @@ impl Response {
         Self {
             status: 200,
             location: None,
+            link: None,
             body: body.into(),
             declared_length: None,
             emit_length: true,
@@ -212,6 +214,9 @@ fn serve_connection(
     if let Some(location) = &response.location {
         write!(stream, "Location: {location}\r\n")?;
     }
+    if let Some(link) = &response.link {
+        write!(stream, "Link: {link}\r\n")?;
+    }
     if response.emit_length {
         let length = response.declared_length.unwrap_or(response.body.len());
         write!(stream, "Content-Length: {length}\r\n")?;
@@ -327,7 +332,8 @@ fn valid_platform_like_task_trust_fetches_over_real_tls() {
             Instant::now() + Duration::from_secs(1),
         )
         .expect("trusted TLS request");
-    assert_eq!(bytes, b"native");
+    assert_eq!(bytes.body, b"native");
+    assert!(bytes.link.is_none());
 }
 
 #[test]
@@ -501,4 +507,27 @@ fn request_errors_retain_causes_without_echoing_rejected_credentials() {
         assert!(message.contains("HTTPS request failed:"));
         assert!(!message.contains("secret"));
     }
+}
+
+#[test]
+fn metadata_response_preserves_pagination_evidence_over_real_tls() {
+    let (config, certificate) = tls_material();
+    let link = "<https://api.github.com/repos/pj-tmt/tmt/git/matching-refs/tags/v?per_page=100&page=2>; rel=\"next\"";
+    let server = TestServer::spawn(
+        config,
+        Response {
+            link: Some(link.into()),
+            ..Response::ok("[]")
+        },
+    );
+    let response = client(&certificate)
+        .get(
+            &server.url("/refs"),
+            "application/vnd.github+json",
+            64,
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap();
+    assert_eq!(response.body, b"[]");
+    assert_eq!(response.link.as_deref(), Some(link));
 }

@@ -24,7 +24,7 @@ pub(super) fn download(
     exact: Option<&Version>,
     target: &str,
     deadline: Instant,
-    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>>,
+    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
 ) -> io::Result<DownloadedRelease> {
     download_product(super::Product::Cli, channel, exact, target, deadline, get)
 }
@@ -35,16 +35,19 @@ pub(super) fn download_product(
     exact: Option<&Version>,
     target: &str,
     deadline: Instant,
-    mut get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>>,
+    mut get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
 ) -> io::Result<DownloadedRelease> {
     let endpoint = format!("https://api.github.com/repos/{OFFICIAL_REPOSITORY}/releases");
     let document = if let Some(version) = exact {
-        json(&get(
-            &format!("{endpoint}/tags/{}{version}", product.tag_prefix()),
-            "application/vnd.github+json",
-            METADATA_LIMIT,
-            deadline,
-        )?)?
+        json(
+            &get(
+                &format!("{endpoint}/tags/{}{version}", product.tag_prefix()),
+                "application/vnd.github+json",
+                METADATA_LIMIT,
+                deadline,
+            )?
+            .body,
+        )?
     } else {
         discover_latest(product, channel, deadline, &mut get)?.0
     };
@@ -100,69 +103,177 @@ pub(super) fn download_product(
     })
 }
 
-/// The newest non-draft release of `product` in `channel`, found by bounded
-/// discovery (at most three pages), with its parsed version. No asset is read.
+/// Highest-precedence published release in the product's channel. Complete ref
+/// discovery precedes selection; release lookups stop after the first published
+/// precedence group, so the ordinary metadata path costs two requests.
 pub(super) fn discover_latest(
     product: super::Product,
     channel: Channel,
     deadline: Instant,
-    get: &mut impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>>,
+    get: &mut impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
 ) -> io::Result<(Value, Version)> {
-    let endpoint = format!("https://api.github.com/repos/{OFFICIAL_REPOSITORY}/releases");
-    let mut releases = Vec::new();
-    for page in 1..=3 {
-        let document = json(&get(
-            &format!("{endpoint}?per_page=100&page={page}"),
+    let repository = format!("https://api.github.com/repos/{OFFICIAL_REPOSITORY}");
+    let endpoint = format!(
+        "{repository}/git/matching-refs/tags/{}",
+        product.tag_prefix()
+    );
+    let prefix = format!("refs/tags/{}", product.tag_prefix());
+    let mut url = format!("{endpoint}?per_page=100&page=1");
+    let mut candidates = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut remaining_bytes = METADATA_LIMIT;
+    for page in 1..=MAX_REF_PAGES {
+        let response = get(
+            &url,
             "application/vnd.github+json",
-            METADATA_LIMIT,
+            remaining_bytes,
             deadline,
-        )?)?;
+        )?;
+        remaining_bytes = remaining_bytes
+            .checked_sub(response.body.len())
+            .ok_or_else(discovery_bound)?;
+        let document = json(&response.body)?;
         let entries = document
             .as_array()
             .ok_or_else(|| invalid("Invalid release discovery response."))?;
-        if entries.len() > 100 {
-            return Err(invalid("Release discovery exceeds its page bound."));
+        for entry in entries {
+            let reference = entry["ref"]
+                .as_str()
+                .ok_or_else(|| invalid("Invalid release discovery reference."))?;
+            let suffix = reference.strip_prefix(&prefix).ok_or_else(|| {
+                invalid("Release discovery reference has the wrong product prefix.")
+            })?;
+            if !seen.insert(reference.to_owned()) {
+                return Err(invalid("Duplicate release discovery reference."));
+            }
+            if let Ok(version) = suffix.parse::<Version>()
+                && channel.accepts(&version)
+            {
+                candidates.push((format!("{}{suffix}", product.tag_prefix()), version));
+            }
         }
-        releases.extend(
-            entries
-                .iter()
-                .filter(|entry| entry["draft"] == false)
-                .cloned(),
-        );
-        if entries.len() < 100 {
+        let Some(next) = next_page(response.link.as_deref())? else {
+            break;
+        };
+        if page == MAX_REF_PAGES || remaining_bytes == 0 {
+            return Err(discovery_bound());
+        }
+        // GitHub currently returns all matching refs without Link, including
+        // arrays larger than 1,000. If it paginates, admit only the next page of
+        // this same product lookup, not a header-selected host/path or a cycle.
+        if next != format!("{endpoint}?per_page=100&page={}", page + 1)
+            && next != format!("{endpoint}?page={}&per_page=100", page + 1)
+        {
+            return Err(invalid("Invalid release discovery pagination URL."));
+        }
+        url = next.to_owned();
+    }
+    candidates.sort_by(|(_, a), (_, b)| b.cmp_precedence(a));
+    let mut published: Vec<(Value, Version)> = Vec::new();
+    for (requests, (tag, expected)) in candidates.into_iter().enumerate() {
+        if published
+            .first()
+            .is_some_and(|(_, version)| version.cmp_precedence(&expected).is_ne())
+        {
             break;
         }
-        if page == 3 {
+        if requests == MAX_RELEASE_LOOKUPS {
+            return Err(discovery_bound());
+        }
+        let response = match get(
+            &format!("{repository}/releases/tags/{tag}"),
+            "application/vnd.github+json",
+            METADATA_LIMIT,
+            deadline,
+        ) {
+            Ok(response) => response,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        let release = json(&response.body)?;
+        if version(product, &release)? != expected {
             return Err(invalid(
-                "Release discovery exceeds its bound; select an exact version with --to.",
+                "Release version does not match its discovery reference.",
             ));
         }
+        match release["draft"].as_bool() {
+            Some(true) => continue,
+            Some(false) => published.push((release, expected)),
+            None => return Err(invalid("Invalid release discovery draft metadata.")),
+        }
     }
-    let candidates = releases
-        .iter()
-        .filter_map(|release| {
-            version(product, release)
-                .ok()
-                .map(|version| (release, version))
-        })
-        .collect::<Vec<_>>();
-    let versions = candidates
+    let versions = published
         .iter()
         .map(|(_, version)| version.clone())
         .collect::<Vec<_>>();
-    let selected = latest_in_channel(&versions, channel)
-        .map_err(io::Error::other)?
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                "No release is available in the selected native channel.",
-            )
-        })?;
-    let (release, version) = candidates
-        .iter()
-        .find(|(_, version)| version == selected)
-        .expect("selected release exists");
-    Ok(((*release).clone(), version.clone()))
+    latest_in_channel(&versions, channel).map_err(io::Error::other)?;
+    published.into_iter().next().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "No release is available in the selected native channel.",
+        )
+    })
+}
+
+const MAX_REF_PAGES: usize = 10;
+const MAX_RELEASE_LOOKUPS: usize = 32;
+
+fn discovery_bound() -> io::Error {
+    invalid("Release discovery exceeds its bound; select an exact version with --to.")
+}
+
+/// The optional Link header is untrusted evidence of incomplete discovery.
+/// Malformed or ambiguous links must not become an apparent final page.
+fn next_page(link: Option<&str>) -> io::Result<Option<&str>> {
+    let Some(link) = link else { return Ok(None) };
+    let mut next = None;
+    for part in link.split(',') {
+        let (url, parameters) = part
+            .trim()
+            .split_once('>')
+            .ok_or_else(|| invalid("Invalid release discovery pagination header."))?;
+        let url = url
+            .strip_prefix('<')
+            .filter(|url| !url.is_empty())
+            .ok_or_else(|| invalid("Invalid release discovery pagination header."))?;
+        if !parameters.trim_start().starts_with(';') {
+            return Err(invalid("Invalid release discovery pagination header."));
+        }
+        let mut relation = None;
+        for parameter in parameters.split(';').skip(1) {
+            if let Some(value) = parameter.trim().strip_prefix("rel=") {
+                if relation.is_some() {
+                    return Err(invalid("Invalid release discovery pagination header."));
+                }
+                let value = if value.starts_with('"') {
+                    value
+                        .strip_prefix('"')
+                        .and_then(|value| value.strip_suffix('"'))
+                        .ok_or_else(|| invalid("Invalid release discovery pagination header."))?
+                } else {
+                    value
+                };
+                if value.is_empty()
+                    || !value
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b' ')
+                {
+                    return Err(invalid("Invalid release discovery pagination header."));
+                }
+                relation = Some(value);
+            }
+        }
+        let relation =
+            relation.ok_or_else(|| invalid("Invalid release discovery pagination header."))?;
+        if relation
+            .split_ascii_whitespace()
+            .any(|relation| relation.eq_ignore_ascii_case("next"))
+            && next.replace(url).is_some()
+        {
+            return Err(invalid("Invalid release discovery pagination header."));
+        }
+    }
+    Ok(next)
 }
 
 fn json(bytes: &[u8]) -> io::Result<Value> {
@@ -223,14 +334,15 @@ fn fetch_asset(
     asset: &Asset,
     maximum: usize,
     deadline: Instant,
-    get: &mut impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>>,
+    get: &mut impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
 ) -> io::Result<Vec<u8>> {
     let bytes = get(
         &format!("{endpoint}/assets/{}", asset.id),
         "application/octet-stream",
         maximum,
         deadline,
-    )?;
+    )?
+    .body;
     if bytes.len() != asset.size || sha256(&bytes) != asset.digest {
         return Err(invalid(
             "Downloaded asset does not match GitHub's recorded size and digest.",

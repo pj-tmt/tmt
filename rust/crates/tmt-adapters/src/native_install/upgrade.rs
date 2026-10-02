@@ -86,7 +86,7 @@ pub fn upgrade_product(
 fn upgrade_with(
     request: UpgradeRequest<'_>,
     checkpoint: impl FnMut() -> io::Result<()>,
-    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>>,
+    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
 ) -> Result<UpgradeReport, UpgradeFailure> {
     upgrade_product_with(super::Product::Cli, request, None, None, checkpoint, get)
 }
@@ -119,7 +119,7 @@ fn upgrade_product_with(
     verifier: Option<ReleaseVerifier<'_>>,
     selected: Option<&semver::Version>,
     mut checkpoint: impl FnMut() -> io::Result<()>,
-    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>>,
+    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
 ) -> Result<UpgradeReport, UpgradeFailure> {
     checkpoint()?;
     let current = super::inspect_product(product, request.executable)?;

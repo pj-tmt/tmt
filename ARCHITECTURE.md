@@ -2800,8 +2800,19 @@ path also serves public Office installation. `office_command` owns consent and
 typed composition, not a second downloader. Default Office prefix is the user's
 `.local`, independent of application configuration; `--prefix` selects another
 owned installation. Public distribution and pairing remain separate gates.
-GitHub selection filters CLI `v`, Office `tmt-office-v` and Squad `tmt-squad-v`
-tags independently.
+GitHub selection discovers matching refs under CLI `v`, Office `tmt-office-v`
+and Squad `tmt-squad-v` independently, rather than scanning repository-wide
+release history. Complete bounded ref discovery precedes core channel filtering
+and semantic-version precedence selection. Exact-tag release lookups skip only
+confirmed missing releases or explicit drafts and stop at the highest published
+precedence group; distinct published versions of equal precedence are ambiguous.
+The ordinary metadata path is one refs request and one release lookup, preserving
+unauthenticated request capacity. Optional Link pagination stays on the same
+product endpoint under one metadata byte budget and deadline; incomplete discovery
+fails closed. DEVELOPMENT owns page/request bounds and verification cases.
+GitHub's latest pointer cannot select stable: CLI alphas are normal releases marked
+latest. Acquisition retains the existing immutable release, product prerelease
+flag, asset digest and manifest checks before installation.
 Downloaded bytes feed the same bounded artifact verifier directly; there is no
 extra download-to-disk/read-back stage. Publication runs the caller's release
 verifier on the written candidate before its receipt, so a rejection keeps the

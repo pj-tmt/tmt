@@ -22,6 +22,21 @@ const ALLOWED_HOSTS: &[&str] = &[
     "objects.githubusercontent.com",
 ];
 
+/// Acquisition bytes and the optional pagination header. Discovery, not HTTPS,
+/// owns whether and where another metadata page may be requested.
+#[derive(Debug)]
+pub(crate) struct Response {
+    pub body: Vec<u8>,
+    pub link: Option<String>,
+}
+
+#[cfg(test)]
+impl From<Vec<u8>> for Response {
+    fn from(body: Vec<u8>) -> Self {
+        Self { body, link: None }
+    }
+}
+
 /// The bounded synchronous HTTPS client used by native release acquisition.
 pub(crate) struct Https {
     agent: Agent,
@@ -64,7 +79,7 @@ impl Https {
         accept: &str,
         maximum: usize,
         deadline: Instant,
-    ) -> io::Result<Vec<u8>> {
+    ) -> io::Result<Response> {
         #[cfg(test)]
         let mut current = validate_url_with_loopback(url, self.allow_loopback)?;
         #[cfg(not(test))]
@@ -133,6 +148,18 @@ impl Https {
                 }
             }
 
+            let links = response
+                .headers()
+                .get_all("link")
+                .iter()
+                .map(|value| {
+                    value
+                        .to_str()
+                        .map(str::to_owned)
+                        .map_err(|_| invalid_response("invalid pagination header"))
+                })
+                .collect::<io::Result<Vec<_>>>()?;
+            let link = (!links.is_empty()).then(|| links.join(","));
             let bytes = response
                 .body_mut()
                 .with_config()
@@ -142,7 +169,7 @@ impl Https {
             if bytes.len() > maximum {
                 return Err(invalid_response("HTTPS response exceeds its size limit"));
             }
-            return Ok(bytes);
+            return Ok(Response { body: bytes, link });
         }
 
         unreachable!("redirect loop returns before exhausting its bounded range")

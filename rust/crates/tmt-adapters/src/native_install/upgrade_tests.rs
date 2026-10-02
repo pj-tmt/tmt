@@ -9,12 +9,13 @@ use std::fs;
 #[path = "companion_release_tests.rs"]
 mod companion_release_tests;
 
-fn release_download() -> impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>> {
+fn release_download()
+-> impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response> {
     let (release, manifest, archive, _) =
         release::valid_fixture("1.2.4", "aarch64-apple-darwin", 42);
     move |url, _, limit, deadline| {
         assert!(deadline > Instant::now());
-        assert!(url.starts_with("https://api.github.com/repos/pj-tmt/tmt/releases"));
+        assert!(url.starts_with("https://api.github.com/repos/pj-tmt/tmt/"));
         let bytes = if url.ends_with("/assets/421") {
             manifest.clone()
         } else if url.ends_with("/assets/422") {
@@ -23,10 +24,10 @@ fn release_download() -> impl FnMut(&str, &str, usize, Instant) -> io::Result<Ve
             serde_json::to_vec(&release).unwrap()
         } else {
             assert!(url.ends_with("?per_page=100&page=1"));
-            serde_json::to_vec(&vec![release.clone()]).unwrap()
+            serde_json::to_vec(&serde_json::json!([{ "ref": format!("refs/tags/{}", release["tag_name"].as_str().unwrap()) }])).unwrap()
         };
         assert!(bytes.len() <= limit);
-        Ok(bytes)
+        Ok(bytes.into())
     }
 }
 
@@ -444,9 +445,9 @@ fn missing_release_preserves_active_files_without_staging() {
             calls += 1;
             assert_eq!(
                 url,
-                "https://api.github.com/repos/pj-tmt/tmt/releases?per_page=100&page=1"
+                "https://api.github.com/repos/pj-tmt/tmt/git/matching-refs/tags/v?per_page=100&page=1"
             );
-            Ok(b"[]".to_vec())
+            Ok(b"[]".to_vec().into())
         },
     )
     .unwrap_err();
@@ -489,14 +490,15 @@ fn consent_selected_versions_upgrade_cli_and_squad_without_creating_pins() {
             Some(&selected),
             || Ok(()),
             |url, _, _, _| {
-                Ok(if url.ends_with("/assets/421") {
+                let bytes = if url.ends_with("/assets/421") {
                     manifest.clone()
                 } else if url.ends_with("/assets/422") {
                     archive.clone()
                 } else {
                     assert!(url.ends_with(&expected));
                     serde_json::to_vec(&release).unwrap()
-                })
+                };
+                Ok(bytes.into())
             },
         )
         .unwrap();

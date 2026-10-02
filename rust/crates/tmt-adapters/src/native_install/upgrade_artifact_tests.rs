@@ -97,7 +97,7 @@ fn injected_release(
     release: Value,
     manifest: Vec<u8>,
     archive: Vec<u8>,
-) -> impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>> {
+) -> impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response> {
     let endpoint = "https://api.github.com/repos/pj-tmt/tmt/releases".to_owned();
     let exact = format!("{endpoint}/tags/v{version}");
     let manifest_url = format!("{endpoint}/assets/{}", RELEASE_ID * 10 + 1);
@@ -113,7 +113,7 @@ fn injected_release(
         };
         assert_eq!(accept, expected_accept);
         assert!(bytes.len() <= maximum);
-        Ok(bytes)
+        Ok(bytes.into())
     }
 }
 
