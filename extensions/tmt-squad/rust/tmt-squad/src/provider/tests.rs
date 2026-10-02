@@ -153,6 +153,10 @@ fn provider_mistakes_are_refused_with_their_place() {
             "a field Squad reads itself",
         ),
         (
+            "[squad.p.fields.note]\nrun = [\"gh\"]\n",
+            "a field Squad reads itself",
+        ),
+        (
             "[squad.p.fields.Bad]\nrun = [\"gh\"]\n",
             "must be named like a field",
         ),

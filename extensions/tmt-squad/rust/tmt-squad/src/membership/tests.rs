@@ -105,7 +105,7 @@ fn legacy_lead_is_materialized_before_role_is_changed_or_cleared() {
 #[test]
 fn ordinary_fields_and_unchanged_roles_do_not_allocate_markers() {
     for (name, role, pair) in [
-        ("ordinary-field", "reviewer", "note=reviewing"),
+        ("ordinary-field", "reviewer", "task=reviewing"),
         ("ordinary-role", "reviewer", "role=testing"),
         ("same-lead", "lead", "role=lead"),
     ] {
@@ -241,4 +241,45 @@ fn a_capped_previous_lead_fails_before_any_replacement_write() {
     let calls = fixture.calls();
     assert!(!calls.contains("meta set"));
     assert!(!calls.contains("room join"));
+}
+
+#[test]
+fn retired_note_refuses_all_pairs_before_core_reads_or_writes() {
+    let fixture = Fixture::new("retired-note", json!([member("sol", json!({}))]));
+    let error = set(
+        &fixture.core,
+        &fixture.squad,
+        "sol",
+        &["task=new work".into(), "note=old summary".into()],
+    )
+    .err()
+    .unwrap();
+    assert_eq!(error.code, "SQUAD_NOTE_RETIRED");
+    let (what, hint) = error.human();
+    assert_eq!(what, "The per-member note is retired");
+    assert!(hint.unwrap().contains("tmt notes path --identity <member>"));
+    assert!(hint.unwrap().contains("task="));
+    assert!(hint.unwrap().contains("pending="));
+    assert!(
+        !fixture.root.join("calls").exists(),
+        "validation precedes every core call"
+    );
+}
+
+#[test]
+fn legacy_note_is_excluded_on_read_and_can_still_be_cleared() {
+    let fixture = Fixture::new(
+        "clear-note",
+        json!([member("sol", json!({"squad.p.note": "legacy"}))]),
+    );
+    let stored = fixture.root.join("sol-squad.p.note");
+    fs::write(&stored, "legacy").unwrap();
+    let members = fixture.squad.roster(&fixture.core).unwrap();
+    assert!(!members[0].fields.contains_key("note"));
+    assert_eq!(fs::read_to_string(&stored).unwrap(), "legacy");
+    assert!(!fixture.calls().contains("meta rm"));
+    let outcome = set(&fixture.core, &fixture.squad, "sol", &["note=".into()]).unwrap();
+    assert!(outcome.complete);
+    assert_eq!(outcome.document["applied"], json!(["squad.p.note"]));
+    assert!(!stored.exists());
 }

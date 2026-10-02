@@ -1242,6 +1242,64 @@ describe('squad extension', () => {
     });
   });
 
+  it('retires row notes without deleting legacy metadata and still accepts an explicit clear', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'coder');
+      await squad(sandbox, ['init', 'product']);
+      await squad(sandbox, ['add', 'coder']);
+      expect(
+        (
+          await runCli(sandbox, [
+            'identity',
+            'meta',
+            'set',
+            'squad.product.note',
+            'legacy summary',
+            '--identity',
+            'coder',
+          ])
+        ).status
+      ).toBe(0);
+      const before = observe(sandbox);
+      const invalid = await squad(sandbox, ['set', 'coder', 'task=new task', 'note=new summary']);
+      expect(invalid.status).toBe(1);
+      expect(invalid.body.error).toMatchObject({ code: 'SQUAD_NOTE_RETIRED' });
+      expect(invalid.body.error.message).toContain('tmt notes path --identity <member>');
+      expect(invalid.body.error.message).toContain('task=');
+      expect(invalid.body.error.message).toContain('pending=');
+      expect(observe(sandbox)).toEqual(before);
+      const human = await runCli(sandbox, ['sq', 'set', 'coder', 'note=new summary']);
+      expect(human.status).toBe(1);
+      expect(human.stdout).toBe('');
+      expect(human.stderr).toContain('error: The per-member note is retired');
+      expect(human.stderr).toContain('hint: tmt notes path --identity <member>');
+      expect(observe(sandbox)).toEqual(before);
+      // A configured legacy note line cannot redisplay the retained metadata.
+      writeFileSync(
+        path.join(sandbox.globalDir, 'squad.toml'),
+        '[squad.product]\nlayout = "crew"\n[squad.product.rows]\ncolumns = [{name = "member"}, {name = "note"}]\nlines = [["member"], ["", "note"]]\n'
+      );
+      const listed = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(listed.status).toBe(0);
+      const row = listed.body.sections[0].rows[0];
+      expect(row).not.toHaveProperty('note');
+      expect(row.fields).not.toHaveProperty('note');
+      const text = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
+      expect(text.status).toBe(0);
+      expect(text.stdout).not.toContain('legacy summary');
+      expect(text.stdout).not.toContain('note:');
+      expect(observe(sandbox)).toEqual(before);
+      const cleared = await squad(sandbox, ['set', 'coder', 'note=']);
+      expect(cleared.status).toBe(0);
+      expect(cleared.body.applied).toEqual(['squad.product.note']);
+      expect(observe(sandbox).metadata).toEqual(
+        before.metadata.filter((entry) => entry.key !== 'squad.product.note')
+      );
+      expect((await squad(sandbox, ['set', 'coder', 'note='])).status).toBe(0);
+    });
+  });
+
   it('manages lead and members through core rooms and namespaced metadata only', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
@@ -1272,13 +1330,8 @@ describe('squad extension', () => {
         'auth-fix',
         'state=blocked',
         'pending=approve the token rotation plan',
-        'note=needs a login-vs-sweep call',
       ]);
-      expect(set.body.applied).toEqual([
-        'squad.product.state',
-        'squad.product.pending',
-        'squad.product.note',
-      ]);
+      expect(set.body.applied).toEqual(['squad.product.state', 'squad.product.pending']);
 
       writeFileSync(
         path.join(sandbox.globalDir, 'squad.toml'),
@@ -1300,11 +1353,12 @@ describe('squad extension', () => {
       expect(rows[0]).toMatchObject({
         state: 'blocked',
         pending: 'approve the token rotation plan',
-        note: 'needs a login-vs-sweep call',
         presence: 'offline',
         fields: { state: 'blocked' },
       });
-      expect(rows[1]).toMatchObject({ state: 'working', pending: null, note: null });
+      expect(rows[1]).toMatchObject({ state: 'working', pending: null });
+      expect(rows[0]).not.toHaveProperty('note');
+      expect(rows[1]).not.toHaveProperty('note');
       // The lead skill documents this row shape; it must not drift silently.
       const skill = readFileSync(
         fileURLToPath(
@@ -1356,7 +1410,7 @@ describe('squad extension', () => {
       expect((await squad(sandbox, ['set', 'auth-fix', 'pending='])).status).toBe(0);
       expect((await squad(sandbox, ['lead', 'Rin'])).body.replaced).toEqual(['Sol']);
       const removed = await squad(sandbox, ['remove', 'auth-fix']);
-      expect(removed.body.cleared.sort()).toEqual(['note', 'state']);
+      expect(removed.body.cleared.sort()).toEqual(['state']);
       expect((await squad(sandbox, ['remove', 'auth-fix'])).body.cleared).toEqual([]);
 
       const after = observe(sandbox);
@@ -1398,9 +1452,9 @@ describe('squad extension', () => {
         stderr: "error: Could not add ghost: Identity 'ghost' was not found\n",
       });
       expect((await text(['add', 'coder'])).stdout).toBe('✓ Added coder to squad product\n');
-      expect(await text(['set', 'coder', 'state=blocked', 'note=needs review'])).toMatchObject({
+      expect(await text(['set', 'coder', 'state=blocked', 'task=needs review'])).toMatchObject({
         status: 0,
-        stdout: '✓ Set state, note on coder\n',
+        stdout: '✓ Set state, task on coder\n',
         stderr: '',
       });
       expect(await text(['set', 'outsider', 'state=working'])).toMatchObject({
@@ -1410,7 +1464,7 @@ describe('squad extension', () => {
       });
       expect(await text(['remove', 'coder'])).toMatchObject({
         status: 0,
-        stdout: '✓ Removed coder from squad product; cleared note, state\n',
+        stdout: '✓ Removed coder from squad product; cleared state, task\n',
         stderr: '',
       });
     });

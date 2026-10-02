@@ -2972,7 +2972,16 @@ through `TMT_EXECUTABLE` (or `tmt` on PATH), using public `--json` commands and
 
 Squad keeps no store. A squad is the core room `squad-<name>`. Member fields are
 identity metadata `squad.<name>.<field>`, so one identity can belong to several
-squads and removal clears exactly one namespace. Leadership is the reserved
+squads and removal clears exactly one namespace. The per-member `note` field is
+retired: `membership::parse_change` refuses a nonempty `note=` with
+`SQUAD_NOTE_RETIRED` and a notebook/task/pending hint during all-pairs validation,
+before core calls or writes; empty `note=` still clears stored metadata.
+`Squad::roster_with` excludes legacy note values from member fields without
+mutating storage. Row JSON omits `note`; list text, board rows and detail do not
+render it. `rows::OWN_FIELDS` retains the reserved name, so providers and bound
+columns cannot reuse it. Member context belongs in each member's own
+saved-identity notebook (`tmt notes path --identity <member>`).
+Leadership is the reserved
 identity metadata key `squad.<name>.lead.marker` (`true` or `false`), outside the
 user field/column grammar; `role` and `lead` remain ordinary free-text fields.
 The roster parses that key into `Member::lead_marker` and omits it from public
@@ -3350,7 +3359,7 @@ bodies produce no row/scroll hits. Collapsing focus returns to visible rows, oth
 expanded pane; with every pane folded there is no body focus. Expanding from that state
 focuses the expanded pane. The notes action expands notes before focusing it.
 Single expanded panes keep their existing borderless rendering; their folded
-title is clickable to expand. The detail pane appends full projected `row.fields` values for board columns not already represented by its header, task, note, activity or links, in column order; it escapes and wraps them without grid fitting, source lookups or provider calls. The notes pane shows the squad lead's own saved-identity notebook, read-only;
+title is clickable to expand. The detail pane appends full projected `row.fields` values for board columns not already represented by its header, task, activity or links, in column order; it escapes and wraps them without grid fitting, source lookups or provider calls. The notes pane shows the squad lead's own saved-identity notebook, read-only;
 there is no separate squad notebook. `observe` selects the member with
 `Member::is_lead` and reads its UUID through public `tmt api notes.read`
 (bounded, never creating a file), the same notebook that
