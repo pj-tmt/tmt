@@ -880,6 +880,23 @@ fn render_replies(frame: &mut Frame, app: &App, area: Rect) {
         .show(frame, Pane::Replies, area, lines, look.named("dim"));
 }
 
+/// Fields already shown by detail's header, body or links line.
+fn detail_represents(field: &str) -> bool {
+    matches!(
+        field,
+        "member"
+            | "state"
+            | "task"
+            | "pending"
+            | "note"
+            | "activity"
+            | "presence"
+            | "target"
+            | "cwd"
+            | "link"
+    ) || field.ends_with("_link")
+}
+
 /// The selected row: where it is, what it is doing and what it waits on.
 fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
@@ -934,6 +951,29 @@ fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
         .collect();
     if !links.is_empty() {
         lines.push(Line::from(format!("links: {}", links.join("  "))));
+    }
+    if let Some(view) = &app.view {
+        for column in &view.rows.columns {
+            let field = &column.field;
+            if detail_represents(field) {
+                continue;
+            }
+            let failed = row["failed"]
+                .as_array()
+                .is_some_and(|failed| failed.iter().any(|name| name == field));
+            let value = if failed {
+                "?"
+            } else {
+                row["fields"][field]
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("–")
+            };
+            lines.push(Line::from(format!(
+                "{field}: {}",
+                tmt_cli_style::table::escape(value)
+            )));
+        }
     }
     let width = usize::from(area.width);
     let lines: Vec<Line> = lines
@@ -1862,6 +1902,132 @@ columns = [{ name = "member", width = "30%" },
             app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
             assert_eq!(app.focused(), expected);
         }
+    }
+
+    fn detail_buffer(app: &App, width: u16, height: u16) -> ratatui::buffer::Buffer {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| render_detail(frame, app, Rect::new(0, 0, width, height)))
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    fn detail_text(buffer: &ratatui::buffer::Buffer) -> Vec<String> {
+        (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_owned()
+            })
+            .filter(|line| !line.is_empty())
+            .collect()
+    }
+
+    #[test]
+    fn detail_default_output_remains_exact_and_represented_fields_do_not_repeat() {
+        let mut app = board(json!([{"title": null, "rows": [row(
+            "worker", "working", "rotate tokens", json!({
+                "state": "working", "presence": "active", "pending": "approve",
+                "pane": {"target": "crew:2.0", "cwd": "/work"},
+                "note": "needs a call", "activity": {"activity": "testing"},
+                "fields": {"state": "working", "task": "rotate tokens", "pr_link": "https://example.com/412"}
+            })
+        )]}]));
+        // Includes all represented fields, even those missing from fields.
+        app.view.as_mut().unwrap().rows = rows_from(
+            "[p.columns]\nshow = ['member', 'state', 'task', 'pending', 'note', 'activity', 'presence', 'target', 'cwd', 'link', 'pr_link']\n",
+        );
+        assert_eq!(
+            detail_text(&detail_buffer(&app, 100, 20)),
+            [
+                "worker",
+                "waiting on you: approve",
+                "active · working · crew:2.0 · /work",
+                "task: rotate tokens",
+                "note: needs a call",
+                "activity: testing",
+                "links: pr_link https://example.com/412",
+            ]
+        );
+        for column in &app.view.as_ref().unwrap().rows.columns {
+            assert!(detail_represents(&column.field), "{}", column.field);
+        }
+        for field in ["pr", "model", "build", "review", "location"] {
+            assert!(!detail_represents(field), "{field}");
+        }
+        // The actual default preset is identical.
+        let mut default = preset_board();
+        let before = detail_text(&detail_buffer(&default, 100, 20));
+        default.view.as_mut().unwrap().rows = columns();
+        assert_eq!(detail_text(&detail_buffer(&default, 100, 20)), before);
+    }
+
+    #[test]
+    fn detail_appends_full_projected_provider_and_bound_values_in_column_order() {
+        let mut app = board(json!([{"title": null, "rows": [row(
+            "worker", "working", "rotate tokens", json!({
+                "fields": {"task": "rotate tokens", "pr": "#412 open · changes requested", "model": "a full session model name"}
+            })
+        )]}]));
+        app.view.as_mut().unwrap().rows = rows_from(
+            "[p.fields.pr]\npreset = 'github-pr'\n[p.rows]\ncolumns = [{name = 'pr', width = 4, title = 'Pull request', from = 'fields.pr'}, {name = 'model', width = 4, from = 'session.model'}]\n",
+        );
+        let buffer = detail_buffer(&app, 80, 20);
+        assert_eq!(
+            detail_text(&buffer),
+            [
+                "worker",
+                "– · –",
+                "task: rotate tokens",
+                "pr: #412 open · changes requested",
+                "model: a full session model name",
+            ]
+        );
+        // New lines inherit the terminal foreground; no grid/provider tint.
+        assert_eq!(buffer[(0, 3)].fg, ratatui::style::Color::Reset);
+        assert_eq!(buffer[(4, 3)].fg, ratatui::style::Color::Reset);
+    }
+
+    #[test]
+    fn detail_wraps_long_values_without_grid_truncation() {
+        let value = "abcdefghijklmnopqrstuvwxyz0123456789";
+        let mut app = board(json!([{"title": null, "rows": [row(
+            "worker", "working", "", json!({"fields": {"model": value}})
+        )]}]));
+        app.view.as_mut().unwrap().rows =
+            rows_from("[p.rows]\ncolumns = [{name = 'model', width = 4}]\n");
+        let text = detail_text(&detail_buffer(&app, 9, 20));
+        assert_eq!(text[2..].concat(), format!("model:{value}"));
+        assert!(!text.join("").contains('…'));
+        // Existing bounds handle zero area and single-cell panes.
+        detail_buffer(&app, 0, 0);
+        detail_buffer(&app, 1, 1);
+    }
+
+    #[test]
+    fn detail_uses_failed_missing_and_shared_cell_escaping() {
+        let mut app = board(json!([{"title": null, "rows": [row(
+            "worker", "working", "", json!({
+                "fields": {"pr": "stale provider value", "model": "", "build": "one\ntwo\t\u{1b}[31m"},
+                "failed": ["pr"]
+            })
+        )]}]));
+        app.view.as_mut().unwrap().rows =
+            rows_from("[p.columns]\nshow = ['pr', 'model', 'review', 'build']\n");
+        assert_eq!(
+            detail_text(&detail_buffer(&app, 100, 20))[2..],
+            [
+                "pr: ?",
+                "model: –",
+                "review: –",
+                &format!(
+                    "build: {}",
+                    tmt_cli_style::table::escape("one\ntwo\t\u{1b}[31m")
+                ),
+            ]
+        );
     }
 
     #[test]
