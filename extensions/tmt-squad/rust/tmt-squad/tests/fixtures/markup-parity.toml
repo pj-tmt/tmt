@@ -1,0 +1,7 @@
+# Team has no layout entry, exercising the default; older presets stay explicit.
+[squad.crew]
+layout = "crew"
+[squad.pr-queue]
+layout = "pr-queue"
+[squad.minimal]
+layout = "minimal"

@@ -998,10 +998,20 @@ I/O; adapters own SQLite/files/processes; CLI owns grammar and composition.
 From `rust/`, run `cargo test --locked -p tmt-tui` and
 `cargo +1.95.0 test --locked -p tmt-tui` for structural XML admission and its
 byte/depth/node limits, integer utilities, property conflicts and literal theme
-tokens. Run the architecture test for dependency changes.
-The crate has no executable or board consumer; these tests use in-memory XML,
-not application configuration, SQLite or a terminal. Later admission/rendering
-stages must not treat an admitted template as a fully validated scene.
+tokens, schema binding, lexical repeats, scoped IDs and exact expansion limits.
+Run the architecture test for dependency changes, and
+`cargo test --locked -p tmt-squad` for its in-memory source adapter and frozen
+board/list parity fixture.
+The parity harness captures the three explicit presets and the team default at
+120×30, 80×30 and 120×30 again,
+including every cell's style/state, hits, row starts and list text/JSON. Its source
+revision is recorded in the fixture. Once it is on main, every later board PR
+that intentionally changes captured output must regenerate the baseline in that
+PR, in a separate commit, using
+`cargo test --locked -p tmt-squad regenerate_markup_parity_fixture -- --ignored`.
+Decode the cell/style diff and attribute every change to the PR's approved behavior;
+review hit identities and list bytes too. Unexplained changes block handoff.
+Normal tests never write the fixture; it contains no host paths or clocks.
 
 The internal static subset is `flex`, `flex-row`, `flex-col`, `w-N`, `h-N`,
 `w-full`, `h-full`, `gap-N`, `gap-x-N`, `gap-y-N`, `p-N`, `px-N`, `py-N`,
@@ -1013,8 +1023,7 @@ axis. View/col default to column direction; other elements default to row.
 Sizes default to auto, gaps/padding/grow to zero, and shrink to one. Full means
 the parent's available axis. Text defaults to clipping; leaf `wrap="true"` or
 `wrap="false"` selects wrapping or clipping and conflicts with `truncate`.
-`token` must name a shared `Role`; omission preserves inheritance. Binding
-paths, dynamic tokens and row-track attributes await their owning later stages.
+`token` must name a shared `Role`; omission preserves inheritance. Row-track attributes await the grid compiler; geometry and paint remain later stages.
 
 ## Native process and shared tests
 

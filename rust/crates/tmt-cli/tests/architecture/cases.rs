@@ -1500,7 +1500,7 @@ fn invoke_is_a_leaf_even_in_tests_builds_and_target_dependencies() {
 
 #[test]
 fn tui_admission_is_an_internal_presentation_leaf() {
-    for name in ["roxmltree", "tmt-cli-style"] {
+    for name in ["roxmltree", "serde_json", "tmt-cli-style"] {
         assert!(
             policy::dependency_violations(&package(
                 "tmt-tui",
@@ -1510,7 +1510,7 @@ fn tui_admission_is_an_internal_presentation_leaf() {
         );
     }
     for kind in ["normal", "dev", "build"] {
-        for name in ["tmt-core", "tmt-adapters", "tmt-squad"] {
+        for name in ["tmt-core", "tmt-adapters", "tmt-cli", "tmt-squad"] {
             assert_eq!(
                 policy::dependency_violations(&package(
                     "tmt-tui",
@@ -1526,19 +1526,43 @@ fn tui_admission_is_an_internal_presentation_leaf() {
         "tmt-adapters",
         "tmt-cli",
         "tmt-cli-style",
-        "tmt-squad",
+        "tmt-remote",
     ] {
         assert_eq!(
             policy::dependency_violations(&package(
                 owner,
-                vec![dependency("tmt-tui", "normal", None, None)]
+                vec![
+                    dependency("tmt-tui", "normal", None, None),
+                    dependency("tmt-tui", "dev", None, None),
+                ]
             ))
             .len(),
-            1
+            2
         );
         assert!(
             !policy::source_violations(&[syntax(owner, "lib.rs", "use tmt_tui::parse;")])
                 .is_empty()
+        );
+    }
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-squad",
+            vec![dependency("tmt-tui", "dev", None, None)]
+        ))
+        .is_empty()
+    );
+    assert_exact(
+        &[syntax("tmt-squad", "markup.rs", "use tmt_tui::binding;")],
+        &[],
+    );
+    for owner in ["tmt-core", "tmt-adapters", "tmt-cli", "tmt-squad"] {
+        assert!(
+            !policy::source_violations(&[syntax(
+                "tmt-tui",
+                "lib.rs",
+                &format!("use {}::value;", owner.replace('-', "_"))
+            )])
+            .is_empty()
         );
     }
     assert_exact(
