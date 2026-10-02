@@ -1531,10 +1531,13 @@ fn tui_admission_is_an_internal_presentation_leaf() {
         assert_eq!(
             policy::dependency_violations(&package(
                 owner,
-                vec![dependency("tmt-tui", "normal", None, None)]
+                vec![
+                    dependency("tmt-tui", "normal", None, None),
+                    dependency("tmt-tui", "dev", None, None),
+                ]
             ))
             .len(),
-            1
+            2
         );
         assert!(
             !policy::source_violations(&[syntax(owner, "lib.rs", "use tmt_tui::parse;")])
@@ -1544,7 +1547,7 @@ fn tui_admission_is_an_internal_presentation_leaf() {
     assert!(
         policy::dependency_violations(&package(
             "tmt-squad",
-            vec![dependency("tmt-tui", "normal", None, None)]
+            vec![dependency("tmt-tui", "dev", None, None)]
         ))
         .is_empty()
     );

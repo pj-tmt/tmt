@@ -26,6 +26,7 @@ const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
     ("tmt-cli-style", "crossterm", None),       // table terminal-style assertions
     ("tmt-cli-style", "insta", None),           // rendering snapshots
     ("tmt-cli-style", "serde_json", None),      // theme serialization assertions
+    ("tmt-squad", "tmt-tui", None),             // test-scoped markup/source parity adapter
     ("tmt-office", "png", None),                // whiteboard image fixtures
     ("tmt-office", "rusqlite", None),           // whiteboard and world SQL oracles
     ("tmt-office", "tmt-office-storage", None), // in-process props fixtures

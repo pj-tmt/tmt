@@ -2807,9 +2807,10 @@ reached through the external command contract as `tmt squad` and, through a
 `tmt-sq` link to the same file, `tmt sq`. Its command name is fixed, never taken
 from argv[0], so both spellings share one help text, error set and completion.
 It is a workspace member for the shared lockfile and toolchain only. Its reviewed
-TMT dependencies are neutral leaves: `tmt-cli-style`, `tmt-invoke` and `tmt-tui`.
-The latter's test-scoped binding adapter borrows already-acquired `Member` values and
-reuses `ColumnSource`/`Format`; it performs no core/provider acquisition or sorting.
+runtime TMT dependencies are the neutral leaves `tmt-cli-style` and `tmt-invoke`.
+Its `tmt-tui` dev dependency supplies a test-scoped binding adapter borrowing acquired `Member`
+values and reusing `ColumnSource`/`Format`, with no core/provider acquisition or sorting.
+`tmt-tui` becomes a normal dependency when production adopts it (#774/#776).
 No TMT crate depends on Squad; the architecture guard enforces both directions
 for Cargo dependencies and source references. Squad reaches TMT
 through `TMT_EXECUTABLE` (or `tmt` on PATH), using public `--json` commands and
