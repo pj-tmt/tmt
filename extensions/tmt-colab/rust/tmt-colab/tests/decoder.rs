@@ -13,14 +13,24 @@ use yrs::{
     Array, Doc, GetString, Map, ReadTxn, StateVector, Text, Transact, Update,
     updates::decoder::Decode,
 };
-/// Tests here write fixture executables and spawn children. On Linux a fork in
-/// another test thread can inherit a write descriptor and make exec fail with
-/// ETXTBSY, so every test in this binary runs serially.
-fn serial() -> std::sync::MutexGuard<'static, ()> {
-    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    SERIAL
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+/// DEVELOPMENT ETXTBSY rule, case 2: something else execs the stand-in by path,
+/// so a short-lived `sh` writes it and no test thread holds its descriptor.
+fn write_executable(path: &std::path::Path, script: &str) {
+    use std::io::Write;
+    let mut writer = std::process::Command::new("/bin/sh")
+        .args(["-c", "cat > \"$1\" && chmod 700 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .expect("start sh to write the executable");
+    writer
+        .stdin
+        .take()
+        .expect("sh stdin")
+        .write_all(script.as_bytes())
+        .expect("send the script to sh");
+    let status = writer.wait().expect("wait for sh");
+    assert!(status.success(), "sh could not write {}", path.display());
 }
 fn program() -> PathBuf {
     env!("CARGO_BIN_EXE_tmt-colab").into()
@@ -57,7 +67,6 @@ fn source() -> (Vec<u8>, Vec<Vec<u8>>) {
 }
 #[test]
 fn child_materializes_and_merges_only_author_updates_preserving_dependencies_and_deletes() {
-    let _serial = serial();
     let (baseline, updates) = source();
     let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
     let decoded = owner()
@@ -106,7 +115,6 @@ fn child_materializes_and_merges_only_author_updates_preserving_dependencies_and
 }
 #[test]
 fn mixed_roots_wrong_types_and_incomplete_dependencies_apply_nothing() {
-    let _serial = serial();
     for root in ["threads", "html", "meta"] {
         let doc = Doc::new();
         if root == "meta" {
@@ -153,7 +161,6 @@ fn mixed_roots_wrong_types_and_incomplete_dependencies_apply_nothing() {
 }
 #[test]
 fn archived_hostile_corpus_is_contained_with_confirmed_cleanup_twice() {
-    let _serial = serial();
     let valid = include_bytes!("fixtures/hostile/valid.bin").to_vec();
     let mut seed = 0x830c01ab_u64;
     let mut corpus = vec![
@@ -359,12 +366,10 @@ impl FixtureProgram {
             .join("pid")
             .to_string_lossy()
             .replace('\'', "'\\''");
-        std::fs::write(
+        write_executable(
             &script,
-            format!("#!/bin/sh\nprintf '%s\\n' \"$$\" > '{pid_path}'\n{body}\n"),
-        )
-        .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+            &format!("#!/bin/sh\nprintf '%s\\n' \"$$\" > '{pid_path}'\n{body}\n"),
+        );
         Self { directory, script }
     }
     fn pid(&self) -> u32 {
@@ -381,7 +386,7 @@ impl FixtureProgram {
     }
     fn actual(&self) {
         let path = program().to_string_lossy().replace('\'', "'\\''");
-        std::fs::write(&self.script, format!("#!/bin/sh\nexec '{path}' \"$@\"\n")).unwrap();
+        write_executable(&self.script, &format!("#!/bin/sh\nexec '{path}' \"$@\"\n"));
     }
 }
 impl Drop for FixtureProgram {
@@ -391,7 +396,6 @@ impl Drop for FixtureProgram {
 }
 #[test]
 fn environment_is_cleared_and_successful_invalid_output_is_rejected() {
-    let _serial = serial();
     assert!(
         std::env::var_os("HOME").is_some(),
         "inherited control needs HOME"
@@ -419,7 +423,6 @@ fn environment_is_cleared_and_successful_invalid_output_is_rejected() {
 }
 #[test]
 fn deadline_and_output_backpressure_confirm_cleanup_before_owner_reuse() {
-    let _serial = serial();
     for body in [
         "exec /bin/sleep 60",
         "exec /usr/bin/head -c 4194305 /dev/zero",
@@ -443,7 +446,13 @@ fn deadline_and_output_backpressure_confirm_cleanup_before_owner_reuse() {
         assert!(
             matches!(error,DecodeFault::Invoke(ref e) if matches!(e.cleanup,Cleanup::Confirmed) && matches!(e.kind,FailureKind::Deadline|FailureKind::OutputLimit(_)))
         );
-        gone(fixture.pid());
+        match fixture.recorded_pid() {
+            Some(pid) => gone(pid),
+            None => assert!(
+                matches!(error, DecodeFault::Invoke(ref e) if e.kind == FailureKind::Deadline),
+                "no pid without a deadline"
+            ),
+        }
         fixture.actual();
         let reply = decoder
             .decode(
@@ -462,7 +471,6 @@ fn deadline_and_output_backpressure_confirm_cleanup_before_owner_reuse() {
 
 #[test]
 fn own_maps_have_a_positive_control_and_array_substitution_rejects() {
-    let _serial = serial();
     let doc = Doc::new();
     for name in ["threads", "messages", "intents", "replies"] {
         doc.get_or_insert_map(name);
