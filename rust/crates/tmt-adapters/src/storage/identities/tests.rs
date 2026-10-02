@@ -562,7 +562,7 @@ fn transaction_rolls_back_prior_identity_writes_and_releases_writer_lock() {
 
     let error: Result<(), StorageError> = storage.with_identity_transaction(|writer| {
         writer.save_identity(&temporary)?;
-        writer.insert_identity(&rollback_name, Lifetime::Temporary)?;
+        writer.insert_identity(&rollback_name, Lifetime::Temporary, false)?;
         Err(StorageError::new(
             StorageErrorCode::Unknown,
             "injected transaction failure",

@@ -6,6 +6,8 @@ use super::errors::{StorageError, StorageErrorCode, classify, incompatible};
 #[cfg(test)]
 mod announcement_tests;
 #[cfg(test)]
+mod auto_name_tests;
+#[cfg(test)]
 mod board_scope_tests;
 #[cfg(test)]
 mod change_cursor_tests;
@@ -228,6 +230,10 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         name: "record the observed pane process incarnation beside each binding's pane pid",
         sql: include_str!("schema/042.sql"),
+    },
+    Migration {
+        name: "record explicit automatic identity name provenance",
+        sql: include_str!("schema/043.sql"),
     },
 ];
 

@@ -1411,6 +1411,16 @@ from a host's or driver's text.
   matching what `ProcessIncarnation` accepts.
 - **Cursor:** the bindings cursor update trigger compares the column.
 
+Schema 43 adds `identities.auto_named`, a private boolean defaulting to false.
+Only an unnamed registered-runtime launch inserts true, independently of temporary
+or saved lifetime. No name pattern or user-editable metadata grants this provenance.
+The identities change-cursor trigger includes it. Existing identities remain explicit.
+Caller-scoped `name`/`this` checks the exact live binding and this flag inside one
+binding transaction, checks name uniqueness, renames the same UUID, optionally
+promotes its lifetime and consumes the flag. Binding/session rows are unchanged;
+ordinary binding and `add`/`marked` keep their existing conflict behavior. An ordinary
+`mv` also consumes provenance when it changes the name.
+
 The claude and codex drivers implement persistence with one document
 (`runtime::driver_state`): version 1 is `{"model": <slug>}`, and version 2 adds
 `"usage": {"tokens", "windowTokens"?, "observedAtMs"}` (the model is then
@@ -1654,6 +1664,16 @@ configuration selection, and storage startup/close in the facade. Private
 `run_command/run.rs` owns the bound foreground launch and completion;
 `run_command/resume.rs` owns command selection, resume pending marks and settlement.
 The existing flow separates command selection, binding, spawn and runtime admission.
+A first operand recognized as a registered bare runtime executable selects an
+auto-named launch only when no active identity holds that token. A colliding bare
+or flag-bearing shorthand refuses with explicit named-command alternatives; the
+explicit name plus executable form retains its meaning. The parser admits opaque
+provider tails, while authoritative identity lookup and runtime recognition stay
+in launch composition. Auto-name creation uses the normal binding lifecycle and
+prints one line before spawn. Failed spawn retires only its exact unchanged,
+new temporary automatic binding; saved identities and renamed/replaced bindings
+remain. Provider hooks, foreground completion and channel enrollment retain the
+same UUID/binding owners across naming, without a separate anonymous session store.
 A verified live or stopped previous runtime prevents a second launch.
 An inconclusive previous-runtime probe permits a degraded launch only after
 fencing that same attachment's stored Running state to Unknown; known Ended is
@@ -1684,8 +1704,10 @@ Unavailable discovery is not evidence that an identity does not exist; binding
 and launch still perform their normal authoritative checks.
 The CLI's hidden completion query resolves the unfinished operand through the
 same public Clap grammar and emits only a context tag, candidate names or command
-offset. Shell adapters retain generated static completion and delegate arguments
-after `run`'s identity to the command's own shell completion. They do not own a
+offset. Shell adapters retain generated static completion and delegate `run` arguments
+to the command's own shell completion. Launch completion includes registered
+executables and identities; its storage-only composition resolves whether the
+command begins at the first operand or after an explicit identity. They do not own a
 second TMT parser or runtime-driver list. Discovery failures are silent and do
 not initialize storage. `run -s` uses the existing binding lifetime promotion;
 without it a new identity is temporary and an existing saved one stays saved.
@@ -1888,7 +1910,7 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 42, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 43, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.

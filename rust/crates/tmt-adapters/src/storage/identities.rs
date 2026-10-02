@@ -66,11 +66,12 @@ impl IdentityWriter for IdentityRecords<'_> {
         &mut self,
         name: &ValidatedName,
         lifetime: Lifetime,
+        auto_named: bool,
     ) -> Result<Identity, Self::Error> {
         self.0.query_row(
-            &format!("INSERT INTO identities (id, name, canonical_name, lifetime, created_at, updated_at) \
-                VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) RETURNING {COLUMNS}"),
-            params![uuid::Uuid::new_v4().to_string(), name.display_name(), name.canonical_name(), lifetime.as_str()],
+            &format!("INSERT INTO identities (id, name, canonical_name, lifetime, auto_named, created_at, updated_at) \
+                VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) RETURNING {COLUMNS}"),
+            params![uuid::Uuid::new_v4().to_string(), name.display_name(), name.canonical_name(), lifetime.as_str(), auto_named],
             identity_row,
         ).map_err(|error| classify(error, "Create identity"))
     }
