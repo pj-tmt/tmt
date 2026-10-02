@@ -250,7 +250,7 @@ Color carries meaning, so most of the board stays neutral: only what needs you, 
 
 <TokenTable />
 
-Four themes come built in. **tmt** is soft truecolor for dark terminals. **tmt-light** is the same palette for light backgrounds. **terminal** uses your terminal's own 16 colors, so your color scheme decides. **mono** uses only bold and dim. Themes set text colors only, except for the selection (the selected row and tab), so your terminal's background always shows through. Where truecolor isn't available, tmt picks the nearest of your 16 colors; with `NO_COLOR` set, or when output goes to a file or another program, there is no color at all, and every state still shows as text or a mark. The command line keeps your terminal's own 16 colors, so your terminal theme wins, until you set `base` yourself; then commands use your theme too.
+Four themes come built in. **tmt** is soft truecolor for dark terminals. **tmt-light** is the same palette for light backgrounds. **terminal** uses your terminal's own 16 colors, so your color scheme decides. **mono** uses only bold and dim. The board also has **auto**, which picks **tmt** or **tmt-light** to match your terminal ([how →](#theming-the-board)). Themes set text colors only, except for the selection (the selected row and tab), so your terminal's background always shows through. Where truecolor isn't available, tmt picks the nearest of your 16 colors; with `NO_COLOR` set, or when output goes to a file or another program, there is no color at all, and every state still shows as text or a mark. The command line keeps your terminal's own 16 colors, so your terminal theme wins, until you set `base` yourself; then commands use your theme too.
 
 <Code>{`
 {
@@ -262,20 +262,25 @@ Four themes come built in. **tmt** is soft truecolor for dark terminals. **tmt-l
 }
 `}</Code>
 
-The theme lives in `~/.config/tmux-team/config.json`. `base` is `tmt`, `tmt-light`, `terminal` or `mono`, and any token can be overridden with a hex value or a color name; `tmt config show` names a key it can't use. It colors the command line once you set a `base`, and always colors the board.
+The theme lives in `~/.config/tmux-team/config.json`. `base` is `tmt`, `tmt-light`, `terminal` or `mono`, and any token can be overridden with a hex value or a color name; `tmt config show` names a key it can't use. It colors the command line once you set a `base`, and always colors the board. `auto` isn't allowed here, because it belongs to the board.
 
 ### Theming the board
 
-The board follows the `base` you set for the command line, and is **tmt** until you set one. A board theme never changes the command line's colors; `tmt config show` shows the command line's theme and its file. Choose a board theme with `tmt sq theme`:
+The board follows the `base` you set for the command line. Until you set one, it is **auto**. A board theme never changes the command line's colors; `tmt config show` shows the command line's theme and its file. Choose a board theme with `tmt sq theme`:
 
 <Cmd>{`
 $ tmt sq theme                            # list themes; ● marks the one in use and where it comes from
+$ tmt sq theme set auto                   # match your terminal, on every board
 $ tmt sq theme set tmt-light              # every board
 $ tmt sq theme set mono --squad product   # one squad's board
 $ tmt sq theme rm --squad product         # follow the board again; your color tweaks stay
 `}</Cmd>
 
 Or press **T** on the board: ↑ and ↓ preview each theme live, **Tab** switches between every board and this squad, **Enter** saves and **Esc** cancels. Either way the choice goes into `squad.toml`, as `[board.theme]` for every board or `[squad.<name>.theme]` for one squad, and the rest of the file stays as it was. A squad's own theme wins over the board's, which wins over the command line's. Each layer can also override single tokens, with the same keys as `config.json`.
+
+**auto** matches your terminal each time the board opens. It reads the `COLORFGBG` variable that many terminals set; without it, the board asks the terminal for its background color. A light background gets **tmt-light**, a dark one gets **tmt**, and when the terminal doesn't answer the board uses **tmt**. The question lasts at most a tenth of a second, so a key you press in that moment is dropped. Listing themes never asks: `tmt sq theme` shows `auto` as `matches the terminal when the board opens`, or as `auto (tmt-light)` or `auto (tmt)` when `COLORFGBG` already says. A theme you choose by name always wins over `auto`.
+
+`auto` works in both `squad.toml` layers and in the picker, where it comes first. Only `config.json` refuses it: with `"base": "auto"` there, `tmt config show` prints `error: theme.base auto only works for the board, not in config.json` with the hint `tmt sq theme set auto`, and the board ignores that setting.
 
 State colors on rows and tabs are these tokens too: `blocked = { color = "blocked" }`. The older names `red`, `amber`, `green`, `blue`, `cyan` and `magenta` still work. If the command-line theme has a mistake, the board ignores it and says so on its summary line.
 
