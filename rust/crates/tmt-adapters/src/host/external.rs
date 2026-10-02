@@ -3,10 +3,12 @@
 //! registry holds what the user approved; a `DriverProcess` runs one of them
 //! under the protocol's bounds and checks every answer.
 
+mod caller;
 mod process;
 pub mod registry;
 mod session;
 
+pub use caller::ExternalCaller;
 pub use process::{CallError, DriverProcess};
 pub use session::{Drivers, ExternalDriver, Session};
 

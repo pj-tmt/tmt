@@ -15,7 +15,10 @@ use std::{
 };
 use tmt_adapters::{
     host::{Host, external::registry},
-    process::{UnixCommandRunner, runtime::observe_start},
+    process::{
+        CommandError, CommandOutput, CommandRequest, CommandRunner, UnixCommandRunner,
+        runtime::observe_start,
+    },
     storage::Storage,
 };
 use tmt_core::{
@@ -37,12 +40,37 @@ case "$3" in
     printf '%s' "$input" | sed -n 's/.*"marker":\({[^}]*}\).*/\1/p' > "$d/marker"
     printf '{"ok":{}}' ;;
   clear) rm -f "$d/marker"; printf '{"ok":{"cleared":true}}' ;;
+  caller)
+    case "$input" in
+      *'"FAKE_PANE_ID":"f1"'*)
+        printf '{"ok":{"pane":{"id":"fake-1","socket":"/tmp/fake.sock","shellPid":%s}}}' "$(cat "$d/shell")" ;;
+      *) printf '{"ok":{"pane":null}}' ;;
+    esac ;;
+  resolve-target)
+    if [ -f "$d/slow" ]; then sleep 3; fi
+    if [ -f "$d/fail" ]; then printf '{"error":{"code":"failed","message":"host is wedged"}}'; exit 0; fi
+    case "$input" in
+      *'"target":"f1"'*) printf '{"ok":{"paneId":"fake-1"}}' ;;
+      *) printf '{"ok":{"paneId":null}}' ;;
+    esac ;;
   snapshot)
     m=$(cat "$d/marker" 2>/dev/null); [ -n "$m" ] || m=null
     printf '{"ok":{"panes":[{"id":"fake-1","target":"f1","cwd":"/src","command":"sh","panePid":%s,"suggestedName":null,"marker":%s}]}}' "$(cat "$d/pid")" "$m" ;;
   *) printf '{"error":{"code":"unsupported","message":"no %s"}}' "$3" ;;
 esac
 "#;
+
+/// The real process owner with a long deadline, for test setup only.
+struct Patient;
+
+impl CommandRunner for Patient {
+    fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+        UnixCommandRunner.execute(CommandRequest {
+            deadline: std::time::Instant::now() + std::time::Duration::from_secs(30),
+            ..request
+        })
+    }
+}
 
 struct Fixture {
     root: PathBuf,
@@ -64,7 +92,7 @@ impl Fixture {
             |file: &str, text: &str| fs::write(root.join("driver").join(file), text).unwrap();
         beside(
             "capabilities",
-            r#"{"ok":{"protocols":[1],"kind":"host","name":"fake","version":"0.0.0-test","ops":["server","snapshot","publish","clear"],"paneId":{"prefix":"fake-"},"target":"f{n}","callerEnv":[]}}"#,
+            r#"{"ok":{"protocols":[1],"kind":"host","name":"fake","version":"0.0.0-test","ops":["caller","server","resolve-target","snapshot","publish","clear"],"paneId":{"prefix":"fake-"},"target":"f{n}","callerEnv":["FAKE_PANE_ID"]}}"#,
         );
         // This test process stands for both the host server and the pane
         // shell: a live process whose start core can observe.
@@ -75,6 +103,9 @@ impl Fixture {
             ),
         );
         beside("pid", &pid);
+        // The caller's pane shell: this test process, which is an ancestor
+        // of every `tmt` it runs.
+        beside("shell", &pid);
         Self { root, driver }
     }
 
@@ -82,8 +113,10 @@ impl Fixture {
         self.root.join("state")
     }
 
+    /// Approval is setup, not the behavior under test: its `capabilities`
+    /// call gets a patient deadline, so a loaded machine can't fail it.
     fn approve(&self) -> registry::DriverRecord {
-        registry::approve(&self.state(), &self.driver, &UnixCommandRunner).unwrap()
+        registry::approve(&self.state(), &self.driver, &Patient).unwrap()
     }
 
     fn calls(&self) -> Vec<String> {
@@ -95,7 +128,14 @@ impl Fixture {
     }
 
     fn tmt(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_tmt"))
+        self.tmt_in(None, args)
+    }
+
+    /// `tmt` run from inside the driver's pane `pane`, as its environment
+    /// names it.
+    fn tmt_in(&self, pane: Option<&str>, args: &[&str]) -> Output {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_tmt"));
+        command
             .args(args)
             .env_clear()
             .env("HOME", self.root.join("home"))
@@ -105,9 +145,11 @@ impl Fixture {
             .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
             .env("LANG", "en_US.UTF-8")
             .current_dir(&self.root)
-            .stdin(Stdio::null())
-            .output()
-            .unwrap()
+            .stdin(Stdio::null());
+        if let Some(pane) = pane {
+            command.env("FAKE_PANE_ID", pane);
+        }
+        command.output().unwrap()
     }
 
     fn json(&self, args: &[&str]) -> Value {
@@ -246,5 +288,107 @@ fn without_its_approved_driver_a_binding_stays_unknown_and_is_never_retired() {
     assert_eq!(
         worker(&fixture.json(&["ls", "--json"]))["presence"],
         "active"
+    );
+}
+
+#[test]
+fn a_caller_in_an_external_pane_binds_reads_and_routes_on_its_own_server() {
+    register();
+    let fixture = Fixture::new("caller");
+    fixture.approve();
+    let _ = fs::remove_file(fixture.root.join("driver/calls"));
+    let in_pane = |args: &[&str]| {
+        let output = fixture.tmt_in(Some("f1"), args);
+        assert!(output.status.success(), "tmt {args:?}: {output:?}");
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()
+    };
+
+    let named = in_pane(&["name", "worker", "--save", "--json"]);
+    assert_eq!(named["name"], "worker");
+    assert_eq!(named["pane"], "fake-1");
+    assert_eq!(fixture.calls()[0], "caller");
+    assert!(fixture.calls().contains(&"publish".to_owned()));
+    assert_eq!(in_pane(&["whoami", "--json"])["name"], "worker");
+    let row = worker(&in_pane(&["ls", "--json"])).clone();
+    assert_eq!(row["presence"], "active", "{row:#}");
+    assert_eq!(row["address"], "fake:f1");
+
+    // Talk by name now routes on the caller's own server and reaches the
+    // pane; the driver has no input until 3b-2b-2, so nothing is typed and
+    // the request is kept.
+    let before = fixture.calls().len();
+    let talk = fixture.tmt_in(Some("f1"), &["talk", "worker", "hi", "--detach", "--json"]);
+    assert!(!talk.status.success(), "{talk:?}");
+    let failure: Value = serde_json::from_slice(&talk.stdout).unwrap();
+    assert_eq!(
+        failure["error"]["code"], "DELIVERY_PREPARATION_FAILED",
+        "{failure:#}"
+    );
+    assert_eq!(failure["pane"], "fake-1");
+    let calls = fixture.calls();
+    assert!(
+        calls[before..]
+            .iter()
+            .all(|call| ["caller", "server", "snapshot"].contains(&call.as_str())),
+        "{calls:?}"
+    );
+}
+
+#[test]
+fn an_explicit_target_resolves_through_its_driver_without_asking_for_a_caller() {
+    register();
+    let fixture = Fixture::new("target");
+    fixture.approve();
+    let _ = fs::remove_file(fixture.root.join("driver/calls"));
+
+    let added = fixture.json(&["add", "f1", "worker", "--json"]);
+    assert_eq!(added["pane"], "fake-1", "{added:#}");
+    let calls = fixture.calls();
+    assert!(calls.contains(&"resolve-target".to_owned()), "{calls:?}");
+    assert!(!calls.contains(&"caller".to_owned()), "{calls:?}");
+
+    let missing = fixture.tmt(&["add", "f9", "other", "--json"]);
+    assert!(!missing.status.success());
+    let failure: Value = serde_json::from_slice(&missing.stdout).unwrap();
+    assert_eq!(failure["error"]["code"], "PANE_NOT_FOUND", "{failure:#}");
+}
+
+#[test]
+fn a_pane_whose_shell_is_not_the_callers_ancestor_is_not_the_caller() {
+    register();
+    let fixture = Fixture::new("stranger");
+    fixture.approve();
+    let _ = fs::remove_file(fixture.root.join("driver/calls"));
+    // A pid that is no ancestor of `tmt` (none runs with it).
+    fs::write(fixture.root.join("driver/shell"), "999999").unwrap();
+
+    let named = fixture.tmt_in(Some("f1"), &["name", "worker", "--json"]);
+    assert!(!named.status.success(), "{named:?}");
+    let failure: Value = serde_json::from_slice(&named.stdout).unwrap();
+    assert_eq!(failure["error"]["code"], "PANE_NOT_FOUND", "{failure:#}");
+    // Only asked, never published: the built-in choice (tmux) stands.
+    assert_eq!(fixture.calls(), ["caller"]);
+}
+
+#[test]
+fn a_failing_or_late_driver_is_a_failure_never_a_missing_pane() {
+    register();
+    let fixture = Fixture::new("wedged");
+    fixture.approve();
+    for mode in ["fail", "slow"] {
+        fs::write(fixture.root.join("driver").join(mode), "").unwrap();
+        let added = fixture.tmt(&["add", "f1", "worker", "--json"]);
+        assert_eq!(added.status.code(), Some(1), "{mode}: {added:?}");
+        let failure: Value = serde_json::from_slice(&added.stdout).unwrap();
+        assert_eq!(
+            failure["error"]["code"], "RECONCILIATION_FAILED",
+            "{mode}: {failure:#}"
+        );
+        fs::remove_file(fixture.root.join("driver").join(mode)).unwrap();
+    }
+    // Answered again, the same target binds.
+    assert_eq!(
+        fixture.json(&["add", "f1", "worker", "--json"])["pane"],
+        "fake-1"
     );
 }

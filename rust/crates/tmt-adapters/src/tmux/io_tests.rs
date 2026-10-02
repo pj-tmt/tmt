@@ -65,6 +65,7 @@ fn full_environment() -> CallerEnvironment {
         tmux: Some("/tmp/private.sock,321,0".into()),
         pane: Some("%9".into()),
         process_id: 900,
+        driver_env: Default::default(),
         herdr_pane: None,
         herdr_socket: None,
     }
@@ -124,6 +125,7 @@ fn absent_mark_is_distinct_from_invalid_selected_server_evidence() {
         tmux: Some("malformed".into()),
         pane: None,
         process_id: 900,
+        driver_env: Default::default(),
         herdr_pane: None,
         herdr_socket: None,
     };
@@ -144,6 +146,7 @@ fn malformed_explicit_environment_and_scopes_never_spawn() {
             tmux: Some(context.into()),
             pane: Some(pane.into()),
             process_id: 900,
+            driver_env: Default::default(),
             herdr_pane: None,
             herdr_socket: None,
         };
@@ -173,6 +176,7 @@ fn ancestry_and_snapshot_share_one_deadline_and_reject_ambient_panes() {
         tmux: None,
         pane: None,
         process_id: 900,
+        driver_env: Default::default(),
         herdr_pane: None,
         herdr_socket: None,
     };
@@ -251,6 +255,7 @@ fn ancestry_requires_one_coherent_candidate_after_grouped_row_deduplication() {
             tmux: None,
             pane: None,
             process_id: 900,
+            driver_env: Default::default(),
             herdr_pane: None,
             herdr_socket: None,
         };
@@ -266,6 +271,7 @@ fn partial_caller_evidence_cannot_override_explicit_socket_or_pane() {
             tmux: Some("/different.sock,321,0".into()),
             pane: None,
             process_id: 900,
+            driver_env: Default::default(),
             herdr_pane: None,
             herdr_socket: None,
         },
@@ -273,6 +279,7 @@ fn partial_caller_evidence_cannot_override_explicit_socket_or_pane() {
             tmux: None,
             pane: Some("%10".into()),
             process_id: 900,
+            driver_env: Default::default(),
             herdr_pane: None,
             herdr_socket: None,
         },
@@ -300,6 +307,7 @@ fn ancestry_cycle_stops_before_any_pane_query() {
         tmux: None,
         pane: None,
         process_id: 900,
+        driver_env: Default::default(),
         herdr_pane: None,
         herdr_socket: None,
     };

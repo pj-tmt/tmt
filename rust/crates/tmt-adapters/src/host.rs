@@ -17,12 +17,15 @@ mod delivery;
 pub(crate) mod driver;
 pub mod external;
 
+use external::ExternalCaller;
+
 use crate::{
     herdr::{self, Herdr, HerdrError},
     process::{CommandError, CommandRunner, UnixCommandRunner},
     tmux::{self, Tmux, TmuxError},
 };
 use std::{
+    collections::BTreeMap,
     ffi::OsString,
     fmt,
     time::{Duration, Instant},
@@ -53,16 +56,28 @@ pub struct CallerEnvironment {
     pub herdr_pane: Option<OsString>,
     pub herdr_socket: Option<OsString>,
     pub process_id: u64,
+    /// The variables approved drivers declared for `caller`, those set and
+    /// non-empty; nothing else of the environment reaches a driver.
+    pub driver_env: BTreeMap<String, OsString>,
 }
 
 impl CallerEnvironment {
     pub fn current() -> Self {
+        let driver_env = external::approved()
+            .iter()
+            .flat_map(|record| record.capabilities.caller_env.iter())
+            .filter_map(|name| {
+                let value = std::env::var_os(name).filter(|value| !value.is_empty())?;
+                Some((name.clone(), value))
+            })
+            .collect();
         Self {
             tmux: std::env::var_os("TMUX"),
             pane: std::env::var_os("TMUX_PANE"),
             herdr_pane: std::env::var_os("HERDR_PANE_ID"),
             herdr_socket: std::env::var_os("HERDR_SOCKET_PATH"),
             process_id: u64::from(std::process::id()),
+            driver_env,
         }
     }
 
@@ -221,7 +236,7 @@ impl Host {
     /// the caller's nearest ancestor. Without a host in the environment,
     /// tmux's default server serves, as it always has.
     pub fn for_caller(environment: &CallerEnvironment) -> Self {
-        Self::for_caller_with(environment, UnixCommandRunner).with_drivers(external::approved())
+        Self::for_caller_with_drivers(environment, UnixCommandRunner, external::approved())
     }
 
     /// The host that runs a known server.
@@ -233,17 +248,48 @@ impl Host {
     /// reads as a target is resolved by name elsewhere.
     pub fn for_target(target: &str) -> Self {
         let canonical = tmt_core::names::normalize_name(target);
-        let host = if HostKind::Herdr.is_target(&canonical) {
-            HostKind::Herdr
-        } else {
-            HostKind::Tmux
-        };
+        // The syntaxes are disjoint (approval refuses an overlap); tmux, the
+        // broadest, is the default.
+        let host = HostKind::all()
+            .filter(|host| *host != HostKind::Tmux)
+            .find(|host| host.is_target(&canonical))
+            .unwrap_or(HostKind::Tmux);
         Self::of(host, UnixCommandRunner, None).with_drivers(external::approved())
     }
 }
 
 impl<R: CommandRunner + Clone> Host<R> {
+    /// The caller's host among tmux and Herdr; the `_with` constructors
+    /// approve no driver.
     pub fn for_caller_with(environment: &CallerEnvironment, runner: R) -> Self {
+        Self::for_caller_with_drivers(environment, runner, Vec::new())
+    }
+
+    /// The caller's host, external ones included: the nearest verified pane
+    /// wins, as between tmux and Herdr. Without a verified external pane the
+    /// choice is exactly the built-in one.
+    pub fn for_caller_with_drivers(
+        environment: &CallerEnvironment,
+        runner: R,
+        records: Vec<external::registry::DriverRecord>,
+    ) -> Self {
+        let builtin = Self::for_builtin_caller(environment, runner.clone());
+        if environment.driver_env.is_empty() || records.is_empty() {
+            return builtin.with_drivers(records);
+        }
+        let probe = builtin.with_drivers(records.clone());
+        match probe.nearest_external(environment) {
+            Some(caller) => {
+                let host =
+                    Self::of(HostKind::External(caller.host), runner, None).with_drivers(records);
+                host.external.set_caller(caller);
+                host
+            }
+            None => probe,
+        }
+    }
+
+    fn for_builtin_caller(environment: &CallerEnvironment, runner: R) -> Self {
         let socket = environment
             .herdr_socket
             .as_ref()
@@ -274,9 +320,13 @@ impl<R: CommandRunner + Clone> Host<R> {
     pub fn with_drivers(self, records: Vec<external::registry::DriverRecord>) -> Self {
         let runner = self.herdr.runner().clone();
         let resolved = self.external.resolved().cloned();
+        let caller = self.external.caller().cloned();
         let external = external::Drivers::new(runner, records);
         if let Some(server) = resolved {
             external.set_resolved(server);
+        }
+        if let Some(caller) = caller {
+            external.set_caller(caller);
         }
         Self { external, ..self }
     }
@@ -308,6 +358,32 @@ impl<R: CommandRunner> Host<R> {
             Ok(Some(tmux)) if tmux < herdr.depth => HostKind::Tmux,
             _ => HostKind::Herdr,
         }
+    }
+
+    /// The nearest verified external pane of the caller, unless a built-in
+    /// host's pane is nearer. Failures prove nothing and keep the built-in
+    /// choice.
+    fn nearest_external(&self, environment: &CallerEnvironment) -> Option<ExternalCaller> {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let external = self
+            .external
+            .callers(environment, deadline)
+            .ok()?
+            .into_iter()
+            .next()?;
+        let tmux = environment
+            .names_tmux()
+            .then(|| self.tmux.caller_depth(environment).ok().flatten())
+            .flatten();
+        let herdr = environment
+            .names_herdr()
+            .then(|| self.herdr.caller(environment, deadline).ok().flatten())
+            .flatten()
+            .map(|pane| pane.depth);
+        let builtin = tmux.into_iter().chain(herdr).min();
+        builtin
+            .is_none_or(|depth| external.depth < depth)
+            .then_some(external)
     }
 
     /// The server a caller's environment selects on this handle's host, for
@@ -388,7 +464,11 @@ impl<R: CommandRunner> Host<R> {
                 .herdr
                 .caller(environment, Instant::now() + Duration::from_secs(1))?
                 .map(|pane| pane.terminal_id)),
-            HostKind::External(_) => Ok(None),
+            HostKind::External(host) => Ok(self
+                .external
+                .caller()
+                .filter(|caller| caller.host == host)
+                .map(|caller| caller.pane_id.clone())),
         }
     }
 
@@ -412,7 +492,14 @@ impl<R: CommandRunner> Host<R> {
         match self.primary {
             HostKind::Tmux => Ok(self.tmux.resolve_target(target, options)?),
             HostKind::Herdr => Ok(self.herdr.resolve_target(target, options.deadline)?),
-            HostKind::External(_) => Ok(None),
+            HostKind::External(host) => {
+                // `server` (when no caller names the socket), then `resolve-target`.
+                let bound = Instant::now() + Duration::from_secs(1);
+                let deadline = options
+                    .deadline
+                    .map_or(bound, |deadline| deadline.min(bound));
+                self.external.resolve_target(host, target, deadline)
+            }
         }
     }
 
