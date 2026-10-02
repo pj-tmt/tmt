@@ -200,6 +200,33 @@ export function selectOfficeBrowser(paths, map = componentMap()) {
   return paths.some((path) => ownerOf(path, map) === 'office' || OFFICE_BROWSER_INPUTS.has(path));
 }
 
+// Keep the advisory harness narrower than required native CI. Ownership comes
+// from the component map; these are its concrete browser/model/vector inputs.
+const COLAB_HARNESS_ROOTS = [
+  'extensions/tmt-colab/typescript/colab-client',
+  'extensions/tmt-colab/rust/tmt-colab-model',
+  'extensions/tmt-colab/contracts/vectors',
+];
+
+const COLAB_HARNESS_INPUTS = new Set([
+  '.github/workflows/colab-browser.yml',
+  'rust/Cargo.lock',
+  'rust/Cargo.toml',
+  'typescript/pnpm-lock.yaml',
+]);
+
+/** Empty/unknown diffs do not select advisory work; weekly/manual runs cover shared drift. */
+export function selectColabHarness(paths, map = componentMap()) {
+  return paths.some((path) => {
+    const owner = ownerOf(path, map);
+    return (
+      COLAB_HARNESS_INPUTS.has(path) ||
+      ((owner === 'colab-client' || owner === 'tmt-colab') &&
+        COLAB_HARNESS_ROOTS.some((root) => within(root, path)))
+    );
+  });
+}
+
 /**
  * How much of the native work a change needs. `none`: nothing native is selected.
  * A component name (only `squad` declares `scopedChecks`): every path that selects
@@ -460,11 +487,13 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     selection.rows = selection.rows?.map((row) => ({ ...row, office: false, nativeOffice: false }));
   }
   const officeBrowser = full || (!queue && !seed && selectOfficeBrowser(selection.paths));
+  const colabHarness = !queue && !seed && !full && selectColabHarness(selection.paths);
   const evidence =
     (full || seed || fallback
       ? `### CI selection\n\n${fallback ?? (full ? 'Weekly/manual full verification; no path filtering.' : 'Main cache seed; Office verification is frozen.')}\n`
       : renderSelectionEvidence({ base, head, range, ...selection })) +
-    `\nOffice browser PR selection (Office ownership or verification machinery): ${officeBrowser}.\n`;
+    `\nOffice browser PR selection (Office ownership or verification machinery): ${officeBrowser}.\n` +
+    `\nColab browser PR selection (client, model, vectors or harness workflow): ${colabHarness}.\n`;
   stderr.write(evidence);
   if (summaryFile) appendFileSync(summaryFile, evidence);
   const { areas, nativeScope } = selection;
@@ -473,6 +502,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   stdout.write(
     `native=${areas.native}\noffice=${areas.office}\nnative_office=${areas.nativeOffice}\n` +
       `office_browser=${officeBrowser}\n` +
+      `colab_harness=${colabHarness}\n` +
       `native_scope=${nativeScope}\n` +
       `scoped_native_tests=${checks.nativeTests.join(' ')}\n` +
       `e2e_shard_1=${firstShard.join(' ')}\n` +

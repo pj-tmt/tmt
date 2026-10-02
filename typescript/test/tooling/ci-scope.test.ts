@@ -31,6 +31,7 @@ import {
   selectCiAreas,
   selectNativeScope,
   selectOfficeBrowser,
+  selectColabHarness,
 } from '../../scripts/ci-scope.mjs';
 
 const { runPackedCommand } = await import(
@@ -842,6 +843,7 @@ describe('CI diff and command integration', () => {
         office: 'false',
         native_office: 'false',
         office_browser: 'false',
+        colab_harness: 'false',
         native_scope: 'full',
         scoped_native_tests: '',
       });
@@ -871,6 +873,7 @@ describe('CI diff and command integration', () => {
         office: 'false',
         native_office: 'false',
         office_browser: 'false',
+        colab_harness: 'false',
         native_scope: 'squad',
         scoped_native_tests:
           'squad.test.ts extension-install.test.ts extension-upgrade-proof.test.ts',
@@ -907,6 +910,31 @@ describe('CI diff and command integration', () => {
       const deletedHead = commit();
       expect(browserSelected(restoredHead, deletedHead)).toBe('true');
 
+      // Additions, both rename endpoints and deletions drive the advisory output.
+      const colabPath = path.join(root, 'extensions/tmt-colab/contracts/vectors/fixture.json');
+      mkdirSync(path.dirname(colabPath), { recursive: true });
+      writeFileSync(colabPath, '{}\n');
+      const colabHead = commit();
+      const colabSelected = (baseHead: string, nextHead: string) => {
+        const output = capture();
+        runCiScope([baseHead, nextHead], { cwd: root, stdout: output, stderr: capture() });
+        return outputs(output.text()).colab_harness;
+      };
+      expect(colabSelected(deletedHead, colabHead)).toBe('true');
+      const movedColab = path.join(root, 'docs/colab-fixture.json');
+      renameSync(colabPath, movedColab);
+      const movedColabHead = commit();
+      expect(colabSelected(colabHead, movedColabHead)).toBe('true');
+      renameSync(movedColab, colabPath);
+      const restoredColabHead = commit();
+      expect(colabSelected(movedColabHead, restoredColabHead)).toBe('true');
+      rmSync(colabPath);
+      const deletedColabHead = commit();
+      expect(colabSelected(restoredColabHead, deletedColabHead)).toBe('true');
+      writeFileSync(path.join(root, 'docs/unrelated.md'), 'Unrelated\n');
+      const unrelatedHead = commit();
+      expect(colabSelected(deletedColabHead, unrelatedHead)).toBe('false');
+
       expect(() => runCiScope(['only-one'], { cwd: root, stdout, stderr })).toThrow(
         'exact base and head'
       );
@@ -919,6 +947,54 @@ describe('CI diff and command integration', () => {
       rmSync(`${root}-summary.md`, { force: true });
     }
   }, 5000);
+
+  it.each([
+    'extensions/tmt-colab/typescript/colab-client/src/index.ts',
+    'extensions/tmt-colab/typescript/colab-client/test/differential.mjs',
+    'extensions/tmt-colab/typescript/colab-client/package.json',
+    'extensions/tmt-colab/rust/tmt-colab-model/src/lib.rs',
+    'extensions/tmt-colab/rust/tmt-colab-model/examples/browser_authority.rs',
+    'extensions/tmt-colab/contracts/vectors/ed25519-829.jsonl',
+    '.github/workflows/colab-browser.yml',
+    'rust/Cargo.lock',
+    'rust/Cargo.toml',
+    'typescript/pnpm-lock.yaml',
+  ])('selects the advisory Colab harness for %s', (file) => {
+    expect(selectColabHarness([file])).toBe(true);
+    expect(selectColabHarness(['DEVELOPMENT.md', file])).toBe(true);
+  });
+
+  it.each([
+    'extensions/tmt-colab/typescript/colab-client-other/src/index.ts',
+    'extensions/tmt-colab/rust/tmt-colab-model-other/src/lib.rs',
+    'extensions/tmt-colab/contracts/vectors-other/model.json',
+    'extensions/tmt-colab/rust/tmt-colab/src/main.rs',
+    'extensions/tmt-colab/contracts/colab-v1.md',
+    'extensions/tmt-remote/typescript/remote-client/src/index.ts',
+    'extensions/tmt-office/typescript/apps/office/src/main.tsx',
+    'typescript/scripts/ci-scope.mjs',
+    'typescript/pnpm-lock.yaml.backup',
+    'rust/Cargo.lock.backup',
+    'rust/Cargo.toml.backup',
+    '.github/workflows/ci.yml',
+    'DEVELOPMENT.md',
+    'unknown/input',
+  ])('does not select advisory Colab work for %s', (file) => {
+    expect(selectColabHarness([file])).toBe(false);
+  });
+
+  it('requires mapped Colab ownership and does not expand empty advisory scope', () => {
+    expect(selectColabHarness([])).toBe(false);
+    const map = parseComponentMap(
+      JSON.stringify({
+        components: { cli: { owns: ['.'] } },
+        rules: [],
+      })
+    );
+    expect(
+      selectColabHarness(['extensions/tmt-colab/typescript/colab-client/src/index.ts'], map)
+    ).toBe(false);
+  });
 
   it('selects cumulative merge-group endpoints and fails closed when the diff is unreadable', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'tmt-ci-queue-'));
@@ -1016,6 +1092,7 @@ describe('CI diff and command integration', () => {
         office: 'false',
         native_office: 'false',
         office_browser: 'false',
+        colab_harness: 'false',
       });
       expect(select(['merge-group', shared]).outputs).toEqual(full);
       git(['update-ref', 'refs/remotes/origin/main', docs]);
@@ -1913,6 +1990,45 @@ describe('required CI gate', () => {
     ]) {
       expect(gate).toContain(`${variable}: \${{ needs.${jobName}.result }}`);
     }
+  });
+
+  it('keeps the complete Colab harness separate from required gates and PR cache writes', () => {
+    const workflow = readFileSync(
+      new URL('../../../.github/workflows/colab-browser.yml', import.meta.url),
+      'utf8'
+    );
+    const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    expect(ci).not.toContain('colab_harness');
+    expect(ci).not.toContain('needs.colab-browser');
+    expect(workflow).toContain('permissions: {}');
+    expect(workflow).not.toContain('paths:');
+    expect(workflow).not.toContain('pull_request_target:');
+    expect(workflow).not.toContain('merge_group:');
+    expect(workflow).not.toContain('continue-on-error');
+    expect(workflow).not.toContain('\n  push:');
+    expect(workflow).toContain('workflow_dispatch:');
+    expect(workflow).toContain("cron: '23 5 * * 1'");
+    expect(workflow).toContain("cancel-in-progress: ${{ github.event_name == 'pull_request' }}");
+    expect(workflow).toContain('ci-scope.mjs "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"');
+    expect(workflow).toContain(
+      "if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.colab_harness == 'true'"
+    );
+    expect(workflow).toContain('playwright install --with-deps chromium firefox webkit');
+    expect(workflow).toContain('test:browser --engines chromium 2>&1 | tee');
+    expect(workflow).toContain('--example browser_conformance --example browser_authority');
+    expect(workflow).toContain('shell: bash');
+    expect(workflow).toContain('test:browser 2>&1 | tee');
+    expect(workflow).toContain('if: always()');
+    expect(workflow).toContain('retention-days: 7');
+    expect(workflow).toContain('actions/cache/restore@v4');
+    expect(workflow).toContain(
+      'colab-playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}'
+    );
+    expect(workflow).toContain(
+      "if: github.ref == 'refs/heads/main' && steps.browsers.outputs.cache-hit != 'true'"
+    );
+    expect(workflow).toContain('actions/cache/save@v4');
+    expect(workflow).toContain('shared-key: native-rust\n          save-if: false');
   });
 
   it('runs the advisory browser partitions in their own workflow from one shared image', () => {

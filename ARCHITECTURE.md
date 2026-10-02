@@ -721,6 +721,19 @@ Office selection and exact worker results in both states.
 `tmt-infra-lead` owns triage of red weekly/manual Office runs, records follow-up issues,
 and routes product failures to the Office owner; freezing does not leave the safety net unowned.
 
+The advisory Colab browser workflow is separate from `ci.yml` and its required
+aggregates. `ci-scope.mjs` owns `colab_harness` PR selection: component-owned
+`colab-client`, `tmt-colab-model` and contract-vector paths, plus the harness
+workflow itself and shared Cargo manifest/lockfile and pnpm lockfile inputs.
+Deletions and both sides of renames select the same inputs;
+empty/unknown PR diffs do not schedule advisory work. No main-push trigger is
+registered. Scoped PRs run Chromium; weekly/manual runs run the complete
+three-engine harness, covering other shared inputs and engine drift. The job restores the shared Rust cache without
+saving, and restores Playwright binaries keyed by OS, architecture and pinned
+Playwright version. Only successful runs on the main ref save browser binaries; PRs only
+restore. Reports/logs are advisory L1 evidence, with commands owned by
+[Development](DEVELOPMENT.md#colab-browser-verification).
+
 The same map feeds release versioning. `typescript/scripts/release-please-config.mjs`
 generates `release-please-config.json` from the map (one release-please package per
 component root, minus its excludes), the Cargo workspace (which crates declare their own

@@ -70,6 +70,7 @@ export function explainCiSelection(
 ): readonly CiSelectionRow[];
 export function selectCiAreas(paths: readonly string[], map?: ComponentMap): CiAreas;
 export function selectOfficeBrowser(paths: readonly string[], map?: ComponentMap): boolean;
+export function selectColabHarness(paths: readonly string[], map?: ComponentMap): boolean;
 export function selectNativeScope(paths: readonly string[], map?: ComponentMap): string;
 export function scopedChecks(
   scope: string,

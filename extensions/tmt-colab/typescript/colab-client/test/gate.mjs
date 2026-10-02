@@ -1,5 +1,24 @@
 export const ENGINES = ['chromium', 'firefox', 'webkit'];
-export function validateReport(report, corpus) {
+function requireEngines(engines) {
+  if (
+    !Array.isArray(engines) ||
+    engines.length === 0 ||
+    new Set(engines).size !== engines.length ||
+    engines.some((engine) => !ENGINES.includes(engine))
+  )
+    throw new Error('Expected a nonempty, unique set of known engines: chromium,firefox,webkit');
+  return engines;
+}
+
+export function parseEngines(args) {
+  if (args.length === 0) return [...ENGINES];
+  if (args.length !== 2 || args[0] !== '--engines')
+    throw new Error('Usage: differential.mjs [--engines chromium,firefox,webkit]');
+  return requireEngines(args[1].split(','));
+}
+
+export function validateReport(report, corpus, engines = ENGINES) {
+  requireEngines(engines);
   const names = corpus.map((c) => c.name);
   const controls = ['positive-normal', 'mixed-A0-R0', 'small-A-0-identity-R-zero-S-forgery'];
   if (
@@ -11,11 +30,11 @@ export function validateReport(report, corpus) {
     throw new Error('Incomplete Ed25519 corpus');
   if (
     !Array.isArray(report) ||
-    report.length !== 3 ||
-    new Set(report.map((r) => r.engine)).size !== 3
+    report.length !== engines.length ||
+    new Set(report.map((r) => r.engine)).size !== engines.length
   )
     throw new Error('Missing or duplicate engine');
-  for (const name of ENGINES) {
+  for (const name of engines) {
     const result = report.find((r) => r.engine === name);
     if (
       !result ||

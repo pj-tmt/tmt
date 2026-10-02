@@ -4,7 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { ENGINES, validateReport } from './gate.mjs';
+import { parseEngines, validateReport } from './gate.mjs';
+const engines = parseEngines(process.argv.slice(2));
 const root = new URL('../', import.meta.url),
   vectors = new URL('../../contracts/vectors/', root);
 const corpus = (await readFile(new URL('ed25519-829.jsonl', vectors), 'utf8'))
@@ -88,11 +89,8 @@ await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 const results = [];
 try {
-  for (const [name, engine] of [
-    ['chromium', chromium],
-    ['firefox', firefox],
-    ['webkit', webkit],
-  ]) {
+  for (const name of engines) {
+    const engine = { chromium, firefox, webkit }[name];
     let browser;
     try {
       // Optional local binary paths are explicit; absence/launch failures never become skips.
@@ -444,19 +442,22 @@ try {
 }
 const destination =
   process.env.COLAB_REPORT ?? fileURLToPath(new URL('differential-results.json', root));
-await writeFile(destination, JSON.stringify(results, null, 2) + '\n');
-validateReport(results, corpus);
+await writeFile(destination, JSON.stringify({ engines, results }, null, 2) + '\n');
+validateReport(results, corpus, engines);
 const opened = native({
   seal: false,
   cases: results.flatMap((r) =>
     r.outgoing.map((v) => ({ ...v, envelope: JSON.parse(v.envelope) })),
   ),
 });
-if (opened.length !== 6 || opened.some((v) => v !== true))
+if (opened.length !== engines.length * 2 || opened.some((v) => v !== true))
   throw new Error('Incomplete browser-to-Rust interop');
-console.log('Ciphertext interoperability: Rust to all3 browsers; all6 fresh browser seals to Rust');
+console.log(`Selected engines: ${engines.join(', ')}`);
 console.log(
-  ENGINES.map((engine) => `${engine}: 148 vectors, 9 positive controls, client checks passed`).join(
-    '\n',
-  ),
+  `Ciphertext interoperability: Rust to all${engines.length} browsers; all${opened.length} fresh browser seals to Rust`,
+);
+console.log(
+  engines
+    .map((engine) => `${engine}: 148 vectors, 9 positive controls, client checks passed`)
+    .join('\n'),
 );
