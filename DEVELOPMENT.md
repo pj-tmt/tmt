@@ -605,6 +605,8 @@ The sticky status bar at the top is the chapter navigation: one tmux-style windo
 chapter group (`windows` in the same file), with the `[tmt]` button opening the full page tree.
 Animated scenes are declarative frames in `site/src/scenes/` (`Window`, `TmuxBar`, `useFrames`): they
 advance only while on screen and rest on one complete frame under `prefers-reduced-motion`.
+A chapter opens with one such scene from `site/src/chapter-scenes/` (the working chapter's message travel, the squad
+chapter's mark legend); its words are in `site/src/lang/strings.ts` like the home page's.
 Every page exists in English at its path and under `/ja/` and `/zh/`. A translation is
 `site/src/i18n/<lang>/<chapter file>.mdx`, named like the English chapter in `site/src/chapters/` and
 exporting its front matter as `frontmatter` (`title` is the page title). A page without a file shows the

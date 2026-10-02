@@ -30,6 +30,54 @@ export const english = {
       "A tmt sq board that updates in four steps: builder works on rotating tokens, reviewer starts a review and then waits on you to decide whether to ship, tester starts end-to-end tests, and once you answer the others carry on.",
     boardWaits: "◆ reviewer waits on you",
   },
+  chapters: {
+    // The working chapter's opening scene: a request travelling pane to pane.
+    travel: {
+      label:
+        "A request travels from lead to builder and the reply comes back. Lead runs tmt talk. tmt stores the request with an ID and a receipt. tmt types it into builder's pane. Builder works, then answers with tmt reply and the receipt. tmt stores the reply and talk hands it back to lead.",
+      lead: "lead",
+      builder: "builder",
+      tmtPane: "tmt",
+      exchange: "exchange",
+      examples:
+        "Any agent in any harness fits. Claude Code and Codex are two examples, and tmux is the built-in host today.",
+      steps: [
+        {
+          title: "1 · talk",
+          text: "lead sends a request. tmt stores it with an ID and a receipt.",
+        },
+        {
+          title: "2 · deliver",
+          text: "The request is typed into builder's pane. It works as usual.",
+        },
+        {
+          title: "3 · reply",
+          text: "builder answers with the receipt. The reply is stored, and talk hands it to lead.",
+        },
+      ],
+    },
+    // The squad chapter's opening scene: what each board mark means.
+    marks: {
+      label: "The marks the board and every command use, each with one meaning.",
+      intro:
+        "The board stays quiet so the one thing that needs you stands out. The same marks appear in every command.",
+      boardOnly: "board only",
+      items: [
+        { mark: "●", name: "running", text: "running or active" },
+        { mark: "○", name: "offline", text: "offline or ended" },
+        { mark: "◌", name: "no agent", text: "bound to a pane, no agent running" },
+        { mark: "◆", name: "waits on you", text: "waits on your decision" },
+        { mark: "✗", name: "blocked", text: "failed or blocked" },
+        { mark: "✓", name: "done", text: "done" },
+        { mark: "↻", name: "resume", text: "leads a resume action, never a row's state" },
+        {
+          mark: "▸",
+          name: "folded",
+          text: "a folded pane; unfold it with d or a click on its title",
+        },
+      ],
+    },
+  },
   journey: {
     stepsLabel: "Steps",
     layersLabel: "Layers on one foundation",
