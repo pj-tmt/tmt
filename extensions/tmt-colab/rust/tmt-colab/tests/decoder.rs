@@ -13,6 +13,25 @@ use yrs::{
     Array, Doc, GetString, Map, ReadTxn, StateVector, Text, Transact, Update,
     updates::decoder::Decode,
 };
+/// DEVELOPMENT ETXTBSY rule, case 2: something else execs the stand-in by path,
+/// so a short-lived `sh` writes it and no test thread holds its descriptor.
+fn write_executable(path: &std::path::Path, script: &str) {
+    use std::io::Write;
+    let mut writer = std::process::Command::new("/bin/sh")
+        .args(["-c", "cat > \"$1\" && chmod 700 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .expect("start sh to write the executable");
+    writer
+        .stdin
+        .take()
+        .expect("sh stdin")
+        .write_all(script.as_bytes())
+        .expect("send the script to sh");
+    let status = writer.wait().expect("wait for sh");
+    assert!(status.success(), "sh could not write {}", path.display());
+}
 fn program() -> PathBuf {
     env!("CARGO_BIN_EXE_tmt-colab").into()
 }
@@ -270,7 +289,10 @@ fn archived_hostile_corpus_is_contained_with_confirmed_cleanup_twice() {
                     "deadline"
                 }
             };
-            gone(fixture.pid());
+            match fixture.recorded_pid() {
+                Some(pid) => gone(pid),
+                None => assert_eq!(outcome, "deadline", "no pid without a deadline at {index}"),
+            }
             if [26, 60, 106, 147, 157, 192].contains(&index) {
                 eprintln!("hostile saved run {run}: dump {index}, {outcome}, reaped, no result");
             }
@@ -344,24 +366,27 @@ impl FixtureProgram {
             .join("pid")
             .to_string_lossy()
             .replace('\'', "'\\''");
-        std::fs::write(
+        write_executable(
             &script,
-            format!("#!/bin/sh\nprintf '%s\\n' \"$$\" > '{pid_path}'\n{body}\n"),
-        )
-        .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+            &format!("#!/bin/sh\nprintf '%s\\n' \"$$\" > '{pid_path}'\n{body}\n"),
+        );
         Self { directory, script }
     }
     fn pid(&self) -> u32 {
-        std::fs::read_to_string(self.directory.join("pid"))
-            .unwrap()
-            .trim()
-            .parse()
-            .unwrap()
+        self.recorded_pid().expect("fixture child recorded its pid")
+    }
+    /// None when a deadline killed the wrapper's process group before it wrote
+    /// its pid; Confirmed cleanup then already proves termination.
+    fn recorded_pid(&self) -> Option<u32> {
+        match std::fs::read_to_string(self.directory.join("pid")) {
+            Ok(text) => Some(text.trim().parse().unwrap()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => panic!("read fixture pid: {e}"),
+        }
     }
     fn actual(&self) {
         let path = program().to_string_lossy().replace('\'', "'\\''");
-        std::fs::write(&self.script, format!("#!/bin/sh\nexec '{path}' \"$@\"\n")).unwrap();
+        write_executable(&self.script, &format!("#!/bin/sh\nexec '{path}' \"$@\"\n"));
     }
 }
 impl Drop for FixtureProgram {
@@ -421,7 +446,13 @@ fn deadline_and_output_backpressure_confirm_cleanup_before_owner_reuse() {
         assert!(
             matches!(error,DecodeFault::Invoke(ref e) if matches!(e.cleanup,Cleanup::Confirmed) && matches!(e.kind,FailureKind::Deadline|FailureKind::OutputLimit(_)))
         );
-        gone(fixture.pid());
+        match fixture.recorded_pid() {
+            Some(pid) => gone(pid),
+            None => assert!(
+                matches!(error, DecodeFault::Invoke(ref e) if e.kind == FailureKind::Deadline),
+                "no pid without a deadline"
+            ),
+        }
         fixture.actual();
         let reply = decoder
             .decode(
