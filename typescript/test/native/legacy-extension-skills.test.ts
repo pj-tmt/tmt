@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import {
   existsSync,
   lstatSync,
@@ -6,89 +5,15 @@ import {
   readFileSync,
   readlinkSync,
   readdirSync,
-  realpathSync,
-  rmSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import {
-  expectError,
-  parseWholeStdout,
-  runCli,
-  withSandbox,
-  type Sandbox,
-} from '../support/cli-process.js';
-import { createArtifact } from '../support/native-artifact.js';
+import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
 
-// Layout published by the five-skill core bundle on 2026-09-30. These literal
-// names and framed bytes are independent of the current product catalog.
-const legacyNames = [
-  'tmux-team',
-  'tmt-inbox',
-  'tmt-office',
-  'tmt-prop-create',
-  'tmt-avatar-create',
-];
-const officeNames = legacyNames.slice(2);
-const providerRoots = [
-  '.agents/skills',
-  '.claude/skills',
-  '.gemini/config/skills',
-  '.pi/agent/skills',
-];
-function oldLayout(sandbox: Sandbox, dangling = false): string[] {
-  const hash = createHash('sha256');
-  const contents = legacyNames.map((name) =>
-    Buffer.from(`---\nname: ${name}\n---\nLegacy fixture.\n`)
-  );
-  for (const bytes of contents) {
-    const length = Buffer.alloc(8);
-    length.writeBigUInt64BE(BigInt(bytes.length));
-    hash.update(length).update(bytes);
-  }
-  mkdirSync(sandbox.globalDir, { recursive: true });
-  const version = path.join(realpathSync(sandbox.globalDir), 'skill-assets', hash.digest('hex'));
-  for (const [index, name] of legacyNames.entries()) {
-    mkdirSync(path.join(version, name), { recursive: true });
-    writeFileSync(path.join(version, name, 'SKILL.md'), contents[index]);
-  }
-  const targets = providerRoots.flatMap((root) =>
-    officeNames.map((name) => path.join(sandbox.home, root, name))
-  );
-  for (const target of targets) {
-    mkdirSync(path.dirname(target), { recursive: true });
-    symlinkSync(path.join(version, path.basename(target)), target);
-  }
-  writeFileSync(
-    path.join(sandbox.globalDir, 'skill-installations.json'),
-    JSON.stringify({ version: 1, targets })
-  );
-  if (dangling) rmSync(version, { recursive: true });
-  return targets;
-}
-
-async function installOffice(sandbox: Sandbox, prefix: string) {
-  const artifact = await createArtifact(sandbox, '0.1.0-alpha.4', new Uint8Array(), 'office');
-  const args = [
-    'extension',
-    'install',
-    'office',
-    '--yes',
-    '--prefix',
-    prefix,
-    '--archive',
-    artifact.archive,
-    '--manifest',
-    artifact.manifest,
-    '--json',
-  ];
-  const result = await runCli(sandbox, args, { deadlineMs: 15_000 });
-  expect(result.status, result.stdout + result.stderr).toBe(0);
-  return args;
-}
+import { oldLayout, officeNames } from '../support/legacy-extension-skills.js';
 
 describe('legacy extension skill lifecycle (#957)', () => {
   it('removes legacy published links even after the extension commands are already gone', async () => {
@@ -143,48 +68,6 @@ describe('legacy extension skill lifecycle (#957)', () => {
       for (const target of targets) expect(() => lstatSync(target)).toThrow();
     });
   });
-
-  it('finishes half-removal, reports it in ls, and retires all twelve old links', async () => {
-    await withSandbox(async (sandbox) => {
-      const targets = oldLayout(sandbox);
-      const prefix = path.join(sandbox.root, 'prefix');
-      await installOffice(sandbox, prefix);
-      unlinkSync(path.join(prefix, 'bin/tmt-office'));
-      const listed = await runCli(sandbox, ['extension', 'ls', '--prefix', prefix, '--json']);
-      expect(listed.status, listed.stdout).toBe(0);
-      expect(parseWholeStdout(listed)).toMatchObject({
-        extensions: [
-          {
-            name: 'office',
-            installed: false,
-            status: 'partiallyRemoved',
-            hint: expect.stringContaining('extension rm office --yes'),
-          },
-          {},
-        ],
-      });
-      const removed = await runCli(sandbox, [
-        'extension',
-        'rm',
-        'office',
-        '--yes',
-        '--prefix',
-        prefix,
-        '--json',
-      ]);
-      expect(removed.status, removed.stdout).toBe(0);
-      expect(parseWholeStdout(removed)).toMatchObject({
-        skillsRemoved: expect.arrayContaining(targets),
-        skillsKept: [],
-      });
-      for (const target of targets) expect(() => lstatSync(target)).toThrow();
-      expect(
-        JSON.parse(readFileSync(path.join(sandbox.globalDir, 'skill-installations.json'), 'utf8'))
-          .targets
-      ).toEqual([]);
-      expect((await runCli(sandbox, ['__native-refresh-skills', '--json'])).status).toBe(0);
-    });
-  }, 60_000);
 
   it('refreshes all twelve dangling TMT links without conflict or manual deletion', async () => {
     await withSandbox(async (sandbox) => {

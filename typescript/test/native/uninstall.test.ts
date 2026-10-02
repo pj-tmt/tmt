@@ -11,92 +11,15 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
+
 import {
-  expectError,
-  parseWholeStdout,
-  runCli,
-  withSandbox,
-  type Sandbox,
-} from '../support/cli-process.js';
-import { createArtifact } from '../support/native-artifact.js';
-
-// Every path here is under the sandbox: a disposable HOME, XDG root and prefix.
-const INSTALL_BUDGET_MS = 30_000;
-const USER_HOOK = '{ "hooks" : [{ "type": "command", "command": "user-command" }] }';
-const CLAUDE_ORIGINAL = `{\n "permissions": {"allow": ["Bash(git *)"]},\n "hooks": {"SessionStart": [${USER_HOOK}]}\n}\n`;
-
-/** Files and symlinks (by target) under `root`, without following links. */
-function tree(root: string): Record<string, string> {
-  const snapshot: Record<string, string> = {};
-  const visit = (current: string): void => {
-    for (const entry of readdirSync(current)) {
-      const entryPath = path.join(current, entry);
-      const stat = lstatSync(entryPath);
-      const key = path.relative(root, entryPath);
-      if (stat.isSymbolicLink()) snapshot[key] = `-> ${readlinkSync(entryPath)}`;
-      else if (stat.isDirectory()) visit(entryPath);
-      else snapshot[key] = readFileSync(entryPath, 'utf8');
-    }
-  };
-  if (existsSync(root)) visit(root);
-  return snapshot;
-}
-
-function paths(sandbox: Sandbox) {
-  const prefix = path.join(sandbox.root, 'install prefix');
-  return {
-    prefix,
-    tmt: path.join(prefix, 'bin', 'tmt'),
-    claudeSettings: path.join(sandbox.home, '.claude', 'settings.json'),
-    codexHooks: path.join(sandbox.home, '.codex', 'hooks.json'),
-    userSkill: path.join(sandbox.home, '.claude', 'skills', 'user-skill', 'SKILL.md'),
-    record: path.join(sandbox.globalDir, 'setup-record.json'),
-  };
-}
-
-/** A sandbox whose commands run the TMT installed in its prefix. */
-function installed(sandbox: Sandbox): Sandbox {
-  const { prefix, tmt } = paths(sandbox);
-  sandbox.env.PATH = `${path.join(prefix, 'bin')}${path.delimiter}/usr/bin${path.delimiter}/bin`;
-  return { ...sandbox, cli: { executable: tmt, args: [] } };
-}
-
-async function setUpMachine(sandbox: Sandbox): Promise<Sandbox> {
-  const { prefix, claudeSettings, userSkill } = paths(sandbox);
-  mkdirSync(path.dirname(claudeSettings), { recursive: true });
-  writeFileSync(claudeSettings, CLAUDE_ORIGINAL);
-  mkdirSync(path.join(sandbox.home, '.codex'));
-  mkdirSync(path.dirname(userSkill), { recursive: true });
-  writeFileSync(userSkill, 'user skill\n');
-  const fixture = await createArtifact(sandbox, '5.0.0-alpha.90');
-  const install = await runCli(
-    sandbox,
-    [
-      '__native-install',
-      '--archive',
-      fixture.archive,
-      '--manifest',
-      fixture.manifest,
-      '--prefix',
-      prefix,
-      '--channel',
-      'alpha',
-      '--json',
-    ],
-    { deadlineMs: INSTALL_BUDGET_MS }
-  );
-  expect(install.status, install.stdout + install.stderr).toBe(0);
-  const tmt = installed(sandbox);
-  for (const args of [
-    ['install', 'all', '--json'],
-    ['setup', 'claude', '--yes', '--json'],
-    ['setup', 'codex', '--yes', '--json'],
-  ]) {
-    const result = await runCli(tmt, args, { deadlineMs: INSTALL_BUDGET_MS });
-    expect(result.status, result.stdout + result.stderr).toBe(0);
-  }
-  return tmt;
-}
+  CLAUDE_ORIGINAL,
+  INSTALL_BUDGET_MS,
+  paths,
+  setUpMachine,
+  tree,
+} from '../support/native-uninstall.js';
 
 describe('tmt uninstall on a disposable HOME and prefix', () => {
   it('removes everything TMT installed, keeps data and user files, and repeats as a no-op', async () => {
@@ -228,44 +151,6 @@ describe('tmt uninstall on a disposable HOME and prefix', () => {
       expect(existsSync(path.join(path.dirname(codexHooks), '.tmt-setup.lock'))).toBe(false);
       expect(tree(prefix)).toEqual({});
       expect(recordBytes).toContain('"codex"');
-    });
-  });
-
-  it('stops a running Office service before removing its files', async () => {
-    await withSandbox(async (sandbox) => {
-      const tmt = await setUpMachine(sandbox);
-      const { prefix } = paths(sandbox);
-      const office = (args: string[]) =>
-        runCli(tmt, ['office', '--prefix', prefix, ...args, '--json'], {
-          deadlineMs: INSTALL_BUDGET_MS,
-        });
-      const artifact = await createArtifact(sandbox, '0.1.0-alpha.4', new Uint8Array(), 'office');
-      try {
-        const installedOffice = await office([
-          'install',
-          '--yes',
-          '--archive',
-          artifact.archive,
-          '--manifest',
-          artifact.manifest,
-        ]);
-        expect(installedOffice.status, installedOffice.stdout + installedOffice.stderr).toBe(0);
-        const started = await office(['start']);
-        expect(started.status, started.stdout + started.stderr).toBe(0);
-        const receipt = path.join(sandbox.globalDir, 'office', 'runtime', 'service-v1.json');
-        expect(existsSync(receipt)).toBe(true);
-
-        const result = await runCli(tmt, ['uninstall', '--yes', '--json'], {
-          deadlineMs: INSTALL_BUDGET_MS,
-        });
-        expect(result.status, result.stdout + result.stderr).toBe(0);
-        expect(parseWholeStdout(result).officeStopped).toBe(true);
-        expect(existsSync(receipt)).toBe(false);
-        expect(tree(prefix)).toEqual({});
-      } finally {
-        // The in-process stop path needs no installed companion.
-        await runCli(sandbox, ['office', 'stop', '--json']);
-      }
     });
   });
 
