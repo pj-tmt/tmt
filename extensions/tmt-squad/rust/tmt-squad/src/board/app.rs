@@ -210,7 +210,7 @@ pub struct Hit {
 /// Config is immutable; only this session presentation set changes on a toggle.
 struct FoldState {
     board: Board,
-    collapsed: BTreeSet<Pane>,
+    overrides: BTreeMap<Pane, bool>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -263,6 +263,7 @@ pub struct App {
     /// Only titles actually painted in the last frame can toggle.
     pub title_hits: RefCell<Vec<TitleHit>>,
     folds: BTreeMap<String, FoldState>,
+    body_width: u16,
     /// The first tab the tab line showed, so it scrolls only as needed.
     pub tab_start: std::cell::Cell<usize>,
     /// The tab a left button went down on, until it is released.
@@ -518,7 +519,7 @@ impl App {
                 key,
                 FoldState {
                     board: board.clone(),
-                    collapsed: board.collapsed.clone(),
+                    overrides: BTreeMap::new(),
                 },
             );
         }
@@ -535,18 +536,38 @@ impl App {
         }
     }
 
+    /// Resolve immutable defaults and user overrides for the board body width.
+    pub fn folds_at(&self, width: u16) -> BTreeSet<Pane> {
+        let Some(view) = &self.view else {
+            return BTreeSet::new();
+        };
+        let mut collapsed = view.board.collapsed.clone();
+        if let Some(rule) = &view.board.fold_below
+            && width < rule.width
+        {
+            collapsed.extend(&rule.panes);
+        }
+        if let Some(state) = self.shown.as_ref().and_then(|key| self.folds.get(key)) {
+            for (pane, folded) in &state.overrides {
+                if *folded {
+                    collapsed.insert(*pane);
+                } else {
+                    collapsed.remove(pane);
+                }
+            }
+        }
+        collapsed
+    }
+
     pub fn collapsed_panes(&self) -> BTreeSet<Pane> {
-        self.shown
-            .as_ref()
-            .and_then(|key| self.folds.get(key))
-            .map_or_else(
-                || {
-                    self.view
-                        .as_ref()
-                        .map_or_else(BTreeSet::new, |view| view.board.collapsed.clone())
-                },
-                |state| state.collapsed.clone(),
-            )
+        self.folds_at(self.body_width)
+    }
+
+    pub fn set_body_width(&mut self, width: u16) {
+        self.body_width = width;
+        if self.focused_pane().is_none() {
+            self.next_pane();
+        }
     }
 
     pub fn focused_pane(&self) -> Option<Pane> {
@@ -619,13 +640,11 @@ impl App {
         };
         let board = view.board.clone();
         self.remember_folds(key.clone(), &board);
+        let expanding = self.collapsed_panes().contains(&pane);
         let Some(state) = self.folds.get_mut(&key) else {
             return Effect::None;
         };
-        let expanding = state.collapsed.remove(&pane);
-        if !expanding {
-            state.collapsed.insert(pane);
-        }
+        state.overrides.insert(pane, !expanding);
         if expanding && !had_focus {
             self.focus = position;
         } else if self.focused_pane().is_none() {
@@ -2063,6 +2082,77 @@ pub(crate) mod tests {
         removed.tabs = vec!["product".into()];
         app.apply(removed);
         assert!(!app.folds.contains_key("infra"));
+    }
+
+    #[test]
+    fn responsive_folds_respect_toggles_resize_focus_and_config_reset() {
+        let responsive = || {
+            let mut snapshot = folding_snapshot("product");
+            snapshot.view.as_mut().unwrap().board.fold_below = Some(crate::config::FoldBelow {
+                width: 100,
+                panes: [Pane::Detail].into(),
+            });
+            snapshot
+        };
+        let mut app = App::new(Some("product".into()));
+        app.set_body_width(120);
+        app.apply(responsive());
+        assert!(app.collapsed_panes().is_empty());
+        app.focus = 1;
+        app.set_body_width(80);
+        assert_eq!(app.collapsed_panes(), [Pane::Detail].into());
+        assert_eq!(app.focused_pane(), Some(Pane::Notes));
+        app.set_body_width(120);
+        assert!(app.collapsed_panes().is_empty());
+        assert_eq!(
+            app.focused_pane(),
+            Some(Pane::Notes),
+            "widening never steals focus"
+        );
+        app.set_body_width(80);
+        app.toggle_pane(Pane::Detail);
+        assert!(
+            app.collapsed_panes().is_empty(),
+            "explicit expansion wins below threshold"
+        );
+        app.set_body_width(120);
+        app.apply(responsive());
+        assert!(
+            app.collapsed_panes().is_empty(),
+            "override survives refresh and widening"
+        );
+        app.toggle_pane(Pane::Detail);
+        assert!(
+            app.collapsed_panes().contains(&Pane::Detail),
+            "explicit collapse wins above threshold"
+        );
+        app.set_body_width(80);
+        app.set_body_width(200);
+        assert!(app.collapsed_panes().contains(&Pane::Detail));
+        let mut changed = responsive();
+        changed
+            .view
+            .as_mut()
+            .unwrap()
+            .board
+            .fold_below
+            .as_mut()
+            .unwrap()
+            .width = 90;
+        app.apply(changed);
+        assert!(
+            app.collapsed_panes().is_empty(),
+            "changed board clears overrides"
+        );
+        assert!(app.view.as_ref().unwrap().board.collapsed.is_empty());
+        app.apply(folding_snapshot("product"));
+        for width in [80, 120, 200] {
+            app.set_body_width(width);
+            assert!(
+                app.collapsed_panes().is_empty(),
+                "no rule keeps the original presentation"
+            );
+        }
     }
 
     #[test]

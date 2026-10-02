@@ -420,7 +420,7 @@ fn squad_view(
     let layout = config.layout(&squad.name)?;
     let (theme, theme_notice) = config.theme(&squad.name)?;
     let states = config.states(&squad.name, layout)?;
-    let board = config.board(&squad.name, layout)?;
+    let board = config.board(&squad.name)?;
     let sections = config.sections(&squad.name)?;
     let rows = config.rows(&squad.name)?;
     let providers = config.providers(&squad.name)?;

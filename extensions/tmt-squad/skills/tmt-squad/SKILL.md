@@ -205,9 +205,20 @@ starts members, worktrees or windows; that is yours to arrange with the user.
 
 ## Team board preset
 
-`[squad.<name>] layout = "team"` opts into the showcase board. Crew remains
-the default. The top 60% contains rows beside a right column (62/38), with
+Squads with no layout key use team unless they set the simple board form, which keeps crew. Set `layout = "crew"`, `"pr-queue"`
+or `"minimal"` to retain those presets. The top 60% contains rows beside a right column (62/38), with
 detail above replies (50/50). The lead's notes fill the bottom 40%.
+
+Below 100 columns of board body width, team folds detail and replies into title
+bars: `board.fold_below = { width = 100, panes = ["detail", "replies"] }`.
+`d` toggles detail; click either title to toggle its pane. User toggles win at
+both narrow and wide widths until the board configuration changes or the session
+restarts. Widening restores automatic panes without moving focus. Custom split
+boards can set `fold_below` with width 1–1000 and panes present in their layout.
+
+Member, state, PR and model use percentage widths (22%, 14%, 24%, 16%);
+task grows into the remaining space. Model yields first when space is short,
+then PR; member/state/task remain. Values truncate with the existing ellipsis.
 
 Team uses crew states and pending-first ordering. Rows show member, state,
 task, PR and model (`session.model` from the existing presence read); pending

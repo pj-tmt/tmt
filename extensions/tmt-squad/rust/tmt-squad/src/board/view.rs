@@ -1309,12 +1309,12 @@ mod tests {
         row
     }
 
-    /// The board as every preset draws it: the default columns, read from
-    /// an empty config.
+    /// Explicit crew keeps its original columns and rendering byte for byte.
     fn preset_board() -> App {
         let path = std::env::temp_dir().join(format!("squad-golden-{}.toml", std::process::id()));
-        let _ = std::fs::remove_file(&path);
-        let config = crate::config::Config::read(path).unwrap();
+        std::fs::write(&path, "[squad.product]\nlayout = \"crew\"\n").unwrap();
+        let config = crate::config::Config::read(path.clone()).unwrap();
+        std::fs::remove_file(&path).unwrap();
         let mut app = board(json!([
             {"title": "Needs me", "rows": [
                 row("auth-fix", "blocked", "rotate session tokens without logging everyone out", json!({
@@ -1329,6 +1329,55 @@ mod tests {
         ]));
         app.view.as_mut().unwrap().rows = config.rows("product").unwrap();
         app
+    }
+
+    #[test]
+    fn default_team_is_readable_at_80_120_and_200_columns() {
+        let path =
+            std::env::temp_dir().join(format!("squad-team-responsive-{}.toml", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let config = crate::config::Config::read(path).unwrap();
+        let mut app = preset_board();
+        let view = app.view.as_mut().unwrap();
+        view.rows = config.rows("product").unwrap();
+        view.board = config.board("product").unwrap();
+        for width in [80, 120, 200] {
+            app.set_body_width(width);
+            let screen = draw(&app, width, 42);
+            let widths = app
+                .view
+                .as_ref()
+                .unwrap()
+                .derived
+                .borrow()
+                .grid
+                .as_ref()
+                .unwrap()
+                .widths
+                .clone();
+            assert!(
+                widths[..3].iter().all(Option::is_some),
+                "essential columns at {width}"
+            );
+            assert!(widths[3].is_some(), "PR remains visible at {width}");
+            assert_eq!(widths[4].is_some(), width == 200, "model steps aside first");
+            assert!(
+                screen.iter().any(|line| line.contains("TASK")),
+                "task title at {width}"
+            );
+            assert_eq!(app.collapsed_panes().contains(&Pane::Detail), width < 100);
+            assert_eq!(app.collapsed_panes().contains(&Pane::Replies), width < 100);
+        }
+        // Manual expansion at 80 keeps essentials readable even without auto-fold.
+        app.set_body_width(80);
+        app.perform(&crate::action::Action::parse("toggle detail").unwrap());
+        app.perform(&crate::action::Action::parse("toggle replies").unwrap());
+        draw(&app, 80, 42);
+        let view = app.view.as_ref().unwrap();
+        let derived = view.derived.borrow();
+        let widths = &derived.grid.as_ref().unwrap().widths;
+        assert!(widths[..3].iter().all(Option::is_some));
+        assert!(widths[3..].iter().all(Option::is_none));
     }
 
     /// Golden: every preset's board as drawn before the rows moved onto the
@@ -1904,6 +1953,7 @@ columns = [{ name = "member", width = "30%" },
         let board = crate::config::Board {
             mode: BoardMode::Split,
             collapsed: Default::default(),
+            fold_below: None,
             panes: vec![Pane::Rows, Pane::Detail, Pane::Notes],
             split: Split::Group {
                 direction: Direction::LeftRight,
@@ -2992,6 +3042,7 @@ columns = [{ name = "member", width = "30%" },
             mode: BoardMode::Split,
             panes: panes.clone(),
             collapsed: Default::default(),
+            fold_below: None,
             split: Split::Group {
                 direction: Direction::LeftRight,
                 children: vec![

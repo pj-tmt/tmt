@@ -152,7 +152,7 @@ fn session(
     input: &Receiver<BoardEvent>,
     request: impl Fn(Option<String>, bool),
     mut act: impl FnMut(Request) -> Result<String, String>,
-    mut draw: impl FnMut(&App) -> io::Result<()>,
+    mut draw: impl FnMut(&mut App) -> io::Result<()>,
 ) -> io::Result<Option<i32>> {
     let mut refreshed = Instant::now();
     let mut dirty = true;
@@ -275,7 +275,15 @@ pub fn run(core: Core, squad: Option<String>, popup: bool) -> Result<Option<i32>
         &input,
         |squad, preempt| worker.request(squad, preempt),
         |request| execute(&core, request),
-        |app| screen.draw(|frame| view::render(frame, app)).map(|_| ()),
+        |app| {
+            screen
+                .draw(|frame| {
+                    // The vertical board bands, including its body, occupy the full width.
+                    app.set_body_width(frame.area().width);
+                    view::render(frame, app);
+                })
+                .map(|_| ())
+        },
     );
     // Restore first, whatever happened; then report the session's outcome.
     let restored = guard.restore();
