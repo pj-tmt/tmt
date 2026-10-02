@@ -165,7 +165,7 @@ fn a_refused_driver_is_refused_before_any_question() {
     let fixture = Fixture::new("refused");
     let not_driver = fixture.driver("broken", "not json");
     // A built-in host's name: refused even with consent.
-    let builtin = fixture.driver("builtin", &capabilities("herdr", "hd-", "h{n}"));
+    let builtin = fixture.driver("builtin", &capabilities("tmux", "tm-", "t{n}"));
     let unsafe_driver = fixture.driver("open", &capabilities("open", "open-", "o{n}"));
     fs::set_permissions(&unsafe_driver, fs::Permissions::from_mode(0o777)).unwrap();
     for (driver, code) in [

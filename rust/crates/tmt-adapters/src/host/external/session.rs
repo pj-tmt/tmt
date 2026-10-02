@@ -64,7 +64,7 @@ impl<R: CommandRunner> Drivers<R> {
         &self.records
     }
 
-    pub(super) fn runner(&self) -> &R {
+    pub(crate) fn runner(&self) -> &R {
         &self.runner
     }
 
@@ -252,7 +252,7 @@ impl<'a, R: CommandRunner> Session<'a, R> {
         }
     }
 
-    /// Runtime liveness from core's own process inspection, as on Herdr; a
+    /// Runtime liveness from core's own process inspection; a
     /// host without its driver is never present, so this is never asked.
     pub fn observed_runtime(&self, binding: &Binding) -> Result<RuntimeState, CommandError> {
         runtime::binding_runtime(&self.drivers.runner, binding, self.deadline)

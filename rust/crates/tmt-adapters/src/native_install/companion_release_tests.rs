@@ -297,21 +297,31 @@ mod first_party {
     }
 
     #[test]
-    fn first_party_approval_follows_the_receipt_and_respects_the_built_in_host() {
+    fn first_party_approval_follows_the_receipt() {
         let (directory, active, release) = shipped();
         let global = directory.path.join("global");
         fs::create_dir_all(&global).unwrap();
-        // Until #479 6-1b removes the built-in Herdr host, the shipped driver
-        // matches its receipt and answers, but its name stays the built-in's.
-        let error = registry::inspect_first_party(
-            &global,
-            "herdr",
-            &active,
-            &crate::process::UnixCommandRunner,
-        )
-        .unwrap_err();
-        assert_eq!(error.code(), "DRIVER_REFUSED", "{error}");
-        assert!(error.to_string().contains("can't be installed"), "{error}");
+        let runner = crate::process::UnixCommandRunner;
+        // The shipped driver, as its receipt records it, approved by name.
+        let inspected = registry::inspect_first_party(&global, "herdr", &active, &runner).unwrap();
+        assert_eq!(inspected.source, DriverSource::FirstParty);
+        assert_eq!(
+            inspected.path,
+            fs::canonicalize(&release).unwrap().join(DRIVER)
+        );
+        assert_eq!(
+            inspected.digest,
+            crate::native_install::artifact::digest(HERDR_DRIVER)
+        );
+        let approved = registry::commit(&global, inspected).unwrap();
+        assert_eq!(
+            registry::read(&global).unwrap(),
+            std::slice::from_ref(&approved)
+        );
+        assert_eq!(
+            registry::state(&global, &approved, &active, &runner),
+            (ApprovalState::Ok, None)
+        );
         // A shipped file that doesn't match its receipt is never run.
         fs::write(release.join(DRIVER), b"#!/bin/sh\necho swapped\n").unwrap();
         let error = registry::inspect_first_party(
@@ -493,6 +503,25 @@ printf '%s' '{"ok":{"protocols":[1],"kind":"host","name":"herdr","version":"0.0.
         assert_eq!(
             fs::read(global.join(registry::REGISTRY_FILE)).unwrap(),
             before
+        );
+        // `tmt driver install herdr` approves what it now asks for.
+        let inspected = registry::inspect_first_party(&global, "herdr", &active, &runner).unwrap();
+        let reapproved = registry::commit(&global, inspected).unwrap();
+        assert_eq!(
+            reapproved.digest,
+            crate::native_install::artifact::digest(driver)
+        );
+        assert_eq!(
+            registry::read(&global).unwrap(),
+            std::slice::from_ref(&reapproved)
+        );
+        assert_eq!(
+            registry::state(&global, &reapproved, &active, &runner),
+            (ApprovalState::Ok, None)
+        );
+        assert_eq!(
+            registry::current_first_party(&global, &reapproved, &active, &runner),
+            Some(reapproved)
         );
     }
 }

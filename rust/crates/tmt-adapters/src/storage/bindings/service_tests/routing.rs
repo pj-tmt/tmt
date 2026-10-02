@@ -118,7 +118,7 @@ fn current_name_presence_reads_another_hosts_binding_as_not_active_without_askin
         .unwrap()
         .identity;
     let mut other = server("server-a", "/tmp/herdr.sock", 41, "other-start");
-    other.host = tmt_core::host::HostKind::Herdr;
+    other.host = tmt_core::host::HostKind::parse("herdr").unwrap();
     let other_binding = storage
         .with_binding_transaction(|records| {
             records.insert_binding(&identity, &other, &pane("w1-1", 100))

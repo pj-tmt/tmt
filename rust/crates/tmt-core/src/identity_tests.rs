@@ -54,7 +54,9 @@ impl IdentityReader for Holder {
 }
 
 #[test]
-fn an_existing_identity_keeps_a_name_that_now_reads_as_a_herdr_target() {
+fn a_herdr_shaped_name_is_an_ordinary_name_while_no_driver_claims_it() {
+    // Herdr's `wN:pM` targets are its driver's syntax (#1082); in a process
+    // with no Herdr driver approved they are names like any other.
     let holder = Holder(Identity {
         name: "W1:p2".into(),
         canonical_name: "w1:p2".into(),
@@ -64,20 +66,9 @@ fn an_existing_identity_keeps_a_name_that_now_reads_as_a_herdr_target() {
         .unwrap()
         .expect("existing identity");
     assert_eq!(found.id, "identity-1");
-    // With no holder it is refused like any target, never a fresh lookup miss.
-    assert!(matches!(
-        find_by_name(&holder, "w3:p4"),
-        Err(IdentityError::InvalidName(
-            crate::names::NameError::PaneTarget
-        ))
-    ));
-    assert!(matches!(
-        create_or_resolve(&mut ForbiddenRepository, "w1:p2", Lifetime::Saved),
-        Err(IdentityError::InvalidName(_))
-    ));
-    // Explicit resolution prefers the existing identity over the target.
+    assert!(find_by_name(&holder, "w3:p4").unwrap().is_none());
     assert!(!addresses_pane(&holder, "w1:p2").unwrap());
-    assert!(addresses_pane(&holder, "w3:p4").unwrap());
+    assert!(!addresses_pane(&holder, "w3:p4").unwrap());
     assert!(!addresses_pane(&holder, "worker").unwrap());
     // tmux targets never name identities and never read storage.
     assert!(addresses_pane(&ForbiddenRepository, "%3").unwrap());

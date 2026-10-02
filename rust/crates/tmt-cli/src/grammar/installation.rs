@@ -314,17 +314,18 @@ pub(in crate::grammar) fn driver() -> Command {
         "Manage consented host drivers",
         [
             "List approved host drivers" => "tmt driver ls",
-            "Approve a host driver" => "tmt driver install ./tmt-driver-herdr",
+            "Approve the shipped Herdr driver" => "tmt driver install herdr",
         ]
     ))
     .subcommand_required(true)
     .subcommand(
         general(spec!(
             "install",
-            "Approve a host driver executable after showing what it declares",
+            "Approve a host driver after showing what it declares",
             [
-                "Approve a host driver" => "tmt driver install ./tmt-driver-herdr",
-                "Approve without a prompt" => "tmt driver install ./tmt-driver-herdr --yes",
+                "Approve the shipped Herdr driver" => "tmt driver install herdr",
+                "Approve a driver executable" => "tmt driver install ./tmt-driver-screen",
+                "Approve without a prompt" => "tmt driver install herdr --yes",
             ]
         ))
         .arg(operand("path", true))

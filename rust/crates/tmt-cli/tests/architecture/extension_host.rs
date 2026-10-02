@@ -8,8 +8,7 @@
 use std::{fs, path::Path};
 use syn::visit::{self, Visit};
 
-const FORBIDDEN: [&str; 6] = [
-    "tmt_adapters::herdr",
+const FORBIDDEN: [&str; 5] = [
     "tmt_adapters::host",
     "tmt_adapters::tmux",
     "tmt_core::binding",

@@ -14,6 +14,8 @@ fn grammar(name: &str, prefix: &str, target: Option<&str>) -> HostGrammar {
 fn approved_hosts_are_registered_once_and_parse_as_external() {
     let mut grammars = vec![
         grammar("fake", "fake-", Some("f{n}")),
+        // Herdr was built in until #1082; its driver now declares its syntax.
+        grammar("herdr", "term_", Some("w{n}:p{n}")),
         // Skipped: a built-in's name, then the same prefix as `fake`.
         grammar("tmux", "tm-", None),
         grammar("copy", "fake-", None),
@@ -25,13 +27,13 @@ fn approved_hosts_are_registered_once_and_parse_as_external() {
         .map(ToString::to_string)
         .collect();
     assert_eq!(registered.len(), MAX_EXTERNAL_HOSTS);
-    assert_eq!(registered[0], "fake");
+    assert_eq!(registered[..2], ["fake", "herdr"]);
     assert!(
         !registered
             .iter()
             .any(|name| name == "tmux" || name == "copy")
     );
-    assert_eq!(registered.last().map(String::as_str), Some("extra14"));
+    assert_eq!(registered.last().map(String::as_str), Some("extra13"));
 
     let fake = HostKind::parse("fake").unwrap();
     assert!(matches!(fake, HostKind::External(_)));
@@ -41,7 +43,19 @@ fn approved_hosts_are_registered_once_and_parse_as_external() {
     // Past the limit: the name still reads, but no syntax is its own.
     let skipped = HostKind::parse("extra15").unwrap();
     assert!(!skipped.is_pane_id("x15-1"));
-    assert_eq!(HostKind::all().count(), 2 + MAX_EXTERNAL_HOSTS);
+    assert_eq!(HostKind::all().count(), 1 + MAX_EXTERNAL_HOSTS);
+
+    let herdr = HostKind::parse("herdr").unwrap();
+    assert_eq!(HostKind::of_pane_id("term_65ca1161edc141"), Some(herdr));
+    assert!(herdr.is_target("w1:p2") && !herdr.is_target("term_1"));
+    assert_eq!(HostKind::label("term_1", Some("w1:p2")), "w1:p2");
+    // As before #1082: no new identity takes such a name, an earlier one
+    // keeps it.
+    assert!(validate_name("w1:p2").is_err());
+    assert_eq!(
+        validate_existing_name("W1:P2").unwrap().canonical_name(),
+        "w1:p2"
+    );
 
     // Its targets are no new identity's name, but an earlier holder keeps one.
     assert!(validate_name("f1").is_err());

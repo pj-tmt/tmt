@@ -96,16 +96,6 @@ fn remembered_session(
         })
 }
 
-/// A caller's pane as the user names it: Herdr's public ID comes from the
-/// caller's own environment.
-fn caller_label(host: &Host, environment: &CallerEnvironment, id: &str) -> String {
-    let herdr = environment
-        .herdr_pane
-        .as_ref()
-        .and_then(|pane| pane.to_str());
-    host.kind().pane_address(id, herdr).to_owned()
-}
-
 /// `listed_pane`: whether `ls <text>` addresses a pane, decided once by
 /// [`listed_target`] before any host is resolved.
 fn preflight(
@@ -165,7 +155,7 @@ fn preflight(
                 .map_err(endpoint_failure)?
                 .map(|id| {
                     Some(ResolvedPane {
-                        label: caller_label(host, environment, &id),
+                        label: host.caller_label(&id),
                         id,
                         frozen: None,
                         target: None,
@@ -187,7 +177,7 @@ fn preflight(
                 .map_err(endpoint_failure)?
                 .map(|id| {
                     Some(ResolvedPane {
-                        label: caller_label(host, environment, &id),
+                        label: host.caller_label(&id),
                         id,
                         frozen: None,
                         target: None,

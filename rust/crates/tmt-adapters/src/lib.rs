@@ -19,7 +19,6 @@ pub mod extension_hooks;
 #[cfg(unix)]
 pub mod file_lock;
 #[cfg(unix)]
-pub mod herdr;
 #[cfg(unix)]
 pub mod host;
 pub mod identity_projection;

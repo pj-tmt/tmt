@@ -510,7 +510,7 @@ fn a_binding_stores_its_host_and_reads_any_other_host_by_name() {
             let entry = records.entry_by_id(&identity.id).unwrap().unwrap();
             assert_eq!(
                 entry.binding.unwrap().server.host,
-                tmt_core::host::HostKind::Herdr
+                tmt_core::host::HostKind::parse("herdr").unwrap()
             );
             assert!(
                 records

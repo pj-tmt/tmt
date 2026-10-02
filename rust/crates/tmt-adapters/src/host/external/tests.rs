@@ -351,20 +351,14 @@ fn late_oversized_or_malformed_answers_fail() {
 
 #[test]
 fn a_driver_that_could_be_read_as_another_host_is_refused() {
-    for (name, prefix, target, why) in [
-        ("tmux", "tm-", None, "built-in name"),
-        ("herdr", "hd-", None, "built-in name"),
-        ("other", "term_", None, "Herdr's pane IDs"),
-        ("other", "ot-", Some("w{n}:p{n}"), "Herdr's targets"),
-    ] {
-        let installed = Installed::new("candidate", answers(name, prefix, target));
-        let result = installed.approve();
-        assert!(
-            matches!(result, Err(RegistryError::Refused(_))),
-            "{why}: {result:?}"
-        );
-        assert_eq!(registry::read(&installed.global()).unwrap(), [], "{why}");
-    }
+    // A built-in host's name.
+    let installed = Installed::new("candidate", answers("tmux", "tm-", None));
+    let result = installed.approve();
+    assert!(
+        matches!(result, Err(RegistryError::Refused(_))),
+        "{result:?}"
+    );
+    assert_eq!(registry::read(&installed.global()).unwrap(), []);
     // Two drivers may not share a prefix; the first stays approved.
     let first = Installed::new("first", answers("first", "fx-", None));
     first.approve().unwrap();

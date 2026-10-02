@@ -1,7 +1,7 @@
 //! The caller's own pane and explicit targets on an external host (#570
 //! slice 3b-2b-1). A driver names a pane; core counts it only when the pane's
 //! shell is an ancestor of the caller, which it checks itself, the same proof
-//! tmux and Herdr callers need.
+//! a tmux caller needs.
 
 use super::{
     Drivers,
