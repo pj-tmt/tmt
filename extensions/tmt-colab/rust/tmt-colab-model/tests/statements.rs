@@ -53,7 +53,7 @@ fn all_operation_schemas_and_bounded_sorted_lists() {
             "page.share",
             json!({"pageId":p,"epoch":"1","mode":"private"}),
         ),
-        ("page.scripts", json!({"pageId":p,"mode":"static"})),
+        ("page.history", json!({"pageId":p,"mode":"shared"})),
         ("retention.set", json!({"pageId":p,"days":null})),
         ("page.archive", json!({"pageId":p})),
         ("page.delete", json!({"pageId":p})),
@@ -159,8 +159,8 @@ fn owner_chain_rejects_replay_forks_payload_substitution_and_wrong_root() {
             .is_err()
     );
     assert!(first.verify_next(space, &[7; 32], None).is_err());
-    let p = bytes(&json!({"pageId":v["page"],"mode":"static"}));
-    let next = statement::sign(space, Some(&head), "page.scripts", &p, &owner).unwrap();
+    let p = bytes(&json!({"pageId":v["page"],"mode":"shared"}));
+    let next = statement::sign(space, Some(&head), "page.history", &p, &owner).unwrap();
     assert!(
         next.verify_next(space, &hex(&v, "public"), Some(&head))
             .is_ok()
@@ -172,7 +172,7 @@ fn owner_chain_rejects_replay_forks_payload_substitution_and_wrong_root() {
         next.verify_next(space, &hex(&v, "public"), Some(&fork))
             .is_err()
     );
-    assert!(statement::sign(space, None, "page.scripts", &p, &owner).is_err());
+    assert!(statement::sign(space, None, "page.history", &p, &owner).is_err());
     let mut wire = v["statement"].clone();
     wire["payload"] = values::encode_binary(&p).into();
     assert!(statement::Envelope::from_json(&bytes(&wire)).is_err());
@@ -331,9 +331,9 @@ fn genesis_pins_editor_principal_and_successors_cannot_reuse_its_id_or_keys() {
         .unwrap();
         statement::Envelope::from_json(&bytes(&json!({"statement":values::encode_binary(&header),"payload":values::encode_binary(&payload),"signature":values::encode_binary(&owner.sign(&header).to_bytes())}))).unwrap()
     };
-    let scripts = json!({"pageId":v["page"],"mode":"static"});
+    let history = json!({"pageId":v["page"],"mode":"shared"});
     assert!(
-        forged("1", &[0; 32], "page.scripts", &scripts)
+        forged("1", &[0; 32], "page.history", &history)
             .verify_next(space, &hex(&v, "public"), None)
             .is_err()
     );
@@ -455,4 +455,41 @@ fn shared_owner_member_vectors_isolate_rejection_from_signature_and_payload_erro
             case["name"]
         );
     }
+}
+
+#[test]
+fn history_schema_and_owner_only_statements_match_independent_vectors() {
+    let v = fixture();
+    let root = hex(&v, "public");
+    let head = statement::Envelope::from_json(&bytes(&v["statement"]))
+        .unwrap()
+        .verify_next(v["space"].as_str().unwrap(), &root, None)
+        .unwrap()
+        .head;
+    for case in v["historyCases"].as_array().unwrap() {
+        let op = case["operation"].as_str().unwrap();
+        let raw = case["payload"].as_str().unwrap().as_bytes();
+        let expected = case["accepted"].as_bool().unwrap();
+        assert_eq!(
+            payload::decode(op, raw).is_ok(),
+            expected,
+            "{}",
+            case["name"]
+        );
+        let accepted = statement::Envelope::from_json(&bytes(&case["envelope"]))
+            .and_then(|e| {
+                e.verify_next(v["space"].as_str().unwrap(), &root, Some(&head))
+                    .map(|_| ())
+            })
+            .is_ok();
+        assert_eq!(accepted, expected, "{}", case["name"]);
+    }
+    assert!(tmt_colab_model::auth::operation("page.scripts").is_err());
+    assert!(tmt_colab_model::auth::operation("page.history").is_ok());
+    let wrong = statement::Envelope::from_json(&bytes(&v["historyWrongOwner"])).unwrap();
+    assert!(
+        wrong
+            .verify_next(v["space"].as_str().unwrap(), &root, Some(&head))
+            .is_err()
+    );
 }

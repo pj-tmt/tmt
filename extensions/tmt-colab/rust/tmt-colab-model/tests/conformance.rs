@@ -95,7 +95,7 @@ fn signin_and_management_match_independent_inputs_and_proofs() {
         page: &ctx.page,
         expected_revision: "1",
         operation_id: signin.code_id,
-        operation: "page.scripts",
+        operation: "page.history",
         payload: &payload,
         sender_device: signin.device,
         issued_at: 1_790_860_000_000,
@@ -105,6 +105,9 @@ fn signin_and_management_match_independent_inputs_and_proofs() {
         auth::management_input(&request).unwrap(),
         field(&v, "management")
     );
+    request.operation = "page.scripts";
+    assert!(auth::management_input(&request).is_err());
+    request.operation = "page.history";
     request.expires_at += 1;
     assert!(auth::management_input(&request).is_err());
     request.expires_at -= 1;

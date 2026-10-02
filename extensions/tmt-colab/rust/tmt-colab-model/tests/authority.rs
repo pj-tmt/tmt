@@ -211,3 +211,66 @@ fn certificates_require_exact_live_log_bindings_supplied_by_caller() {
             .is_err()
     );
 }
+
+#[test]
+fn earlier_epoch_wrap_and_multi_list_join_use_existing_wrap_grammar() {
+    let v = fixture();
+    let j = &v["historyJoin"];
+    let root = hex(&v, "public");
+    let recipient = wrap::RecipientKey::from_seed(&hex(j, "recipientSeed")).unwrap();
+    let genesis = tmt_colab_model::statement::Envelope::from_json(&bytes(&v["statement"])).unwrap();
+    let head = genesis
+        .verify_next(v["space"].as_str().unwrap(), &root, None)
+        .unwrap()
+        .head;
+    let join = tmt_colab_model::statement::Envelope::from_json(&bytes(&j["memberAdd"])).unwrap();
+    let verified = join
+        .verify_next(v["space"].as_str().unwrap(), &root, Some(&head))
+        .unwrap();
+    assert_eq!(verified.head.revision, 2);
+    let forward = wrap::Envelope::from_json(&bytes(&v["forwardWrap"])).unwrap();
+    let h = forward.header().unwrap();
+    assert_eq!(h.epoch, "63");
+    assert_eq!(h.membership_revision, "2");
+    assert_eq!(
+        wrap::open(&forward, &h, &recipient, &root).unwrap(),
+        hex(&v, "epochKey")
+    );
+    // These grouping/history checks are caller policy; the model parses each existing wrap.
+    let lists = j["wrapLists"].as_array().unwrap();
+    assert_eq!(
+        lists
+            .iter()
+            .map(|l| l.as_array().unwrap().len())
+            .collect::<Vec<_>>(),
+        [512, 64]
+    );
+    let mut prior = None;
+    let mut pages = std::collections::BTreeMap::<String, usize>::new();
+    for list in lists {
+        for raw in list.as_array().unwrap() {
+            let w = wrap::Envelope::from_json(raw.as_str().unwrap().as_bytes()).unwrap();
+            let h = w.header().unwrap();
+            let epoch = values::decimal(&h.epoch, false).unwrap();
+            assert!(epoch <= 64);
+            assert_eq!(h.membership_revision, "2");
+            assert_eq!(h.recipient_kind, "member");
+            assert_eq!(h.recipient_id, "00000000-0000-4000-8000-000000000051");
+            let order = (
+                h.page.clone(),
+                epoch,
+                h.recipient_kind.clone(),
+                h.recipient_id.clone(),
+            );
+            assert!(prior.as_ref().is_none_or(|p| p < &order));
+            prior = Some(order);
+            *pages.entry(h.page.clone()).or_default() += 1;
+            assert_eq!(
+                wrap::open(&w, &h, &recipient, &root).unwrap(),
+                hex(&v, "epochKey")
+            );
+        }
+    }
+    assert_eq!(pages.len(), 9);
+    assert!(pages.values().all(|n| *n == 64));
+}

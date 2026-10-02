@@ -56,7 +56,15 @@ const nativeEnvelope = native({
     },
   ],
 })[0];
-const nativeAuthority = native(authority, 'browser_authority');
+const nativeAuthority = native(
+  Object.fromEntries(
+    ['seed', 'space', 'payload', 'page', 'wrap', 'recipientSeed', 'epochKey'].map((key) => [
+      key,
+      authority[key],
+    ]),
+  ),
+  'browser_authority',
+);
 const modules = new Map();
 for (const name of await readdir(new URL('src/', root))) {
   if (!name.endsWith('.ts')) continue;
@@ -130,6 +138,81 @@ try {
             } catch {}
             assert(accepted === test.accepted);
           }
+          for (const test of authority.historyCases) {
+            let accepted = false;
+            try {
+              await c.statement.Envelope.fromJson(c.text(JSON.stringify(test.envelope))).verifyNext(
+                authority.space,
+                root,
+                genesis.head,
+              );
+              accepted = true;
+            } catch {}
+            assert(accepted === test.accepted);
+          }
+          let wrongHistoryOwner = false;
+          try {
+            await c.statement.Envelope.fromJson(
+              c.text(JSON.stringify(authority.historyWrongOwner)),
+            ).verifyNext(authority.space, root, genesis.head);
+            wrongHistoryOwner = true;
+          } catch {}
+          assert(!wrongHistoryOwner);
+          const join = authority.historyJoin;
+          await c.statement.Envelope.fromJson(c.text(JSON.stringify(join.memberAdd))).verifyNext(
+            authority.space,
+            root,
+            genesis.head,
+          );
+          const historyWrap = c.wrap.Envelope.fromJson(
+            c.text(JSON.stringify(authority.forwardWrap)),
+          );
+          const historyKey = await crypto.subtle.importKey(
+            'pkcs8',
+            c.concat(hex('302e020100300506032b656e04220420'), hex(join.recipientSeed)),
+            'X25519',
+            false,
+            ['deriveBits'],
+          );
+          const historyRecipient = await c.RecipientKey.fromHandle(
+            historyKey,
+            historyWrap.header().recipientKey,
+          );
+          assert(
+            historyWrap.header().epoch === '63' && historyWrap.header().membershipRevision === '2',
+          );
+          assert(
+            same(
+              await historyWrap.open(historyWrap.header(), historyRecipient, root),
+              authority.epochKey,
+            ),
+          );
+          assert(
+            join.wrapLists.length === 2 &&
+              join.wrapLists[0].length === 512 &&
+              join.wrapLists[1].length === 64,
+          );
+          let priorPage = '',
+            priorEpoch = 0n;
+          const historyPages = new Map();
+          for (const list of join.wrapLists)
+            for (const raw of list) {
+              const w = c.wrap.Envelope.fromJson(c.text(raw)),
+                h = w.header(),
+                epoch = BigInt(h.epoch);
+              assert(h.page > priorPage || (h.page === priorPage && epoch > priorEpoch));
+              priorPage = h.page;
+              priorEpoch = epoch;
+              assert(
+                epoch <= 64n &&
+                  h.membershipRevision === '2' &&
+                  h.recipientKind === 'member' &&
+                  h.recipientId === '00000000-0000-4000-8000-000000000051',
+              );
+              historyPages.set(h.page, (historyPages.get(h.page) ?? 0) + 1);
+              assert(same(await w.open(h, historyRecipient, root), authority.epochKey));
+            }
+          assert(historyPages.size === 9 && [...historyPages.values()].every((n) => n === 64));
           let head = null;
           for (const wire of nativeAuthority.statements)
             head = (
@@ -323,13 +406,19 @@ try {
             page: original.page,
             expectedRevision: '1',
             operationId: signin.codeId,
-            operation: 'page.scripts',
+            operation: 'page.history',
             payload: hex(fixture.payload),
             senderDevice: original.authorDevice,
             issuedAt: 1790860000000,
             expiresAt: 1790860600000,
           };
           assert(same(await c.managementInput(management), fixture.management));
+          let legacyAccepted = false;
+          try {
+            await c.managementInput({ ...management, operation: 'page.scripts' });
+            legacyAccepted = true;
+          } catch {}
+          assert(!legacyAccepted, 'legacy management operation accepted');
           return {
             rows,
             checks: true,

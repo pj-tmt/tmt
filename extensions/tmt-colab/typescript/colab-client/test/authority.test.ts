@@ -110,7 +110,7 @@ describe('browser authority ports', () => {
   });
   it('fences replay/forks, snapshots retained heads, and protects the pinned owner member', async () => {
     const g = await genesis(),
-      e = await signed('page.scripts', { pageId: v.page, mode: 'static' }, g.head);
+      e = await signed('page.history', { pageId: v.page, mode: 'shared' }, g.head);
     const prior = {
       ...g.head,
       hash: c.copy(g.head.hash),
@@ -228,7 +228,7 @@ describe('browser authority ports', () => {
           { epoch: '10', key: zero },
         ],
       },
-      'page.scripts': { pageId: v.page, mode: 'static' },
+      'page.history': { pageId: v.page, mode: 'shared' },
       'retention.set': { pageId: v.page, days: null },
       'page.archive': { pageId: v.page },
       'page.delete': { pageId: v.page },
@@ -435,3 +435,72 @@ describe('browser authority ports', () => {
     ).toThrow();
   });
 });
+
+it('history statements are strict and owner-only against independent vectors', async () => {
+  const g = await genesis();
+  for (const test of v.historyCases) {
+    let parsed = false,
+      accepted = false;
+    try {
+      c.payload.decode(test.operation, c.text(test.payload));
+      parsed = true;
+    } catch {}
+    try {
+      await c.statement.Envelope.fromJson(json(test.envelope)).verifyNext(
+        v.space,
+        hex(v.public),
+        g.head,
+      );
+      accepted = true;
+    } catch {}
+    expect(parsed, test.name).toBe(test.accepted);
+    expect(accepted, test.name).toBe(test.accepted);
+  }
+  await expect(
+    c.statement.Envelope.fromJson(json(v.historyWrongOwner)).verifyNext(
+      v.space,
+      hex(v.public),
+      g.head,
+    ),
+  ).rejects.toThrow();
+});
+
+it('forward wraps and a capped multi-list join keep the existing grammar', async () => {
+  const j = v.historyJoin,
+    g = await genesis();
+  await c.statement.Envelope.fromJson(json(j.memberAdd)).verifyNext(v.space, hex(v.public), g.head);
+  const key = await crypto.subtle.importKey(
+    'pkcs8',
+    c.concat(hex('302e020100300506032b656e04220420'), hex(j.recipientSeed)),
+    'X25519',
+    false,
+    ['deriveBits'],
+  );
+  const forward = c.wrap.Envelope.fromJson(json(v.forwardWrap)),
+    h = forward.header();
+  const r = await c.RecipientKey.fromHandle(key, h.recipientKey);
+  expect(h.epoch).toBe('63');
+  expect(h.membershipRevision).toBe('2');
+  expect(c.equal(await forward.open(h, r, hex(v.public)), hex(v.epochKey))).toBe(true);
+  expect(j.wrapLists.map((list: string[]) => list.length)).toEqual([512, 64]);
+  let previous = '',
+    previousEpoch = 0n;
+  const pages = new Map<string, number>();
+  for (const list of j.wrapLists)
+    for (const raw of list) {
+      const w = c.wrap.Envelope.fromJson(c.text(raw)),
+        h = w.header(),
+        epoch = BigInt(h.epoch);
+      expect(h.page > previous || (h.page === previous && epoch > previousEpoch)).toBe(true);
+      previous = h.page;
+      previousEpoch = epoch;
+      expect(epoch <= 64n).toBe(true);
+      expect(h.membershipRevision).toBe('2');
+      expect(h.recipientKind).toBe('member');
+      expect(h.recipientId).toBe('00000000-0000-4000-8000-000000000051');
+      pages.set(h.page, (pages.get(h.page) ?? 0) + 1);
+      expect(c.equal(await w.open(h, r, hex(v.public)), hex(v.epochKey))).toBe(true);
+    }
+  expect(pages.size).toBe(9);
+  expect([...pages.values()].every((n) => n === 64)).toBe(true);
+}, 30000);
