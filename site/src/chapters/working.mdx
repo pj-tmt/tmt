@@ -54,6 +54,8 @@ A key is lowercase, such as `project` or `capability.review`, and a value is tex
 
 <Cmd>{`[tmt] reply from builder to req_9ba4…: tmt result req_9ba4…`}</Cmd>
 
+These lines are grouped per pane. Every reply that arrives within 5 seconds of the first becomes one paste. While someone is typing in that pane, tmt holds the paste until the keys have been quiet for 2 seconds, but never more than 30 seconds after that window ends. A pane enrolled in a channel still gets each notice on its own. Both waits are [settings](/working/settings).
+
 The agent submits its reply with the receipt it was given, as a message, a file or standard input. Sending the same body again changes nothing; a different one is refused, so the first reply stays final.
 
 <Cmd>{`
