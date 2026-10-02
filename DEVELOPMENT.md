@@ -2802,7 +2802,7 @@ The trusted `Registration::revoke(deviceId, grantRevision)` callback removes act
 registration and retains a durable tombstone; older events cannot overwrite newer
 state. Production remote event delivery remains #1100, owner-signed revocation and
 page epoch rotation remain #1157, and mounted stream-sync composition remains
-#1119. No registration test claims those integrated flows are complete.
+#1211. No registration test claims those integrated flows are complete.
 
 ### Colab stream sync verification
 

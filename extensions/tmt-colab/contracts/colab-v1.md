@@ -445,7 +445,7 @@ ignored and repeated events are idempotent. No later context revives a tombstone
 Registered-device admission rechecks durable revocation and certificate expiry.
 Remote event delivery remains #1100; there is no browser revocation route.
 This local tombstone is not the owner-signed `device.revoke` transition with cuts
-and epoch rotation (#1157). Sync composition remains #1119.
+and epoch rotation (#1157). Handing sync tunnels to the sync server is #1211.
 
 ## Page state, roles and epochs
 

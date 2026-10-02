@@ -327,7 +327,7 @@ impl Registration {
             grant_revision,
         )
     }
-    /// Admission seam for socket/sync composition (#1119), checked against durable
+    /// Admission seam for socket/sync composition (#1211), checked against durable
     /// revocation every time. A forwarded cookie/session alone is insufficient.
     pub fn active_device(
         &mut self,

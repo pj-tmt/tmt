@@ -4169,7 +4169,7 @@ placeholder page for owner and non-owner requests. It accepts a `colab-sync-v1`
 WebSocket upgrade only with an active registered owner context, version 13 and a well-formed
 16-byte key, computing the accept value with the workspace `tungstenite`
 handshake, then holds the tunnel (16 at most, closed after 120 s without
-inbound bytes) pending stream-sync socket composition (#1119). Shutdown closes
+inbound bytes) pending stream-sync socket composition (#1211). Shutdown closes
 every request socket and tunnel before joining.
 
 Servers never decode Yjs; foreign-writer decoding/merging runs in a bounded
@@ -4295,7 +4295,7 @@ the existing append transaction. Outbound objects reserve queue entries and emit
 one frame per turn from immutable shared bytes. Revocation/drop clears partial
 state and pending transfer bytes; clients verify reassembled data before applying.
 The exact grammar/budgets live in colab-v1, with timers and socket workers still
-caller-owned. Owner registration is implemented under #1162; socket wiring belongs to #1119.
+caller-owned. Owner registration is implemented under #1162; socket wiring belongs to #1211.
 The foreground executable holds registered-owner upgrades without sync composition.
 
 ### Isolated Colab decoder
