@@ -1375,6 +1375,15 @@ no-op, core and cross-owner claims, force backup, Office adoption, removal by
 owner (all skills or a named subset) and drift. Runtime/linkage proof shared by archive
 and raw verification lives in `typescript/scripts/native-runtime-proof.mjs`.
 
+## Queued release pull requests
+
+On each main push, `Release` refreshes release pull requests. For `release-pr`
+only, the exact HTTP 422 rejection of a queued release PR branch-ref update is
+logged as a no-op: the branch stays unchanged and refreshes on the first main
+push after the PR merges. Other 422 responses, server errors, failed log writes
+and all `github-release` errors still fail the job. This does not dequeue a PR,
+relax a merge check or change publication authorization.
+
 ## Project tracking
 
 Progress is read from one place: the `pj-tmt` project

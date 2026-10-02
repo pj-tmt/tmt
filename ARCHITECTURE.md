@@ -3121,6 +3121,11 @@ GitHub App token, created only in that job and only in a live run on `main`, is 
 the release pull requests run the required checks; the job runs in the `release`
 Environment and the App credentials are secrets of that Environment, restricted to `main`.
 Until they exist every push is a dry run that opens, merges, creates and starts nothing.
+For `release-pr` only, the exact queued-release-branch HTTP 422 from a ref
+update is a logged no-op, preserving the queued candidate until it merges. All
+other failures, including `github-release` errors, remain failures. The guard
+currently lives at the pinned CLI diagnostic boundary in `release.yml`; it must
+move to structured error handling when #979 adopts the release-please API wrapper.
 `release.yml` never publishes. `native-release-upgrade.yml` proves, for a draft or
 published release, its upgrade from the last published release of the same product on the
 four matching hosts. It only reads releases: a write-token job on `main`'s code fetches the
