@@ -118,7 +118,7 @@ pub fn grammar() -> Command {
     spec("view", "Choose a board pane arrangement and fold defaults", &[
         Example { command: "tmt squad view", note: "List factory views" },
         Example { command: "tmt squad view set focus", note: "Choose a view for all boards" },
-    ], "Without a subcommand, list views. Workflow states, rows and providers stay unchanged.")
+    ], "Without a subcommand, list views. Views change panes and folds only; workflow states, rows and providers stay unchanged.")
     .arg(scope_option())
     .subcommand(spec("ls", "List factory views and the effective arrangement's source", &[
         Example { command: "tmt squad view ls", note: "List views for all boards" },
@@ -196,16 +196,15 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
             ]);
         }
         let note = format!(
-            "arrangement source: {}; workflow: {}",
-            document["effective"]["source"].as_str().unwrap_or_default(),
+            "workflow: {}",
             document["effective"]["layout"].as_str().unwrap_or_default()
         );
         let _ = Section {
             title: "VIEWS",
-            count: Some(5),
+            count: Some(ViewName::ALL.len()),
             rows,
             note: Some(&note),
-            hint: Some("views change panes and folds only; workflow settings stay unchanged"),
+            hint: Some("tmt sq view set <name> [--squad <name>]"),
         }
         .write(&mut output, terminal);
     } else {
@@ -261,7 +260,11 @@ mod tests {
         assert_eq!(listed, words(&mut config, &["ls"]));
         assert_eq!(listed, words(&mut config, &["list", "--json"]));
         assert_eq!(listed["effective"]["view"], "notes");
-        assert!(text(&listed, Terminal::PLAIN).starts_with("VIEWS 5\n"));
+        let human = text(&listed, Terminal::PLAIN);
+        assert!(human.starts_with("VIEWS 5\n"));
+        assert_eq!(human.matches("board\n").count(), 1);
+        assert!(human.contains("workflow: team\n"));
+        assert!(human.ends_with("hint: tmt sq view set <name> [--squad <name>]\n"));
         let scoped = words(&mut config, &["ls", "--squad", "product"]);
         assert_eq!(scoped["effective"]["source"], "squad");
         assert_eq!(scoped["effective"]["layout"], "crew");
