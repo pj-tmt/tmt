@@ -83,6 +83,9 @@ const OPERATIONS = [
   'page.archive',
   'page.delete',
 ];
+export function operation(value: string): void {
+  requireValue(OPERATIONS.includes(value));
+}
 export interface Management {
   space: string;
   page: string;
@@ -99,7 +102,7 @@ export async function managementInput(v: Management): Promise<Bytes> {
   spaceId(v.space);
   for (const id of [v.page, v.operationId, v.senderDevice]) generatedId(id);
   decimal(v.expectedRevision);
-  requireValue(OPERATIONS.includes(v.operation));
+  operation(v.operation);
   time(v.issuedAt);
   time(v.expiresAt);
   requireValue(

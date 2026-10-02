@@ -12,13 +12,17 @@ const corpus = (await readFile(new URL('ed25519-829.jsonl', vectors), 'utf8'))
   .split('\n')
   .map(JSON.parse);
 const fixture = JSON.parse(await readFile(new URL('model-v1.json', vectors), 'utf8'));
+const authority = JSON.parse(await readFile(new URL('authority-v1.json', vectors), 'utf8'));
+const ownerCases = JSON.parse(
+  await readFile(new URL('owner-member-v1.json', vectors), 'utf8'),
+).cases;
 const fixtureEnvelope = {
   header: Buffer.from(fixture.header, 'hex').toString('base64url'),
   nonce: Buffer.alloc(12).toString('base64url'),
   ciphertext: Buffer.from(fixture.ciphertext, 'hex').toString('base64url'),
   signature: Buffer.from(fixture.signature, 'hex').toString('base64url'),
 };
-function native(input) {
+function native(input, example = 'browser_conformance') {
   const result = spawnSync(
     'cargo',
     [
@@ -32,7 +36,7 @@ function native(input) {
       '-p',
       'tmt-colab-model',
       '--example',
-      'browser_conformance',
+      example,
     ],
     { input: JSON.stringify(input), encoding: 'utf8', timeout: 60000, maxBuffer: 1024 * 1024 },
   );
@@ -52,6 +56,7 @@ const nativeEnvelope = native({
     },
   ],
 })[0];
+const nativeAuthority = native(authority, 'browser_authority');
 const modules = new Map();
 for (const name of await readdir(new URL('src/', root))) {
   if (!name.endsWith('.ts')) continue;
@@ -94,7 +99,7 @@ try {
       await page.goto(origin);
       await page.waitForFunction(() => window.client);
       const result = await page.evaluate(
-        async ({ corpus, fixture, nativeEnvelope }) => {
+        async ({ corpus, fixture, nativeEnvelope, authority, nativeAuthority, ownerCases }) => {
           const c = window.client;
           const hex = (s) => Uint8Array.from(s.match(/../g) ?? [], (n) => parseInt(n, 16));
           const same = (a, b) => c.equal(a, hex(b));
@@ -102,6 +107,92 @@ try {
             if (!ok) throw new Error('Browser conformance check failed');
           };
           await c.probeCapabilities();
+          const root = hex(authority.public);
+          assert((await c.deriveSpaceId(root)) === authority.space);
+          const genesis = await c.statement.Envelope.fromJson(
+            c.text(JSON.stringify(authority.statement)),
+          ).verifyNext(authority.space, root, null);
+          assert(same(genesis.head.hash, authority.statementHash));
+          for (const test of ownerCases) {
+            const wire = test.envelope;
+            assert(
+              await c.strictVerify(
+                root,
+                c.binary(wire.signature, 64, 64),
+                c.binary(wire.statement, 1024),
+              ),
+            );
+            const envelope = c.statement.Envelope.fromJson(c.text(JSON.stringify(wire)));
+            let accepted = false;
+            try {
+              await envelope.verifyNext(authority.space, root, genesis.head);
+              accepted = true;
+            } catch {}
+            assert(accepted === test.accepted);
+          }
+          let head = null;
+          for (const wire of nativeAuthority.statements)
+            head = (
+              await c.statement.Envelope.fromJson(c.text(JSON.stringify(wire))).verifyNext(
+                authority.space,
+                root,
+                head,
+              )
+            ).head;
+          assert(head.revision === 2n);
+          const chain = c.certificate.Chain.fromJson(c.text(JSON.stringify(authority.chain)));
+          assert(same(await chain.digest(), authority.chainDigest));
+          await chain.verify(genesis.head.hash, chain.certificate(), root);
+          const off = new Uint8Array(32);
+          off[0] = 2;
+          assert(c.validEdPoint(off));
+          assert(
+            !(await c.strictVerify(
+              off,
+              c.binary(authority.chain.issuerSignature, 64, 64),
+              c.certificate.input(chain.certificate()),
+            )),
+          );
+          let issued = false;
+          try {
+            await chain.verify(genesis.head.hash, chain.certificate(), off);
+            issued = true;
+          } catch {}
+          assert(!issued);
+          const independent = c.wrap.Envelope.fromJson(c.text(JSON.stringify(authority.wrap)));
+          const x = await crypto.subtle.importKey(
+            'pkcs8',
+            c.concat(hex('302e020100300506032b656e04220420'), hex(authority.recipientSeed)),
+            'X25519',
+            false,
+            ['deriveBits'],
+          );
+          const r = await c.RecipientKey.fromHandle(x, independent.header().recipientKey);
+          for (const wire of [authority.wrap, ...nativeAuthority.wraps])
+            assert(
+              same(
+                await c.wrap.Envelope.fromJson(c.text(JSON.stringify(wire))).open(
+                  independent.header(),
+                  r,
+                  root,
+                ),
+                authority.epochKey,
+              ),
+            );
+          const expected = independent.header(),
+            ownerSnapshot = hex(authority.public);
+          const opening = independent.open(expected, r, ownerSnapshot);
+          expected.recipientKey.fill(0);
+          ownerSnapshot.fill(0);
+          expected.epoch = '2';
+          assert(same(await opening, authority.epochKey));
+          let wrong = false;
+          try {
+            await independent.open({ ...independent.header(), epoch: '2' }, r, root);
+            wrong = true;
+          } catch {}
+          assert(!wrong);
+
           const rows = [];
           for (const v of corpus) {
             let raw = false;
@@ -250,7 +341,7 @@ try {
             })),
           };
         },
-        { corpus, fixture, nativeEnvelope },
+        { corpus, fixture, nativeEnvelope, authority, nativeAuthority, ownerCases },
       );
       results.push({ engine: name, version: browser.version(), ...result });
     } catch (error) {

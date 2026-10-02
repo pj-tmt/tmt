@@ -1,6 +1,6 @@
 import { decodeText, requireValue, text } from './bytes.js';
 /** Reject duplicates before JSON.parse loses them. No unsigned reserialization is used. */
-export function strictJson(raw: Uint8Array, max: number): unknown {
+export function strictJson(raw: Uint8Array, max: number, integerNumbers = false): unknown {
   requireValue(raw.length <= max);
   const source = decodeText(raw);
   let offset = 0;
@@ -58,6 +58,8 @@ export function strictJson(raw: Uint8Array, max: number): unknown {
     offset += token[0].length;
     const parsed: unknown = JSON.parse(token[0]);
     requireValue(typeof parsed !== 'number' || Number.isFinite(parsed));
+    if (integerNumbers && typeof parsed === 'number')
+      requireValue(/^(0|[1-9][0-9]*)$/.test(token[0]) && Number.isSafeInteger(parsed));
     return parsed;
   };
   const out = value(0);

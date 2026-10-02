@@ -3501,10 +3501,12 @@ apply a transition. Shared baseline descriptor admission and exact management
 frame decoding stay here; sync/control transport DTOs belong to the server.
 The private browser client owns canonical values/LP/JSON, strict Ed25519,
 immutable object envelopes and sign-in/management bytes, using WebCrypto only.
+Its typed statement/certificate/cut ports mirror the model; fixed-suite HPKE
+opening keeps native recipient keys opaque. The caller supplies the pinned URL
+root and highest retained head, live issuer/recipient bindings and epoch policy.
 Its test-only three-engine harness fails closed on incomplete engines/corpora and
 checks ciphertext both ways through a developer-only Rust example. No app or
-transport is implemented. Browser statement/certificate/wrap ports and
-pairing/send/baseline builders remain later L1 work. Frozen vectors are contract-owned;
+transport is implemented. Pairing/send/baseline builders remain later L1 work. Frozen vectors are contract-owned;
 Rust tests read them without Python. Regeneration uses an independent Python
 cryptography oracle; the retained #829 corpus tests all 148 strict policy rows.
 
