@@ -788,7 +788,7 @@ operations are:
 
 | Type        | Additional fields / behavior                                                                                        |
 | ----------- | ------------------------------------------------------------------------------------------------------------------- |
-| `hello`     | `device, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                   |
+| `hello`     | `device, membershipRevision, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                   |
 | `catchup`   | `membershipHead, baseline, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail |
 | `subscribe` | `cursors`; observe only the admitted page/current epoch                                                             |
 | `append`    | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                   |
@@ -798,8 +798,15 @@ operations are:
 | `awareness` | `device, data`; bounded ephemeral presence, never persisted or authority                                            |
 | `error`     | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                      |
 
+The local endpoints are `POST /s/<space>/signin` for owner-device enrollment,
+`POST /s/<space>/manage` for device-signed management requests, and
+`/s/<space>/sync` for authenticated WebSocket upgrade. Each requires exact
+configured Host and app Origin; the session cookie is scoped to `/s/<space>/`.
+
 A cursor is `{streamId, namespace, seq, envelopeHash}`, scoped by the frame's
-space/page/epoch. The namespace checkpoint and retained update-chain hashes
+space/page/epoch. Cursor `seq` and frame `epoch` are canonical decimal strings,
+using the same grammar as envelope sequence/epoch fields. The namespace
+checkpoint and retained update-chain hashes
 resolve it; unknown or pruned cursors require checkpoint/tail resync rather than
 assuming a trusted head. A hello cannot select a different writer identity than
 its authenticated session. Control/awareness are unsigned hints, never log
@@ -811,9 +818,40 @@ partial data cannot apply. Large envelopes in append/catchup/broadcast reference
 `objectId, envelopeHash` until bounded chunk assembly completes. No stream
 sequence is accepted twice merely because payloads were pruned.
 
-The control-frame grammar above is a C0 proposal derived from the #830 wire
-recommendation, not tested canonical production framing. L1/L2 must freeze its
-strict nested decoders, independent bytes and operation-specific errors.
+The nested catch-up fields are strict typed JSON:
+
+- `membershipHead` contains exactly `revision, hash, ownerKey, statements`; `statements`
+  carries exact signed statement envelopes in ascending revision order.
+- `ownerKey` is canonical base64url of the 32-byte root Ed25519 public key,
+  also carried in the sign-in response beside the exact certificate chain.
+  It is untrusted public metadata until its space-ID derivation equals the
+  URL-pinned space. The client then persists that key; later substitution rejects
+  as a different space. No separate metadata endpoint supplies root authority.
+- `baseline` uses the exact `epoch.advance` baseline descriptor fields.
+- Each `streams` entry contains exactly `streamId, namespace, checkpoint, tail`.
+  `checkpoint` is null or `{seq, envelopeHash, envelope}`; `tail` is an ordered
+  list of entries with those same fields. Inline `envelope` is canonical
+  base64url of the exact frozen envelope JSON bytes, preserving retry identity.
+  Large objects instead reference `{objectId, envelopeHash}` and use the bounded
+  chunk path before envelope admission.
+- `more` is a boolean. `hello.membershipRevision` is the client's highest retained
+  verified revision as a canonical decimal string, with `"0"` for none. The
+  server returns only later statements in bounded pages. With `more:true`, the
+  client repeats hello/catch-up from its newly verified head. A server head below
+  the retained client head reports “space state rolled back”; it never pages
+  backwards or silently resets the client's head.
+
+Each message has at most 256 cursors, streams or tail entries, and each
+membership page has at most 64 statement envelopes; the whole message remains
+within the 64 KiB frame bound. Chunk payloads are at most 32 KiB raw bytes.
+Whole-object assembly has a two-second deadline and at most eight queued frames;
+its serialized-envelope cap is the model-owned bound derived from the encrypted
+object limits and encoding overhead. The local page quota measures serialized
+bytes actually stored, without a separate raw-ciphertext counter.
+
+L2 owns strict control transport decoding; L1 owns nested cryptographic and
+baseline value admission. Independent bytes, bounded paging and operation-specific
+errors require implementing-slice tests before production wire acceptance.
 
 The #830 fixture used 64 KiB frames/messages, queue 8, receipt/tail capacity 64,
 16 sockets, ten-second connection lifetime, two-second handshake reads and

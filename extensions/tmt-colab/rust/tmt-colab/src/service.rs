@@ -6,7 +6,10 @@ use crate::{
     keyring::{Keyring, Layout, MemberKeys},
     store::Store,
 };
-use base64::{Engine, engine::general_purpose::STANDARD};
+use base64::{
+    Engine,
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+};
 use serde::Deserialize;
 use std::{
     sync::{
@@ -20,6 +23,7 @@ const STRIP_FRAGMENT: &str = "history.replaceState(null, '', location.pathname);
 const COOKIE: &str = "tmt_colab_session";
 pub struct SessionService {
     space: String,
+    owner_key: String,
     bootstrap: String,
     state: Mutex<State>,
     stop: Arc<AtomicBool>,
@@ -45,6 +49,7 @@ impl SessionService {
         let bootstrap = format!("/s/{space}/signin/{}", code.id);
         Ok(Self {
             space,
+            owner_key: URL_SAFE_NO_PAD.encode(keyring.owner_public()),
             bootstrap,
             stop,
             state: Mutex::new(State {
@@ -90,7 +95,12 @@ impl SessionService {
             code,
         } = &mut *state;
         let issued = code.enroll(store, member, &input, &proof, &signature, now()?)?;
-        let mut reply = Reply::text(200, &issued.chain);
+        let body = format!(
+            "{{\"ownerKey\":\"{}\",\"chain\":{}}}",
+            self.owner_key,
+            std::str::from_utf8(&issued.chain)?
+        );
+        let mut reply = Reply::text(200, body.as_bytes());
         reply.content_type = "application/json";
         reply.cookie = Some(format!(
             "{COOKIE}={}; Path=/s/{}/; Max-Age=86400; HttpOnly; SameSite=Strict",

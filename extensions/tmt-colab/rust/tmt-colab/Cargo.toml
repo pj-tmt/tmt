@@ -25,7 +25,7 @@ signal-hook.workspace = true
 tmt-cli-style.workspace = true
 tmt-invoke.workspace = true
 # Local preparation only; replace with the published L1 workspace path before pushing.
-tmt-colab-model = { path = "/tmp/847-l1-03a6892c/extensions/tmt-colab/rust/tmt-colab-model" }
+tmt-colab-model = { path = "/tmp/847-l1-80f7e246/extensions/tmt-colab/rust/tmt-colab-model" }
 base64.workspace = true
 
 [lints]

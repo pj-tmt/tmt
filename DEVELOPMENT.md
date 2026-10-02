@@ -1410,8 +1410,9 @@ Tests inject temporary data roots; never point them at the real TMT directory.
 The extension owns `<dataRoot>/colab/` (0700) and regular secret/state files
 (0600). Production startup obtains the absolute root through `tmt api storage.root`
 via `tmt-invoke`; no path guess or Colab root environment variable
-is supported. Store bounds are named in `src/limits.rs`: 16 MiB plus 2 KiB per
-opaque envelope, 64 MiB retained ciphertext and 100,000 durable update receipts
+is supported. The model owns the serialized-envelope cap (`object::MAX_ENVELOPE_JSON`,
+22,374,400 bytes, including encoding overhead). Store quotas in `src/limits.rs`
+are 64 MiB of serialized bytes actually stored and 100,000 durable update receipts
 per page across epochs. Capacity rejects writes without eviction. Checkpoint
 pruning keeps receipts and preserves the other namespace and concurrent tails;
 it also reclaims superseded unpinned checkpoint payloads. `pin_checkpoint` is

@@ -312,7 +312,7 @@ fn validate(e: &Envelope<'_>) -> StoreResult<()> {
     if e.scope.epoch == 0
         || e.seq == 0
         || e.bytes.is_empty()
-        || e.bytes.len() > limits::OBJECT_BYTES
+        || e.bytes.len() > tmt_colab_model::object::MAX_ENVELOPE_JSON
     {
         return Err(Fault::Invalid);
     }

@@ -190,7 +190,7 @@ fn failed_checkpoint_rolls_back_prune_and_receipt_capacity_never_evicts() {
         store.append(&envelope(1, Namespace::Content)).unwrap(),
         Accepted::Replay
     );
-    let too_big = vec![0; tmt_colab::limits::OBJECT_BYTES + 1];
+    let too_big = vec![0; tmt_colab_model::object::MAX_ENVELOPE_JSON + 1];
     assert!(matches!(
         store.append(&Envelope {
             bytes: &too_big,
@@ -329,7 +329,7 @@ fn repeated_compaction_reclaims_unpinned_checkpoints_and_rejects_sequence_rollba
     let layout = fixture.layout();
     let mut store = Store::open(&layout).unwrap();
     store.create_page("page").unwrap();
-    let checkpoint_bytes = vec![7; tmt_colab::limits::OBJECT_BYTES];
+    let checkpoint_bytes = vec![7; tmt_colab_model::object::MAX_ENVELOPE_JSON];
     for seq in 1..=8 {
         store.append(&envelope(seq, Namespace::Content)).unwrap();
         let checkpoint = Envelope {
@@ -358,7 +358,7 @@ fn repeated_compaction_reclaims_unpinned_checkpoints_and_rejects_sequence_rollba
             .query_row("SELECT sum(length(payload)) FROM checkpoints", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        (2 * tmt_colab::limits::OBJECT_BYTES) as i64
+        (2 * tmt_colab_model::object::MAX_ENVELOPE_JSON) as i64
     );
     assert_eq!(
         oracle

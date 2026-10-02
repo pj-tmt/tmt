@@ -394,6 +394,18 @@ fn signin_requires_origin_proof_possession_and_one_live_code() {
     let issued = post(&padded, origin);
     assert!(issued.starts_with("HTTP/1.1 200"));
     assert_eq!(sessions(), 1);
+    let response: Value = serde_json::from_str(issued.split_once("\r\n\r\n").unwrap().1).unwrap();
+    let owner: [u8; 32] =
+        tmt_colab_model::values::binary(response["ownerKey"].as_str().unwrap(), 32)
+            .unwrap()
+            .try_into()
+            .unwrap();
+    assert_eq!(crypto::space_id(&owner).unwrap(), space);
+    let chain = tmt_colab_model::certificate::Chain::from_json(
+        &serde_json::to_vec(&response["chain"]).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(chain.certificate().unwrap().device_id, input.device);
     let cookie = issued
         .lines()
         .find(|l| l.starts_with("Set-Cookie: "))
