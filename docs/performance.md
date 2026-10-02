@@ -7,11 +7,9 @@ a fallback or measure an installed host command by accident.
 
 ## Retained comparison
 
-[Paired observations](../benchmarks/native-paired-performance.json) compare both
-runtimes from source `e3c8bd7e9a2fdaab0ccfe59a03be7967a7719fcb` before TypeScript
-source retirement. The artifact retains raw samples, source trees, executable
-digests, build identity and environment. These are historical results, not
-current-source timings or release-archive acceptance.
+The paired observations below compare both runtimes from source
+`e3c8bd7e9a2fdaab0ccfe59a03be7967a7719fcb` before TypeScript source retirement.
+These are historical results, not current-source timings or release-archive acceptance.
 
 Collected on 2026-09-08 with an Apple M4 Pro, macOS arm64/Darwin 25.6.0,
 Node 24.20.0 tooling and Rust 1.97.0 release builds (thin LTO, stripped debug
