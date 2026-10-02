@@ -3057,8 +3057,17 @@ bindings can rebind it through `[bind]`, while all keeps its own `[tabs.all.bind
 The effective `ctrl-r` refresh binding is dispatched before text inputs, preserving
 search and composed messages. F5 has no default binding but remains configurable.
 Tabs are the same width selected or not: selection is a style, never extra
-characters. `attention::Attention` is the one definition of a squad's tab
-state, derived from its status document: members waiting on the user (`pending`
+characters. `board::view::tab_label` owns the styled tab and switcher label:
+every name follows a fixed two-cell mark slot (`◆ ` waiting, `✗ ` blocked,
+else two spaces), with the dominant count after the name. When both states
+exist, waiting leads and a blocked `✗n` follows. Only these marks (and the
+appended blocked count) use bold configured attention styles; tab names and
+primary counts remain selected accent/bold or inactive muted. Selection covers
+the entire tab with the existing background or reverse fallback. The switcher
+keeps its own selected-row style. Rendered `Line::width` supplies tab scrolling,
+hidden reservation, hit geometry and switcher fitting; overflow counters retain
+their aggregate attention styling. `attention::Attention` is the one definition
+of a squad's tab state, derived from its status document: members waiting on the user (`pending`
 or `waitingOnYou`) and members `blocked`, each counted once. `ls` adds it as
 `squad.attention`. The refresh computes it for the shown squad from that
 document and publishes that view first. The same worker then computes every

@@ -99,9 +99,15 @@ background, the selection background and representative terminal backgrounds.
 
 The Squad board uses `muted` for inactive tabs, summaries, column headers,
 pane titles and footer hints; `dim` remains for borders, empty values, times,
-staleness and scroll marks. Focus uses `accent` and bold, while attention tabs
-keep their attention token. The selected row uses the `selection` background
-and keeps its text/state/provider foregrounds. Without a background color
+staleness and scroll marks. Focus uses `accent` and bold. Each squad tab and
+quick-switcher entry reserves a two-cell leading mark slot: `◆ ` for waiting,
+else `✗ ` for blocked, else two spaces. The dominant count follows the name;
+both states append blocked `✗n` (`◆ product 2 ✗1`). Only the leading mark
+and appended `✗n` use bold configured attention colors. Tab names and primary
+counts keep selected accent/bold or inactive muted; the switcher keeps its own
+selected-row style. Selection spans the whole tab, including the slot and all
+counts. Overflow counters retain their aggregate attention colors. The selected
+row uses the `selection` background and keeps its text/state/provider foregrounds. Without a background color
 (`terminal`, `mono`, 16 colors or `NO_COLOR`), selection uses reverse video
 with one common foreground across the grid row, including empty and wrapped
 cells and its age label. Per-cell colors and dim are dropped in that fallback;
