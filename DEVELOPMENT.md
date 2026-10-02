@@ -1075,6 +1075,14 @@ TMT_TEST_STORAGE_PROBE='{"executable":"/absolute/checkout/rust/target/debug/exam
   pnpm test:native
 ```
 
+Squad context fixtures separate successful core-invocation evidence from deadline
+termination. Cold/fresh reads and a promptly returning stale-context sentinel
+assert the cache-only gate independently. Timeout scenarios establish a gated
+child in the hook's owned process group before exec, so descendant cleanup never
+requires core to start within the 300 ms local or 200 ms outer deadline. Assert
+SIGKILL, empty output, the sub-second bound, unchanged claims and child/group
+absence; do not add readiness sleeps, retries or larger production budgets.
+
 The maximum-body, 50-reply installed-companion page is an explicit load diagnostic,
 not required process acceptance:
 
