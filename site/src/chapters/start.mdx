@@ -24,9 +24,9 @@ import { PaneDemo, basicLoop, resumeAfterReboot } from "../demos/PaneDemo";
 
 ### Install
 
-<Cmd>{`$ curl -fsSL https://github.com/wkh237/tmt/releases/latest/download/install.sh | sh`}</Cmd>
+<Cmd>{`$ curl -fsSL https://github.com/pj-tmt/tmt/releases/latest/download/install.sh | sh`}</Cmd>
 
-The installer puts `tmt` in `~/.local/bin` and, on a terminal, continues into `tmt setup`: it finds your agents, lists every file it will change (skills for each agent, session hooks for the ones installed here) and asks once. Run `tmt setup` any time later; it offers only what is missing. If `tmt` is not found, add `~/.local/bin` to your PATH once. Coming from tmux-team? Your install keeps working.
+The installer puts `tmt` in `~/.local/bin` and, on a terminal, continues into `tmt setup`: it finds your agents, lists every file it will change (skills for each agent, session hooks for the ones installed here) and asks once. Run `tmt setup` any time later; it offers only what is missing. If `tmt` is not found, add `~/.local/bin` to your PATH once. tmt is a fresh install and doesn't migrate old data: coming from the `tmux-team` npm package, remove it first with `npm uninstall -g tmux-team`.
 
 ### Built-in drivers
 
@@ -39,9 +39,11 @@ Inside tmux, name the pane an agent runs in, then talk to it from anywhere. This
 <Cmd>{`
 $ tmt this reviewer                   # in the agent's pane: name it
 $ tmt talk reviewer "Review the diff."  # from any pane: send, then wait for the reply
-$ tmt reply req_4f36… --message "…"   # the agent answers; talk prints it
+$ tmt reply req_4f36… --receipt v2_… --message "…"   # the agent answers; talk prints it
 $ tmt check reviewer                  # look at the pane if something seems stuck
 `}</Cmd>
+
+The agent doesn't have to remember that line: the request it receives carries the exact `tmt reply` command, receipt included.
 
 Then manage the names you have:
 
@@ -64,6 +66,13 @@ Names are temporary unless you add `-s`. `tmt ls` leads with the agent, not the 
 <Cmd>{`
 $ tmt run -s reviewer claude --model sonnet
 $ tmt resume reviewer       # later, in any pane: reviewer's own conversation
+`}</Cmd>
+
+You can also start first and name later. `tmt run claude` starts Claude Code at once under a temporary name such as `claude-12ab34cd56ef`, and `tmt this reviewer`, typed from inside the agent, gives it its real name. Naming keeps the same conversation but doesn't save it; add `-s` for that.
+
+<Cmd>{`
+$ tmt run claude --model sonnet
+$ tmt this -s reviewer      # from inside the agent: name it, and keep the name
 `}</Cmd>
 
 <PaneDemo
