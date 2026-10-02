@@ -10,8 +10,11 @@ repository.workspace = true
 [dependencies]
 roxmltree.workspace = true
 serde_json.workspace = true
-tmt-cli-style.workspace = true
+tmt-cli-style = { workspace = true, features = ["ratatui"] }
 taffy.workspace = true
+ratatui.workspace = true
+unicode-width.workspace = true
+unicode-segmentation.workspace = true
 
 [lints]
 workspace = true

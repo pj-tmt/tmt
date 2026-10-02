@@ -38,6 +38,8 @@ pub enum Space {
 #[derive(Debug)]
 pub struct Cell<'a> {
     pub node: &'a Node,
+    /// Parent index in the returned preorder, for paint inheritance.
+    pub parent: Option<usize>,
     pub rect: Rect,
     pub content: Rect,
     pub clip: Rect,
@@ -253,6 +255,7 @@ pub fn layout(
         }
         result.push(Cell {
             node,
+            parent,
             rect,
             content,
             clip,

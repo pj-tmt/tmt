@@ -865,20 +865,32 @@ Borrowed text is charged before copying; source callbacks own their allocations.
 `geometry::layout` maps materialized styles into one private Taffy 0.7.7 flex/grid
 computation. It borrows node identity/style, injects scalar intrinsic/wrap metrics,
 and returns whole-cell rectangles, content, ancestor clips and overflow/cut intent.
-Text measurement and later painting share its recorded integer width; fractional
+Text measurement and painting share its recorded integer width; fractional
 spare cells are styled blanks inside hits; alignment uses the recorded width.
 A cut grid cell preserves its logical width/height, exposes at least four visible
-cells or hides whole, and later painting
-fits each visual line to the clip with end/middle ellipsis. Squad owns priority
-selection before geometry, not Taffy; production compilation/painting remain later
-slices. Markup percentages use CSS content-box shares with gaps in addition. The
+cells or hides whole; painting fits each visual line to the clip with end/middle
+ellipsis. Squad owns priority selection before geometry, not Taffy; production
+adoption remains later slices. Markup percentages use CSS content-box shares
+with gaps in addition. The
 existing board/list solver retains its after-gap percentage base and largest-
 remainder rounding until board adoption (#774); no percent adapter or correction
-loop joins the models. The guard permits XML parsing, borrowed JSON, shared style
-and private Taffy geometry, never core, adapters, CLI or extension behavior.
+loop joins the models. The guard permits XML parsing, borrowed JSON, shared style,
+private Taffy geometry and Ratatui buffer painting, never core, adapters, CLI or
+extension behavior.
+`text` owns markup-only grapheme measurement and fitting; `paint` consumes geometry
+preorder into a caller-owned Ratatui buffer. Both use `Cell::text_width`, never the
+rounded spare cell. Cuts ellipsize already measured lines without rewrapping;
+wide graphemes crossing clip edges leave styled blanks. Theme/Depth are injected,
+roles inherit and resolve through the shared screen adapter. The caller supplies
+the complete selected-role style: Squad's Look remains the selection policy owner.
+Hits borrow scoped IDs and semantic row IDs, inherit identity, intersect visible
+buffer clips, omit zero areas and resolve in reverse paint order. No input dispatch,
+terminal lifecycle, markdown or provider acquisition lives in this leaf.
 Squad is the sole reviewed product edge, with a test-scoped adapter until the
-row-track compiler adopts it. Existing board and list production paths remain
-unchanged; `tmt-cli-style::grid` remains the sole row sizing policy.
+row-track compiler adopts it. In #774, the board moves to this grapheme fitter and
+retires its scalar `grid::fit/fit_lines` path; existing CLI lists keep that path.
+The two fitters must not coexist as production policies for the board. Existing
+board and list production paths remain unchanged; `tmt-cli-style::grid` remains the sole row sizing policy.
 The private component has no release; its inherited version/lock entry follows
 the workspace, while product notices include only their actual dependency graph.
 

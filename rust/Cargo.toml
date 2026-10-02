@@ -26,6 +26,7 @@ zbus-secret-service-keyring-store = { version = "=1.0.1", default-features = fal
 apple-native-keyring-store = { version = "=1.0.2", default-features = false, features = ["keychain"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 url = "=2.5.8"
+unicode-segmentation = "=1.13.3"
 unicode-width = { version = "=0.2.2", default-features = false }
 anstream = "=1.0.0"
 anstyle = "=1.0.14"

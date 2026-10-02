@@ -2990,10 +2990,13 @@ dependencies = [
 name = "tmt-tui"
 version = "5.0.0-alpha.38"
 dependencies = [
+ "ratatui",
  "roxmltree",
  "serde_json",
  "taffy",
  "tmt-cli-style",
+ "unicode-segmentation",
+ "unicode-width",
 ]
 
 [[package]]

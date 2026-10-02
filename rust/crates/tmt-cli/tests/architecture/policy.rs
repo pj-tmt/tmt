@@ -217,7 +217,15 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         "tmt-invoke" => &["subprocess", "nix"],
         // Taffy owns admitted flex/grid geometry; scalar measurement stays injected.
-        "tmt-tui" => &["roxmltree", "serde_json", "tmt-cli-style", "taffy"],
+        "tmt-tui" => &[
+            "roxmltree",
+            "serde_json",
+            "tmt-cli-style",
+            "taffy",
+            "ratatui",
+            "unicode-width",
+            "unicode-segmentation",
+        ],
         "tmt-colab" => &[
             "serde",
             "yrs",
