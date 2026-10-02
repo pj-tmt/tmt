@@ -1298,8 +1298,8 @@ and raw verification lives in `typescript/scripts/native-runtime-proof.mjs`.
 
 ## Project tracking
 
-Progress is read from one place: the `TMT Roadmap` project
-(<https://github.com/users/wkh237/projects/4>), filtered to `label:feature`.
+Progress is read from one place: the `pj-tmt` project
+(<https://github.com/orgs/pj-tmt/projects/1>), filtered to `label:feature`.
 Each product feature has one tracker issue titled `Feature: <name>` with the
 `feature` label. The project's Sub-issues progress counts only direct
 sub-issues, so the tracker is the only parent that matters for progress.
