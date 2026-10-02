@@ -11,8 +11,9 @@ const REST = 3;
 
 const leadRows: Row[] = [
   { from: 0, node: cmd('tmt talk builder "rotate tokens"') },
-  { from: 0, node: dim("waiting for builder…") },
-  { from: 3, node: <>{ok("✓ ")}Done</> },
+  // talk prints nothing while it waits, then the completion line and the reply as plain text.
+  { from: 3, node: <>{ok("✓")} Completed request req_9ba4… for builder (%7)</> },
+  { from: 3, node: "Done" },
 ];
 const tmtRows: Row[] = [
   { from: 0, node: <>stored request {warn("req_9ba4…")}</> },
@@ -25,7 +26,7 @@ const builderRows: Row[] = [
   { from: 2, node: "rotate tokens" },
   { from: 2, node: dim("…working…") },
   { from: 2, node: cmd('tmt reply req_9ba4… --receipt v2_… --message "Done"') },
-  { from: 3, node: ok("Submitted response.") },
+  { from: 3, node: ok("✓ Submitted response for request req_9ba4…") },
 ];
 
 // Where the request sits over the three panes at steps 0 to 2; the reply step hides it.

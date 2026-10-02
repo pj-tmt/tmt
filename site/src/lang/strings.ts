@@ -44,7 +44,7 @@ export const english = {
       items: [
         {
           name: "agent",
-          text: "A program you name so others can reach it: `tmt run reviewer claude`, or `tmt this reviewer` from inside one.",
+          text: "A program you name so others can reach it: `tmt run reviewer claude`, or `tmt name reviewer` from inside one.",
         },
         {
           name: "request",

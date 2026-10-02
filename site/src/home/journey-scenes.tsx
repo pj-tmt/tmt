@@ -31,7 +31,7 @@ function Pane({
 }
 
 const Arrow = ({ children }: { children: ReactNode }) => (
-  <div className="col-span-full text-center font-mono text-xs font-semibold text-waiting">
+  <div className="col-span-full text-center font-mono text-xs font-semibold text-muted">
     {children}
   </div>
 );
@@ -49,10 +49,10 @@ export function TalkScene() {
       <Pane name="lead" driver="claude" tone="text-t-review">
         <span className="text-t-accent">$ </span>tmt talk builder "add a login test"
         <br />
-        <span className="text-t-dim">waiting for builder…</span>
         <br />
+        <span className="text-t-working">✓</span> Completed request req_9ba4… for builder (%7)
         <br />
-        <span className="text-t-working">✓ </span>Test added, 12 passed
+        Test added, 12 passed
       </Pane>
       <Pane name="builder" driver="codex" tone="text-t-link">
         <span className="text-t-dim">{'<tmt-reply from="lead">'}</span>
@@ -61,7 +61,10 @@ export function TalkScene() {
         <br />
         <span className="text-t-dim">…working…</span>
         <br />
-        <span className="text-t-accent">$ </span>tmt reply req_9ba4… --receipt v2_…
+        <span className="text-t-accent">$ </span>tmt reply req_9ba4… --receipt v2_… --message "Test
+        added, 12 passed"
+        <br />
+        <span className="text-t-working">✓</span> Submitted response for request req_9ba4…
       </Pane>
       <Arrow>{scenes.talkArrow}</Arrow>
     </div>
@@ -138,7 +141,7 @@ export function ColabScene() {
         <br />
         <span className="text-t-working">●</span> {scenes.herLead}
       </Machine>
-      <div className="col-span-full text-center font-mono text-[11px] font-semibold text-accent">
+      <div className="col-span-full text-center font-mono text-[11px] font-semibold text-muted">
         ⇣ {scenes.sharedPage} <New>{scenes.inProgress}</New>
       </div>
       <div className="col-span-full overflow-hidden rounded-lg border border-rule bg-sheet text-text">

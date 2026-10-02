@@ -12,15 +12,16 @@ const REST = 3;
 
 const reviewerRows: Row[] = [
   { from: 0, node: cmd('tmt talk builder "Review the diff"') },
-  { from: 0, node: dim("waiting for builder…") },
-  { from: 3, node: <>{ok("✓ ")}No blocking issues</> },
+  // talk prints nothing while it waits, then the completion line and the reply as plain text.
+  { from: 3, node: <>{ok("✓")} Completed request req_9ba4… for builder (%7)</> },
+  { from: 3, node: "No blocking issues" },
 ];
 const builderRows: Row[] = [
   { from: 1, node: warn('<tmt-reply from="reviewer">') },
   { from: 1, node: "Review the diff" },
   { from: 2, node: dim("…reviewing…") },
   { from: 2, node: cmd('tmt reply req_9ba4… --receipt v2_… --message "No blocking issues"') },
-  { from: 3, node: ok("Submitted response.") },
+  { from: 3, node: ok("✓ Submitted response for request req_9ba4…") },
 ];
 
 export function HandoffScene() {

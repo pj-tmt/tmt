@@ -12,7 +12,6 @@ export function Hero() {
     { name: "Codex" },
     { name: "tmux" },
     { name: "Herdr", note: home.planned },
-    { name: "cmux", note: home.planned },
     { name: home.yourHarness, note: home.planned },
     { name: home.yourServer, note: home.designing },
   ];

@@ -63,8 +63,11 @@ export function Journey() {
           </li>
         ))}
       </ol>
-      <div className="min-h-[360px] overflow-hidden rounded-xl border border-rule bg-paper p-4.5 [background-image:radial-gradient(circle_at_1px_1px,var(--c-rule)_1px,transparent_0)] [background-size:18px_18px]">
-        <div key={step.id} className="animate-[grow_0.45s_ease-out] motion-reduce:animate-none">
+      <div className="flex min-h-[360px] items-center overflow-hidden rounded-xl border border-rule bg-paper p-4.5 [background-image:radial-gradient(circle_at_1px_1px,var(--c-rule)_1px,transparent_0)] [background-size:18px_18px]">
+        <div
+          key={step.id}
+          className="w-full animate-[grow_0.45s_ease-out] motion-reduce:animate-none"
+        >
           {step.scene}
         </div>
       </div>
