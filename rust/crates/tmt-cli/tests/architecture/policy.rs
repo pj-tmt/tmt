@@ -675,6 +675,15 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
+            // The Herdr driver runs only as its own executable: tmt-cli
+            // depends on it to host that bin, never to call it in-process.
+            if root == "tmt_driver_herdr"
+                && !(source.package == "tmt-cli" && source.file == "tmt-driver-herdr.rs")
+            {
+                violations.push(format!(
+                    "{location}: tmt_driver_herdr belongs only to the tmt-driver-herdr bin"
+                ));
+            }
             if root == "tmt_office_model"
                 && source.package != "tmt-office"
                 && !office_consumer(source)

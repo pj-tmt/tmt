@@ -74,6 +74,29 @@ fn private_hook_binding_lookup_and_locator_have_one_owner_each() {
 }
 
 #[test]
+fn the_herdr_driver_is_referenced_only_by_its_bin() {
+    let call = "fn main() { tmt_driver_herdr::serve_call(); }";
+    assert_exact(&[syntax("tmt-cli", "tmt-driver-herdr.rs", call)], &[]);
+    for (package, file, code) in [
+        ("tmt-cli", "main.rs", call),
+        (
+            "tmt-cli",
+            "driver_command.rs",
+            "use tmt_driver_herdr::HerdrDriver;",
+        ),
+        ("tmt-adapters", "host.rs", call),
+    ] {
+        let failures = policy::source_violations(&[syntax(package, file, code)]);
+        assert!(
+            failures
+                .iter()
+                .any(|v| v.contains("tmt_driver_herdr belongs only to the tmt-driver-herdr bin")),
+            "{package}/{file}: {failures:?}"
+        );
+    }
+}
+
+#[test]
 fn office_command_edges_are_confined_to_the_reserved_facade() {
     for package in ["tmt-core", "tmt-adapters", "tmt-cli"] {
         let violations = policy::source_violations(&[syntax(
