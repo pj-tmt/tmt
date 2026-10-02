@@ -152,7 +152,7 @@ function gone(pid: number): boolean {
   }
 }
 
-describe.sequential('Codex native channel product routing', () => {
+describe('Codex native channel product routing', { concurrent: false }, () => {
   it('queue receipt is delivery only; durable reply completes and name/raw sends never paste', async () => {
     await withE2EFixture(async (f) => {
       const worker = start(f, 'Worker', true, { MOCK_AUTOREPLY: '0' });
