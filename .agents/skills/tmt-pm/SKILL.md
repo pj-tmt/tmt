@@ -32,7 +32,9 @@ owns the procedure only.
    - _Blocked without an owner_: the work waits on something that has no
      issue, no owner, or no recent movement.
    - _Stale_: In Progress or blocked for more than 6 hours with no PR
-     activity or comment.
+     activity or comment. A PR with a pinned head that waits on CI or the
+     merge queue, or one held for a named dependency that is moving, is not
+     stale.
    - _Unstaffed_: a squad with In Progress or blocked work and no active
      member.
    - _Waiting on the maintainer_: a decision marked pending in an issue or
