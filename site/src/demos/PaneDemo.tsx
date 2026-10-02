@@ -362,7 +362,6 @@ const a3: Pane = {
     ...a2.lines!,
     { u: "Ask builder to fix the flaky login test." },
     { t: 'tmt talk builder "Fix the flaky login test"' },
-    { r: "waiting for builder…" },
   ],
 };
 const b3lines: Item[] = [
@@ -378,7 +377,7 @@ const b4: Pane = {
   lines: [
     ...b3lines,
     { t: 'tmt reply req_4f36… --receipt v2_… --message "Fixed"' },
-    { r: "Submitted response." },
+    { r: "✓ Submitted response for request req_4f36…" },
     { k: "Worked for 41s" },
   ],
 };
@@ -386,6 +385,8 @@ const a4: Pane = {
   ...a2,
   lines: [
     ...a3.lines!,
+    { r: "✓ Completed request req_4f36… for builder (%2)" },
+    { r: "Fixed" },
     { a: "builder fixed it: the redirect is now" },
     { d: "  awaited, and 20/20 runs pass." },
     { k: "Churned for 48s" },
