@@ -45,7 +45,7 @@ jobs:
         run: pnpm check
       - name: Build static files for GitHub Pages
         working-directory: site
-        run: pnpm build
+        run: SITE_ORIGIN=https://pj-tmt.github.io pnpm build
       - name: Upload the Pages artifact
         if: github.event_name == 'workflow_dispatch' && inputs.deploy
         uses: actions/upload-pages-artifact@v3
