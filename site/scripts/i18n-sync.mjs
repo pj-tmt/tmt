@@ -9,6 +9,10 @@ import { fileURLToPath } from "node:url";
 
 const SOURCE_PREFIX = "site/src/chapters/";
 const BLOB_SHA = /^[0-9a-f]{40}$/;
+// A language's UI strings follow the English strings the same way pages follow
+// chapters: strings.json carries a reserved "$source" claim (see lang/strings.ts).
+const STRINGS_SOURCE = "site/src/lang/strings.ts";
+const STRINGS_CLAIM = "$source";
 
 /** The id `git hash-object` gives these bytes, so no git history is needed. */
 export function blobSha(bytes) {
@@ -32,14 +36,43 @@ const mdxFiles = (directory) =>
   existsSync(directory) ? readdirSync(directory).filter((name) => name.endsWith(".mdx")) : [];
 
 /**
+ * Compares one translated file's source claim with the English file it names.
+ * `expectedSource` is the only source the file may name.
+ */
+function checkSource(repository, path, fields, expectedSource, { errors, stale }) {
+  const { source, sourceRevision } = fields;
+  if (source !== expectedSource) {
+    errors.push({ path, message: `source must be ${expectedSource}` });
+    return;
+  }
+  if (!existsSync(join(repository, source))) {
+    errors.push({ path, message: `source ${source} does not exist` });
+    return;
+  }
+  if (!BLOB_SHA.test(sourceRevision ?? "")) {
+    errors.push({
+      path,
+      message: `sourceRevision must be a 40-character git blob SHA (git hash-object ${source})`,
+    });
+    return;
+  }
+  const current = blobSha(readFileSync(join(repository, source)));
+  if (current !== sourceRevision) {
+    stale.push({
+      path,
+      message: `is stale: written from ${sourceRevision.slice(0, 7)}, ${source} is now ${current.slice(0, 7)} (update the translation, then set sourceRevision to ${current})`,
+    });
+  }
+}
+
+/**
  * @param repository absolute repository root
  * @param languages directory (repository relative) to HTML language tag, from the
  *   layout allowlist's `languageExceptions`
  */
 export function checkTranslations(repository, languages) {
-  const errors = [];
-  const stale = [];
-  const untranslated = [];
+  const results = { errors: [], stale: [], untranslated: [] };
+  const { errors, untranslated } = results;
   const chapters = mdxFiles(join(repository, SOURCE_PREFIX));
   for (const directory of Object.keys(languages)) {
     const translated = new Set(mdxFiles(join(repository, directory)));
@@ -50,38 +83,32 @@ export function checkTranslations(repository, languages) {
         errors.push({ path, message: "starts without front matter (source, sourceRevision)" });
         continue;
       }
-      const { source, sourceRevision } = fields;
-      if (source !== `${SOURCE_PREFIX}${name}`) {
-        errors.push({
-          path,
-          message: `source must be ${SOURCE_PREFIX}${name}, the English chapter with the same file name`,
-        });
-        continue;
-      }
-      if (!existsSync(join(repository, source))) {
-        errors.push({ path, message: `source ${source} does not exist` });
-        continue;
-      }
-      if (!BLOB_SHA.test(sourceRevision ?? "")) {
-        errors.push({
-          path,
-          message: `sourceRevision must be a 40-character git blob SHA (git hash-object ${source})`,
-        });
-        continue;
-      }
-      const current = blobSha(readFileSync(join(repository, source)));
-      if (current !== sourceRevision) {
-        stale.push({
-          path,
-          message: `is stale: written from ${sourceRevision.slice(0, 7)}, ${source} is now ${current.slice(0, 7)} (update the translation, then set sourceRevision to ${current})`,
-        });
-      }
+      checkSource(repository, path, fields, `${SOURCE_PREFIX}${name}`, results);
     }
     for (const name of chapters) {
       if (!translated.has(name)) untranslated.push(`${directory}/${name}`);
     }
+    const stringsPath = `${directory}/strings.json`;
+    if (existsSync(join(repository, stringsPath))) {
+      let data;
+      try {
+        data = JSON.parse(readFileSync(join(repository, stringsPath), "utf8"));
+      } catch {
+        errors.push({ path: stringsPath, message: "is not valid JSON" });
+        continue;
+      }
+      const claim = data?.[STRINGS_CLAIM];
+      if (!claim || typeof claim !== "object" || Array.isArray(claim)) {
+        errors.push({
+          path: stringsPath,
+          message: `needs a top-level "${STRINGS_CLAIM}" object with source and sourceRevision`,
+        });
+        continue;
+      }
+      checkSource(repository, stringsPath, claim, STRINGS_SOURCE, results);
+    }
   }
-  return { errors, stale, untranslated };
+  return results;
 }
 
 function main() {

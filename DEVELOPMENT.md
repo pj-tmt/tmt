@@ -612,6 +612,22 @@ list comes from `languageExceptions` in `.github/repository-layout.json`
 `scripts/mdx-imports.mjs` checks translated pages too. The block is kept out of the
 page and exported as `frontmatter`.
 
+A language's UI and home strings are `site/src/i18n/<lang>/strings.json`, overriding
+`site/src/lang/strings.ts` key by key. The file carries a reserved top-level
+`"$source"` object, which the loader never merges, and the same check applies:
+
+```json
+{
+  "$source": {
+    "source": "site/src/lang/strings.ts",
+    "sourceRevision": "<git hash-object site/src/lang/strings.ts>"
+  }
+}
+```
+
+A changed `strings.ts` makes the file stale (a warning); invalid JSON, a missing or
+malformed `$source`, or another `source` fails the check.
+
 `.github/workflows/site.yml` checks and builds the site on pull requests and
 `main`. It deploys to GitHub Pages only from a manual run on `main` with
 `deploy` set. The repository is public, so a deploy publishes the site; the
