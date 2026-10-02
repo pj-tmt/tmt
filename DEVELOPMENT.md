@@ -1458,7 +1458,7 @@ host:
 docker build --build-arg TMT_NATIVE_PROFILE=release -f typescript/test/e2e/Dockerfile -t "tmt-performance:$worktree" .
 docker run --rm --init --network none \
   -e TMT_PERFORMANCE_BASELINE=1 "tmt-performance:$worktree" \
-  sh -c 'cd /workspace/typescript && pnpm exec vitest run --config test/e2e/vitest.config.ts test/e2e/performance-baseline.e2e.test.ts'
+  sh -c 'cd /workspace/typescript && pnpm exec vp test run --config test/e2e/vitest.config.ts test/e2e/performance-baseline.e2e.test.ts'
 docker image rm "tmt-performance:$worktree"
 ```
 
@@ -2315,7 +2315,7 @@ is capped at 40 commits. Errors and caps fail visibly. Test with fixtures only:
 
 ```bash
 cd typescript
-pnpm exec vitest run test/tooling/release-pr-safety.test.ts
+pnpm exec vp test run --config vitest.config.ts test/tooling/release-pr-safety.test.ts
 pnpm test:run
 pnpm check
 cd ..
