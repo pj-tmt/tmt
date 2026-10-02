@@ -1500,7 +1500,24 @@ fn invoke_is_a_leaf_even_in_tests_builds_and_target_dependencies() {
 
 #[test]
 fn tui_admission_is_an_internal_presentation_leaf() {
-    for name in ["roxmltree", "serde_json", "tmt-cli-style"] {
+    for owner in [
+        "tmt-core",
+        "tmt-adapters",
+        "tmt-cli",
+        "tmt-cli-style",
+        "tmt-squad",
+        "tmt-remote",
+    ] {
+        assert!(
+            !policy::dependency_violations(&package(
+                owner,
+                vec![dependency("taffy", "normal", None, None)]
+            ))
+            .is_empty()
+        );
+    }
+
+    for name in ["roxmltree", "serde_json", "tmt-cli-style", "taffy"] {
         assert!(
             policy::dependency_violations(&package(
                 "tmt-tui",
