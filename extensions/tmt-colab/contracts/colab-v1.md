@@ -12,8 +12,8 @@ owns core resources, request/dispatch behavior, errors, limits and retention;
 colab MUST use that API rather than redefine it. The
 [remote-client byte rules](../../../contracts/remote-channel-v1.md#bytes-ids-and-the-fixed-m1-suite)
 own LP framing, list framing, exact UTF-8 and canonical binary encodings. Only
-those byte primitives are reused; Remote's authority and transport profile are
-not inherited. Extension contracts and vectors remain under this extension,
+those byte primitives are reused here; the [channel boundary](#channel-boundary)
+names the sections that move to remote. Extension contracts and vectors remain under this extension,
 following the [Office contract convention](../../tmt-office/contracts/README.md#single-source-of-truth).
 
 Inputs are the [owning design](https://github.com/wkh237/tmt/issues/828#issuecomment-5932303929)
@@ -29,13 +29,42 @@ supply decoder, renderer, anchoring, door and TLS evidence. They leave productio
 containment, durable transport and nonce-shell validation to the named slices.
 Baseline and hostile-corpus containment acceptance remain C0 review gates.
 
+## Channel boundary
+
+Colab is an app on remote. The [remote channel contract](../../../contracts/remote-channel-v1.md#extension-channel-api)
+owns owner-device identity, door route mounting, the opaque relay, agent
+operations, agent status and backends/deploy; colab consumes that API and ships
+no door, sign-in, pairing or backend of its own once its routes mount on the
+remote door. Colab keeps canonical values and content cryptography, encrypted
+objects, links, page membership and roles, epochs, sharing and rotation,
+snapshots, decoder isolation, renderer and anchors, Send and its ledger, page
+retention policy and conformance. Each affected section below carries a marker:
+
+| Section                                   | Disposition                                                                                                                                          |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Trust root, statements and device chains  | Split: space ID, owner membership log and page members' device certificates stay; owner-device enrollment and chains move to remote device identity. |
+| Browser management requests               | Stay as colab requests carried over the relay; the sender is the remote device context.                                                              |
+| Local sign-in and owner-device enrollment | Move to remote device identity and pairing.                                                                                                          |
+| Pairing and machine-local grants          | Retired: pairing moves to remote; agent access follows remote trust grants.                                                                          |
+| Explicit Send and bridge ledger           | Split: explicit Send and the ledger stay; dispatch and recovery use remote operations.                                                               |
+| Sync and backend admission                | Split: edge admission, bindings and transport frames move to the remote relay; page, epoch, role and writer checks stay as colab's admission hook.   |
+| Retention and management                  | Split: page expiry policy and warnings stay; backend enforcement uses remote-provisioned resources that colab declares.                              |
+
+Until the remote implementation lands, the moved sections describe the local
+colab pilot; its working code relocates into `tmt-remote` rather than being
+rewritten. The retired machine-sender amendment's principles (page membership
+never implies agent access; frozen operation ID and bytes; uncertainty recovery;
+recipient-only results) are owned by the remote channel contract.
+
 ## Product boundary and threat model
 
 A space is one colab instance holding many live pages. Pages are collaboratively
 edited HTML source, comments and agent conversations; there is no publish step
 or immutable-version collaboration model. Snapshots are named restore points.
 People use the browser URL; agents use the CLI. A share URL grants page access
-at its role and MUST NOT grant local-agent access.
+at its role and MUST NOT grant local-agent access. A member may ask only their
+own agents on their own machine ([Member machines](#member-machines)); page
+membership never reaches the owner's or another member's agents.
 
 The extension protects against an untrusted storage/sync service reading private
 page content, forging authorship or authority, rolling back already-observed
@@ -215,6 +244,8 @@ isolate mutually hostile agents.
 
 ## Trust root, statements and device chains
 
+**Channel boundary: split.** Owner-device enrollment and chains move to remote device identity; the space ID, owner membership log and page members' device certificates stay.
+
 The URL's space ID pins the Ed25519 owner key through the space-ID derivation.
 A substituted key MUST reject. The owner signs a hash-chained membership log,
 starting at revision `1` with previous hash zero32. Successors advance revision
@@ -239,7 +270,7 @@ is explicit, never inferred from possession of a new key.
 | `link.add`      | `linkId, role, linkSignKey, linkEncKey, pages`; role viewer/commenter/editor; keys match pinned derivations                                                    |
 | `link.remove`   | `linkId, cuts`; revoke every device certified by the link and rotate affected epochs                                                                           |
 | `device.revoke` | `deviceId, cuts`; revoke the selected identity/sessions/grants and rotate affected epochs; a surviving link seed remains a separate bearer capability          |
-| `bridge.add`    | `machineId, machineSignKey, encKey, pages`; restricted bridge role, not editor                                                                                 |
+| `bridge.add`    | `machineId, machineSignKey, encKey, pages`; an owner machine with the restricted bridge role, not editor                                                       |
 | `epoch.advance` | `pageId, epoch, cuts, baseline, wraps`; next epoch, exact baseline descriptor, remaining-recipient signed wraps                                                |
 | `page.share`    | `pageId, mode, epoch, publishedKeys`; private/link/public; key publication only for local/LAN public mode and explicit history scope                           |
 | `page.scripts`  | `pageId, mode`; interactive/static, owner control only                                                                                                         |
@@ -253,6 +284,8 @@ or signing delegation. Every log statement is produced and signed by the owner's
 and baseline through the owner; `create` imports source without executing it.
 
 ### Browser management requests
+
+**Channel boundary: stays,** carried over the relay with the remote device context as sender.
 
 The owner's enrolled browser never receives the root key. To request sharing,
 member/link changes, epoch advance, script policy or retention, it submits a
@@ -314,6 +347,8 @@ use the owner-pinned machine key from `bridge.add`; a bridge cannot certify
 human/link devices. Keys from transport records cannot replace log bindings.
 
 ### Local sign-in and owner-device enrollment
+
+**Channel boundary: moves** to remote device identity and pairing.
 
 `serve` prints a single-use sign-in URL whose secret is a uniformly random
 128-bit code carried only in its fragment, with expiry at most ten minutes.
@@ -591,6 +626,8 @@ or rejects explicitly; it MUST NOT silently discard accepted durable data.
 
 ## Pairing and machine-local grants
 
+**Channel boundary: retired.** Pairing moves to remote; agent access follows remote trust grants.
+
 Page enrollment, including the one-time sign-in link printed by `serve`, grants
 page access only. Agent access requires `colab-pair-v1`, distinct from Remote
 `local-v1`. Machine-local grants contain `grantId, deviceKey, agentIds,
@@ -648,9 +685,13 @@ machine's grant. Altered transcripts/devices/offers/tags MUST reject.
 
 ## Explicit Send and bridge ledger
 
+**Channel boundary: split.** Explicit Send and the ledger stay; dispatch and recovery use remote operations.
+
 Comments, sync, replay, compaction and HTML scripts MUST NOT dispatch agent work.
 Only explicit Send in trusted parent UI signs an immutable intent after showing
-the exact final text, agent UUID, destination machine/online state and hold policy.
+the exact final text, agent UUID, destination machine/online state, that the
+ask and its reply are visible to everyone who can see the page and, only under a
+`hold` grant, that the send waits for local approval.
 All effectful actions (Send, share, approve, delete) live in trusted parent
 chrome. The canvas retains a visible boundary and the selection popover is
 parent-drawn and clamped to it. Ask agent is a separate confirmed step from
@@ -671,8 +712,9 @@ is not execution authority.
 For each operation ID the durable bridge ledger transitions:
 
 ```text
-held → dispatching → accepted | failed | uncertain
-held → refused | expired
+fence → dispatching → accepted | failed | uncertain   (direct grant, default)
+fence → held → dispatching                            (hold grant, after approve)
+fence | held → refused | expired
 uncertain → accepted (receipt recovery) | abandoned
 uncertain → dispatching (explicit eligible retry only)
 ```
@@ -681,9 +723,9 @@ The fence checks signature/device chain, current local grant revision,
 revocation/expiry, intent window, self machine ID, space/page, selected agent
 scope, sender authority at the latest locally verified head, and operation dedup.
 Same ID/digest returns recorded state; different digest is `INTENT_CONFLICT`.
-Run the fence at adoption into held and again under the bridge lock immediately
-before dispatch. Approval does not extend validity. Revocation while held or
-offline blocks dispatch.
+Run the fence under the bridge lock immediately before dispatch; under a `hold`
+grant also run it at adoption into held. Approval does not extend validity.
+Revocation while held or offline blocks dispatch.
 
 Persist dispatching, then call public `dispatch.create` with frozen operation ID,
 recipient UUID and exact bytes, anonymous originator. Core owns request/wake
@@ -704,9 +746,34 @@ No shared API extension is assumed. Abandon stops local tracking and says “may
 still have been delivered”; it neither proves non-delivery nor cancels accepted
 work. No automatic new operation or repeated wake is permitted.
 
-Until #600 merges every send is held for local `approve`. Afterwards only the
-owner's own paired browser may use direct mode; all others remain held. The
-product preference cannot bypass the readiness gate.
+The grant mode comes from the remote trust grant: `direct` (the default)
+dispatches right after the fence, `hold` keeps the send held for local
+`approve`.
+
+### Member machines
+
+A member with commenter or editor role may Ask agent, but only agents on a
+machine of their own; the owner's agents answer only the owner. The member's
+browser holds a device paired with that machine through remote, and the ask
+travels as an ordinary remote operation under that machine's own grant, as the
+[remote channel contract](../../../contracts/remote-channel-v1.md#extension-channel-api)
+defines. The owner's machine never executes it, and page membership adds no
+operation scope anywhere. Owner machines keep `bridge.add`.
+
+To write into the page, the member's machine joins as one of that member's
+certified devices through the ordinary device chain and holds the member's role;
+it needs no owner statement. Before dispatch its bridge also checks that the
+asking page device and its own page device resolve to the same member at its
+latest verified log head, so a page intent cannot name another principal's
+machine. Member removal or role reduction revokes that machine's page device
+with the member's other devices.
+
+Asks and replies are recorded in the page's own-namespace streams under the page
+epoch key, attributed from the signed stream: the ask to the member, the reply
+to "<agent> on <member>'s machine". Content fields never name the author.
+Everyone who can see the page sees them, like comments; there is no private
+ask. The asker sees the destination machine's online state, and offline asks
+wait and expire as above.
 
 `devices revoke` revokes machine-local grants immediately. Member removal on
 that machine also revokes corresponding grants in the same local transaction.
@@ -794,6 +861,8 @@ detaches instead of performing an unbounded search. Epoch resets use the baselin
 remapping rule above. No anchor is valid across a stale renderId.
 
 ## Sync and backend admission
+
+**Channel boundary: split.** Edge admission, bindings and transport frames move to the remote relay; page, epoch, role and writer checks stay as colab's admission hook.
 
 **Colab-v1 deliberately replaces #478 signed-edge admission** with Auth/Rules
 or server-session admission of ciphertext, plus client verification and
@@ -888,6 +957,8 @@ authorization. Tests use demo Firestore emulators and local workerd/Miniflare
 only, no cloud accounts, billing or deployments.
 
 ## Retention and management
+
+**Channel boundary: split.** Page expiry policy and warnings stay; backend enforcement uses remote-provisioned resources that colab declares.
 
 Cloud expiry is 30 days after last page update by default, with a per-page
 positive day count or forever override. Each write sets expiry; checkpoints and

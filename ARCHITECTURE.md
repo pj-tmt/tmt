@@ -3433,9 +3433,15 @@ with the existing pinned SHA-256 dependency. Real Chrome MV3 security and browse
 interoperability remain later gates; local Node conformance does not replace them.
 
 [`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns the proposed
-signed-message contract. Pairing/authentication/approval/log/SDK behavior remains
-proposed until its implementation slices land; `cloudflare`, `firestore` and
-`relay-v1` remain reserved. Core never owns a listener or remote state. Official
+remote channel: one device identity, trust grants (direct by default, hold opt-in),
+the admitted operations, the extension channel API (device context, route mounting,
+opaque relay, operations, agent status) and backends/deploy. Extensions such as colab
+are apps on remote and consume that API instead of shipping their own door, sign-in,
+pairing or backends. Pairing/authentication/log/SDK behavior remains proposed until
+its implementation slices land; the `canonical` builders below still follow the
+superseded M1 enrollment layout and are replaced by the first implementation slice.
+`firestore` and `cloudflare` are not permitted until their edge admission and
+encryption profile are specified. Core never owns a listener or remote state. Official
 product/release registration is deferred. Its private component owner excludes
 remote versions from real-product releases; cargo-dist excludes this pilot binary.
 For shell ownership, see the [browser add-on shell](#browser-add-on-shell).
@@ -3459,7 +3465,7 @@ authentication, sync, decoder, browser and backend work remains proposed.** The 
 owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
 bridge policy and acceptance gates. The #828 design owns product/UI choices;
 #829/#830 are bounded spike evidence. The executable is local-build-only; no deployment or official release is registered.
-The proposed [machine-sender amendment](extensions/tmt-colab/contracts/colab-machines-v1.md) owns the distinct machine principal, destination-local grant and recipient-only result path.
+The [channel boundary](extensions/tmt-colab/contracts/colab-v1.md#channel-boundary) marks which colab-v1 sections move to remote, stay or retire.
 
 Current executable dependencies are `tmt-invoke`, `tmt-cli-style` and reviewed
 workspace pins. The proposed `tmt-colab-model` integration will own pure values,
@@ -3513,10 +3519,12 @@ cryptography oracle; the retained #829 corpus tests all 148 strict policy rows.
 All extension state stays in `<core-reported data root>/colab/`, with 0700
 directories and 0600 files, separate from core SQLite and provider configuration.
 The extension owns its ciphertext database/blobs, keyring, machine grants and
-bridge ledger. The colab-v1 edge model deliberately replaces #478 signed-edge
-admission with ciphertext Auth/Rules or server-session admission; it does not
-inherit Remote transport authority. The contract owns client authority and
-before-effect verification; the public core API retains dispatch/final ownership.
+bridge ledger. Colab is an app on remote: the
+[remote channel contract](contracts/remote-channel-v1.md#extension-channel-api) owns
+owner-device identity, door route mounting, the opaque relay, agent operations and
+backends/deploy, and colab-v1 marks which of its sections move there or retire.
+Colab keeps page membership, content keys, epochs and before-effect verification;
+the public core API retains dispatch/final ownership.
 
 Servers never decode Yjs; foreign-writer decoding/merging runs in a bounded
 `tmt-colab` child through `tmt-invoke` (deadline/caps/confirmed cleanup), or a
