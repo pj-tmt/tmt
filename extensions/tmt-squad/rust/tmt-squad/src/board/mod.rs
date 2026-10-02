@@ -14,6 +14,7 @@ mod tabs;
 mod terminal;
 mod theme_picker;
 mod view;
+mod view_picker;
 
 pub use tabs::{ALL, LEADS};
 
@@ -181,7 +182,7 @@ fn session(
     app: &mut App,
     stop: &AtomicUsize,
     input: &Receiver<BoardEvent>,
-    request: impl Fn(Option<String>, bool),
+    request: impl Fn(Option<String>, bool, bool),
     mut act: impl FnMut(Request) -> Result<String, String>,
     mut theme_config: impl FnMut() -> Result<Config, String>,
     mut draw: impl FnMut(&mut App) -> io::Result<()>,
@@ -275,12 +276,41 @@ fn session(
         match effect {
             Effect::Quit => return Ok(None),
             Effect::Load(squad) => {
-                request(Some(squad), true);
+                request(Some(squad), true, false);
                 refreshed = Instant::now();
             }
             Effect::Refresh => {
-                request(app.current.clone(), false);
+                request(app.current.clone(), false, app.view_picker.is_some());
                 refreshed = Instant::now();
+            }
+            Effect::PickView => {
+                match theme_config()
+                    .and_then(|config| app.open_view_picker(config).map_err(|error| error.message))
+                {
+                    Ok(()) => {
+                        request(app.current.clone(), true, app.view_picker.is_some());
+                        refreshed = Instant::now();
+                    }
+                    Err(error) => app.finished(Err(error)),
+                }
+            }
+            Effect::CancelView => {
+                request(app.current.clone(), true, false);
+                refreshed = Instant::now();
+            }
+            Effect::SaveView => {
+                if let Some(picker) = &mut app.view_picker {
+                    match picker.save() {
+                        Ok(changed) => {
+                            let message = picker.saved_message(changed);
+                            app.close_view_picker(true);
+                            app.finished(Ok(message));
+                            request(app.current.clone(), true, false);
+                            refreshed = Instant::now();
+                        }
+                        Err(error) => picker.notice = Some(error.message),
+                    }
+                }
             }
             Effect::PickTheme => {
                 let squad = app.current.clone().filter(|name| !tabs::builtin(name));
@@ -309,7 +339,7 @@ fn session(
                             }
                             app.theme_picker = None;
                             app.finished(Ok(message));
-                            request(app.current.clone(), false);
+                            request(app.current.clone(), false, app.view_picker.is_some());
                             refreshed = Instant::now();
                         }
                         Err(error) => picker.notice = Some(error.message),
@@ -326,7 +356,7 @@ fn session(
                     return Ok(None);
                 }
                 if sends {
-                    request(app.current.clone(), false);
+                    request(app.current.clone(), false, app.view_picker.is_some());
                     refreshed = Instant::now();
                 }
             }
@@ -334,7 +364,7 @@ fn session(
         }
         // A snapshot may change the interval, including turning reload off.
         if reload_interval(app).is_some_and(|interval| refreshed.elapsed() >= interval) {
-            request(app.current.clone(), false);
+            request(app.current.clone(), false, app.view_picker.is_some());
             refreshed = Instant::now();
         }
     }
@@ -372,7 +402,7 @@ pub fn run(
         effects::tmux_socket().is_some(),
         events.clone(),
     );
-    worker.request(squad.clone(), false);
+    worker.request(squad.clone(), false, false);
     let mut app = App::new(squad);
     app.popup = popup;
     let mut screen = Terminal::new(CrosstermBackend::new(io::stdout())).map_err(failed)?;
@@ -381,7 +411,7 @@ pub fn run(
         &mut app,
         &stop,
         &input,
-        |squad, preempt| worker.request(squad, preempt),
+        |squad, preempt, preview| worker.request(squad, preempt, preview),
         |request| execute(&core, request),
         || Config::load(&core).map_err(|error| error.message),
         |app| {
@@ -406,6 +436,63 @@ mod tests {
     use super::*;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use std::sync::{atomic::Ordering, mpsc::channel};
+
+    #[test]
+    fn view_confirm_saves_once_and_preview_requests_end_with_the_existing_fence() {
+        let directory =
+            std::env::temp_dir().join(format!("tmt-view-session-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("squad.toml");
+        std::fs::write(&path, "# intact\n").unwrap();
+        let (events, input) = channel();
+        let mut app = App::new(Some("product".into()));
+        let mut snapshot = app::tests::snapshot(
+            "product",
+            serde_json::json!([{ "rows": [{ "name": "coder" }] }]),
+        );
+        snapshot.view.as_mut().unwrap().board = Config::read(path.clone())
+            .unwrap()
+            .board("product")
+            .unwrap();
+        app.apply(snapshot);
+        for code in [
+            KeyCode::Char('l'),
+            KeyCode::Down,
+            KeyCode::Enter,
+            KeyCode::Enter,
+            KeyCode::Char('q'),
+        ] {
+            events.send(key(code)).unwrap();
+        }
+        let mut reads = 0;
+        let mut actions = 0;
+        let reloads = std::cell::RefCell::new(Vec::new());
+        session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, preempt, preview| reloads.borrow_mut().push((preempt, preview)),
+            |request| {
+                assert_eq!(request, Request::Jump("coder".into()));
+                actions += 1;
+                Ok("Jumped".into())
+            },
+            || {
+                reads += 1;
+                Config::read(path.clone()).map_err(|error| error.message)
+            },
+            |_| Ok(()),
+        )
+        .unwrap();
+        assert_eq!((reads, actions), (1, 1));
+        assert_eq!(*reloads.borrow(), [(true, true), (true, false)]);
+        assert!(app.view_picker.is_none());
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "[board]\nview = \"focus\"\n# intact\n"
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn theme_confirm_saves_once_then_restores_normal_row_actions() {
@@ -436,7 +523,7 @@ mod tests {
             &mut app,
             &AtomicUsize::new(0),
             &input,
-            |_, _| reloads.set(reloads.get() + 1),
+            |_, _, _| reloads.set(reloads.get() + 1),
             |request| {
                 assert_eq!(request, Request::Jump("coder".into()));
                 actions += 1;
@@ -484,7 +571,7 @@ mod tests {
             &mut app,
             &AtomicUsize::new(0),
             &input,
-            |_, _| panic!("a failed save must not reload or retry"),
+            |_, _, _| panic!("a failed save must not reload or retry"),
             no_actions,
             || Config::read(path.clone()).map_err(|error| error.message),
             |app| {
@@ -587,7 +674,7 @@ mod tests {
                 &mut app,
                 &stop,
                 &input,
-                |_, _| {},
+                |_, _, _| {},
                 no_actions,
                 no_theme_config,
                 |_| Ok(()),
@@ -624,7 +711,7 @@ mod tests {
                 &mut app,
                 &AtomicUsize::new(0),
                 &input,
-                |_, _| {},
+                |_, _, _| {},
                 |request| {
                     assert_eq!(request, Request::Jump("auth-fix".into()));
                     jumps += 1;
@@ -651,7 +738,7 @@ mod tests {
             &mut App::new(None),
             &AtomicUsize::new(0),
             &input,
-            |_, _| {},
+            |_, _, _| {},
             no_actions,
             no_theme_config,
             |_| Err(io::Error::other("terminal gone")),
@@ -675,7 +762,7 @@ mod tests {
                 &mut app,
                 &AtomicUsize::new(0),
                 &input,
-                |_, _| {},
+                |_, _, _| {},
                 no_actions,
                 no_theme_config,
                 |app| {
@@ -731,7 +818,7 @@ mod tests {
                     &mut app,
                     &AtomicUsize::new(0),
                     &input,
-                    |squad, _| {
+                    |squad, _, _| {
                         requested.send(squad).unwrap();
                     },
                     no_actions,
@@ -774,7 +861,7 @@ mod tests {
                 &mut App::new(None),
                 &read,
                 &input,
-                |_, _| {},
+                |_, _, _| {},
                 no_actions,
                 no_theme_config,
                 |_| {
@@ -827,7 +914,7 @@ mod tests {
                 &mut app,
                 &AtomicUsize::new(0),
                 &input,
-                |_, _| {},
+                |_, _, _| {},
                 no_actions,
                 no_theme_config,
                 |_| {
@@ -866,7 +953,7 @@ mod tests {
                 &mut app,
                 &AtomicUsize::new(0),
                 &input,
-                |_, _| panic!("automatic refresh was turned off by the snapshot"),
+                |_, _, _| panic!("automatic refresh was turned off by the snapshot"),
                 no_actions,
                 no_theme_config,
                 |_| Ok(())

@@ -180,7 +180,17 @@ Set and reset write only the selected layer's `view` key through the existing
 format-preserving writer and refuse a concurrently changed file. Scoped set
 refuses a custom layout with a manual-removal hint. Reset removes only `view`,
 retaining custom layout and fold keys; all-boards settings remain masked by
-custom and scoped arrangements. Agents change views only when requested.
+custom and scoped arrangements. Reset drops an emptied table only when its header
+has no comments; existing empty tables remain. On the board, `l` opens the view
+picker (`view` is bindable). Arrow keys or j/k preview only in memory, Tab
+switches all-boards/this-squad scope, Enter saves once, and Esc restores the
+opening arrangement and runtime folds without writing. Data keeps refreshing.
+The leads/all tabs offer all-boards scope only. The default entry removes only
+the chosen layer's view key. A custom entry identifies hand-written layout;
+preview works, but saving a factory view is refused with a manual-removal hint.
+A failed or stale save stays open; cancel and reopen to read the changed file.
+`l` (view), `L` (jump lead on a tmux host) and `T` (theme) appear together in help.
+Agents change views only when requested.
 
 ## Fold board panes
 

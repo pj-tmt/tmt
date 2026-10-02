@@ -16,6 +16,7 @@ pub enum Verb {
     Refresh,
     TokenWindow,
     Theme,
+    View,
     Run,
     NextPane,
     Toggle,
@@ -39,6 +40,7 @@ impl Verb {
             "refresh" => Self::Refresh,
             "token-window" => Self::TokenWindow,
             "theme" => Self::Theme,
+            "view" => Self::View,
             "run" => Self::Run,
             "next-pane" => Self::NextPane,
             "toggle" => Self::Toggle,
@@ -61,6 +63,7 @@ impl Verb {
             Self::Refresh => "refresh",
             Self::TokenWindow => "token-window",
             Self::Theme => "theme",
+            Self::View => "view",
             Self::Run => "run",
             Self::NextPane => "next-pane",
             Self::Toggle => "toggle",
@@ -288,6 +291,7 @@ pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
         ("ctrl-r", "refresh"),
         ("w", "token-window"),
         ("T", "theme"),
+        ("l", "view"),
     ]
     .into_iter()
     // Only a host that can show a pane can jump to the lead.

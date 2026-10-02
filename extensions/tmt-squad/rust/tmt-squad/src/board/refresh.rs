@@ -100,12 +100,13 @@ impl Worker {
                 |generation| {
                     changes.stamp(&core.cancellable(read_generation.cancellation(generation)))
                 },
-                |wanted, generation| {
+                |wanted, generation, preview_panes| {
                     load(
                         &core.cancellable(read_generation.cancellation(generation)),
                         tmux,
                         caller.as_ref(),
                         wanted,
+                        preview_panes,
                         &mut kept,
                     )
                 },
@@ -143,13 +144,17 @@ impl Worker {
     }
 
     /// None loads the first squad.
-    pub fn request(&self, squad: Option<String>, preempt: bool) {
+    pub fn request(&self, squad: Option<String>, preempt: bool, preview_panes: bool) {
         let generation = if preempt {
             self.generation.advance()
         } else {
             self.generation.number.load(Ordering::Acquire)
         };
-        let _ = self.requests.send(Reload { squad, generation });
+        let _ = self.requests.send(Reload {
+            squad,
+            generation,
+            preview_panes,
+        });
     }
 }
 
@@ -168,6 +173,7 @@ impl Drop for Worker {
 
 #[derive(Clone)]
 struct Reload {
+    preview_panes: bool,
     squad: Option<String>,
     generation: u64,
 }
@@ -280,7 +286,7 @@ fn serve(
     check_every: Duration,
     generation: &AtomicU64,
     mut stamp: impl FnMut(u64) -> Stamp,
-    mut load: impl FnMut(Option<String>, u64) -> Loaded,
+    mut load: impl FnMut(Option<String>, u64, bool) -> Loaded,
     mut deferred: impl FnMut(Deferred, u64) -> bool,
 ) {
     // The squad last loaded, whether it reloads automatically, and the
@@ -325,7 +331,7 @@ fn serve(
         let Loaded {
             snapshot,
             attention: job,
-        } = load(wanted.squad, wanted.generation);
+        } = load(wanted.squad, wanted.generation, wanted.preview_panes);
         if generation.load(Ordering::Acquire) != wanted.generation {
             continue;
         }
@@ -337,6 +343,7 @@ fn serve(
         last = Some((
             Reload {
                 squad: snapshot.squad.clone(),
+                preview_panes: wanted.preview_panes,
                 generation: wanted.generation,
             },
             automatic,
@@ -372,6 +379,7 @@ fn load(
     tmux: bool,
     caller: Option<&crate::me::Caller>,
     wanted: Option<String>,
+    preview_panes: bool,
     kept: &mut Kept,
 ) -> Loaded {
     let squads = match Squad::list(core) {
@@ -441,7 +449,7 @@ fn load(
                 .iter()
                 .find(|squad| squad.name == key)
                 .expect("chosen from the listed squads");
-            let result = squad_view(core, tmux, config, squad, me.clone(), kept)?;
+            let result = squad_view(core, tmux, config, squad, me.clone(), preview_panes, kept)?;
             deferred = Some((me, result.0.document.clone()));
             result
         };
@@ -479,6 +487,7 @@ fn squad_view(
     config: &Config,
     squad: &Squad,
     me: Option<crate::me::Me>,
+    preview_panes: bool,
     kept: &mut Kept,
 ) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
     let layout = config.layout(&squad.name)?;
@@ -489,7 +498,7 @@ fn squad_view(
     let rows = config.rows(&squad.name)?;
     let providers = config.providers(&squad.name)?;
     let reminders = config.reminders(&squad.name)?;
-    let shows_notes = board.panes.contains(&Pane::Notes);
+    let shows_notes = preview_panes || board.panes.contains(&Pane::Notes);
     let observation = crate::observe::observe(
         core,
         config.path(),
@@ -532,7 +541,9 @@ fn squad_view(
     )?;
     let attention = BTreeMap::from([(squad.name.clone(), Attention::of(&document))]);
     let mut replies = match &sent {
-        Some(sent) if board.panes.contains(&Pane::Replies) => requests::replies(sent, &document),
+        Some(sent) if preview_panes || board.panes.contains(&Pane::Replies) => {
+            requests::replies(sent, &document)
+        }
         _ => Vec::new(),
     };
     requests::bodies(
@@ -881,7 +892,7 @@ mod tests {
                 Duration::from_millis(10),
                 &AtomicU64::new(0),
                 |_| Stamp::cursor(read.load(Ordering::SeqCst)),
-                |wanted, _| {
+                |wanted, _, _| {
                     let _ = loaded.send(wanted.clone());
                     let mut snapshot = crate::board::app::tests::snapshot(
                         wanted.as_deref().unwrap_or("first"),
@@ -937,12 +948,24 @@ esac
             let path = root.join("squad.toml");
             std::fs::write(&path, format!("[squad.product]\nlayout = '{workflow}'\n")).unwrap();
             let mut config = Config::read(path).unwrap();
-            let baseline = squad_view(&core, false, &config, &squad, None, &mut kept)
+            let baseline = squad_view(&core, false, &config, &squad, None, false, &mut kept)
                 .unwrap()
                 .0;
             if workflow == "minimal" {
                 assert_eq!(baseline.notes, Notes::NotShown);
                 assert!(!root.join("calls").exists());
+                let preview = squad_view(&core, false, &config, &squad, None, true, &mut kept)
+                    .unwrap()
+                    .0;
+                assert_eq!(preview.document, baseline.document);
+                assert_eq!(
+                    preview.board, baseline.board,
+                    "preview reads never resolve another board"
+                );
+                assert!(
+                    matches!(preview.notes, Notes::Text(_)),
+                    "preview acquires a missing notes pane"
+                );
             }
             config
                 .set_view(
@@ -950,7 +973,7 @@ esac
                     crate::view::ViewName::Notes,
                 )
                 .unwrap();
-            let view = squad_view(&core, false, &config, &squad, None, &mut kept)
+            let view = squad_view(&core, false, &config, &squad, None, false, &mut kept)
                 .unwrap()
                 .0;
             assert_eq!(
@@ -969,8 +992,8 @@ esac
                 .unwrap()
                 .lines()
                 .count(),
-            3,
-            "one read for each effective notes pane"
+            4,
+            "one read for each effective notes pane or explicit preview request"
         );
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -998,6 +1021,7 @@ esac
         let (requests, loads, cursor) = serving(true);
         requests
             .send(Reload {
+                preview_panes: false,
                 squad: Some("product".into()),
                 generation: 0,
             })
@@ -1010,6 +1034,7 @@ esac
         // A request is served as before and becomes the squad to watch.
         requests
             .send(Reload {
+                preview_panes: false,
                 squad: Some("infra".into()),
                 generation: 0,
             })
@@ -1026,6 +1051,7 @@ esac
         let (requests, loads, cursor) = serving(false);
         requests
             .send(Reload {
+                preview_panes: false,
                 squad: Some("product".into()),
                 generation: 0,
             })
@@ -1035,6 +1061,7 @@ esac
         assert!(loads.recv_timeout(WAIT).is_err());
         requests
             .send(Reload {
+                preview_panes: false,
                 squad: Some("product".into()),
                 generation: 0,
             })
@@ -1237,6 +1264,7 @@ esac
             .as_ref()
             .unwrap()
             .send(Reload {
+                preview_panes: false,
                 squad: Some("old".into()),
                 generation: 0,
             })
@@ -1253,7 +1281,7 @@ esac
             Duration::from_secs(1),
             &generation,
             |_| Stamp::cursor(1),
-            |squad, _| {
+            |squad, _, _| {
                 loaded.push(squad.clone());
                 if squad.as_deref() == Some("old") {
                     generation.store(1, Ordering::Release);
@@ -1262,6 +1290,7 @@ esac
                             .as_ref()
                             .unwrap()
                             .send(Reload {
+                                preview_panes: false,
                                 squad: Some(name.into()),
                                 generation: 1,
                             })
@@ -1286,6 +1315,7 @@ esac
         let (sender, pending) = mpsc::channel();
         sender
             .send(Reload {
+                preview_panes: false,
                 squad: Some("product".into()),
                 generation: 0,
             })
@@ -1306,7 +1336,7 @@ esac
             Duration::from_secs(1),
             &AtomicU64::new(0),
             |_| Stamp::cursor(1),
-            |_, _| Loaded {
+            |_, _, _| Loaded {
                 snapshot: crate::board::app::tests::snapshot("product", json!([])),
                 attention: Some(AttentionJob {
                     config: config.take().unwrap(),
@@ -1372,6 +1402,7 @@ esac
         for name in ["old", "new"] {
             sender
                 .send(Reload {
+                    preview_panes: false,
                     squad: Some(name.into()),
                     generation: 0,
                 })
@@ -1385,7 +1416,7 @@ esac
             Duration::from_millis(1),
             &AtomicU64::new(0),
             |_| Stamp::cursor(1),
-            |wanted, _| {
+            |wanted, _, _| {
                 loads.push(wanted.clone());
                 let mut snapshot =
                     crate::board::app::tests::snapshot(wanted.as_deref().unwrap(), json!([]));

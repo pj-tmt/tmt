@@ -273,8 +273,6 @@ impl Layout {
 const TEAM: &str = r#"
 [team.board]
 token_rate = { enabled = true }
-fold_below = { width = 100, panes = ["detail", "replies"] }
-layout = { direction = "top-bottom", sizes = [60, 40], panes = [{ direction = "left-right", sizes = [62, 38], panes = ["rows", { direction = "top-bottom", sizes = [50, 50], panes = ["detail", "replies"] }] }, "notes"] }
 [team.rows]
 columns = [
     { name = "member", width = "22%", min = 12, max = 24 },
@@ -555,10 +553,7 @@ impl Board {
     }
 
     fn factory(view: crate::view::ViewName) -> Self {
-        match view {
-            crate::view::ViewName::Team => Self::preset(Layout::Team),
-            _ => Self::from_settings(view.settings(), view.name()).expect("factory view is valid"),
-        }
+        Self::from_settings(view.settings(), view.name()).expect("factory view is valid")
     }
 
     /// Crew keeps rows and the lead's notes side by side; pr-queue pairs rows
@@ -566,11 +561,7 @@ impl Board {
     /// four panes, with full-width lead notes below the rows/detail/replies.
     fn preset(layout: Layout) -> Self {
         if layout == Layout::Team {
-            return Self::from_settings(
-                team()["team"]["board"].as_table_like().unwrap(),
-                "team.board",
-            )
-            .expect("team board is valid");
+            return Self::factory(crate::view::ViewName::Team);
         }
         let (direction, panes, sizes) = match layout {
             Layout::Crew => (
@@ -1409,6 +1400,7 @@ impl Config {
                     ))
                 })?;
         }
+        let had_view = table.contains_key("view");
         match view {
             Some(view) if table.get("view").and_then(Item::as_str) != Some(view.name()) => {
                 let decor = table
@@ -1425,6 +1417,58 @@ impl Config {
                 table.remove("view");
             }
             _ => {}
+        }
+        if view.is_none() && had_view && table.is_empty() {
+            let mut parent: &mut dyn TableLike = draft.document.as_table_mut();
+            for key in &path[..path.len() - 1] {
+                parent = parent
+                    .get_mut(key)
+                    .and_then(Item::as_table_like_mut)
+                    .expect("validated view parent");
+            }
+            let key = path.last().unwrap();
+            if parent
+                .get(key)
+                .and_then(Item::as_table)
+                .is_some_and(|table| {
+                    [table.decor().prefix(), table.decor().suffix()]
+                        .into_iter()
+                        .all(|raw| {
+                            raw.and_then(|raw| raw.as_str())
+                                .is_none_or(|text| text.trim().is_empty())
+                        })
+                })
+            {
+                parent.remove(key);
+            }
+        }
+        Ok(draft)
+    }
+
+    /// Custom preview suppresses arrangement keys only on a disposable copy.
+    /// Save still checks the untouched opening configuration and refuses custom.
+    pub fn preview_view(
+        &self,
+        scope: &crate::view::ViewScope,
+        view: Option<crate::view::ViewName>,
+        squad: &str,
+    ) -> Result<Self, SquadError> {
+        let mut draft = self.view_draft(scope, view)?;
+        if view.is_some() && self.custom_board(squad)? {
+            let table = draft.document["squad"][squad]["board"]
+                .as_table_like_mut()
+                .expect("custom board table");
+            for key in [
+                "layout",
+                "panes",
+                "direction",
+                "sizes",
+                "mode",
+                "collapsed",
+                "fold_below",
+            ] {
+                table.remove(key);
+            }
         }
         Ok(draft)
     }
@@ -2823,7 +2867,14 @@ sort = ["state", "-name"]
         );
         assert_eq!(
             preset.split,
-            crate::split::read(&team()["team"]["board"]["layout"], "team").unwrap()
+            crate::split::read(
+                crate::view::ViewName::Team
+                    .settings()
+                    .get("layout")
+                    .unwrap(),
+                "team"
+            )
+            .unwrap()
         );
         let refresh = read("[squad.x]\nlayout = \"team\"\n[squad.x.board]\nrefresh = \"10s\"\n");
         assert_eq!(refresh.board("x").unwrap(), preset);
