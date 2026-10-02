@@ -93,6 +93,7 @@ const keys: [string, string][] = [
   ["o", "open"],
   ["y", "copy"],
   ["tab", "pane"],
+  ["d", "toggle detail"],
   ["?", "more"],
 ];
 
@@ -116,40 +117,69 @@ export function BoardSketch() {
   return (
     <div
       role="img"
-      aria-label="Sketch of the default squad board: a searchable member list with auth-fix selected and marked as waiting on you, details for auth-fix with its worktree, pending decision and links, and a key legend."
+      aria-label="Sketch of the default team board: rows for auth-fix, docs-sweep, perf-cache and old-spike, with auth-fix selected, marked as waiting on you and its decision on a second line, and old-spike dimmed with its age; details for auth-fix and the latest reply to its right; the lead's notes below; and a key legend."
       className={sketch}
     >
-      <pre className={pre}>
+      <pre className={`${pre} border-b border-term-edge`}>
         <span className="font-bold text-t-accent">squad</span>
         {"  "}
-        <span className="bg-t-selection">[product]</span>
-        <span className="text-t-dim"> reviews infra </span>
-        <span className="text-t-dim">lead sol · 3 members</span>
-        {"\n\n"}
-        <span className="text-t-dim">/ search</span>
+        <span className="bg-t-selection">{" product "}</span>
+        <span className="text-t-waiting">{"◆1 "}</span>
+        <span className="text-t-blocked">{"✗1 "}</span>
+        <span className="text-t-dim">{" reviews infra"}</span>
         {"\n"}
-        <span className="text-t-dim">
-          {"    MEMBER       STATE     TASK                        PR"}
-        </span>
+        <span className="text-t-dim">lead sol · 4 members</span>
+      </pre>
+      <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,62fr)_minmax(0,38fr)]">
+        <pre className={`${pre} border-b border-term-edge sm:border-r sm:border-b-0`}>
+          <span className="text-t-dim">rows</span>
+          {"\n"}
+          <span className="text-t-dim">{"    MEMBER      STATE     TASK            PR"}</span>
+          {"\n"}
+          <span className="bg-t-selection">
+            {"▸ "}
+            <span className="text-t-waiting">◆</span>
+            {" auth-fix    "}
+            <span className="text-t-blocked">blocked</span>
+            {"   rotate session… #412 draft"}
+            {"\n"}
+            {"                          "}
+            <span className="text-t-waiting">approve rotation plan</span>
+            {"     "}
+          </span>
+          {"\n    docs-sweep  "}
+          <span className="text-t-review">review</span>
+          {"    install guide   #409 open\n    perf-cache  "}
+          <span className="text-t-working">working</span>
+          {"   cache reads     "}
+          <span className="text-t-dim">–</span>
+          {"\n"}
+          <span className="text-t-dim">
+            {"    old-spike   idle      parser spike    – stale 3h"}
+          </span>
+        </pre>
+        <div>
+          <pre className={`${pre} border-b border-term-edge`}>
+            <span className="text-t-dim">detail</span>
+            {"\n"}
+            <span className="font-bold">auth-fix</span>
+            {"\n"}
+            <span className="text-t-waiting">waiting on you:</span>
+            {" approve\n  rotation plan\ntask: rotate session tokens\npr: #412 draft"}
+          </pre>
+          <pre className={pre}>
+            <span className="text-t-dim">replies</span>
+            {"\nsol · 2m  noted, passing it on"}
+          </pre>
+        </div>
+      </div>
+      <pre className={`${pre} border-t border-term-edge`}>
+        <span className="text-t-dim">notes · sol</span>
         {"\n"}
-        <span className="bg-t-selection">
-          {"▸ "}
-          <span className="text-t-waiting">◆</span>
-          {" auth-fix     "}
-          <span className="text-t-waiting">blocked</span>
-          {"   rotate session tokens       #412 draft "}
-        </span>
-        {"\n    docs-sweep   review    consolidate install guide   #409 open\n    perf-cache   "}
-        <span className="text-t-working">working</span>
-        {"   cache room reads            "}
-        <span className="text-t-dim">–</span>
-        {"\n\n"}
-        <span className="text-t-dim">auth-fix · ~/w/app-3 · fix/token · ● running</span>
-        {"\n"}
-        <span className="text-t-waiting">waiting on you</span>
-        {"  approve the token rotation plan\n"}
-        <span className="text-t-dim">links</span>
-        {"  [1] PR #412   [2] issue #398"}
+        <span className="font-bold text-t-accent">## Now</span>
+        {
+          "\n- tokens: waiting on Ben's call (login vs sweep)\n- install guide: one page, platform tabs"
+        }
       </pre>
       <KeyBar />
     </div>
