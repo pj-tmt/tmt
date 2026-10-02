@@ -130,6 +130,8 @@ pub enum Effect {
     /// Load this squad now (a squad switch).
     Load(String),
     Refresh,
+    PickTheme,
+    SaveTheme,
     Act(Request),
 }
 
@@ -237,6 +239,7 @@ pub struct App {
     pub notice: Option<String>,
     pub help: bool,
     pub menu: Option<Menu>,
+    pub(super) theme_picker: Option<super::theme_picker::Picker>,
     pub input: Option<Input>,
     /// Index of the focused pane (split) or visible tab (tabs).
     pub focus: usize,
@@ -694,6 +697,7 @@ impl App {
                     .expect("validated toggle pane");
                 return self.toggle_pane(pane);
             }
+            Verb::Theme => return Effect::PickTheme,
             Verb::NextPane => {
                 self.next_pane();
                 return Effect::None;
@@ -1012,6 +1016,16 @@ impl App {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Effect::Quit;
         }
+        if let Some(picker) = &mut self.theme_picker {
+            return match picker.key(key) {
+                super::theme_picker::Input::Preview => Effect::None,
+                super::theme_picker::Input::Save => Effect::SaveTheme,
+                super::theme_picker::Input::Cancel => {
+                    self.theme_picker = None;
+                    Effect::None
+                }
+            };
+        }
         // Refresh keeps text inputs intact and uses the same override owner
         // as ordinary keys; rebinding ctrl-r does not force a refresh.
         if event_name(key).as_deref() == Some("ctrl-r")
@@ -1205,7 +1219,12 @@ impl App {
     /// A left click focuses the pane under it and selects the row under it, then runs its `click` binding;
     /// a second click on the same row soon after runs `double-click`.
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
-        if self.menu.is_some() || self.input.is_some() || self.help || self.switcher.is_some() {
+        if self.theme_picker.is_some()
+            || self.menu.is_some()
+            || self.input.is_some()
+            || self.help
+            || self.switcher.is_some()
+        {
             return Effect::None;
         }
         let lines = match event.kind {
@@ -1286,10 +1305,13 @@ impl App {
     /// How the board draws now: the shown squad's theme, or the default
     /// one before the first load.
     pub fn look(&self) -> crate::look::Look {
-        self.view.as_ref().map_or_else(
+        let saved = self.view.as_ref().map_or_else(
             || crate::look::Look::new(tmt_cli_style::Theme::default()),
             |view| view.look,
-        )
+        );
+        self.theme_picker
+            .as_ref()
+            .map_or(saved, |picker| picker.preview(saved.depth))
     }
 
     pub fn selected_row(&self) -> Option<&Value> {

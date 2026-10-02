@@ -2715,7 +2715,8 @@ painted data. Input, snapshots and deferred tab attention share one event channe
 a snapshot wakes the painter directly. The input loop rebuilds only after a
 state/input/resize change or when displayed clock text or the delayed spinner
 changes. Each immutable view owns disposable markdown wrapping and grid-width
-derivations keyed by effective pane width (and grid search); replacing the view
+derivations keyed by effective pane width (and grid search); markdown also keys
+its styled lines by the active look so theme previews repaint them. Replacing the view
 invalidates them, and the scroll renderer copies only visible lines.
 A switch advances the worker's generation, cancelling superseded core reads in
 the shared `tmt-invoke` bounded process owner. The refresh worker owns one never-reset stop flag per generation; preemption
@@ -2753,6 +2754,31 @@ each, plus one `inbox` read shared by all, and no `ls`). Previous tab attention
 stays visible until that generation's update arrives; a newer switch preempts
 this lower-priority work. The cross-squad leads/all views still read the rosters
 needed for their own rows before publication.
+
+Squad's `theme` command module registers `theme ls` (hidden `list` alias),
+`set` and `rm`; bare `theme` lists. Lists and the board picker consume names and
+descriptions from `tmt-cli-style::Base`, never a Squad palette. The effective
+base source is `default`, `cli`, `board` or `squad`; token overrides resolve
+independently. `config::Config` reads core's resolved appearance through public
+`config show`, then applies `[board.theme]` and `[squad.<name>.theme]` in
+`squad.toml` through `look::board_theme`. Invalid core appearance falls back to
+the built-in base with a notice; invalid Squad layers are configuration errors.
+All bases and token overrides are validated per layer, including masked values.
+Named `Config::set_theme_base` and `remove_theme_base` change only `base` through
+the existing writer, keeping token overrides and unrelated content. Squad never
+writes `config.json`, and command/picker text states that CLI colors stay unchanged.
+
+The bindable `theme` action (`T` in both host presets and the all tab) opens a
+small overlay owned by `board::theme_picker`. The session reads its Config at
+opening and keeps that baseline across refreshes. Preview applies the same
+in-memory layer edit as CLI set, cached when selection or scope changes, with no
+write; `App::look` supplies it to every
+pane and tab. Tab changes board/squad scope; built-in tabs have only board scope,
+and a masking squad base is named. Overlay input cannot operate underlying rows,
+tabs or panes. Enter calls the named Config edit once; failed saves retain the
+draft and notice without retry, while Esc drops preview and uses the latest
+saved view. A refreshed config cannot replace the opening baseline and permit an
+overwrite. No settings-view framework or core configuration writer is introduced.
 
 Squad `config::duration` owns UTF-8-safe whole-unit suffix conversion for provider,
 board refresh and reminder timing. Callers retain their accepted units, numeric
@@ -2971,9 +2997,12 @@ changes. Bodies are agent-written and are sanitized like notes before display.
 Membership commands are sequences of idempotent core commands, not one
 transaction; each reports what it applied, and a re-run converges. `squad.toml`,
 beside the global config that `tmt config show` reports, is the user's file.
-Squad writes only the top-level `me` and `me_id` (the UUID `me` named), together,
-with a changed-input check and atomic replacement that preserves the rest of the
-document. Nothing asks for `me`: `init` only creates the room (`--me`, for
+`Config::write` owns format-preserving replacement for `me`/`me_id`, tab order
+and board theme bases. It checks the original bytes, edits a cloned document,
+skips unchanged bytes and assigns the new document only after successful
+publication. A changed file is refused, not overwritten. Its byte check and
+atomic replacement are not a locking transaction; backups are not created.
+`me` and `me_id` (the UUID `me` named) are written together. Nothing asks for `me`: `init` only creates the room (`--me`, for
 scripts, is checked before any effect), and `tmt squad me [<name>|--clear]`
 shows, records or removes it. The UUID decides, as it
 does for binding markers: while `me_id` names an active identity, that identity is

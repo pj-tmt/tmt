@@ -14,6 +14,7 @@ pub enum Verb {
     Copy,
     Notes,
     Refresh,
+    Theme,
     Run,
     NextPane,
     Toggle,
@@ -35,6 +36,7 @@ impl Verb {
             "copy" => Self::Copy,
             "notes" => Self::Notes,
             "refresh" => Self::Refresh,
+            "theme" => Self::Theme,
             "run" => Self::Run,
             "next-pane" => Self::NextPane,
             "toggle" => Self::Toggle,
@@ -55,6 +57,7 @@ impl Verb {
             Self::Copy => "copy",
             Self::Notes => "notes",
             Self::Refresh => "refresh",
+            Self::Theme => "theme",
             Self::Run => "run",
             Self::NextPane => "next-pane",
             Self::Toggle => "toggle",
@@ -258,6 +261,7 @@ pub fn preset(tmux: bool) -> Bindings {
         ("tab", "next-pane"),
         ("d", "toggle detail"),
         ("ctrl-r", "refresh"),
+        ("T", "theme"),
     ]
     .into_iter()
     // Only a host that can show a pane can jump to the lead.

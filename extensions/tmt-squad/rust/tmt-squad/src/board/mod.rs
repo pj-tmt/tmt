@@ -10,6 +10,7 @@ mod refresh;
 mod scroll;
 mod tabs;
 mod terminal;
+mod theme_picker;
 mod view;
 
 pub use tabs::{ALL, LEADS};
@@ -152,6 +153,7 @@ fn session(
     input: &Receiver<BoardEvent>,
     request: impl Fn(Option<String>, bool),
     mut act: impl FnMut(Request) -> Result<String, String>,
+    mut theme_config: impl FnMut() -> Result<Config, String>,
     mut draw: impl FnMut(&mut App) -> io::Result<()>,
 ) -> io::Result<Option<i32>> {
     let mut refreshed = Instant::now();
@@ -228,6 +230,40 @@ fn session(
                 request(app.current.clone(), false);
                 refreshed = Instant::now();
             }
+            Effect::PickTheme => {
+                let squad = app.current.clone().filter(|name| !tabs::builtin(name));
+                match theme_config().and_then(|config| {
+                    theme_picker::Picker::open(config, squad).map_err(|error| error.message)
+                }) {
+                    Ok(picker) => {
+                        app.theme_picker = Some(picker);
+                        app.help = false;
+                    }
+                    Err(error) => app.finished(Err(error)),
+                }
+            }
+            Effect::SaveTheme => {
+                if let Some(picker) = &mut app.theme_picker {
+                    match picker.save() {
+                        Ok(changed) => {
+                            let message = picker.saved_message(changed);
+                            let depth = app
+                                .view
+                                .as_ref()
+                                .map_or(tmt_cli_style::Depth::None, |view| view.look.depth);
+                            let look = picker.preview(depth);
+                            if let Some(view) = &mut app.view {
+                                view.look = look;
+                            }
+                            app.theme_picker = None;
+                            app.finished(Ok(message));
+                            request(app.current.clone(), false);
+                            refreshed = Instant::now();
+                        }
+                        Err(error) => picker.notice = Some(error.message),
+                    }
+                }
+            }
             Effect::Act(action) => {
                 let sends = action.sends();
                 let jump = matches!(action, Request::Jump(_));
@@ -275,6 +311,7 @@ pub fn run(core: Core, squad: Option<String>, popup: bool) -> Result<Option<i32>
         &input,
         |squad, preempt| worker.request(squad, preempt),
         |request| execute(&core, request),
+        || Config::load(&core).map_err(|error| error.message),
         |app| {
             screen
                 .draw(|frame| {
@@ -297,6 +334,111 @@ mod tests {
     use super::*;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use std::sync::{atomic::Ordering, mpsc::channel};
+
+    #[test]
+    fn theme_confirm_saves_once_then_restores_normal_row_actions() {
+        let directory =
+            std::env::temp_dir().join(format!("tmt-theme-session-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("squad.toml");
+        std::fs::write(&path, "# kept\n[board.theme]\nbase = \"tmt\"\n").unwrap();
+        let (events, input) = channel();
+        let mut app = App::new(Some("product".into()));
+        app.apply(app::tests::snapshot(
+            "product",
+            serde_json::json!([{"title":null,"rows":[{"name":"coder"}]}]),
+        ));
+        for code in [
+            KeyCode::Char('T'),
+            KeyCode::Down,
+            KeyCode::Enter,
+            KeyCode::Enter,
+            KeyCode::Char('q'),
+        ] {
+            events.send(key(code)).unwrap();
+        }
+        let mut reads = 0;
+        let mut actions = 0;
+        let reloads = std::cell::Cell::new(0);
+        session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _| reloads.set(reloads.get() + 1),
+            |request| {
+                assert_eq!(request, Request::Jump("coder".into()));
+                actions += 1;
+                Ok("Jumped".into())
+            },
+            || {
+                reads += 1;
+                Config::read(path.clone()).map_err(|error| error.message)
+            },
+            |_| Ok(()),
+        )
+        .unwrap();
+        assert_eq!((reads, actions, reloads.get()), (1, 1, 1));
+        assert!(app.theme_picker.is_none());
+        assert_eq!(app.look().theme.base, tmt_cli_style::Base::TmtLight);
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "# kept\n[board.theme]\nbase = \"tmt-light\"\n"
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn theme_session_reports_stale_save_without_retry_and_escape_never_writes() {
+        let directory =
+            std::env::temp_dir().join(format!("tmt-theme-session-stale-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("squad.toml");
+        std::fs::write(&path, "[board.theme]\nbase = \"tmt\"\n").unwrap();
+        let (events, input) = channel();
+        let mut app = App::new(Some("product".into()));
+        app.apply(app::tests::snapshot("product", serde_json::json!([])));
+        for code in [
+            KeyCode::Char('T'),
+            KeyCode::Down,
+            KeyCode::Enter,
+            KeyCode::Esc,
+            KeyCode::Char('q'),
+        ] {
+            events.send(key(code)).unwrap();
+        }
+        let mut changed = false;
+        let mut failure_shown = false;
+        session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _| panic!("a failed save must not reload or retry"),
+            no_actions,
+            || Config::read(path.clone()).map_err(|error| error.message),
+            |app| {
+                if let Some(picker) = &app.theme_picker {
+                    if !changed {
+                        std::fs::write(&path, "# external edit\n").unwrap();
+                        changed = true;
+                    }
+                    if let Some(notice) = &picker.notice {
+                        assert!(notice.contains("changed") && notice.contains("retry"));
+                        failure_shown = true;
+                    }
+                }
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(failure_shown);
+        assert!(app.theme_picker.is_none());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# external edit\n");
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn no_theme_config() -> Result<Config, String> {
+        panic!("unexpected config read")
+    }
 
     fn no_actions(request: Request) -> Result<String, String> {
         panic!("unexpected {request:?}")
@@ -369,7 +511,16 @@ mod tests {
             events.send(event).unwrap();
             let mut app = App::new(None);
             let stop = AtomicUsize::new(signal);
-            session(&mut app, &stop, &input, |_, _| {}, no_actions, |_| Ok(())).unwrap()
+            session(
+                &mut app,
+                &stop,
+                &input,
+                |_, _| {},
+                no_actions,
+                no_theme_config,
+                |_| Ok(()),
+            )
+            .unwrap()
         };
         assert_eq!(run(key(KeyCode::Char('q')), 0), None);
         assert_eq!(run(BoardEvent::InputClosed, 0), Some(HANGUP));
@@ -407,6 +558,7 @@ mod tests {
                     jumps += 1;
                     outcome.clone()
                 },
+                no_theme_config,
                 |_| Ok(()),
             )
             .unwrap();
@@ -429,6 +581,7 @@ mod tests {
             &input,
             |_, _| {},
             no_actions,
+            no_theme_config,
             |_| Err(io::Error::other("terminal gone")),
         )
         .unwrap_err();
@@ -452,6 +605,7 @@ mod tests {
                 &input,
                 |_, _| {},
                 no_actions,
+                no_theme_config,
                 |app| {
                     painted
                         .send((app.selected, app.view.as_ref().unwrap().document.clone()))
@@ -509,6 +663,7 @@ mod tests {
                         requested.send(squad).unwrap();
                     },
                     no_actions,
+                    no_theme_config,
                     |_| {
                         painted.send(()).unwrap();
                         Ok(())
@@ -549,6 +704,7 @@ mod tests {
                 &input,
                 |_, _| {},
                 no_actions,
+                no_theme_config,
                 |_| {
                     painted.send(()).unwrap();
                     Ok(())
@@ -601,6 +757,7 @@ mod tests {
                 &input,
                 |_, _| {},
                 no_actions,
+                no_theme_config,
                 |_| {
                     frames += 1;
                     Ok(())
@@ -639,6 +796,7 @@ mod tests {
                 &input,
                 |_, _| panic!("automatic refresh was turned off by the snapshot"),
                 no_actions,
+                no_theme_config,
                 |_| Ok(())
             )
             .unwrap(),

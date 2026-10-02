@@ -580,6 +580,7 @@ fn all_view(
             ("enter", Some("tab")),
             ("double-click", Some("tab")),
             ("ctrl-r", Some("refresh")),
+            ("T", Some("theme")),
         ]
         .into_iter(),
         "tabs.all",
