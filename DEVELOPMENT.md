@@ -1114,6 +1114,13 @@ evidence returns empty human output or JSON `status: "unavailable"`, successfull
 without initializing configuration, storage or tmux metadata.
 Ordinary `whoami` keeps its existing human output and
 adds `interfaceKind` and `sessionState` to its JSON projection.
+An already admitted provider's verified prompt-submit context adds one incoming
+unacknowledged-attention line with an inbox pull command only when the count is
+nonzero. It reuses the same read-only snapshot; attention is not an unsent count.
+Zero attention and zero extension contributions emit no prompt context, and
+foreign, unadmitted or ended sessions receive none. The
+`identity-context-requests` mock-runtime scenarios verify these gates, unchanged
+request/attention state and cleanup; CLI formatter tests retain the 4 KiB bound.
 
 The `identity-context` and `identity-context-requests` Docker scenarios own bound
 context acceptance. Their independent SQLite snapshots include verification

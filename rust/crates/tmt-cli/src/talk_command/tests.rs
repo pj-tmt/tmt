@@ -12,6 +12,7 @@ fn correlation() -> Correlation {
         pane: "%1".into(),
         identity: None,
         inbox: false,
+        explicit_inbox: false,
         delivery_uncertain: false,
     }
 }
@@ -114,4 +115,51 @@ fn an_unconfirmed_handoff_is_never_worded_as_a_sent_request() {
         "Handed request request-talk to worker (%1); delivery is unconfirmed"
     );
     assert!(!line.contains("Sent"));
+}
+
+#[test]
+fn only_an_explicit_pending_inbox_reports_pull_without_live_notification() {
+    let mut queued = correlation();
+    queued.inbox = true;
+    queued.explicit_inbox = true;
+    let document = presentation::json_document(queued.clone(), None);
+    assert_eq!(document["status"], "queued");
+    assert_eq!(document["requestId"], "request-talk");
+    assert_eq!(document["notification"], "not_attempted");
+    assert_eq!(document["waitingFor"], "recipient_inbox_pull");
+    assert!(document.get("pane").is_none());
+    assert!(document.get("deliveryState").is_none());
+
+    // Ordinary offline and claimed routes must not inherit explicit-inbox claims.
+    for offline in [false, true] {
+        let mut ordinary = correlation();
+        ordinary.inbox = true;
+        ordinary.offline = offline;
+        let document = presentation::json_document(ordinary, None);
+        assert!(document.get("notification").is_none());
+        assert!(document.get("waitingFor").is_none());
+        assert_eq!(
+            document["offline"],
+            if offline {
+                serde_json::json!(true)
+            } else {
+                serde_json::Value::Null
+            }
+        );
+    }
+    let response = FinalResponse {
+        request_id: "request-talk".into(),
+        attempt_id: "attempt-talk".into(),
+        route: tmt_core::request::RequestRoute::Inbox {
+            recipient_identity_id: "recipient".into(),
+        },
+        body: "done".into(),
+        body_bytes: 4,
+        submitted_at_ms: 1,
+        response_expires_at_ms: 2,
+    };
+    let completed = presentation::json_document(queued, Some(response));
+    assert_eq!(completed["status"], "completed");
+    assert!(completed.get("notification").is_none());
+    assert!(completed.get("waitingFor").is_none());
 }

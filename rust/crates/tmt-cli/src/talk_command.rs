@@ -43,6 +43,8 @@ struct Correlation {
     pane: String,
     identity: Option<Identity>,
     inbox: bool,
+    /// Explicit queue-only selection, distinct from offline or claimed live routes.
+    explicit_inbox: bool,
     offline: bool,
     /// The message reached a one-way channel that gives no receipt: it is
     /// neither confirmed nor safe to resend, and every later failure says so.

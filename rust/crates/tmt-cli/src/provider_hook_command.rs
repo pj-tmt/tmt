@@ -456,11 +456,6 @@ fn observe_prompt(
     activity: Option<&tmt_core::binding::session::activity::Event>,
     deadline: Instant,
 ) -> Result<String, ()> {
-    let paths = ConfigPaths::discover().map_err(|_| ())?;
-    if activity.is_none() && !tmt_adapters::extension_hooks::has_context_consent(&paths.global_dir)
-    {
-        return Ok(String::new());
-    }
     let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
         return Ok(String::new());
@@ -495,8 +490,8 @@ fn observe_prompt(
     {
         return Ok(String::new());
     }
-    let context = crate::context_command::render_extensions(
-        &binding.identity_id,
+    let context = crate::context_command::render_prompt(
+        &stored,
         &paths,
         deadline
             .checked_sub(Duration::from_millis(200))

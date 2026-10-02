@@ -322,7 +322,7 @@ fn option(id: &'static str) -> Arg {
         "version" => tmt_cli_style::version_arg(ArgAction::SetTrue),
         "wait" => flag("Retired; use timeout or detach").hide(true),
         "detach" => flag("Return after sending"),
-        "inbox" => flag("Queue for an identity without tmux delivery"),
+        "inbox" => flag("Queue only for recipient pull; use plain talk for live notification"),
         "incoming" => flag("Use recipient-facing request attention"),
         "no-preamble" => flag("Skip the recipient preamble"),
         "stdin" => flag("Read complete input through EOF"),
