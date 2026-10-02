@@ -62,7 +62,9 @@ A space is one colab instance holding many live pages. Pages are collaboratively
 edited HTML source, comments and agent conversations; there is no publish step
 or immutable-version collaboration model. Snapshots are named restore points.
 People use the browser URL; agents use the CLI. A share URL grants page access
-at its role and MUST NOT grant local-agent access.
+at its role and MUST NOT grant local-agent access. A member may ask only their
+own agents on their own machine ([Member machines](#member-machines)); page
+membership never reaches the owner's or another member's agents.
 
 The extension protects against an untrusted storage/sync service reading private
 page content, forging authorship or authority, rolling back already-observed
@@ -259,7 +261,7 @@ is explicit, never inferred from possession of a new key.
 | `link.add`      | `linkId, role, linkSignKey, linkEncKey, pages`; role viewer/commenter/editor; keys match pinned derivations                                                    |
 | `link.remove`   | `linkId, cuts`; revoke every device certified by the link and rotate affected epochs                                                                           |
 | `device.revoke` | `deviceId, cuts`; revoke the selected identity/sessions/grants and rotate affected epochs; a surviving link seed remains a separate bearer capability          |
-| `bridge.add`    | `machineId, machineSignKey, encKey, pages`; restricted bridge role, not editor                                                                                 |
+| `bridge.add`    | `machineId, machineSignKey, encKey, pages`; an owner machine with the restricted bridge role, not editor                                                       |
 | `epoch.advance` | `pageId, epoch, cuts, baseline, wraps`; next epoch, exact baseline descriptor, remaining-recipient signed wraps                                                |
 | `page.share`    | `pageId, mode, epoch, publishedKeys`; private/link/public; key publication only for local/LAN public mode and explicit history scope                           |
 | `page.scripts`  | `pageId, mode`; interactive/static, owner control only                                                                                                         |
@@ -666,8 +668,9 @@ machine's grant. Altered transcripts/devices/offers/tags MUST reject.
 
 Comments, sync, replay, compaction and HTML scripts MUST NOT dispatch agent work.
 Only explicit Send in trusted parent UI signs an immutable intent after showing
-the exact final text, agent UUID, destination machine/online state and, only
-under a `hold` grant, that the send waits for local approval.
+the exact final text, agent UUID, destination machine/online state, that the
+ask and its reply are visible to everyone who can see the page and, only under a
+`hold` grant, that the send waits for local approval.
 All effectful actions (Send, share, approve, delete) live in trusted parent
 chrome. The canvas retains a visible boundary and the selection popover is
 parent-drawn and clamped to it. Ask agent is a separate confirmed step from
@@ -720,8 +723,31 @@ work. No automatic new operation or repeated wake is permitted.
 
 The grant mode comes from the remote trust grant: `direct` (the default)
 dispatches right after the fence, `hold` keeps the send held for local
-`approve`. Whether non-owner members may use Ask agent is a pending owner
-decision in the remote channel contract.
+`approve`.
+
+### Member machines
+
+A member with commenter or editor role may Ask agent, but only agents on a
+machine of their own; the owner's agents answer only the owner. A member's
+machine joins as one of that member's certified devices through the ordinary
+device chain, holds the member's role and needs no owner statement; owner
+machines keep `bridge.add`. The member runs `tmt colab` on that machine as its
+bridge, and that machine's own remote trust and operations dispatch the work.
+No owner operation scope, grant or remote device context is involved.
+
+A bridge adopts an intent only when the sender device and the bridge's own
+device resolve to the same member at its latest verified log head, in addition
+to the fence above; the owner's bridge adopts only intents from owner devices.
+An intent naming another principal's machine is refused without dispatch. Member
+removal or role reduction revokes that machine with the member's other devices,
+and its bridge stops adopting at the first log head that shows the change.
+
+Replies are written to the member machine's own signed stream and attributed
+from that stream: "<agent> on <member>'s machine". Content fields never name the
+author. Asks, intents' visible text and replies live in the page's own namespace
+streams under the page epoch key, so everyone who can see the page sees them,
+like comments; there is no private ask. Members see the destination machine's
+online state, and offline asks wait and expire as above.
 
 `devices revoke` revokes machine-local grants immediately. Member removal on
 that machine also revokes corresponding grants in the same local transaction.
