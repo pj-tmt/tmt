@@ -50,6 +50,10 @@ impl Endpoint {
         Ok(Self { address, token })
     }
 
+    pub fn port(&self) -> u16 {
+        self.address.port()
+    }
+
     pub fn url(&self) -> String {
         format!("ws://{}", self.address)
     }
