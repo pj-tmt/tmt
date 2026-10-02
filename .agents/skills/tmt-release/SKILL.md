@@ -91,6 +91,34 @@ procedures referenced below; DEVELOPMENT owns ordinary native checks.
   Do not restore npm publishing or a download wrapper without a separately scoped
   distribution decision. Historical v4 publishing uses that branch's own rules.
 
+## Archive contents and install facts
+
+- Every product archive (CLI, Office, Squad) carries its executable, `LICENSE`,
+  `NATIVE-INSTALL.md` and `THIRD-PARTY-NOTICES.txt`. The installer enforces this
+  inventory (`tmt-core`'s `native_install/product.rs`), so adding, renaming or
+  dropping an entry is an installer-contract change with an upgrade proof, not a
+  documentation edit. The CLI release may also carry optional companion executables.
+- The archive's `NATIVE-INSTALL.md` is sourced from `rust/archive/NATIVE-INSTALL.md`
+  through `dist-workspace.toml` and the Squad package include. Keep it a short,
+  product-neutral offline note without version numbers: user guidance belongs to the
+  handbook, and the onboarding test runs the note's PATH block in Bash and Zsh.
+- Release targets are macOS x64/arm64 (build deployment target 11.0) and Linux
+  x64/arm64 with a static musl runtime. A deployment target is not testing on every
+  macOS version; cite the release's verification evidence for tested hosts.
+- The manifest's SHA-256 checksums detect corruption, not a compromised download
+  origin. Locally generated checksums are not signatures, and no local test artifact
+  carries a GitHub attestation. Only a published immutable release does
+  (`gh release verify`, `gh release verify-asset`).
+- The generated `install.sh` fixes the initial version and channel (never a mutable
+  tag). It verifies the manifest and archive sizes and digests before it runs the
+  temporary binary, then delegates permanent writes to the native installer. It does
+  not edit shell profiles or touch SQLite, and it needs only a POSIX shell, curl,
+  tar/gzip, standard utilities and `sha256sum` or `shasum`. Its receipts record
+  local-archive verification, not independent attestation provenance.
+- Successful human installer output names `<requested-prefix>/bin/tmt`, matching the
+  bootstrap summary even when a prefix ancestor is a symlink. Installation
+  validation, receipts and JSON reports keep canonical paths (#1098).
+
 ## Automated alpha publication
 
 The owner chose a trunk-based alpha channel: there is no separate edge channel, and a merge to
