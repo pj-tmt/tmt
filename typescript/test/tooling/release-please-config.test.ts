@@ -3,11 +3,11 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { Ajv } from 'ajv';
-import * as releasePlease from 'release-please';
 import {
   attributeReleaseConsumption,
   assertReleasePleaseApi,
   executeReleasePlease,
+  loadPinnedReleasePlease,
 } from '../../scripts/release-please-run.mjs';
 import { ownerOf, parseComponentMap } from '../../scripts/ci-scope.mjs';
 import {
@@ -28,6 +28,7 @@ const { releasePolicy } = (await import(
 
 const read = (file: string) => readFileSync(path.join(root, file), 'utf8');
 const readJson = (file: string) => JSON.parse(read(file));
+const releasePlease = loadPinnedReleasePlease();
 
 const components = () => parseComponentMap(read('.github/components.json')).components;
 
@@ -506,10 +507,10 @@ describe('pinned release-please CLI', () => {
   const pinned = readJson('.github/release-please/package.json');
   const lock = read('.github/release-please/pnpm-lock.yaml');
 
-  it('pins the wrapper API and the workspace test dependency to the release job version', () => {
+  it('loads the release job pin for both the wrapper and real Manifest tests', () => {
     expect(releasePlease.VERSION).toBe(pinned.dependencies['release-please']);
-    expect(readJson('typescript/package.json').devDependencies['release-please']).toBe(
-      releasePlease.VERSION
+    expect(readJson('typescript/package.json').devDependencies).not.toHaveProperty(
+      'release-please'
     );
     expect(() => assertReleasePleaseApi(releasePlease)).not.toThrow();
     for (const broken of [

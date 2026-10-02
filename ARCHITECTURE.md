@@ -662,8 +662,9 @@ propose Squad, while the CLI remains excluded. Other shared leaves retain packag
 expanding consumption requires a separate ownership review.
 `.release-please-manifest.json` holds the last published versions and belongs to
 release-please after its first release pull request. The CLI is pinned with a lockfile in
-`.github/release-please/`, outside the `typescript` workspace for the release job. Tooling tests install the same exact
-version as a development dependency and pin the wrapper's API shape and real Manifest attribution.
+`.github/release-please/`, outside the `typescript` workspace. Only the release job and CI jobs running
+release-config tests install it; tests load that same isolated pin to verify the wrapper's API shape
+and real Manifest attribution, without adding release tooling to other workspace installs.
 The config sets `always-update`: release-please otherwise leaves an open release pull request
 untouched while its notes are unchanged, so a conflict with `main` (every release pull request
 edits the shared manifest, and adjacent lines conflict) would never clear.

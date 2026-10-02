@@ -8,6 +8,10 @@ const requirePinned = createRequire(
   new URL('../../.github/release-please/package.json', import.meta.url)
 );
 
+export function loadPinnedReleasePlease() {
+  return requirePinned('release-please');
+}
+
 export function assertReleasePleaseApi(api) {
   if (
     api.VERSION !== '17.11.2' ||
@@ -66,7 +70,7 @@ async function main(command) {
   if (!['true', 'false'].includes(process.env.LIVE)) throw new Error('LIVE must be true or false.');
   const [owner, repo, extra] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
   if (!owner || !repo || extra) throw new Error('GITHUB_REPOSITORY must be owner/repo.');
-  const api = requirePinned('release-please');
+  const api = loadPinnedReleasePlease();
   assertReleasePleaseApi(api);
   const github = await api.GitHub.create({ owner, repo, token: process.env.RELEASE_TOKEN });
   // Like the manifest/config, read the map from the target branch rather than another checkout.

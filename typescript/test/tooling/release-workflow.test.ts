@@ -243,6 +243,17 @@ describe('release workflow (release.yml)', () => {
     expect(releasePlease).not.toMatch(/googleapis\/release-please-action/);
   });
 
+  it('installs the isolated release pin only in CI jobs that run release-config tests', () => {
+    const ci = read('.github/workflows/ci.yml');
+    const consumers = [...jobs(ci)]
+      .filter(([, text]) => text.includes('working-directory: .github/release-please'))
+      .map(([name, text]) => {
+        expect(text).toContain('run: pnpm install --frozen-lockfile --ignore-scripts');
+        return name;
+      });
+    expect(consumers).toEqual(['code-quality', 'unit-tests']);
+  });
+
   it('merges release pull requests through the required checks and never around them', () => {
     const step = releasePleasePart(job(release, 'release-please'), 'Enable auto-merge');
     expect(step).toContain("if: steps.mode.outputs.live == 'true'");

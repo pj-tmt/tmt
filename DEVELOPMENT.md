@@ -296,8 +296,9 @@ runs that test on every pull request, including Squad-only ones whose Unit tests
 because Squad's manifest is one of its inputs. The
 generator needs `cargo` and reads no network. Update the pinned release-please CLI in
 `.github/release-please/` with `pnpm install` there and commit its lockfile; the test
-requires an exact version and an integrity hash for every locked package. Keep the tooling
-workspace's exact `release-please` test dependency at that same version.
+requires an exact version and an integrity hash for every locked package. Before local tooling
+type checks or release-config tests, run `pnpm install --frozen-lockfile --ignore-scripts` in
+`.github/release-please/`; tests and the release wrapper load this single isolated pin.
 
 Private leaves declare `releaseConsumers` in the component map; today only TUI names Squad.
 The release workflow uses `release-please-run.mjs` with the pinned API to attribute these commits
