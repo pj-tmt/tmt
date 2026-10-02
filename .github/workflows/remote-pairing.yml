@@ -1,0 +1,52 @@
+name: Remote pairing page
+on:
+  pull_request:
+    paths:
+      - 'extensions/tmt-remote/rust/**'
+      - 'extensions/tmt-remote/typescript/remote-client/**'
+      - '.github/workflows/remote-pairing.yml'
+      - '.github/actions/setup-tooling/**'
+      - 'typescript/package.json'
+      - 'typescript/pnpm-workspace.yaml'
+      - 'typescript/pnpm-lock.yaml'
+      - 'rust/Cargo.lock'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: remote-pairing-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  remote-pairing:
+    name: Browser pairing smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.97.0 --profile minimal
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: false
+      - uses: ./.github/actions/setup-tooling
+      - name: Install locked remote-client tools
+        working-directory: typescript
+        run: pnpm --filter @tmt/remote-client install --frozen-lockfile --ignore-scripts
+      - name: Build the door
+        working-directory: rust
+        run: cargo build --locked -p tmt-remote
+      - name: Pair a real Chromium with a real door
+        working-directory: typescript
+        run: |
+          pnpm --filter @tmt/remote-client exec playwright install --with-deps chromium
+          pnpm --filter @tmt/remote-client --fail-if-no-match test:browser
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: remote-pairing-evidence
+          path: extensions/tmt-remote/typescript/remote-client/test-results/

@@ -633,6 +633,19 @@ inventory.
 | `POST /ack`       | One signed ack control; no core attention mutation.                                                    |
 | `POST /pair`      | Enrollment fields/proofs for an already machine-opened local offer; no client-created offer.           |
 
+Browser assets live at the door root, disjoint from `/r/` and `/x/`, under the same Host, path and
+framing rules. `GET /pair/<descriptor>` (1–4096 base64url characters) serves the pairing page with
+`default-src 'none'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none';
+frame-ancestors 'none'`; the descriptor names the offer and never the code, which stays in the
+fragment that the page removes before anything else runs. `GET /sdk/remote-v1.js` serves the device
+SDK as `text/javascript; charset=utf-8` with `nosniff`; the path names the SDK interface version,
+not a build, so it is not cached across upgrades. `POST /sdk/mount` takes exactly `{path}` from a
+page on the door's own origin and answers `{machineId, windowId, address, extension, mount}`: this
+run's identity and the mounted extension that contains `path` in the door's own mount mapping, or
+null. It scopes honest use, such as which extension a page certifies keys for, and is not a security
+boundary: mounted extensions share one browser trust domain and only owner-installed extensions
+mount. None of these routes reads the door cookie or grants authority.
+
 Route action and envelope kind/operation must agree. Body is one UTF-8 JSON document, Content-Type
 application/json, one Content-Length, no transfer encoding, at most one request/connection;
 Connection: close. Header/body acquisition times out within five seconds; pairing max 16 KiB,
@@ -672,10 +685,10 @@ removed and envelope bytes are unchanged. The pairing ceremony is implemented th
 `tmt remote pair` and `/pair`: one offer per run, the owner's terminal confirmation, the default
 grant and the receipt with `serverProof` (#1039). Door sessions (`session.open` on `/append`, the
 `/x/` cookie and the device context it carries to mounts) and `tmt remote devices` list and revoke
-are implemented (#1039). The device SDK in `remote-client` (non-extractable
-WebCrypto device key, pairing client with `serverProof` verification, `session.open` client and
-`tmt-ext-cert-v1` certification) and the Rust and Python certificate vectors are implemented; the
-remote-served browser pairing page and `/sdk/remote-v1.js` are not yet implemented.
+are implemented (#1039). The device SDK in `remote-client` (non-extractable WebCrypto device key,
+pairing client with `serverProof` verification, `session.open` client and `tmt-ext-cert-v1`
+certification) and the Rust and Python certificate vectors are implemented, as are the remote-served
+pairing page, `/sdk/remote-v1.js` and `/sdk/mount` (#1039).
 
 Colab's working loopback door, sign-in and sync transport code relocates into `tmt-remote` as the
 local door, device sign-in and relay where it meets this contract, rather than being rewritten.

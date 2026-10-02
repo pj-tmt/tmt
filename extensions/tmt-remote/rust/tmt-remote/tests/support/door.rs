@@ -23,6 +23,7 @@ use tmt_remote::{
     devices::Devices,
     http::{Door, Handler},
     mount::Mounts,
+    pages::Pages,
     pairing::{Pairing, Timing},
     routes::Routes,
     session::{self, DoorSessions},
@@ -109,6 +110,12 @@ impl Harness {
         let site = Arc::new(Site {
             routes,
             mounts: Mounts::new(root.clone(), &origin, Arc::clone(&sessions) as _),
+            pages: Some(Pages::new(
+                &origin,
+                machine.id.clone(),
+                window_id.clone(),
+                &machine.route_prefix,
+            )),
         });
         let stop = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&stop);

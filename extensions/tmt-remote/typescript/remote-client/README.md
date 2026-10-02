@@ -13,6 +13,15 @@ This private module implements the device side of
   key only after `serverProof` verifies), the `session.open` client that verifies
   the machine-signed response, and extension key certification.
 
+- `src/browser.ts`: the browser entry the door serves as `/sdk/remote-v1.js`. It
+  runs the pairing page and gives mounted extension pages `reopenSession` and
+  `certifyKey`, whose extension comes from the door's `/sdk/mount` answer.
+
+`pnpm build` bundles the browser entry with Vite (library mode, unminified) into
+`../../rust/tmt-remote/assets/remote-v1.js`, which the door embeds; commit the
+result. `pnpm test:browser` runs the Playwright Chromium pairing smoke against
+`rust/target/debug/tmt-remote` (or `TMT_REMOTE_BINARY`).
+
 Network access goes through an injected fetch. The caller persists the device
 key's opaque `CryptoKey` (the browser page uses IndexedDB structured clone); the
 private key is never exported. Byte construction and signatures establish no

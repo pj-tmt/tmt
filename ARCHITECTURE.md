@@ -3883,8 +3883,17 @@ Confirmation inserts the default grant (all agents, the default scopes,
 `direct`, no expiry) in one transaction under the offer lock, derives
 `K_response` and `serverProof` over the exact receipt JSON, erases the code and
 keeps only the candidate, receipt and proof for exact-retry recovery until the
-original deadline. A failed grant write ends the offer with no grant. The
-browser pairing page is a later slice.
+original deadline. A failed grant write ends the offer with no grant.
+
+`pages::Pages` serves the browser assets at the door root, disjoint from `/r/`
+and `/x/`: the pairing page at `/pair/<descriptor>` (strict CSP, same-origin
+script only), the device SDK module at `/sdk/remote-v1.js` and `/sdk/mount`,
+which answers a same-origin page's path with this run's machine and window and
+the extension whose mount contains it, from `Mounts::extension_of`. That lookup
+scopes honest use only; mounted extensions share one trust domain. The SDK
+module and page are embedded with `include_str!` from the crate's `assets/`;
+`remote-v1.js` is built from `remote-client` (below) and Code quality rebuilds it
+and fails on any difference.
 
 `session::DoorSessions` admits the signed `session.open` control on
 `<prefix>/append`: exactly the envelope fields, this machine and window, a live
@@ -3976,12 +3985,20 @@ non-extractable WebCrypto Ed25519 device key (the caller persists the opaque
 handle), the pairing link parser and client that accepts the machine key only after
 `serverProof` verifies, the `session.open` client that verifies the machine-signed
 response, and extension key certification. Network access goes through an
-injected fetch. Remote-generated IDs remain UUIDv4, as defined by the channel
+injected fetch. Its browser entry (`src/browser.ts`) is what the door serves:
+`vite build` in library mode bundles it, the canonical builders and the pinned
+BIP-39 list into one unminified ES module in the crate's `assets/`. It runs the
+pairing page (fragment removed first, words shown before the owner confirms, the
+key's opaque handle kept in this origin's IndexedDB) and gives mounted pages only
+`reopenSession` and `certifyKey`, whose extension comes from `/sdk/mount`, never
+from the caller. Remote-generated IDs remain UUIDv4, as defined by the channel
 contract. Syntax validation establishes no authority. It uses standard UTF-8 and
 WebCrypto primitives and runs in the existing Code quality job: the independent
 Python oracle must pass before the workspace-pinned Vitest suite runs, and the SDK
-tests drive it against a node:crypto stand-in door. Key storage, the pairing page
-and browser-shell wiring are not part of it yet.
+tests drive it against a node:crypto stand-in door. A Playwright Chromium smoke
+(`test:browser`, in the path-filtered Remote pairing page workflow) pairs a real
+browser with a real `tmt remote serve` and checks the cookie, the forwarded
+device context, certificates and silent session reopening.
 
 ## Colab extension proposal
 

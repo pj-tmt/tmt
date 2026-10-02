@@ -2482,9 +2482,10 @@ origin, name and four words, and asks once on the terminal; `tmt remote pair
 --json` streams one event per line and reads `confirm` or `refuse` from stdin,
 which is how the process tests drive it. `tmt remote devices [--json]` lists
 paired devices with their four words, and `tmt remote devices revoke
-<client-id>` ends one device's access, whether or not serve is running. A paired
-browser opens a door session with a signed `session.open`; its cookie then
-carries the device context to mounted pages. Pairing and state tests use short
+<client-id>` ends one device's access, whether or not serve is running. Opening
+the pairing link in a browser serves the pairing page, which shows the same four
+words; after the owner confirms, the browser opens a door session with a signed
+`session.open`, and its cookie then carries the device context to mounted pages. Pairing and state tests use short
 roots under `/tmp`, because Unix socket paths are limited to about 100 bytes. It mounts colab under `/x/colab/` while
 `<dataRoot>/colab/door.sock` exists as an owner-only socket in a 0700
 directory; mounted requests carry a device context only under a live door
@@ -2492,8 +2493,8 @@ session.
 Colab gets at most 16 live WebSocket tunnels, each closed after 120 seconds
 without traffic; a full pool answers 503 with `retry-after`, so colab should
 keep one socket per tab and reconnect after idle close.
-The browser pairing page, signed operations, hold, sends, the relay and
-journal/SDK integration are not implemented. The [channel contract](contracts/remote-channel-v1.md) is
+Signed operations, hold, sends, the relay and journal integration are not
+implemented. The [channel contract](contracts/remote-channel-v1.md) is
 proposed; [the separately owned browser shell](#browser-add-on-shell)
 uses only a stub. No official remote installer/release exists.
 
@@ -2504,6 +2505,18 @@ uses only a stub. No official remote installer/release exists.
 (cd rust && cargo test --offline --locked -p tmt-cli --test architecture)
 node typescript/scripts/release-please-config.mjs --check
 (cd typescript && corepack pnpm exec vitest run test/tooling/release-please-config.test.ts test/tooling/ci-scope.test.ts)
+```
+
+The door embeds `extensions/tmt-remote/rust/tmt-remote/assets/remote-v1.js`,
+built from `remote-client`. After changing `remote-client/src`, rebuild and
+commit it (Code quality rebuilds it and fails on a difference), then run the
+Chromium pairing smoke against a debug build of the door:
+
+```bash
+(cd typescript && pnpm --filter @tmt/remote-client --fail-if-no-match build)
+(cd rust && cargo build --offline --locked -p tmt-remote)
+(cd typescript && pnpm --filter @tmt/remote-client exec playwright install chromium)
+(cd typescript && pnpm --filter @tmt/remote-client --fail-if-no-match test:browser)
 ```
 
 Pure byte/crypto conformance runs with the remote Rust tests above, including
