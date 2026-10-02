@@ -187,6 +187,9 @@ impl Squad {
                     .map(|(key, value)| (key[prefix.len()..].to_owned(), value))
                     .collect();
                 let lead_marker = fields.remove(LEAD_MARKER).map(|marker| marker == "true");
+                // Retired row notes remain in core metadata until explicitly cleared.
+                // Exclude them before columns, filters and templates see the projection.
+                fields.remove("note");
                 Ok(Member {
                     lead_marker,
                     id: text(member, "id")?,

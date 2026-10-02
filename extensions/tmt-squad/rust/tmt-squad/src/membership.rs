@@ -257,6 +257,14 @@ fn parse_change(squad: &Squad, pair: &str) -> Result<Change, SquadError> {
     if value.is_empty() {
         return Ok(Change::Clear(key));
     }
+    if field == "note" {
+        return Err(SquadError::hinted(
+            "SQUAD_NOTE_RETIRED",
+            "The per-member note is retired",
+            "; use ",
+            "tmt notes path --identity <member> for the member's notebook, task= for what the member is doing, and pending= for what it waits on you for (note= still clears an old value).",
+        ));
+    }
     if value.len() > 1024 || value.chars().any(char::is_control) {
         return Err(SquadError::new(
             "SQUAD_FIELD_INVALID",

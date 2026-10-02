@@ -53,8 +53,8 @@ cell).
   section.
 - Each row has `id`, `name`, `lifetime`, `presence` (`active`, `offline` or
   `unknown`), `pane`, `activity` (self-reported status, or null), `state`,
-  `pending`, `note`, `fields` (the `squad.<name>.*` values except the internal
-  leadership marker, by field name,
+  `pending`, `fields` (the `squad.<name>.*` values except the internal
+  leadership marker and retired row note, by field name,
   with the user's column sources, formats and field providers applied;
   these strings are already display text and must not be formatted again),
   `failed` (fields whose provider failed; they show `?`), `annotation` (the user's open note
@@ -144,7 +144,7 @@ over an all-boards preview; the picker names that masking setting. A failed
 save stays open with a notice; cancel and reopen to read a changed file.
 Agents change the user's appearance only when the user requests it.
 
-The detail pane shows full projected board-column values not already shown by its header, task, note, activity or links, in column order; values wrap without grid truncation, with `?` for failed providers and `–` for missing values.
+The detail pane shows full projected board-column values not already shown by its header, task, activity or links, in column order; values wrap without grid truncation, with `?` for failed providers and `–` for missing values.
 
 The replies pane shows full available replies to your squad requests as safe
 Markdown, using the notes pane's styles. Reply bodies are indented; prompts wrap,
@@ -233,12 +233,17 @@ tmt squad add <name>...                       # agents that are already running
 tmt squad set <member> state=review task="rotate session tokens"
 tmt squad set <member> pending="approve the token rotation plan"
 tmt squad set <member> pending=               # clear it once answered
-tmt squad set <member> note="needs a login-vs-sweep call"
 tmt squad set <member> pr_link=https://github.com/acme/app/pull/412
 tmt squad rm <name>                           # leaves the squad; the agent keeps running
 ```
 
-- `note` is your one-line summary for that member, shown on its row.
+- `task` describes what the member is doing; `pending` describes what it waits
+  on the user for. Keep member context in that member's own saved-identity
+  notebook (`tmt notes path --identity <member>`).
+- The per-member `note` field is retired: nonempty `note=` fails before any
+  writes. Empty `note=` still clears an old value. Reads preserve stored legacy
+  notes but exclude them from rows and row `fields`; `note` remains reserved
+  and cannot be reused by a field provider or bound column.
 - `pending` is the one decision the member needs from the user. Keep it short
   and clear it when it's resolved.
 - Field names are `[a-z][a-z0-9_-]*`. Values are one line of at most 1024
@@ -274,8 +279,7 @@ tools. The board never creates it: a saved lead without a notebook shows
 Keep a short **Current state** section at the top of your own notebook, with
 **Now / Next / Blocked** in a few lines, because the user reads it on the board.
 Update those lines when the working state changes; keep history below them.
-The per-member `note` field remains your one-line summary for that member;
-user annotations remain requests about a row.
+User annotations remain requests about a row.
 
 ## Annotations from the user
 
@@ -401,7 +405,6 @@ columns = [
 lines = [
   ["member", "state", "task", "pr_state"],
   ["", { field = "pending", span = 3 }],
-  ["", { field = "note", span = 3 }],
   ["", { field = "ctx" }, { field = "model", span = 2 }],
 ]
 ```

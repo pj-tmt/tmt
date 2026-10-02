@@ -32,7 +32,7 @@ fn member_value(member: &Member) -> Value {
     let mut row = json!({
         "id": member.id, "name": member.name, "lifetime": member.lifetime,
         "presence": member.presence, "pane": member.pane, "activity": member.activity,
-        "state": field("state"), "pending": field("pending"), "note": field("note"),
+        "state": field("state"), "pending": field("pending"),
         "fields": member.fields, "failed": member.failed, "staleness": crate::staleness::unavailable("disabled"),
     });
     if !member.colors.is_empty() {
@@ -235,15 +235,11 @@ fn mark(row: &Value) -> Mark {
     }
 }
 
-/// What the reader needs first: the decision owed, the note, the latest
-/// annotation.
+/// What the reader needs first: the decision owed and the latest annotation.
 fn detail(row: &Value) -> String {
     let mut parts = Vec::new();
     if let Some(pending) = row["pending"].as_str() {
         parts.push(format!("waiting on you: {pending}"));
-    }
-    if let Some(note) = row["note"].as_str() {
-        parts.push(format!("note: {note}"));
     }
     if let Some(text) = row["annotation"]["text"].as_str() {
         parts.push(format!("✎ to {}: {text}", cell(&row["annotation"]["to"])));
@@ -693,11 +689,7 @@ sort = ["state"]
             member("kai", &[("state", "custom")]),
             member(
                 "bob",
-                &[
-                    ("state", "blocked"),
-                    ("pending", "approve the plan"),
-                    ("note", "needs a call"),
-                ],
+                &[("state", "blocked"), ("pending", "approve the plan")],
             ),
         ]
     }
@@ -792,10 +784,8 @@ sort = ["state"]
         assert_eq!(crew["sections"].as_array().unwrap().len(), 1);
         assert_eq!(crew["sections"][0]["title"], Value::Null);
         let bob = &crew["sections"][0]["rows"][0];
-        assert_eq!(
-            (bob["pending"].as_str(), bob["note"].as_str()),
-            (Some("approve the plan"), Some("needs a call"))
-        );
+        assert_eq!(bob["pending"], "approve the plan");
+        assert!(!bob.as_object().unwrap().contains_key("note"));
         assert_eq!(crew["sections"][0]["rows"][1]["pending"], Value::Null);
 
         let minimal = document(
@@ -814,7 +804,7 @@ sort = ["state"]
             text(&crew, Terminal::PLAIN),
             "squad product · lead sol · layout crew\n\n\
              MEMBERS 4\n\
-             \x20 ◆  bob  blocked  waiting on you: approve the plan · note: needs a call\n\
+             \x20 ◆  bob  blocked  waiting on you: approve the plan\n\
              \x20 ○  zed  working\n\
              \x20 ○  amy  review\n\
              \x20 ○  kai  custom\n"

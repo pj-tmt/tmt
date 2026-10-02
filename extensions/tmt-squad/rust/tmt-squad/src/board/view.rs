@@ -1219,7 +1219,6 @@ fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
     )));
     for (label, value) in [
         ("task", &row["fields"]["task"]),
-        ("note", &row["note"]),
         ("activity", &row["activity"]["activity"]),
     ] {
         if let Some(value) = value.as_str() {
@@ -1345,7 +1344,6 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         });
     }
     let widths = &derived.grid.as_ref().expect("prepared grid").widths;
-    let note_column = rows.fields().contains(&"note");
     let mut lines = vec![Line::from(Span::styled(
         format!(
             "  {}",
@@ -1416,13 +1414,6 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                         row_lines.push((lines.len(), row_index));
                         lines.push(Line::from(spans).style(style));
                     }
-                }
-                if let Some(note) = row["note"].as_str().filter(|_| !note_column) {
-                    lines.push(Line::from(Span::styled(
-                        fit(&format!("    note {note}"), usize::from(area.width)),
-                        look.role(Role::Dim),
-                    )));
-                    row_lines.push((lines.len() - 1, row_index));
                 }
                 if let Some(text) = row["annotation"]["text"].as_str() {
                     let to = row["annotation"]["to"].as_str().unwrap_or_default();
@@ -1579,7 +1570,7 @@ mod tests {
     }
 
     fn row(name: &str, state: &str, task: &str, extra: Value) -> Value {
-        let mut row = json!({"name": name, "fields": {"state": state, "task": task}, "pending": null, "note": null, "colors": {"state": if state == "blocked" { "amber" } else { "default" }}});
+        let mut row = json!({"name": name, "fields": {"state": state, "task": task}, "pending": null, "colors": {"state": if state == "blocked" { "amber" } else { "default" }}});
         for (key, value) in extra.as_object().unwrap() {
             row[key] = value.clone();
         }
@@ -1638,7 +1629,7 @@ mod tests {
         let mut app = board(json!([
             {"title": "Needs me", "rows": [
                 row("auth-fix", "blocked", "rotate session tokens without logging everyone out", json!({
-                    "pending": "approve", "note": "needs a call",
+                    "pending": "approve",
                     "fields": {"state": "blocked", "task": "rotate session tokens without logging everyone out", "pr_link": "https://github.com/wkh237/tmt/pull/4242"}
                 }))
             ]},
@@ -1755,14 +1746,13 @@ mod tests {
     #[test]
     fn preset_columns_draw_exactly_as_before_at_every_width() {
         let app = preset_board();
-        let golden: [(u16, [&str; 8]); 4] = [
+        let golden: [(u16, [&str; 7]); 4] = [
             (
                 48,
                 [
                     "  MEMBER         STATE      TASK    PR",
                     "NEEDS ME",
                     "◆ auth-fix       blocked    rotate… https://git…",
-                    "    note needs a call",
                     "EVERYONE",
                     "  文件-sweep-lo… working    整理安… –",
                     "  perf           –          –       –",
@@ -1775,7 +1765,6 @@ mod tests {
                     "  MEMBER         STATE      TASK                PR",
                     "NEEDS ME",
                     "◆ auth-fix       blocked    rotate session tok… https://git…",
-                    "    note needs a call",
                     "EVERYONE",
                     "  文件-sweep-lo… working    整理安装指南和常见… –",
                     "  perf           –          –                   –",
@@ -1788,7 +1777,6 @@ mod tests {
                     "  MEMBER         STATE      TASK                                    PR",
                     "NEEDS ME",
                     "◆ auth-fix       blocked    rotate session tokens without logging … https://git…",
-                    "    note needs a call",
                     "EVERYONE",
                     "  文件-sweep-lo… working    整理安装指南和常见问题                  –",
                     "  perf           –          –                                       –",
@@ -1801,7 +1789,6 @@ mod tests {
                     "  MEMBER         STATE      TASK                                                                            PR",
                     "NEEDS ME",
                     "◆ auth-fix       blocked    rotate session tokens without logging everyone out                              https://git…",
-                    "    note needs a call",
                     "EVERYONE",
                     "  文件-sweep-lo… working    整理安装指南和常见问题                                                          –",
                     "  perf           –          –                                                                               –",
@@ -1810,7 +1797,7 @@ mod tests {
             ),
         ];
         for (width, lines) in golden {
-            assert_eq!(draw(&app, width, 11)[2..10], lines, "at {width} columns");
+            assert_eq!(draw(&app, width, 11)[2..9], lines, "at {width} columns");
         }
     }
 
@@ -1943,7 +1930,7 @@ columns = [{ name = "member", width = "30%" },
     }
 
     #[test]
-    fn rows_show_pending_marker_notes_sections_and_aligned_wide_text() {
+    fn rows_ignore_retired_notes_and_show_pending_sections_and_aligned_wide_text() {
         let app = board(json!([
             {"title": "Needs me", "rows": [row("auth-fix", "blocked", "rotate session tokens", json!({"pending": "approve", "note": "needs a call"}))]},
             {"title": "Everyone", "rows": [row("文件-sweep", "working", "整理安装指南", json!({}))]}
@@ -1955,9 +1942,9 @@ columns = [{ name = "member", width = "30%" },
         assert_eq!(screen[2], "  MEMBER     STATE    TASK");
         assert_eq!(screen[3], "NEEDS ME");
         assert_eq!(screen[4], "◆ auth-fix   blocked  rotate session tokens");
-        assert_eq!(screen[5], "    note needs a call");
-        assert_eq!(screen[6], "EVERYONE");
-        assert_eq!(screen[7], "  文件-sweep working  整理安装指南");
+        assert_eq!(screen[5], "EVERYONE");
+        assert_eq!(screen[6], "  文件-sweep working  整理安装指南");
+        assert!(screen.iter().all(|line| !line.contains("needs a call")));
         assert!(screen[9].starts_with("⏎ jump"));
     }
 
@@ -1978,8 +1965,8 @@ columns = [{ name = "member", width = "30%" },
         let lines: Vec<(u16, usize)> = app.hits.borrow().iter().map(|h| (h.y, h.row)).collect();
         assert_eq!(
             lines,
-            [(4, 0), (5, 0), (7, 1)],
-            "a row's note line clicks the row"
+            [(4, 0), (6, 1)],
+            "a retired note adds no clickable line"
         );
         // Scrolled: only visible lines are clickable, at their screen rows.
         app.selected = 1;
@@ -2628,7 +2615,7 @@ lines = [
     }
 
     #[test]
-    fn detail_default_output_remains_exact_and_represented_fields_do_not_repeat() {
+    fn detail_ignores_retired_notes_and_represented_fields_do_not_repeat() {
         let mut app = board(json!([{"title": null, "rows": [row(
             "worker", "working", "rotate tokens", json!({
                 "state": "working", "presence": "active", "pending": "approve",
@@ -2648,7 +2635,6 @@ lines = [
                 "waiting on you: approve",
                 "active · working · crew:2.0 · /work",
                 "task: rotate tokens",
-                "note: needs a call",
                 "activity: testing",
                 "links: pr_link https://example.com/412",
             ]
@@ -2771,11 +2757,14 @@ lines = [
             "detail starts halfway down the 20-line body"
         );
         let detail = screen[detail_row..].join("\n");
+        assert!(
+            !detail.contains("needs a call"),
+            "retired note stays hidden"
+        );
         for expected in [
             "waiting on you: approve the plan",
             "active · blocked · crew:2.0 · /w/app-3",
             "task: rotate tokens",
-            "note: needs a call",
             "links: pr_link https://example.com/pull/412",
         ] {
             assert!(detail.contains(expected), "{expected}\n{detail}");

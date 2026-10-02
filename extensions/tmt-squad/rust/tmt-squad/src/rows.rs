@@ -18,8 +18,8 @@ const MAX_COLUMNS: usize = 12;
 const MAX_LINES: usize = 4;
 const MAX_WIDTH: i64 = 200;
 /// Fields kept as Squad's own data (the name, free-text role, a state's
-/// order and color, a decision owed, the note). A bound value replaces the
-/// field of its column's name, so these cannot be bound.
+/// order and color, a decision owed). A bound value replaces the field of its
+/// column's name, so these cannot be bound. Retired `note` remains reserved.
 pub(crate) const OWN_FIELDS: &[&str] = &["member", "role", "state", "pending", "note"];
 /// Where a growing column starts, and the least an unsized one keeps.
 const NARROWEST: usize = 4;
@@ -287,8 +287,8 @@ impl Rows {
         widths
     }
 
-    /// The fields `ls` shows, in order: the first line's, then any that only
-    /// later lines show.
+    /// Inspect the configured row lines in tests, in first-occurrence order.
+    #[cfg(test)]
     pub fn fields(&self) -> Vec<&str> {
         let mut fields: Vec<&str> = Vec::new();
         for cell in self.lines.iter().flatten() {
