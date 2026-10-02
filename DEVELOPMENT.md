@@ -2045,11 +2045,18 @@ Tracker rules:
   visible under `Blocked`. Optional future children must not reopen a
   delivered milestone; state the delivered scope in `Now` and label deferred
   scope.
-- New trackers are proposed to tmt-lead. A new product topic needs the
-  maintainer's approval; agents never create a tracker on their own.
-- Use one batched daily audit plus event-driven updates. Batch Project edits,
-  never poll, and treat about 200 GraphQL calls per lead per day as a ceiling.
-  The GraphQL limit is shared by every agent on the maintainer's account.
+- A tracker (`Feature: <name>`) is a product item the maintainer set. A
+  squad lead may propose one through tmt-lead, but it is opened only after
+  the maintainer approves it; no agent creates a tracker on its own.
+- Below a tracker, leads and the project manager may open child issues
+  freely. Each child is one outcome with its own acceptance criteria and,
+  normally, one reviewable PR. Split a child that hides progress across
+  several PRs or squads.
+- The project manager runs one batched pass per hour
+  ([PM procedure](.agents/skills/tmt-pm/SKILL.md)); leads add event-driven
+  updates. Batch Project edits, never poll, and treat about 200 GraphQL calls
+  per lead per day as a ceiling. The GraphQL limit is shared by every agent
+  on the maintainer's account.
 
 ## Review and evidence
 
