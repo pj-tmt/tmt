@@ -13,6 +13,15 @@ use yrs::{
     Array, Doc, GetString, Map, ReadTxn, StateVector, Text, Transact, Update,
     updates::decoder::Decode,
 };
+/// Tests here write fixture executables and spawn children. On Linux a fork in
+/// another test thread can inherit a write descriptor and make exec fail with
+/// ETXTBSY, so every test in this binary runs serially.
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 fn program() -> PathBuf {
     env!("CARGO_BIN_EXE_tmt-colab").into()
 }
@@ -48,6 +57,7 @@ fn source() -> (Vec<u8>, Vec<Vec<u8>>) {
 }
 #[test]
 fn child_materializes_and_merges_only_author_updates_preserving_dependencies_and_deletes() {
+    let _serial = serial();
     let (baseline, updates) = source();
     let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
     let decoded = owner()
@@ -96,6 +106,7 @@ fn child_materializes_and_merges_only_author_updates_preserving_dependencies_and
 }
 #[test]
 fn mixed_roots_wrong_types_and_incomplete_dependencies_apply_nothing() {
+    let _serial = serial();
     for root in ["threads", "html", "meta"] {
         let doc = Doc::new();
         if root == "meta" {
@@ -142,6 +153,7 @@ fn mixed_roots_wrong_types_and_incomplete_dependencies_apply_nothing() {
 }
 #[test]
 fn archived_hostile_corpus_is_contained_with_confirmed_cleanup_twice() {
+    let _serial = serial();
     let valid = include_bytes!("fixtures/hostile/valid.bin").to_vec();
     let mut seed = 0x830c01ab_u64;
     let mut corpus = vec![
@@ -270,7 +282,10 @@ fn archived_hostile_corpus_is_contained_with_confirmed_cleanup_twice() {
                     "deadline"
                 }
             };
-            gone(fixture.pid());
+            match fixture.recorded_pid() {
+                Some(pid) => gone(pid),
+                None => assert_eq!(outcome, "deadline", "no pid without a deadline at {index}"),
+            }
             if [26, 60, 106, 147, 157, 192].contains(&index) {
                 eprintln!("hostile saved run {run}: dump {index}, {outcome}, reaped, no result");
             }
@@ -353,11 +368,16 @@ impl FixtureProgram {
         Self { directory, script }
     }
     fn pid(&self) -> u32 {
-        std::fs::read_to_string(self.directory.join("pid"))
-            .unwrap()
-            .trim()
-            .parse()
-            .unwrap()
+        self.recorded_pid().expect("fixture child recorded its pid")
+    }
+    /// None when a deadline killed the wrapper's process group before it wrote
+    /// its pid; Confirmed cleanup then already proves termination.
+    fn recorded_pid(&self) -> Option<u32> {
+        match std::fs::read_to_string(self.directory.join("pid")) {
+            Ok(text) => Some(text.trim().parse().unwrap()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => panic!("read fixture pid: {e}"),
+        }
     }
     fn actual(&self) {
         let path = program().to_string_lossy().replace('\'', "'\\''");
@@ -371,6 +391,7 @@ impl Drop for FixtureProgram {
 }
 #[test]
 fn environment_is_cleared_and_successful_invalid_output_is_rejected() {
+    let _serial = serial();
     assert!(
         std::env::var_os("HOME").is_some(),
         "inherited control needs HOME"
@@ -398,6 +419,7 @@ fn environment_is_cleared_and_successful_invalid_output_is_rejected() {
 }
 #[test]
 fn deadline_and_output_backpressure_confirm_cleanup_before_owner_reuse() {
+    let _serial = serial();
     for body in [
         "exec /bin/sleep 60",
         "exec /usr/bin/head -c 4194305 /dev/zero",
@@ -440,6 +462,7 @@ fn deadline_and_output_backpressure_confirm_cleanup_before_owner_reuse() {
 
 #[test]
 fn own_maps_have_a_positive_control_and_array_substitution_rejects() {
+    let _serial = serial();
     let doc = Doc::new();
     for name in ["threads", "messages", "intents", "replies"] {
         doc.get_or_insert_map(name);
