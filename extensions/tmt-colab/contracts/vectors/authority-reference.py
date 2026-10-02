@@ -59,13 +59,27 @@ def generate():
     def derive(label):
         return expand(mac(bytes(32),link_seed),lp(label,space.encode(),link_id.encode()),32)
     return dict(space=space,page=page,device=device,seed=seed.hex(),public=pub.hex(),recipientSeed=sk_r.hex(),epochKey=epoch_key.hex(),wrap=wrap,payload=payload.decode(),statement=dict(statement=b64(statement),payload=b64(payload),signature=b64(sig)),statementHash=statement_hash.hex(),chain=chain,chainDigest=digest(lp(b"tmt-colab-chain-v1",b"1",statement_hash,cert,cert_sig)).hex(),linkId=link_id,linkSeed=link_seed.hex(),linkSigningPublic=public(Ed25519PrivateKey.from_private_bytes(derive(b"tmt-colab-link-signing-seed-v1"))).hex(),linkEncryptionPublic=public(X25519PrivateKey.from_private_bytes(derive(b"tmt-colab-link-encryption-seed-v1"))).hex(),joinProof=mac(link_seed,lp(b"tmt-colab-join-v1",space.encode(),link_id.encode())).hex())
+def owner_member_vectors(authority):
+    owner = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(authority["seed"]))
+    cases = []
+    for target, member, accepted in [("owner", authority["device"], False), ("peer", "00000000-0000-4000-8000-000000000051", True)]:
+        for operation in ["member.remove", "member.role"]:
+            value = dict(memberId=member, cuts=[])
+            if operation == "member.role":
+                value["role"] = "viewer"
+            payload = json.dumps(value, separators=(",", ":")).encode()
+            statement = lp(b"tmt-colab-membership-v1", b"1", authority["space"].encode(), b"2", bytes.fromhex(authority["statementHash"]), operation.encode(), digest(payload))
+            cases.append(dict(name=target + "-" + operation, operation=operation, accepted=accepted, envelope=dict(statement=b64(statement), payload=b64(payload), signature=b64(owner.sign(statement)))))
+    return dict(cases=cases)
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--write",action="store_true")
     args = parser.parse_args()
-    frozen = json.dumps(generate(), indent=2) + "\n"
-    if args.write:
-        DEST.write_text(frozen)
-    elif DEST.read_text() != frozen:
-        raise SystemExit("authority vectors differ; review before --write")
+    authority = generate()
+    for destination, value in [(DEST, authority), (DEST.with_name("owner-member-v1.json"), owner_member_vectors(authority))]:
+        frozen = json.dumps(value, indent=2) + "\n"
+        if args.write:
+            destination.write_text(frozen)
+        elif destination.read_text() != frozen:
+            raise SystemExit(f"{destination.name} differs; review before --write")

@@ -117,3 +117,26 @@ pub fn management_input(v: &Management<'_>) -> Result<Vec<u8>> {
         v.expires_at.to_string().as_bytes(),
     ])
 }
+/// Admit exact management bytes and bind the separately retained payload; no expiry/replay authority.
+pub fn decode_management<'a>(input: &'a [u8], payload: &'a [u8]) -> Result<Management<'a>> {
+    let f = fields(input, 11, 1024)?;
+    require(f[0] == b"tmt-colab-management-v1" && f[1] == b"1" && f[7] == crypto::digest(payload))?;
+    let instant = |raw| {
+        let n = values::decimal(text(raw)?, true)?;
+        values::time(n)?;
+        Ok(n)
+    };
+    let value = Management {
+        space: text(f[2])?,
+        page: text(f[3])?,
+        expected_revision: text(f[4])?,
+        operation_id: text(f[5])?,
+        operation: text(f[6])?,
+        payload,
+        sender_device: text(f[8])?,
+        issued_at: instant(f[9])?,
+        expires_at: instant(f[10])?,
+    };
+    require(management_input(&value)? == input)?;
+    Ok(value)
+}

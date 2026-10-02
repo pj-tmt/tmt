@@ -336,7 +336,8 @@ After verifying the code proof and possession, the owner's `tmt colab` issues
 the framed `device.cert` under the owner's member signing key. The owner's
 member ID/key binding is pinned in revision 1's owner-signed `member.add`
 statement with editor role. Only that initial member is the owner's management
-principal; later member additions cannot claim it or reuse its keys. Root
+principal; later member additions cannot claim it or reuse its keys. The owner
+management member cannot be removed or re-roled. Root
 ownership remains implicit and is not a role
 that another member can obtain. This certificate identifies an owner-enrolled
 device for page/management access; it grants no local-agent access. Enrollment
