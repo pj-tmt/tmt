@@ -3709,7 +3709,7 @@ sockets and isolated CLI processes, with readiness channels and explicit kill/wa
 ### Isolated Colab decoder
 
 `decoder::Decoder` is one exclusively owned child runner per page. It accepts
-only caller-admitted plaintext batches, uses `tmt-invoke` with an empty environment
+only caller-admitted plaintext `decoder::UpdateBatch` values, uses `tmt-invoke` with an empty environment
 allowlist, and returns untrusted projection/merged-update bytes for later typed
 authority checks and atomic application. It has no door, core, keyring or store
 handle. The existing ciphertext server never calls it.

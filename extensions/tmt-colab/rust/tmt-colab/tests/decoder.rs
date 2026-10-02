@@ -5,7 +5,9 @@ use std::{
     sync::atomic::AtomicBool,
     time::{Duration, Instant},
 };
-use tmt_colab::decoder::{Batch, DecodeFault, Decoder, MemoryLimit, Namespace, Role, STREAM_BYTES};
+use tmt_colab::decoder::{
+    DecodeFault, Decoder, MemoryLimit, Namespace, Role, STREAM_BYTES, UpdateBatch,
+};
 use tmt_invoke::{Cleanup, EnvironmentPolicy, FailureKind, LaunchOptions, Request};
 use yrs::{
     Array, Doc, GetString, Map, ReadTxn, StateVector, Text, Transact, Update,
@@ -50,7 +52,7 @@ fn child_materializes_and_merges_only_author_updates_preserving_dependencies_and
     let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
     let decoded = owner()
         .decode(
-            Batch {
+            UpdateBatch {
                 namespace: Namespace::Content,
                 baseline: &baseline,
                 updates: &refs,
@@ -108,7 +110,7 @@ fn mixed_roots_wrong_types_and_incomplete_dependencies_apply_nothing() {
             .encode_state_as_update_v1(&StateVector::default());
         assert!(matches!(
             owner().decode(
-                Batch {
+                UpdateBatch {
                     namespace: Namespace::Content,
                     baseline: &[],
                     updates: &[&input]
@@ -123,7 +125,7 @@ fn mixed_roots_wrong_types_and_incomplete_dependencies_apply_nothing() {
     assert!(
         owner()
             .decode(
-                Batch {
+                UpdateBatch {
                     namespace: Namespace::Content,
                     baseline: &[],
                     updates: &[&updates[1]]
@@ -135,7 +137,7 @@ fn mixed_roots_wrong_types_and_incomplete_dependencies_apply_nothing() {
     );
     let stop = AtomicBool::new(true);
     assert!(
-        matches!(owner().decode(Batch { namespace: Namespace::Content, baseline: &[], updates: &[] }, Role::Editor, Some(&stop)), Err(DecodeFault::Invoke(e)) if e.kind == FailureKind::Interrupted)
+        matches!(owner().decode(UpdateBatch { namespace: Namespace::Content, baseline: &[], updates: &[] }, Role::Editor, Some(&stop)), Err(DecodeFault::Invoke(e)) if e.kind == FailureKind::Interrupted)
     );
 }
 #[test]
@@ -260,7 +262,7 @@ fn archived_hostile_corpus_is_contained_with_confirmed_cleanup_twice() {
     }
     let mut decoder = owner();
     match decoder.decode(
-        Batch {
+        UpdateBatch {
             namespace: Namespace::Content,
             baseline: &[],
             updates: &[&corpus[26]],
@@ -280,7 +282,7 @@ fn archived_hostile_corpus_is_contained_with_confirmed_cleanup_twice() {
     }
     let reply = decoder
         .decode(
-            Batch {
+            UpdateBatch {
                 namespace: Namespace::Content,
                 baseline: &[],
                 updates: &[],
@@ -356,7 +358,7 @@ fn environment_is_cleared_and_successful_invalid_output_is_rejected() {
     );
     assert!(matches!(
         Decoder::new(fixture.script.clone()).unwrap().decode(
-            Batch {
+            UpdateBatch {
                 namespace: Namespace::Content,
                 baseline: &[],
                 updates: &[]
@@ -379,7 +381,7 @@ fn deadline_and_output_backpressure_confirm_cleanup_before_owner_reuse() {
         let baseline = vec![0; tmt_colab::decoder::BASELINE_BYTES];
         let error = decoder
             .decode(
-                Batch {
+                UpdateBatch {
                     namespace: Namespace::Content,
                     baseline: &baseline,
                     updates: &[],
@@ -396,7 +398,7 @@ fn deadline_and_output_backpressure_confirm_cleanup_before_owner_reuse() {
         fixture.actual();
         let reply = decoder
             .decode(
-                Batch {
+                UpdateBatch {
                     namespace: Namespace::Content,
                     baseline: &[],
                     updates: &[],
@@ -422,7 +424,7 @@ fn own_maps_have_a_positive_control_and_array_substitution_rejects() {
         .encode_state_as_update_v1(&StateVector::default());
     let reply = owner()
         .decode(
-            Batch {
+            UpdateBatch {
                 namespace: Namespace::Own,
                 baseline: &[],
                 updates: &[&input],
@@ -442,7 +444,7 @@ fn own_maps_have_a_positive_control_and_array_substitution_rejects() {
         .encode_state_as_update_v1(&StateVector::default());
     assert!(matches!(
         owner().decode(
-            Batch {
+            UpdateBatch {
                 namespace: Namespace::Content,
                 baseline: &[],
                 updates: &[&input]

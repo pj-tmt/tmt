@@ -6,7 +6,7 @@ fn input_role_denial_and_missing_program_leave_no_child() {
     let updates = [bytes.as_slice()];
     assert!(matches!(
         decoder.decode(
-            Batch {
+            UpdateBatch {
                 namespace: Namespace::Content,
                 baseline: &[],
                 updates: &updates
@@ -18,7 +18,7 @@ fn input_role_denial_and_missing_program_leave_no_child() {
     ));
     assert!(matches!(
         decoder.decode(
-            Batch {
+            UpdateBatch {
                 namespace: Namespace::Content,
                 baseline: &[],
                 updates: &[]
@@ -30,7 +30,7 @@ fn input_role_denial_and_missing_program_leave_no_child() {
     ));
     assert!(matches!(
         decoder.decode(
-            Batch {
+            UpdateBatch {
                 namespace: Namespace::Own,
                 baseline: &[],
                 updates: &[]
@@ -42,7 +42,7 @@ fn input_role_denial_and_missing_program_leave_no_child() {
     ));
     assert!(matches!(
         decoder.decode(
-            Batch {
+            UpdateBatch {
                 namespace: Namespace::Content,
                 baseline: &[],
                 updates: &[]
@@ -54,7 +54,7 @@ fn input_role_denial_and_missing_program_leave_no_child() {
     ));
     assert!(matches!(
         decoder.decode(
-            Batch {
+            UpdateBatch {
                 namespace: Namespace::Content,
                 baseline: &[],
                 updates: &[]

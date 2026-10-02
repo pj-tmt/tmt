@@ -2188,7 +2188,8 @@ foreign file names and refuses unsafe matching files.
 
 ### Colab decoder verification
 
-The decoder is a caller-owned library runner and private child entry, with no
+The decoder takes caller-admitted `decoder::UpdateBatch` values through a
+caller-owned library runner and private child entry, with no
 server integration or public decode command. Build the native executable and
 run its real-child tests with an isolated test environment:
 

@@ -26,7 +26,7 @@ pub enum Role {
     Editor,
     Bridge,
 }
-pub struct Batch<'a> {
+pub struct UpdateBatch<'a> {
     pub namespace: Namespace,
     pub baseline: &'a [u8],
     pub updates: &'a [&'a [u8]],
@@ -87,7 +87,7 @@ impl Decoder {
     /// Reuse requires no started child or confirmed cleanup; possible survivors block it.
     pub fn decode(
         &mut self,
-        batch: Batch<'_>,
+        batch: UpdateBatch<'_>,
         role: Role,
         stop: Option<&AtomicBool>,
     ) -> Result<Decoded, DecodeFault> {
@@ -95,7 +95,7 @@ impl Decoder {
     }
     fn decode_until(
         &mut self,
-        batch: Batch<'_>,
+        batch: UpdateBatch<'_>,
         role: Role,
         stop: Option<&AtomicBool>,
         deadline: Instant,
