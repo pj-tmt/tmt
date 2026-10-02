@@ -48,9 +48,9 @@ Read the repository guidance before planning work:
    tracker updates, [Project status](../../../DEVELOPMENT.md#project-tracking)
    and safe cleanup: when the PR merges, remove its worktree
    with `scripts/dev-worktree-remove.sh` and then that worktree's Docker images
-   in the same turn (the DEVELOPMENT disk section has the exact steps; if the
-   script refuses, stop and ask), and start the next task in a clean existing
-   worktree rather than a new one.
+   in the same turn (the DEVELOPMENT disk section documents its REST check and
+   exact steps; if the script refuses, stop and ask), and start the next task in
+   a clean existing worktree rather than a new one.
 
 ## Architecture maintenance
 

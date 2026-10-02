@@ -99,8 +99,12 @@ scripts/dev-worktree-remove.sh <worktree-path> <pr-number>
 It removes the worktree and prunes only when both hold:
 
 1. `git status --short` prints nothing (no uncommitted or untracked files);
-2. either the PR is merged (`gh pr view <n> --json state` shows `MERGED`), or
+2. either the PR is merged (REST `GET /repos/{owner}/{repo}/pulls/<n>` has
+   a non-null `merged_at`), or
    the branch has an upstream and `git log @{u}..` prints nothing.
+
+The script resolves the REST repository from the target worktree's remote. Open,
+closed-unmerged and failed PR lookups require the upstream proof in (2).
 
 `git log @{u}..` alone is not enough: when the maintainer updates a PR branch on
 the server (a rebase), it lists local commits although nothing is lost. If

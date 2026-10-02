@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import os from 'node:os';
@@ -19,19 +27,26 @@ interface Scratch {
 
 /** A bare origin, a clone, and a linked worktree whose branch is pushed with an upstream. */
 async function withScratch(run: (scratch: Scratch) => void | Promise<void>) {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'dev-worktree-remove-'));
+  const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'dev-worktree-remove-')));
   try {
     const bin = path.join(root, 'bin');
     mkdirSync(bin);
-    // The fake `gh` reports FAKE_PR_STATE, or fails when FAKE_GH=fail.
+    // Stub the REST response projection, retaining closed-unmerged versus merged.
     writeExecutable(
       path.join(bin, 'gh'),
-      '#!/bin/sh\n[ "${FAKE_GH:-}" = fail ] && exit 1\nprintf "%s\\n" "${FAKE_PR_STATE:-OPEN}"\n',
+      `#!${process.execPath}
+const fs = require('node:fs');
+fs.writeFileSync(process.env.FAKE_GH_LOG, JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2) }));
+if (process.env.FAKE_GH === 'fail') process.exit(1);
+const response = { state: process.env.FAKE_PR_STATE || 'open', merged_at: process.env.FAKE_PR_MERGED_AT || null };
+process.stdout.write((response.merged_at ? 'MERGED' : response.state.toUpperCase()) + '\\n');
+`,
       0o755
     );
     const env: NodeJS.ProcessEnv = {
       PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
       HOME: root,
+      FAKE_GH_LOG: path.join(root, 'gh-call.json'),
       GIT_AUTHOR_NAME: 't',
       GIT_AUTHOR_EMAIL: 't@example.com',
       GIT_COMMITTER_NAME: 't',
@@ -76,26 +91,41 @@ function rewriteRemoteBranch(scratch: Scratch) {
 }
 
 describe('scripts/dev-worktree-remove.sh', () => {
-  it('removes a clean worktree whose commits are all on its upstream', async () => {
-    await withScratch((scratch) => {
-      const result = scratch.remove();
-      expect(result.status, result.stderr).toBe(0);
-      expect(existsSync(scratch.worktree)).toBe(false);
-      expect(scratch.git(scratch.repo, 'worktree', 'list')).not.toContain('wt');
-    });
-  });
+  it.each(['open', 'closed', 'unknown'])(
+    'removes a clean pushed worktree when the PR lookup is %s',
+    async (state) => {
+      await withScratch((scratch) => {
+        scratch.env.FAKE_PR_STATE = state;
+        if (state === 'unknown') scratch.env.FAKE_GH = 'fail';
+        const result = scratch.remove();
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(readFileSync(path.join(scratch.root, 'gh-call.json'), 'utf8'))).toEqual({
+          cwd: scratch.worktree,
+          args: [
+            'api',
+            'repos/{owner}/{repo}/pulls/7',
+            '--jq',
+            'if .merged_at then "MERGED" else (.state | ascii_upcase) end',
+          ],
+        });
+        expect(existsSync(scratch.worktree)).toBe(false);
+        expect(scratch.git(scratch.repo, 'worktree', 'list')).not.toContain('wt');
+      });
+    }
+  );
 
   it('removes after a server-side rebase when the PR is merged, and refuses while it is not', async () => {
     await withScratch((scratch) => {
       rewriteRemoteBranch(scratch);
       // The trap: `git log @{u}..` is not empty although nothing is lost.
       expect(scratch.git(scratch.worktree, 'log', '--oneline', '@{u}..')).not.toBe('');
-      scratch.env.FAKE_PR_STATE = 'OPEN';
+      scratch.env.FAKE_PR_STATE = 'open';
       const open = scratch.remove();
       expect(open.status).toBe(1);
       expect(open.stderr).toContain('Stop and ask the maintainer');
       expect(existsSync(scratch.worktree)).toBe(true);
-      scratch.env.FAKE_PR_STATE = 'MERGED';
+      scratch.env.FAKE_PR_STATE = 'closed';
+      scratch.env.FAKE_PR_MERGED_AT = '2026-10-03T00:00:00Z';
       const merged = scratch.remove();
       expect(merged.status, merged.stderr).toBe(0);
       expect(existsSync(scratch.worktree)).toBe(false);
@@ -104,7 +134,8 @@ describe('scripts/dev-worktree-remove.sh', () => {
 
   it('refuses a dirty worktree even when the PR is merged', async () => {
     await withScratch((scratch) => {
-      scratch.env.FAKE_PR_STATE = 'MERGED';
+      scratch.env.FAKE_PR_STATE = 'closed';
+      scratch.env.FAKE_PR_MERGED_AT = '2026-10-03T00:00:00Z';
       writeFileSync(path.join(scratch.worktree, 'scratch.txt'), 'untracked\n');
       const result = scratch.remove();
       expect(result.status).toBe(1);
@@ -113,15 +144,19 @@ describe('scripts/dev-worktree-remove.sh', () => {
     });
   });
 
-  it('refuses unpushed commits on an unmerged PR, including when gh cannot answer', async () => {
+  it('refuses unpushed commits on open, closed-unmerged and unknown PRs', async () => {
     await withScratch((scratch) => {
       writeFileSync(path.join(scratch.worktree, 'c'), 'three\n');
       scratch.git(scratch.worktree, 'add', 'c');
       scratch.git(scratch.worktree, 'commit', '-q', '-m', 'three');
-      for (const gh of ['open', 'fail']) {
-        if (gh === 'fail') scratch.env.FAKE_GH = 'fail';
+      for (const state of ['open', 'closed', 'unknown']) {
+        scratch.env.FAKE_PR_STATE = state;
+        if (state === 'unknown') scratch.env.FAKE_GH = 'fail';
         const result = scratch.remove();
-        expect(result.status, gh).toBe(1);
+        expect(result.status, state).toBe(1);
+        expect(result.stderr).toContain(
+          `state: ${state === 'unknown' ? 'unknown' : state.toUpperCase()}`
+        );
         expect(result.stderr).toContain('commits its upstream lacks');
         expect(existsSync(scratch.worktree)).toBe(true);
       }
@@ -131,18 +166,25 @@ describe('scripts/dev-worktree-remove.sh', () => {
   it('refuses a branch with no upstream unless the PR is merged', async () => {
     await withScratch((scratch) => {
       scratch.git(scratch.worktree, 'branch', '--unset-upstream');
-      const result = scratch.remove();
-      expect(result.status).toBe(1);
-      expect(result.stderr).toContain('has no upstream');
-      expect(existsSync(scratch.worktree)).toBe(true);
-      scratch.env.FAKE_PR_STATE = 'MERGED';
+      for (const state of ['open', 'closed', 'unknown']) {
+        scratch.env.FAKE_PR_STATE = state;
+        if (state === 'unknown') scratch.env.FAKE_GH = 'fail';
+        const result = scratch.remove();
+        expect(result.status, state).toBe(1);
+        expect(result.stderr).toContain('has no upstream');
+        expect(existsSync(scratch.worktree)).toBe(true);
+      }
+      delete scratch.env.FAKE_GH;
+      scratch.env.FAKE_PR_STATE = 'closed';
+      scratch.env.FAKE_PR_MERGED_AT = '2026-10-03T00:00:00Z';
       expect(scratch.remove().status).toBe(0);
     });
   });
 
   it('refuses the main checkout, a non-worktree and a malformed PR number', async () => {
     await withScratch((scratch) => {
-      scratch.env.FAKE_PR_STATE = 'MERGED';
+      scratch.env.FAKE_PR_STATE = 'closed';
+      scratch.env.FAKE_PR_MERGED_AT = '2026-10-03T00:00:00Z';
       const main = scratch.remove(scratch.repo);
       expect(main.status).toBe(1);
       expect(main.stderr).toContain('main checkout');
