@@ -42,7 +42,7 @@ If you want completion, handle one extra call. tmt runs `tmt-<name> __complete -
 Never open tmt's database yourself. Use the same doors as any other program:
 
 - **Ordinary commands with `--json`** for anything a person would also run: `whoami`, `identity show`, `list`, `room show`, `x`, `reply`, `result`.
-- **`tmt api`** for machine-shaped work: one versioned JSON request on stdin, one JSON answer on stdout. The full contract is in [docs/extension-api.md](https://github.com/pj-tmt/tmt/blob/main/docs/extension-api.md).
+- **`tmt api`** for machine-shaped work: one versioned JSON request on stdin, one JSON answer on stdout. The full contract is in [contracts/extension-api.md](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md).
 
 <Cmd>{`
 $ printf '%s' '{"version":1,"operation":"capabilities","input":{}}' | "$TMT_EXECUTABLE" api
@@ -95,4 +95,4 @@ $ tmt extension hooks disable hello
 
 Enabling requires an executable the user owns, with neither the file nor its directory writable by anyone else, and records exactly that file; after an upgrade or any change, the user enables it again. After a command has committed, tmt runs `tmt-<name> __tmt-hooks 1 observe` with the events (an identity or a room created, renamed or retired) as JSON on stdin. Hooks receive only IDs and states, never names or messages, and can't block or change a command. Treat an event as a nudge to look again: events can be dropped or repeated.
 
-An extension with hooks enabled can also add one informational line, at most 240 characters, to `tmt whoami --context`, to the context an agent receives when a session starts and, once `tmt setup` has installed the prompt hook, to the context of each prompt. tmt names the extension and labels the line `(informational)`, so never phrase it as an instruction. The event and field contract is in [docs/extension-api.md](https://github.com/pj-tmt/tmt/blob/main/docs/extension-api.md).
+An extension with hooks enabled can also add one informational line, at most 240 characters, to `tmt whoami --context`, to the context an agent receives when a session starts and, once `tmt setup` has installed the prompt hook, to the context of each prompt. tmt names the extension and labels the line `(informational)`, so never phrase it as an instruction. The event and field contract is in [contracts/extension-api.md](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md).

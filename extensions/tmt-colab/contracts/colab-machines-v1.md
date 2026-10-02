@@ -11,7 +11,7 @@ Parent: [#478](https://github.com/wkh237/tmt/issues/478); owning design:
 docs slice: [#863](https://github.com/wkh237/tmt/issues/863). The
 [colab-v1 contract](colab-v1.md) owns existing object bytes, strict cryptography,
 membership, device chains, epochs, page disclosure/retention, sync, pairing and
-the bridge ledger. The [public extension API](../../../docs/extension-api.md)
+the bridge ledger. The [public extension API](../../../contracts/extension-api.md)
 owns core dispatch, request/final resources and retention. Those definitions
 remain authoritative unless an explicit proposed extension below names a change.
 The terms MUST, MUST NOT and SHOULD express future implementation requirements.

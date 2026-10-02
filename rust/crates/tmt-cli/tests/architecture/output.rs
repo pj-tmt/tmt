@@ -1,6 +1,6 @@
 //! The #436 output guard: the CLI crates reach the terminal only through the
 //! style layer (`tmt_cli_style::stream`), never through print macros, raw
-//! standard handles or hand-written escape sequences. `docs/cli-style.md`
+//! standard handles or hand-written escape sequences. `design/cli-style.md`
 //! owns the rule; this is its syntactic check.
 
 use super::source::{Source, production, production_impl, production_trait};

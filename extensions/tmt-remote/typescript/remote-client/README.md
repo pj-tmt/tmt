@@ -1,7 +1,7 @@
 # Canonical byte groundwork
 
 This private module implements decoded-value envelope, enrollment and possession
-signing-byte builders defined by [remote-client-v1](../../../../contracts/remote-client-v1.md).
+signing-byte builders defined by [remote-client-v1](../../../../contracts/remote-channel-v1.md).
 It is not a usable SDK. Inputs have already been decoded; wire JSON, duplicate
 members, base64url/hex admission and payload operation schemas belong to a future
 wire decoder. Structural checks here enforce framing, exact UTF-8, decimal bounds,

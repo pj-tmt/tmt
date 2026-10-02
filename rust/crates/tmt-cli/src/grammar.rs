@@ -3,7 +3,7 @@ use tmt_cli_style::CommandSpec;
 use tmt_core::driver::descriptor::DriverDescriptor;
 
 /// A command's help: its summary and one to three examples, which the
-/// grammar walk parses (docs/cli-style.md#help).
+/// grammar walk parses (design/cli-style.md#help).
 macro_rules! spec {
     ($name:literal, $summary:literal, [$($note:literal => $command:literal),+ $(,)?]) => {
         &tmt_cli_style::CommandSpec {

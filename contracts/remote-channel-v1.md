@@ -20,7 +20,7 @@ trait exposes `append`, `subscribe` and `ack`; it does not execute core work or 
 The same message service admits every binding before effects. Core never listens or stays resident.
 Remote uses `$TMT_EXECUTABLE api` and documented ordinary JSON commands; it never opens core SQLite,
 imports core behavior crates, calls host adapters or scrapes panes. The
-[extension API](../docs/extension-api.md) owns core JSON resources, errors, limits, retention and
+[extension API](extension-api.md) owns core JSON resources, errors, limits, retention and
 durable request/dispatch semantics.
 
 M1 protects against unpaired clients, malicious pages/other origins reaching loopback, replay, scope

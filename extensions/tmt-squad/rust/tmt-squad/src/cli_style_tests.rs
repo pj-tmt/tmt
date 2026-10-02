@@ -1,5 +1,5 @@
 //! The #436 help guard for `tmt squad`: every visible command follows
-//! `docs/cli-style.md` and its examples parse through Squad's grammar, except
+//! `design/cli-style.md` and its examples parse through Squad's grammar, except
 //! the commands still listed in `cli_style_allowlist.rs`.
 
 use tmt_cli_style::{

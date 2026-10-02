@@ -1,7 +1,7 @@
 //! The #514 color guard: every color TMT draws is a design token that
 //! `tmt_cli_style` renders. Production code elsewhere, the extensions
 //! included, names no palette entry or RGB value itself.
-//! `docs/cli-style.md` owns the rule; this is its syntactic check.
+//! `design/cli-style.md` owns the rule; this is its syntactic check.
 
 use super::source::{Source, production, production_impl, production_trait};
 use std::collections::BTreeSet;

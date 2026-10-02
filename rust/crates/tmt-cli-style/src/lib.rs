@@ -1,5 +1,5 @@
 //! The one TMT command-line style: palette, marks, values, messages, lists,
-//! detail views, tables and help. `docs/cli-style.md` owns the
+//! detail views, tables and help. `design/cli-style.md` owns the
 //! rules; this crate is their only implementation.
 //!
 //! It depends on no TMT crate, so core and every extension CLI render through

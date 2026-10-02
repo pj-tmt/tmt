@@ -1,7 +1,7 @@
 //! Whether a person can take part in this invocation: see a full-screen view
 //! or answer a question. Decided once per invocation, here, from the process's
 //! own streams and environment; commands receive the decision and never test a
-//! handle themselves. `docs/cli-style.md` owns the rule.
+//! handle themselves. `design/cli-style.md` owns the rule.
 
 use std::io::{self, IsTerminal};
 

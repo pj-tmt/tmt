@@ -7,10 +7,10 @@ The terms MUST, MUST NOT and SHOULD express implementation requirements.
 
 This document owns colab wire values, cryptography, membership, page state,
 sync, renderer admission and bridge policy. [Architecture](../../../ARCHITECTURE.md#colab-extension-proposal)
-owns placement and dependency direction. The [public extension API](../../../docs/extension-api.md)
+owns placement and dependency direction. The [public extension API](../../../contracts/extension-api.md)
 owns core resources, request/dispatch behavior, errors, limits and retention;
 colab MUST use that API rather than redefine it. The
-[remote-client byte rules](../../../contracts/remote-client-v1.md#bytes-ids-and-the-fixed-m1-suite)
+[remote-client byte rules](../../../contracts/remote-channel-v1.md#bytes-ids-and-the-fixed-m1-suite)
 own LP framing, list framing, exact UTF-8 and canonical binary encodings. Only
 those byte primitives are reused; Remote's authority and transport profile are
 not inherited. Extension contracts and vectors remain under this extension,

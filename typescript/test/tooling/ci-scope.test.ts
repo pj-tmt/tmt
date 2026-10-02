@@ -176,7 +176,7 @@ describe('CI area selection', () => {
     expect(selectCiAreas([file])).toEqual({ native: true, office: true, nativeOffice: true });
   });
 
-  it.each(['typescript/test/e2e/Dockerfile', 'docs/cli-style.md', 'docs/NATIVE-INSTALL.md'])(
+  it.each(['typescript/test/e2e/Dockerfile', 'design/cli-style.md', 'docs/NATIVE-INSTALL.md'])(
     'runs native and Office checks, but not the Office shards, for input %s',
     (file) => {
       expect(selectCiAreas([file])).toEqual({ native: true, office: true, nativeOffice: false });
@@ -186,7 +186,7 @@ describe('CI area selection', () => {
   it.each([
     'ARCHITECTURE.md',
     'DEVELOPMENT.md',
-    'docs/extension-api.md',
+    'contracts/extension-api.md',
     '.agents/skills/tmt-dev/SKILL.md',
     '.github/pull_request_template.md',
     'site/src/chapters/squad.mdx',
@@ -286,7 +286,7 @@ describe('CI area selection', () => {
     expect(
       selectCiAreas([
         'ARCHITECTURE.md',
-        'docs/extension-api.md',
+        'contracts/extension-api.md',
         'typescript/test/native/api.test.ts',
         'typescript/test/tooling/ci-scope.test.ts',
         'typescript/test/e2e/squad.e2e.test.ts',
@@ -545,7 +545,7 @@ describe('component map', () => {
       ['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'rust/crates/tmt-cli-style/src/lib.rs'],
       'full',
     ],
-    [['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'docs/cli-style.md'], 'full'],
+    [['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'design/cli-style.md'], 'full'],
     [
       ['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'typescript/test/native/api.test.ts'],
       'full',
@@ -904,10 +904,10 @@ describe('Office-owned browser PR selection', () => {
     'typescript/test/e2e/harness/fixture.ts',
     'rust/crates/tmt-adapters/src/api.rs',
     'rust/Cargo.lock',
-    'contracts/remote-client-v1.md',
+    'contracts/remote-channel-v1.md',
     'extensions/tmt-remote/rust/tmt-remote/src/main.rs',
     '.github/workflows/ci.yml',
-    'docs/cli-style.md',
+    'design/cli-style.md',
     'unmapped/new-file',
     'extensions/tmt-office-other/src/main.rs',
     'typescript/test/support-other/fixture.ts',

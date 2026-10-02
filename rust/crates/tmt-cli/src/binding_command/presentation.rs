@@ -1,5 +1,5 @@
 //! Public projections deliberately omit binding markers and process evidence.
-//! Human output follows docs/cli-style.md: `ls` is agent-first, with a state
+//! Human output follows design/cli-style.md: `ls` is agent-first, with a state
 //! mark, the name, one `driver:identifier` address and the working folder.
 
 use super::{ListedRow, Report};
