@@ -115,8 +115,11 @@ $ tmt x --identity coordinator
 - **Paste, wait, Enter.** tmt pastes the whole message into the pane, waits half a second, then presses Enter. `pasteEnterDelayMs` changes the wait. Line breaks are kept.
 - **`!` becomes `！`.** An ASCII `!` is sent as the fullwidth `！`, so a message can't start an agent's shell mode. Code such as `if (!ready)` therefore isn't delivered byte for byte; the stored request keeps the original text.
 - **Uncertain means look.** If the text may have reached the pane but tmt can't tell, `talk` fails with `DELIVERY_UNCERTAIN` and never sends again by itself. Look with `tmt check`, then decide. A timeout or a quiet pane doesn't prove nothing ran.
-- **tmux can't see approval prompts.** A delivered message says nothing about whether the agent is ready to act on it.
-- **No pane, no paste.** An ended or unbound recipient gets the request in its inbox, never in a shell. `--inbox` queues on purpose without trying the pane, and `tmt x listen --identity reviewer` waits for new inbox work. It waits, up to `--timeout`, and then exits; there is no background listener.
+- **tmux can't see approval prompts.** A delivered message says nothing about whether the agent is ready to act on it. A host that does report that the agent is waiting on its user (an approval or a question) makes `talk` fail with `DELIVERY_AWAITING_APPROVAL`: nothing was sent, the request stays queued, and tmt never types around the prompt. Retry once the agent has continued.
+- **No pane, no paste.** An ended or unbound recipient gets the request in its inbox, never in a shell.
+- **`--inbox` only queues.** It is for queue-only delivery: tmt makes no live attempt, even when the agent is ready, and coming online doesn't deliver the backlog. The recipient has to pull it with `tmt inbox`. The output you get back says so and prints the commands the recipient runs; with `--json` it also carries `notification: "not_attempted"` and `waitingFor: "recipient_inbox_pull"`. Use plain `talk` when you want a live message.
+- **Waiting for inbox work.** `tmt x listen --identity reviewer` waits for new inbox work. It waits, up to `--timeout`, and then exits; there is no background listener.
+- **A nudge at each prompt.** With the agent's hooks installed (see [`tmt setup`](#tmt-setup)), a prompt the agent submits carries one extra line while something is waiting in its inbox, such as `Incoming X items: 2 unacknowledged; pull with tmt inbox --identity '4f3793b4-…' --json`. The identity in it is the agent's own id. The line is absent when nothing is waiting, and it changes nothing about how requests are delivered.
 
 ### Notes, roles and preambles
 

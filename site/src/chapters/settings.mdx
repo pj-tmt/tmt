@@ -112,4 +112,5 @@ Allow that directory or socket, or let the agent run the same command with the p
 
 - `TIMEOUT` ends only your waiting. Fetch the reply later with `tmt result`; see [`tmt talk` and `tmt reply`](/working#tmt-talk-and-tmt-reply).
 - `DELIVERY_UNCERTAIN` means the text may have reached the pane. Look with `tmt check` before you decide anything; see [Delivery details](/working#delivery-details).
+- `DELIVERY_AWAITING_APPROVAL` means the agent is waiting on its user, so nothing was sent. The request stays queued. Retry after the agent has continued, and never type into its pane to get around it; see [Delivery details](/working#delivery-details).
 - `CHANNEL_NOT_READY`, `CHANNEL_UNREACHABLE` and `CHANNEL_ENROLLMENT_ENDED` come from Claude's [message channel](/drivers/claude-code#message-channel): nothing was sent and nothing was pasted.
