@@ -325,11 +325,13 @@ describe('release workflow (release.yml)', () => {
     expect(step).not.toContain('gh pr merge');
     for (const bypass of ['--admin', '--force', 'bypass']) expect(release).not.toContain(bypass);
     // Only the release-please job carries write access through the App token; the workflow token
-    // stays read-only there.
+    // has issue-write access only for advisory stall reconciliation.
     const permissions = /permissions:\n((?: {6}[^\n]+\n)+)/.exec(
       job(release, 'release-please')
     )?.[1];
-    expect(permissions).toBe('      contents: read\n      pull-requests: read\n');
+    expect(permissions).toBe(
+      '      contents: read\n      pull-requests: read\n      issues: write\n'
+    );
   });
 
   it('starts a release run per product, only in a live run, and never publishes', () => {

@@ -720,6 +720,14 @@ describe('private leaf release attribution with pinned release-please', () => {
     vi.spyOn(github, 'createPullRequest').mockImplementation(async () => {
       throw new Error('Expected an existing release PR update');
     });
+    const mutations = [
+      vi.spyOn(github, 'commentOnIssue'),
+      vi.spyOn(github, 'addIssueLabels'),
+      vi.spyOn(github, 'removeIssueLabels'),
+      vi.spyOn(github.getGitHubApi().octokit.pulls, 'update'),
+      vi.spyOn(github.getGitHubApi().octokit.issues, 'update'),
+      vi.spyOn(github.getGitHubApi().octokit.issues, 'create'),
+    ];
     const update = vi
       .spyOn(github, 'updatePullRequest')
       .mockImplementation(async (number, candidate) => ({
@@ -744,6 +752,9 @@ describe('private leaf release attribution with pinned release-please', () => {
       );
     }
     await manifest.createPullRequests();
+    // The pinned GitHub port has no closePullRequest; REST pulls.update closes PRs.
+    // A filtered existing PR remains open with no comment, label or issue mutation.
+    for (const mutation of mutations) expect(mutation).not.toHaveBeenCalled();
     expect(
       update.mock.calls
         .map(([, candidate]) => candidate.headRefName.split('--components--')[1])

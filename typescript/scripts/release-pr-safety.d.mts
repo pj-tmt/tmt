@@ -48,3 +48,5 @@ export function checkQueueTitles(input: { event: unknown; reader: Pick<SafetyRea
   checked: number;
   findings: QueueSubject[];
 };
+
+export function releaseNoteLinks(body: string): { repository: string; sha: string }[];
