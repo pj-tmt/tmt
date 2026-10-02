@@ -58,14 +58,13 @@ fn observation(pid: u64, seconds: u64, state: u8) -> Option<ProcessObservation> 
 
 #[cfg(target_os = "macos")]
 mod platform {
-    use libproc::{bsd_info::BSDInfo, proc_pid::pidinfo};
 
     pub(super) fn parent(pid: i32) -> Option<u64> {
-        Some(u64::from(pidinfo::<BSDInfo>(pid, 0).ok()?.pbi_ppid))
+        Some(u64::from(tmt_sys::bsd_info(pid)?.pbi_ppid))
     }
 
     pub(super) fn info(pid: i32) -> Option<(u64, u8, u64)> {
-        let info = pidinfo::<BSDInfo>(pid, 0).ok()?;
+        let info = tmt_sys::bsd_info(pid)?;
         if info.pbi_pid != pid as u32 || info.pbi_start_tvsec == 0 {
             return None;
         }

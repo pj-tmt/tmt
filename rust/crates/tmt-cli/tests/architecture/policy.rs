@@ -19,6 +19,7 @@ const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
     ("tmt-cli", "crossterm", None),             // binding presentation fixtures
     ("tmt-cli", "insta", None),                 // command rendering snapshots
     ("tmt-cli", "proc-macro2", None),           // architecture syntax fixtures
+    ("tmt-cli", "toml_edit", None),             // audited unsafe-boundary manifest policy
     ("tmt-cli", "syn", None),                   // architecture AST checks
     ("tmt-cli", "tmt-office-model", None),      // Office parser fixtures
     ("tmt-cli", "nix", Some("cfg(unix)")),      // stdin signal and observer readiness fixtures
@@ -65,7 +66,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         // Adapters run host drivers through the protocol crate (#570).
         "tmt-adapters" => &[
             // Safe macOS process inspection and UTC formatting of legacy ps tokens.
-            "libproc",
+            "tmt-sys",
             "time",
             // Provider-local synchronous WebSocket framing; no core/TLS/async use.
             "tungstenite",
@@ -134,6 +135,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         // A host's pane-ID and target syntax, defined once for core and the
         // driver protocol; it depends on nothing.
         "tmt-host-grammar" => &[],
+        "tmt-sys" => &["libc"],
         // The command crate also owns the companion invocation boundary and the
         // Office release verifier it hands to native installation.
         "tmt-office-command" => &[

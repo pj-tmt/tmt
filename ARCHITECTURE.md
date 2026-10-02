@@ -1803,13 +1803,24 @@ observations share the fixed-path/locale `process::ps` runner and its missing-on
 executable fallback. Tmux continues to own server, pane and marker verification.
 Selected multi-process start observations and Herdr pane-parent observations use
 `process::process_info` through optional evidence methods on `CommandRunner`.
-The real runners acquire macOS BSD info with safe `libproc::pidinfo` or Linux
+The real runners acquire macOS BSD info through `tmt-sys::bsd_info` or Linux
 bounded `/proc/<pid>/stat` reads. Start tokens retain the UTC, second-resolution
 `ps-v1` representation; Linux combines boot seconds and process clock ticks.
 Native acquisition is deadline-checked, not cached. If any selected native read
 is unavailable, the entire batch uses its existing bounded ps fallback, retaining
 batch-wide failure and cleanup semantics. Scripted runners default to that
 fallback. Individual runtime checks and whole-table ancestry scans still use ps.
+`tmt-sys`, owned by core, is the workspace's single audited unsafe boundary.
+Only `tmt-adapters` may depend on it; the architecture guard rejects every
+other consumer, including extension, dev, build and renamed dependency edges.
+It is a leaf depending only on libc, with no build script and one macOS-only
+safe function wrapping `proc_pidinfo`. Its fixed `proc_bsdinfo` buffer is
+zero-initialized, and only an exact returned byte count is accepted. Every
+unsafe block documents its buffer, initialization and size-check safety.
+All other workspace crates retain `unsafe_code=forbid`; the architecture guard
+checks manifest inheritance, the leaf dependency and the absence of build
+scripts. The leaf denies unsafe by default and permits it only in that audited
+function. Linux acquisition remains safe Rust in the adapters.
 A shared app-server's inherited pane is not evidence of the invoking conversation.
 A positively observed shared app-server rejects required implicit attribution
 before binding/configuration effects. No Codex ancestor means Unsupported even
