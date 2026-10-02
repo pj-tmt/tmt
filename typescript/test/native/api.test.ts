@@ -44,6 +44,42 @@ function everyTable(sandbox: Sandbox) {
 }
 
 describe('public local extension API', () => {
+  it('rejects read attribution before creating state and preserves existing records', async () => {
+    await withSandbox(async (sandbox) => {
+      const reads = ['capabilities', 'storage.root', 'changes.cursor'];
+      const refuseAttribution = async () => {
+        for (const operation of reads) {
+          for (const attribution of [
+            { identity: 'Ada' },
+            { originator: 'anonymous' },
+            { identity: 'Ada', originator: 'anonymous' },
+          ]) {
+            const result = await runCli(sandbox, ['api'], {
+              stdin: JSON.stringify({ version: 1, operation, input: {}, ...attribution }),
+            });
+            expect(result.status).toBe(1);
+            expect(result.stderr).toBe('');
+            expect(JSON.parse(result.stdout)).toEqual({
+              error: {
+                code: 'API_INPUT_INVALID',
+                message: 'Invalid operation, fields or bounded input.',
+              },
+            });
+          }
+        }
+      };
+      for (const operation of ['capabilities', 'storage.root']) {
+        expect((await api(sandbox, operation, {})).status).toBe(0);
+      }
+      await refuseAttribution();
+      expect(existsSync(sandbox.globalDir)).toBe(false);
+      expect((await api(sandbox, 'changes.cursor', {})).status).toBe(0);
+      const before = everyTable(sandbox);
+      await refuseAttribution();
+      expect(everyTable(sandbox)).toEqual(before);
+    });
+  });
+
   it('discovers capabilities through a non-Office extension without creating state', async () => {
     await withSandbox(async (sandbox) => {
       const bin = path.join(sandbox.root, 'bin');
