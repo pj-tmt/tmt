@@ -243,7 +243,7 @@ impl Base {
         match role {
             Role::Text => Paint::Plain,
             Role::Muted => Paint::Ansi(AnsiColor::White),
-            Role::Dim => Paint::Ansi(AnsiColor::BrightBlack),
+            Role::Dim => Paint::Dimmed,
             Role::Accent => Paint::Ansi(AnsiColor::Blue),
             Role::Waiting => Paint::Ansi(AnsiColor::Yellow),
             Role::Working => Paint::Ansi(AnsiColor::Green),
