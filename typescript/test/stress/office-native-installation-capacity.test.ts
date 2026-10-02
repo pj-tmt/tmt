@@ -25,7 +25,6 @@ it(
           'alpha',
           '--prefix',
           prefix,
-          '--yes',
           '--archive',
           fixture.archive,
           '--manifest',
