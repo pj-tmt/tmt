@@ -5,8 +5,10 @@
 
 mod process;
 pub mod registry;
+mod session;
 
 pub use process::{CallError, DriverProcess};
+pub use session::{Drivers, ExternalDriver, Session};
 
 use crate::config::ConfigPaths;
 use tmt_driver_protocol::Grammar;
@@ -17,11 +19,7 @@ use tmt_driver_protocol::Grammar;
 /// command, and with no registry the only cost is one read attempt. Calling
 /// it twice is a programming error.
 pub fn register_approved() {
-    let Ok(paths) = ConfigPaths::discover() else {
-        return;
-    };
-    let grammars = registry::read(&paths.global_dir)
-        .unwrap_or_default()
+    let grammars = approved()
         .into_iter()
         .filter_map(|record| {
             Grammar::from_capabilities(&record.capabilities)
@@ -33,6 +31,15 @@ pub fn register_approved() {
     let registered = tmt_core::host::register_external_hosts(grammars);
     debug_assert!(registered.is_ok(), "external hosts are registered once");
 }
+/// The drivers the user approved, best effort: a registry that can't be
+/// read approves nothing.
+pub fn approved() -> Vec<registry::DriverRecord> {
+    ConfigPaths::discover()
+        .ok()
+        .and_then(|paths| registry::read(&paths.global_dir).ok())
+        .unwrap_or_default()
+}
+
 /// Set on every driver call; a `tmt` that sees it runs no command.
 pub use tmt_driver_protocol::CALL_ENV;
 

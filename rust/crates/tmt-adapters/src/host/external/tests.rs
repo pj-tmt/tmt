@@ -423,3 +423,296 @@ fn fixture_scheduling_does_not_change_the_capabilities_request() {
     assert_eq!(record.name, "fake");
     assert_eq!(installed.calls(), ["capabilities 1"]);
 }
+
+// ---- Stored bindings on an external host, through its driver (3b-2a-2) ----
+
+/// Runs driver calls through the fixture's shell and everything else (the
+/// core's own `ps`) as production does.
+struct HostRunner;
+
+impl CommandRunner for HostRunner {
+    fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+        if request.args.first().map(OsString::as_os_str) == Some(OsStr::new("TMT_DRIVER_CALL=1")) {
+            FixtureRunner.execute(request)
+        } else {
+            UnixCommandRunner.execute(request)
+        }
+    }
+}
+
+mod through_the_driver {
+    use super::*;
+    use crate::host::{HostError, external::Drivers};
+    use tmt_core::{
+        binding::{Binding, session::BindingSessionState},
+        endpoint::{EndpointProbe, ServerEvidence},
+        host::{HostKind, HostName, HostServerIds, HostServerIncarnation},
+        identity::{Identity, Lifetime},
+    };
+
+    const SERVER_ID: &str = "11111111-1111-4111-8111-111111111111";
+    const BINDING_ID: &str = "22222222-2222-4222-8222-222222222222";
+    const IDENTITY_ID: &str = "33333333-3333-4333-8333-333333333333";
+
+    fn fake() -> HostName {
+        HostName::new("fake").unwrap()
+    }
+
+    /// This test process: a live pid with a start core can observe.
+    fn live() -> (u64, String) {
+        let pid = u64::from(std::process::id());
+        let start = crate::process::runtime::observe_start(&UnixCommandRunner, pid, soon())
+            .unwrap()
+            .expect("the test process is observable");
+        (pid, start)
+    }
+
+    /// A pid whose process exited and was reaped.
+    fn gone() -> u64 {
+        let mut child = std::process::Command::new("/usr/bin/true").spawn().unwrap();
+        let pid = u64::from(child.id());
+        child.wait().unwrap();
+        pid
+    }
+
+    fn server(pid: u64, start: &str) -> ServerEvidence {
+        ServerEvidence {
+            host: HostKind::External(fake()),
+            server_id: SERVER_ID.into(),
+            socket_path: SOCKET.into(),
+            server_pid: pid,
+            server_start_time: start.into(),
+        }
+    }
+
+    fn identity() -> Identity {
+        Identity {
+            id: IDENTITY_ID.into(),
+            name: "worker".into(),
+            canonical_name: "worker".into(),
+            lifetime: Lifetime::Saved,
+            created_at: "created".into(),
+            updated_at: "updated".into(),
+        }
+    }
+
+    fn binding(server: ServerEvidence, pane_pid: u64) -> Binding {
+        Binding {
+            id: BINDING_ID.into(),
+            identity_id: IDENTITY_ID.into(),
+            server,
+            pane_id: "fake-1".into(),
+            pane_pid,
+            pane_incarnation: None,
+            session: BindingSessionState::default(),
+        }
+    }
+
+    /// A driver whose one pane runs `pane_pid` and carries the binding's
+    /// marker.
+    fn installed(pane_pid: u64) -> Installed {
+        let installed = Installed::new("fake", answers("fake", "fake-", Some("f{n}")));
+        let marker = binding(server(1, "s"), pane_pid).marker(&identity());
+        installed.answer(
+            "snapshot",
+            &json!({"ok": {"panes": [{"id": "fake-1", "target": "f1", "cwd": "/src",
+                "command": "claude", "panePid": pane_pid, "suggestedName": null,
+                "marker": {"name": marker.name, "canonicalName": marker.canonical_name,
+                    "identityId": marker.identity_id, "bindingId": marker.binding_id,
+                    "serverId": SERVER_ID, "panePid": pane_pid}}]}})
+            .to_string(),
+        );
+        installed
+    }
+
+    fn drivers(installed: &Installed) -> Drivers<HostRunner> {
+        Drivers::new(HostRunner, vec![installed.approve().unwrap()])
+    }
+
+    fn probe(drivers: &Drivers<HostRunner>, server: &ServerEvidence) -> EndpointProbe {
+        let mut session = crate::host::external::Session::new(drivers);
+        session.begin_coordination();
+        session
+            .driver(fake())
+            .probe(server, &["fake-1".to_owned()])
+            .unwrap()
+    }
+
+    #[test]
+    fn core_proves_an_external_server_live_or_dead_from_its_own_process_check() {
+        let (pid, start) = live();
+        let installed = installed(pid);
+        let drivers = drivers(&installed);
+
+        // The same server process, reached by the driver: live, with core's
+        // own start of each pane shell and the driver's marker.
+        let EndpointProbe::Live(snapshot) = probe(&drivers, &server(pid, &start)) else {
+            panic!("the same process is live");
+        };
+        assert_eq!(snapshot.server, server(pid, &start));
+        let [pane] = snapshot.panes.as_slice() else {
+            panic!("one pane");
+        };
+        assert_eq!(pane.id, "fake-1");
+        assert_eq!(pane.pane_incarnation.as_deref(), Some(start.as_str()));
+        assert_eq!(pane.marker.as_ref().unwrap().binding_id, BINDING_ID);
+        assert_eq!(pane.suggested_name.as_deref(), Some("claude"));
+
+        // Another process holds the recorded pid: the server is gone.
+        assert_eq!(
+            probe(&drivers, &server(pid, "ps-v1:Thu Jan 1 00:00:00 1970")),
+            EndpointProbe::Dead
+        );
+        // The recorded process exited.
+        assert_eq!(
+            probe(&drivers, &server(gone(), &start)),
+            EndpointProbe::Dead
+        );
+
+        // The driver can't reach a server core still sees: unknown, never dead.
+        installed.answer(
+            "snapshot",
+            r#"{"error": {"code": "unavailable", "message": "socket gone"}}"#,
+        );
+        assert_eq!(
+            probe(&drivers, &server(pid, &start)),
+            EndpointProbe::Unknown
+        );
+        // A driver's own claim never retires anything: core doesn't call probe.
+        assert!(
+            !installed
+                .calls()
+                .iter()
+                .any(|call| call.starts_with("probe"))
+        );
+    }
+
+    #[test]
+    fn a_missing_or_changed_driver_never_retires_a_binding() {
+        let (pid, start) = live();
+        let installed = installed(pid);
+
+        // No approved driver: the host reads, and nothing is known.
+        let none = Drivers::new(HostRunner, Vec::new());
+        assert_eq!(
+            probe(&none, &server(gone(), &start)),
+            EndpointProbe::Unknown
+        );
+        let mut session = crate::host::external::Session::new(&none);
+        session.begin_coordination();
+        let error = session
+            .driver(fake())
+            .publish(&binding(server(pid, &start), pid), &identity())
+            .unwrap_err();
+        assert_eq!(error.to_string(), "Host driver fake is not installed.");
+
+        // An executable changed since approval is never run again.
+        let drivers = drivers(&installed);
+        fs::write(&installed.executable, format!("{SCRIPT}# changed\n")).unwrap();
+        let before = installed.calls().len();
+        assert_eq!(
+            probe(&drivers, &server(gone(), &start)),
+            EndpointProbe::Unknown
+        );
+        assert_eq!(installed.calls().len(), before, "not run");
+    }
+
+    #[test]
+    fn publish_clear_and_input_go_through_the_driver_or_the_inbox() {
+        let (pid, start) = live();
+        let installed = installed(pid);
+        installed.answer("publish", r#"{"ok": {}}"#);
+        installed.answer("clear", r#"{"ok": {"cleared": true}}"#);
+        let drivers = drivers(&installed);
+        let mut session = crate::host::external::Session::new(&drivers);
+        session.begin_coordination();
+        let driver = session.driver(fake());
+        let binding = binding(server(pid, &start), pid);
+
+        driver.publish(&binding, &identity()).unwrap();
+        assert!(driver.clear(&binding).unwrap());
+        // No input until 3b-2b: core uses the inbox.
+        assert!(!driver.has_input());
+        assert_eq!(
+            driver.pane_incarnation(pid).unwrap().as_deref(),
+            Some(start.as_str())
+        );
+        assert!(
+            installed
+                .calls()
+                .ends_with(&["publish 1".to_owned(), "clear 1".to_owned()])
+        );
+
+        // A driver's refusal reaches the caller as its own message.
+        installed.answer(
+            "publish",
+            r#"{"error": {"code": "not_found", "message": "the pane closed"}}"#,
+        );
+        let error = driver.publish(&binding, &identity()).unwrap_err();
+        assert!(matches!(error, HostError::Refused { .. }), "{error:?}");
+        assert_eq!(error.to_string(), "Host driver fake: the pane closed");
+    }
+
+    #[derive(Default)]
+    struct Ids(Vec<(String, u64, String)>);
+
+    impl HostServerIds for Ids {
+        type Error = std::io::Error;
+
+        fn server_id(&mut self, server: &HostServerIncarnation<'_>) -> Result<String, Self::Error> {
+            self.0.push((
+                server.socket_path.into(),
+                server.server_pid,
+                server.server_start_time.into(),
+            ));
+            Ok(SERVER_ID.into())
+        }
+    }
+
+    #[test]
+    fn an_external_server_is_core_observed_and_snapshots_only_that_incarnation() {
+        let (pid, start) = live();
+        let installed = installed(pid);
+        installed.answer(
+            "server",
+            &json!({"ok": {"server": {"socket": SOCKET, "pid": pid, "startTime": "driver-says"}}})
+                .to_string(),
+        );
+        let drivers = drivers(&installed);
+        let mut ids = Ids::default();
+        drivers.resolve_server(fake(), &mut ids).unwrap();
+        // Core's start token is the identity; the driver's startTime is advisory.
+        assert_eq!(ids.0, [(SOCKET.to_owned(), pid, start.clone())]);
+        assert_eq!(drivers.resolved(), Some(&server(pid, &start)));
+
+        let mut session = crate::host::external::Session::new(&drivers);
+        session.begin_coordination();
+        let snapshot = session
+            .driver(fake())
+            .snapshot(&["fake-1".to_owned()])
+            .unwrap();
+        assert_eq!(snapshot.server, server(pid, &start));
+        assert_eq!(
+            snapshot.panes[0].pane_incarnation.as_deref(),
+            Some(start.as_str())
+        );
+
+        // A handle without a resolved server, or resolved to another
+        // incarnation, never snapshots a substitute.
+        let unresolved = Drivers::new(HostRunner, vec![installed.approve().unwrap()]);
+        let mut session = crate::host::external::Session::new(&unresolved);
+        session.begin_coordination();
+        assert!(matches!(
+            session.driver(fake()).snapshot(&[]),
+            Err(HostError::Evidence { .. })
+        ));
+        let other = Drivers::new(HostRunner, vec![installed.approve().unwrap()]);
+        other.set_resolved(server(pid, "ps-v1:Thu Jan 1 00:00:00 1970"));
+        let mut session = crate::host::external::Session::new(&other);
+        session.begin_coordination();
+        assert!(matches!(
+            session.driver(fake()).snapshot(&[]),
+            Err(HostError::Evidence { .. })
+        ));
+    }
+}

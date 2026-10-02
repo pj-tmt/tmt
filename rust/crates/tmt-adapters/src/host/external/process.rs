@@ -197,6 +197,9 @@ fn invoke(
     request: &[u8],
     deadline: Instant,
 ) -> Result<Vec<u8>, CommandError> {
+    // `/usr/bin/env` only adds the guard to core's environment. If
+    // `CommandRequest` gains an environment field, set the guard there and
+    // run the driver directly.
     let mut marker = OsString::from(CALL_ENV);
     marker.push("=1");
     let args = [

@@ -1754,7 +1754,8 @@ Conclusive pane/server death or explicit unbind retires temporary names without
 erasing retained exchanges; saved identities remain available offline. Saved
 removal requires explicit force. Neither removal nor unbind kills a pane.
 `ls` may show verified foreign-server identities, but `talk`/`check` routing
-remains current-server-only. Pane number, presentation title and socket pathname
+remains current-server-only: a name bound on another host reads as not active
+without asking the caller's host, and one on another socket fails closed. Pane number, presentation title and socket pathname
 alone are not endpoint identity. Publication and recovery preserve the full
 server/pane process evidence; ambiguous observations fail closed.
 
@@ -2265,7 +2266,7 @@ environment `caller` may read, and `tmt-core` may depend on it to recognize an
 external host's stored pane IDs without taking on the wire crate or serde. The
 protocol crate otherwise depends only on `serde` and `serde_json`, so a
 community driver builds against these two small crates alone. The architecture
-guard allows exactly those edges. Nothing in `tmt` uses a driver for a host yet.
+guard allows exactly those edges.
 
 `tmt-adapters::host::external` holds the core side of that boundary:
 
@@ -2280,11 +2281,27 @@ guard allows exactly those edges. Nothing in `tmt` uses a driver for a host yet.
   process.
 - **Recursion guard:** a `tmt` started with `TMT_DRIVER_CALL` refuses every
   command but help and `--version` (`DRIVER_CALL_REFUSED`).
+- **`Drivers` and `ExternalDriver`:** a `Host` carries the approved drivers
+  (production constructors read the registry; the test `_with` constructors
+  approve none). A binding session opens one driver per external host on first
+  use and serves it as an ordinary `HostDriver`: `snapshot`, `publish`, `clear`,
+  runtime and the pane incarnation. A host without a usable driver, removed or
+  changed since approval, answers `Unavailable`, which never proves loss.
+- **Core-led evidence:** an external server's identity is core's own `ps` start
+  token for the pid the driver's `server` names; the driver's `startTime` is
+  advisory and never stored. A probe is decided by core: the recorded server
+  process gone or replaced is Dead, the same process plus the driver's snapshot
+  is Live, anything else is Unknown. The driver's optional `probe` operation is
+  not called. One batched `ps` (`process::runtime::observe_starts`) covers the
+  server and the scoped pane shells.
 
 The atomic owner-only replacement of such settings files is `private_file`,
 shared with the extension hook consents. The approved drivers' syntax is
-registered with core at start (see the host section above); running their
-operations for a host is still to come in slice 3b.
+registered with core at start (see the host section above). Stored bindings
+on an external host are read, published and cleared through its driver;
+selecting an external host for `tmt add`, its caller environment, capture and
+input are still to come in slice 3b-2b. Until then, talk by name reaches such
+a binding only with `--inbox`.
 
 ## Managed skills and native installation
 
