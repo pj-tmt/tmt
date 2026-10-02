@@ -2,10 +2,9 @@ name: CI
 
 on:
   pull_request:
-  # Cache seeding: the Rust caches are written only outside pull requests (see
-  # `save-if` below), so `main` runs the two cache-writing jobs when the inputs
-  # that key the caches change, weekly (GitHub evicts caches unused for 7 days)
-  # and on demand. A pull request restores them and never writes.
+  merge_group:
+  # Main pushes, weekly schedules and manual dispatch seed Rust caches.
+  # PR and merge-group runs only restore; cache writers require the main ref.
   push:
     branches: [main]
     paths:
@@ -32,13 +31,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      native: ${{ steps.scope.outputs.native || steps.seed.outputs.native }}
-      office: ${{ steps.scope.outputs.office || steps.seed.outputs.office }}
-      native_scope: ${{ steps.scope.outputs.native_scope || steps.seed.outputs.native_scope }}
-      scoped_native_tests: ${{ steps.scope.outputs.scoped_native_tests }}
-      e2e_shard_1: ${{ steps.scope.outputs.e2e_shard_1 }}
-      e2e_shard_2: ${{ steps.scope.outputs.e2e_shard_2 }}
+      verify: ${{ steps.event.outputs.verify }}
+      native: ${{ steps.scope.outputs.native || steps.queue.outputs.native || steps.seed.outputs.native }}
+      office: ${{ steps.scope.outputs.office || steps.queue.outputs.office || steps.seed.outputs.office }}
+      native_scope: ${{ steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}
+      scoped_native_tests: ${{ steps.scope.outputs.scoped_native_tests || steps.queue.outputs.scoped_native_tests }}
+      e2e_shard_1: ${{ steps.scope.outputs.e2e_shard_1 || steps.queue.outputs.e2e_shard_1 }}
+      e2e_shard_2: ${{ steps.scope.outputs.e2e_shard_2 || steps.queue.outputs.e2e_shard_2 }}
     steps:
+      - name: Classify verification and seed events
+        id: event
+        env:
+          VERIFY: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
+        run: printf 'verify=%s\n' "$VERIFY" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -47,10 +52,14 @@ jobs:
         with:
           node-version: 22.23.2
       - name: Select the cache-seeding jobs
-        if: github.event_name != 'pull_request'
+        if: steps.event.outputs.verify != 'true'
         id: seed
         # A seeding run builds the whole workspace, so its scope is the full one.
         run: printf 'native=true\noffice=false\nnative_scope=full\n' >> "$GITHUB_OUTPUT"
+      - name: Select full verification for the merge group
+        if: github.event_name == 'merge_group'
+        id: queue
+        run: node typescript/scripts/ci-scope.mjs full >> "$GITHUB_OUTPUT"
       - name: Select consumers from both sides of the diff
         if: github.event_name == 'pull_request'
         id: scope
@@ -75,7 +84,7 @@ jobs:
   code-quality:
     name: Code quality
     needs: [changes, office]
-    if: ${{ always() && github.event_name == 'pull_request' }}
+    if: ${{ always() && needs.changes.outputs.verify != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -127,7 +136,7 @@ jobs:
         with:
           workspaces: rust
           shared-key: native-rust
-          save-if: ${{ github.event_name != 'pull_request' }}
+          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
       - name: Verify Squad quality and locked builds
         if: needs.changes.outputs.native_scope == 'squad'
         working-directory: rust
@@ -231,7 +240,7 @@ jobs:
         with:
           workspaces: rust
           shared-key: native-rust-msrv
-          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
       - name: Check all workspace targets at MSRV
         working-directory: rust
         run: cargo +"$MSRV" check --locked --workspace --all-targets
@@ -261,7 +270,7 @@ jobs:
   unit-tests:
     name: Unit tests
     needs: [changes, native-runtime-build]
-    if: github.event_name == 'pull_request' && needs.changes.outputs.native_scope == 'full'
+    if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -296,7 +305,7 @@ jobs:
   docker-e2e-shard-1:
     name: Docker E2E shard 1/2
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.native == 'true'
+    if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -322,7 +331,7 @@ jobs:
   docker-e2e-shard-2:
     name: Docker E2E shard 2/2
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.native_scope == 'full'
+    if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -333,7 +342,7 @@ jobs:
   docker-e2e:
     name: Docker E2E
     needs: [changes, docker-e2e-shard-1, docker-e2e-shard-2]
-    if: ${{ always() && github.event_name == 'pull_request' }}
+    if: ${{ always() && needs.changes.outputs.verify != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -387,7 +396,7 @@ jobs:
         with:
           workspaces: rust
           shared-key: runtime-${{ matrix.target }}
-          save-if: ${{ github.event_name != 'pull_request' }}
+          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
       - name: Build the reviewed native runtime
         working-directory: rust
         env:
@@ -412,7 +421,7 @@ jobs:
     # product. Each row now executes native linkage/skill/SQLite runtime proof.
     name: Packed install (${{ matrix.label }})
     needs: [changes, native-runtime-build]
-    if: github.event_name == 'pull_request' && needs.changes.outputs.native_scope == 'full'
+    if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'
     strategy:
       fail-fast: false
       matrix:
@@ -491,7 +500,7 @@ jobs:
 
   native-install-gate:
     name: Native package matrix
-    if: ${{ always() && github.event_name == 'pull_request' }}
+    if: ${{ always() && needs.changes.outputs.verify != 'false' }}
     needs:
       [
         changes,

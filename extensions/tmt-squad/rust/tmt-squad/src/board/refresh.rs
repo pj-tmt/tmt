@@ -432,10 +432,10 @@ fn squad_view(
         squad,
         reminders,
         &providers,
-        crate::observe::Reads {
+        crate::observe::Mode::Read(crate::observe::Reads {
             metadata: rows.reads_metadata(),
             notes: shows_notes,
-        },
+        }),
     )?;
     // Providers run on the fetcher thread, never while the board draws.
     if !providers.is_empty() {

@@ -604,12 +604,20 @@ jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
 Rust dependency caches (`Swatinem/rust-cache`, pinned by commit SHA) serve `Native
 Rust checks` and the native runtime builds. The parallel MSRV check reads the
 minimum version from the workspace manifest and owns a separate
-`native-rust-msrv` cache, saved only on main. Pull requests only restore caches.
-The other caches are written by non-pull-request runs of those two jobs alone, which run on a `main`
-push that changes `Cargo.lock`, `Cargo.toml`, the toolchain file or `ci.yml`, weekly
-(GitHub evicts unused caches after seven days) and on manual dispatch. The Rust
+`native-rust-msrv` cache. Each cache is saved only by its owning job on a
+`refs/heads/main` push, schedule or manual dispatch; PR and merge-group runs
+only restore. Main pushes that change `Cargo.lock`, `Cargo.toml`, the toolchain file
+or `ci.yml`, weekly schedules and manual dispatch run the seeding jobs. The Rust
 aggregate validates these workers on seeding runs too; the outer merge gates do
 not run. A seeding run has no diff to select from, so it takes the full native scope.
+
+`ci.yml` owns all four required checks: Code quality, Unit tests, Docker E2E and
+Native package matrix. Both pull requests and `merge_group` candidates run those
+checks. Merge groups use the selector's explicit `full` mode, selecting native
+and Office verification plus both disjoint E2E shards, without path filtering.
+The same fail-closed aggregators apply to the combined queue candidate. Advisory
+Office browser checks remain separate. Workflow support does not enable the
+merge queue; the repository owner configures the ruleset after rollout.
 
 The advisory Office browser workflow has a separate ownership-based PR flag,
 `office_browser`: Office-owned component paths, `docs/office/**` and the browser
@@ -2129,6 +2137,14 @@ planning resolves cwd once and names an exact thread. The channel contract owns
 the startup, credential and failure limits; real continuity and launcher crash
 recovery remain final consumer acceptance gates.
 
+The unregistered #785 foundations extend that record with persisted pane
+attribution and Unknown/Known foreground state. The record owns exact takeover,
+pruning and withdrawal; a server alone never proves an Unknown foreground ended.
+Startup errors carry cleanup certainty to their eventual lease caller. Permission
+planning routes supported typed settings to the server/thread and refuses generic
+permission overrides before spawn. No shared routing or registration changes in
+this slice; the [contract](contracts/codex-channel-v1.md) owns these definitions.
+
 ### Provider channels
 
 An optional driver port lets a launch hand talk payloads to a running agent
@@ -2652,12 +2668,29 @@ reset content age. Disabling stops observation; after re-enabling, surviving
 fingerprint matches keep their first-observed time. These are observed content timestamps,
 not core modification times or a history feed. Age determines staleness;
 `activityAfterUpdate` separately records relevant observed PR link/state
-changes or member finals after a row update for future reminder eligibility.
-Only successful unexpired `github-pr` preset cache values and the public room
-history supply that evidence; live idle state is not inferred. This slice
-neither installs hooks nor emits reminders. The planned reminder contributes
-to the lead's next turn through generic consented prompt-submit context, not
-Stop; that generic hook and claims belong to their own follow-up slices.
+changes, member finals, or authoritative idle transitions after a row update.
+Only successful unexpired `github-pr` preset cache values, the public room
+history and ordinary reads' runtime-verified `session.activity` supply evidence;
+self-reported activity and offline presence never establish idle.
+
+`reminder` consumes the generic consented `context_v1` callback at SessionStart
+and prompt submission, never Stop. Its cache-only gate exits before core calls
+or room locks for cold/off/fresh/claimed/non-lead cases. A warm candidate uses
+public config and room commands to validate its root and room UUID, then
+`observe::Mode::Reminder` reads only the roster, notes and bounded room history.
+The current roster must independently establish the callback identity as the
+sole lead. It runs no providers, presence probes or inbox overlays. `staleness`
+publishes per-generation claims under the same lock before returning a summary;
+`reminder` represents all claims by names/counts in one sanitized line.
+
+Context calls share one monotonic deadline of at most 300 ms. Core's hook runner
+isolates the extension's process group; context-only nested calls inherit it.
+An invocation-scoped timer bounds input/files/publication/output too, signals
+only its live process-owned group, and is canceled/joined on completion. This
+path requires the extension to own its process group. Host timeout can cut it off
+earlier and owns reaping. Ordinary Core calls retain their existing independent
+groups and allowances. No resident worker or core Squad concept is introduced.
+The extension guide owns the observed-age, claim-loss and cache-loss limits.
 
 `board::tabs` owns the tab
 keys: a squad's name, or a built-in key starting with `@` (`@leads`, `@all`),
@@ -2690,7 +2723,7 @@ validated before raw mode. `split` owns how panes sit: a tree of row and column
 splits whose children have a percentage or a grow share (ratatui `Percentage`
 and `Fill`), nested up to three levels; `layout` is its full form and the
 `direction`/`panes`/`sizes` keys its one-level form, and the board draws either
-by one recursive walk. The tree's reading order is the focus order. The notes pane reads the lead's notebook only through
+by one recursive walk. The tree's reading order is the focus order. The detail pane appends full projected `row.fields` values for board columns not already represented by its header, task, note, activity or links, in column order; it escapes and wraps them without grid fitting, source lookups or provider calls. The notes pane reads the lead's notebook only through
 `tmt api notes.read` (bounded, never creating a file); `board::notes` removes
 every escape sequence, control character and hidden bidi/format character before
 display, since notes are agent-written. `board::markdown` is a thin

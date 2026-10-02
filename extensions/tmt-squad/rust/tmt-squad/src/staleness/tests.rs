@@ -526,6 +526,162 @@ fn unchanged_observation_keeps_cache_until_the_watermark_is_due() {
     );
 }
 
+impl Fixture {
+    fn claim(&self, rows: &[Member], notes: Option<&Value>, now: u64) -> Option<Reminder> {
+        let fields = provider::Cache::at(None);
+        self.observer()
+            .record_for_reminder(
+                Input {
+                    members: rows,
+                    providers: &[],
+                    fields: &fields,
+                    notes,
+                    room: None,
+                    now,
+                },
+                LEAD,
+            )
+            .1
+    }
+}
+
+#[test]
+fn a_new_claim_publishes_before_the_unchanged_watermark_is_due() {
+    let fixture = Fixture::new();
+    let rows = members();
+    let content = notes("one");
+    fixture.record(&rows, Some(&content), None, 1_000);
+    fixture.record(&rows, Some(&content), None, 61_000);
+    let observer = fixture.observer();
+    let path = observer.path.clone().unwrap();
+    assert_eq!(observer.document["notes"]["claimed"], false);
+    drop(observer);
+    assert_eq!(
+        fixture.claim(&rows, Some(&content), 61_001),
+        Some(Reminder {
+            members: vec![],
+            notes: true,
+        })
+    );
+    let claimed = fixture.observer().document;
+    assert_eq!(claimed["notes"]["claimed"], true);
+    assert_eq!(claimed["observedAtMs"], 61_001);
+    let bytes = fs::read(&path).unwrap();
+    assert_eq!(fixture.claim(&rows, Some(&content), 61_002), None);
+    fixture.record(&rows, Some(&content), None, 61_003);
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+}
+
+#[test]
+fn reminder_requires_eligible_age_and_commits_each_generation_before_returning() {
+    let fixture = Fixture::new();
+    let mut rows = members();
+    assert_eq!(fixture.claim(&rows, None, 1000), None);
+    assert_eq!(
+        fixture.claim(&rows, None, 61_000),
+        None,
+        "age alone does not qualify a row"
+    );
+    rows[1]
+        .fields
+        .insert("pr_link".into(), "https://example.com/1".into());
+    assert_eq!(
+        fixture.claim(&rows, None, 62_000),
+        Some(Reminder {
+            members: vec![MEMBER.into()],
+            notes: false,
+        })
+    );
+    assert_eq!(
+        fixture.observer().document["members"][MEMBER]["claimed"],
+        true
+    );
+    // No handoff is simulated. Even a lost handoff must not cause a retry.
+    assert_eq!(fixture.claim(&rows, None, 63_000), None);
+    rows[1]
+        .fields
+        .insert("pr_link".into(), "https://example.com/2".into());
+    fixture.record(&rows, None, None, 64_000);
+    assert_eq!(
+        fixture.claim(&rows, None, 65_000),
+        None,
+        "ordinary observations preserve claims"
+    );
+    rows[1].fields.insert("task".into(), "new task".into());
+    assert_eq!(fixture.claim(&rows, None, 66_000), None);
+    rows[1]
+        .fields
+        .insert("pr_link".into(), "https://example.com/3".into());
+    assert_eq!(
+        fixture.claim(&rows, None, 126_000),
+        Some(Reminder {
+            members: vec![MEMBER.into()],
+            notes: false,
+        })
+    );
+}
+
+#[test]
+fn note_claims_are_independent_and_require_readable_current_lead_content() {
+    let fixture = Fixture::new();
+    let rows = members();
+    assert_eq!(fixture.claim(&rows, Some(&notes("one")), 1000), None);
+    assert_eq!(fixture.claim(&rows, None, 61_000), None);
+    assert_eq!(
+        fixture.claim(&rows, Some(&notes("one")), 62_000),
+        Some(Reminder {
+            members: vec![],
+            notes: true,
+        })
+    );
+    fixture.record(&rows, Some(&notes("one")), None, 63_000);
+    assert_eq!(fixture.claim(&rows, Some(&notes("one")), 64_000), None);
+    assert_eq!(fixture.claim(&rows, Some(&notes("two")), 65_000), None);
+    assert_eq!(
+        fixture.claim(&rows, Some(&notes("two")), 125_000),
+        Some(Reminder {
+            members: vec![],
+            notes: true,
+        })
+    );
+}
+
+#[test]
+fn nonlead_disabled_and_contended_claims_do_not_publish_or_consume_a_generation() {
+    let mut fixture = Fixture::new();
+    let rows = members();
+    let content = notes("one");
+    fixture.record(&rows, Some(&content), None, 1000);
+    let fields = provider::Cache::at(None);
+    let input = || Input {
+        members: &rows,
+        providers: &[],
+        fields: &fields,
+        notes: Some(&content),
+        room: None,
+        now: 61_000,
+    };
+    let observer = fixture.observer();
+    let path = observer.path.clone().unwrap();
+    let before = fs::read(&path).unwrap();
+    assert_eq!(observer.record_for_reminder(input(), MEMBER).1, None);
+    assert_eq!(fs::read(&path).unwrap(), before);
+    fixture.settings.enabled = false;
+    assert_eq!(fixture.claim(&rows, Some(&content), 61_000), None);
+    assert_eq!(fs::read(&path).unwrap(), before);
+    fixture.settings.enabled = true;
+    let owner = fixture.observer();
+    assert_eq!(fixture.claim(&rows, Some(&content), 61_000), None);
+    assert_eq!(fs::read(&path).unwrap(), before);
+    assert_eq!(
+        owner.record_for_reminder(input(), LEAD).1,
+        Some(Reminder {
+            members: vec![],
+            notes: true,
+        })
+    );
+}
+
 #[test]
 fn rollback_crossing_the_persisted_watermark_restarts_grace() {
     let fixture = Fixture::new();
@@ -549,4 +705,179 @@ fn rollback_crossing_the_persisted_watermark_restarts_grace() {
     let next = fixture.record(&rows, Some(&content), None, rollback_at + 1);
     assert_eq!(next.members[MEMBER]["ageMs"], 1);
     assert_eq!(next.notes["ageMs"], 1);
+}
+
+#[test]
+fn failed_claim_publication_returns_no_handoff_and_cache_loss_restarts_grace() {
+    let fixture = Fixture::new();
+    let rows = members();
+    let content = notes("one");
+    fixture.record(&rows, Some(&content), None, 1000);
+    let observer = fixture.observer();
+    let path = observer.path.clone().unwrap();
+    fs::remove_file(&path).unwrap();
+    fs::create_dir(&path).unwrap();
+    let fields = provider::Cache::at(None);
+    let (snapshot, reminder) = observer.record_for_reminder(
+        Input {
+            members: &rows,
+            providers: &[],
+            fields: &fields,
+            notes: Some(&content),
+            room: None,
+            now: 61_000,
+        },
+        LEAD,
+    );
+    assert_eq!(reminder, None);
+    assert_eq!(snapshot.notes, unavailable("unknown"));
+    fs::remove_dir(&path).unwrap();
+    assert_eq!(fixture.claim(&rows, Some(&content), 62_000), None);
+    assert_eq!(
+        fixture.claim(&rows, Some(&content), 122_000),
+        Some(Reminder {
+            members: vec![],
+            notes: true,
+        })
+    );
+}
+
+#[test]
+fn preflight_is_read_only_for_cold_off_fresh_claimed_and_foreign_observations() {
+    use std::time::{Duration, Instant};
+    let fixture = Fixture::new();
+    let directory = fixture.root.join("cache");
+    let due = |lead, now| {
+        preflight::candidates_at(
+            Some(directory.clone()),
+            lead,
+            now,
+            Instant::now() + Duration::from_secs(1),
+        )
+    };
+    assert!(due(LEAD, 61_000).is_empty());
+    assert!(
+        !directory.exists(),
+        "cold preflight creates neither cache nor lock"
+    );
+    let rows = members();
+    let content = notes("one");
+    fixture.record(&rows, Some(&content), None, 1000);
+    let owner = fixture.observer();
+    let path = owner.path.clone().unwrap();
+    let before = fs::read(&path).unwrap();
+    // Even with the room lock held, preflight only reads the observation.
+    assert!(due(LEAD, 60_999).is_empty());
+    assert!(due(MEMBER, 61_000).is_empty());
+    let candidates = due(LEAD, 61_000);
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0].config, fixture.config);
+    assert_eq!(candidates[0].squad.room_id, fixture.squad.room_id);
+    assert_eq!(fs::read(&path).unwrap(), before);
+    fs::write(&fixture.config, "[squad.p.reminders]\nenabled = false\n").unwrap();
+    assert!(
+        due(LEAD, 61_000).is_empty(),
+        "current config overrides old cache"
+    );
+    assert_eq!(fs::read(&path).unwrap(), before);
+    fs::write(
+        &fixture.config,
+        "[squad.p.reminders]\nenabled = true\nstale_after = \"1m\"\n",
+    )
+    .unwrap();
+    drop(owner);
+    assert!(fixture.claim(&rows, Some(&content), 61_000).is_some());
+    assert!(
+        due(LEAD, 62_000).is_empty(),
+        "claimed content stays on the cheap path"
+    );
+}
+
+#[test]
+fn preflight_requires_activity_for_rows_and_rejects_invalid_scope_time_and_budget() {
+    use std::time::{Duration, Instant};
+    let fixture = Fixture::new();
+    let directory = fixture.root.join("cache");
+    let due = |now| {
+        preflight::candidates_at(
+            Some(directory.clone()),
+            LEAD,
+            now,
+            Instant::now() + Duration::from_secs(1),
+        )
+    };
+    let mut rows = members();
+    fixture.record(&rows, None, None, 1000);
+    assert!(due(61_000).is_empty(), "a stale row alone is ineligible");
+    rows[1]
+        .fields
+        .insert("pr_link".into(), "https://example.com/1".into());
+    fixture.record(&rows, None, None, 61_000);
+    assert_eq!(due(62_000).len(), 1);
+    assert!(due(60_000).is_empty(), "rollback is not evidence");
+    assert!(
+        preflight::candidates_at(Some(directory.clone()), LEAD, 62_000, Instant::now()).is_empty()
+    );
+    let owner = fixture.observer();
+    let path = owner.path.clone().unwrap();
+    let mut document = owner.document.clone();
+    document["source"]["roomId"] = "44444444-4444-4444-8444-444444444444".into();
+    fs::write(&path, document.to_string()).unwrap();
+    assert!(
+        due(62_000).is_empty(),
+        "cache filename must match its scope"
+    );
+    fs::write(&path, "broken").unwrap();
+    assert!(due(62_000).is_empty());
+}
+
+#[test]
+fn only_authoritative_idle_after_the_update_is_retained_for_the_roster_only_hook() {
+    let fixture = Fixture::new();
+    let mut rows = members();
+    fixture.record(&rows, None, None, 1_000);
+    for state in ["unknown", "ended", "working"] {
+        rows[1].seen = json!({"session": {"activity": {"state": state, "sinceMs": 2_000, "lastActivityMs": 2_000}}});
+        let doc = fixture.document(&fixture.record(&rows, None, None, 61_000), &rows);
+        assert_eq!(
+            doc["sections"][0]["rows"][0]["staleness"]["activityAfterUpdate"],
+            false
+        );
+    }
+    rows[1].activity = json!({"activity": "idle"});
+    rows[1].presence = "offline".into();
+    for at in [1_000, 62_000] {
+        rows[1].seen = json!({"session": {"activity": {"state": "idle", "sinceMs": at, "lastActivityMs": at}}});
+        let doc = fixture.document(&fixture.record(&rows, None, None, 61_000), &rows);
+        assert_eq!(
+            doc["sections"][0]["rows"][0]["staleness"]["activityAfterUpdate"],
+            false
+        );
+    }
+    rows[1].seen = json!({"session": {"activity": {"state": "idle", "sinceMs": 2_000, "lastActivityMs": 2_000}}});
+    let doc = fixture.document(&fixture.record(&rows, None, None, 61_000), &rows);
+    assert_eq!(
+        doc["sections"][0]["rows"][0]["staleness"]["reasons"],
+        json!(["member_idle"])
+    );
+    rows[1].seen = Value::Null;
+    let fields = provider::Cache::at(None);
+    let (_, claim) = fixture.observer().record_for_reminder(
+        Input {
+            members: &rows,
+            providers: &[],
+            fields: &fields,
+            notes: None,
+            room: None,
+            now: 61_001,
+        },
+        LEAD,
+    );
+    assert_eq!(claim.unwrap().members, [MEMBER]);
+    rows[1].fields.insert("task".into(), "new task".into());
+    let doc = fixture.document(&fixture.record(&rows, None, None, 62_000), &rows);
+    assert_eq!(
+        doc["sections"][0]["rows"][0]["staleness"]["reasons"],
+        json!([])
+    );
 }
