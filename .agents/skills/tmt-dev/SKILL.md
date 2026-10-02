@@ -14,6 +14,7 @@ Read the repository guidance before planning work:
 - [`ARCHITECTURE.md`](../../../ARCHITECTURE.md) — current and target boundaries, legacy debt, and architecture change triggers.
 - [`CONVENTIONS.md`](../../../CONVENTIONS.md) — code and test style.
 - [`DEVELOPMENT.md`](../../../DEVELOPMENT.md) — commands and the focused verification matrix.
+- [`tmt-layout`](../tmt-layout/SKILL.md) when adding or moving repository files.
 - [`tmt-e2e`](../tmt-e2e/SKILL.md) for Docker/tmux integration work.
 - [`tmt-release`](../tmt-release/SKILL.md) for release-line or packaged-install work.
 

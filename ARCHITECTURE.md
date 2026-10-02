@@ -25,6 +25,55 @@ Any retained `better-sqlite3` use belongs to private developer tooling as an
 independent oracle. It is not a Rust runtime dependency or an alternate owner
 of native schema and application state.
 
+## Repository layout
+
+This section owns the repository layout map; the infra squad reviews layout changes.
+The machine-readable top-level allowlist is
+[`.github/repository-layout.json`](.github/repository-layout.json). It lists permanent
+entries and current exceptions with their removal issues. Component ownership comes
+from [`.github/components.json`](.github/components.json), through `ci-scope.ownerOf`;
+layout permission does not change component ownership, CI selection or release policy.
+
+| Home                      | Responsibility                                                                                                                         |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository root           | Short entry points, contributor guidance, license and required repository/tool configuration; no product source or generated evidence. |
+| `.agents/`                | Repository contributor procedures.                                                                                                     |
+| `.github/`                | Component ownership, layout allowlist, workflows, shared Actions and isolated release tooling.                                         |
+| `rust/`                   | Native CLI, core, adapters and shared Rust leaves; extension crates remain under their extension.                                      |
+| `typescript/`             | Private developer tooling, tests and shared fixture support; no product-runtime fallback.                                              |
+| `extensions/<extension>/` | Feature-owned runtimes, contracts, skills, documentation and assets.                                                                   |
+| `contracts/`              | Core public contracts and their normative fixtures.                                                                                    |
+| `scripts/`                | Shared root shell/build/development helpers.                                                                                           |
+| `skills/`                 | Canonical bundled user-agent guidance.                                                                                                 |
+| `site/`                   | User handbook and its build; handbook text remains owned by tmt-lead.                                                                  |
+| `design/` (planned, #998) | CLI presentation/style guidance and design tokens; not created or allowlisted yet.                                                     |
+
+Current exceptions and moves are **pending**, not shipped:
+
+- #997 (PR B) removes `USER-GUIDE.md` after repointing links to matching handbook
+  chapters and handing off unmatched content. It moves `docs/office/` to
+  `extensions/tmt-office/docs/` and `scripts/art/` to
+  `extensions/tmt-office/scripts/art/`.
+- #998 (PR C, after the queue drains) moves `docs/extension-api.md` to
+  `contracts/extension-api.md`, and `docs/cli-style.md` to `design/cli-style.md`.
+  It renames `contracts/remote-client-v1.md` to `contracts/remote-channel-v1.md`.
+  `REQUEST-RESPONSE.md` moves to `contracts/` if tmt-lead confirms it is a contract;
+  otherwise its guidance folds into DEVELOPMENT. Release-verification procedures
+  in `docs/native-release-verification.md` fold into DEVELOPMENT's release section.
+- `docs/` remains a temporary home under #997/#998. `docs/NATIVE-INSTALL.md` and
+  `docs/performance.md` stay there until the handbook resumes, then move to `site/`
+  under #998; the directory exception remains until its retained contents move.
+- #996 removes `nx`, `nx.bat`, `nx.json` and `.nx/`. Whichever PR lands second
+  reconciles those exceptions against its merged base.
+
+New homes or exceptions require an infra-reviewed proposal with a component owner
+and bounded responsibility. Update this map and the JSON allowlist together;
+remove an exception when its last tracked entry moves or is deleted. The tooling
+layout test checks every tracked file's component owner and that tracked top-level
+entries are a subset of the allowlist; ignored local outputs are outside that map.
+For add/move review and rename hygiene, use the
+[layout procedure](.agents/skills/tmt-layout/SKILL.md).
+
 ## TypeScript workspace boundary
 
 The `typescript` pnpm workspace has one lockfile, retained Node tooling and tests,
