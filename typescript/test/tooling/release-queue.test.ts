@@ -1,4 +1,5 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,7 +62,7 @@ function execute(
   const directory = mkdtempSync(path.join(tmpdir(), 'tmt-release-queue-'));
   try {
     writeFileSync(path.join(directory, 'query.json'), JSON.stringify(response));
-    writeFileSync(
+    writeExecutable(
       path.join(directory, 'gh'),
       `#!/bin/sh
 printf '%s\\n' "$1 $2" >> "$RUNNER_TEMP/queries"
@@ -69,9 +70,9 @@ if [ "$GH_TOKEN" != 'fixture-app' ]; then exit 22; fi
 if [ "$QUERY_FAILS" = true ]; then echo 'query unavailable' >&2; exit 21; fi
 cat "$RUNNER_TEMP/query.json"
 `,
-      { mode: 0o700 }
+      0o700
     );
-    writeFileSync(
+    writeExecutable(
       path.join(directory, 'node'),
       `#!${process.execPath}
 const { spawnSync } = require('node:child_process');
@@ -113,12 +114,10 @@ if (process.argv[2].endsWith('/release-please-run.mjs')) {
 }
 })().catch(error => { console.error(error); process.exitCode = 1; });
 `,
-      { mode: 0o700 }
+      0o700
     );
     if (teeFails)
-      writeFileSync(path.join(directory, 'tee'), '#!/bin/sh\ncat >/dev/null\nexit 23\n', {
-        mode: 0o700,
-      });
+      writeExecutable(path.join(directory, 'tee'), '#!/bin/sh\ncat >/dev/null\nexit 23\n', 0o700);
     const summary = path.join(directory, 'summary');
     writeFileSync(summary, '');
     writeFileSync(path.join(directory, 'commands'), '');

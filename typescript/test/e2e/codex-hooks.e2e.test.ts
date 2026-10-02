@@ -1,3 +1,4 @@
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
@@ -190,10 +191,10 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
         const resumed = path.join(fixture.root, 'resumed-client.json');
         const release = path.join(fixture.root, 'release-client');
         const status = path.join(fixture.root, 'client-exit.status');
-        fs.writeFileSync(
+        writeExecutable(
           path.join(fixture.wrapperDir, 'codex'),
           `#!${process.execPath}\nconst fs = require('node:fs');\nfs.writeFileSync(${JSON.stringify(resumed)}, JSON.stringify(process.argv.slice(2)));\nsetInterval(() => { if (fs.existsSync(${JSON.stringify(release)})) process.exit(0); }, 20);\n`,
-          { mode: 0o700 }
+          0o700
         );
         const resumeCommand = [
           fixture.executables.cli.executable,

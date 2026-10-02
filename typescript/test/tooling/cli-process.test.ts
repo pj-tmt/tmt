@@ -1,3 +1,4 @@
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,7 +11,7 @@ function fixture(mode = 'exit', output = 'ignore') {
   roots.push(root);
   const marker = path.join(root, 'ready.json');
   const script = path.join(root, 'peer.mjs');
-  fs.writeFileSync(
+  writeExecutable(
     script,
     `
     import { spawn } from 'node:child_process';
@@ -28,7 +29,8 @@ function fixture(mode = 'exit', output = 'ignore') {
         if (process.argv[3] === 'overflow') process.stdout.write('over the limit');
       });
     }
-  `
+  `,
+    0o644
   );
   const cli = { executable: process.execPath, args: [script, marker, mode] };
   return { root, marker, cli };

@@ -1,4 +1,5 @@
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { expect } from 'vitest';
 import { runCli, type Sandbox } from '../support/cli-process.js';
@@ -9,8 +10,11 @@ export function installTmuxTripwire(sandbox: Sandbox): string {
   const logPath = path.join(sandbox.root, 'tmux-invocations.log');
   mkdirSync(directory);
   const executable = path.join(directory, 'tmux');
-  writeFileSync(executable, '#!/bin/sh\nprintf "%s\\n" "$*" >> "$TMT_TEST_TMUX_LOG"\nexit 97\n');
-  chmodSync(executable, 0o755);
+  writeExecutable(
+    executable,
+    '#!/bin/sh\nprintf "%s\\n" "$*" >> "$TMT_TEST_TMUX_LOG"\nexit 97\n',
+    0o755
+  );
   sandbox.env.PATH = `${directory}${path.delimiter}${sandbox.env.PATH ?? ''}`;
   sandbox.env.TMT_TEST_TMUX_LOG = logPath;
   return logPath;

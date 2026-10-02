@@ -1,6 +1,4 @@
 import {
-  chmodSync,
-  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -11,6 +9,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -146,8 +145,7 @@ describe('native installation process contract', () => {
       const movedDirectory = path.join(sandbox.root, "native build's files");
       mkdirSync(movedDirectory);
       const movedExecutable = path.join(movedDirectory, 'tmt preview');
-      copyFileSync(sandbox.cli.executable, movedExecutable);
-      chmodSync(movedExecutable, 0o755);
+      writeExecutable(movedExecutable, readFileSync(sandbox.cli.executable), 0o755);
       const moved = { ...sandbox, cli: { executable: movedExecutable, args: [] } };
       const { logPath, baseline } = await isolateExternalCommands(sandbox);
 

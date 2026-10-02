@@ -1067,6 +1067,16 @@ runs it. Production code never retries ETXTBSY.
   that error (`tmt-office-command`'s `test_support::install_office`,
   `retry_on_text_file_busy`).
 
+In `typescript/test`, publish every written executable or interpreted fixture
+through `test/support/executable-fixture.mjs` (`writeExecutable`). Its isolated
+Node writer stages on the destination filesystem, fsyncs, closes, chmods and
+renames before returning. Closing in the test worker, even with `O_CLOEXEC`, does
+not remove the concurrent fork-to-exec window. Pass the existing mode explicitly
+for non-executable or negative fixtures; never replace malformed fixture bytes,
+add ETXTBSY retries or extend test deadlines. Synthetic installers use the same
+module's `--write FILE MODE` entry point with bytes on stdin and an absolute
+fixture Node path; this is test infrastructure, not a product runtime dependency.
+
 The opt-in stress test `cargo test -p tmt-office-command text_file_busy_stress
 -- --ignored --nocapture` reproduces the race and reports failures with and
 without the retry.

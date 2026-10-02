@@ -1,3 +1,4 @@
+import { writeExecutable } from '../../support/executable-fixture.mjs';
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -114,7 +115,7 @@ export class E2EFixture {
       fs.mkdirSync(this.globalDir, { recursive: true });
       fs.mkdirSync(this.wrapperDir, { recursive: true });
       if (options.metadataBarrier) fs.mkdirSync(this.metadataBarrierDirectory);
-      fs.writeFileSync(
+      writeExecutable(
         path.join(this.wrapperDir, 'tmux'),
         `#!/bin/sh
 if [ "${'$'}{TMT_E2E_FORBID_TMUX:-}" = "1" ]; then
@@ -229,9 +230,9 @@ if [ "${'$'}metadata_target" = "1" ] && [ -n "${'$'}{TMT_E2E_METADATA_BARRIER_DI
   [ -e "${'$'}TMT_E2E_METADATA_BARRIER_DIR/release" ] || exit 124
 fi
 exit ${'$'}status
-`
+`,
+        0o755
       );
-      fs.chmodSync(path.join(this.wrapperDir, 'tmux'), 0o755);
 
       this.env = {
         ...process.env,

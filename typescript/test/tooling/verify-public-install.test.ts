@@ -1,5 +1,6 @@
-import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
+import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +17,11 @@ beforeAll(() => {
   base = mkdtempSync(path.join(os.tmpdir(), 'public-install-'));
 });
 afterAll(() => rmSync(base, { recursive: true, force: true }));
+
+const executableWriter = fileURLToPath(
+  new URL('../support/executable-fixture.mjs', import.meta.url)
+);
+const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 const SKILL = '# The tmux-team skill\n';
 const INBOX = '# The inbox skill\n';
@@ -68,7 +74,7 @@ ${
   fake.withoutBinary
     ? ''
     : `mkdir -p "$prefix/bin"
-cat > "$prefix/bin/tmt" <<'TMT'
+${shellQuote(globalThis.process.execPath)} ${shellQuote(executableWriter)} --write "$prefix/bin/tmt" 493 <<'TMT'
 #!/bin/sh
 exe=$(cd "$(dirname "$0")" && pwd)/tmt
 env | sort > "$HOME/environment.txt"
@@ -87,7 +93,6 @@ case "$*" in
   *) echo "unexpected: $*" >&2; exit 9 ;;
 esac
 TMT
-chmod 755 "$prefix/bin/tmt"
 ${skillCommands}`
 }
 `;
@@ -232,7 +237,7 @@ describe('the public installer smoke of a CLI release', () => {
     // Another tmt that PATH reaches while the prefix has none is what PATH selects instead.
     const decoy = path.join(base, 'decoy');
     mkdirSync(decoy, { recursive: true });
-    writeFileSync(path.join(decoy, 'tmt'), '#!/bin/sh\n');
+    writeExecutable(path.join(decoy, 'tmt'), '#!/bin/sh\n', 0o644);
     const shadowing = run({ withoutBinary: true }, { systemPath: [decoy, '/usr/bin', '/bin'] });
     expect((await shadowing.results).at(-1)?.reason).toBe(
       `PATH selects ${path.join(decoy, 'tmt')}, not ${path.join(shadowing.root, 'work', 'prefix', 'bin', 'tmt')}`
@@ -278,19 +283,17 @@ describe('failed command diagnostics', () => {
       writeFileSync(path.join(source, 'skills', name, 'SKILL.md'), text);
     }
     const preload = path.join(root, 'fetch.mjs');
-    writeFileSync(
+    writeExecutable(
       preload,
       `globalThis.fetch = async () => ({ ok: true, text: async () => ${JSON.stringify(
         installerText({
           upgradeStdout: 'stdout-cause-' + 'x'.repeat(4000),
           upgradeStderr: 'stderr-cause-' + 'y'.repeat(4000),
         })
-      )} });`
+      )} });\nglobalThis.setTimeout = (fn) => { fn(); return 0; };\n`,
+      0o644
     );
     // No real network or retry sleeps: timers are immediate only in this isolated test process.
-    writeFileSync(preload, '\nglobalThis.setTimeout = (fn) => { fn(); return 0; };\n', {
-      flag: 'a',
-    });
     const resultFile = path.join(root, 'result.json');
     const process = spawnSync(
       globalThis.process.execPath,

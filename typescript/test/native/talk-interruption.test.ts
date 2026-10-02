@@ -1,5 +1,6 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import Database from 'better-sqlite3';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, it } from 'vitest';
 import { parseWholeStdout, runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
@@ -10,7 +11,7 @@ import { installTmuxTripwire } from './tmux-tripwire.js';
 function startTalk(sandbox: Sandbox, delay: boolean, json: boolean) {
   const ready = path.join(sandbox.root, 'talk-pid');
   const wrapper = path.join(sandbox.root, 'talk-wrapper.mjs');
-  writeFileSync(
+  writeExecutable(
     wrapper,
     `import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
@@ -22,7 +23,8 @@ child.once('exit', (code, signal) => {
   if (signal) process.kill(process.pid, signal);
   else process.exit(code);
 });
-`
+`,
+    0o644
   );
   const result = runCli({ ...sandbox, cli: { executable: process.execPath, args: [wrapper] } }, [
     'talk',

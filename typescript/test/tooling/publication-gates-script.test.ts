@@ -1,6 +1,4 @@
-import { spawnSync } from 'node:child_process';
 import {
-  chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
@@ -9,6 +7,8 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
+import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -162,8 +162,7 @@ function scenario(options: Scenario = {}) {
   writeFileSync(stateFile, JSON.stringify(state));
   const bin = path.join(directory, 'bin');
   mkdirSync(bin);
-  writeFileSync(path.join(bin, 'gh'), FAKE_GH);
-  chmodSync(path.join(bin, 'gh'), 0o755);
+  writeExecutable(path.join(bin, 'gh'), FAKE_GH, 0o755);
   const output = path.join(directory, 'output');
   const summary = path.join(directory, 'summary');
   writeFileSync(output, '');

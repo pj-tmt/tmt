@@ -1,4 +1,5 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
@@ -411,7 +412,11 @@ describe('native grammar process contract', () => {
       const directory = path.join(sandbox.root, "native build's files");
       mkdirSync(directory);
       const executable = path.join(directory, 'tmt preview');
-      copyFileSync(sandbox.cli.executable, executable);
+      writeExecutable(
+        executable,
+        readFileSync(sandbox.cli.executable),
+        statSync(sandbox.cli.executable).mode & 0o777
+      );
       const result = await runCli({ ...sandbox, cli: { executable, args: [] } }, ['--version']);
       expect(result.status).toBe(0);
       expect(result.stdout).toBe(`${cliVersion}\n`);

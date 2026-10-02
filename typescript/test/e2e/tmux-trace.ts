@@ -1,3 +1,4 @@
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { E2EFixture } from './harness.js';
@@ -28,7 +29,7 @@ export function installTmuxTrace(fixture: E2EFixture): TmuxTrace {
     throw new Error('Tmux trace is already installed for this fixture. Reuse and clear it.');
   }
   fs.renameSync(wrapperPath, delegatedWrapperPath);
-  fs.writeFileSync(
+  writeExecutable(
     wrapperPath,
     `#!/bin/sh
 trace_newline='
@@ -42,7 +43,7 @@ ${TMUX_COMMAND_INSPECTION}
 printf '%s\\t%s\\n' "${'$'}tmux_command" "${'$'}trace_args" >> ${shellQuote(tracePath)}
 exec ${shellQuote(delegatedWrapperPath)} "${'$'}@"
 `,
-    { mode: 0o755 }
+    0o755
   );
 
   fs.writeFileSync(tracePath, '');

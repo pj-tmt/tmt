@@ -1,11 +1,5 @@
-import {
-  chmodSync,
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
@@ -181,15 +175,19 @@ it(
       const decoyDirectory = path.join(sandbox.root, 'decoy');
       const marker = path.join(sandbox.root, 'decoy-used');
       mkdirSync(decoyDirectory);
-      writeFileSync(
+      writeExecutable(
         path.join(decoyDirectory, 'tmt'),
-        `#!/bin/sh\necho used >> '${marker}'\nexit 1\n`
+        `#!/bin/sh\necho used >> '${marker}'\nexit 1\n`,
+        0o755
       );
-      chmodSync(path.join(decoyDirectory, 'tmt'), 0o755);
       const linkDirectory = path.join(sandbox.root, 'link');
       mkdirSync(linkDirectory);
       const link = path.join(linkDirectory, 'tmux-team');
-      copyFileSync(sandbox.cli.executable, link);
+      writeExecutable(
+        link,
+        readFileSync(sandbox.cli.executable),
+        statSync(sandbox.cli.executable).mode & 0o777
+      );
       const named = {
         ...sandbox,
         cli: { ...sandbox.cli, executable: link },

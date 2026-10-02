@@ -1,5 +1,6 @@
+import { mkdirSync, readFileSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { withSandbox } from '../support/cli-process.js';
@@ -26,7 +27,7 @@ describe('documented one-time PATH setup', () => {
         mkdirSync(bin, { recursive: true });
         mkdirSync(original);
         // A lookup target only; this fixture never pretends to run the product.
-        writeFileSync(command, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+        writeExecutable(command, '#!/bin/sh\nexit 0\n', 0o700);
         for (const [initial, expected] of [
           [original, `${bin}:${original}`],
           [`${bin}:${original}`, `${bin}:${original}`],

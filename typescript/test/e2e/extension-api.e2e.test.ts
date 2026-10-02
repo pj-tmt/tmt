@@ -1,3 +1,4 @@
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -31,9 +32,7 @@ describe('non-Office extension API delivery', { concurrent: false }, () => {
           fs.writeFileSync(input, JSON.stringify(request));
           const extension = path.join(fixture.wrapperDir, 'tmt-teamchat');
           // The fixture owns this path; all argument/data handling is done by TMT.
-          fs.writeFileSync(extension, `#!/bin/sh\nexec "$TMT_EXECUTABLE" api < '${input}'\n`, {
-            mode: 0o700,
-          });
+          writeExecutable(extension, `#!/bin/sh\nexec "$TMT_EXECUTABLE" api < '${input}'\n`, 0o700);
           const first = expectJsonResult(
             await fixture.runCli<{
               operationId: string;

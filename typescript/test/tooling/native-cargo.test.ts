@@ -1,3 +1,4 @@
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,16 +20,19 @@ function createFakeCargo(sandbox: Sandbox, exitCode = 0): FakeCargo {
   const recorder = path.join(sandbox.root, 'fake cargo recorder "quoted".mjs');
   const executable = path.join(sandbox.root, 'fake cargo "quoted"');
   const argsFile = path.join(sandbox.root, 'fake cargo args.json');
-  fs.writeFileSync(
+  writeExecutable(
     recorder,
     `import { writeFileSync } from 'node:fs';
 writeFileSync(process.env.TMT_NATIVE_ARGS_FILE, JSON.stringify(process.argv.slice(2)));
 process.exit(Number(process.env.TMT_TEST_STATUS));
-`
+`,
+    0o644
   );
-  fs.writeFileSync(executable, '#!/bin/sh\nexec "$TMT_TEST_NODE" "$TMT_TEST_RECORDER" "$@"\n', {
-    mode: 0o755,
-  });
+  writeExecutable(
+    executable,
+    '#!/bin/sh\nexec "$TMT_TEST_NODE" "$TMT_TEST_RECORDER" "$@"\n',
+    0o755
+  );
   sandbox.env.TMT_TEST_NODE = process.execPath;
   sandbox.env.TMT_TEST_RECORDER = recorder;
   sandbox.env.TMT_NATIVE_ARGS_FILE = argsFile;
@@ -117,7 +121,7 @@ describe('native cargo wrapper', () => {
   it('rejects an absolute non-executable cargo target', async () => {
     await withSandbox(async (sandbox) => {
       const target = path.join(sandbox.root, 'cargo target with spaces');
-      fs.writeFileSync(target, 'not executable\n', { mode: 0o644 });
+      writeExecutable(target, 'not executable\n', 0o644);
       sandbox.env.TMT_NATIVE_REAL_CARGO = target;
 
       const result = await runWrapper(sandbox, []);

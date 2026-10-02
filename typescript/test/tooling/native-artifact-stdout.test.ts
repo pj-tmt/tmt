@@ -1,4 +1,5 @@
-import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -8,7 +9,7 @@ const roots: string[] = [];
 
 function tool(directory: string, name: string, source: string) {
   const target = path.join(directory, name);
-  writeFileSync(target, `#!/bin/sh\nset -eu\n${source}\n`, { mode: 0o700 });
+  writeExecutable(target, `#!/bin/sh\nset -eu\n${source}\n`, 0o700);
 }
 
 afterEach(() => {
@@ -32,7 +33,11 @@ describe('native artifact stdout', () => {
     mkdirSync(path.dirname(manifestPath), { recursive: true });
     writeFileSync(manifestPath, '# Selected package fixture\n');
     const script = path.join(root, 'scripts/build-native-artifact.sh');
-    copyFileSync(path.resolve('../scripts/build-native-artifact.sh'), script);
+    writeExecutable(
+      script,
+      readFileSync(path.resolve('../scripts/build-native-artifact.sh')),
+      statSync(path.resolve('../scripts/build-native-artifact.sh')).mode & 0o777
+    );
     tool(
       bin,
       'corepack',

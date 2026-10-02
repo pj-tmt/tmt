@@ -1,5 +1,4 @@
 import {
-  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -10,6 +9,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
@@ -51,11 +51,9 @@ function machine(sandbox: Sandbox): string {
   mkdirSync(bin);
   symlinkSync(sandbox.cli.executable, path.join(bin, 'tmt'));
   for (const agent of ['claude', 'codex']) {
-    writeFileSync(path.join(bin, agent), `#!/bin/sh\ntouch "$HOME/ran-${agent}"\n`);
-    chmodSync(path.join(bin, agent), 0o755);
+    writeExecutable(path.join(bin, agent), `#!/bin/sh\ntouch "$HOME/ran-${agent}"\n`, 0o755);
   }
-  writeFileSync(path.join(bin, 'agy'), '#!/bin/sh\n');
-  chmodSync(path.join(bin, 'agy'), 0o644);
+  writeExecutable(path.join(bin, 'agy'), '#!/bin/sh\n', 0o644);
   mkdirSync(path.join(sandbox.home, '.gemini'));
   mkdirSync(path.join(sandbox.home, '.claude'));
   writeFileSync(path.join(sandbox.home, '.claude', 'settings.json'), CLAUDE_ORIGINAL);

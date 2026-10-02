@@ -1,6 +1,7 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import Database from 'better-sqlite3';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { expectJsonResult } from './cli-assertions.js';
@@ -100,9 +101,7 @@ if [ "$1" = "--resume" ]; then
 fi
 exec /opt/tmt-tests/claude "$@"
 `;
-      execFileSync('/bin/sh', ['-c', 'cat > "$1" && chmod 700 "$1"', 'sh', fake], {
-        input: script,
-      });
+      writeExecutable(fake, script, 0o700);
       const home = path.join(fixture.root, 'auto-home');
       mkdirSync(home);
       const status = path.join(fixture.root, 'auto.status');
@@ -174,9 +173,7 @@ exec /opt/tmt-tests/claude "$@"
     await withE2EFixture(async (fixture) => {
       const pane = fixture.createShellPane('auto-spawn-failure').pane;
       const fake = path.join(fixture.wrapperDir, 'claude');
-      execFileSync('/bin/sh', ['-c', 'cat > "$1" && chmod 700 "$1"', 'sh', fake], {
-        input: '#!/nonexistent-tmt-fixture-interpreter\n',
-      });
+      writeExecutable(fake, '#!/nonexistent-tmt-fixture-interpreter\n', 0o700);
       const failed = await fixture.runCli(['run', 'claude'], { pane });
       expect(failed.code).toBe(1);
       expect(failed.stderr).toContain('Could not start');
@@ -215,9 +212,7 @@ exec /opt/tmt-tests/claude "$@"
       const pane = fixture.createShellPane('auto-collision').pane;
       expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'claude']));
       const fake = path.join(fixture.wrapperDir, 'claude');
-      execFileSync('/bin/sh', ['-c', 'cat > "$1" && chmod 700 "$1"', 'sh', fake], {
-        input: '#!/bin/sh\nexit 17\n',
-      });
+      writeExecutable(fake, '#!/bin/sh\nexit 17\n', 0o700);
       for (const [label, args, code] of [
         ['bare', ['run', 'claude'], '5'],
         ['flags', ['run', 'claude', '--model', 'anything'], '5'],
@@ -238,10 +233,10 @@ exec /opt/tmt-tests/claude "$@"
       const pane = fixture.createShellPane('run-resume').pane;
       const callsFile = path.join(fixture.root, 'resume-calls.jsonl');
       const fake = path.join(fixture.wrapperDir, 'claude');
-      writeFileSync(
+      writeExecutable(
         fake,
         `#!${process.execPath}\nrequire('node:fs').appendFileSync(${JSON.stringify(callsFile)}, JSON.stringify(process.argv.slice(2)) + String.fromCharCode(10));\nprocess.exit(process.argv.includes('--resume') ? Number(process.env.RESUME_EXIT ?? 31) : 0);\n`,
-        { mode: 0o700 }
+        0o700
       );
       // A private HOME for the provider settings the stale check reads, so the
       // shared container home never gains hooks.
@@ -386,10 +381,10 @@ exec /opt/tmt-tests/claude "$@"
       const pane = fixture.createShellPane('run-signals').pane;
       const ready = path.join(fixture.root, 'signal-ready.json');
       const fake = path.join(fixture.wrapperDir, 'signal-harness');
-      writeFileSync(
+      writeExecutable(
         fake,
         `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(ready)}, JSON.stringify({ child: process.pid, owner: process.ppid }));\nsetInterval(() => {}, 1000);\n`,
-        { mode: 0o700 }
+        0o700
       );
       const firstStatus = path.join(fixture.root, 'interrupt.status');
       submit(fixture, pane, ['run', '-s', 'Signals', fake], firstStatus);
@@ -481,7 +476,7 @@ exec /opt/tmt-tests/claude "$@"
       const fake = path.join(fixture.wrapperDir, 'claude');
       // A deterministic executable named claude exercises recognition, not a
       // provider installation. The container never invokes a real model.
-      writeFileSync(
+      writeExecutable(
         fake,
         `#!${process.execPath}
 const fs = require('node:fs');
@@ -489,7 +484,7 @@ const descriptors = fs.readdirSync('/proc/self/fd').flatMap(fd => { try { return
 fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ pid: process.pid, owner: process.ppid, argv: process.argv.slice(2), tty: [!!process.stdin.isTTY, !!process.stdout.isTTY, !!process.stderr.isTTY], descriptors }) + String.fromCharCode(10));
 process.exit(23);
 `,
-        { mode: 0o700 }
+        0o700
       );
       const args = [
         '--resume',

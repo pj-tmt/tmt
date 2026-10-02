@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import {
   chmodSync,
   existsSync,
@@ -7,8 +6,9 @@ import {
   realpathSync,
   rmSync,
   statSync,
-  writeFileSync,
 } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseWholeStdout, runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
@@ -46,8 +46,7 @@ function install(sandbox: Sandbox): Fixture {
   mkdirSync(bin, { mode: 0o755 });
   chmodSync(bin, 0o755);
   const executable = path.join(bin, 'tmt-fixture');
-  writeFileSync(executable, FIXTURE);
-  chmodSync(executable, 0o755);
+  writeExecutable(executable, FIXTURE, 0o755);
   const log = path.join(sandbox.root, 'observed.log');
   sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
   sandbox.env.FIXTURE_LOG = log;
@@ -177,8 +176,7 @@ describe('consented extension hooks', () => {
       await room(sandbox, 'First');
       expect(observed(fixture).length).toBe(1);
 
-      writeFileSync(fixture.executable, `${FIXTURE}# changed\n`);
-      chmodSync(fixture.executable, 0o755);
+      writeExecutable(fixture.executable, `${FIXTURE}# changed\n`, 0o755);
       await room(sandbox, 'After change');
       expect(observed(fixture).length).toBe(1);
 
@@ -190,8 +188,7 @@ describe('consented extension hooks', () => {
       await room(sandbox, 'Uninstalled');
       expect(observed(fixture).length).toBe(2);
 
-      writeFileSync(fixture.executable, FIXTURE);
-      chmodSync(fixture.executable, 0o755);
+      writeExecutable(fixture.executable, FIXTURE, 0o755);
       await cli(sandbox, ['extension', 'hooks', 'enable', 'fixture']);
       expect(await cli(sandbox, ['extension', 'hooks', 'disable', 'fixture'])).toEqual({
         name: 'fixture',

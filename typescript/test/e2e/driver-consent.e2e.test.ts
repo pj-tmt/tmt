@@ -1,3 +1,4 @@
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -26,8 +27,7 @@ function writeDriver(fixture: E2EFixture): string {
   const directory = fixture.createWorkspace('fake-driver');
   fs.chmodSync(directory, 0o755);
   const driver = path.join(directory, 'tmt-driver-fake');
-  fs.writeFileSync(driver, '#!/bin/sh\ncat "$(dirname "$0")/capabilities"\n', { mode: 0o755 });
-  fs.chmodSync(driver, 0o755);
+  writeExecutable(driver, '#!/bin/sh\ncat "$(dirname "$0")/capabilities"\n', 0o755);
   fs.writeFileSync(path.join(directory, 'capabilities'), CAPABILITIES);
   return driver;
 }

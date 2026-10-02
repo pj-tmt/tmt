@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { withE2EFixture } from './harness.js';
@@ -14,20 +15,20 @@ describe('interactive shell completion', { concurrent: false }, () => {
         const executable = [fixture.executables.cli.executable, ...fixture.executables.cli.args]
           .map(quote)
           .join(' ');
-        writeFileSync(
+        writeExecutable(
           path.join(fixture.wrapperDir, 'tmt'),
           `#!/bin/sh\nexec ${executable} "$@"\n`,
-          { mode: 0o700 }
+          0o700
         );
-        writeFileSync(
+        writeExecutable(
           path.join(fixture.wrapperDir, 'tmt-fixture-command'),
           '#!/bin/sh\nexit 98\n',
-          { mode: 0o700 }
+          0o700
         );
-        writeFileSync(
+        writeExecutable(
           path.join(fixture.wrapperDir, 'tmt-vault'),
           '#!/bin/sh\n[ "$1" = __complete ] && [ "$2" = -- ] || exit 99\ncase "$3" in --cho*) printf "%s\\n" --choice ;; lit*) printf "%s\\n" "literal value" ;; esac\n',
-          { mode: 0o700 }
+          0o700
         );
         const created = await fixture.runCli(['identity', 'create', 'Alice Example', '--json'], {
           withoutTmux: true,
@@ -43,7 +44,7 @@ describe('interactive shell completion', { concurrent: false }, () => {
         // Publish the complete buffer, not the transient empty file after redirection.
         const publishCapture = `mv ${quote(pendingCapture)} ${quote(capture)}`;
         const forbidden = path.join(fixture.root, `forbidden-${shell}`);
-        writeFileSync(completionFile, generated.stdout);
+        writeExecutable(completionFile, generated.stdout, 0o644);
         const common = `source ${quote(completionFile)}\n`;
         const captureAction = `printf '%s' "$READLINE_LINE" > ${quote(pendingCapture)} && ${publishCapture}`;
         const setup =
@@ -75,7 +76,7 @@ set -gx TMT_E2E_FORBID_TMUX 1
 set -gx TMT_E2E_FORBIDDEN_TMUX_LOG ${quote(forbidden)}
 printf ready > ${quote(ready)}
 `;
-        writeFileSync(setupFile, setup);
+        writeExecutable(setupFile, setup, 0o644);
         const pane = fixture.createShellPane(`completion-${shell}`).pane;
         if (shell !== 'bash') {
           fixture.tmux([

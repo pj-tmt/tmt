@@ -1,6 +1,7 @@
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -484,11 +485,11 @@ describe('release-draft-assets.mjs', () => {
     const directory = mkdtempSync(path.join(root, 'cli-'));
     const bin = path.join(directory, 'bin');
     mkdirSync(bin);
-    writeFileSync(
+    writeExecutable(
       path.join(bin, 'gh'),
-      `#!/bin/sh\necho '${JSON.stringify([[draft('v5.0.0-alpha.9', ['verification-failed.json'])]])}'\n`
+      `#!/bin/sh\necho '${JSON.stringify([[draft('v5.0.0-alpha.9', ['verification-failed.json'])]])}'\n`,
+      0o755
     );
-    chmodSync(path.join(bin, 'gh'), 0o755);
     const output = path.join(directory, 'output');
     writeFileSync(output, '');
     const run = (args: string[]) =>
@@ -515,11 +516,11 @@ describe('release-draft-assets.mjs', () => {
     const directory = mkdtempSync(path.join(root, 'awaiting-'));
     const bin = path.join(directory, 'bin');
     mkdirSync(bin);
-    writeFileSync(
+    writeExecutable(
       path.join(bin, 'gh'),
-      `#!/bin/sh\necho '${JSON.stringify([[draft('v5.0.0-alpha.9', ['release-publication.json'])]])}'\n`
+      `#!/bin/sh\necho '${JSON.stringify([[draft('v5.0.0-alpha.9', ['release-publication.json'])]])}'\n`,
+      0o755
     );
-    chmodSync(path.join(bin, 'gh'), 0o755);
     const output = path.join(directory, 'output');
     writeFileSync(output, '');
     const result = spawnSync('node', [script, 'check', '--tag', 'v5.0.0-alpha.9'], {

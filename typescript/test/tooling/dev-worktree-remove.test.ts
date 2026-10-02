@@ -1,5 +1,6 @@
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,11 +24,11 @@ async function withScratch(run: (scratch: Scratch) => void | Promise<void>) {
     const bin = path.join(root, 'bin');
     mkdirSync(bin);
     // The fake `gh` reports FAKE_PR_STATE, or fails when FAKE_GH=fail.
-    writeFileSync(
+    writeExecutable(
       path.join(bin, 'gh'),
-      '#!/bin/sh\n[ "${FAKE_GH:-}" = fail ] && exit 1\nprintf "%s\\n" "${FAKE_PR_STATE:-OPEN}"\n'
+      '#!/bin/sh\n[ "${FAKE_GH:-}" = fail ] && exit 1\nprintf "%s\\n" "${FAKE_PR_STATE:-OPEN}"\n',
+      0o755
     );
-    chmodSync(path.join(bin, 'gh'), 0o755);
     const env: NodeJS.ProcessEnv = {
       PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
       HOME: root,

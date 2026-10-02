@@ -1,5 +1,6 @@
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,11 +13,11 @@ const dockerfile = readFileSync(path.join(typescript, 'test/e2e/Dockerfile'), 'u
 let root: string;
 beforeAll(() => {
   root = mkdtempSync(path.join(os.tmpdir(), 'e2e-selection-'));
-  writeFileSync(
+  writeExecutable(
     path.join(root, 'pnpm'),
-    '#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)));\n'
+    '#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)));\n',
+    0o755
   );
-  chmodSync(path.join(root, 'pnpm'), 0o755);
 });
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 

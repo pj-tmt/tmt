@@ -1,14 +1,14 @@
 import {
   existsSync,
   lstatSync,
+  mkdirSync,
   readFileSync,
   readlinkSync,
   realpathSync,
-  writeFileSync,
-  chmodSync,
-  mkdirSync,
   symlinkSync,
+  writeFileSync,
 } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
@@ -101,8 +101,7 @@ describe('tmt extension install surface', () => {
       // A foreign same-named command elsewhere on PATH is reported, never run.
       const foreign = path.join(sandbox.root, 'foreign bin');
       mkdirSync(foreign);
-      writeFileSync(path.join(foreign, 'tmt-sq'), '#!/bin/sh\nexit 7\n');
-      chmodSync(path.join(foreign, 'tmt-sq'), 0o755);
+      writeExecutable(path.join(foreign, 'tmt-sq'), '#!/bin/sh\nexit 7\n', 0o755);
       // A controlled PATH: never the user's own installed commands.
       sandbox.env.PATH = [path.join(prefix, 'bin'), foreign, '/usr/bin', '/bin'].join(':');
       const listed = parseWholeStdout(await cli(['extension', 'list', '--prefix', prefix]));

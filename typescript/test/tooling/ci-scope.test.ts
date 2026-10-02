@@ -1,13 +1,13 @@
 import {
-  chmodSync,
-  mkdtempSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
-  writeFileSync,
-  rmSync,
   renameSync,
+  rmSync,
+  writeFileSync,
 } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -622,7 +622,7 @@ describe('remote Rust retains full CI coverage', () => {
     try {
       // Exercise the committed shell, including errexit; the real workspace test run is
       // integration evidence, while this injected Cargo proves empty/failure paths.
-      writeFileSync(
+      writeExecutable(
         path.join(root, 'cargo'),
         `#!/bin/sh
 printf '%s\\n' "$*" >> "$CALLS"
@@ -630,9 +630,9 @@ case "$*" in
   'test --locked -p tmt-remote -- --list') printf '%s\\n' "$DISCOVERY"; exit "$LIST_STATUS" ;;
   'test --locked --workspace') exit "$TEST_STATUS" ;;
 esac
-`
+`,
+        0o755
       );
-      chmodSync(path.join(root, 'cargo'), 0o755);
       runPackedCommand('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', script], {
         cwd: root,
         env: {
@@ -1244,11 +1244,11 @@ describe('frozen Office process selection', () => {
     expect(config).not.toContain('passWithNoTests');
     const root = mkdtempSync(path.join(tmpdir(), 'tmt-office-ci-'));
     try {
-      writeFileSync(
+      writeExecutable(
         path.join(root, 'pnpm'),
-        '#!/bin/sh\nprintf "%s\\n" "$@" > "$CALLS"\nexit "$TEST_STATUS"\n'
+        '#!/bin/sh\nprintf "%s\\n" "$@" > "$CALLS"\nexit "$TEST_STATUS"\n',
+        0o755
       );
-      chmodSync(path.join(root, 'pnpm'), 0o755);
       for (const status of [0, 7]) {
         runPackedCommand('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', script], {
           cwd: root,

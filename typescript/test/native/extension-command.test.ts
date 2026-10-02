@@ -1,4 +1,5 @@
-import { chmodSync, existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
@@ -7,8 +8,7 @@ function extension(sandbox: Sandbox, name: string, script: string): string {
   const directory = path.join(sandbox.root, 'extension bin');
   mkdirSync(directory, { recursive: true });
   const file = path.join(directory, `tmt-${name}`);
-  writeFileSync(file, `#!/bin/sh\n${script}\n`);
-  chmodSync(file, 0o700);
+  writeExecutable(file, `#!/bin/sh\n${script}\n`, 0o700);
   sandbox.env.PATH = `${directory}${path.delimiter}${sandbox.env.PATH ?? ''}`;
   return file;
 }
@@ -129,7 +129,7 @@ describe('PATH extension command contract', () => {
       expect(signaled.status).toBeNull();
       expect(signaled.signal).toBe('SIGTERM');
       const broken = extension(sandbox, 'broken', 'exit 0');
-      writeFileSync(broken, '#!/nonexistent-tmt-fixture-interpreter\n');
+      writeExecutable(broken, '#!/nonexistent-tmt-fixture-interpreter\n', 0o700);
       const result = await runCli(sandbox, ['broken']);
       expect(result.status).toBe(1);
       expect(result.stderr).toContain('Could not execute extension');

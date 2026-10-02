@@ -1,3 +1,4 @@
+import { writeExecutable } from './executable-fixture.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { CliExecutable } from './cli-executable.mjs';
@@ -12,7 +13,7 @@ export function createCliProbe(
 } {
   const executable = path.join(root, "CLI probe's executable");
   const log = path.join(root, 'CLI invocations');
-  fs.writeFileSync(
+  writeExecutable(
     executable,
     `#!/bin/sh
 log="$1"
@@ -22,7 +23,7 @@ shift
 printf '%s\\0' '__TMT_PROBE_INVOCATION__' "$@" >> "$log"
 exec "$@"
 `,
-    { mode: 0o755 }
+    0o755
   );
   return {
     descriptor: {

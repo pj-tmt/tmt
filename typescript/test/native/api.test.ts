@@ -1,6 +1,7 @@
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
@@ -85,8 +86,7 @@ describe('public local extension API', () => {
       const bin = path.join(sandbox.root, 'bin');
       mkdirSync(bin);
       const extension = path.join(bin, 'tmt-teamchat');
-      writeFileSync(extension, '#!/bin/sh\nexec "$TMT_EXECUTABLE" api\n');
-      chmodSync(extension, 0o700);
+      writeExecutable(extension, '#!/bin/sh\nexec "$TMT_EXECUTABLE" api\n', 0o700);
       sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
       const request = JSON.stringify({ version: 1, operation: 'capabilities', input: {} });
       const result = await runCli(sandbox, ['teamchat'], { stdin: request });

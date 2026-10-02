@@ -1,6 +1,4 @@
-import { createHash } from 'node:crypto';
 import {
-  chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
@@ -9,6 +7,8 @@ import {
   readdirSync,
   writeFileSync,
 } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -63,8 +63,7 @@ async function createFixture(
   const archive = path.join(fixtureRoot, name);
   const manifest = path.join(fixtureRoot, 'dist-manifest.json');
   mkdirSync(root, { recursive: true });
-  writeFileSync(path.join(root, 'tmt'), stubExecutable(), { mode: 0o755 });
-  chmodSync(path.join(root, 'tmt'), 0o755);
+  writeExecutable(path.join(root, 'tmt'), stubExecutable(), 0o755);
   for (const file of REQUIRED_FILES.slice(1)) {
     // A companion is never run here; it only has to be an executable file.
     const companion = COMPANIONS.includes(file);
@@ -92,6 +91,11 @@ async function createFixture(
   return { archive, manifest, version, target };
 }
 
+const executableWriter = fileURLToPath(
+  new URL('../support/executable-fixture.mjs', import.meta.url)
+);
+const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+
 function stubExecutable(): string {
   return `#!/bin/sh
 set -eu
@@ -108,8 +112,7 @@ done
 case "$command" in
   __native-install)
     mkdir -p "$prefix/bin"
-    cp "$0" "$prefix/bin/tmt"
-    chmod 755 "$prefix/bin/tmt"
+    ${shellQuote(process.execPath)} ${shellQuote(executableWriter)} --write "$prefix/bin/tmt" 493 < "$0"
     printf '%s\\n' '{"installed":true}'
     ;;
   install)
@@ -164,14 +167,12 @@ elif [ "\${TMT_BOOTSTRAP_CORRUPT-}" = archive ] && printf '%s' "$url" | grep -q 
 fi
 `;
   const target = path.join(directory, 'curl');
-  writeFileSync(target, script, { mode: 0o755 });
-  chmodSync(target, 0o755);
+  writeExecutable(target, script, 0o755);
 }
 
 function writeUnameFixture(directory: string): void {
   const target = path.join(directory, 'uname');
-  writeFileSync(target, '#!/bin/sh\nprintf "%s\\n" "Plan9"\n', { mode: 0o755 });
-  chmodSync(target, 0o755);
+  writeExecutable(target, '#!/bin/sh\nprintf "%s\\n" "Plan9"\n', 0o755);
 }
 
 async function runBootstrap(
@@ -197,8 +198,7 @@ async function runBootstrap(
   const stage = mkdtempSync(path.join(sandbox.root, 'bootstrap-tmp-'));
   const fakeBin = mkdtempSync(path.join(sandbox.root, 'bootstrap-tools-'));
   const installer = path.join(sandbox.root, 'native-bootstrap.sh');
-  writeFileSync(installer, script, { mode: 0o700 });
-  chmodSync(installer, 0o700);
+  writeExecutable(installer, script, 0o700);
   writeCurlFixture(fakeBin);
   if (options.unsupportedPlatform) writeUnameFixture(fakeBin);
   const prefix = options.prefix ?? path.join(sandbox.home, '.local');

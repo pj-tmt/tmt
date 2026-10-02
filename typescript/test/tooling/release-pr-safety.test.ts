@@ -1,5 +1,6 @@
-import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -501,10 +502,10 @@ describe('workflow safety wiring', () => {
   it('preserves github-release after the draft skip, in both live and dry-run mode', () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'tmt-release-draft-loop-'));
     try {
-      writeFileSync(
+      writeExecutable(
         path.join(directory, 'node'),
         '#!/bin/sh\ncase "$1" in\n*/release-please-queue.mjs) echo run ;;\n*/release-please-run.mjs) echo "$2" >> "$RUNNER_TEMP/commands" ;;\nesac\n',
-        { mode: 0o700 }
+        0o700
       );
       for (const live of ['true', 'false']) {
         const commands = path.join(directory, 'commands');
@@ -549,10 +550,10 @@ describe('workflow safety wiring', () => {
         body: 'not transported',
       }));
       const allHeld = heldPaths.length === Object.keys(current).length;
-      writeFileSync(
+      writeExecutable(
         path.join(directory, 'gh'),
         `#!${process.execPath}\nif (process.env.GH_TOKEN !== 'fixture') process.exit(23);\nconsole.log(JSON.stringify(process.argv[3].includes('/releases?') ? ${JSON.stringify(drafts)} : []));\n`,
-        { mode: 0o700 }
+        0o700
       );
       const output = path.join(directory, 'output'),
         summary = path.join(directory, 'summary');
