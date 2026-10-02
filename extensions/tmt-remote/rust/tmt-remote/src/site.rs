@@ -1,7 +1,9 @@
-//! The door's handler: `/x/<extension>/` mounts, everything else the remote binding.
+//! The door's handler: `/x/<extension>/` mounts, `/pair/` and `/sdk/` browser
+//! assets, and everything else the remote binding.
 use crate::{
     http::{Handler, Head, Reply, Request},
     mount::Mounts,
+    pages::Pages,
     routes::Routes,
 };
 use std::net::TcpStream;
@@ -9,6 +11,8 @@ use std::net::TcpStream;
 pub struct Site {
     pub routes: Routes,
     pub mounts: Mounts,
+    /// Present while serve can pair browsers; without it those paths are 404.
+    pub pages: Option<Pages>,
 }
 fn mounted(path: &str) -> bool {
     path.starts_with("/x/")
@@ -17,6 +21,10 @@ impl Handler for Site {
     fn admit(&self, head: &Head<'_>) -> Result<usize, Reply> {
         if mounted(head.path) {
             self.mounts.admit(head)
+        } else if Pages::serves(head.path) {
+            self.pages
+                .as_ref()
+                .map_or(Err(Reply::empty(404)), |pages| pages.admit(head))
         } else {
             self.routes.admit(head)
         }
@@ -24,6 +32,10 @@ impl Handler for Site {
     fn handle(&self, request: Request, client: &mut TcpStream) -> Option<Reply> {
         if mounted(&request.path) {
             self.mounts.handle(request, client)
+        } else if Pages::serves(&request.path) {
+            Some(self.pages.as_ref().map_or(Reply::empty(404), |pages| {
+                pages.handle(&request, &self.mounts)
+            }))
         } else {
             self.routes.handle(request, client)
         }

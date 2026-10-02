@@ -143,6 +143,10 @@ jobs:
         run: |
           pnpm --filter @tmt/remote-client --fail-if-no-match check
           pnpm --filter @tmt/remote-client --fail-if-no-match test
+          # The door embeds the built SDK module; it must match its TypeScript source.
+          pnpm --filter @tmt/remote-client --fail-if-no-match build
+          git diff --exit-code -- ../extensions/tmt-remote/rust/tmt-remote/assets/
+          test -z "$(git status --porcelain -- ../extensions/tmt-remote/rust/tmt-remote/assets/)"
 
       - name: Install locked colab-client tools
         working-directory: typescript

@@ -16,6 +16,7 @@ use tmt_remote::{
     error::RemoteError,
     http::{Door, Handler},
     mount::Mounts,
+    pages::Pages,
     pairing::{Pairing, Timing},
     routes::Routes,
     session::{self, DoorSessions},
@@ -165,7 +166,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         ));
         let sessions = Arc::new(DoorSessions::new(
             machine.id.clone(),
-            window_id,
+            window_id.clone(),
             door.origin.clone(),
             machine_key,
             Arc::clone(&store),
@@ -187,6 +188,12 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         let site = Arc::new(Site {
             routes,
             mounts: Mounts::new(root, &door.origin, sessions),
+            pages: Some(Pages::new(
+                &door.origin,
+                machine.id.clone(),
+                window_id.clone(),
+                &machine.route_prefix,
+            )),
         });
         let json_output = serve.get_flag("json");
         let mut output = tmt_cli_style::stream::stdout(json_output);

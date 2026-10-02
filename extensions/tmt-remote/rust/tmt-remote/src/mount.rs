@@ -260,6 +260,11 @@ impl Mounts {
             tunnels.running.push((retained, thread));
         }
     }
+    /// The allowlisted extension whose mount contains `path`, from the door's
+    /// own mapping; the SDK uses it to scope a page's extension certificates.
+    pub fn extension_of(&self, path: &str) -> Option<&'static str> {
+        self.extension(path).map(|(_, extension, _)| extension.name)
+    }
     /// `/x/<name>/<rest>` for an allowlisted name; `rest` keeps its leading slash.
     fn extension<'a>(&self, path: &'a str) -> Option<(usize, &'static Extension, &'a str)> {
         let (name, _) = path.strip_prefix("/x/")?.split_once('/')?;

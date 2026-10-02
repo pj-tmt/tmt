@@ -166,6 +166,7 @@ impl Mounted {
         let site = Arc::new(Site {
             routes,
             mounts: Mounts::with_extensions(root.clone(), &origin, sessions, extensions),
+            pages: None,
         });
         let stop = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&stop);

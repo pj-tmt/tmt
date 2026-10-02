@@ -9,9 +9,10 @@ fn fixtures() -> Value {
     .unwrap()
 }
 fn bytes(hex: &str) -> Vec<u8> {
-    hex.as_bytes()
-        .chunks_exact(2)
-        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+    assert_eq!(hex.len() % 2, 0, "whole bytes");
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
         .collect()
 }
 fn text<'a>(v: &'a Value, key: &str) -> &'a str {

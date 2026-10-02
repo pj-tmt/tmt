@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en" data-tmt-page="pair">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pair this browser</title>
+    <script type="module" src="/sdk/remote-v1.js"></script>
+  </head>
+  <body>
+    <h1>Pair this browser with tmt remote</h1>
+    <form id="pair">
+      <label>Device name <input id="name" maxlength="64" required value="Browser" /></label>
+      <button type="submit">Pair</button>
+    </form>
+    <p id="words" hidden></p>
+    <p id="status" role="status"></p>
+  </body>
+</html>

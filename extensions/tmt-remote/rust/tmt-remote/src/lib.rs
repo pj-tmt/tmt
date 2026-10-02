@@ -8,6 +8,7 @@ pub mod error;
 pub mod http;
 pub mod limits;
 pub mod mount;
+pub mod pages;
 pub mod pairing;
 pub mod routes;
 pub mod session;
