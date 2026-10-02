@@ -524,3 +524,22 @@ fn write_report(
     };
     message::hint(output, terminal, &hint)
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
+    &[crate::cli_style_tests::HintSpec::skipped(
+        "{option} takes the UUID that talk or tmt channel inspect printed, not {value:?}.",
+        "Executable or option reference in prose, not a full command suggestion.",
+    )];
+
+// These hints are composed by the existing adapter formatter, not CLI literals.
+#[cfg(test)]
+pub(crate) fn hint_commands() -> Vec<String> {
+    let binding = "1071f0fc-45f2-4ebc-94ed-05d98e204dcd";
+    let generation = "8426cd67-a6ec-4ba8-aafd-a90e27cd2935";
+    vec![
+        inspect_command(binding),
+        recover_command(binding, generation),
+    ]
+}

@@ -546,3 +546,17 @@ pub(super) fn warnings(
         _ => Ok(()),
     }
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core("In pane {pane}, run: tmt this {}", &[""], &[]),
+    crate::cli_style_tests::HintSpec::core("tmt add {label} <name>", &[""], &[]),
+    crate::cli_style_tests::HintSpec::core("tmt name <name>", &[""], &[]),
+    crate::cli_style_tests::HintSpec::core(
+        "{} reads as a pane target; rename it: tmt mv {} <name>",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core("{} tmt resume {}", &[""], &[]),
+];

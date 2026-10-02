@@ -65,7 +65,7 @@ describe('read-only identity context through verified callers', { concurrent: fa
             originated: { count: 0, inspect: `tmt x --identity '${bound.json!.id}' --json` },
             incoming: {
               count: 0,
-              inspect: `tmt x --incoming --identity '${bound.json!.id}' --json`,
+              inspect: `tmt inbox --identity '${bound.json!.id}' --json`,
             },
           },
         });

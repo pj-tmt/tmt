@@ -124,3 +124,9 @@ pub(crate) fn render_prompt(
 pub(crate) fn unbound_text() -> io::Result<String> {
     presentation::bounded(presentation::unbound(), false)
 }
+
+#[cfg(test)]
+pub(crate) use presentation::hint_commands;
+
+#[cfg(test)]
+pub(crate) use presentation::PRINTED_HINTS as PRESENTATION_HINTS;

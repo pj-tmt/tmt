@@ -79,12 +79,9 @@ fn retry_guidance_retains_an_explicit_pin() {
         },
         skipped_pinned: false,
     };
-    assert_eq!(
-        retry_hint(&report),
-        "Run the current managed tmt upgrade to retry."
-    );
+    assert_eq!(retry_hint(&report), "tmt upgrade");
     report.state.pinned_version = Some(report.state.version.clone());
-    assert!(retry_hint(&report).contains("upgrade --to 5.0.0"));
+    assert_eq!(retry_hint(&report), "tmt upgrade --to 5.0.0");
 }
 
 #[test]

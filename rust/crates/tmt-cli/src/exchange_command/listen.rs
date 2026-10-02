@@ -331,6 +331,21 @@ fn write_incoming(
     Ok(())
 }
 
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "tmt x ack {request}{qualifier} --revision {} --identity {selector}",
+        &[""],
+        &[("{qualifier}", " --incoming"), ("{}", "1")],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "tmt x show {request}{qualifier} --identity {selector}",
+        &[""],
+        &[("{qualifier}", " --incoming"), ("{}", "1")],
+    ),
+];
+
 #[cfg(test)]
 mod tests {
     use super::{Step, Timing};

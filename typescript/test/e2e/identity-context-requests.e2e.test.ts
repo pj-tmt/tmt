@@ -76,7 +76,7 @@ describe('identity context request summaries', { concurrent: false }, () => {
           bound: true,
           id: reader.id,
           originated: { count: 1, inspect: `tmt x --identity '${reader.id}' --json` },
-          incoming: { count: 1, inspect: `tmt x --incoming --identity '${reader.id}' --json` },
+          incoming: { count: 1, inspect: `tmt inbox --identity '${reader.id}' --json` },
         });
         expect(result.stdout).not.toContain('private ');
         expect(result.stdout).not.toContain(detail.exchange.reply.receipt);

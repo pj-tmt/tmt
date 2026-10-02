@@ -51,3 +51,28 @@ pub fn execute(skill: Option<&str>) -> io::Result<u8> {
     }
     Ok(0)
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::skipped(
+        "  tmt name alice             Bind this pane temporarily; add -s to save it.\n  tmt add %14 reviewer       Bind another pane by stable ID.\n  tmt marked reviewer        Bind the pane explicitly marked in tmux.\n  tmt ls                     Show lifetime and verified presence.\n  tmt talk reviewer 'Review this patch' --timeout 300 --json\n  tmt talk reviewer 'Run the tests' --detach --json\n  tmt result <request-id> --json\n  tmt x ackall --identity coordinator\n  tmt config show --json\n",
+        "Bundled learn prose is outside printed hint commands and help Examples; installed guidance has its own verification.",
+    ),
+    crate::cli_style_tests::HintSpec::skipped(
+        "Outside tmux, use an existing --identity for attributed talk or x.\nCreate saved identities with tmt identity create <name>. Use talk --inbox for\na durable non-pane request and x listen for one bounded incoming wait. Reads\nnever ack.\n\nOptional local Office: inspect with tmt office. With a compatible installed\ncompanion, explicitly use tmt office start for a browser URL. Read\ntmt learn --skill tmt-office for guidance; terminal collaboration needs no Office.\n",
+        "Bundled learn prose is outside printed hint commands and help Examples; installed guidance has its own verification.",
+    ),
+    crate::cli_style_tests::HintSpec::skipped(
+        "Read tmt learn --skill for complete current safety and usage guidance.\nUse tmt help for options. Managed native installations use tmt upgrade; package-manager installations use their original manager.",
+        "Bundled learn prose is outside printed hint commands and help Examples; installed guidance has its own verification.",
+    ),
+    crate::cli_style_tests::HintSpec::skipped(
+        "Start with tmt install, then reload your agent's skills.",
+        "Bundled learn prose is outside printed hint commands and help Examples; installed guidance has its own verification.",
+    ),
+    crate::cli_style_tests::HintSpec::skipped(
+        "Talk waits for tmt reply, not terminal output. Use exactly the supplied\nrequest ID and receipt with reply --message, --file or --stdin. Submit the\ncomplete result before showing a brief truthful user summary. Timeout ends\nonly the observer; preserve the request ID and do not automatically resend.\n",
+        "Bundled learn prose is outside printed hint commands and help Examples; installed guidance has its own verification.",
+    ),
+];

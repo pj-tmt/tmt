@@ -161,3 +161,15 @@ fn run(
     }
     Ok(())
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
+    &[crate::cli_style_tests::HintSpec::core(
+        "run tmt setup {} again",
+        &[" again"],
+        &[("{}", "codex")],
+    )];
+
+#[cfg(test)]
+pub(crate) use guided::PRINTED_HINTS as GUIDED_HINTS;

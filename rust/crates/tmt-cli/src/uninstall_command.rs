@@ -403,6 +403,21 @@ fn report(plan: &Plan, removed: &[PathBuf], deleted: bool) -> serde_json::Value 
     })
 }
 
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "fix the cause, then run tmt uninstall again; completed steps are not repeated",
+        &[" again"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "run tmt office stop, then tmt uninstall again",
+        &[", then", " again"],
+        &[],
+    ),
+];
+
 #[cfg(test)]
 mod presentation_tests {
     use super::*;

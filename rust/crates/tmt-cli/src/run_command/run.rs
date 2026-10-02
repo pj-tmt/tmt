@@ -217,8 +217,9 @@ pub(super) fn run_bound(
                     5,
                 ));
             }
-            diagnostic(
-                "prior runtime evidence is unknown; automatic delivery will remain unavailable. After this command exits, run `tmt run` again to establish runtime ownership.",
+            super::warn(
+                "automatic delivery is off for this run: TMT can't confirm who owns this pane; retry after this command exits",
+                Some(&format!("tmt run {}", crate::output::shell_word(name))),
             );
             false
         } else {
@@ -559,3 +560,19 @@ fn finish(
         )
     })
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "'{name}' is both an identity and a registered command. Use `tmt run {name} {name}` to launch that identity, or `tmt run <new-name> {name}` for a new one.",
+        &["`", "`"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core("tmt run {}", &[""], &[]),
+    crate::cli_style_tests::HintSpec::core(
+        "tmt: {} name: {name}; name this agent with tmt this <name>",
+        &[""],
+        &[],
+    ),
+];

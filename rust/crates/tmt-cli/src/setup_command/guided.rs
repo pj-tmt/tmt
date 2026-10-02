@@ -416,3 +416,16 @@ fn closing_hint(output: &mut impl Write, terminal: Terminal) -> Result<(), Failu
     )
     .map_err(failure)
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
+    &[crate::cli_style_tests::HintSpec::core(
+        "tmt extension install {SUGGESTED_EXTENSION} adds the Squad board",
+        &[" adds the Squad board"],
+        &[
+            ("{name}", "squad"),
+            ("{}", "squad"),
+            ("{SUGGESTED_EXTENSION}", "squad"),
+        ],
+    )];

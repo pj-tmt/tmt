@@ -151,3 +151,9 @@ pub fn execute(
         Err(error) => error.publish(mode),
     }
 }
+
+#[cfg(test)]
+pub(crate) use listen::PRINTED_HINTS as LISTEN_HINTS;
+
+#[cfg(test)]
+pub(crate) use presentation::PRINTED_HINTS as PRESENTATION_HINTS;

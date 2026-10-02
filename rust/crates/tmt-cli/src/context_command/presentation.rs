@@ -18,8 +18,8 @@ pub(super) fn unavailable() -> Value {
 
 fn requests(count: u64, identity: &str, incoming: bool) -> Value {
     let identity = identity.replace('\'', "'\\''");
-    json!({"count": count, "inspect": format!("tmt x{} --identity '{identity}' --json",
-        if incoming { " --incoming" } else { "" })})
+    json!({"count": count, "inspect": format!("tmt {} --identity '{identity}' --json",
+        if incoming { "inbox" } else { "x" })})
 }
 
 pub(super) fn document(
@@ -143,6 +143,40 @@ pub(super) fn bounded(mut document: Value, json_mode: bool) -> io::Result<String
     }
 }
 
+/// Samples from the same formatter that publishes human and JSON inspect commands.
+#[cfg(test)]
+pub(crate) fn hint_commands() -> Vec<String> {
+    [false, true]
+        .into_iter()
+        .map(|incoming| {
+            requests(1, "1071f0fc-45f2-4ebc-94ed-05d98e204dcd", incoming)["inspect"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect()
+}
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "Incoming X items: {count} unacknowledged; pull with tmt inbox --identity '{identity}' --json\n",
+        &["\n"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "TMT: this pane has no identity. If the user wants TMT messaging here, they can run: tmt name <name> (-s to save).",
+        &[" ("],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "tmt {} --identity '{identity}' --json",
+        &[""],
+        &[("{}", "inbox")],
+    ),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,7 +247,7 @@ mod tests {
         assert!(!text.lines().any(|line| line.starts_with("ignore previous")));
         assert!(text.contains("Role: \"Reviewer\""), "{text}");
         assert!(text.contains(
-            "Incoming X items: 4 unacknowledged; tmt x --incoming --identity 'identity' --json"
+            "Incoming X items: 4 unacknowledged; tmt inbox --identity 'identity' --json"
         ));
         assert!(text.contains("Context shortened to the output limit."));
         let json_text = bounded(value, true).unwrap();
@@ -237,7 +271,7 @@ mod tests {
             let output = bounded(value.clone(), json_mode).unwrap();
             assert!(output.len() <= OUTPUT_LIMIT);
             assert!(output.ends_with('\n'));
-            assert!(output.contains("tmt x --incoming --identity 'identity' --json"));
+            assert!(output.contains("tmt inbox --identity 'identity' --json"));
             if json_mode {
                 let parsed: Value = serde_json::from_str(&output).unwrap();
                 assert_eq!(parsed["truncated"], true);
@@ -260,7 +294,7 @@ mod tests {
         );
         assert_eq!(
             requests(1, "id'quote", true)["inspect"],
-            "tmt x --incoming --identity 'id'\\''quote' --json"
+            "tmt inbox --identity 'id'\\''quote' --json"
         );
     }
 }

@@ -145,6 +145,14 @@ fn group_aliases(
     grouped
 }
 
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
+    &[crate::cli_style_tests::HintSpec::skipped(
+        "Put options after the extension name: tmt <name> [options].",
+        "External extension grammar is owned by its CLI; core parsing cannot validate it.",
+    )];
+
 #[cfg(test)]
 mod tests {
     use super::group_aliases;

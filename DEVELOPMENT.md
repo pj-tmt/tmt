@@ -1096,6 +1096,15 @@ The CLI style guards ([enforcement](design/cli-style.md#enforcement)) run in
 --locked -p tmt-squad cli_style` and the architecture test below. A failure
 prints the exact list entry to add or remove.
 
+The same core command runs the [printed command guard](design/cli-style.md#enforcement).
+When adding or changing a printed command template, update its presentation site's
+test-only `HintSpec` list. Supply explicit command boundaries, representative
+numeric or enum operands, and a reason for any external-command skip. Source
+coverage fails on missing and stale samples. The guard parses without executing;
+it also checks editable config keys through the pure settings policy. Its negative
+controls retain the original invalid context and config commands from #1014/#1015,
+plus unknown flags, subcommands and keys.
+
 The architecture guard is included in `cargo test`. A focused offline run is:
 
 ```bash
