@@ -360,7 +360,7 @@ fn prune_removes_only_proven_ended_and_never_unknown_or_live_evidence() {
 }
 
 #[test]
-fn recovery_names_exact_pane_foreground_and_safely_quotes_record_path() {
+fn recovery_names_exact_pane_foreground_and_the_exact_enrollment_to_recover() {
     let mut record = attributed();
     record.foreground = Foreground::Known(Process {
         pid: 99,
@@ -371,8 +371,17 @@ fn recovery_names_exact_pane_foreground_and_safely_quotes_record_path() {
     assert!(message.contains("pane \"%2\" (pid 8)"));
     assert!(message.contains("original foreground pid 99 start \"original-start\""));
     assert!(message.contains("owned app-server are gone"));
-    assert!(message.contains("rm -- '/owned/it'\\''s private/record.json'"));
-    assert!(message.contains("Recovery sends or pastes nothing"));
+    assert!(message.contains(&format!(
+        "tmt channel recover --binding {} --generation {}",
+        record.binding_id, record.generation
+    )));
+    assert!(message.contains("sends or pastes nothing"));
+    assert!(!message.contains("rm --"));
+}
+
+#[test]
+fn a_manual_removal_quotes_a_path_as_one_shell_word() {
+    let path = Path::new("/owned/it's private/record.json");
     // The shell decodes one exact argument; this fixture never executes rm.
     let decoded = std::process::Command::new("/bin/sh")
         .args([

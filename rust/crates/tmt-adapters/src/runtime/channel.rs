@@ -165,6 +165,171 @@ pub struct PaneEvidence {
     pub skipped: Vec<PathBuf>,
 }
 
+/// The part a recorded process played in an enrollment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessRole {
+    /// The `tmt run` process that enrolled the launch.
+    LaunchOwner,
+    /// The agent the launcher spawned and published through `foreground_started`.
+    Foreground,
+    /// The provider process the driver recorded itself (Claude after its
+    /// handshake), which is the foreground's stand-in.
+    Provider,
+    /// A provider endpoint the driver started and owns (the Codex app-server).
+    Endpoint,
+}
+
+/// What one exact observation of a recorded incarnation (PID and start identity)
+/// found. A stopped process is still present.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessState {
+    Present,
+    /// Conclusively gone: absent, or its PID now belongs to another incarnation.
+    Gone,
+    Unobservable,
+}
+
+/// Observes one recorded incarnation exactly, within `deadline`. Only a process
+/// with the recorded PID and start identity is present; a reused PID is gone.
+pub fn observe_recorded<R: crate::process::CommandRunner>(
+    runner: &R,
+    process: &ProcessIncarnation,
+    deadline: Instant,
+) -> ProcessState {
+    use crate::process::runtime::{ProcessObservation, observe_runtime_process};
+    match observe_runtime_process(runner, process.pid(), deadline) {
+        Ok(ProcessObservation::Live(seen) | ProcessObservation::Stopped(seen)) => {
+            if seen == *process {
+                ProcessState::Present
+            } else {
+                ProcessState::Gone
+            }
+        }
+        Ok(ProcessObservation::Gone | ProcessObservation::UnreapedZombie(_)) => ProcessState::Gone,
+        Ok(ProcessObservation::Unknown) | Err(_) => ProcessState::Unobservable,
+    }
+}
+
+/// Whether `value` is a binding ID or generation as enrollments store them: a
+/// hyphenated UUID, which also never names a path outside the channel directory.
+pub fn valid_enrollment_id(value: &str) -> bool {
+    value.len() == 36 && uuid::Uuid::parse_str(value).is_ok()
+}
+
+/// The command that shows one binding's enrollments, for diagnostics. Binding IDs
+/// are UUIDs, so the words need no quoting.
+pub fn inspect_command(binding_id: &str) -> String {
+    format!("tmt channel inspect --binding {binding_id}")
+}
+
+/// The command that recovers exactly one enrollment, for diagnostics.
+pub fn recover_command(binding_id: &str, generation: &str) -> String {
+    format!("tmt channel recover --binding {binding_id} --generation {generation}")
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordedProcess {
+    pub role: ProcessRole,
+    pub pid: u64,
+    pub start: String,
+    pub state: ProcessState,
+}
+
+/// The pane an enrollment persisted at enroll.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordedPane {
+    pub host: String,
+    pub server_id: String,
+    pub socket_path: String,
+    pub pane_id: String,
+    pub pane_pid: u64,
+}
+
+/// What recovery may conclude about an enrollment from its own record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnrollmentState {
+    /// A recorded process is present: the enrollment is in use, never recovered.
+    Running,
+    /// A recorded process cannot be observed: neither in use nor over.
+    Unverifiable,
+    /// Every recorded process is gone, but the launcher never published its
+    /// foreground, so nothing TMT records proves that the agent is gone. Only the
+    /// user can check the pane; recovery proceeds on their explicit request.
+    Unconfirmed,
+    /// The foreground was recorded and every recorded process is gone.
+    Ended,
+}
+
+/// One driver's enrollment of one binding, as recovery inspects it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnrollmentReport {
+    /// The driver's record file.
+    pub record: PathBuf,
+    pub binding_id: String,
+    pub identity_id: Option<String>,
+    /// The launch's generation: recovery names the exact enrollment by it.
+    pub generation: String,
+    pub pane: Option<RecordedPane>,
+    pub processes: Vec<RecordedProcess>,
+    /// Whether the record names the foreground (published by the launcher, or a
+    /// recorded provider process that is itself the foreground).
+    pub foreground_recorded: bool,
+    /// What the user must confirm before recovering, in the driver's words.
+    pub verification: String,
+    /// Files recovery removes when it proceeds.
+    pub removes: Vec<PathBuf>,
+    /// Paths recovery leaves in place because nothing proves them unused.
+    pub keeps: Vec<PathBuf>,
+}
+
+impl EnrollmentReport {
+    pub fn state(&self) -> EnrollmentState {
+        let any = |state| self.processes.iter().any(|process| process.state == state);
+        if any(ProcessState::Present) {
+            EnrollmentState::Running
+        } else if any(ProcessState::Unobservable) {
+            EnrollmentState::Unverifiable
+        } else if self.foreground_recorded {
+            EnrollmentState::Ended
+        } else {
+            EnrollmentState::Unconfirmed
+        }
+    }
+}
+
+/// The result of recovering one driver's enrollment of a binding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Recovery {
+    /// The binding has no enrollment of this driver: nothing to do, which also
+    /// makes a repeated recovery a no-op.
+    Absent,
+    /// The record on file is a different generation; it is left untouched.
+    OtherGeneration(EnrollmentReport),
+    /// The named enrollment was removed: `removed` lists what was deleted and
+    /// `kept` what was left in place.
+    Recovered {
+        report: EnrollmentReport,
+        removed: Vec<PathBuf>,
+        kept: Vec<PathBuf>,
+    },
+}
+
+/// Why a named enrollment was not recovered. Nothing was removed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecoveryError {
+    /// A recorded process is present.
+    Running(Box<EnrollmentReport>),
+    /// A recorded process could not be observed.
+    Unverifiable(Box<EnrollmentReport>),
+    /// The record changed between the observation and the removal.
+    Changed(Box<EnrollmentReport>),
+    /// The record cannot be read, so it names nothing that could be verified;
+    /// it stays manual-only, with the driver's instructions.
+    Invalid(EvidenceError),
+    /// The lock could not be taken or a removal failed.
+    Failed { path: PathBuf },
+}
+
 /// Failures before a channel launch: reported before any binding or spawn.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChannelError {
@@ -347,6 +512,37 @@ pub trait RuntimeChannel {
         binding_id: Option<&str>,
         deadline: Instant,
     ) -> Result<PaneEvidence, EvidenceError>;
+
+    /// This driver's enrollment of `binding_id`, with an exact observation of every
+    /// process it recorded. Read-only and bounded by `deadline`. `Ok(None)` means
+    /// no record; an unreadable record is an `Err` that names it. Every driver that
+    /// writes enrollment records implements it and `recover`; the defaults describe
+    /// a channel that keeps none.
+    fn inspect(
+        &self,
+        _directory: &Path,
+        _binding_id: &str,
+        _deadline: Instant,
+    ) -> Result<Option<EnrollmentReport>, EvidenceError> {
+        Ok(None)
+    }
+
+    /// Remove this driver's enrollment of `binding_id` with exactly `generation`,
+    /// only when every process it recorded is conclusively gone, under the
+    /// driver's own lock and only while the record is unchanged since it was
+    /// observed. It never signals a process, never touches a pane or a request,
+    /// and never removes a directory recursively. An enrollment whose foreground
+    /// was never recorded is removed too: the caller is the user's explicit
+    /// request after checking the pane, which is the only proof there is.
+    fn recover(
+        &self,
+        _directory: &Path,
+        _binding_id: &str,
+        _generation: &str,
+        _deadline: Instant,
+    ) -> Result<Recovery, RecoveryError> {
+        Ok(Recovery::Absent)
+    }
 
     /// Run the stdio server the provider starts as its own child, until its
     /// input closes. Only a driver whose provider starts one implements it.

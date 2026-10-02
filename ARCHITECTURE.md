@@ -2362,8 +2362,11 @@ confirmed foreground reap. Pre-handoff startup failures retire only after
 confirmed cleanup; a complete Ready frame may already have escaped, so a later
 flush failure retains evidence. Provider records retain the pre-spawn pane address
 and Unknown/Known foreground state; app-server readiness is never foreground
-lifetime proof. The channel contract owns takeover, pruning and manual recovery
-limits. Codex registers through the shared `Runtime.channel` port; native enrollment
+lifetime proof. The channel contract owns takeover, pruning and recovery limits.
+`drivers/codex/recovery` implements `inspect` and `recover` through
+`Store::recover`, which removes the exact observed record under its per-binding
+lock, and cleans a generation directory file by known file (the names
+`server.rs` owns) only when its app-server was recorded and is gone. Codex registers through the shared `Runtime.channel` port; native enrollment
 selects the one terminal route before provider preference. Both the identity and
 raw-pane paste boundaries query provider evidence, including reply notifications.
 The shared launcher owns admission and confirmed-only withdrawal; the provider
@@ -2396,6 +2399,16 @@ ownership map.
   `RuntimeRegistry` exposes as `channel(harness)`. The directory for endpoint
   records is `ConfigPaths::channel_directory()`. The port and core stay free of
   provider and transport dependencies.
+- Recovery is part of the same port. `RuntimeChannel::inspect` reports one
+  binding's enrollment as an `EnrollmentReport` (record, generation, pane, every
+  recorded process with an exact `observe_recorded` observation, what recovery would
+  remove and keep, and the driver's verification text), and `recover` removes exactly
+  one named generation under the driver's own lock, returning `Recovery` or
+  `RecoveryError`. The defaults describe a channel that keeps no records; every
+  driver that writes records implements both. `inspect_command`, `recover_command`
+  and `valid_enrollment_id` are the single owners of the command text drivers print
+  and of the ID shape. `RuntimeRegistry::channels` lists every registered channel
+  for the CLI, since an enrollment names its driver only in its own record.
 - Delivery stays in the existing routing. The driver's `send` is the preferred
   action of `delivery::send`, whose `send_preferred` falls back only after
   `Unsupported` or `NotSent`. An enrollment applies only to the exact launch that
@@ -2442,13 +2455,14 @@ ownership map.
   observes only the exact process incarnations an attributed record names (launch
   owner, foreground, provider): a record whose recorded processes are gone has
   ended, one that never recorded a foreground is unknown and terminal for its own
-  pane with a named `rm` recovery, and a record that names no pane is skipped and
-  reported. `enroll` takes over a record of the same binding only when it is
+  pane, naming the exact `tmt channel recover`, and a record that names no pane is
+  skipped and reported. `channel/recovery.rs` implements `inspect` and `recover` for
+  Claude records over the same reader and lock. `enroll` takes over a record of the same binding only when it is
   positively over, or when only its owner was recorded and the launch is in the very
   pane it names, and prunes other ended launches from one process snapshot.
   Every mutation of a record or socket (the enroll write, the lease's foreground
   publication and withdraw, the server's readiness publish, bind and socket
-  removal) runs under one lock file in the channel directory, taken through
+  removal, and recovery) runs under one lock file in the channel directory, taken through
   `file_lock::exclusive`. Apart from `enroll`'s own takeover rule, each proceeds
   only while the record still carries the caller's generation and launch owner, so a
   stale launcher or server can never replace or remove a newer enrollment. The
@@ -2462,6 +2476,11 @@ ownership map.
   (`channel_server_command.rs`) parses its argv into a `ServeRequest` and calls the
   driver's `serve`. A session that never opted in has no record and keeps its
   existing transport.
+- `tmt channel inspect|recover` (`channel_command.rs`) resolves a target through
+  the shared `target::resolve` or takes `--binding` as given, asks each registered
+  channel, and renders the reports and outcomes. It holds no record logic: each
+  driver applies the recovery rule the
+  [Claude channel contract](contracts/claude-channel-v1.md#recovery) owns.
 
 ### Host driver protocol
 

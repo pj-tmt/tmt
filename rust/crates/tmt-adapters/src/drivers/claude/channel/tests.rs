@@ -1927,14 +1927,11 @@ mod pane {
         for named in [
             "pane %1",
             "/tmp/tmux-test",
-            &format!(
-                "rm -- '{}' '{}'",
-                file.display(),
-                socket_path(&scratch.0, BINDING).display()
-            ),
+            &format!("tmt channel recover --binding {BINDING} --generation {GENERATION}"),
         ] {
             assert!(message.contains(named), "{named}: {message}");
         }
+        assert!(!message.contains("rm --"), "{message}");
         // A reused launcher pid is a different process, not evidence of this one.
         let reused = Ps::new(&[(OWNER, REUSED_LINE)]);
         assert_eq!(
@@ -1945,27 +1942,39 @@ mod pane {
         let mut other = server();
         other.server_id = "another".into();
         assert_eq!(ask(&scratch, &Ps::new(&[]), &address(&other), None), none());
-        // Once the user removes the named files the pane is a plain pane again.
-        fs::remove_file(&file).unwrap();
+        // Once the user runs the named recovery the pane is a plain pane again.
+        assert!(matches!(
+            super::super::recovery::recover(
+                &Ps::new(&[]),
+                &scratch.0,
+                BINDING,
+                GENERATION,
+                Instant::now() + Duration::from_secs(5),
+            ),
+            Ok(crate::runtime::channel::Recovery::Recovered { .. })
+        ));
+        assert!(!file.exists());
         assert_eq!(here(&scratch, &Ps::new(&[])), none());
     }
 
     #[test]
-    fn the_named_recovery_quotes_an_apostrophe_in_a_path_and_removes_exactly_those_files() {
+    fn the_manual_removal_of_an_unreadable_record_quotes_an_apostrophe_and_removes_exactly_those_files()
+     {
         assert_eq!(shell_quoted(Path::new("/a/it's")), r"'/a/it'\''s'");
         let scratch = Scratch::new();
         let directory = scratch.0.join("it's here");
         ensure_private_directory(&directory).unwrap();
-        publish(&directory, &record_for(None, None));
+        fs::write(record_path(&directory, BINDING), "{ not json").unwrap();
         fs::write(socket_path(&directory, BINDING), "").unwrap();
         let bystander = directory.join("another.json");
         fs::write(&bystander, "{}").unwrap();
-        // The unknown evidence of that record prints the command verbatim.
+        // `tmt channel recover` refuses a record it cannot read, so the evidence
+        // of the pane's own binding prints the manual command verbatim.
         let error = pane_enrolled(
             &Ps::new(&[]),
             &directory,
             &address(&server()),
-            None,
+            Some(BINDING),
             Instant::now() + Duration::from_secs(5),
         )
         .unwrap_err();
@@ -1984,7 +1993,7 @@ mod pane {
     }
 
     #[test]
-    fn an_observation_that_cannot_be_told_is_terminal_for_this_pane_and_names_the_recovery() {
+    fn an_observation_that_cannot_be_told_is_terminal_for_this_pane_and_names_the_inspection() {
         let scratch = Scratch::new();
         publish(&scratch.0, &record_for(Some(FOREGROUND), None));
         let file = record_path(&scratch.0, BINDING);
@@ -2001,7 +2010,14 @@ mod pane {
             let error = here(&scratch, &ps).unwrap_err();
             assert_eq!(error.fault, ChannelFault::Unverifiable, "{name}");
             assert_eq!(error.path.as_deref(), Some(file.as_path()), "{name}");
-            assert!(error.message().contains("rm -- '"), "{name}");
+            // Recovery refuses what cannot be observed: retry, and inspect.
+            assert!(
+                error
+                    .message()
+                    .contains(&format!("tmt channel inspect --binding {BINDING}")),
+                "{name}"
+            );
+            assert!(!error.message().contains("rm --"), "{name}");
         }
     }
 

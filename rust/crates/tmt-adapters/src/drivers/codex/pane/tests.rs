@@ -59,7 +59,10 @@ fn unknown_after_endpoint_cleanup_is_terminal_only_for_exact_attributed_pane() {
     assert_eq!(error.fault, ChannelFault::Unverifiable);
     assert!(error.message().contains("original foreground"));
     assert!(error.message().contains("%2"));
-    assert!(error.message().contains("rm --"));
+    assert!(error.message().contains(&format!(
+        "tmt channel recover --binding {} --generation {}",
+        record.binding_id, record.generation
+    )));
     assert!(
         !inspect(
             &fixture.path,

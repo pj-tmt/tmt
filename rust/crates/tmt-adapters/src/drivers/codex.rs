@@ -14,6 +14,7 @@ pub mod lease;
 pub mod pane;
 pub mod queue;
 pub mod record;
+pub mod recovery;
 pub mod server;
 pub mod supervisor;
 pub mod transport;

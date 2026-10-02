@@ -35,6 +35,8 @@ pub enum Invocation {
         forget: bool,
         retry: bool,
     },
+    /// `tmt channel inspect|recover`: one binding's message-channel enrollments.
+    Channel(ChannelRequest),
     List {
         target: Option<String>,
         room: Option<String>,
@@ -245,6 +247,22 @@ pub enum ExtensionHooksRequest {
     Enable(String),
     Disable(String),
     List,
+}
+
+/// Which binding's enrollments a `tmt channel` command acts on.
+#[derive(Debug, Clone, PartialEq)]
+pub enum EnrollmentSelector {
+    /// An identity name, UUID or pane, resolved to its current binding.
+    Target(String),
+    /// An exact binding ID, which may no longer be current.
+    Binding(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChannelRequest {
+    pub selector: EnrollmentSelector,
+    /// `None` inspects; `Some` recovers exactly this generation.
+    pub recover: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
