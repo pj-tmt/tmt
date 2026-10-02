@@ -666,6 +666,31 @@ fn a_refusal_by_the_endpoint_denies_and_a_missing_receipt_is_uncertain() {
 }
 
 #[test]
+fn a_buffered_reply_is_classified_after_the_endpoint_has_closed() {
+    for (answer, expected) in [
+        (
+            b"{\"refused\":\"generation\"}\n".as_slice(),
+            ("denied", ChannelFault::Refused),
+        ),
+        // A refusal that cannot be parsed must not become a definite denial.
+        (
+            b"{\"refused\":\"generation\"".as_slice(),
+            ("uncertain", ChannelFault::Uncertain),
+        ),
+        (b"".as_slice(), ("uncertain", ChannelFault::Uncertain)),
+    ] {
+        let (mut client, mut endpoint) = UnixStream::pair().unwrap();
+        let deadline = Instant::now() + EXCHANGE_DEADLINE;
+        let server = std::thread::spawn(move || {
+            endpoint.write_all(answer).unwrap();
+            // Dropping the endpoint before join returns is the close/read barrier.
+        });
+        server.join().unwrap();
+        assert_eq!(fault(read_reply(&mut client, deadline)), expected);
+    }
+}
+
+#[test]
 fn an_oversized_payload_denies_before_connecting() {
     let scratch = Scratch::new();
     let (owner, claude) = (live_owner(), provider(4242));
