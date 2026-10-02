@@ -20,7 +20,8 @@ enum Reply {
     clippy::result_large_err,
     reason = "Tungstenite fixes the handshake callback error type."
 )]
-fn exercise(reply: Reply) -> QueueOutcome {
+fn exercise(reply: Reply, version: &str) -> QueueOutcome {
+    let user_agent = format!("tmt/{version} (fixture)");
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
     let SocketAddr::V4(address) = listener.local_addr().unwrap() else {
         panic!("IPv4 fixture")
@@ -48,7 +49,7 @@ fn exercise(reply: Reply) -> QueueOutcome {
         assert_eq!(init["method"], "initialize");
         socket
             .send(Message::Text(
-                json!({"id":init["id"],"result":{"userAgent":"tmt/0.159.3 (fixture)"}})
+                json!({"id":init["id"],"result":{"userAgent":user_agent}})
                     .to_string()
                     .into(),
             ))
@@ -105,29 +106,31 @@ fn exercise(reply: Reply) -> QueueOutcome {
 
 #[test]
 fn acceptance_is_one_delivery_write_with_a_provider_receipt() {
-    assert_eq!(
-        exercise(Reply::Accept),
-        QueueOutcome::Accepted {
-            submission_id: "provider-submission".into()
-        }
-    );
+    for version in ["0.159.2", "0.159.3", "0.160.0"] {
+        assert_eq!(
+            exercise(Reply::Accept, version),
+            QueueOutcome::Accepted {
+                submission_id: "provider-submission".into()
+            }
+        );
+    }
 }
 
 #[test]
 fn internal_error_lost_receipt_and_wrong_correlation_never_resend() {
     for reply in [Reply::Internal, Reply::Lost, Reply::WrongId] {
-        assert_eq!(exercise(reply), QueueOutcome::Uncertain);
+        assert_eq!(exercise(reply, "0.160.0"), QueueOutcome::Uncertain);
     }
 }
 
 #[test]
 fn explicit_archived_and_deleted_refusal_never_resends() {
     assert_eq!(
-        exercise(Reply::Archived),
+        exercise(Reply::Archived, "0.160.0"),
         QueueOutcome::Refused { code: -32600 }
     );
     assert_eq!(
-        exercise(Reply::Deleted),
+        exercise(Reply::Deleted, "0.160.0"),
         QueueOutcome::Refused { code: -32603 }
     );
 }
@@ -175,11 +178,18 @@ fn version_comes_from_provider_build_prefix_not_client_suffix() {
     for version in [
         "tmt/0.159.2 (OS) (client; 999)",
         "codex_cli_rs/0.159.3 (OS)",
+        "tmt/0.160.0 (OS) (client; 0.159.3)",
     ] {
         assert!(supported_version(version));
     }
     for version in [
         "tmt/0.159.4 (OS)",
+        "tmt/0.160.1 (tmt; 0.160.0)",
+        "tmt/0.160.999 (OS)",
+        "tmt/0.161.0 (OS)",
+        "tmt/0.160.0-dev",
+        "tmt/0.160 (OS)",
+        "tmt/0.160.0.1 (OS)",
         "tmt/0.159.1 (tmt; 0.159.3)",
         "0.159.3",
         "/0.159.3",

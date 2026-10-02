@@ -117,7 +117,7 @@ fn version_advisory(output: &[u8]) -> Result<Option<String>, ChannelError> {
             .collect::<Option<Vec<_>>>()
     });
     match parts.as_deref() {
-        Some([0, 159, 2 | 3]) => Ok(None),
+        Some([0, 159, 2 | 3] | [0, 160, 0]) => Ok(None),
         Some([0, 159, patch]) if *patch > 3 => Ok(Some(format!(
             "Codex build {found:?} has not been qualified; the owned endpoint handshake must pass before launch."
         ))),

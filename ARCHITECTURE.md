@@ -2376,7 +2376,10 @@ I/O deadline. The only new transport dependency is adapter-local tungstenite,
 exactly pinned with default features disabled and `handshake` enabled; no TLS
 or async runtime enters core or shared ports. The architecture dependency guard
 permits it only in adapters. The [Codex channel contract](contracts/codex-channel-v1.md)
-owns limits, version qualification and receipt semantics. Provider-private enrollment and the shared launcher establish authority before
+owns limits, exact-build qualification and receipt semantics. Binary preflight
+and owned-endpoint initialization enforce the qualified builds at their respective
+boundaries; a preflight advisory never qualifies an endpoint. Provider-private
+enrollment and the shared launcher establish authority before
 this transport is used; no arbitrary endpoint becomes a delivery target.
 
 `drivers/codex/record` adds provider-private opt-in/readiness persistence (#737),

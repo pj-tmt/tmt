@@ -4,8 +4,9 @@ Status: native Codex channel implementation in #739, following #736–#738 under
 #719/#329. The final activation slice registers `tmt run --channel codex` against
 the shared channel routing and launcher ports. Queue acceptance is a delivery
 receipt; durable request completion remains separate. The pinned 0.159.3
-attachment/active-turn proof is accepted; product routing and lifecycle gates
-are independent evidence described below.
+attachment/active-turn proof and 0.160.0 attach/queue/durable-reply proof are
+accepted; product routing and lifecycle gates are independent evidence described
+below.
 
 ## Delivery receipt
 
@@ -50,11 +51,27 @@ arbitrary endpoint's self-report is insufficient authority. The client accepts
 only explicit loopback IPv4/nonzero ports and a bounded capability token, sent
 in the HTTP Authorization header. It initializes that owned endpoint and reads
 the leading provider build version from `userAgent`, not the trailing client
-version. The bounded supported set is 0.159.2 and 0.159.3; other builds fail closed. Binary preflight requires parseable `codex-cli major.minor.patch`, the 0.159 minor line and patch 2 or later. Older, malformed or different-line output is refused; patches above 3 receive an unqualified-build advisory. This does not qualify them: the owned initialize handshake remains authoritative and its exact allowlist is unchanged.
+version. The bounded supported set is 0.159.2, 0.159.3 and 0.160.0; other builds
+fail closed. Binary preflight requires parseable `codex-cli major.minor.patch`
+and accepts the 0.159 minor line at patch 2 or later, or exactly 0.160.0. Older,
+malformed or other-line/build output is refused; 0.159 patches above 3 retain an
+unqualified-build advisory. This does not qualify them: the owned initialize
+handshake remains authoritative and accepts only the exact supported builds.
+Untested 0.160.x patches are refused at both boundaries.
+
+| Provider build | Binary preflight | Owned initialize | Live qualification |
+| --- | --- | --- | --- |
+| 0.159.2 | Accepted | Accepted | Isolated native queue observations in #329; no accepted foreground continuity claim for this build. |
+| 0.159.3 | Accepted | Accepted | Accepted foreground attachment and active-turn continuity proof in #739. |
+| 0.160.0 | Accepted | Accepted | Accepted foreground attachment, idle/busy queue correlation and durable reply in #1043. |
+| Later 0.159 patches | Advisory | Refused | Unqualified. |
+| Other builds, including later 0.160 patches | Refused | Refused | Unqualified. |
+
 The initialize format is source-backed at the pinned revision above, in
 `request_processors/initialize_processor.rs` and
 `login/src/auth/default_client.rs`. The accepted 0.159.3 attachment proof qualifies the remote foreground behavior
-for that build; the allowlist alone is not runtime evidence for future versions.
+for that build. The accepted 0.160.0 proof separately qualifies that build; the
+allowlist alone is not runtime evidence for future versions.
 
 One client connection has one absolute deadline, recalculated before every
 underlying read and write, including library-internal handshake/fragment reads.
@@ -239,6 +256,16 @@ of that turn and a separately rendered assistant reply. Cleanup and shared-file
 hash preservation were independently checked. Retained native events are selected
 evidence, not a complete stream. No product-router claim is inferred from this
 provider proof.
+
+The accepted [0.160.0 proof](https://github.com/pj-tmt/tmt/issues/1043#issuecomment-5953191549)
+qualifies foreground attachment to the owned thread during an active-turn
+barrier, idle/busy queue request/caller/input correlation, native processing and
+a nonce-correlated durable TMT reply. It used isolated HOME/CODEX_HOME, guarded
+read-only authentication, private tmux and an owned loopback app-server, with
+shared-file hash preservation and independent cleanup verification. Post-idle
+foreground rendering was not retained and is not qualified by this evidence.
+The issue records the runner's output-oracle limitation; no production-router
+coverage is inferred from this provider proof.
 
 `codex-channel.e2e.test.ts` uses the real CLI, shared delivery path, private tmux
 and the deterministic `codex-channel-fixture` peer. Native queue frames, durable
