@@ -170,7 +170,7 @@ fn mistakes_name_the_setting() {
     };
     assert_eq!(
         error(&[("base", "dark")]),
-        "`squad.product.theme.base` must be tmt, tmt-light, terminal or mono."
+        "`squad.product.theme.base` must be auto, tmt, tmt-light, terminal or mono."
     );
     assert!(error(&[("error", "red")]).starts_with(
         "`squad.product.theme.error` is not a theme setting; use base or a token: text, muted,"

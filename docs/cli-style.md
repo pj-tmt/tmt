@@ -48,10 +48,20 @@ background). A `Theme` is a built-in base plus per-role overrides:
 
 | Base        | Rendering                                                                |
 | ----------- | ------------------------------------------------------------------------ |
+| `auto`      | resolves a supplied terminal background to `tmt` or `tmt-light`; dark fallback |
 | `tmt`       | the tokens' dark values in 24-bit color; the default                     |
 | `tmt-light` | the tokens' light values in 24-bit color                                 |
 | `terminal`  | the tokens' terminal column: the terminal's own 16 colors                |
 | `mono`      | bold (`accent`, `waiting`, `review`, `blocked`) and dim (`muted`, `dim`) |
+
+`Base::Auto` is selectable; `Theme::default()` remains `tmt`. Callers resolve
+an automatic base with `Theme::resolve`, retaining token overrides. Rendering
+never reads the environment or queries a terminal. `theme::background` owns
+COLORFGBG and OSC 11 interpretation, linear luminance classification, and a
+bounded reader with an injected monotonic clock. The caller owns query eligibility,
+terminal I/O and received input. Its total OSC budget is 100 ms, including the
+write, and at most 256 received bytes; replies at or after the deadline are not
+accepted. Squad integration supplies terminal detection at the board boundary.
 
 An override is `#rrggbb`, a color name (`blue`, `bright black`, …), `default`,
 `bold`, `dim` or `reverse`; `Theme::parse` reports a mistake with its setting's

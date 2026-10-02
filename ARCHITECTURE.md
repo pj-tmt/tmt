@@ -1961,7 +1961,13 @@ set `theme.base`, `tmt` sets the process theme once
 leaves every command on the terminal's own 16 colors. The Squad board reads the
 same resolved theme from `config show` and layers `[squad.<name>.theme]` over it
 (`look`), defaulting to `tmt`; a bad global theme is a notice on the board, a
-bad squad theme a `squad.toml` error. Only `tmt-cli-style` names colors: the
+bad squad theme a `squad.toml` error. `tmt-cli-style::theme::background` owns pure COLORFGBG/OSC 11 parsing and
+luminance classification. Its bounded reader takes injected read/clock functions;
+it opens no terminal and retains received bytes for the caller's input owner.
+`Base::Auto` and `Theme::resolve` consume a supplied background signal without
+changing token overrides or `Theme::default()`. The executable owns environment
+observation, query eligibility, terminal I/O and detection lifetime.
+Only `tmt-cli-style` names colors: the
 native architecture test (`colors`) rejects color literals in other production
 code, the Rust extensions included.
 
