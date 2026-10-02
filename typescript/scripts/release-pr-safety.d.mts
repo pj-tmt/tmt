@@ -32,3 +32,18 @@ export function taglessDrafts(input: {
   components: ComponentMap['components'];
   reader: SafetyReader;
 }): string[];
+
+export interface QueueSubject {
+  sha: string;
+  title: string;
+  number: number;
+}
+export function pendingQueueSubjects(input: {
+  event: unknown;
+  reader: Pick<SafetyReader, 'git'>;
+}): QueueSubject[];
+export function conventionalPrTitle(title: unknown): boolean;
+export function checkQueueTitles(input: { event: unknown; reader: Pick<SafetyReader, 'git'> }): {
+  checked: number;
+  findings: QueueSubject[];
+};

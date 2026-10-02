@@ -2225,6 +2225,44 @@ cd ..
 actionlint .github/workflows/ci.yml .github/workflows/release.yml
 ```
 
+## Conventional PR-title rollout
+
+`Code quality` runs `node typescript/scripts/release-pr-safety.mjs titles-report`
+only for `merge_group`. It reuses the notes gate's bounded cumulative queue reader
+and checks every pending squash subject after removing GitHub's final `(#PR)`
+suffix. It checks `type(scope)?: subject`: a lowercase type, optional nonempty
+scope, optional `!` breaking-change marker, colon/space and a nonempty subject.
+This is syntax feedback; release-please remains the owner of release attribution
+and changelog parsing. A title edited after queue entry is not compared against
+REST: the squash subject is the release input being checked.
+
+The current mode is **report-only**. Findings include PR number, commit SHA and
+escaped title in job output and `GITHUB_STEP_SUMMARY`. Invalid titles, unavailable
+queue evidence and summary I/O errors leave the command's exit code at zero, so
+this step cannot fail a group before enforcement. Missing evidence is visible as
+an unavailable report; it is not a clean title result. Existing notes and other
+required gates retain their failure behavior. Full CI has no `edited` trigger
+and there is no separate feedback workflow.
+
+The observation day starts when the report-only PR for #1125 merges. Enforcement
+must be a separate small PR, with the cutover set to that actual `merged_at` plus
+24 hours and written as an explicit UTC timestamp in the PR and this section.
+The concrete timestamp is pending the report-only merge; record it in the
+separate enforcement PR immediately afterward, and do not merge the flip before
+that time. Neither a clock-dependent automatic flip nor protection/ruleset edits
+are part of this rollout.
+
+Fixture and full verification commands:
+
+```bash
+cd typescript
+pnpm exec vitest run test/tooling/pr-title-check.test.ts test/tooling/release-pr-safety.test.ts
+pnpm test:run
+pnpm check
+cd ..
+actionlint .github/workflows/ci.yml
+```
+
 ## Queued release pull requests
 
 Before `release-pr`, `Release` runs `typescript/scripts/release-please-queue.mjs`.

@@ -132,30 +132,16 @@ export function verifyReleasePrNotes({ eventName, event, components, reader }) {
       ? 1
       : 0;
   }
-  if (eventName !== 'merge_group' || !SHA.test(event.merge_group?.head_sha ?? '')) {
-    throw new Error('Missing merge-group event data.');
-  }
-  const head = event.merge_group.head_sha;
-  const base = reader.git(['merge-base', '--all', 'refs/remotes/origin/main', head]);
-  if (!SHA.test(base)) throw new Error('Missing or ambiguous cumulative queue base.');
-  const log = reader.git(['log', '--reverse', '--format=%H%x09%s', `${base}..${head}`]);
-  const commits = log ? log.split('\n') : [];
-  if (!commits.length || commits.length > QUEUE_COMMITS)
-    throw new Error('Missing or oversized pending queue range.');
+  if (eventName !== 'merge_group') throw new Error('Missing merge-group event data.');
+  const commits = pendingQueueSubjects({ event, reader });
   let checked = 0;
   let releases;
-  for (const line of commits) {
-    const sha = line.slice(0, 40);
-    const subject = line.slice(41);
-    if (!SHA.test(sha) || line[40] !== '\t') throw new Error('Invalid pending queue commit.');
-    // GitHub's squash queue appends the PR number. Classify the branch before release checks.
-    const match = / \(#(\d+)\)$/.exec(subject);
-    if (!match) throw new Error('Pending queue commit has no PR number.');
-    const pr = reader.get(`pulls/${match[1]}`);
+  for (const { sha, title, number } of commits) {
+    const pr = reader.get(`pulls/${number}`);
     if (!componentOf(pr, components)) continue;
     if (
-      pr.number !== Number(match[1]) ||
-      pr.title !== subject.slice(0, match.index) ||
+      pr.number !== number ||
+      pr.title !== title ||
       pr.base?.ref !== 'main' ||
       pr.base?.repo?.full_name !== reader.repository
     ) {
@@ -167,6 +153,61 @@ export function verifyReleasePrNotes({ eventName, event, components, reader }) {
     checked++;
   }
   return checked;
+}
+
+/** Shared bounded queue evidence for notes and the title report; no REST PR-title comparison. */
+export function pendingQueueSubjects({ event, reader }) {
+  if (!SHA.test(event?.merge_group?.head_sha ?? ''))
+    throw new Error('Missing merge-group event data.');
+  const head = event.merge_group.head_sha;
+  const base = reader.git(['merge-base', '--all', 'refs/remotes/origin/main', head]);
+  if (!SHA.test(base)) throw new Error('Missing or ambiguous cumulative queue base.');
+  const log = reader.git(['log', '--reverse', '--format=%H%x09%s', `${base}..${head}`]);
+  const commits = log ? log.split('\n') : [];
+  if (!commits.length || commits.length > QUEUE_COMMITS)
+    throw new Error('Missing or oversized pending queue range.');
+  return commits.map((line) => {
+    const sha = line.slice(0, 40);
+    const subject = line.slice(41);
+    if (!SHA.test(sha) || line[40] !== '\t') throw new Error('Invalid pending queue commit.');
+    // GitHub's squash queue appends the PR number; only remove that final suffix.
+    const match = / \(#(\d+)\)$/.exec(subject);
+    if (!match) throw new Error('Pending queue commit has no PR number.');
+    return { sha, title: subject.slice(0, match.index), number: Number(match[1]) };
+  });
+}
+
+/** Syntax feedback only. release-please still owns release attribution and changelog rules. */
+export function conventionalPrTitle(title) {
+  return (
+    typeof title === 'string' && /^[a-z][a-z0-9-]*(?:\([^()\r\n]+\))?!?: \S[^\r\n]*$/.test(title)
+  );
+}
+
+export function checkQueueTitles({ event, reader }) {
+  const commits = pendingQueueSubjects({ event, reader });
+  return {
+    checked: commits.length,
+    findings: commits.filter(({ title }) => !conventionalPrTitle(title)),
+  };
+}
+
+function summaryText(text) {
+  return String(text).replace(
+    /[&<>"']/g,
+    (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]
+  );
+}
+
+// The observation phase must not turn missing evidence or summary I/O into a queue gate.
+function writeTitleReport(text) {
+  process.stdout.write(text);
+  try {
+    if (!process.env.GITHUB_STEP_SUMMARY) throw new Error('GITHUB_STEP_SUMMARY is required.');
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, text);
+  } catch (error) {
+    process.stderr.write(`Title report summary unavailable: ${error.message}\n`);
+  }
 }
 
 /** A matching draft blocks release-pr only until its actual git tag exists. */
@@ -210,10 +251,10 @@ export function taglessDrafts({ manifest, components, reader }) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const command = process.argv[2];
   try {
-    const command = process.argv[2];
-    if (process.argv.length !== 3 || !['notes', 'draft'].includes(command)) {
-      throw new Error('Usage: release-pr-safety.mjs notes | draft');
+    if (process.argv.length !== 3 || !['notes', 'draft', 'titles-report'].includes(command)) {
+      throw new Error('Usage: release-pr-safety.mjs notes | draft | titles-report');
     }
     const components = parseComponentMap(
       readFileSync(`${ROOT}.github/components.json`, 'utf8')
@@ -222,7 +263,23 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       repository: process.env.GITHUB_REPOSITORY,
       token: command === 'draft' ? process.env.RELEASE_TOKEN : process.env.GITHUB_TOKEN,
     });
-    if (command === 'notes') {
+    if (command === 'titles-report') {
+      if (process.env.GITHUB_EVENT_NAME !== 'merge_group')
+        throw new Error('The title report runs only on merge groups.');
+      const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+      const { checked, findings } = checkQueueTitles({ event, reader });
+      const details = findings
+        .map(
+          ({ sha, title, number }) =>
+            `- PR #${number}, commit <code>${sha}</code>: <code>${summaryText(title)}</code>\n`
+        )
+        .join('');
+      writeTitleReport(
+        `### Conventional PR titles (report-only)\n\nChecked ${checked} queued title(s); ${findings.length} finding(s). ` +
+          'Expected type(scope)?: subject, with an optional breaking-change marker. Findings do not fail this merge group.\n\n' +
+          details
+      );
+    } else if (command === 'notes') {
       const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
       const checked = verifyReleasePrNotes({
         eventName: process.env.GITHUB_EVENT_NAME,
@@ -245,7 +302,13 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       process.stdout.write(held.length ? 'skip\n' : 'run\n');
     }
   } catch (error) {
-    process.stderr.write(`${error.message}\n`);
-    process.exitCode = 1;
+    if (command === 'titles-report') {
+      writeTitleReport(
+        `### Conventional PR titles (report-only)\n\nTitle evidence unavailable: <code>${summaryText(error.message)}</code>. This report does not fail the merge group.\n`
+      );
+    } else {
+      process.stderr.write(`${error.message}\n`);
+      process.exitCode = 1;
+    }
   }
 }

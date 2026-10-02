@@ -3684,6 +3684,17 @@ and build dispatch remain available. Published releases and tagged drafts do not
 hold creation. REST reads use explicit workflow credentials and bounded pages;
 no release or tag is mutated by either gate.
 
+The same safety owner provides `titles-report`, invoked only for merge groups.
+Notes and title feedback share the bounded cumulative squash-subject reader;
+title feedback checks the actual queued subjects, without comparing ordinary PRs
+against mutable REST titles. It checks conventional title syntax only, leaving
+release attribution and changelog generation with release-please. Findings and
+unavailable evidence are reported to stdout and the job summary, with a zero exit
+status throughout the report-only phase, including summary-write failures.
+[Development](DEVELOPMENT.md#conventional-pr-title-rollout) owns the observation
+window and the separate, explicit UTC enforcement cutover. No edit trigger or
+additional workflow restarts full PR CI for this feedback.
+
 `release.yml` never publishes. `native-release-upgrade.yml` proves, for a draft or
 published release, its upgrade from the last published release of the same product on the
 four matching hosts. It only reads releases: a write-token job on `main`'s code fetches the
