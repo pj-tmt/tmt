@@ -248,20 +248,15 @@ changed path with its owner, rule and selection. A change confined to the Squad 
 runs a Squad scope under the same job names (its Cargo checks and the architecture guard,
 its native tests, its E2E file); the map's Squad `scopedChecks` name the tests, and
 `Native package matrix` expects exactly the scoped results. Shared/unknown paths run both.
-Remote Rust has an explicit rule retaining full native and Office coverage; the full
-Rust checks require nonempty remote test discovery and run locked workspace tests,
-Clippy and builds. A parallel `Native Rust MSRV` job runs
-`cargo +"$MSRV" check --locked --workspace --all-targets` for both full and Squad
-scopes, reading `MSRV` from `workspace.package.rust-version` in `rust/Cargo.toml`.
+The [CI selection and worker model](ARCHITECTURE.md#ci-selection-and-worker-model)
+owns worker responsibilities, scope expectations, fixture handoff and cache policy.
+To reproduce the MSRV check, read `workspace.package.rust-version` from
+`rust/Cargo.toml` into `MSRV`, then run
+`cargo +"$MSRV" check --locked --workspace --all-targets` from `rust/`.
 Rustup resolves the manifest's two-part minimum to its latest patch release,
 rather than duplicating a patch pin in the workflow.
-It replaces the MSRV executable builds and expands Squad MSRV coverage to the
-whole workspace without changing the declared minimum. Its separate
-`native-rust-msrv` cache has one writer, the MSRV job on main; PR and merge-group events only restore.
-`Native Rust contracts` is the fail-closed aggregator of these two workers. It
-requires both to succeed, rejects missing selection, and stays skipped for scope
-`none`, preserving the outer native gate and required-check names.
-The remote TypeScript and browser paths are outside that Rust rule. Code
+Remote Rust retains full native and Office coverage; remote TypeScript and browser
+paths are outside that Rust rule. Code
 quality includes the selector's own focused tests even when native unit jobs are
 unselected, and requires the selected Office check. The native aggregator rejects
 failed, cancelled or unexpectedly skipped selected jobs. The advisory Office browser

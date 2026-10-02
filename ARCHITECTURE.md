@@ -570,6 +570,8 @@ or consume retained-pack quotas; custom catalog revisions remain storage-owned.
 Community exchange and exploration remain a [sandbox plan](docs/office/sandbox.md), not a
 runtime SDK, identity registry or alternate exchange engine.
 
+### CI selection and worker model
+
 `.github/components.json` is the one component map: who owns the CLI, Office and Squad
 paths, and the ordered rules that say which CI consumers a path selects and why.
 `typescript/scripts/ci-scope.mjs` reads it and owns conservative affected-area
@@ -595,21 +597,30 @@ weights in `typescript/test/e2e/shard-weights.json` (the first shard also runs t
 tests): it requires both shards when native work is selected, the first alone for a scoped
 component and neither when nothing native is selected, so a skipped, cancelled or missing
 selected shard fails it, and a guard proves every scenario file is in exactly one shard. Existing required check names
-remain; `Native Rust contracts` aggregates the runtime checks and the parallel
-workspace/all-targets MSRV check. Both workers must succeed for full and Squad
-scopes; scope `none` skips the aggregate, while missing scope fails closed.
-`Code quality` gates selected Office verification and `Native package
+remain; `Code quality` gates selected Office verification and `Native package
 matrix` gates all selected native jobs. Selected skipped, cancelled or failed
 jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
-Rust dependency caches (`Swatinem/rust-cache`, pinned by commit SHA) serve `Native
-Rust checks` and the native runtime builds. The parallel MSRV check reads the
-minimum version from the workspace manifest and owns a separate
-`native-rust-msrv` cache. Each cache is saved only by its owning job on a
-`refs/heads/main` push, schedule or manual dispatch; PR and merge-group runs
-only restore. Main pushes that change `Cargo.lock`, `Cargo.toml`, the toolchain file
-or `ci.yml`, weekly schedules and manual dispatch run the seeding jobs. The Rust
-aggregate validates these workers on seeding runs too; the outer merge gates do
-not run. A seeding run has no diff to select from, so it takes the full native scope.
+`Native Rust contracts` aggregates independent fmt/Clippy, workspace test/build,
+Office local-service and native process workers, plus an MSRV worker that reads
+`rust/Cargo.toml` and checks every workspace target. Full scope requires all five;
+Squad requires all except Office, and none skips the aggregate. Missing, failed,
+cancelled or unexpectedly skipped workers fail closed. The native process worker
+consumes the Office fixture producer's local-service executable through a SHA-256
+checked artifact, preserving the fixture bytes without repeating its feature
+verification. The Office check worker consumes the same embedded SPA; other
+fixtures remain independently built in the native worker.
+
+Rust dependency caches (`Swatinem/rust-cache`, pinned by commit SHA) have one
+main-only writer per key: workspace tests write the shared dev dependency cache,
+MSRV writes its toolchain-specific cache, and each native runtime target writes
+its own cache. Every writer uses the single seed-event classification (`verify=false`)
+and the main ref; PR and merge-group runs only restore. Other workers restore
+the shared cache without saving. Dev debug
+information and incremental compilation are disabled across CI; release profiles
+retain their manifest policy. Main cache seeding runs on selected Cargo/workflow
+changes, weekly and manually; feature-branch dispatches only restore. A seeding
+run has no diff and takes full native scope. Its Rust aggregate still checks the
+workers; the outer verification gates remain skipped.
 
 `ci.yml` owns all four required checks: Code quality, Unit tests, Docker E2E and
 Native package matrix. Both pull requests and `merge_group` candidates run those
