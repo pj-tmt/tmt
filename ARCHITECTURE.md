@@ -3237,8 +3237,10 @@ diagnostics in its run log and result artifact; the packed runner owns stream ca
 Docker E2E `harness.ts` retains scenario imports; `harness/fixture.ts` owns
 fixture resources and process registries.
 `harness/readiness.ts` observes caller-supplied events, panes and process state;
-`harness/cleanup.ts` stops and checks owned process groups and clients. The
-fixture retains cleanup ordering and error precedence. `harness/types.ts` owns
+`harness/cleanup.ts` stops and checks owned process groups and clients. Unknown
+group inspection remains pending within the one-second cleanup bound; unresolved
+inspection or surviving groups fail cleanup. The fixture retains cleanup ordering
+and error precedence. `harness/types.ts` owns
 their suite-local result, event and option shapes; the helpers do not own a second
 fixture lifetime.
 

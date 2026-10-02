@@ -21,24 +21,28 @@ export async function killAndWait(
       }
     }
   }
-  const groupsRunning = (): number[] =>
+  const groupsRunning = (reportErrors = false): number[] =>
     pids.filter((pid) => {
       try {
         return processGroupIsRunning(pid);
       } catch (error) {
-        onError(
-          new Error(`Could not inspect E2E ${label} process group ${pid}.`, {
-            cause: error,
-          })
-        );
-        return false;
+        // Inspection can be temporarily unknown while a killed group is reaped.
+        // Keep it pending within the cleanup bound; never treat an error as gone.
+        if (reportErrors) {
+          onError(
+            new Error(`Could not inspect E2E ${label} process group ${pid}.`, {
+              cause: error,
+            })
+          );
+        }
+        return true;
       }
     });
   const deadline = Date.now() + 1_000;
   while (Date.now() < deadline && groupsRunning().length > 0) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  return groupsRunning();
+  return groupsRunning(true);
 }
 
 export function processGroupIsRunning(pid: number): boolean {
