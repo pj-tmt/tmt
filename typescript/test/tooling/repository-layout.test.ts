@@ -30,6 +30,13 @@ function layoutViolations(
   return [...unowned, ...unexpected];
 }
 
+function staleExceptions(files: readonly string[], exceptions: readonly string[]): string[] {
+  const roots = new Set(files.map((file) => file.split('/')[0]));
+  return exceptions
+    .filter((entry) => !roots.has(entry))
+    .map((entry) => `${entry}: remove the stale temporary layout exception`);
+}
+
 describe('repository layout', () => {
   it('gives every tracked file a component owner and an allowed top-level home', () => {
     const files = runPackedCommand('git', ['ls-files', '-z'], {
@@ -40,6 +47,7 @@ describe('repository layout', () => {
       .filter(Boolean);
     expect(files.length).toBeGreaterThan(0);
     expect(layoutViolations(files)).toEqual([]);
+    expect(staleExceptions(files, Object.keys(layout.temporary))).toEqual([]);
   });
 
   it('reports an unowned file even when its top-level home is allowed', () => {
@@ -52,6 +60,12 @@ describe('repository layout', () => {
   it('reports an unapproved home even when the component map owns it', () => {
     expect(layoutViolations(['unexpected/entry.ts'])).toEqual([
       'unexpected: use an existing home or propose a layout allowlist entry to infra',
+    ]);
+  });
+
+  it('reports a temporary exception without a tracked top-level entry', () => {
+    expect(staleExceptions(['rust/cli.rs'], ['rust', 'retired'])).toEqual([
+      'retired: remove the stale temporary layout exception',
     ]);
   });
 

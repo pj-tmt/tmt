@@ -70,7 +70,8 @@ New homes or exceptions require an infra-reviewed proposal with a component owne
 and bounded responsibility. Update this map and the JSON allowlist together;
 remove an exception when its last tracked entry moves or is deleted. The tooling
 layout test checks every tracked file's component owner and that tracked top-level
-entries are a subset of the allowlist; ignored local outputs are outside that map.
+entries are a subset of the allowlist, and rejects temporary exceptions with no
+tracked entry; ignored local outputs are outside that map.
 For add/move review and rename hygiene, use the
 [layout procedure](.agents/skills/tmt-layout/SKILL.md).
 
