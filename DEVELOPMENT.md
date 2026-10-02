@@ -243,6 +243,10 @@ configurations also select the threads pool and retain their own execution rules
 
 For an Office-only clean checkout, use `pnpm office:install`. It installs from
 the app directory against the same workspace lockfile, without workspace recursion.
+The Vite/Vitest overrides have one owner in `typescript/package.json`
+(`pnpm.overrides`). Pinned pnpm also reads that manifest at the lockfile directory
+for isolated installs; `--ignore-workspace` skips the workspace YAML.
+`pnpm-workspace.yaml` retains package membership and the lifecycle script allowlist.
 With pinned pnpm 10.33, a plain Office `--filter` install still builds root
 SQLite; the explicit isolated install avoids that unrelated dependency. Do not
 create an app lockfile or remove `--frozen-lockfile` to work around a mismatch.

@@ -10,8 +10,3 @@ packages:
 onlyBuiltDependencies:
   - better-sqlite3
   - esbuild
-
-# Vite+ and retained build/plugin consumers share one core and test runner.
-overrides:
-  vite: npm:@voidzero-dev/vite-plus-core@1.0.0
-  vitest: 5.0.1
