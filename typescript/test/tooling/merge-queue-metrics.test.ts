@@ -48,6 +48,7 @@ const { summarizeMetrics, collectMetrics, restClient, renderMetrics } = (await i
   renderMetrics: (snapshot: object, boundary?: string) => string;
   restClient: (options: {
     cache: string;
+    repo?: string;
     offline?: boolean;
     maxRequests?: number;
     execute?: (command: string, args: string[], options: object) => string;
@@ -107,7 +108,7 @@ function snapshot() {
   };
 }
 describe('merge queue REST metrics', () => {
-  it('uses half-open run cohorts and merge-time throughput, with final uninterrupted enqueue latency', () => {
+  it('uses half-open run cohorts and merge-time throughput, with last recorded enqueue latency', () => {
     const source = snapshot();
     source.runs.push({ ...run(2), createdAt: until });
     const before = summarizeMetrics(source, since, boundary);
@@ -149,6 +150,12 @@ describe('merge queue REST metrics', () => {
     expect(result.jobs[1]?.wait.n).toBe(0);
     expect(result.jobs[1]?.duration.n).toBe(0);
   });
+  it('retains enqueue latency when the queue bot emits removal as part of merging', () => {
+    const source = snapshot();
+    source.timelines[0]!.events.push({ event: 'removed_from_merge_queue', created_at: boundary });
+    source.timelines[0]!.events.push({ event: 'merged', created_at: boundary });
+    expect(summarizeMetrics(source).latency.prs).toEqual([{ pr: 10, minutes: 30 }]);
+  });
   it('counts the sole worker failure without double-counting propagated aggregate failures', () => {
     const source = snapshot();
     source.runs[0].jobs = [job(1, 'failure'), { ...job(2, 'failure'), name: 'Docker E2E' }];
@@ -187,7 +194,9 @@ describe('merge queue REST metrics', () => {
     const result = summarizeMetrics(source);
     expect(result.cancelledGroups).toBe(1);
     expect(result.removals[0]?.reason).toContain('unknown');
-    expect(result.latency.n).toBe(0);
+    expect(result.latency.prs).toEqual([{ pr: 10, minutes: 30 }]);
+    source.timelines[0]!.events = [];
+    expect(summarizeMetrics(source).latency.n).toBe(0);
   });
   it('rejects invalid windows and boundaries', () => {
     expect(() => summarizeMetrics(snapshot(), until, since)).toThrow('until');
@@ -308,6 +317,46 @@ describe('merge queue REST metrics', () => {
           endpoint.includes('event=merge_group') && endpoint.endsWith('per_page=30&page=2')
       )
     ).toBe(true);
+  });
+  it('refuses a short page whose advertised count proves evidence is incomplete', () => {
+    expect(() =>
+      collectMetrics({ get: () => ({ workflow_runs: [], total_count: 1 }) }, { since, until })
+    ).toThrow('Incomplete REST page');
+  });
+  it('terminates with an error when pagination never yields a final page', () => {
+    let requests = 0;
+    expect(() =>
+      collectMetrics(
+        {
+          get: () => {
+            requests += 1;
+            return { workflow_runs: Array.from({ length: 30 }, () => ({})) };
+          },
+        },
+        { since, until }
+      )
+    ).toThrow('Pagination bound exceeded');
+    expect(requests).toBe(100);
+  });
+  it('restricts requests to the explicitly selected repository', () => {
+    const cache = mkdtempSync(path.join(os.tmpdir(), 'tmt-queue-repo-'));
+    try {
+      const calls: string[][] = [];
+      const api = restClient({
+        cache,
+        repo: 'example/moved',
+        execute: (_command, args) => {
+          calls.push(args);
+          return '{}';
+        },
+      });
+      api.get('repos/example/moved/pulls');
+      expect(calls).toEqual([['api', '--method', 'GET', 'repos/example/moved/pulls']]);
+      expect(() => api.get('repos/pj-tmt/tmt/pulls')).toThrow('REST paths');
+      expect(() => restClient({ cache, repo: '../graphql' })).toThrow('OWNER/REPO');
+    } finally {
+      rmSync(cache, { recursive: true, force: true });
+    }
   });
   it('fails rather than reporting a truncated run-search result', () => {
     expect(() =>

@@ -280,43 +280,27 @@ queue/ruleset activation is a separate repository-owner operation.
 
 ### Merge queue metrics
 
-`typescript/scripts/merge-queue-metrics.mjs` reads only `gh api` GET endpoints
-under `repos/pj-tmt/tmt`; it uses no GraphQL and changes no queue settings,
-workflows or PRs. Authenticate `gh` with repository Actions/PR read access.
-Use explicit UTC bounds (inclusive start, exclusive end):
+Collect read-only REST evidence with authenticated `gh` (no GraphQL):
 
 ```sh
-node typescript/scripts/merge-queue-metrics.mjs \
+node typescript/scripts/merge-queue-metrics.mjs --repo pj-tmt/tmt \
   --since 2026-10-02T00:00:00Z --until 2026-10-02T08:08:40Z \
-  --boundary 2026-10-02T06:08:40Z \
-  --cache /tmp/tmt-queue-metrics-cache \
+  --boundary 2026-10-02T06:08:40Z --cache /tmp/tmt-queue-metrics-cache \
   --output /tmp/tmt-queue-metrics.md --json /tmp/tmt-queue-metrics.json
 ```
 
-The markdown compares run-created cohorts and merge-time throughput. It shows
-runs per queued merge, group duration, enqueue-to-merge latency where timeline
-entries suffice, tree inclusion tags, and the five largest job cost rows per
-window. `--details` includes every job/event/runner row, queue removal and
-same-tree fail/pass candidate; JSON retains job/step timings and source evidence.
-Job cost is observed duration, separated by runner labels, not billed minutes.
-Runner wait uses job creation to start. Skipped jobs incur no measured cost;
-in-flight groups and missing timestamps are excluded from duration summaries.
-Attempts count separately from distinct runs. PR counts describe queue tips,
-not every member of a cumulative group. The default tree tags are #961 and
-#963; repeated `--tag-pr N` selects different confounders. Merged commit or
-observed queued squash-head ancestry proves inclusion; pending incarnations
-without proof remain unknown. A cancellation is not proof of invalidation:
-REST timeline removal reasons can be unknown. Same-tree failure then success
-is a flake candidate requiring log review and a separate owning-lane issue.
-
-Responses are cached locally; terminal attempts and commit comparisons are
-reused, while mutable run/PR lists refresh. `--offline` requires all responses
-in the cache and makes no requests. The default request budget is 500; set
-`--max-requests N` explicitly for a larger collection. Pagination is bounded;
-a run search exceeding GitHub's 1,000-result cap fails and must be split into
-smaller windows. Query, budget and evidence failures fail the command rather
-than producing a partial report. Posting reports and assigning flake fixes are
-separate coordination actions. Verify calculations with
+Bounds are UTC, inclusive start/exclusive end; `--boundary` compares cohorts.
+Runs/merge and merges/hour measure queue throughput. Group duration measures
+start to last completed job; job creation-to-start delay includes runner and dependency wait.
+Enqueue latency measures the last recorded queue entry to merge.
+Per-job/event/runner rows measure executions, duration and sole worker failures.
+Tree tags separate confounders; fail/pass pairs identify flake candidates.
+Methodology limits and unknown evidence are described in the script and report.
+`--details` prints all cost rows; repeated `--tag-pr N` overrides #961/#963.
+`--repo OWNER/REPO` defaults to `pj-tmt/tmt`; `--workflow FILE` defaults to `ci.yml`.
+The local cache holds REST responses; `--offline` requires cached evidence.
+`--max-requests N` overrides the 500-request budget; split capped searches into
+smaller windows. Posting is separate. Verify with
 `pnpm exec vitest run test/tooling/merge-queue-metrics.test.ts` from `typescript/`.
 
 Linux CI package installation uses `.github/actions/apt-install`: each apt update

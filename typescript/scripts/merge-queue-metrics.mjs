@@ -1,3 +1,13 @@
+/**
+ * Read-only REST evidence, not a queue controller. Half-open run-created cohorts
+ * include later reruns; merges use merge timestamps. Group duration excludes
+ * unfinished attempts. Runner minutes are measured, not billed or price weighted.
+ * Queue-tip coverage is not cumulative membership. Missing timestamps, enqueue
+ * events and pending squash incarnations stay unknown; cancellations do not prove
+ * invalidation causes. Sole worker failures exclude propagated gate failures.
+ * Exact-tree fail/pass pairs are candidates requiring independent log review.
+ * Mutable lists refresh; completed attempts/commit comparisons reuse local evidence.
+ */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -5,7 +15,15 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { runPackedCommand } from './packed-command.mjs';
 
-const ROOT = 'repos/pj-tmt/tmt';
+const DEFAULT_REPO = 'pj-tmt/tmt';
+function repositoryRoot(repo) {
+  if (
+    !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo) ||
+    repo.split('/').some((part) => part === '.' || part === '..')
+  )
+    throw new Error('repo must be OWNER/REPO.');
+  return `repos/${repo}`;
+}
 // Keep verbose PR/timeline responses below the shared bounded command buffer.
 const PAGE_SIZE = 30;
 const EVENTS = ['pull_request', 'merge_group', 'push'];
@@ -57,17 +75,18 @@ function describe(values) {
 /** Read-only, bounded REST requests. Terminal evidence is reused; mutable lists refresh. */
 export function restClient({
   cache,
+  repo = DEFAULT_REPO,
   offline = false,
   maxRequests = 500,
   execute = runPackedCommand,
 }) {
+  const ROOT = repositoryRoot(repo);
   mkdirSync(cache, { recursive: true });
   let requests = 0;
   const touched = [];
   return {
     get(path, immutable = false) {
-      if (!path.startsWith(`${ROOT}/`))
-        throw new Error('Only repos/pj-tmt/tmt REST paths are allowed.');
+      if (!path.startsWith(`${ROOT}/`)) throw new Error(`Only ${ROOT} REST paths are allowed.`);
       const file = resolve(cache, `${createHash('sha256').update(path).digest('hex')}.json`);
       if ((offline || immutable) && existsSync(file)) {
         const stored = JSON.parse(readFileSync(file, 'utf8'));
@@ -112,13 +131,24 @@ function pages(api, path, key, immutable = false) {
     if (key && data.total_count > 1000 && path.includes('/runs?')) {
       throw new Error('GitHub run search is capped at 1000; split the window.');
     }
-    if (batch.length < PAGE_SIZE) return rows;
+    if (batch.length < PAGE_SIZE) {
+      if (key && Number.isSafeInteger(data.total_count) && rows.length < data.total_count) {
+        throw new Error(
+          `Incomplete REST page: ${path}; received ${rows.length} of ${data.total_count}.`
+        );
+      }
+      return rows;
+    }
   }
   throw new Error(`Pagination bound exceeded: ${path}`);
 }
 
 /** Collect one snapshot. Every rerun attempt has its own jobs and completion evidence. */
-export function collectMetrics(api, { since, until, workflow = 'ci.yml', tagPrs = [961, 963] }) {
+export function collectMetrics(
+  api,
+  { since, until, repo = DEFAULT_REPO, workflow = 'ci.yml', tagPrs = [961, 963] }
+) {
+  const ROOT = repositoryRoot(repo);
   const start = instant(since),
     end = instant(until);
   if (end <= start) throw new Error('until must be later than since.');
@@ -242,6 +272,7 @@ export function collectMetrics(api, { since, until, workflow = 'ci.yml', tagPrs 
     since,
     until,
     workflow,
+    repo,
     capturedAt: new Date().toISOString(),
     tags,
     runs: attempts,
@@ -272,7 +303,8 @@ export function summarizeMetrics(snapshot, since = snapshot.since, until = snaps
     for (const event of [...pr.events].sort((a, b) => a.created_at.localeCompare(b.created_at))) {
       if (Date.parse(event.created_at) > Date.parse(pr.mergedAt)) continue;
       if (event.event === 'added_to_merge_queue') enqueue = event.created_at;
-      if (event.event === 'removed_from_merge_queue') enqueue = null;
+      // Merge queue itself emits removal immediately before/at merge. The
+      // final recorded enqueue is measurable; uninterrupted residency is not.
     }
     return { pr: pr.number, minutes: minutes(enqueue, pr.mergedAt) };
   });
@@ -425,7 +457,7 @@ export function renderMetrics(snapshot, boundary, { details = false } = {}) {
   const lines = [
     '# Merge queue health',
     '',
-    `UTC snapshot: ${snapshot.since} ≤ run created_at / merge time < ${snapshot.until}. Workflow: ${snapshot.workflow}.`,
+    `UTC snapshot: ${snapshot.since} ≤ run created_at / merge time < ${snapshot.until}. Repository: ${snapshot.repo ?? DEFAULT_REPO}. Workflow: ${snapshot.workflow}.`,
     '',
     'Queue trial: 2026-10-02T06:08:40Z (wait 5 minutes, build concurrency 3). Confounders: #961 merged 05:21:13Z; #963 changes cumulative scope. Compare strata, not queue settings alone.',
     '',
@@ -437,8 +469,8 @@ export function renderMetrics(snapshot, boundary, { details = false } = {}) {
       '',
       `${summary.groupRuns} merge_group runs (${summary.groupAttempts} attempts) for ${summary.tipPrs} distinct queue-tip PRs; ${summary.mergedPrs} queued PRs merged; ${number(summary.runsPerMerge)} runs/merge; ${number(summary.mergesPerHour)} merges/hour.`,
       `Group CI minutes median (range): ${distribution(summary.groupDuration)}; ${summary.inFlight} attempts in flight, ${summary.failedGroups} failed, ${summary.cancelledGroups} cancelled.`,
-      `Group runner wait minutes median (range): ${distribution(summary.groupRunnerWait)}.`,
-      `Final uninterrupted enqueue-to-merge minutes: ${distribution(summary.latency)} (${summary.latency.n}/${summary.mergedPrs} merged PRs derivable).`,
+      `Group job created-to-start delay minutes median (range): ${distribution(summary.groupRunnerWait)}.`,
+      `Last recorded enqueue-to-merge minutes: ${distribution(summary.latency)} (${summary.latency.n}/${summary.mergedPrs} merged PRs derivable).`,
       '',
       '| Tree includes | Included / absent / unknown attempts | Included CI min | Absent CI min |',
       '| --- | --- | --- | --- |'
@@ -477,9 +509,9 @@ export function renderMetrics(snapshot, boundary, { details = false } = {}) {
     lines.push('');
   }
   lines.push(
-    'Method: run IDs and attempts are distinct; run cohorts use initial created_at, including later reruns. Group duration is run_started_at to last completed job; in-flight attempts are excluded. Runner wait is job created_at to started_at; missing timestamps are excluded, never zero-filled. Skipped jobs have no runner cost. Minutes are observed execution time, not billed minutes or price multipliers. Runner labels distinguish macOS/Linux/self-hosted.',
+    'Method: run IDs and attempts are distinct; run cohorts use initial created_at, including later reruns. Group duration is run_started_at to last completed job; in-flight attempts are excluded. Created-to-start delay includes dependency scheduling and runner wait; REST does not isolate pure runner queue time. Missing timestamps are excluded, never zero-filled. Skipped jobs have no runner cost. Minutes are observed execution time, not billed minutes or price multipliers. Runner labels distinguish macOS/Linux/self-hosted.',
     '',
-    'Sole worker failures exclude aggregate-only checks and jobs whose only failed steps start with “Require ”. These counts require a completed attempt; totals retain all failed jobs. Costs/steps are available in the JSON snapshot/summary. Distinct PR count is queue-tip coverage, not full cumulative membership. Merged PRs require a queue-enqueue timeline event. Final enqueue latency excludes intervening dequeue; missing events remain unknown.',
+    'Sole worker failures exclude aggregate-only checks and jobs whose only failed steps start with “Require ”. These counts require a completed attempt; totals retain all failed jobs. Costs/steps are available in the JSON snapshot/summary. Distinct PR count is queue-tip coverage, not full cumulative membership. Merged PRs require a queue-enqueue timeline event. Latency uses the last recorded enqueue; REST removal at merge does not establish interrupted residency. Missing enqueue events remain unknown.',
     '',
     'Invalidation cause is not inferred from cancellation: REST removal reasons are reported when exposed; failure/conflict/dequeue-ahead attribution otherwise remains unknown. Pending PR inclusion is proven against observed queue-head ancestry; a missing anchor/incarnation remains unknown. A merged PR uses its merge commit ancestry. Every run carries inclusion tags and job/step evidence in JSON. Reports are generated locally; posting is a separate requested action.',
     '',
@@ -492,6 +524,7 @@ function main(argv) {
   const { values } = parseArgs({
     args: argv,
     options: {
+      repo: { type: 'string', default: DEFAULT_REPO },
       since: { type: 'string' },
       until: { type: 'string' },
       boundary: { type: 'string' },
@@ -518,8 +551,14 @@ function main(argv) {
   const maxRequests = Number(values['max-requests']);
   if (!Number.isSafeInteger(maxRequests) || maxRequests < 1)
     throw new Error('max-requests must be positive.');
-  const api = restClient({ cache: resolve(values.cache), offline: values.offline, maxRequests });
+  const api = restClient({
+    cache: resolve(values.cache),
+    repo: values.repo,
+    offline: values.offline,
+    maxRequests,
+  });
   const snapshot = collectMetrics(api, {
+    repo: values.repo,
     since: values.since,
     until: values.until,
     workflow: values.workflow,
