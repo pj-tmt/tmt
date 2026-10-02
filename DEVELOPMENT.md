@@ -2399,7 +2399,7 @@ Fixture and full verification commands:
 
 ```bash
 cd typescript
-pnpm exec vitest run test/tooling/pr-title-check.test.ts test/tooling/release-pr-safety.test.ts
+pnpm exec vp test run --config vitest.config.ts test/tooling/pr-title-check.test.ts test/tooling/release-pr-safety.test.ts
 pnpm test:run
 pnpm check
 cd ..
