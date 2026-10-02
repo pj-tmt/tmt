@@ -1,0 +1,102 @@
+import { Cmd, Code } from "../components/Cmd";
+import { Callout } from "../components/marks";
+
+tmt has few settings, and each one has a default. This page covers changing them, tab completion, the pane badge's extras and the fixes for the problems people hit most.
+
+### `tmt config`
+
+`tmt config show` lists every setting with the value tmt uses, where that value comes from and what it accepts. `set` changes one, and `rm` removes an override you made for the current folder.
+
+<Cmd>{`
+$ tmt config show                                 # values, sources and file paths
+$ tmt config set pasteEnterDelayMs 800            # for the folder you're in
+$ tmt config set preambleEvery 5 --global         # for every folder
+$ tmt config set exchange.retentionDays 30 --global
+$ tmt config rm pasteEnterDelayMs                 # drop this folder's override
+`}</Cmd>
+
+| Setting                  | Default  | What it does                                                                    | Where you set it         |
+| ------------------------ | -------- | ------------------------------------------------------------------------------- | ------------------------ |
+| `preambleMode`           | `always` | `always` or `disabled`: whether requests carry the recipient's preamble         | `config set`, either way |
+| `preambleEvery`          | `3`      | how often a preamble goes with a request; `0` turns it off                      | `config set`, either way |
+| `pasteEnterDelayMs`      | `500`    | milliseconds between pasting a message and pressing Enter; `0` removes the wait | `config set`, either way |
+| `exchange.retentionDays` | `90`     | days new requests and their replies are kept, from 1 to 3650                    | `config set --global`    |
+| `ui.paneBadge`           | `off`    | the [pane badge](/drivers/tmux#the-pane-badge)                                  | `config set --global`    |
+| `defaults.timeout`       | `180`    | seconds `talk` waits for a reply                                                | edit `config.json`       |
+| `defaults.pollInterval`  | `1`      | seconds between checks while `talk` waits                                       | edit `config.json`       |
+| `defaults.captureLines`  | `100`    | lines `tmt check` shows                                                         | edit `config.json`       |
+
+"Either way" means the folder you're in, or every folder with `--global`. The global file is `config.json` in tmt's configuration directory, `~/.config/tmux-team/`, which keeps tmt's former name. A folder's overrides live in `tmux-team.json` in the folder you run tmt from. `tmt config show` prints both paths. tmt keeps fields it doesn't know, and `config show` shows the value it actually uses and where it came from.
+
+Numbers are written as plain digits: no units, signs or decimals. A change to `exchange.retentionDays` applies to new requests only.
+
+Colors come from a theme, which you also choose in the global file. The command line uses your terminal's own 16 colors until you pick one. [Colors and themes](/extensions/squad#colors-and-themes) has the choices.
+
+### Shell completion
+
+Add one line to your shell's startup file, or run it in the current shell:
+
+<Cmd>{`
+$ source <(tmt completion bash)   # bash
+$ source <(tmt completion zsh)    # zsh, after compinit
+$ tmt completion fish | source    # fish
+`}</Cmd>
+
+Names complete from your saved and temporary identities, saved ones first, without starting tmux. `tmt resume` offers only identities with a remembered session. After the name, `tmt run` hands over to the agent's own completion, so Tab completes the agent's flags too; tmt doesn't install those scripts. Extensions complete their own words, such as `tmt sq <Tab>`.
+
+### The pane badge, a few extras
+
+The [pane badge](/drivers/tmux#the-pane-badge) page has the basics. Beyond them:
+
+- **Hide it on narrow panes.** Test the pane's width in the format below. Change 80 to suit your theme; it isn't an automatic fit.
+- **One saved style only.** tmux keeps a single saved default, so don't wrap the badge in another `push-default`. Put it outside such a span and restore your theme's styles after it.
+- **Changes arrive pane by pane.** Switching the setting doesn't rewrite any pane. A pane updates the next time tmt touches it: a new name, a launch or exit, a hook. `tmt unbind` clears its badge.
+- **Names are shortened.** After 48 characters a name is cut with `…`, and `#` shows as `＃`. The stored name doesn't change.
+
+<Code>{`
+#{?#{&&:#{@tmux-team.badge},#{e|>=:#{pane_width},80}}, [#{@tmux-team.badge}],}
+`}</Code>
+
+If an older tmt replaced your pane title or border format, restore it from your own tmux configuration. tmt can't rebuild a theme it overwrote.
+
+### Troubleshooting
+
+#### `tmt` is not found after installing
+
+Put `~/.local/bin`, or your prefix's `bin`, first on your PATH, then open a new shell or run `hash -r`. The installer never edits your shell profiles. Add this once to the startup file you use:
+
+<Code>{`
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
+`}</Code>
+
+Then check which command your shell picks:
+
+<Cmd>{`
+$ command -v tmt
+$ tmt --version
+$ command -v tmux-team      # an old npm install can shadow the new one
+`}</Cmd>
+
+Remove an old install with its own manager (`npm uninstall -g tmux-team` or `pnpm remove -g tmux-team`), and use a user-owned prefix rather than `sudo`.
+
+#### Skills conflict with files tmt didn't write
+
+Look at the target first. `tmt install claude --force` replaces it after making a backup outside the skills folder and printing where it went. After changing skills or setup, restart the agent's session so it reads them.
+
+#### A sandboxed agent can't reach tmt's data or tmux
+
+<Callout title="Two errors, one cause.">
+  Agent sandboxes can block the data directory and the tmux socket. `STORAGE_NOT_WRITABLE` names the
+  directory tmt can't write, and `TMUX_PERMISSION_DENIED` means the tmux socket is blocked.
+</Callout>
+
+Allow that directory or socket, or let the agent run the same command with the provider's own escalation. A data directory without owner write permission is reported, not repaired. Don't delete tmt's data or change its tmux evidence to get around either error. An identical `tmt reply` retry is safe when the error says nothing was stored; keep the request ID, receipt and body unchanged. For Codex's setting, see [Codex's sandbox](/drivers/codex#codex-s-sandbox).
+
+#### A request didn't finish
+
+- `TIMEOUT` ends only your waiting. Fetch the reply later with `tmt result`; see [`tmt talk` and `tmt reply`](/working#tmt-talk-and-tmt-reply).
+- `DELIVERY_UNCERTAIN` means the text may have reached the pane. Look with `tmt check` before you decide anything; see [Delivery details](/working#delivery-details).
+- `CHANNEL_NOT_READY`, `CHANNEL_UNREACHABLE` and `CHANNEL_ENROLLMENT_ENDED` come from Claude's [message channel](/drivers/claude-code#message-channel): nothing was sent and nothing was pasted.
