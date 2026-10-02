@@ -26,9 +26,3 @@ target/workshop-concepts/
 *service-account*.json
 *-firebase-adminsdk-*.json
 application_default_credentials.json
-# Nx wrapper downloads and local task state
-.nx/installation/
-.nx/cache/
-.nx/workspace-data/
-.nx/self-healing/
-.nx/migrate-runs/

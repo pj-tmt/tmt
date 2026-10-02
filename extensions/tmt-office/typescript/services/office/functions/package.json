@@ -22,8 +22,5 @@
   },
   "engines": {
     "node": "22"
-  },
-  "nx": {
-    "includedScripts": []
   }
 }

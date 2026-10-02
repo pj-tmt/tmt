@@ -3,8 +3,8 @@
 The Rust workspace is the shipped CLI runtime. The optional Office SPA foundation
 lives in `extensions/tmt-office/typescript/apps/office` and is not required to use the CLI. The nested
 `typescript` pnpm workspace owns private developer tooling for Vitest, fixtures
-and release verification. Nx orchestrates repository tasks without making the
-tooling workspace an npm product or a CLI fallback. Repository policy is
+and release verification. This tooling workspace is not an npm product or a CLI
+fallback. Repository policy is
 in [AGENTS.md](AGENTS.md), architecture ownership in
 [ARCHITECTURE.md](ARCHITECTURE.md), and style in [CONVENTIONS.md](CONVENTIONS.md).
 Use this guide for reproducible commands and evidence.
@@ -18,7 +18,7 @@ oracle; `tar` builds test archives. These are retained developer dependencies,
 not reasons to install TMT through npm. npm is not a separate required workflow;
 use the pinned pnpm lockfile rather than introducing another package manager.
 Unless a command explicitly changes directories, pnpm commands in this guide run
-from `typescript/`; Cargo, Nx and Docker commands run from the repository root.
+from `typescript/`; Cargo and Docker commands run from the repository root.
 
 Requirements are Node.js 22.12 or newer, the pinned pnpm toolchain, and the
 Rust toolchain declared by `rust/rust-toolchain.toml`. The workspace MSRV is
@@ -31,15 +31,7 @@ not product runtime dependencies.
 ```bash
 (cd typescript && corepack pnpm install --frozen-lockfile)
 (cd rust && rustup show)
-NX_DAEMON=false NX_INTERACTIVE=false ./nx show projects
 ```
-
-The checked-in non-JavaScript Nx wrapper pins Nx 23.2.1 in `nx.json`. On first
-use, the official wrapper uses npm only to populate ignored `.nx/installation`
-runtime files; this isolated bootstrap is not a product workspace, a lockfile
-owner, or an alternative to the nested pnpm commands above. Nx task caching is
-disabled while this layout is established, and automated checks disable the Nx
-daemon and interactive prompts.
 
 Do not install the product globally while testing. Keep application state,
 provider directories, temporary prefixes, sockets and child processes inside a
@@ -88,8 +80,8 @@ images or volumes, and no other `docker ... prune` is part of this workflow:
 docker builder prune --filter until=24h -f
 ```
 
-**Each worktree keeps its own `rust/target`.** Native selectors, the Nx
-targets, `scripts/tmt-dev.sh` and the Docker fixtures all read
+**Each worktree keeps its own `rust/target`.** Native selectors,
+`scripts/tmt-dev.sh` and the Docker fixtures all read
 `rust/target/debug/...`, and a directory shared between worktrees would let a
 test run another worktree's binary. Do not point `CARGO_TARGET_DIR` at `/tmp`
 or anywhere else. To avoid adding a worktree (and a fresh compile) for every
@@ -131,7 +123,7 @@ From this checkout's root:
 
 ```bash
 (cd rust && cargo build --locked -p tmt-cli)
-NX_DAEMON=false NX_INTERACTIVE=false ./nx run native:tmt -- --version
+sh scripts/tmt-dev.sh --version
 (cd typescript && corepack pnpm tmt office --help)
 (cd rust && cargo build --locked -p tmt-office)
 ./rust/target/debug/tmt-office --help
@@ -139,7 +131,7 @@ NX_DAEMON=false NX_INTERACTIVE=false ./nx run native:tmt -- --version
 ./rust/target/debug/tmt-squad --help
 ```
 
-The `native:tmt` Nx target and nested `pnpm tmt` script both launch only this
+The `scripts/tmt-dev.sh` launcher and nested `pnpm tmt` script both launch only this
 checkout's `rust/target/debug/tmt`. They do not
 build automatically, install anything, or fall back to a global binary. Rebuild
 after changing Rust sources. For clean JSON stdout use
@@ -826,7 +818,7 @@ tests own exact deadline/rollback scheduling and appearance/status read races.
 Build the local SPA from the repository root:
 
 ```bash
-NX_DAEMON=false NX_INTERACTIVE=false ./nx run office-spa:build-local
+(cd typescript && corepack pnpm office:build:local)
 ```
 
 After the SPA build exits successfully, run the pinned toolchain from `rust/`,
