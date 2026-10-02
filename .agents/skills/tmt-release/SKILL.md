@@ -61,7 +61,10 @@ single-active selection, unchanged generated files and original conflict/update 
 
 Keep advisory stall detection separate from required release gates. The pinned
 manifest remains the releasability owner; a monitor must not close its issue on
-incomplete evidence or mutate held release PRs. Preserve zero-failure behavior,
+incomplete evidence or mutate held release PRs. Keep `issues: write` for monitoring
+in its separate job; its REST uses `github.token`. Only the existing
+release-job App reader sees drafts, passing metadata rather than credentials.
+Preserve zero-failure behavior,
 visible summary warnings and fixture-only REST tests. [DEVELOPMENT’s monitor
 section](../../../DEVELOPMENT.md#release-stall-monitoring) owns thresholds,
 credentials, bounded discovery and the single-issue recovery lifecycle.

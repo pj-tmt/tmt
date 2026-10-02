@@ -3778,9 +3778,14 @@ required gates. It observes component guard holds and uses the pinned manifestâ€
 read-only candidates to identify newest releasable commits. An immutable full
 checkout supplies commit/file/tag acquisition; the attribution wrapper still
 owns private-leaf consumption. No duplicate conventional-commit parser or
-changelog generator selects release work. REST supplies drafts, open PRs, head
-ancestry and the single fixed-title `Release stalled` issue. The read App token
-sees drafts; the workflow token owns issue reads/writes. Stable occurrence
+changelog generator selects release work. The release jobâ€™s existing App-token
+reader alone discovers drafts, because read-only credentials cannot see them;
+it emits only matching draft path/ID/tag/time metadata alongside held paths.
+A separate advisory job consumes those outputs with only `contents: read` and
+`issues: write` permission. It holds no App token or Environment secrets: all of
+its own REST uses `github.token` for published releases, PR/head ancestry and the
+single fixed-title `Release stalled` issue. Later publication supersedes the
+snapshot; missing or malformed draft evidence cannot declare healthy. Stable occurrence
 markers in comments suppress retry duplicates; healthy complete discovery closes
 the same issue. Uncertainty warns without closing, and dry runs only summarize.
 Its request/deadline budget and isolated workflow timeout keep all monitor failures

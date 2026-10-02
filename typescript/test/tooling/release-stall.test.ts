@@ -11,6 +11,7 @@ import {
   reconcileStallIssue,
   type StallClient,
 } from '../../scripts/release-stall.mjs';
+import type { DraftEvidence } from '../../scripts/release-pr-safety.mjs';
 import { parseComponentMap } from '../../scripts/ci-scope.mjs';
 
 const repository = 'fixture/fixture';
@@ -60,6 +61,7 @@ function fixture() {
       manifest,
       components,
       heldPaths: [] as string[],
+      drafts: [] as DraftEvidence[],
       queueSkipped: false,
       live: true,
       now,
@@ -69,6 +71,7 @@ function fixture() {
   };
 }
 const draft = (tag = 'tmt-squad-v0.1.0-alpha.8', age = 31 * 60_000) => ({
+  path: tag.startsWith('tmt-squad-') ? 'extensions/tmt-squad' : '.',
   id: 7,
   tag_name: tag,
   draft: true,
@@ -83,20 +86,20 @@ const pull = (branch = cli) => ({
 describe('release stall thresholds and component evidence', () => {
   it.each(['tagless', 'queue'])('warns for an old draft held by %s', async (guard) => {
     const f = fixture();
-    f.rows.releases = [draft()];
+    f.options.drafts = [draft()];
     f.options.heldPaths = guard === 'tagless' ? ['extensions/tmt-squad'] : [];
     f.options.queueSkipped = guard === 'queue';
     const { findings } = await detectReleaseStalls(f.options);
     expect(findings).toHaveLength(1);
     expect(findings[0].message).toContain('extensions/tmt-squad');
     expect(findings[0].message).toContain(guard === 'queue' ? 'queue skip' : 'TAGLESS_DRAFT');
-    f.rows.releases = [draft(undefined, 30 * 60_000)];
+    f.options.drafts = [draft(undefined, 30 * 60_000)];
     expect((await detectReleaseStalls(f.options)).findings).toEqual([]);
   });
   it('does not warn for an unheld or published component draft and keeps occurrence stable as it ages', async () => {
     const f = fixture();
     f.options.heldPaths = ['.'];
-    f.rows.releases = [draft()];
+    f.options.drafts = [draft(), { ...draft('v5.0.0-alpha.8', 29 * 60_000), id: 8 }];
     expect((await detectReleaseStalls(f.options)).findings).toEqual([]);
     f.options.heldPaths = ['extensions/tmt-squad'];
     const {
@@ -132,13 +135,14 @@ describe('release stall thresholds and component evidence', () => {
   });
   it('rejects absent timestamps and incomplete guard/ancestry evidence instead of declaring healthy', async () => {
     const f = fixture();
-    f.rows.releases = [{ ...draft(), created_at: 'bad' }];
+    f.options.drafts = [{ ...draft(), created_at: 'bad' }];
     f.options.queueSkipped = true;
     await expect(detectReleaseStalls(f.options)).rejects.toThrow('timestamp');
     await expect(detectReleaseStalls({ ...f.options, heldPaths: ['unknown'] })).rejects.toThrow(
       'guard'
     );
     f.rows.releases = [];
+    f.options.drafts = [];
     f.rows['pulls?state=open&base=main'] = [pull()];
     f.plan.mockResolvedValue([{ branch: cli, sha: sha(2), time: now }]);
     f.records[`commits/${sha(1)}`] = {
@@ -189,7 +193,7 @@ describe('one durable Release stalled issue', () => {
   });
   it('always reports warnings, never fails the caller, and never closes on uncertain discovery', async () => {
     const f = fixture();
-    f.rows.releases = [draft()];
+    f.options.drafts = [draft()];
     f.options.queueSkipped = true;
     const summarize = vi.fn();
     const warn = vi.fn();
@@ -222,7 +226,7 @@ describe('one durable Release stalled issue', () => {
   it('dry runs summarize without creating, closing or editing issues', async () => {
     const f = fixture();
     f.options.live = false;
-    f.rows.releases = [draft()];
+    f.options.drafts = [draft()];
     f.options.queueSkipped = true;
     const summarize = vi.fn();
     await monitorReleaseStalls(f.options, { summarize });
@@ -233,35 +237,26 @@ describe('one durable Release stalled issue', () => {
 });
 
 describe('bounded REST transport', () => {
-  it('uses explicit tokens, separates writes, and bounds requests and pagination', () => {
+  it('uses the workflow token for reads/writes and bounds requests and pagination', () => {
     const execute = vi.fn().mockReturnValue('[]');
-    const client = createStallClient(
-      { repository, readToken: 'read', issueToken: 'write' },
-      execute
-    );
+    const client = createStallClient({ repository, token: 'workflow' }, execute);
     client.list('releases');
     execute.mockReturnValue('{}');
     client.write('issues/42', 'PATCH', { state: 'closed' });
-    expect(execute.mock.calls[0][2].env.GH_TOKEN).toBe('read');
-    expect(execute.mock.calls[1][2].env.GH_TOKEN).toBe('write');
+    expect(execute.mock.calls[0][2].env.GH_TOKEN).toBe('workflow');
+    expect(execute.mock.calls[1][2].env.GH_TOKEN).toBe('workflow');
     expect(execute.mock.calls[1][1]).toContain('state=closed');
     for (let index = 0; index < 58; index++) client.get('fixture');
     expect(() => client.get('fixture')).toThrow('budget');
     execute.mockReturnValue(JSON.stringify(Array.from({ length: 100 }, () => ({}))));
-    const paged = createStallClient(
-      { repository, readToken: 'read', issueToken: 'write' },
-      execute
-    );
+    const paged = createStallClient({ repository, token: 'workflow' }, execute);
     expect(() => paged.list('releases')).toThrow('pagination');
   });
   it('refuses incomplete or ambiguous exact-title issue search', () => {
     const execute = vi
       .fn()
       .mockReturnValue(JSON.stringify({ incomplete_results: true, total_count: 0, items: [] }));
-    const client = createStallClient(
-      { repository, readToken: 'read', issueToken: 'write' },
-      execute
-    );
+    const client = createStallClient({ repository, token: 'workflow' }, execute);
     expect(() => client.search()).toThrow('Incomplete');
     execute.mockReturnValue(
       JSON.stringify({
@@ -346,20 +341,34 @@ it('isolates monitoring timeout/errors and captures queue skips in release workf
     'utf8'
   );
   const step = workflow.slice(
-    workflow.indexOf('- name: Report release stalls'),
-    workflow.indexOf('# Only one release PR')
+    workflow.indexOf('  release-stall:\n'),
+    workflow.indexOf('  dispatch:\n')
   );
   expect(step).toContain('continue-on-error: true');
   expect(step).toContain('timeout-minutes: 2');
-  expect(step).toContain('steps.release.outputs.queue_skipped');
-  expect(step).toContain('ISSUE_TOKEN: ${{ github.token }}');
+  expect(step).toContain('needs.release-please.outputs.queue_skipped');
+  expect(step).toContain('GITHUB_TOKEN: ${{ github.token }}');
+  expect(step).toContain('DRAFT_EVIDENCE: ${{ needs.release-please.outputs.drafts }}');
+  expect(step).toContain('needs: release-please');
+  expect(step).toContain("if: always() && needs.release-please.outputs.live != ''");
+  expect(step).toMatch(/permissions:\n {6}contents: read\n {6}issues: write\n/);
+  expect(step).not.toMatch(
+    /RELEASE_TOKEN|ISSUE_TOKEN|steps\.app|secrets\.|environment:|permission-contents: write|pull-requests:/
+  );
+  const releaseJob = workflow.slice(
+    workflow.indexOf('  release-please:\n'),
+    workflow.indexOf('  release-stall:\n')
+  );
+  expect(releaseJob).not.toContain('issues: write');
+  expect(releaseJob).toContain('drafts: ${{ steps.draft.outputs.drafts }}');
+  expect(releaseJob.split('    outputs:\n')[1].split('    steps:')[0]).not.toMatch(/token|secret/i);
   expect(workflow).toContain('fetch-depth: 0');
   expect(workflow).toContain('queue_skipped=true');
 });
 
 it('reports a known old draft even when candidate planning is unavailable, without closing on uncertainty', async () => {
   const f = fixture();
-  f.rows.releases = [draft()];
+  f.options.drafts = [draft()];
   f.options.queueSkipped = true;
   f.rows['pulls?state=open&base=main'] = [pull()];
   f.plan.mockRejectedValue(new Error('bounded history unavailable'));
@@ -382,7 +391,7 @@ it('bounds the total deadline before invoking another command', () => {
   const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
   try {
     const execute = vi.fn().mockReturnValue('{}');
-    const client = createStallClient({ repository, readToken: 'read' }, execute);
+    const client = createStallClient({ repository, token: 'workflow' }, execute);
     clock.mockReturnValue(now + 90_001);
     expect(() => client.get('releases')).toThrow('deadline');
     expect(execute).not.toHaveBeenCalled();
@@ -411,7 +420,7 @@ it('the actual CLI exits zero and writes a warning on startup failure, even if s
   }
 });
 
-it('uses the issue token for search and a recent REST page prevents duplicates during search-index lag', () => {
+it('uses github.token for search and a recent REST page prevents duplicates during search-index lag', () => {
   const issue = { number: 42, state: 'open', title: 'Release stalled' };
   const execute = vi
     .fn()
@@ -422,11 +431,46 @@ it('uses the issue token for search and a recent REST page prevents duplicates d
           : [issue]
       )
     );
-  const client = createStallClient(
-    { repository, readToken: 'draft-read', issueToken: 'issue-token' },
-    execute
-  );
+  const client = createStallClient({ repository, token: 'workflow' }, execute);
   expect(client.search()).toEqual(issue);
   expect(execute).toHaveBeenCalledTimes(2);
-  for (const call of execute.mock.calls) expect(call[2].env.GH_TOKEN).toBe('issue-token');
+  for (const call of execute.mock.calls) expect(call[2].env.GH_TOKEN).toBe('workflow');
+});
+
+it('opens the issue from an old tagless Squad alpha.12 snapshot even though github.token cannot list the draft', async () => {
+  const f = fixture();
+  f.options.manifest = { ...manifest, 'extensions/tmt-squad': '0.1.0-alpha.12' };
+  f.options.heldPaths = ['extensions/tmt-squad'];
+  f.options.drafts = [draft('tmt-squad-v0.1.0-alpha.12')];
+  expect(f.rows.releases).toEqual([]);
+  const summarize = vi.fn();
+  const result = await monitorReleaseStalls(f.options, { summarize });
+  expect(result.findings).toHaveLength(1);
+  expect(summarize.mock.calls[0][0]).toContain('tmt-squad-v0.1.0-alpha.12');
+  expect(f.write.mock.calls[0][2].title).toBe('Release stalled');
+});
+
+it('a published release supersedes the guard snapshot, while absent or malformed draft transport never closes', async () => {
+  const f = fixture();
+  f.options.heldPaths = ['extensions/tmt-squad'];
+  f.options.drafts = [draft()];
+  f.rows.releases = [{ tag_name: draft().tag_name, draft: false }];
+  f.search.mockReturnValue({ number: 42, state: 'open' });
+  expect((await monitorReleaseStalls(f.options)).healthy).toBe(true);
+  expect(f.write.mock.calls[0][2].state).toBe('closed');
+  for (const drafts of [
+    null,
+    [],
+    [{ ...draft(), path: 'unknown' }],
+    [{ ...draft(), tag_name: 'wrong' }],
+    [{ ...draft(), id: undefined }],
+  ]) {
+    f.write.mockClear();
+    const result = await monitorReleaseStalls(
+      { ...f.options, drafts: drafts as DraftEvidence[] },
+      { warn: () => {} }
+    );
+    expect(result.healthy).toBe(false);
+    expect(f.write).not.toHaveBeenCalled();
+  }
 });

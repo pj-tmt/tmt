@@ -21,27 +21,25 @@ const MAX_PAGES = 10;
 const MAX_REQUESTS = 60;
 const DEADLINE_MS = 90_000;
 
-/** Independent bounded REST budget. Issue writes use github.token, draft reads use the App token. */
+/** The advisory job uses github.token only; draft metadata comes from release-job outputs. */
 export function createStallClient(
-  { repository, readToken, issueToken, cwd = ROOT, env = process.env },
+  { repository, token, cwd = ROOT, env = process.env },
   execute = runPackedCommand
 ) {
-  if (!/^[A-Za-z0-9_-]+\/[\w.-]+$/.test(repository ?? '') || !readToken)
-    throw new Error('Release monitor needs repository and read token.');
+  if (!/^[A-Za-z0-9_-]+\/[\w.-]+$/.test(repository ?? '') || typeof token !== 'string' || !token)
+    throw new Error('Release monitor needs repository and workflow token.');
   let requests = 0;
   const deadline = Date.now() + DEADLINE_MS;
-  const options = (token) => {
+  const options = () => {
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new Error('Release monitor deadline exceeded.');
     return { cwd, env: { ...env, GH_TOKEN: token }, timeoutMs: Math.min(10_000, remaining) };
   };
-  const request = (endpoint, method = 'GET', data, issueRead = false) => {
+  const request = (endpoint, method = 'GET', data) => {
     if (++requests > MAX_REQUESTS) throw new Error('Release monitor REST budget exceeded.');
     const args = ['api', endpoint, '--method', method];
     if (data) for (const [key, value] of Object.entries(data)) args.push('-f', `${key}=${value}`);
-    const token = method === 'GET' && !issueRead ? readToken : issueToken;
-    if (!token) throw new Error('Release monitor issue token is required for writes.');
-    return JSON.parse(execute('gh', args, options(token)));
+    return JSON.parse(execute('gh', args, options()));
   };
   return {
     repository,
@@ -49,7 +47,7 @@ export function createStallClient(
     write: (path, method, data) => request(`repos/${repository}/${path}`, method, data),
     search() {
       const query = encodeURIComponent(`repo:${repository} is:issue in:title "${TITLE}"`);
-      const result = request(`search/issues?q=${query}&per_page=100`, 'GET', undefined, true);
+      const result = request(`search/issues?q=${query}&per_page=100`);
       if (
         result.incomplete_results !== false ||
         !Number.isSafeInteger(result.total_count) ||
@@ -62,9 +60,7 @@ export function createStallClient(
       if (!exact.length) {
         const recent = request(
           `repos/${repository}/issues?state=all&sort=created&direction=desc&per_page=100`,
-          'GET',
-          undefined,
-          true
+          'GET'
         );
         if (!Array.isArray(recent) || recent.length > 100)
           throw new Error('Invalid recent release stall issue discovery.');
@@ -78,9 +74,7 @@ export function createStallClient(
       for (let page = 1; page <= MAX_PAGES; page++) {
         const response = request(
           `repos/${repository}/${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`,
-          'GET',
-          undefined,
-          path.startsWith('issues/')
+          'GET'
         );
         if (!Array.isArray(response) || response.length > 100)
           throw new Error('Invalid release monitor REST page.');
@@ -89,7 +83,7 @@ export function createStallClient(
       }
       throw new Error('Incomplete release monitor REST pagination.');
     },
-    git: (args) => execute('git', args, options(readToken)).trimEnd(),
+    git: (args) => execute('git', args, options()).trimEnd(),
   };
 }
 
@@ -214,13 +208,16 @@ export async function detectReleaseStalls({
   manifest,
   components,
   heldPaths,
+  drafts,
   queueSkipped,
   now = Date.now(),
   plan = planReleaseCommits,
 }) {
   if (
+    !Array.isArray(drafts) ||
     !Array.isArray(heldPaths) ||
     heldPaths.some((path) => !Object.hasOwn(manifest, path)) ||
+    heldPaths.some((path) => !drafts.some((draft) => draft?.path === path)) ||
     typeof queueSkipped !== 'boolean' ||
     !Number.isFinite(now)
   )
@@ -232,7 +229,26 @@ export async function detectReleaseStalls({
     )
   )
     throw new Error('Invalid release discovery data.');
+  const publishedTags = new Set(
+    releases.filter((release) => !release.draft).map((release) => release.tag_name)
+  );
   const findings = [];
+  // The snapshot came from the push-capable draft reader; this job cannot see drafts.
+  // A later published release supersedes its snapshot and must not look stalled.
+  for (const draft of drafts) {
+    if (!draft || !Object.hasOwn(manifest, draft.path))
+      throw new Error('Invalid draft evidence path.');
+    const component = components.find(
+      (item) => item.release !== false && item.owns[0] === draft.path
+    );
+    if (
+      !component ||
+      draft.tag_name !== `${releasePolicy(component.name).tagPrefix}${manifest[draft.path]}`
+    )
+      throw new Error('Invalid draft evidence tag.');
+    if (!Number.isSafeInteger(draft.id) || draft.id < 1) throw new Error('Invalid held draft ID.');
+    timestamp(draft.created_at);
+  }
   for (const component of components.filter((item) => item.release !== false)) {
     const path = component.owns[0];
     const version = manifest[path];
@@ -240,9 +256,9 @@ export async function detectReleaseStalls({
       throw new Error('Missing manifest component evidence.');
     if (!queueSkipped && !heldPaths.includes(path)) continue;
     const tag = `${releasePolicy(component.name).tagPrefix}${version}`;
-    for (const draft of releases.filter((release) => release.draft && release.tag_name === tag)) {
-      if (!Number.isSafeInteger(draft.id) || draft.id < 1)
-        throw new Error('Invalid held draft ID.');
+    for (const draft of drafts.filter(
+      (draft) => draft.tag_name === tag && !publishedTags.has(tag)
+    )) {
       if (now - timestamp(draft.created_at) > 30 * 60_000)
         findings.push(
           occurrence(
@@ -363,8 +379,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       throw new Error('Missing queue guard result.');
     const client = createStallClient({
       repository: process.env.GITHUB_REPOSITORY,
-      readToken: process.env.RELEASE_TOKEN,
-      issueToken: process.env.ISSUE_TOKEN,
+      token: process.env.GITHUB_TOKEN,
     });
     await monitorReleaseStalls(
       {
@@ -373,6 +388,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         components: parseComponentMap(readFileSync(`${ROOT}.github/components.json`, 'utf8'))
           .components,
         heldPaths: JSON.parse(process.env.TAGLESS_DRAFT_PATHS ?? 'null'),
+        drafts: JSON.parse(process.env.DRAFT_EVIDENCE ?? 'null'),
         queueSkipped: process.env.QUEUE_SKIPPED === 'true',
         live: process.env.LIVE === 'true',
       },

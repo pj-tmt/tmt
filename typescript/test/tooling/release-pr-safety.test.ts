@@ -8,7 +8,7 @@ import { parseComponentMap } from '../../scripts/ci-scope.mjs';
 import {
   checkReleaseNotes,
   createSafetyReader,
-  taglessDrafts,
+  inspectManifestDrafts,
   verifyReleasePrNotes,
   type SafetyReader,
 } from '../../scripts/release-pr-safety.mjs';
@@ -22,6 +22,8 @@ const components = parseComponentMap(
   readFileSync(path.join(root, '.github/components.json'), 'utf8')
 ).components;
 const repository = 'pj-tmt/tmt';
+const heldPathsOf = (input: Parameters<typeof inspectManifestDrafts>[0]) =>
+  inspectManifestDrafts(input).heldPaths;
 const cliTag = 'v5.0.0-alpha.34';
 const squadTag = 'tmt-squad-v0.1.0-alpha.8';
 const published = (tag_name = cliTag) => ({
@@ -360,10 +362,36 @@ function draftReader(releases: unknown[], refs: unknown[] = []): SafetyReader {
   };
 }
 describe('tagless manifest draft skip', () => {
+  it('exports sanitized matching tagged-draft evidence from the one existing draft discovery', () => {
+    const input = {
+      id: 77,
+      tag_name: draftTags[0],
+      draft: true,
+      created_at: '2026-10-03T10:00:00Z',
+      body: 'not transported',
+      assets: [{ name: 'private' }],
+    };
+    const reader = draftReader(
+      [input, { ...input, id: 78, tag_name: 'unrelated' }],
+      [{ ref: `refs/tags/${draftTags[0]}`, object: { sha: 'a'.repeat(40) } }]
+    );
+    const list = reader.list;
+    const calls: string[] = [];
+    reader.list = (path) => {
+      calls.push(path);
+      return list(path);
+    };
+    expect(inspectManifestDrafts({ manifest, components, reader })).toEqual({
+      heldPaths: [],
+      drafts: [{ path: '.', id: 77, tag_name: draftTags[0], created_at: input.created_at }],
+    });
+    expect(calls.filter((path) => path === 'releases')).toHaveLength(1);
+  });
+
   it('skips for either or both manifest component drafts without tags', () => {
     for (const tags of [[draftTags[0]], [draftTags[1]], draftTags])
       expect(
-        taglessDrafts({
+        heldPathsOf({
           manifest,
           components,
           reader: draftReader(tags.map((tag_name) => ({ tag_name, draft: true }))),
@@ -376,9 +404,9 @@ describe('tagless manifest draft skip', () => {
       [{ tag_name: 'v5.0.0-alpha.99', draft: true }],
       [],
     ])
-      expect(taglessDrafts({ manifest, components, reader: draftReader(releases) })).toEqual([]);
+      expect(heldPathsOf({ manifest, components, reader: draftReader(releases) })).toEqual([]);
     expect(
-      taglessDrafts({
+      heldPathsOf({
         manifest,
         components,
         reader: draftReader(
@@ -390,7 +418,7 @@ describe('tagless manifest draft skip', () => {
   });
   it('does not mistake prefix-matching tags for the exact manifest tag', () => {
     expect(
-      taglessDrafts({
+      heldPathsOf({
         manifest,
         components,
         reader: draftReader(
@@ -403,18 +431,18 @@ describe('tagless manifest draft skip', () => {
   it('fails closed on incomplete manifest, release and tag data', () => {
     for (const candidate of [null, {}, { '.': 'bad' }, { ...manifest, '.': 'bad' }])
       expect(() =>
-        taglessDrafts({ manifest: candidate, components, reader: draftReader([]) })
+        heldPathsOf({ manifest: candidate, components, reader: draftReader([]) })
       ).toThrow();
     for (const releases of [
       [{}],
       [{ tag_name: draftTags[0] }],
       [{ tag_name: draftTags[0], draft: false }],
     ])
-      expect(() => taglessDrafts({ manifest, components, reader: draftReader(releases) })).toThrow(
+      expect(() => heldPathsOf({ manifest, components, reader: draftReader(releases) })).toThrow(
         'release data'
       );
     expect(() =>
-      taglessDrafts({
+      heldPathsOf({
         manifest,
         components,
         reader: draftReader([{ tag_name: draftTags[0], draft: true }], [{}]),
@@ -458,7 +486,7 @@ describe('workflow safety wiring', () => {
   const release = readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
   const loop = release
     .split('      - name: Run release-please\n')[1]
-    .split('\n      - name: Report release stalls')[0]
+    .split('\n      # Only one release PR')[0]
     .split('        run: |\n')[1]
     .split('\n')
     .map((line) => line.slice(10))
@@ -516,6 +544,9 @@ describe('workflow safety wiring', () => {
       const drafts = heldPaths.map((path) => ({
         tag_name: `${path === '.' ? 'v' : 'tmt-squad-v'}${current[path]}`,
         draft: true,
+        id: path === '.' ? 1 : 2,
+        created_at: '2026-10-03T10:00:00Z',
+        body: 'not transported',
       }));
       const allHeld = heldPaths.length === Object.keys(current).length;
       writeFileSync(
@@ -545,7 +576,7 @@ describe('workflow safety wiring', () => {
       expect(result.status).toBe(0);
       expect(result.stdout).toBe(allHeld ? 'skip\n' : 'run\n');
       expect(readFileSync(output, 'utf8')).toBe(
-        `skip=${allHeld}\nheld_paths=${JSON.stringify(heldPaths)}\n`
+        `skip=${allHeld}\nheld_paths=${JSON.stringify(heldPaths)}\ndrafts=${JSON.stringify(drafts.map(({ id, tag_name, created_at }, index) => ({ path: heldPaths[index], id, tag_name, created_at })))}\n`
       );
       if (heldPaths.length) expect(readFileSync(summary, 'utf8')).toContain(heldPaths.join(', '));
     } finally {

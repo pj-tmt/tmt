@@ -222,7 +222,7 @@ describe('release workflow (release.yml)', () => {
     expect(release).toMatch(
       /^on:\n {2}push:\n {4}branches:\n {6}- main\n(?: {4}#[^\n]*\n)* {2}workflow_dispatch:\n/m
     );
-    expect(release).not.toMatch(/paths-ignore|paths:/);
+    expect(release.split(/^jobs:/m)[0]).not.toMatch(/^\s+paths(?:-ignore)?:/m);
     expect(release).toMatch(
       /workflow_dispatch:\n {4}inputs:\n {6}dry_run:\n(?: {8}[^\n]*\n)*? {8}default: true\n {8}type: boolean/
     );
@@ -325,13 +325,11 @@ describe('release workflow (release.yml)', () => {
     expect(step).not.toContain('gh pr merge');
     for (const bypass of ['--admin', '--force', 'bypass']) expect(release).not.toContain(bypass);
     // Only the release-please job carries write access through the App token; the workflow token
-    // has issue-write access only for advisory stall reconciliation.
+    // stays read-only; a separate advisory job owns issue-write permission.
     const permissions = /permissions:\n((?: {6}[^\n]+\n)+)/.exec(
       job(release, 'release-please')
     )?.[1];
-    expect(permissions).toBe(
-      '      contents: read\n      pull-requests: read\n      issues: write\n'
-    );
+    expect(permissions).toBe('      contents: read\n      pull-requests: read\n');
   });
 
   it('starts a release run per product, only in a live run, and never publishes', () => {
