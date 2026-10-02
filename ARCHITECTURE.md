@@ -2890,6 +2890,15 @@ fixture retains cleanup ordering and error precedence. `harness/types.ts` owns
 their suite-local result, event and option shapes; the helpers do not own a second
 fixture lifetime.
 
+`typescript/test/tooling/architecture.test.ts` guards literal test import directions:
+shared support imports no suite; native and E2E import neither each other nor tooling;
+harness helpers do not import the fixture, and root/extension E2E scenarios enter the
+root harness through `harness.ts`. Focused tooling tests may import suite-local helpers.
+The shared `test/support/source-imports.ts` AST extractor includes no-substitution
+literal templates and the first argument of dynamic imports with options; computed
+loaders stay outside this static guard. TypeScript module resolution uses the root
+compiler options for these test boundaries.
+
 Within Docker E2E, `cli-assertions.ts` owns the repeated strict success envelope
 (zero exit, empty stderr, defined parsed JSON), not domain validation or command
 execution. Scenario-specific payload projections and assertions stay local;
