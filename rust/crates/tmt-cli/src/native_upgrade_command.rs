@@ -5,6 +5,7 @@ mod extensions;
 use crate::{invocation::OutputMode, output::Failure};
 use serde_json::{Value, json};
 use std::{
+    error::Error,
     fs,
     io::{self, Write},
     os::unix::fs::PermissionsExt,
@@ -27,9 +28,12 @@ pub fn execute(
     let interrupt = match tmt_adapters::interrupt::Interrupt::install() {
         Ok(interrupt) => interrupt,
         Err(error) => {
-            return Failure::new("NATIVE_UPGRADE_FAILED", error.to_string(), 1)
-                .caused_by(error)
-                .publish(mode);
+            return publish(
+                None,
+                None,
+                Some(Failure::new("NATIVE_UPGRADE_FAILED", error.to_string(), 1).caused_by(error)),
+                mode,
+            );
         }
     };
     let result = (|| {
@@ -208,7 +212,7 @@ fn publish_products(
     let warning = report.and_then(|report| path_warning(&report.installation.executable));
     document["pathWarning"] = warning.clone().into();
     if let Some(failure) = &failure {
-        document["error"] = failure.document()["error"].clone();
+        document["error"] = failure_document(failure)["error"].clone();
     }
     let products = product_rows(report, failure.as_ref(), extensions);
     let extension_failed = products.iter().skip(1).any(|p| p["status"] == "failed");
@@ -249,8 +253,10 @@ fn publish_products(
                         &mut stdout,
                         terminal,
                         &format!(
-                            "resolve the skill conflict at {}",
-                            target.as_str().expect("validated skill path")
+                            "{}",
+                            crate::skill_refresh_command::conflict_hint(Path::new(
+                                target.as_str().expect("validated skill path")
+                            ))
                         ),
                     )?;
                 }
@@ -309,6 +315,19 @@ fn publish_products(
     Ok(failure.map_or(u8::from(extension_failed), |failure| failure.status))
 }
 
+fn failure_document(failure: &Failure) -> Value {
+    let mut document = failure.document();
+    if failure.code == "NATIVE_UPGRADE_FAILED" {
+        let cause = failure
+            .source()
+            .map(ToString::to_string)
+            .filter(|cause| !cause.trim().is_empty())
+            .unwrap_or_else(|| failure.message.clone());
+        document["error"]["cause"] = cause.into();
+    }
+    document
+}
+
 fn product_rows(
     report: Option<&UpgradeReport>,
     failure: Option<&Failure>,
@@ -327,7 +346,7 @@ fn product_rows(
         "product": "cli",
         "status": status,
         "version": report.map(|report| &report.installation.version),
-        "error": failure.map(|failure| failure.document()["error"].clone()),
+        "error": failure.map(|failure| failure_document(failure)["error"].clone()),
     })];
     products.extend(extensions);
     products

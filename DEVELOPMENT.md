@@ -1294,6 +1294,13 @@ in detected and already-managed custom roots. Verify exact embedded bytes,
 core-only preservation, sibling
 managed links, repeat no-op, backup/conflict and partial-failure behavior, lock
 ownership, refresh without resurrection, and no effects on SQLite or tmux.
+`test/native/legacy-extension-skills.test.ts` owns the old five-skill bundle
+regressions: twelve provider links, dangling generations, owner adoption,
+half-removed listing/removal, retired refresh intent, preservation of user
+content, executable conflict recovery commands and native upgrade causes. Every
+fixture uses the existing isolated HOME/config/process sandbox. Existing-source
+integrity and canonical-store/name rejection controls stay with the Rust skill
+owner tests.
 Follow `USER-GUIDE.md` and `skills/README.md` for provider/custom-root usage; do
 not add provider-specific skill copies. The squad lead skill
 (`extensions/tmt-squad/skills/tmt-squad/SKILL.md`) is deliberately outside this

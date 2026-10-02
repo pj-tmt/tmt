@@ -148,7 +148,8 @@ fn managed_link(target: &Path, assets: &assets::SkillAssets) -> io::Result<Optio
             .expect("selected target parent")
             .join(fs::read_link(target)?),
     );
-    Ok(assets.owns(&source).then_some(source))
+    let source = files::resolved(&source)?;
+    Ok((source.file_name() == target.file_name() && assets.owns(&source)).then_some(source))
 }
 
 struct PublicationContext<'a> {
