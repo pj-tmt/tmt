@@ -688,12 +688,11 @@ Resume still needs the hook-recorded session; naming preserves it but never gues
 one. Save to keep resume coordinates across pane loss. Naming an enrolled launch
 neither restarts its channel nor enables paste fallback.
 
-The driver advertises its channel default: qualified Codex launches enroll by
-default; Claude remains opt-in. `--no-channel` chooses plain paste delivery for
+The driver advertises its channel default: Codex and Claude remain opt-in.
+`--no-channel` chooses plain paste delivery for
 one launch, while `--channel` requires enrollment or fails. The flags conflict
-and go before the name for both run and exact resume. Default enrollment that
-cannot finish safely before startup prints one line naming why the session uses
-paste delivery and runs the original plain command. Live or unconfirmed
+and go before the name for both run and exact resume. Default uses the original
+plain command without channel enrollment. Live or unconfirmed
 enrollment evidence remains terminal; never paste or resend into an enrolled
 pane after a refused or uncertain channel outcome. Codex owns an extra private
 app-server and supervisor per enrolled foreground, cleaned on exit and Ctrl-C.
@@ -724,10 +723,10 @@ is remembered or the driver cannot resume it, it fails and says
 that fails before the provider confirms the session marks it stale; a stale
 session needs `tmt resume --retry <name>` or `tmt resume --forget <name>`. Never
 combine `--resume` with an explicit command, and never resend a task after a
-failed resume. Codex's default channel resumes the exact selected thread, never
-a fresh substitute. If enrollment cannot finish safely before startup, Default
-may run only the original exact-resume command with the visible paste notice;
-`--channel` fails instead. Details:
+failed resume. Codex's opt-in channel resumes the exact selected thread, never
+a fresh substitute. Default uses plain exact resume; `--channel` fails if
+enrollment cannot finish safely before startup. Fresh channel attachment on
+Codex 0.160.0 currently fails (#1198); use plain launch until it is fixed. Details:
 <https://pj-tmt.github.io/tmt/working#tmt-resume>.
 
 TMT records the owned command's exit and keeps the pane binding. Its exit status

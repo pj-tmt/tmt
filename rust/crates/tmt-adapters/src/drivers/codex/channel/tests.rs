@@ -1,6 +1,11 @@
 use super::*;
 
 #[test]
+fn codex_channel_requires_explicit_opt_in() {
+    assert!(!CodexChannel.enabled_by_default());
+}
+
+#[test]
 fn preflight_accepts_only_qualified_builds_and_classifies_later_0159_as_unavailable() {
     for version in [
         b"codex-cli 0.159.2".as_slice(),

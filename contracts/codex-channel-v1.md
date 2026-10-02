@@ -1,8 +1,10 @@
 # Codex native channel contract
 
-Status: qualified Codex launches and exact `tmt resume` enroll natively by
-default. `--no-channel` chooses a plain launch, while `--channel` requires the
-channel. The shared launcher policy and Codex-specific boundaries are below.
+Status: Codex launches and exact `tmt resume` use plain delivery by default.
+`--channel` opts into the native channel and requires enrollment; `--no-channel`
+explicitly chooses a plain launch. Fresh zero-turn attachment on Codex 0.160.0
+is broken (#1198); opt-in remains available while its fix is investigated.
+The shared launcher policy and Codex-specific boundaries are below.
 Queue acceptance is a delivery receipt; durable request completion remains separate. The pinned 0.159.3
 attachment/active-turn proof and 0.160.0 attach/queue/durable-reply proof are
 accepted; product routing and lifecycle gates are independent evidence described
@@ -15,7 +17,8 @@ selects one mode for both `tmt run` (including `--resume`) and
 `tmt resume`: Default when neither flag is present, Disabled for `--no-channel`,
 or Required for `--channel`. The flags conflict in clap, before launch. Each
 driver advertises only whether its channel is enabled by default through the
-shared channel port. Codex advertises enabled; Claude remains opt-in. The CLI
+shared channel port. Codex and Claude advertise disabled and remain opt-in.
+The CLI
 contains no provider-name test for this policy. Changing a driver's advertised
 default and its contract suffices to change its default behavior.
 
@@ -58,13 +61,14 @@ pane. Required fails instead of launching plainly.
 An enrolled Codex launch owns one extra app-server process, plus its existing
 supervisor, for that foreground's lifetime. Normal exit and Ctrl-C use the same
 confirmed-child cleanup path. Codex's folder-trust prompt remains user-owned:
-the default neither answers it nor changes trust configuration, and queued input
+the channel neither answers it nor changes trust configuration, and queued input
 may wait until the user completes attachment. Plain `codex` and global provider
 config, authentication and hooks are unchanged.
 
-Acceptance covers default enrollment, explicit opt-out and its positive paste
-control, unavailable/advisory fallback with one reason line, strict stable
-errors, terminal enrolled-but-not-ready routing, exact default resume without
+Acceptance covers plain default launch without enrollment, explicit opt-in,
+explicit opt-out and its positive paste control, generic advertised-default
+unavailable/advisory fallback with one reason line, strict stable
+errors, terminal enrolled-but-not-ready routing, exact opt-in resume without
 thread substitution, cleanup on exit and Ctrl-C, and a test that toggles a
 driver's advertised default without a CLI provider-name change. Native fixture
 and product-routing evidence remain separate from live provider qualification.
@@ -124,7 +128,7 @@ Untested 0.160.x patches are refused at both boundaries.
 | --- | --- | --- | --- |
 | 0.159.2 | Accepted | Accepted | Isolated native queue observations in #329; no accepted foreground continuity claim for this build. |
 | 0.159.3 | Accepted | Accepted | Accepted foreground attachment and active-turn continuity proof in #739. |
-| 0.160.0 | Accepted | Accepted | Accepted foreground attachment, idle/busy queue correlation and durable reply in #1043. |
+| 0.160.0 | Accepted | Accepted | Active-turn foreground attachment, idle/busy queue correlation and durable reply in #1043; fresh zero-turn attachment fails (#1198). |
 | Later 0.159 patches | Unavailable: unqualified-build advisory | Refused | Unqualified. |
 | Other builds, including later 0.160 patches | Refused | Refused | Unqualified. |
 
@@ -338,7 +342,8 @@ qualifies foreground attachment to the owned thread during an active-turn
 barrier, idle/busy queue request/caller/input correlation, native processing and
 a nonce-correlated durable TMT reply. It used isolated HOME/CODEX_HOME, guarded
 read-only authentication, private tmux and an owned loopback app-server, with
-shared-file hash preservation and independent cleanup verification. Post-idle
+shared-file hash preservation and independent cleanup verification. It did not
+exercise fresh zero-turn attachment, which fails on 0.160.0 (#1198). Post-idle
 foreground rendering was not retained and is not qualified by this evidence.
 The issue records the runner's output-oracle limitation; no production-router
 coverage is inferred from this provider proof.

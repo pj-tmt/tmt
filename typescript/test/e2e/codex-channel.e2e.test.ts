@@ -41,7 +41,7 @@ interface RecordFile {
 function start(
   f: E2EFixture,
   name: string,
-  channel: boolean | 'default' = 'default',
+  channel: boolean | 'default',
   extra: Record<string, string> = {},
   existingPane?: string,
   resume = false
@@ -206,13 +206,36 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
     });
   });
 
-  it('default enrolls on a qualified build and cleans the owned endpoint on Ctrl-C', async () => {
+  it('Default launches plain Codex without enrollment and processes paste', async () => {
     await withE2EFixture(async (f) => {
-      const worker = start(f, 'Default');
+      const worker = start(f, 'Default', 'default');
+      await ready(f, worker);
+      expect(records(f)).toEqual([]);
+      expect(events(worker, 'thread-start')).toEqual([]);
+      expect(events(worker, 'attached')).toEqual([]);
+      expect(events(worker, 'started')[0].args).toEqual([]);
+      expect(f.capture(200, worker.pane)).not.toContain('uses paste delivery:');
+      const trace = installTmuxTrace(f);
+      expect((await talk(f, 'Default', 'default plain control')).code).toBe(0);
+      await f.waitFor(
+        () => events(worker, 'paste').some((e) => e.line?.includes('default plain control')),
+        10000,
+        'Default foreground processed paste'
+      );
+      expect(events(worker, 'queue')).toEqual([]);
+      expect(writes(trace, worker.pane).length).toBeGreaterThan(0);
+      await quit(worker);
+      expect(records(f)).toEqual([]);
+    });
+  });
+
+  it('explicit opt-in enrolls on a qualified build and cleans the owned endpoint on Ctrl-C', async () => {
+    await withE2EFixture(async (f) => {
+      const worker = start(f, 'OptIn', true);
       await ready(f, worker);
       const [{ file, record }] = records(f);
       const trace = installTmuxTrace(f);
-      expect((await talk(f, 'Default', 'default native')).code).toBe(0);
+      expect((await talk(f, 'OptIn', 'opt-in native')).code).toBe(0);
       expect(events(worker, 'queue')).toHaveLength(1);
       expect(events(worker, 'paste')).toEqual([]);
       expect(writes(trace, worker.pane)).toEqual([]);
@@ -236,15 +259,12 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
     ['qualification advisory', { MOCK_VERSION: '0.159.4' }],
     ['missing app-server', { MOCK_SERVER_FAILURE: '1' }],
   ] as Array<[string, Record<string, string>]>) {
-    it(`${reason} defaults to plain launch with one reason notice; strict mode fails`, async () => {
+    it(`${reason} does not affect plain Default launch; strict mode fails`, async () => {
       await withE2EFixture(async (f) => {
         const worker = start(f, 'Fallback', 'default', extra);
         await ready(f, worker);
         const output = f.capture(200, worker.pane);
-        expect(output.match(/tmt: Fallback uses paste delivery:/g)).toHaveLength(1);
-        expect(output.replaceAll(/\s+/g, ' ')).toMatch(
-          /outside the supported channel range|has not been qualified|enrollment could not be recorded/
-        );
+        expect(output).not.toContain('uses paste delivery:');
         expect(records(f)).toEqual([]);
         expect(events(worker, 'thread-start')).toEqual([]);
         const trace = installTmuxTrace(f);
@@ -279,9 +299,9 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
     [true, 'refused'],
     [true, 'mismatch'],
   ] as Array<[boolean | 'default', string]>) {
-    it(`exact resume mode=${mode} ${failure || 'reattaches the remembered thread'} without substitution`, async () => {
+    it(`exact resume mode=${mode} ${failure || 'uses the remembered thread'} without substitution`, async () => {
       await withE2EFixture(async (f) => {
-        const first = start(f, 'Resume');
+        const first = start(f, 'Resume', true);
         await ready(f, first);
         const original = records(f)[0].record.ready.thread;
         await quit(first);
@@ -315,16 +335,16 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
         }
         await ready(f, resumed);
         expect(events(resumed, 'thread-start')).toEqual([]);
-        expect(events(resumed, 'thread-resume')).toHaveLength(mode === false ? 0 : 1);
-        if (mode !== false) expect(events(resumed, 'thread-resume')[0].thread).toBe(original);
+        expect(events(resumed, 'thread-resume')).toHaveLength(mode === true ? 1 : 0);
+        if (mode === true) expect(events(resumed, 'thread-resume')[0].thread).toBe(original);
         const trace = installTmuxTrace(f);
         expect((await talk(f, 'Resume', 'resumed message')).code).toBe(0);
-        if (failure || mode === false) {
+        if (mode !== true) {
           expect(records(f)).toEqual([]);
           expect(events(resumed, 'started')[0].args).toEqual(['resume', original, '--no-daemon']);
           expect(
             f.capture(200, resumed.pane).match(/tmt: Resume uses paste delivery:/g) ?? []
-          ).toHaveLength(mode === false ? 0 : 1);
+          ).toHaveLength(0);
           await f.waitFor(
             () => events(resumed, 'paste').some((e) => e.line?.includes('resumed message')),
             10000,
@@ -344,7 +364,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
     }, 60000);
   }
 
-  it('default channel hooks preserve the foreground and remembered model through exact resume', async () => {
+  it('explicit opt-in channel hooks preserve the foreground and remembered model through exact resume', async () => {
     await withE2EFixture(async (f) => {
       const preference = () =>
         sql(f, (db) =>
@@ -360,7 +380,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
           provider_session_id: string;
           driver_state: string;
         };
-      const first = start(f, 'HookModel', 'default', { MOCK_HOOK_MODEL: 'fixture-first-model' });
+      const first = start(f, 'HookModel', true, { MOCK_HOOK_MODEL: 'fixture-first-model' });
       await ready(f, first);
       const original = records(f)[0].record.ready.thread;
       const trace = installTmuxTrace(f);
@@ -402,7 +422,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       const resumed = start(
         f,
         'HookModel',
-        'default',
+        true,
         { MOCK_HOOK_MODEL: 'fixture-resumed-model' },
         first.pane,
         true
@@ -500,7 +520,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
 
   it('reply notification uses native route while a never-enrolled originator proves paste control', async () => {
     await withE2EFixture(async (f) => {
-      const worker = start(f, 'Worker');
+      const worker = start(f, 'Worker', true);
       const boss = start(f, 'Boss', true, { MOCK_AUTOREPLY: '0' });
       const plain = start(f, 'Plain', false, { MOCK_AUTOREPLY: '0' });
       for (const s of [worker, boss, plain]) await ready(f, s);
@@ -700,7 +720,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       );
       expect(writes(trace, plain.pane).length).toBeGreaterThan(0);
       // Enrollment elsewhere cannot prune Unknown, even with every recorded process gone.
-      const elsewhere = start(f, 'Elsewhere');
+      const elsewhere = start(f, 'Elsewhere', true);
       await ready(f, elsewhere);
       expect(fs.existsSync(file)).toBe(true);
       const next = start(f, 'Worker', true, { MOCK_AUTOREPLY: '0' }, old.pane);

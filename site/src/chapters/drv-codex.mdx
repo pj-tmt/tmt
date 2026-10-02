@@ -38,16 +38,16 @@ Setup adds Codex's lifecycle hooks for tmt. Codex asks you to trust new hooks th
 
 ### Message delivery
 
-`tmt run <name> codex` and `tmt resume <name>` use Codex's native message channel by default on Codex versions tmt has tested. `talk` queues input through a private app-server without pasting into the pane or interrupting your typing. Each channel session has one extra owned app-server process and a supervisor; tmt cleans them up when its foreground exits, including Ctrl-C.
+`tmt run <name> codex` and `tmt resume <name>` use plain paste delivery by default. Pass `--channel` to opt into Codex's native message channel. With the channel, `talk` queues input through a private app-server without pasting into the pane or interrupting your typing. Each channel session has one extra owned app-server process and a supervisor; tmt cleans them up when its foreground exits, including Ctrl-C.
 
 The [run and resume options](/working#tmt-run) let you choose plain paste delivery or require a channel.
 
 <Cmd>{`
-$ tmt run --no-channel builder codex  # plain paste delivery
+$ tmt run --channel builder codex    # opt into the channel
 $ tmt resume --channel builder       # require the channel for this exact thread
 `}</Cmd>
 
-If tmt has not tested your Codex version or cannot set up the channel safely before startup, the default launches the original plain command and prints one line: `warning: tmt: builder uses paste delivery: <reason>`. If the pane may already be attached to a channel, tmt refuses to fall back to paste. Once enrolled, a channel that is not ready or cannot deliver stays an error; tmt never pastes into that pane instead.
+If tmt has not tested your Codex version or cannot set up the requested channel safely before startup, `--channel` fails. Fresh channel launches on Codex 0.160.0 currently fail during attachment; use the default plain launch until that regression is fixed. If the pane may already be attached to a channel, tmt refuses to fall back to paste. Once enrolled, a channel that is not ready or cannot deliver stays an error; tmt never pastes into that pane instead.
 
 Codex may ask you to trust the launch folder. Answer that prompt yourself in its TUI. tmt never answers it or changes trust settings, and input already accepted into the queue may wait until you complete attachment. Running plain `codex` is unchanged; tmt changes no global Codex configuration, authentication or hooks for channel enrollment.
 

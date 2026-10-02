@@ -12,7 +12,7 @@ use std::{ffi::OsStr, path::Path, time::Instant};
 pub struct CodexChannel;
 impl RuntimeChannel for CodexChannel {
     fn enabled_by_default(&self) -> bool {
-        true
+        false
     }
     fn enrolled(&self, directory: &Path, binding_id: &str) -> Result<bool, ChannelFault> {
         delivery::enrolled(directory, binding_id)
