@@ -1587,3 +1587,55 @@ independent namespace/sign-in oracle, use Python with `cryptography` installed:
 `python3 extensions/tmt-colab/contracts/vectors/model-reference.py` from the
 repository root; add `--write` only after reviewing changed bytes. Fixture keys
 are public test data. This foundation does not satisfy the complete L1 gates.
+
+## Project release tracking
+
+`project-release.yml` records published core `v5.*`, Squad and Office releases in
+Project 4 (`wkh237`'s user project, independently of repository ownership).
+The owner adds `PROJECT_TOKEN`, a classic PAT with only the `project` scope and
+access to this private project. The normal read-only `GITHUB_TOKEN` reads public
+repository metadata; the PAT is used only for Project/closing-issue GraphQL.
+Missing credentials or incomplete API responses fail visibly. This workflow does
+not publish releases. [Architecture](ARCHITECTURE.md) owns its selection and
+terminal-state contract.
+
+Automatic `release:published` and `Native release artifacts` completion events
+reconcile the latest ten published supported releases, including publications
+followed by failed downstream checks. The fallback watches the actual publisher,
+not `Release`, which only creates drafts. An event outside the window or a run
+publishing more than ten releases fails with replay guidance. The window bounds
+recovery from replaced pending workflow runs; older missed tags require replay.
+Manual dispatch defaults to dry-run and requires a published tag:
+
+```bash
+gh workflow run project-release.yml --repo pj-tmt/tmt --ref main \
+  -f tag=tmt-squad-v0.1.0-alpha.9 -f dry_run=true
+# After reviewing the proposed item/field changes, replay the same tag with dry_run=false.
+```
+
+Each run has at most 60 GraphQL requests (reads and writes together), 250 REST
+requests, ten pages per connection and 250 PR references per resolution batch.
+PR queries and field mutations batch up to 25 aliases. Requests have a 30-second
+bound and are not polled or retried; the job has a 15-minute deadline. The script
+checks the remaining write/readback budget before mutation. It reports selected
+releases, resolved PRs/issues, non-project issues, planned/changed fields and exact
+request counts to the log and job summary. Dry-run performs selection and reads
+but no mutations. Replays skip already-recorded release entries and never lower
+Status; text is written before Status so interrupted writes remain retryable.
+Project-wide workflow serialization avoids competing automated appends; avoid
+manual edits to these two fields while a live updater is running.
+
+Release-please's same-repository `/issues/` links are type-checked as merged PRs;
+pre-transfer `wkh237/tmt` links are accepted for this repository. Missing PR notes
+fall back to the preceding published version of the same product and paginated
+commit-associated PRs. A first release without PR references is a visible error,
+not permission to guess issue ownership. The updater never adds missing project
+items. Test locally without credentials or mutations:
+
+```bash
+cd typescript
+corepack pnpm exec vitest run test/tooling/project-release.test.ts
+corepack pnpm check:tooling
+cd ..
+actionlint .github/workflows/project-release.yml
+```
