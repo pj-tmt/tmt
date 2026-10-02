@@ -257,6 +257,35 @@ describe('HEADGREEN release PR discovery', () => {
         })
       ).toThrow('outside');
     }));
+  it('skips an edited ordinary PR title while still checking an earlier release candidate', () =>
+    fixture(({ reader, git, commit, base }) => {
+      git(['update-ref', 'refs/remotes/origin/main', base]);
+      commit('chore(main): release next (#100)');
+      const tip = commit('docs(site): original title (#101)');
+      reader.get = (url) =>
+        url === 'pulls/100'
+          ? {
+              ...pr(notes(base)),
+              number: 100,
+              title: 'chore(main): release next',
+              base: { ref: 'main', repo: { full_name: repository } },
+            }
+          : {
+              number: 101,
+              title: 'docs(site): edited title',
+              head: { ref: 'docs' },
+              // Ordinary PR base metadata is not a release-notes gate input either.
+              base: { ref: 'another-base', repo: { full_name: 'other/repo' } },
+            };
+      expect(
+        verifyReleasePrNotes({
+          eventName: 'merge_group',
+          event: { merge_group: { head_sha: tip } },
+          components,
+          reader,
+        })
+      ).toBe(1);
+    }));
   it('fails closed on unavailable queue PR data and title mismatch', () =>
     fixture(({ reader, git, commit, base }) => {
       git(['update-ref', 'refs/remotes/origin/main', base]);
@@ -269,8 +298,17 @@ describe('HEADGREEN release PR discovery', () => {
           components,
           reader,
         })
+      ).toThrow('Missing PR branch');
+      reader.get = () => ({ ...pr(notes(base)), number: 100, title: 'changed' });
+      expect(() =>
+        verifyReleasePrNotes({
+          eventName: 'merge_group',
+          event: { merge_group: { head_sha: tip } },
+          components,
+          reader,
+        })
       ).toThrow('does not match');
-      reader.get = () => ({ number: 100, title: 'changed' });
+      reader.get = () => ({ ...pr(notes(base)), number: 100, title: 'chore(main): release next' });
       expect(() =>
         verifyReleasePrNotes({
           eventName: 'merge_group',

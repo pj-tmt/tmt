@@ -148,12 +148,12 @@ export function verifyReleasePrNotes({ eventName, event, components, reader }) {
     const sha = line.slice(0, 40);
     const subject = line.slice(41);
     if (!SHA.test(sha) || line[40] !== '\t') throw new Error('Invalid pending queue commit.');
-    // GitHub's squash queue appends the PR number. Read the PR and confirm its title/base.
+    // GitHub's squash queue appends the PR number. Classify the branch before release checks.
     const match = / \(#(\d+)\)$/.exec(subject);
     if (!match) throw new Error('Pending queue commit has no PR number.');
     const pr = reader.get(`pulls/${match[1]}`);
+    if (!componentOf(pr, components)) continue;
     if (
-      !pr ||
       pr.number !== Number(match[1]) ||
       pr.title !== subject.slice(0, match.index) ||
       pr.base?.ref !== 'main' ||
@@ -161,7 +161,6 @@ export function verifyReleasePrNotes({ eventName, event, components, reader }) {
     ) {
       throw new Error('Pending queue PR data does not match its squash commit.');
     }
-    if (!componentOf(pr, components)) continue;
     releases ??= releasesOf(reader);
     const parent = reader.git(['rev-parse', '--verify', `${sha}^`]);
     checkReleaseNotes({ pr, base: parent, components, reader, releases });

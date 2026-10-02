@@ -3500,8 +3500,9 @@ component's newest published tag, and each linked commit must descend from that
 tag and be an ancestor of the candidate base, excluding the tag itself. It reuses
 release version/policy owners and does not regenerate or count expected changelog
 entries. Pending squash queue commits have no REST commit/PR associations yet;
-the gate resolves their GitHub-appended PR numbers, verifies PR title/repository/base
-metadata and checks every release candidate’s current notes in the cumulative pending range.
+the gate resolves their GitHub-appended PR numbers and identifies release branches
+before verifying their title/repository/base metadata and current notes in the
+cumulative pending range. Ordinary PR metadata mismatches do not fail this gate.
 Body/title edits do not restart full PR CI; the merge-group REST read gates the current body.
 Missing or inconsistent anchors, notes, queue data and bounded discovery fail visibly.
 The same owner checks every manifest component version before release-please:

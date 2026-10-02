@@ -1984,8 +1984,9 @@ release version/lock changes.
 The notes job fetches full history and tags. For a PR it uses the event's base SHA;
 for a merge group it reads all pending squash commits from the common ancestor of
 fetched `origin/main` and the queue head. GitHub appends `(#PR)` to each squash
-subject; REST reads resolve those PRs and require matching title, repository and
-main base metadata before inspecting release candidates. A candidate's parent is
+subject; REST reads resolve those PRs and identify release branches first. Only
+release candidates must have matching title, repository and main base metadata;
+ordinary PR title/base mismatches are skipped by this gate. A candidate's parent is
 its notes range endpoint. Unavailable, stale or oversized queue evidence fails
 rather than dropping a candidate. Rerun after publication metadata settles; an
 outdated compare anchor or out-of-range note requires release-please regeneration.
