@@ -41,6 +41,23 @@ impl CoreClient {
             OUTPUT_LIMIT,
         )
     }
+    /// Absolute core data root; remote state and extension sockets live beneath it.
+    pub fn storage_root(&self, stop: &AtomicBool) -> Result<PathBuf, RemoteError> {
+        let reply = self.call(
+            &["api"],
+            json!({"version":1,"operation":"storage.root","input":{}})
+                .to_string()
+                .as_bytes(),
+            stop,
+            Duration::from_secs(15),
+            64 * 1024,
+        )?;
+        reply["dataRoot"]
+            .as_str()
+            .map(PathBuf::from)
+            .filter(|root| root.is_absolute())
+            .ok_or_else(|| failure("Core storage.root did not report an absolute dataRoot."))
+    }
     pub fn agents(&self, stop: &AtomicBool) -> Result<Value, RemoteError> {
         self.call(
             &["list", "--json"],

@@ -10,7 +10,9 @@ use tmt_remote::{
     core::CoreClient,
     error::RemoteError,
     http::{Door, Handler},
+    mount::{Mounts, NoSessions},
     routes::Routes,
+    site::Site,
 };
 const ROOT: CommandSpec = CommandSpec {
     name: "remote",
@@ -30,7 +32,7 @@ const SERVE: CommandSpec = CommandSpec {
         note: "Print the bound descriptor for local testing",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Runs in the foreground until Ctrl-C or SIGTERM; there is no default deadline.\nAll remote requests are refused; no core operation is forwarded.",
+    details: "Runs in the foreground until Ctrl-C or SIGTERM; there is no default deadline.\nAll remote requests are refused; no core operation is forwarded.\nMounts colab under /x/colab/ while its owner-only socket exists.",
 };
 fn grammar() -> Command {
     tmt_cli_style::command(&ROOT)
@@ -60,7 +62,8 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
                 "Could not register foreground shutdown.",
             ));
         }
-        let capabilities = CoreClient::discover()?.capabilities(&stop)?;
+        let core = CoreClient::discover()?;
+        let capabilities = core.capabilities(&stop)?;
         if capabilities["version"] != 1
             || capabilities["limits"]["outputBytes"]
                 .as_u64()
@@ -80,16 +83,21 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
                     "Core did not advertise a valid input bound.",
                 )
             })? as usize;
-        let routes = Arc::new(Routes::new(input_limit)?);
+        let root = core.storage_root(&stop)?;
+        let routes = Routes::new(input_limit)?;
         let door = Door::bind(*serve.get_one::<u16>("port").unwrap())?;
         let address = format!("{}{}", door.origin, routes.prefix());
+        let site = Arc::new(Site {
+            routes,
+            mounts: Mounts::new(root, &door.origin, Arc::new(NoSessions)),
+        });
         let json_output = serve.get_flag("json");
         let mut output = tmt_cli_style::stream::stdout(json_output);
         if json_output {
             writeln!(
                 output,
                 "{}",
-                json!({"profile":"local-v1","binding":"loopback-http","state":"closed","address":address,"startupCoreCalls":1})
+                json!({"profile":"local-v1","binding":"loopback-http","state":"closed","address":address,"startupCoreCalls":2})
             )?;
         } else {
             let terminal = output.terminal();
@@ -102,7 +110,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         }
         output.flush()?;
         drop(output);
-        door.run(&stop, routes as Arc<dyn Handler>)
+        door.run(&stop, site as Arc<dyn Handler>)
     })();
     for id in signals.into_iter().flatten() {
         signal_hook::low_level::unregister(id);

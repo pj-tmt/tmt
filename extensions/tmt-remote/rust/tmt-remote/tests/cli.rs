@@ -3,6 +3,7 @@ use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
     net::TcpStream,
+    os::unix::{fs::PermissionsExt, net::UnixListener},
     path::PathBuf,
     process::{Child, Command, Stdio},
     sync::atomic::{AtomicUsize, Ordering},
@@ -30,7 +31,14 @@ impl Pilot {
         ));
         fs::create_dir(&root).unwrap();
         let pilot = Self { root, child: None };
-        executable_fixture::write_executable(&pilot.root.join("core"), &format!("printf '%s\\n' \"$*\" >> '{}/calls'\ncat > '{}/input'\nprintf '{{\"version\":1,\"limits\":{{\"inputBytes\":1024,\"outputBytes\":4096}}}}'\n", pilot.root.display(),pilot.root.display())).unwrap();
+        let root = pilot.root.display();
+        executable_fixture::write_executable(
+            &pilot.root.join("core"),
+            &format!(
+                "printf '%s\\n' \"$*\" >> '{root}/calls'\ncat > '{root}/input'\nif grep -q storage.root '{root}/input'; then printf '{{\"dataRoot\":\"{root}/state\"}}'; else printf '{{\"version\":1,\"limits\":{{\"inputBytes\":1024,\"outputBytes\":4096}}}}'; fi\n"
+            ),
+        )
+        .unwrap();
         pilot
     }
     fn command(&self) -> Command {
@@ -50,6 +58,16 @@ impl Drop for Pilot {
         }
         fs::remove_dir_all(&self.root).unwrap();
     }
+}
+fn exchange(socket: &str, request: &str) -> String {
+    let mut client = TcpStream::connect(socket).unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    client.write_all(request.as_bytes()).unwrap();
+    let mut response = String::new();
+    client.read_to_string(&mut response).unwrap();
+    response
 }
 #[test]
 fn help_missing_core_and_invalid_options() {
@@ -95,7 +113,7 @@ fn help_missing_core_and_invalid_options() {
     );
 }
 #[test]
-fn startup_is_one_public_read_remote_calls_are_zero_and_sigterm_reaps() {
+fn startup_reads_capabilities_and_root_mounts_without_core_calls_and_sigterm_reaps() {
     for _ in 0..2 {
         let mut pilot = Pilot::new();
         let child = pilot
@@ -115,7 +133,7 @@ fn startup_is_one_public_read_remote_calls_are_zero_and_sigterm_reaps() {
         let descriptor: Value = serde_json::from_str(&rx.recv_timeout(STARTUP).unwrap()).unwrap();
         reader.join().unwrap();
         assert_eq!(descriptor["state"], "closed");
-        assert_eq!(descriptor["startupCoreCalls"], 1);
+        assert_eq!(descriptor["startupCoreCalls"], 2);
         let address = descriptor["address"]
             .as_str()
             .unwrap()
@@ -139,11 +157,47 @@ fn startup_is_one_public_read_remote_calls_are_zero_and_sigterm_reaps() {
         }
         assert_eq!(
             fs::read_to_string(pilot.root.join("calls")).unwrap(),
-            "api\n"
+            "api\napi\n"
         );
         let request: Value =
             serde_json::from_slice(&fs::read(pilot.root.join("input")).unwrap()).unwrap();
-        assert_eq!(request["operation"], "capabilities");
+        assert_eq!(request["operation"], "storage.root");
+        assert!(
+            !pilot.root.join("state").exists(),
+            "startup creates no state"
+        );
+        // The running process mounts colab once its owner-only socket appears.
+        let get = format!("GET /x/colab/ HTTP/1.1\r\nHost: {socket}\r\n\r\n");
+        assert!(exchange(socket, &get).starts_with("HTTP/1.1 404"));
+        let directory = pilot.root.join("state/colab");
+        fs::create_dir_all(&directory).unwrap();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+        let listener = UnixListener::bind(directory.join("door.sock")).unwrap();
+        fs::set_permissions(
+            directory.join("door.sock"),
+            fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        let extension = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut head = Vec::new();
+            let mut byte = [0; 1];
+            while !head.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                head.push(byte[0]);
+            }
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\ncolab")
+                .unwrap();
+            String::from_utf8(head).unwrap()
+        });
+        assert!(exchange(socket, &get).ends_with("\r\n\r\ncolab"));
+        assert!(extension.join().unwrap().starts_with("GET / HTTP/1.1\r\n"));
+        assert_eq!(
+            fs::read_to_string(pilot.root.join("calls")).unwrap(),
+            "api\napi\n",
+            "mounted traffic makes no core call"
+        );
         let child = pilot.child.as_mut().unwrap();
         assert!(
             Command::new("/bin/kill")

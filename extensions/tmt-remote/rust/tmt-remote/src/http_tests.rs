@@ -52,8 +52,8 @@ impl Handler for Permissive {
     fn admit(&self, _: &Head<'_>) -> Result<usize, Reply> {
         Ok(usize::MAX)
     }
-    fn handle(&self, _: Request) -> Reply {
-        Reply::empty(200)
+    fn handle(&self, _: Request, _: &mut TcpStream) -> Option<Reply> {
+        Some(Reply::empty(200))
     }
 }
 fn head(addr: SocketAddr, size: usize) -> String {

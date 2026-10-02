@@ -22,3 +22,7 @@ pub const IN_FLIGHT_BODY_BYTES: usize = 32 * 1024 * 1024;
 pub const DRAIN_BYTES: usize = 64 * 1024;
 pub const ACQUISITION: Duration = Duration::from_secs(5);
 pub const RESPONSE: Duration = Duration::from_secs(1);
+/// Total time for a mounted extension to accept a request and reply.
+pub const MOUNT_RESPONSE: Duration = Duration::from_secs(15);
+/// No-progress bound for pending bytes inside an upgraded tunnel.
+pub const SPLICE_WRITE: Duration = Duration::from_secs(5);
