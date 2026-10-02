@@ -159,3 +159,13 @@ fn conflict_commands_quote_paths_and_preserve_sources() {
     assert!(hint.contains("mv "));
     assert!(!hint.contains("rm "));
 }
+
+#[test]
+fn upgrade_json_retains_rate_limit_reset_and_token_hint_in_cause() {
+    let cause = "GitHub API rate limit: reset/earliest retry time 2030-01-01 UTC; the required wait exceeds the remaining deadline. Retry later or optionally set GITHUB_TOKEN.";
+    let failure = Failure::new("NATIVE_UPGRADE_FAILED", "Native upgrade failed", 1)
+        .caused_by(std::io::Error::other(cause));
+    let document = failure_document(&failure);
+    assert_eq!(document["error"]["code"], "NATIVE_UPGRADE_FAILED");
+    assert_eq!(document["error"]["cause"], cause);
+}

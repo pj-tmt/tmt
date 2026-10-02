@@ -1,8 +1,9 @@
 //! Bounded HTTPS acquisition for the canonical native release service.
 
 use std::{
+    cell::Cell,
     io,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use ureq::{
@@ -40,6 +41,12 @@ impl From<Vec<u8>> for Response {
 /// The bounded synchronous HTTPS client used by native release acquisition.
 pub(crate) struct Https {
     agent: Agent,
+    token: Option<String>,
+    waited: Cell<bool>,
+    #[cfg(test)]
+    wait: fn(Duration),
+    #[cfg(test)]
+    now: fn() -> SystemTime,
     #[cfg(test)]
     allow_loopback: bool,
 }
@@ -60,6 +67,14 @@ impl Https {
 
         Self {
             agent: Agent::new_with_config(config),
+            token: std::env::var("GITHUB_TOKEN")
+                .ok()
+                .filter(|token| !token.is_empty()),
+            waited: Cell::new(false),
+            #[cfg(test)]
+            wait: std::thread::sleep,
+            #[cfg(test)]
+            now: SystemTime::now,
             #[cfg(test)]
             allow_loopback: false,
         }
@@ -69,6 +84,10 @@ impl Https {
     pub(super) fn with_test_agent(agent: Agent) -> Self {
         Self {
             agent,
+            token: None,
+            waited: Cell::new(false),
+            wait: std::thread::sleep,
+            now: SystemTime::now,
             allow_loopback: true,
         }
     }
@@ -86,7 +105,8 @@ impl Https {
         let mut current = validate_url(url)?;
         let body_limit = bounded_body_limit(maximum)?;
 
-        for redirects in 0..=MAX_REDIRECTS {
+        let mut redirects = 0;
+        loop {
             let remaining = deadline
                 .checked_duration_since(Instant::now())
                 .ok_or_else(timeout_error)?;
@@ -94,17 +114,59 @@ impl Https {
                 return Err(timeout_error());
             }
 
-            let mut response = self
-                .agent
-                .get(current.clone())
-                .header("Accept", accept)
+            let mut request = self.agent.get(current.clone()).header("Accept", accept);
+            if is_api(&current)
+                && let Some(token) = &self.token
+            {
+                request = request.header("Authorization", format!("Bearer {token}"));
+            }
+            let mut response = request
                 .config()
+                .http_status_as_error(false)
                 .timeout_global(Some(remaining))
                 .build()
                 .call()
                 .map_err(map_ureq_error)?;
 
+            #[cfg(test)]
+            let now = (self.now)();
+            #[cfg(not(test))]
+            let now = SystemTime::now();
             let status = response.status();
+            if is_api(&current)
+                && matches!(
+                    status,
+                    StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS
+                )
+                && let Some(limit) = RateLimit::from_headers(response.headers(), now)
+            {
+                let jitter =
+                    Duration::from_millis(50 + u64::from(uuid::Uuid::new_v4().as_bytes()[0]));
+                let wait = limit.delay.and_then(|delay| delay.checked_add(jitter));
+                let remaining = deadline.checked_duration_since(Instant::now());
+                let reason = if self.waited.get() {
+                    Some("the single retry was exhausted")
+                } else if wait
+                    .zip(remaining)
+                    .is_none_or(|(wait, remaining)| wait >= remaining)
+                {
+                    Some("the required wait exceeds the remaining deadline")
+                } else {
+                    None
+                };
+                if let Some(reason) = reason {
+                    return Err(limit.error(reason));
+                }
+                self.waited.set(true);
+                // Release the response before waiting. The caller's absolute
+                // deadline covers every request, redirect and this one wait.
+                drop(response);
+                #[cfg(test)]
+                (self.wait)(wait.expect("checked wait"));
+                #[cfg(not(test))]
+                std::thread::sleep(wait.expect("checked wait"));
+                continue;
+            }
             if status.is_redirection() {
                 if redirects == MAX_REDIRECTS {
                     return Err(io::Error::new(
@@ -124,6 +186,7 @@ impl Https {
                 let next = validate_url(location);
                 current =
                     next.map_err(|_| invalid_response("redirect location is not approved"))?;
+                redirects += 1;
                 continue;
             }
 
@@ -134,7 +197,10 @@ impl Https {
                 ));
             }
             if !status.is_success() {
-                return Err(invalid_response("unexpected HTTPS response status"));
+                return Err(io::Error::other(format!(
+                    "HTTPS request failed: http status: {}",
+                    status.as_u16()
+                )));
             }
 
             if let Some(length) = response.headers().get("content-length") {
@@ -171,8 +237,71 @@ impl Https {
             }
             return Ok(Response { body: bytes, link });
         }
+    }
+}
 
-        unreachable!("redirect loop returns before exhausting its bounded range")
+fn is_api(uri: &Uri) -> bool {
+    uri.host()
+        .is_some_and(|host| host.eq_ignore_ascii_case("api.github.com"))
+}
+
+struct RateLimit {
+    delay: Option<Duration>,
+    retry_at: Option<u64>,
+}
+
+impl RateLimit {
+    fn from_headers(headers: &ureq::http::HeaderMap, now: SystemTime) -> Option<Self> {
+        let number = |name| headers.get(name)?.to_str().ok()?.parse::<u64>().ok();
+        let primary = headers
+            .get("x-ratelimit-remaining")
+            .is_some_and(|value| value == "0")
+            && headers.contains_key("x-ratelimit-reset");
+        if !primary && !headers.contains_key("retry-after") {
+            return None;
+        }
+        let now_epoch = now.duration_since(UNIX_EPOCH).ok();
+        let reset = primary.then(|| number("x-ratelimit-reset")).flatten();
+        let reset_delay = reset
+            .zip(now_epoch)
+            .map(|(reset, now)| Duration::from_secs(reset).saturating_sub(now));
+        let retry = headers.contains_key("retry-after");
+        let retry_delay = retry
+            .then(|| number("retry-after").map(Duration::from_secs))
+            .flatten();
+        // A malformed applicable constraint must never permit an early retry.
+        let delay = if (primary && reset_delay.is_none()) || (retry && retry_delay.is_none()) {
+            None
+        } else {
+            Some(
+                reset_delay
+                    .unwrap_or_default()
+                    .max(retry_delay.unwrap_or_default()),
+            )
+        };
+        let retry_at = reset
+            .into_iter()
+            .chain(retry_delay.zip(now_epoch).and_then(|(delay, now)| {
+                now.as_secs()
+                    .checked_add(delay.as_secs())?
+                    .checked_add(u64::from(now.subsec_nanos() != 0))
+            }))
+            .max();
+        Some(Self { delay, retry_at })
+    }
+
+    fn error(&self, reason: &str) -> io::Error {
+        let reset = self
+            .retry_at
+            .and_then(|epoch| {
+                time::OffsetDateTime::from_unix_timestamp(i64::try_from(epoch).ok()?)
+                    .ok()
+                    .map(|date| format!("{date} (UTC epoch {epoch})"))
+            })
+            .unwrap_or_else(|| "unavailable (missing or invalid timing header)".to_owned());
+        io::Error::other(format!(
+            "GitHub API rate limit: reset/earliest retry time {reset}; {reason}. Retry later or optionally set GITHUB_TOKEN."
+        ))
     }
 }
 

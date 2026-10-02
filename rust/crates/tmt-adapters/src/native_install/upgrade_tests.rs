@@ -523,3 +523,40 @@ fn consent_selected_versions_upgrade_cli_and_squad_without_creating_pins() {
         );
     }
 }
+
+#[test]
+fn rate_limit_failure_preserves_active_executable_receipt_and_has_no_staging() {
+    let (_directory, layout, _) = published_layout();
+    let current = fs::read_link(layout.root.join("current")).unwrap();
+    let executable = layout.root.join(&current).join("tmt");
+    let receipt = layout.root.join(&current).join("receipt.json");
+    let old_executable = fs::read(&executable).unwrap();
+    let old_receipt = fs::read(&receipt).unwrap();
+    let cause = "GitHub API rate limit: reset/earliest retry time 2030-01-01 UTC; the required wait exceeds the remaining deadline. Retry later or optionally set GITHUB_TOKEN.";
+    let mut calls = 0;
+    let error = upgrade_with(
+        UpgradeRequest {
+            executable: &executable,
+            channel: None,
+            exact: None,
+            unpin: false,
+        },
+        || Ok(()),
+        |_, _, _, _| {
+            calls += 1;
+            Err(io::Error::other(cause))
+        },
+    )
+    .unwrap_err();
+    assert_eq!(calls, 1);
+    assert_eq!(error.to_string(), cause);
+    assert!(error.activated.is_none());
+    assert_eq!(fs::read_link(layout.root.join("current")).unwrap(), current);
+    assert_eq!(fs::read(&executable).unwrap(), old_executable);
+    assert_eq!(fs::read(&receipt).unwrap(), old_receipt);
+    assert_no_downloads(&layout.root);
+    assert_eq!(
+        fs::read_dir(layout.root.join("releases")).unwrap().count(),
+        1
+    );
+}

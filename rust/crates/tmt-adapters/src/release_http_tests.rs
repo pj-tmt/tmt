@@ -2,7 +2,7 @@ use std::{
     io::{self, Read, Write},
     net::{Shutdown, SocketAddr, TcpListener, TcpStream},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
         mpsc,
     },
@@ -33,6 +33,8 @@ struct Response {
     emit_length: bool,
     hold_body: bool,
     header_delay: Duration,
+    headers: Vec<(String, String)>,
+    captured: Option<Arc<Mutex<Vec<String>>>>,
 }
 
 impl Response {
@@ -46,6 +48,8 @@ impl Response {
             emit_length: true,
             hold_body: false,
             header_delay: Duration::ZERO,
+            headers: Vec::new(),
+            captured: None,
         }
     }
 
@@ -202,7 +206,10 @@ fn serve_connection(
     stream.set_write_timeout(Some(SERVER_WAIT))?;
     let connection = ServerConnection::new(config).map_err(io::Error::other)?;
     let mut stream = StreamOwned::new(connection, stream);
-    read_request(&mut stream)?;
+    let request = read_request(&mut stream)?;
+    if let Some(captured) = &response.captured {
+        captured.lock().unwrap().push(request);
+    }
     thread::sleep(response.header_delay);
 
     write!(
@@ -216,6 +223,9 @@ fn serve_connection(
     }
     if let Some(link) = &response.link {
         write!(stream, "Link: {link}\r\n")?;
+    }
+    for (name, value) in &response.headers {
+        write!(stream, "{name}: {value}\r\n")?;
     }
     if response.emit_length {
         let length = response.declared_length.unwrap_or(response.body.len());
@@ -259,7 +269,7 @@ fn accept(listener: &TcpListener, released: &mpsc::Receiver<()>) -> io::Result<T
     }
 }
 
-fn read_request(stream: &mut impl Read) -> io::Result<()> {
+fn read_request(stream: &mut impl Read) -> io::Result<String> {
     let mut request = Vec::new();
     let mut buffer = [0_u8; 1024];
     while !request.windows(4).any(|window| window == b"\r\n\r\n") {
@@ -278,7 +288,7 @@ fn read_request(stream: &mut impl Read) -> io::Result<()> {
             ));
         }
     }
-    Ok(())
+    String::from_utf8(request).map_err(io::Error::other)
 }
 
 fn reason(status: u16) -> &'static str {
@@ -291,8 +301,12 @@ fn reason(status: u16) -> &'static str {
 }
 
 fn tls_material() -> (Arc<ServerConfig>, Vec<u8>) {
-    let certified = generate_simple_self_signed(vec!["127.0.0.1".to_owned()])
-        .expect("generate test TLS certificate");
+    let certified = generate_simple_self_signed(vec![
+        "127.0.0.1".to_owned(),
+        "api.github.com".to_owned(),
+        "objects.githubusercontent.com".to_owned(),
+    ])
+    .expect("generate test TLS certificate");
     let certificate = certified.cert.der().as_ref().to_vec();
     let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
         certified.signing_key.serialize_der(),
@@ -530,4 +544,264 @@ fn metadata_response_preserves_pagination_evidence_over_real_tls() {
         .unwrap();
     assert_eq!(response.body, b"[]");
     assert_eq!(response.link.as_deref(), Some(link));
+}
+
+#[derive(Debug)]
+struct LocalResolver(SocketAddr);
+
+impl ureq::unversioned::resolver::Resolver for LocalResolver {
+    fn resolve(
+        &self,
+        uri: &ureq::http::Uri,
+        _: &ureq::config::Config,
+        _: ureq::unversioned::transport::NextTimeout,
+    ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+        assert!(matches!(
+            uri.host(),
+            Some("api.github.com" | "objects.githubusercontent.com")
+        ));
+        let mut addresses = self.empty();
+        addresses.push(self.0);
+        Ok(addresses)
+    }
+}
+
+fn scripted(responses: Vec<Response>) -> (TestServer, Https, Arc<Mutex<Vec<String>>>) {
+    let (config, certificate) = tls_material();
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let address = listener.local_addr().unwrap();
+    let (release, released) = mpsc::channel();
+    let captured = Arc::new(Mutex::new(Vec::new()));
+    let requests = captured.clone();
+    let thread = thread::spawn(move || {
+        for mut response in responses {
+            response.captured = Some(requests.clone());
+            serve_connection(
+                accept(&listener, &released)?,
+                config.clone(),
+                response,
+                &released,
+            )?;
+        }
+        Ok(())
+    });
+    let roots = [Certificate::from_der(&certificate).to_owned()];
+    let config = Agent::config_builder()
+        .https_only(true)
+        .max_redirects(0)
+        .proxy(None)
+        .max_response_header_size(MAX_RESPONSE_HEADER)
+        .user_agent(USER_AGENT)
+        .tls_config(
+            TlsConfig::builder()
+                .root_certs(RootCerts::new_with_certs(&roots))
+                .build(),
+        )
+        .build();
+    let agent = Agent::with_parts(
+        config,
+        ureq::unversioned::transport::DefaultConnector::default(),
+        LocalResolver(address),
+    );
+    let mut client = Https::with_test_agent(agent);
+    // Test-only wait injection: real TLS classification and retry happen, but
+    // no test waits for the server's actual rate-limit window to elapse.
+    client.now = || std::time::UNIX_EPOCH + Duration::from_secs(1_000);
+    client.wait =
+        |delay| assert!(delay >= Duration::from_secs(1) && delay < Duration::from_secs(3));
+    (
+        TestServer {
+            address,
+            release: Some(release),
+            thread: Some(thread),
+            accepted: None,
+        },
+        client,
+        captured,
+    )
+}
+
+fn limited(status: u16, headers: &[(&str, &str)]) -> Response {
+    Response {
+        status,
+        headers: headers
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect(),
+        ..Response::ok("limited")
+    }
+}
+
+fn api_get(client: &Https, seconds: u64) -> io::Result<super::Response> {
+    client.get(
+        "https://api.github.com/release",
+        "application/json",
+        64,
+        Instant::now() + Duration::from_secs(seconds),
+    )
+}
+
+#[test]
+fn secondary_limit_waits_once_then_succeeds_over_https() {
+    for status in [403, 429] {
+        let (_server, client, requests) = scripted(vec![
+            limited(status, &[("retry-after", "1")]),
+            Response::ok("native"),
+        ]);
+        assert_eq!(api_get(&client, 10).unwrap().body, b"native");
+        assert_eq!(requests.lock().unwrap().len(), 2);
+    }
+}
+
+#[test]
+fn primary_reset_waits_then_succeeds_over_https() {
+    let reset = "1002".to_owned();
+    let (_server, client, requests) = scripted(vec![
+        limited(
+            403,
+            &[
+                ("x-ratelimit-remaining", "0"),
+                ("x-ratelimit-reset", &reset),
+            ],
+        ),
+        Response::ok("native"),
+    ]);
+    assert_eq!(api_get(&client, 10).unwrap().body, b"native");
+    assert_eq!(requests.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn limit_past_deadline_names_retry_time_without_retry() {
+    let (_server, client, requests) = scripted(vec![limited(429, &[("retry-after", "120")])]);
+    let error = api_get(&client, 1).unwrap_err().to_string();
+    assert!(error.contains("GitHub API rate limit"));
+    assert!(error.contains("UTC epoch"));
+    assert!(error.contains("remaining deadline"));
+    assert!(error.contains("GITHUB_TOKEN"));
+    assert_eq!(requests.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn permission_403_and_reset_alone_do_not_retry() {
+    for headers in [
+        vec![],
+        vec![("x-ratelimit-reset", "9999999999")],
+        vec![
+            ("x-ratelimit-remaining", "1"),
+            ("x-ratelimit-reset", "9999999999"),
+        ],
+    ] {
+        let (_server, client, requests) = scripted(vec![limited(403, &headers)]);
+        let error = api_get(&client, 10).unwrap_err().to_string();
+        assert!(error.contains("403"));
+        assert!(!error.contains("rate limit"));
+        assert_eq!(requests.lock().unwrap().len(), 1);
+    }
+}
+
+#[test]
+fn repeated_limits_stop_after_one_retry_and_allowance_spans_calls() {
+    let (_server, client, requests) = scripted(vec![
+        limited(403, &[("retry-after", "1")]),
+        Response::ok("first"),
+        limited(429, &[("retry-after", "1")]),
+    ]);
+    assert_eq!(api_get(&client, 10).unwrap().body, b"first");
+    assert!(
+        api_get(&client, 10)
+            .unwrap_err()
+            .to_string()
+            .contains("single retry was exhausted")
+    );
+    assert_eq!(requests.lock().unwrap().len(), 3);
+    let (_server, client, requests) = scripted(vec![
+        limited(429, &[("retry-after", "1")]),
+        limited(429, &[("retry-after", "1")]),
+    ]);
+    assert!(
+        api_get(&client, 10)
+            .unwrap_err()
+            .to_string()
+            .contains("single retry was exhausted")
+    );
+    assert_eq!(requests.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn token_is_scoped_to_api_hop_and_optional() {
+    for token in [None, Some("fixture-secret".to_owned())] {
+        let (_server, mut client, requests) = scripted(vec![
+            Response::redirect("https://objects.githubusercontent.com/archive".to_owned()),
+            Response::ok("native"),
+        ]);
+        client.token = token.clone();
+        assert_eq!(api_get(&client, 10).unwrap().body, b"native");
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(
+            requests[0]
+                .to_ascii_lowercase()
+                .contains("authorization: bearer fixture-secret"),
+            token.is_some()
+        );
+        assert!(!requests[1].to_ascii_lowercase().contains("authorization"));
+        assert!(!requests[1].contains("fixture-secret"));
+    }
+}
+
+#[test]
+fn malformed_limit_timing_fails_without_retry_or_secret_echo() {
+    for headers in [
+        vec![("retry-after", "invalid")],
+        vec![("retry-after", "18446744073709551616")],
+        vec![
+            ("x-ratelimit-remaining", "0"),
+            ("x-ratelimit-reset", "invalid"),
+        ],
+    ] {
+        let (_server, mut client, requests) = scripted(vec![limited(403, &headers)]);
+        client.token = Some("fixture-secret".to_owned());
+        let error = api_get(&client, 10).unwrap_err().to_string();
+        assert!(error.contains("GitHub API rate limit"));
+        assert!(error.contains("unavailable"));
+        assert!(!error.contains("fixture-secret"));
+        assert_eq!(requests.lock().unwrap().len(), 1);
+    }
+}
+
+#[test]
+fn timing_constraints_use_later_minimum_and_preserve_fractional_reset() {
+    let mut headers = ureq::http::HeaderMap::new();
+    headers.insert("x-ratelimit-remaining", "0".parse().unwrap());
+    headers.insert("x-ratelimit-reset", "1002".parse().unwrap());
+    headers.insert("retry-after", "1".parse().unwrap());
+    let now = std::time::UNIX_EPOCH + Duration::from_millis(1_000_500);
+    let limit = super::RateLimit::from_headers(&headers, now).unwrap();
+    assert_eq!(limit.delay, Some(Duration::from_millis(1_500)));
+    assert_eq!(limit.retry_at, Some(1002));
+    headers.insert("retry-after", "3".parse().unwrap());
+    let limit = super::RateLimit::from_headers(&headers, now).unwrap();
+    assert_eq!(limit.delay, Some(Duration::from_secs(3)));
+    // Human diagnostic rounds up, so it never names an early retry second.
+    assert_eq!(limit.retry_at, Some(1004));
+}
+
+#[test]
+fn asset_status_does_not_trigger_api_policy_or_receive_token() {
+    let (_server, mut client, requests) = scripted(vec![limited(429, &[("retry-after", "1")])]);
+    client.token = Some("fixture-secret".to_owned());
+    let error = client
+        .get(
+            "https://objects.githubusercontent.com/archive",
+            "application/octet-stream",
+            64,
+            Instant::now() + Duration::from_secs(10),
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("429"));
+    assert!(!error.to_string().contains("rate limit"));
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert!(!requests[0].to_ascii_lowercase().contains("authorization"));
 }
