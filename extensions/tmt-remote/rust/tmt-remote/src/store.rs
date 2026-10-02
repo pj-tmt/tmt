@@ -234,7 +234,8 @@ impl Store {
         Ok(grant)
     }
     /// Presentation-only rename. Disabled grants remain tombstones; an exact
-    /// repeat preserves the revision and never changes grant authority.
+    /// repeat preserves the revision and never changes grant authority. The last
+    /// JSON-safe revision is reserved for revocation.
     pub fn rename(&mut self, client_id: &str, name: &str) -> Result<Option<Grant>, RemoteError> {
         if !crate::canonical::device_name(name) {
             return Err(RemoteError::new(
@@ -263,7 +264,7 @@ impl Store {
         transaction
             .execute(
                 "UPDATE grants SET name = ?2, revision = revision + 1
-             WHERE client_id = ?1 AND name != ?2 AND revision < 9007199254740991",
+             WHERE client_id = ?1 AND name != ?2 AND revision < 9007199254740990",
                 rusqlite::params![client_id, name],
             )
             .map_err(database)?;
@@ -393,11 +394,11 @@ mod tests {
     }
 
     #[test]
-    fn rename_and_revoke_refuse_revision_exhaustion_without_changing_the_grant() {
+    fn rename_reserves_the_final_revision_for_revocation() {
         let root = std::env::temp_dir().join(format!("tmt-1100-revision-{}", std::process::id()));
         let serving = Layout::open(&root).unwrap().serve_lock().unwrap();
         let mut store = Store::open(&serving).unwrap();
-        let grant = Grant {
+        let mut grant = Grant {
             client_id: uuid_v4().unwrap(),
             public_key: [7; 32],
             kind: "cli".into(),
@@ -408,21 +409,32 @@ mod tests {
             mode: "direct".into(),
             issued_at_ms: 1,
             expires_at_ms: None,
-            revision: 9_007_199_254_740_991,
+            revision: 9_007_199_254_740_989,
             disabled: false,
         };
         store.insert_grant(&grant).unwrap();
+        grant.name = "Travel".into();
+        grant.revision += 1;
         assert_eq!(
-            store.rename(&grant.client_id, "Travel").unwrap_err().code,
-            "REMOTE_STATE_UNAVAILABLE"
-        );
-        assert_eq!(
-            store.revoke(&grant.client_id).unwrap_err().code,
-            "REMOTE_STATE_UNAVAILABLE"
-        );
-        assert_eq!(
-            store.rename(&grant.client_id, "Laptop").unwrap(),
+            store.rename(&grant.client_id, "Travel").unwrap(),
             Some(grant.clone())
+        );
+        assert_eq!(
+            store.rename(&grant.client_id, "Laptop").unwrap_err().code,
+            "REMOTE_STATE_UNAVAILABLE"
+        );
+        assert_eq!(store.grant(&grant.client_id).unwrap(), Some(grant.clone()));
+        assert_eq!(
+            store.rename(&grant.client_id, "Travel").unwrap(),
+            Some(grant.clone())
+        );
+        grant.revision += 1;
+        grant.disabled = true;
+        assert_eq!(store.revoke(&grant.client_id).unwrap(), Some(grant.clone()));
+        assert_eq!(store.revoke(&grant.client_id).unwrap(), Some(grant.clone()));
+        assert_eq!(
+            store.rename(&grant.client_id, "Laptop").unwrap_err().code,
+            "REMOTE_DEVICE_REVOKED"
         );
         drop(store);
         let reopened = Store::open(&serving).unwrap();

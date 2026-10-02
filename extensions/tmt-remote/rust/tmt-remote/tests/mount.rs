@@ -20,7 +20,7 @@ use std::{
 };
 use tmt_remote::{
     devices::{Devices, event_json},
-    http::{Door, Handler},
+    http::{Door, Handler, Head},
     limits,
     mount::{Admitted, DeviceContext, EXTENSIONS, Extension, Mounts, NoSessions, Sessions},
     routes::Routes,
@@ -343,13 +343,41 @@ fn reserved_device_events_never_forward_even_with_a_forged_marker() {
         "/.tmt/",
         "/.tmt/remote/device-events",
         "/.tmt/other",
+        "/%2Etmt/remote/device-events",
+        "/%2etmt/remote/device-events",
+        "//.tmt/remote/device-events",
+        "/./.tmt/remote/device-events",
+        "/app/../other",
+        "/app/%2e%2E/other",
     ] {
         for method in ["GET", "POST", "PUT", "PATCH", "DELETE"] {
             let wire = format!(
                 "{method} {}/x/colab{path} HTTP/1.1\r\nHost: {}\r\nOrigin: {}\r\nCookie: {OWNER}\r\nTMT-Device-Event: 1\r\nContent-Length: 2\r\n\r\n{{}}",
                 door.prefix, door.addr, door.origin
             );
-            assert_eq!(door.status(&wire), 404);
+            let target = door.at(&format!("/x/colab{path}"));
+            let head = Head {
+                method,
+                path: &target,
+                origin: Some(&door.origin),
+                cookie: Some(OWNER),
+                content_type: None,
+                content_length: Some(2),
+                upgrade: false,
+            };
+            assert_eq!(door.mounts.admit(&head).unwrap_err().status, 404);
+            // The edge also rejects encoded, empty and dot segments as invalid
+            // framing; the mount guard must independently refuse these paths.
+            let status = if path.contains('%')
+                || path.contains("//")
+                || path.contains("/./")
+                || path.contains("/../")
+            {
+                400
+            } else {
+                404
+            };
+            assert_eq!(door.status(&wire), status);
         }
     }
     assert!(extension.seen.all().is_empty());

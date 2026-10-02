@@ -536,7 +536,10 @@ fn write_all(stream: &mut TcpStream, mut bytes: &[u8], deadline: Instant) -> io:
     Ok(())
 }
 fn reserved(path: &str) -> bool {
-    path == "/.tmt" || path.starts_with("/.tmt/")
+    let decoded = path.replace("%2e", ".").replace("%2E", ".");
+    let mut segments = decoded.split('/').filter(|s| !s.is_empty() && *s != ".");
+    let first = segments.next();
+    first == Some(".tmt") || first == Some("..") || segments.any(|s| s == "..")
 }
 
 /// Nonblocking connect also bounds a full extension accept backlog. Unix EAGAIN
