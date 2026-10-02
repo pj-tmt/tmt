@@ -19,7 +19,6 @@ COPY extensions/tmt-colab/rust/ extensions/tmt-colab/rust/
 COPY extensions/tmt-colab/contracts/ extensions/tmt-colab/contracts/
 COPY scripts/native-cargo.sh scripts/build-native-artifact.sh scripts/
 COPY dist-workspace.toml LICENSE ./
-COPY docs/NATIVE-INSTALL.md docs/NATIVE-INSTALL.md
 COPY typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace.yaml typescript/
 COPY extensions/tmt-office/typescript/apps/office/package.json extensions/tmt-office/typescript/apps/office/package.json
 COPY extensions/tmt-office/typescript/apps/office/ extensions/tmt-office/typescript/apps/office/

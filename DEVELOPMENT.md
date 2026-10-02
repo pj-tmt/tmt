@@ -1254,6 +1254,70 @@ fails and reports the retained fixture path instead of deleting potentially
 live state. Focused lifecycle regressions live in `typescript/test/tooling/cli-process.test.ts`;
 they use explicit Node fixtures, not a product-runtime fallback.
 
+### Optional performance probes
+
+Performance probes are developer tools, not timing gates in ordinary CI. They use
+the executable selectors above and the existing isolated fixtures. Never measure an
+installed host command by accident, and never fall back to another runtime.
+
+**Startup resources (macOS).** From the repository root, build a release CLI,
+select it, and run the probe at least twice:
+
+```sh
+cargo build --locked --release --manifest-path rust/Cargo.toml
+export TMT_TEST_CLI="{\"executable\":\"$PWD/rust/target/release/tmt\",\"args\":[]}"
+node typescript/scripts/benchmark-startup.mjs > "$TMPDIR/tmt-startup-run-1.json"
+node typescript/scripts/benchmark-startup.mjs > "$TMPDIR/tmt-startup-run-2.json"
+```
+
+The probe uses macOS `/usr/bin/time -lp` and the bounded packed-command runner. It
+creates and removes private home/config/workspace state, omits caller context,
+blocks PATH-based tmux execution and checks the output. Each create uses fresh
+storage; show reopens that identity. It never installs globally. CPU includes
+waited descendants; maximum RSS is in bytes. Linux resource accounting is not
+implemented, and denied kernel statistics are a measurement failure, not zero.
+
+**Private-tmux latency (Docker).** Use a task-owned image tagged for the worktree
+as described in [the disk section](#keep-local-development-from-filling-the-disk)
+(it defines `$worktree`), run `scripts/dev-disk-check.sh` first, and never run these tmux scenarios on the
+host:
+
+```sh
+docker build --build-arg TMT_NATIVE_PROFILE=release -f typescript/test/e2e/Dockerfile -t "tmt-performance:$worktree" .
+docker run --rm --init --network none \
+  -e TMT_PERFORMANCE_BASELINE=1 "tmt-performance:$worktree" \
+  sh -c 'cd /workspace/typescript && pnpm exec vitest run --config test/e2e/vitest.config.ts test/e2e/performance-baseline.e2e.test.ts'
+docker image rm "tmt-performance:$worktree"
+```
+
+Repeat the run before removing the image. Add `-e TMT_PERFORMANCE_SLOW_REPLY=1`
+for the controlled 1,500 ms mock reply delay. The image places the selected
+profile at the shared selector's default path, and mock replies inherit it;
+regression builds stay debug. The scenario emits a `TMT_PERFORMANCE_BASELINE` JSON
+report and is otherwise skipped. Setup of 200 extra unbound panes is outside the
+measurements. Trace counts include fixture caller-session discovery, not all OS
+subprocesses. Assertions gate causal behavior, scoped subprocess bounds and
+cleanup, never latency; a report followed by failed teardown is invalid evidence.
+Talk timings include the 500 ms paste/Enter delay and observer policy, and a
+mock reply can move completion by a whole one-second poll interval, so do not
+subtract the injected peer delay and call the remainder processing time.
+
+**Comparison rules.**
+
+- Keep all raw samples, the first observation, the median and the range. A fresh
+  process is not a cold machine or cache, and seven samples are not a tail-latency
+  study.
+- Record the source revision and dirty diff, selected executable and peer,
+  toolchain, locked dependencies, profile, target/linkage and binary size. Use
+  the same machine, resources, fixture sizes and command defaults, and interleave
+  at least two runs with seven samples per repeated scenario.
+- Correctness, compatibility and cleanup gates stay mandatory. A repeated scoped
+  median regression above 15% is a review trigger, not a timing assertion.
+  Report the talk delay and poll policy separately.
+- Preserve the deterministic scoped subprocess bounds and inspect output size and
+  scope. Do not reduce production delays to advertise speed, or claim unmeasured
+  throughput, memory, platform or release behavior.
+
 ### Squad extension
 
 `typescript/test/native/squad.test.ts` runs `rust/target/debug/tmt-squad`, or an

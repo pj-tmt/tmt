@@ -820,8 +820,8 @@ resource-lease renewal, identity retirement hook consumption and protected
 scope records. The public alpha companion is distributed through the verified
 native release path; local service and whole-world operation availability in a
 published pair still depends on a
-coordinated release. Follow [native installation guidance](../../../docs/NATIVE-INSTALL.md)
-for release status and compatibility rather than maintaining another version ledger
+coordinated release. Follow the [handbook start chapter](../../../site/src/chapters/start.mdx)
+for installation and upgrade steps rather than maintaining another version ledger
 here. The CLI's explicit `office` subtree installs, inspects, updates and deactivates
 it through existing native owners; other CLI operations do not execute or probe it.
 Shared native protocol values remain in the existing core.

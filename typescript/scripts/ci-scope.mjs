@@ -180,22 +180,22 @@ function consumedCratePath(path) {
 }
 
 /**
- * Shared paths the native Office image never reads: prose outside Office,
- * core-only test suites, and E2E scenarios (Office imports only the harness
- * and test support) with their separate image.
+ * Shared paths the native Office image never reads: prose outside Office, the
+ * release archive note, core-only test suites, and E2E scenarios (Office imports
+ * only the harness and test support) with their separate image.
  */
 const NATIVE_OFFICE_UNRELATED = [
-  /^(?!docs\/office\/)(?:docs\/.+|design\/cli-style|[^/]+)\.md$/,
+  /^(?:design\/cli-style|rust\/archive\/NATIVE-INSTALL|[^/]+)\.md$/,
   /^typescript\/test\/(?:native|tooling)\//,
   /^typescript\/test\/e2e\/(?:[^/]+\.e2e\.test\.ts|Dockerfile)$/,
 ];
 
 /** Unknown paths fail closed, as they do for the other areas. */
 function consumedByNativeOffice(path) {
+  if (NATIVE_OFFICE_UNRELATED.some((pattern) => pattern.test(path))) return false;
   if (path.startsWith('rust/crates/')) return consumedCratePath(path);
   if (path.startsWith('rust/')) return true;
-  if (path.startsWith('skills/') || path.startsWith('extensions/tmt-squad/')) return false;
-  return !NATIVE_OFFICE_UNRELATED.some((pattern) => pattern.test(path));
+  return !(path.startsWith('skills/') || path.startsWith('extensions/tmt-squad/'));
 }
 
 /**

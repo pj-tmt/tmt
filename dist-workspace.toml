@@ -11,4 +11,4 @@ unix-archive = ".tar.gz"
 checksum = "sha256"
 source-tarball = false
 auto-includes = false
-include = ["LICENSE", "docs/NATIVE-INSTALL.md", "rust/target/native-notices/THIRD-PARTY-NOTICES.txt"]
+include = ["LICENSE", "rust/archive/NATIVE-INSTALL.md", "rust/target/native-notices/THIRD-PARTY-NOTICES.txt"]
