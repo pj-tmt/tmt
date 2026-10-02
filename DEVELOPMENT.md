@@ -2499,7 +2499,7 @@ paired devices with their four words, and `tmt remote devices revoke
 the pairing link in a browser serves the pairing page, which shows the same four
 words; after the owner confirms, the browser opens a door session with a signed
 `session.open`, and its cookie then carries the device context to mounted pages. Pairing and state tests use short
-roots under `/tmp`, because Unix socket paths are limited to about 100 bytes. It mounts colab under `<prefix>/x/colab/` (the route prefix printed by `serve --json`) while
+roots under `/tmp`, because Unix socket paths are limited to about 100 bytes. It mounts colab under `/r/<prefix>/x/colab/` (`serve --json` prints the route prefix `/r/<prefix>`) while
 `<dataRoot>/colab/door.sock` exists as an owner-only socket in a 0700
 directory; mounted requests carry a device context only under a live door
 session.
@@ -2629,7 +2629,7 @@ workers, removes the socket and releases the service lock. `tmt colab spaces
 --json` lists the local space and running state without creating directories or
 keys; before first serve it returns `{"spaces":[]}`. Use an isolated normal TMT
 data root for manual tests. Browsers reach colab through `tmt remote serve` at
-`<prefix>/x/colab/`; remote owns Host and Origin admission and forwards the
+`/r/<prefix>/x/colab/`; remote owns Host and Origin admission and forwards the
 paired owner's device context.
 
 The socket bounds are named in `src/limits.rs`: 16 request workers, 8 KiB/32

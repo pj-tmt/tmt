@@ -3900,13 +3900,13 @@ module and page are embedded with `include_str!` from the crate's `assets/`;
 and fails on any difference.
 
 `session::DoorSessions` admits the signed `session.open` control on
-`<prefix>/append`: exactly the envelope fields, this machine and window, a live
+`/r/<prefix>/append`: exactly the envelope fields, this machine and window, a live
 grant (not revoked, not expired), the envelope and request Origin equal to the
 grant origin (a `browser` grant to this door's own origin; none for `cli`), a
 timestamp within 60 seconds, a `{clientNonce}` payload whose nonce was not used
 by that device within two minutes, and the device signature over the canonical
 bytes. It answers a machine-signed response and, for a `browser` device, sets
-the `tmt_door` cookie (256-bit token, `Path=<prefix>/x/`, HttpOnly, SameSite=Strict)
+the `tmt_door` cookie (256-bit token, `Path=/r/<prefix>/x/`, HttpOnly, SameSite=Strict)
 whose SHA-256 is all serve keeps. Sessions live in serve memory, one per device:
 a newer session, revocation, 12 hours without use or stop ends one, and
 reopening is another signed `session.open`. Every refusal is the generic 404.
@@ -3914,13 +3914,13 @@ reopening is another signed `session.open`. Every refusal is the generic 404.
 pairing. `devices::Devices` lists grants and revokes one by disabling it and
 advancing its revision before acknowledging, then ends the device's session.
 
-`site::Site` is the door's handler: the mount space `<prefix>/x/` goes to
+`site::Site` is the door's handler: the mount space `/r/<prefix>/x/` goes to
 `mount::Mounts`, `/pair/` and `/sdk/` to `pages::Pages`, all others to the
 `/r/` binding, whose exact routes never overlap the mount space; the root `/x/`
 is a plain 404. Mounting under the unpredictable machine prefix keeps the door
 cookie (scoped to it) from other loopback listeners at a guessable path, and
 mounted replies keep `no-referrer` (or a narrower `same-origin`) so the prefix
-does not leak in `Referer`. Mounts forward `<prefix>/x/<extension>/` to
+does not leak in `Referer`. Mounts forward `/r/<prefix>/x/<extension>/` to
 `<dataRoot>/<extension>/door.sock` only for allowlisted extensions (exactly
 `colab` in this slice; a general enabled-extension registry is later work)
 and only when that socket and its directory are owned by the user, grant
@@ -4083,7 +4083,7 @@ the public core API retains dispatch/final ownership.
 that the directory is this user's and closed to group/other, which replaces
 only a stale socket owned by this user, refuses anything else, rejects paths too
 long for a Unix socket and removes its own socket on exit. Remote mounts it at
-`<prefix>/x/colab/` and owns Host, Origin, cookies and browser framing; colab
+`/r/<prefix>/x/colab/` and owns Host, Origin, cookies and browser framing; colab
 trusts `tmt-device-context` because only the owner can reach the socket. It
 keeps the relocated door's bounds (16 request workers, 8 KiB/32 header fields,
 64 KiB bodies, acquisition/response deadlines, drained replies) and answers the

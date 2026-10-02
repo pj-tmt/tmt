@@ -994,7 +994,7 @@ immutable-object/cursor semantics without pretending to be a WebSocket server.
 
 Local storage uses extension SQLite/files and `colab-sync-v1` WebSocket. Colab's
 local listener is only its owner-only socket `<dataRoot>/colab/door.sock`, which
-remote mounts at `<prefix>/x/colab/` (#1039): remote's door owns Host, Origin,
+remote mounts at `/r/<prefix>/x/colab/` (#1039): remote's door owns Host, Origin,
 DNS-rebinding and cookie admission, and colab trusts the forwarded
 `tmt-device-context` because only the owner can reach the socket. Its HTTP
 handling uses bounded std-thread workers, workspace tungstenite and strict
