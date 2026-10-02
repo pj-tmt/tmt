@@ -121,7 +121,7 @@ the `Terminal` they build rather than configuring the process.
 ## Marks
 
 Each mark has one meaning everywhere (`mark::Mark` for command-line marks; the
-fold and meter marks below is board-only). `Mark::description` owns the canonical meaning;
+fold and meter marks below are board-only). `Mark::description` owns the canonical meaning;
 a test checks every shared mark's symbol and description against the design
 tokens. Additional marks stay labelled board only. A row's leading state mark is
 `●`, `○` or `◌`:
@@ -138,7 +138,7 @@ tokens. Additional marks stay labelled board only. A row's leading state mark is
 | `◆`  | waits on your decision                                             |
 | `▸`  | folded Squad board pane (board only)                               |
 | `≥` | lower bound from missing member token coverage (board only) |
-| `▁▂▃▄▅▆▇█` | relative completed-request rate trend (board only) |
+| `▁▂▃▄▅▆▇█` | completed-request trend: ▁ measured zero, ▂–█ relative rate, blank no data (board only) |
 
 ## Lists
 

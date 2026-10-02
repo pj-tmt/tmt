@@ -15,7 +15,7 @@ use crate::{
 };
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Rect},
+    layout::{Alignment, Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
@@ -649,26 +649,25 @@ fn render_meter(frame: &mut Frame, app: &App, summary: Rect) {
         return;
     };
     let meter = app.meter.as_ref().expect("visible meter");
-    let mut spans = Vec::new();
+    let mut spans = vec![Span::raw(meter.digits().expect("visible digits"))];
+    spans.push(Span::styled(layout.unit, app.look().role(Role::Muted)));
     if let Some(label) = layout.label {
         spans.push(Span::styled(
-            format!("{label:>3} "),
+            format!(" {label}"),
             app.look().role(Role::Muted),
         ));
     }
-    spans.push(Span::raw(format!(
-        "{:>width$}",
-        meter.digits().expect("visible digits"),
-        width = super::meter::NUMBER_WIDTH
-    )));
-    spans.push(Span::styled(layout.unit, app.look().role(Role::Muted)));
     if layout.spark {
+        // Keep empty slices: the eight-slot trend grows from the right.
         spans.push(Span::styled(
             format!(" {}", meter.sparkline()),
             app.look().role(Role::Muted),
         ));
     }
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+    frame.render_widget(
+        Paragraph::new(Line::from(spans)).alignment(Alignment::Right),
+        area,
+    );
 }
 
 pub fn render(frame: &mut Frame, app: &App) {

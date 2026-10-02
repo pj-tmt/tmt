@@ -112,6 +112,11 @@ fn sample_and_animation_emit_only_meter_cells_in_normal_render() {
                 total += terminal.backend().emitted.len();
             }
             assert_eq!(app.meter.as_ref().unwrap().digits().as_deref(), Some("15"));
+            let summary: String = (0..width)
+                .map(|x| terminal.backend().inner.buffer()[(x, 1)].symbol())
+                .collect();
+            assert!(summary.ends_with("15 tok/s 10s        █"), "{summary}");
+            assert_eq!(area.width, 26, "seven-cell maximum number region");
             redraw(&mut terminal, &app);
             assert!(
                 terminal.backend().emitted.is_empty(),
@@ -119,6 +124,24 @@ fn sample_and_animation_emit_only_meter_cells_in_normal_render() {
             );
             println!(
                 "meter width={width} reduced={reduced} region={area:?} sample+motion cells={total}"
+            );
+            // New trend data keeps the reserved region and summary in place.
+            app.meter
+                .as_mut()
+                .unwrap()
+                .sample(Ok(&input(300)), now + Duration::from_secs(20));
+            assert_eq!(
+                meter_region(&app, Rect::new(0, 1, width, 1)).unwrap().0,
+                area
+            );
+            redraw(&mut terminal, &app);
+            assert!(!terminal.backend().emitted.is_empty());
+            assert!(
+                terminal
+                    .backend()
+                    .emitted
+                    .iter()
+                    .all(|(x, y)| area.contains(Position::new(*x, *y)))
             );
         }
     }
@@ -134,10 +157,10 @@ fn narrow_drops_spark_then_meter_and_hidden_ticks_emit_nothing() {
         .sample(Ok(&input(100)), now + Duration::from_secs(60));
     let left = summary_line(&app).width() + 2;
     assert!(
-        meter_region(&app, Rect::new(0, 1, (left + 12) as u16, 1))
+        meter_region(&app, Rect::new(0, 1, (left + 10) as u16, 1))
             .is_some_and(|(_, layout)| !layout.spark)
     );
-    let width = (left + 12 - 1) as u16;
+    let width = (left + 10 - 1) as u16;
     assert!(meter_region(&app, Rect::new(0, 1, width, 1)).is_none());
     let mut terminal = Terminal::new(Recording {
         inner: TestBackend::new(width, 24),

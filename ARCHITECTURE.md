@@ -2929,7 +2929,9 @@ missing reporting coverage. `board::meter` owns cubic counting digits (600 ms,
 window switches/reduced motion. Its eight trend bars derive from the ring;
 slices are rounded up to 5 s, so trend spans are 40 s/80 s/30 min/1 h. No evidence
 is blank; measured zero is ▁; nonzero bars use ▂ through █.
-The meter owns step-aside: drop trend, then only a full default-1m label, shorten
+The meter renders one right-aligned number/unit/label/trend group, using a
+seven-cell maximum number region and no padding between its parts; the trend
+preserves its eight slots, including empty slices. The meter owns step-aside: drop trend, then only a full default-1m label, shorten
 `tok/s` to `/s`, then hide before cutting lead/attention text. Covered-span and
 non-default labels persist. The normal cached render and ratatui diff own output;
 backend-cell tests prove meter-only ticks emit inside the meter band, with no

@@ -269,7 +269,9 @@ sparkline bars derive from 5 s buckets: their trend spans are 40s/80s/30m/1h for
 the four windows, respectively. Blank means no evidence; ▁ means measured zero;
 ▂ through █ scale nonzero values against the eight-bar maximum. Narrow boards
 drop the sparkline, then only a full default-1m label, shorten `tok/s` to `/s`,
-then hide the meter before cutting lead/attention text. Covered-span and other
+then hide the meter before cutting lead/attention text. The number, unit, label
+and trend form one contiguous right-aligned group; empty trend slices retain
+their positions. Covered-span and other
 window labels always remain while the meter is visible.
 
 ## Columns and row lines
