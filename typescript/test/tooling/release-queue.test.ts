@@ -4,7 +4,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
-import { QUEUED_NOTICE, releasePrQueued } from '../../scripts/release-please-queue.mjs';
+import {
+  QUEUED_NOTICE,
+  releasePrQueued,
+  enableReleaseAutoMerge,
+} from '../../scripts/release-please-queue.mjs';
 
 const workflow = readFileSync(
   new URL('../../../.github/workflows/release.yml', import.meta.url),
@@ -12,23 +16,30 @@ const workflow = readFileSync(
 );
 const step = workflow
   .split('      - name: Run release-please\n')[1]
-  .split('\n      # Release pull requests')[0];
+  .split('\n      # Only one release PR')[0];
 const shell = step
   .split('        run: |\n')[1]
   .split('\n')
   .map((line) => line.slice(10))
   .join('\n');
-const connection = (nodes: unknown[], hasNextPage = false) => ({
+const connection = (nodes: unknown[], hasNextPage = false, endCursor: string | null = null) => ({
   data: {
     repository: {
-      pullRequests: { nodes, pageInfo: { hasNextPage } },
+      pullRequests: { nodes, pageInfo: { hasNextPage, endCursor } },
     },
   },
 });
+let nextNumber = 1;
 const release = (
   queued: boolean,
   headRefName = 'release-please--branches--main--components--tmt-cli'
 ) => ({
+  number: nextNumber++,
+  headRefOid: 'a'.repeat(40),
+  baseRefName: 'main',
+  isDraft: false,
+  headRepository: { nameWithOwner: 'pj-tmt/tmt' },
+  autoMergeRequest: null,
   headRefName,
   mergeQueueEntry: queued ? { id: 'queue-entry' } : null,
 });
@@ -199,7 +210,7 @@ describe('release PR queue pre-check', () => {
   });
 
   it('may safely skip on incomplete discovery once a queued release PR is proven', () => {
-    expect(decision(connection([release(true)], true))).toBe(true);
+    expect(decision(connection([release(true)], true, 'next'))).toBe(true);
   });
 
   it('does not mistake a prefix look-alike or another target branch for main releases', () => {
@@ -223,5 +234,123 @@ describe('release PR queue pre-check', () => {
     expect(() =>
       releasePrQueued({ repository: 'pj-tmt/tmt/extra', token: 'app' }, unexpected)
     ).toThrow('GITHUB_REPOSITORY');
+  });
+});
+
+describe('paginated release discovery', () => {
+  const options = { repository: 'pj-tmt/tmt', token: 'app-token' };
+  it.each([true, false])('finds a queued release beyond 100 unrelated PRs: %s', (queued) => {
+    const pages = [
+      connection(
+        Array.from({ length: 100 }, () => release(true, 'feature')),
+        true,
+        'after-100'
+      ),
+      connection([release(queued)]),
+    ];
+    let calls = 0;
+    expect(
+      releasePrQueued(options, (_command, args, config) => {
+        expect(config.env.GH_TOKEN).toBe('app-token');
+        if (calls === 1) expect(args).toContain('cursor=after-100');
+        return JSON.stringify(pages[calls++]);
+      })
+    ).toBe(queued);
+    expect(calls).toBe(2);
+  });
+  it('fails on a second-page API error rather than permitting a rewrite', () => {
+    const pages = [connection([release(false)], true, 'next'), { errors: [{ message: 'denied' }] }];
+    expect(() => releasePrQueued(options, () => JSON.stringify(pages.shift()))).toThrow(
+      'GraphQL errors'
+    );
+  });
+  it('rejects cursor cycles, duplicate PRs and exhausted discovery before enabling', () => {
+    const pr = release(false);
+    let calls = 0;
+    expect(() =>
+      releasePrQueued(options, () => JSON.stringify(connection([release(false)], true, 'cycle')))
+    ).toThrow('pagination cursor');
+    expect(() =>
+      enableReleaseAutoMerge(options, () => JSON.stringify(connection([pr], true, 'next')))
+    ).toThrow('invalid PR');
+    expect(() =>
+      enableReleaseAutoMerge(options, () => {
+        calls += 1;
+        return JSON.stringify(connection([release(false)], true, `page-${calls}`));
+      })
+    ).toThrow('20 pages');
+    expect(calls).toBe(20);
+  });
+});
+
+describe('single active release auto-merge', () => {
+  const options = { repository: 'pj-tmt/tmt', token: 'app-token' };
+  const enabled = (pr = release(false)) => ({
+    ...pr,
+    autoMergeRequest: { enabledAt: '2026-10-02T00:00:00Z' },
+  });
+  function run(pulls: unknown[], failMerge = false) {
+    const mutations: string[][] = [];
+    const notice = enableReleaseAutoMerge(options, (_command, args, config) => {
+      expect(config.env.GH_TOKEN).toBe('app-token');
+      if (args[0] === 'api') return JSON.stringify(connection(pulls));
+      mutations.push(args);
+      if (failMerge) throw new Error('head changed or enabling failed');
+      return '';
+    });
+    return { notice, mutations };
+  }
+  it('enables only the oldest eligible PR, pinning its head, with normal auto-merge', () => {
+    const first = release(false),
+      second = release(false);
+    expect(run([second, first]).mutations).toEqual([
+      [
+        'pr',
+        'merge',
+        String(first.number),
+        '--repo',
+        'pj-tmt/tmt',
+        '--auto',
+        '--squash',
+        '--match-head-commit',
+        first.headRefOid,
+      ],
+    ]);
+  });
+  it.each([true, false])(
+    'retains an already active PR even if a different PR is older (queued=%s)',
+    (queued) => {
+      const older = release(false),
+        active = queued ? release(true) : enabled();
+      expect(run([older, active]).mutations).toEqual([]);
+    }
+  );
+  it('does not treat one PR that is both queued and enabled as two active PRs', () => {
+    expect(run([enabled(release(true)), release(false)]).mutations).toEqual([]);
+  });
+  it('refuses multiple already active releases before another mutation', () => {
+    expect(() => run([enabled(), release(true)])).toThrow('Multiple release PRs');
+  });
+  it('advances to the remaining component only after the selected PR disappears', () => {
+    const first = enabled(),
+      second = release(false);
+    expect(run([first, second]).mutations).toEqual([]);
+    expect(run([second]).mutations[0][2]).toBe(String(second.number));
+  });
+  it('never selects drafts, fork branches, look-alikes or another base branch', () => {
+    expect(
+      run([
+        { ...release(false), isDraft: true },
+        { ...release(false), headRepository: { nameWithOwner: 'other/tmt' } },
+        { ...release(false), baseRefName: 'v4' },
+        release(false, 'release-please--branches--main-other'),
+      ]).mutations
+    ).toEqual([]);
+    expect(run([]).mutations).toEqual([]);
+  });
+  it('propagates a head race or enabling failure instead of trying the second component', () => {
+    expect(() => run([release(false), release(false)], true)).toThrow(
+      'head changed or enabling failed'
+    );
   });
 });

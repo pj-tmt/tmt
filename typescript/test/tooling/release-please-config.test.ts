@@ -1,13 +1,14 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { Ajv } from 'ajv';
 import {
   attributeReleaseConsumption,
   assertReleasePleaseApi,
   executeReleasePlease,
   loadPinnedReleasePlease,
+  preserveUnchangedReleasePullRequests,
 } from '../../scripts/release-please-run.mjs';
 import { ownerOf, parseComponentMap } from '../../scripts/ci-scope.mjs';
 import {
@@ -732,6 +733,141 @@ describe('private leaf release attribution with pinned release-please', () => {
       '0.1.0-alpha.9',
       '5.0.0-alpha.9',
     ]);
+  });
+
+  async function updateFixture() {
+    const [candidate] = await candidates(history(['rust/crates/tmt-core/src/lib.rs']));
+    const github = await releasePlease.GitHub.create({
+      owner: 'fixture',
+      repo: 'fixture',
+      defaultBranch: 'main',
+    });
+    const sha = 'a'.repeat(40);
+    const snapshot = {
+      state: 'open',
+      title: candidate.title.toString(),
+      body: candidate.body.toString(),
+      mergeable: true as boolean | null,
+      head: { ref: candidate.headRefName, sha, repo: { full_name: 'fixture/fixture' } },
+      base: { ref: 'main' },
+    };
+    const existing = {
+      number: 17,
+      title: snapshot.title,
+      body: snapshot.body,
+      headBranchName: snapshot.head.ref,
+      baseBranchName: 'main',
+      labels: ['autorelease: pending'],
+      files: [],
+      sha,
+    };
+    const generated = new Map<string, { content: string; mode: string }>();
+    const readFile = vi
+      .spyOn(github, 'getFileContentsOnBranch')
+      .mockImplementation(async (file, ref) => {
+        let content: string,
+          mode = '100644';
+        if (ref === sha) {
+          const value = generated.get(file);
+          if (!value) throw new releasePlease.Errors.FileNotFoundError(file);
+          content = value.content;
+          mode = value.mode;
+        } else {
+          expect(ref).toBe('main');
+          if (!existsSync(path.join(root, file)))
+            throw new releasePlease.Errors.FileNotFoundError(file);
+          content = read(file);
+        }
+        return {
+          content: Buffer.from(content).toString('base64'),
+          parsedContent: content,
+          mode,
+          sha: 'fixture-file',
+        };
+      });
+    for (const [file, value] of await github.buildChangeSet(candidate.updates, 'main')) {
+      expect(value.content).not.toBeNull();
+      generated.set(file, { content: value.content as string, mode: value.mode });
+    }
+    expect(generated.has('rust/Cargo.lock')).toBe(true);
+    expect(generated.has('.release-please-manifest.json')).toBe(true);
+    const getSnapshot = vi.fn(async () => ({ data: snapshot }));
+    Object.defineProperty(github.getGitHubApi().octokit.pulls, 'get', { value: getSnapshot });
+    vi.spyOn(github, 'getPullRequest').mockResolvedValue(existing);
+    const mutation = vi.spyOn(github, 'updatePullRequest').mockResolvedValue(existing);
+    preserveUnchangedReleasePullRequests(github, releasePlease.Errors.FileNotFoundError);
+    return {
+      github,
+      candidate,
+      snapshot,
+      generated,
+      mutation,
+      readFile,
+      existing,
+      update: () => github.updatePullRequest(17, candidate, 'main', { fork: false }),
+    };
+  }
+
+  it('preserves an unchanged release head across repeated main pushes using the pinned file updaters', async () => {
+    const fixture = await updateFixture();
+    for (let push = 0; push < 3; push += 1)
+      expect(await fixture.update()).toEqual(fixture.existing);
+    expect(fixture.mutation).not.toHaveBeenCalled();
+    expect(fixture.snapshot.head.sha).toBe('a'.repeat(40));
+    const comparisons = fixture.readFile.mock.calls.filter(
+      ([, ref]) => ref === fixture.snapshot.head.sha
+    );
+    expect(comparisons.length).toBe(fixture.generated.size * 3);
+  });
+
+  it.each(['title', 'notes', 'lock', 'manifest', 'mode', 'missing', 'conflict', 'closed'])(
+    'still invokes the original updater for changed release content or recovery: %s',
+    async (reason) => {
+      const fixture = await updateFixture();
+      if (reason === 'title') fixture.snapshot.title += ' stale';
+      if (reason === 'notes') fixture.snapshot.body += ' stale';
+      if (reason === 'conflict') fixture.snapshot.mergeable = false;
+      if (reason === 'closed') fixture.snapshot.state = 'closed';
+      if (reason === 'missing') fixture.generated.delete('rust/Cargo.lock');
+      const file = reason === 'manifest' ? '.release-please-manifest.json' : 'rust/Cargo.lock';
+      const generated = fixture.generated.get(file);
+      if (reason === 'lock' || reason === 'manifest') generated!.content += ' changed';
+      if (reason === 'mode') generated!.mode = '100755';
+      await fixture.update();
+      expect(fixture.mutation).toHaveBeenCalledExactlyOnceWith(17, fixture.candidate, 'main', {
+        fork: false,
+      });
+    }
+  );
+
+  it('preserves the head with a visible failure when otherwise unchanged mergeability is unknown', async () => {
+    const fixture = await updateFixture();
+    fixture.snapshot.mergeable = null;
+    await expect(fixture.update()).rejects.toThrow('mergeability is unknown');
+    expect(fixture.mutation).not.toHaveBeenCalled();
+  });
+
+  it('does not mistake a file-read failure for content equality or rewrite permission', async () => {
+    const fixture = await updateFixture();
+    fixture.readFile.mockImplementation(async () => {
+      throw new Error('API unavailable');
+    });
+    await expect(fixture.update()).rejects.toThrow('API unavailable');
+    expect(fixture.mutation).not.toHaveBeenCalled();
+  });
+
+  it('refuses a changed branch identity before a mutation', async () => {
+    const fixture = await updateFixture();
+    fixture.snapshot.head.ref = 'foreign-branch';
+    await expect(fixture.update()).rejects.toThrow('no longer matches');
+    expect(fixture.mutation).not.toHaveBeenCalled();
+  });
+
+  it('propagates the original rewrite failure for a changed release', async () => {
+    const fixture = await updateFixture();
+    fixture.snapshot.body += ' stale';
+    fixture.mutation.mockRejectedValue(new Error('rewrite refused'));
+    await expect(fixture.update()).rejects.toThrow('rewrite refused');
   });
 
   it('fails loudly for absent backfilled commit files', async () => {

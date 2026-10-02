@@ -7,3 +7,8 @@ export function releasePrQueued(
     options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number }
   ) => string
 ): boolean;
+
+export function enableReleaseAutoMerge(
+  options: Parameters<typeof releasePrQueued>[0],
+  execute?: Parameters<typeof releasePrQueued>[1]
+): string;

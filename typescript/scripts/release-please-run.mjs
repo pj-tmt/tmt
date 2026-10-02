@@ -17,6 +17,14 @@ export function assertReleasePleaseApi(api) {
     api.VERSION !== '17.11.2' ||
     typeof api.GitHub?.create !== 'function' ||
     typeof api.Manifest?.fromManifest !== 'function' ||
+    typeof api.Errors?.FileNotFoundError !== 'function' ||
+    [
+      'updatePullRequest',
+      'getPullRequest',
+      'getGitHubApi',
+      'buildChangeSet',
+      'getFileContentsOnBranch',
+    ].some((name) => typeof api.GitHub.prototype[name] !== 'function') ||
     api.GitHub.prototype.mergeCommitIterator?.constructor.name !== 'AsyncGeneratorFunction' ||
     api.GitHub.prototype.mergeCommitIterator.length !== 1
   ) {
@@ -51,6 +59,60 @@ export function attributeReleaseConsumption(github, components) {
   return github;
 }
 
+/** Compare generated release files at an immutable head; main-only pushes must not reset its CI. */
+export function preserveUnchangedReleasePullRequests(github, fileNotFoundError) {
+  const original = github.updatePullRequest;
+  github.updatePullRequest = async function (number, candidate, targetBranch, options) {
+    const { data: existing } = await this.getGitHubApi().octokit.pulls.get({
+      ...this.repository,
+      pull_number: number,
+    });
+    if (existing.state !== 'open')
+      return original.call(this, number, candidate, targetBranch, options);
+    if (
+      existing.head.ref !== candidate.headRefName ||
+      existing.base.ref !== targetBranch ||
+      existing.head.repo?.full_name !== `${this.repository.owner}/${this.repository.repo}` ||
+      !/^[a-f0-9]{40}$/.test(existing.head.sha ?? '')
+    ) {
+      throw new Error(`Release PR #${number} no longer matches its candidate branch.`);
+    }
+    const body = candidate.body.toString();
+    // Overflow handling can write comments; unchanged comparison only admits complete inline notes.
+    if (
+      existing.title !== candidate.title.toString() ||
+      existing.body !== body ||
+      body.length > 65536 ||
+      existing.mergeable === false
+    )
+      return original.call(this, number, candidate, targetBranch, options);
+    const changes = await this.buildChangeSet(candidate.updates, targetBranch);
+    if (changes.size === 0)
+      throw new Error(`Release PR #${number} has no generated release files.`);
+    for (const [path, change] of changes) {
+      let file;
+      try {
+        file = await this.getFileContentsOnBranch(path, existing.head.sha);
+      } catch (error) {
+        if (!(error instanceof fileNotFoundError)) throw error;
+        return original.call(this, number, candidate, targetBranch, options);
+      }
+      if (
+        Buffer.from(file.content, 'base64').toString('utf8') !== change.content ||
+        file.mode !== change.mode
+      )
+        return original.call(this, number, candidate, targetBranch, options);
+    }
+    if (existing.mergeable !== true)
+      throw new Error(
+        `Release PR #${number} mergeability is unknown; preserving its CI head until the next run.`
+      );
+    // Keep the pinned API's return shape, without pushing the branch or editing PR metadata.
+    return this.getPullRequest(number);
+  };
+  return github;
+}
+
 /** The existing mode gate selects planning or mutation; no publication is performed here. */
 export async function executeReleasePlease(manifest, command, live) {
   if (typeof live !== 'boolean') throw new Error('Release mode must be boolean.');
@@ -76,6 +138,8 @@ async function main(command) {
   // Like the manifest/config, read the map from the target branch rather than another checkout.
   const mapFile = await github.getFileContentsOnBranch('.github/components.json', 'main');
   attributeReleaseConsumption(github, parseComponentMap(mapFile.parsedContent).components);
+  if (command === 'release-pr' && process.env.LIVE === 'true')
+    preserveUnchangedReleasePullRequests(github, api.Errors.FileNotFoundError);
   const manifest = await api.Manifest.fromManifest(
     github,
     'main',

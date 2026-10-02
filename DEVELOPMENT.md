@@ -1492,14 +1492,20 @@ integrity) against the generated `release-please-config.json` and
 `.release-please-manifest.json`: it opens one release pull request per released component, and when
 one is merged it creates the draft release (release-please's drafts, so a published release
 never has to receive assets). A live run, which is only allowed on `main`, creates a GitHub
-App token in that job alone, enables auto-merge (squash) on the open release pull requests,
-which merge through the normal required checks, and updates the ones that fell behind `main`
-(`strict` requires an up-to-date branch; a busy `main` can keep a release pull request behind
-until a quiet moment). release-please runs with `always-update`, so every run also rebuilds each
-open release pull request from `main`'s current files and force-pushes its branch, subject to the
-[queued-PR pre-check](#queued-release-pull-requests); that, not
-`gh pr update-branch`, is what clears a conflict (every release pull request edits the shared
-manifest, and adjacent lines conflict). A `dispatch` job then starts the per-product run above for every
+App token in that job alone, enables auto-merge (squash) for one open release PR at a time,
+through the normal required checks and merge queue. An enabled or queued release PR
+blocks enabling another component until it merges. The workflow does not refresh a
+BEHIND branch: the queue tests the combined result on current main, including required
+checks. release-please retains `always-update` for conflict recovery, subject to the
+[queued-PR pre-check](#queued-release-pull-requests), but the pinned wrapper suppresses
+an update when the title, complete inline notes, generated release-file bytes and modes
+already match the observed immutable head and GitHub confirms it mergeable. This
+preserves running CI across main pushes that do not change the release content. Changed
+release content, missing files, confirmed conflicts and overflow notes use the original
+updater; unknown mergeability or acquisition errors fail visibly and can be retried on
+the next main push. New releasable commits may still restart CI; this policy does not
+promise bounded latency under continuously changing release content. A `dispatch` job
+then starts the per-product run above for every
 product that has a draft without a bundle. The job runs in the `release` Environment and the
 App credentials, `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`, are secrets of that
 Environment, not repository secrets, so only a run its deployment branch rule admits can read
@@ -2035,18 +2041,27 @@ actionlint .github/workflows/ci.yml .github/workflows/release.yml
 ## Queued release pull requests
 
 Before `release-pr`, `Release` runs `typescript/scripts/release-please-queue.mjs`.
-One GraphQL query checks open PRs whose head starts with
-`release-please--branches--main--` for a `mergeQueueEntry`. If any is queued,
-`release-pr` is skipped with a summary notice, and `github-release` still runs.
-Otherwise the release-please command runs unchanged. Query failures, malformed
-or incomplete results, and all release-please command errors fail the job.
+Workflow-token GraphQL discovery follows up to 20 cursor pages of 100 open PRs, ordered
+by creation time, and considers only same-repository heads starting with
+`release-please--branches--main--` targeting `main`. A proven `mergeQueueEntry` skips
+`release-pr` with a summary notice; `github-release` still runs. Otherwise complete
+discovery is required before permitting generation. Malformed responses, repeated
+cursors, duplicate PRs, API errors and exhausted discovery fail visibly.
 
-The query uses the release App token in live runs (the workflow token in dry
-runs), never an agent's token, so it does not consume the agents' shared user
-GraphQL quota. A PR queued between the check and the update still fails once,
-and the next main push recovers. Other component
-release PR creation waits until the first main push after the queued PR merges.
-No PR is dequeued and merge checks and publication authorization are unchanged.
+The same script's live-only `enable` command finishes discovery before choosing one
+non-draft release PR by ascending PR number. An existing enabled or queued release
+retains the slot; multiple active releases fail with instructions to reconcile them.
+Enabling uses `--auto --squash --match-head-commit` and propagates failures without
+trying a second PR. It never updates a BEHIND branch or jumps the queue. The next main
+push after the active PR merges permits the remaining component to be regenerated and
+enabled against the updated manifest.
+
+Both commands use the release App token in live runs (the pre-check uses the workflow
+token in dry runs), never an agent's token. The existing workflow concurrency group
+serializes automatic enabling; external/manual enabling and enqueues are not atomic
+with discovery. A PR queued between the pre-check and a branch update can still fail
+once and recover on the next main push. No PR is dequeued automatically. Required
+checks and publication authorization are unchanged.
 
 ## Project tracking
 

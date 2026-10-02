@@ -318,9 +318,11 @@ describe('release workflow (release.yml)', () => {
   it('merges release pull requests through the required checks and never around them', () => {
     const step = releasePleasePart(job(release, 'release-please'), 'Enable auto-merge');
     expect(step).toContain("if: steps.mode.outputs.live == 'true'");
-    expect(step).toContain("--label 'autorelease: pending'");
-    expect(step).toContain('gh pr merge "$number" --auto --squash');
-    expect(step).toContain('gh pr update-branch "$number"');
+    expect(step).toContain('RELEASE_TOKEN: ${{ steps.app.outputs.token }}');
+    expect(step).toContain('LIVE: ${{ steps.mode.outputs.live }}');
+    expect(step).toContain('node typescript/scripts/release-please-queue.mjs enable');
+    expect(step).not.toContain('gh pr update-branch');
+    expect(step).not.toContain('gh pr merge');
     for (const bypass of ['--admin', '--force', 'bypass']) expect(release).not.toContain(bypass);
     // Only the release-please job carries write access through the App token; the workflow token
     // stays read-only there.
