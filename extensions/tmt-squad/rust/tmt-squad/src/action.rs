@@ -132,10 +132,24 @@ impl Action {
             Verb::parse(verb_name).ok_or_else(|| format!("'{verb_name}' is not an action"))?;
         let args = match verb {
             Verb::Toggle => {
-                if crate::config::Pane::parse(rest).is_none() {
-                    return Err("toggle takes one pane: rows, notes, detail or replies".into());
+                let mut panes = Vec::new();
+                for name in rest.split_whitespace() {
+                    let pane = crate::config::Pane::parse(name)
+                        .ok_or("toggle takes literal panes: rows, notes, detail or replies")?;
+                    if panes.contains(&pane) {
+                        return Err(format!("toggle repeats the {} pane", pane.title()));
+                    }
+                    panes.push(pane);
                 }
-                vec![Template::parse(rest)?]
+                if panes.is_empty() {
+                    return Err(
+                        "toggle needs at least one pane: rows, notes, detail or replies".into(),
+                    );
+                }
+                panes
+                    .into_iter()
+                    .map(|pane| Template::parse(pane.title()))
+                    .collect::<Result<Vec<_>, _>>()?
             }
             Verb::Copy => vec![Template::parse(if rest.is_empty() {
                 DEFAULT_COPY
@@ -249,7 +263,16 @@ pub fn parse_bindings<'a>(
 /// Host presets. The tmux host jumps; a plain terminal cannot, so Enter and
 /// double-click open the row's action menu instead. A single click only
 /// selects, so pointing at a row never leaves the board.
-pub fn preset(tmux: bool) -> Bindings {
+pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
+    let detail = match (
+        panes.contains(&crate::config::Pane::Detail),
+        panes.contains(&crate::config::Pane::Replies),
+    ) {
+        (true, true) => Some("toggle detail replies"),
+        (true, false) => Some("toggle detail"),
+        (false, true) => Some("toggle replies"),
+        (false, false) => None,
+    };
     let enter = if tmux { "jump" } else { "menu" };
     [
         ("enter", enter),
@@ -262,7 +285,6 @@ pub fn preset(tmux: bool) -> Bindings {
         ("y", "copy"),
         ("n", "notes"),
         ("tab", "next-pane"),
-        ("d", "toggle detail"),
         ("ctrl-r", "refresh"),
         ("w", "token-window"),
         ("T", "theme"),
@@ -270,6 +292,7 @@ pub fn preset(tmux: bool) -> Bindings {
     .into_iter()
     // Only a host that can show a pane can jump to the lead.
     .chain(tmux.then_some(("L", "jump lead")))
+    .chain(detail.map(|action| ("d", action)))
     .map(|(event, line)| {
         (
             event.to_owned(),
@@ -393,7 +416,7 @@ mod tests {
     #[test]
     fn both_hosts_default_to_ctrl_r_and_leave_f5_unbound() {
         for tmux in [false, true] {
-            let bindings = preset(tmux);
+            let bindings = preset(tmux, &[]);
             assert_eq!(bindings["ctrl-r"].verb, Verb::Refresh);
             assert!(!bindings.contains_key("f5"));
         }
@@ -401,7 +424,7 @@ mod tests {
 
     #[test]
     fn presets_differ_only_where_the_host_cannot_jump() {
-        let (tmux, plain) = (preset(true), preset(false));
+        let (tmux, plain) = (preset(true, &[]), preset(false, &[]));
         assert_eq!(tmux["L"].verb, Verb::Jump);
         assert_eq!(tmux["L"].args[0].literal(), Some("lead"));
         assert!(!plain.contains_key("L"), "a plain terminal cannot jump");
@@ -418,7 +441,7 @@ mod tests {
         assert_eq!(tmux["o"], plain["o"]);
     }
     #[test]
-    fn toggle_is_one_literal_pane_and_uses_the_existing_presets() {
+    fn toggle_accepts_unique_literal_panes_and_presets_follow_available_panes() {
         for pane in ["rows", "notes", "detail", "replies"] {
             let action = Action::parse(&format!("toggle {pane}")).unwrap();
             assert_eq!(action.verb, Verb::Toggle);
@@ -428,14 +451,40 @@ mod tests {
             "toggle",
             "toggle all",
             "toggle {pane}",
-            "toggle detail notes",
+            "toggle detail detail",
+            "toggle detail unknown",
             "toggle \"detail\"",
         ] {
             assert!(Action::parse(line).is_err(), "{line}");
         }
         for tmux in [false, true] {
-            assert_eq!(preset(tmux)["d"].text, "toggle detail");
+            assert!(!preset(tmux, &[]).contains_key("d"));
+            assert_eq!(
+                preset(tmux, &[crate::config::Pane::Replies])["d"].text,
+                "toggle replies"
+            );
+            assert_eq!(
+                preset(tmux, &[crate::config::Pane::Detail])["d"].text,
+                "toggle detail"
+            );
+            assert_eq!(
+                preset(
+                    tmux,
+                    &[crate::config::Pane::Detail, crate::config::Pane::Replies]
+                )["d"]
+                    .text,
+                "toggle detail replies"
+            );
         }
+        assert_eq!(
+            Action::parse("toggle detail replies")
+                .unwrap()
+                .args
+                .iter()
+                .map(|arg| arg.literal().unwrap())
+                .collect::<Vec<_>>(),
+            ["detail", "replies"]
+        );
         assert_eq!(
             parse_bindings([("d", Some("toggle notes"))].into_iter(), "bind").unwrap()["d"].args[0]
                 .literal(),

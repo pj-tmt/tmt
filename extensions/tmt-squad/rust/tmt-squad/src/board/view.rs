@@ -42,6 +42,37 @@ const KEYS: &[&str] = &[
     "",
 ];
 
+/// One state label for the effective toggle in footer and help.
+fn toggle_label(app: &App, action: &crate::action::Action) -> Option<String> {
+    let view = app.view.as_ref()?;
+    if view.board.mode != BoardMode::Split {
+        return None;
+    }
+    let panes: Vec<_> = action
+        .args
+        .iter()
+        .filter_map(|arg| arg.literal().and_then(Pane::parse))
+        .filter(|pane| view.board.panes.contains(pane))
+        .collect();
+    if panes.is_empty() {
+        return None;
+    }
+    let collapsed = app.collapsed_panes();
+    let state = if panes.iter().all(|pane| collapsed.contains(pane)) {
+        "▸"
+    } else {
+        "▾"
+    };
+    Some(format!(
+        "{} {state}",
+        panes
+            .iter()
+            .map(|pane| pane.title())
+            .collect::<Vec<_>>()
+            .join("+")
+    ))
+}
+
 /// The footer names what the most used keys do for the selected row.
 fn hints(app: &App, width: usize) -> String {
     let bindings = app.bindings();
@@ -73,14 +104,8 @@ fn hints(app: &App, width: usize) -> String {
                 .filter(|meter| meter.settings.enabled)
                 .map(|_| format!("{label} window"));
         }
-        if event == "d" {
-            return app
-                .view
-                .as_ref()
-                .filter(|view| {
-                    view.board.mode == BoardMode::Split && view.board.panes.contains(&Pane::Detail)
-                })
-                .map(|_| format!("{label} {}", action.text));
+        if event == "d" && action.verb == crate::action::Verb::Toggle {
+            return toggle_label(app, action).map(|label| format!("d {label}"));
         }
         Some(format!("{label} {}", action.verb.name()))
     })
@@ -146,7 +171,13 @@ fn help_lines(app: &App) -> Vec<String> {
         }
     }
     for (event, action) in app.bindings() {
-        lines.push(format!("{event:<11} {}", action.text));
+        if event == "d" && action.verb == crate::action::Verb::Toggle {
+            if let Some(label) = toggle_label(app, &action) {
+                lines.push(format!("d    {label}    fold or unfold (▾ open, ▸ folded)"));
+            }
+        } else {
+            lines.push(format!("{event:<11} {}", action.text));
+        }
     }
     lines
 }
@@ -1032,18 +1063,28 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
         .show(frame, Pane::Notes, area, lines, look.role(Role::Dim));
 }
 
-/// Lines of one reply body shown before it is cut.
-const BODY_LINES: usize = 6;
-
 /// Finals to the user's squad requests, newest first. Bodies are
 /// agent-written, so they are sanitized like notes; reading acknowledges
 /// nothing.
-pub fn reply_lines(
+fn reply_lines(
     look: crate::look::Look,
     replies: &[Value],
     width: usize,
     now_ms: u64,
+    derived: &mut super::derived::Derived,
 ) -> Vec<Line<'static>> {
+    if derived
+        .replies
+        .as_ref()
+        .is_none_or(|cached| cached.width != width || cached.look != look)
+    {
+        derived.replies = Some(super::derived::ReplyBodies {
+            width,
+            look,
+            bodies: Default::default(),
+        });
+    }
+    let cached = derived.replies.as_mut().expect("prepared reply bodies");
     let mut lines = Vec::new();
     for (index, reply) in replies.iter().enumerate() {
         let text = |key: &str| sanitize(reply[key].as_str().unwrap_or_default());
@@ -1054,19 +1095,31 @@ pub fn reply_lines(
             fit(&format!("{}{when}", text("to")), width),
             Style::new().add_modifier(Modifier::BOLD),
         )));
-        lines.push(Line::styled(
-            fit(&format!("  › {}", text("prompt")), width),
-            look.role(Role::Dim),
-        ));
+        // Keep the marker on the first line and align continuation text.
+        for (index, prompt) in wrap(&text("prompt"), width.saturating_sub(4))
+            .into_iter()
+            .enumerate()
+        {
+            let prefix = if index == 0 { "  › " } else { "    " };
+            lines.push(Line::styled(
+                format!("{prefix}{prompt}"),
+                look.role(Role::Dim),
+            ));
+        }
         match reply["response"].as_str() {
             Some(response) => {
-                let body = wrap(&sanitize(response), width.saturating_sub(2));
-                for line in body.iter().take(BODY_LINES) {
-                    lines.push(Line::from(format!("  {line}")));
-                }
-                if body.len() > BODY_LINES {
-                    lines.push(Line::styled("  …", look.role(Role::Dim)));
-                }
+                let id = reply["requestId"].as_str().unwrap_or_default();
+                // A request's final response never changes, so its ID owns the cached body.
+                let body = cached.bodies.entry(id.to_owned()).or_insert_with(|| {
+                    markdown::render(&sanitize(response), width.saturating_sub(2), look)
+                        .into_iter()
+                        .map(|mut line| {
+                            line.spans.insert(0, Span::raw("  "));
+                            line
+                        })
+                        .collect()
+                });
+                lines.extend(body.iter().cloned());
             }
             None => {
                 let id = reply["requestId"].as_str().unwrap_or_default();
@@ -1099,7 +1152,13 @@ fn render_replies(frame: &mut Frame, app: &App, area: Rect) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.as_millis() as u64);
-        reply_lines(look, &view.replies, usize::from(area.width), now)
+        reply_lines(
+            look,
+            &view.replies,
+            usize::from(area.width),
+            now,
+            &mut view.derived.borrow_mut(),
+        )
     };
     app.scrolls
         .show(frame, Pane::Replies, area, lines, look.role(Role::Dim));
@@ -1505,7 +1564,7 @@ mod tests {
                 ),
             notes: crate::board::app::Notes::NotShown,
                 render: crate::config::NotesRender::Markdown,
-                bindings: crate::action::preset(true),
+                bindings: crate::action::preset(true, &[]),
                 section_bindings: Vec::new(),
                 opener: None,
                 clipboard: None,
@@ -1880,7 +1939,7 @@ columns = [{ name = "member", width = "30%" },
         // the three lines show rows.
         assert_eq!(lines, [(3, 1)]);
 
-        app.view.as_mut().unwrap().bindings = crate::action::preset(false);
+        app.view.as_mut().unwrap().bindings = crate::action::preset(false, &[]);
         app.help = true;
         let help = draw(&app, 60, 29);
         assert!(
@@ -1971,6 +2030,7 @@ columns = [{ name = "member", width = "30%" },
     }
 
     fn paned(board: crate::config::Board, notes: Notes) -> App {
+        let bindings = crate::action::preset(true, &board.panes);
         let mut app = App::new(Some("product".into()));
         app.apply(Snapshot {
             tabs: vec!["product".into()],
@@ -1992,7 +2052,7 @@ columns = [{ name = "member", width = "30%" },
                 board,
                 notes,
                 render: NotesRender::Markdown,
-                bindings: crate::action::preset(true),
+                bindings,
                 section_bindings: Vec::new(),
                 opener: None,
                 clipboard: None,
@@ -2673,7 +2733,7 @@ lines = [
     }
 
     #[test]
-    fn replies_show_recipient_age_prompt_and_a_sanitized_bounded_body() {
+    fn replies_show_recipient_age_prompt_full_sanitized_body_and_result_hints() {
         assert_eq!(age(100_000, 55_000), "45s");
         assert_eq!(age(3_600_000, 0), "1h");
         assert_eq!(age(200_000_000, 0), "2d");
@@ -2682,7 +2742,7 @@ lines = [
             "0s",
             "a clock behind the final is not negative"
         );
-        let body = "line 1\n\u{1b}[31mred\u{1b}[0m\n3\n4\n5\n6\n7\n8";
+        let body = "```text\nline 1\n\u{1b}[31mred\u{1b}[0m\n3\n4\n5\n6\n7\n8\n```";
         let mut replies = vec![
             json!({"requestId": "r1", "to": "sol", "prompt": "[product · auth-fix] split", "status": "retained", "submittedAtMs": 40_000, "response": body}),
             json!({"requestId": "r2", "to": "docs", "prompt": "check", "status": "expired", "submittedAtMs": 30_000, "response": null}),
@@ -2690,7 +2750,52 @@ lines = [
         for index in 0..BODIES {
             replies.push(json!({"requestId": format!("old{index}"), "to": "sol", "prompt": "p", "status": "retained", "submittedAtMs": 0, "response": null}));
         }
-        let lines: Vec<String> = reply_lines(crate::look::Look::default(), &replies, 40, 100_000)
+        let lines: Vec<String> = reply_lines(
+            crate::look::Look::default(),
+            &replies,
+            40,
+            100_000,
+            &mut Default::default(),
+        )
+        .iter()
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>()
+                .trim_end()
+                .to_owned()
+        })
+        .collect();
+        assert_eq!(lines[0], "sol · 1m");
+        assert_eq!(lines[1], "  › [product · auth-fix] split");
+        assert_eq!(
+            lines[2..12],
+            [
+                "  ```text",
+                "  line 1",
+                "  red",
+                "  3",
+                "  4",
+                "  5",
+                "  6",
+                "  7",
+                "  8",
+                "  ```"
+            ],
+            "the full code source survives and escapes are removed"
+        );
+        assert!(!lines.iter().any(|line| line.contains('…')));
+        assert!(lines.contains(&"  (final expired)".to_owned()));
+        assert!(
+            lines.contains(&format!("  tmt result old{}", BODIES - 1)),
+            "older finals point to tmt result"
+        );
+        assert!(!lines.iter().any(|line| line.contains('\u{1b}')));
+    }
+
+    fn reply_text(lines: &[Line<'_>]) -> Vec<String> {
+        lines
             .iter()
             .map(|line| {
                 line.spans
@@ -2700,21 +2805,204 @@ lines = [
                     .trim_end()
                     .to_owned()
             })
-            .collect();
-        assert_eq!(lines[0], "sol · 1m");
-        assert_eq!(lines[1], "  › [product · auth-fix] split");
+            .collect()
+    }
+
+    fn long_reply() -> Value {
+        json!({
+            "requestId": "long-reply", "to": "lead", "submittedAtMs": 0,
+            "prompt": format!("Please review {} PROMPT-END", "the complete implementation and verification evidence ".repeat(5)),
+            "response": format!("# Full reply\n\n- **First** item with `code`\n- second item\n\n```text\n{}\n```\n\nFINAL-SENTINEL", (1..=40).map(|n| format!("line {n:02}")).collect::<Vec<_>>().join("\n"))
+        })
+    }
+
+    #[test]
+    fn full_markdown_replies_wrap_prompts_and_neutralize_hostile_input_at_all_widths() {
+        for width in [40, 80, 120] {
+            let mut reply = long_reply();
+            let body = reply["response"]
+                .as_str()
+                .unwrap()
+                .replace("Full reply", "\u{1b}]0;bad\u{7}Full reply\u{202e}")
+                .replace("First", "\u{9b}31mFirst\u{0}");
+            reply["response"] = json!(body);
+            let mut derived = Default::default();
+            let lines = reply_lines(
+                crate::look::Look::default(),
+                &[reply],
+                width,
+                60_000,
+                &mut derived,
+            );
+            let text = reply_text(&lines);
+            let all = text.join("\n");
+            for expected in [
+                "Full reply",
+                "• First item with code",
+                "• second item",
+                "```text",
+                "line 40",
+                "FINAL-SENTINEL",
+                "PROMPT-END",
+            ] {
+                assert!(all.contains(expected), "{width}: missing {expected}: {all}");
+            }
+            assert!(!all.contains('…'));
+            assert!(
+                !all.chars()
+                    .any(|c| (c.is_control() && c != '\n') || c == '\u{202e}')
+            );
+            assert!(text.iter().all(|line| line.width() <= width));
+            let prompt_end = text
+                .iter()
+                .position(|line| line.contains("PROMPT-END"))
+                .unwrap();
+            assert!(prompt_end > 1);
+            assert!(
+                text[2..=prompt_end]
+                    .iter()
+                    .all(|line| line.starts_with("    "))
+            );
+            let heading = lines
+                .iter()
+                .find(|line| reply_text(std::slice::from_ref(line))[0].contains("Full reply"))
+                .unwrap();
+            assert_eq!(heading.spans[0].content, "  ");
+            assert!(
+                heading
+                    .spans
+                    .iter()
+                    .any(|span| span.style.add_modifier.contains(Modifier::BOLD))
+            );
+            assert!(
+                lines
+                    .iter()
+                    .flat_map(|line| &line.spans)
+                    .any(|span| span.content == "code"
+                        && span.style == crate::look::Look::default().role(Role::Accent))
+            );
+        }
+    }
+
+    #[test]
+    fn replies_scroll_with_keys_pages_and_wheel_to_the_complete_end() {
+        for width in [40, 80, 120] {
+            let mut app = board(json!([]));
+            let view = app.view.as_mut().unwrap();
+            view.board = crate::config::Board::simple(
+                BoardMode::Tabs,
+                Direction::LeftRight,
+                vec![Pane::Replies],
+                &[],
+            );
+            view.replies = vec![long_reply()];
+            let top = draw(&app, width, 16).join("\n");
+            assert!(top.contains("Please review"), "{top}");
+            assert!(!top.contains("FINAL-SENTINEL"));
+            app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+            assert_eq!(app.scrolls.offset(Pane::Replies), 1);
+            app.key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+            assert!(app.scrolls.offset(Pane::Replies) > 1);
+            app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+            assert_eq!(app.scrolls.offset(Pane::Replies), 0);
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::ScrollDown,
+                    column: 1,
+                    row: 5,
+                    modifiers: KeyModifiers::NONE,
+                },
+                std::time::Instant::now(),
+            );
+            assert_eq!(
+                app.scrolls.offset(Pane::Replies),
+                crate::board::scroll::WHEEL_LINES
+            );
+            app.key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+            let bottom = draw(&app, width, 16).join("\n");
+            assert!(bottom.contains("FINAL-SENTINEL"), "{bottom}");
+            assert!(bottom.contains("↑ "));
+            assert!(!bottom.contains("↓ "));
+            app.key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
+            assert!(!draw(&app, width, 16).join("\n").contains("FINAL-SENTINEL"));
+        }
+    }
+
+    #[test]
+    fn reply_bodies_reuse_cache_while_ages_change_and_invalidate_on_width_look_and_view() {
+        let replies = vec![long_reply()];
+        let look = crate::look::Look::default();
+        let mut derived = super::super::derived::Derived::default();
+        let first = reply_lines(look, &replies, 80, 60_000, &mut derived);
+        let cached = derived.replies.as_ref().unwrap().bodies["long-reply"].as_ptr();
+        let later = reply_lines(look, &replies, 80, 120_000, &mut derived);
+        assert_ne!(first[0], later[0], "ages remain live");
         assert_eq!(
-            lines[2..8],
-            ["  line 1", "  red", "  3", "  4", "  5", "  6"],
-            "escapes removed"
+            cached,
+            derived.replies.as_ref().unwrap().bodies["long-reply"].as_ptr(),
+            "age repaint reuses Markdown"
         );
-        assert_eq!(lines[8], "  …", "cut after six lines");
-        assert_eq!(lines[12], "  (final expired)");
+        assert_eq!(first[1..], later[1..]);
+        let narrow = reply_lines(look, &replies, 40, 120_000, &mut derived);
+        assert_eq!(derived.replies.as_ref().unwrap().width, 40);
+        assert_ne!(narrow.len(), later.len());
+        let mut light = look;
+        light.theme = tmt_cli_style::Theme::new(tmt_cli_style::Base::TmtLight);
+        let light_lines = reply_lines(light, &replies, 40, 120_000, &mut derived);
+        assert_eq!(derived.replies.as_ref().unwrap().look, light);
+        assert_ne!(light_lines, narrow);
+        let mut app = board(json!([]));
+        app.view.as_mut().unwrap().derived.replace(derived);
+        app.apply(crate::board::app::tests::snapshot("product", json!([])));
         assert!(
-            lines.contains(&format!("  tmt result old{}", BODIES - 1)),
-            "older finals point to tmt result"
+            app.view
+                .as_ref()
+                .unwrap()
+                .derived
+                .borrow()
+                .replies
+                .is_none()
         );
-        assert!(!lines.iter().any(|line| line.contains('\u{1b}')));
+    }
+
+    #[test]
+    fn reply_empty_hints_and_consecutive_body_headings_keep_their_meaning() {
+        let mut app = board(json!([]));
+        app.view.as_mut().unwrap().board = crate::config::Board::simple(
+            BoardMode::Tabs,
+            Direction::LeftRight,
+            vec![Pane::Replies],
+            &[],
+        );
+        assert!(
+            draw(&app, 120, 16)
+                .join("\n")
+                .contains("(tmt squad me <name> shows the replies to your requests)")
+        );
+        app.view.as_mut().unwrap().me = Some("user".into());
+        assert!(
+            draw(&app, 120, 16)
+                .join("\n")
+                .contains("(no replies to your squad requests yet)")
+        );
+        for ending in ["- final item", "```text\nlast code\n```"] {
+            let replies = vec![
+                json!({"requestId":"first", "to":"first lead", "response":ending}),
+                json!({"requestId":"second", "to":"second lead", "response":"# Body heading"}),
+            ];
+            let lines = reply_lines(
+                crate::look::Look::default(),
+                &replies,
+                40,
+                0,
+                &mut Default::default(),
+            );
+            let text = reply_text(&lines);
+            let header = text.iter().position(|line| line == "second lead").unwrap();
+            assert_eq!(text[header - 1], "");
+            assert_eq!(text[header + 2], "  Body heading");
+            assert!(text[header - 2].starts_with("  "));
+        }
     }
 
     #[test]
@@ -3914,19 +4202,123 @@ columns = [{ name = "member", width = "30%" },
     }
 
     #[test]
+    fn group_folding_reclaims_row_space_and_unfolding_restores_exact_geometry() {
+        let config = crate::config::Config::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/markup-parity.toml"),
+        )
+        .unwrap();
+        let mut app = paned(config.board("team").unwrap(), Notes::Missing);
+        app.set_body_width(120);
+        let expanded = draw(&app, 120, 42);
+        let width = app.hits.borrow()[0].width;
+        app.focus = 2;
+        app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+        assert_eq!(app.focused_pane(), Some(Pane::Rows));
+        draw(&app, 120, 42);
+        assert!(
+            app.hits.borrow()[0].width > width,
+            "rows take the group's space"
+        );
+        app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+        assert_eq!(app.focused_pane(), Some(Pane::Rows));
+        assert_eq!(
+            draw(&app, 120, 42),
+            expanded,
+            "all text geometry is restored exactly"
+        );
+        assert_eq!(app.hits.borrow()[0].width, width);
+        app.focus = 1;
+        draw(&app, 120, 42);
+        click_title(&mut app, Pane::Detail);
+        assert_eq!(
+            app.focused_pane(),
+            Some(Pane::Rows),
+            "mouse folding also returns focus to rows"
+        );
+        click_title(&mut app, Pane::Detail);
+        assert_eq!(
+            app.focused_pane(),
+            Some(Pane::Rows),
+            "mouse unfolding never steals focus"
+        );
+    }
+
+    #[test]
+    fn toggle_footer_and_help_show_current_state_and_drop_the_whole_hint() {
+        for panes in [
+            vec![Pane::Rows, Pane::Detail, Pane::Replies],
+            vec![Pane::Rows, Pane::Detail],
+            vec![Pane::Rows, Pane::Replies],
+            vec![Pane::Rows],
+        ] {
+            let mut app = paned(
+                split(Direction::LeftRight, panes.clone(), vec![]),
+                Notes::NotShown,
+            );
+            let targets: Vec<_> = panes
+                .iter()
+                .filter(|pane| [Pane::Detail, Pane::Replies].contains(pane))
+                .copied()
+                .collect();
+            if targets.is_empty() {
+                assert!(!app.bindings().contains_key("d"));
+                assert!(!help_lines(&app).iter().any(|line| line.starts_with("d ")));
+                continue;
+            }
+            let label = targets
+                .iter()
+                .map(|pane| pane.title())
+                .collect::<Vec<_>>()
+                .join("+");
+            for folded in [false, true] {
+                if folded {
+                    app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+                }
+                let state = if folded { "▸" } else { "▾" };
+                let hint = format!("d {label} {state}");
+                let full = hints(&app, usize::MAX);
+                assert!(full.contains(&hint), "{full}");
+                assert!(help_lines(&app).contains(&format!(
+                    "d    {label} {state}    fold or unfold (▾ open, ▸ folded)"
+                )));
+                for width in 0..160 {
+                    let shown = hints(&app, width);
+                    if shown.contains(&format!("d {label}")) {
+                        assert!(shown.contains(&hint), "{width}: {shown}");
+                    }
+                    assert!(!shown.contains('…'));
+                    assert!(
+                        shown.is_empty() || shown == full || full[shown.len()..].starts_with("  ")
+                    );
+                }
+            }
+            if targets.len() == 2 {
+                fold(&mut app, Pane::Detail);
+                assert!(
+                    hints(&app, usize::MAX).contains("d detail+replies ▾"),
+                    "mixed state uses open mark"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn footer_hints_are_conditional_and_effective_bindings_remain_visible() {
         let mut app = paned(
             split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
             Notes::NotShown,
         );
-        assert!(!hints(&app, usize::MAX).contains("d toggle"));
+        assert!(!hints(&app, usize::MAX).contains("d detail"));
         app.view.as_mut().unwrap().board = split(
             Direction::TopBottom,
             vec![Pane::Rows, Pane::Detail],
             vec![60, 40],
         );
-        assert!(hints(&app, usize::MAX).contains("d toggle detail"));
-        assert!(draw(&app, 48, 12)[11].contains("d toggle detail"));
+        let view = app.view.as_mut().unwrap();
+        view.bindings = crate::action::preset(true, &view.board.panes);
+        assert!(hints(&app, usize::MAX).contains("d detail ▾"));
+        assert!(draw(&app, 48, 12)[11].contains("d detail ▾"));
         app.view
             .as_mut()
             .unwrap()

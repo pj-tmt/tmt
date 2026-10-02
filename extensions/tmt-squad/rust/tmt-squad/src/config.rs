@@ -807,8 +807,8 @@ impl Config {
     }
 
     /// The host preset's bindings, overridden by top-level `[bind]`.
-    pub fn bindings(&self, tmux: bool) -> Result<Bindings, SquadError> {
-        let mut bindings = preset(tmux);
+    pub fn bindings(&self, tmux: bool, panes: &[Pane]) -> Result<Bindings, SquadError> {
+        let mut bindings = preset(tmux, panes);
         if let Some(item) = self.document.get("bind") {
             bindings.extend(bindings_table(item, "bind")?);
         }
@@ -2281,7 +2281,7 @@ sort = ["state", "-name"]
         .unwrap();
         let config = Config::read(path.clone()).unwrap();
         for tmux in [true, false] {
-            let bindings = config.bindings(tmux).unwrap();
+            let bindings = config.bindings(tmux, &[]).unwrap();
             assert_eq!(bindings["enter"].verb, crate::action::Verb::Open);
             assert_eq!(bindings["f5"].verb, crate::action::Verb::Refresh);
             assert_eq!(bindings["y"].verb, crate::action::Verb::Copy, "preset kept");
@@ -2289,9 +2289,9 @@ sort = ["state", "-name"]
         fs::write(&path, "").unwrap();
         let config = Config::read(path.clone()).unwrap();
         for tmux in [true, false] {
-            assert!(!config.bindings(tmux).unwrap().contains_key("f5"));
+            assert!(!config.bindings(tmux, &[]).unwrap().contains_key("f5"));
             assert_eq!(
-                config.bindings(tmux).unwrap()["ctrl-r"].verb,
+                config.bindings(tmux, &[]).unwrap()["ctrl-r"].verb,
                 crate::action::Verb::Refresh
             );
         }
@@ -2299,12 +2299,12 @@ sort = ["state", "-name"]
         let rebound = Config::read(path.clone()).unwrap();
         for tmux in [true, false] {
             assert_eq!(
-                rebound.bindings(tmux).unwrap()["f5"].verb,
+                rebound.bindings(tmux, &[]).unwrap()["f5"].verb,
                 crate::action::Verb::Copy
             );
         }
         assert_eq!(
-            config.bindings(false).unwrap()["double-click"].verb,
+            config.bindings(false, &[]).unwrap()["double-click"].verb,
             crate::action::Verb::Menu
         );
         for body in [
@@ -2318,9 +2318,37 @@ sort = ["state", "-name"]
         ] {
             fs::write(&path, body).unwrap();
             let error = Config::read(path.clone())
-                .and_then(|config| config.bindings(true))
+                .and_then(|config| config.bindings(true, &[]))
                 .unwrap_err();
             assert_eq!(error.code, "SQUAD_CONFIG_INVALID", "{body}");
+        }
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn configured_group_toggle_preserves_overrides_and_rejects_duplicate_or_unknown_panes() {
+        let path = temp("toggle-group");
+        let panes = [Pane::Detail, Pane::Replies];
+        for line in ["toggle detail replies", "toggle notes"] {
+            fs::write(&path, format!("[bind]\nd = \"{line}\"\n")).unwrap();
+            let config = Config::read(path.clone()).unwrap();
+            for tmux in [false, true] {
+                assert_eq!(config.bindings(tmux, &panes).unwrap()["d"].text, line);
+            }
+        }
+        for line in [
+            "toggle",
+            "toggle detail detail",
+            "toggle detail unknown",
+            "toggle {pane}",
+        ] {
+            fs::write(&path, format!("[bind]\nd = \"{line}\"\n")).unwrap();
+            let error = Config::read(path.clone())
+                .unwrap()
+                .bindings(true, &panes)
+                .unwrap_err();
+            assert_eq!(error.code, "SQUAD_CONFIG_INVALID");
+            assert!(error.message.contains("bind.d"));
         }
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }

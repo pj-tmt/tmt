@@ -1,4 +1,4 @@
-//! Frozen output from main 4076e46b; markup remains test-scoped.
+//! Frozen output from reviewed #1074 implementation 66b748ae; markup remains test-scoped.
 //! Existing CJK fixture strings intentionally exercise terminal width.
 use super::*;
 use crate::config::{Config, Layout};
@@ -48,6 +48,7 @@ fn baseline() -> Value {
         let view = app.view.as_mut().unwrap();
         view.rows = config.rows(layout.as_str()).unwrap();
         view.board = config.board(layout.as_str()).unwrap();
+        view.bindings = config.bindings(true, &view.board.panes).unwrap();
         view.document["squad"]["layout"] = json!(layout.as_str());
         let projected = view.rows.value();
         view.document["columns"] = projected["columns"].clone();
@@ -61,11 +62,30 @@ fn baseline() -> Value {
             frames[0], frames[2],
             "resize must restore full cells and hit identities"
         );
-        fixtures.push(json!({"layout": layout.as_str(), "frames": frames,
+        let folded_frames: Vec<_> = if app.bindings().contains_key("d") {
+            app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+            let folded: Vec<_> = [120, 80, 120]
+                .into_iter()
+                .map(|width| capture(&mut app, width))
+                .collect();
+            assert_eq!(folded[0], folded[2], "manual fold survives resize");
+            app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+            assert_eq!(
+                frames[0],
+                capture(&mut app, 120),
+                "unfold restores full cells, styles and hit identities"
+            );
+            folded
+        } else {
+            Vec::new()
+        };
+        fixtures.push(
+            json!({"layout": layout.as_str(), "frames": frames, "folded_frames": folded_frames,
             "ls_text": crate::status::text(&document, tmt_cli_style::Terminal::PLAIN),
-            "ls_json": serde_json::to_string(&document).unwrap()}));
+            "ls_json": serde_json::to_string(&document).unwrap()}),
+        );
     }
-    json!({"source": "4076e46b941307a41ecb9386e99d3ab39d9ffcc5", "fixtures": fixtures})
+    json!({"source": "66b748ae73449cd595cdf7f21f97cd8e15942112", "fixtures": fixtures})
 }
 
 #[test]
