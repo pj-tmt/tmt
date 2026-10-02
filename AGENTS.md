@@ -36,6 +36,17 @@ compatibility, state/failure behavior, readability, and test validity—not only
 whether the ticket or CI is green. Apply the same gate to primary-authored work;
 an independent reviewer is supplementary, not a replacement.
 
+When the owner splits the work into squads, the squad structure is recorded in
+the pinned team issue (#606). Each squad lead is the primary reviewer for pull
+requests confined to the paths its squad owns, with the same obligations as
+above. A change to shared paths needs review from the lead of every squad it
+affects: contracts, `.github/`, `AGENTS.md`, guide index sections, workspace
+configuration and lockfiles, and any change to another squad's paths. A squad
+does not edit another squad's paths directly; it files an issue for that squad,
+unless the owner gave it a cross-cutting mandate recorded in #606, such as the
+refactor squad fixing what it finds. Such a change still needs the owning
+squad lead's review.
+
 Record the reviewed commit, affected boundaries, findings and their disposition,
 and verification evidence in the PR and GitHub issue. If there are no findings,
 state what was inspected rather than merely saying "LGTM". Review later changes
