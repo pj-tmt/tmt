@@ -1676,3 +1676,23 @@ fn colab_model_has_only_fixed_crypto_and_no_runtime_authority() {
         );
     }
 }
+
+#[test]
+fn colab_yrs_imports_are_confined_to_the_decoder_child() {
+    assert_exact(
+        &[syntax("tmt-colab", "decoder/child.rs", "use yrs::Update;")],
+        &[],
+    );
+    for file in ["decoder.rs", "http.rs", "store.rs"] {
+        let violations = policy::source_violations(&[syntax(
+            "tmt-colab",
+            file,
+            "use yrs::Update as ForeignUpdate;",
+        )]);
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.contains("foreign Yjs decoding belongs only in the decoder child"))
+        );
+    }
+}

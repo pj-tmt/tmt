@@ -170,6 +170,9 @@ fn spaces(root: &std::path::Path, json_output: bool) -> Result<()> {
     Ok(())
 }
 fn main() -> ExitCode {
+    if std::env::args().nth(1).as_deref() == Some("__decoder") {
+        return tmt_colab::decoder::child_main();
+    }
     let words: Vec<String> = std::env::args().skip(1).collect();
     let json_output = words.iter().any(|s| s == "--json");
     let command = if json_output {

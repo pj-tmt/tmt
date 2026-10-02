@@ -65,6 +65,7 @@ base64 = { version = "=0.22.1", default-features = false, features = ["alloc"] }
 png = "=0.18.1"
 signal-hook = { version = "=0.4.4", default-features = false }
 httparse = "=1.10.1"
+yrs = { version = "=0.28.0", default-features = false }
 pulldown-cmark = { version = "=0.13.4", default-features = false }
 ratatui = { version = "=0.30.2", default-features = false, features = ["crossterm_0_29", "layout-cache"] }
 toml_edit = { version = "=0.25.15", default-features = false, features = ["parse", "display"] }

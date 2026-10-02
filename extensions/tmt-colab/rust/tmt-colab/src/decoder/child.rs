@@ -1,0 +1,152 @@
+//! All production yrs decoding lives here, reached only by the private child entry.
+use super::*;
+use std::io::{Read, Write};
+use yrs::{
+    Any, Doc, GetString, Map, MapRef, Out, ReadTxn, Root, Text, TextRef, Transact, Update,
+    updates::decoder::Decode,
+};
+
+pub(super) fn run() -> std::process::ExitCode {
+    // Linux enforces RLIMIT_AS. macOS accepts it without enforcing it, so report
+    // unavailable rather than claiming memory containment or refusing to run.
+    #[cfg(target_os = "linux")]
+    {
+        use nix::sys::resource::{Resource, getrlimit, setrlimit};
+        if setrlimit(Resource::RLIMIT_AS, MEMORY_BYTES, MEMORY_BYTES).is_err()
+            || getrlimit(Resource::RLIMIT_AS).ok() != Some((MEMORY_BYTES, MEMORY_BYTES))
+        {
+            diagnostic("decoder memory limit failed");
+            return std::process::ExitCode::FAILURE;
+        }
+    }
+    if memory_limit() == MemoryLimit::Unavailable {
+        diagnostic("memory limit unavailable");
+    }
+    std::panic::set_hook(Box::new(|_| diagnostic("decoder panic")));
+    match execute() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(_) => {
+            diagnostic("decoder rejected");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+fn execute() -> Result<(), DecodeFault> {
+    let mut input = Vec::new();
+    std::io::stdin()
+        .take((STREAM_BYTES + 1) as u64)
+        .read_to_end(&mut input)
+        .map_err(|_| DecodeFault::InvalidInput)?;
+    if input.len() > STREAM_BYTES {
+        return Err(DecodeFault::InvalidInput);
+    }
+    let wire: WireBatch = serde_json::from_slice(&input).map_err(|_| DecodeFault::InvalidInput)?;
+    if wire.version != 1 || wire.updates.len() > UPDATES {
+        return Err(DecodeFault::InvalidInput);
+    }
+    let baseline = binary(&wire.baseline, BASELINE_BYTES)?;
+    let updates: Vec<_> = wire
+        .updates
+        .iter()
+        .map(|v| binary(v, UPDATE_BYTES))
+        .collect::<Result<_, _>>()?;
+    if updates.iter().map(Vec::len).sum::<usize>() > UPDATE_BYTES {
+        return Err(DecodeFault::InvalidInput);
+    }
+    let doc = Doc::new();
+    let names: &[&str] = match wire.namespace {
+        Namespace::Content => &["html", "meta"],
+        Namespace::Own => &["threads", "messages", "intents", "replies"],
+    };
+    for name in names {
+        if *name == "html" {
+            doc.get_or_insert_text(*name);
+        } else {
+            doc.get_or_insert_map(*name);
+        }
+    }
+    for bytes in std::iter::once(&baseline)
+        .filter(|v| !v.is_empty())
+        .chain(updates.iter())
+    {
+        let update = Update::decode_v1(bytes).map_err(|_| DecodeFault::Rejected)?;
+        doc.transact_mut()
+            .apply_update(update)
+            .map_err(|_| DecodeFault::Rejected)?;
+    }
+    let txn = doc.transact();
+    if txn.store().pending_update().is_some()
+        || txn.store().pending_ds().is_some()
+        || txn.root_refs().any(|(name, _)| !names.contains(&name))
+    {
+        return Err(DecodeFault::Rejected);
+    }
+    let mut roots = serde_json::Map::new();
+    for name in names {
+        // Named roots do not carry a wire-level type declaration. Inspect both
+        // list and map aspects to reject mixed-type mutations of declared roots.
+        let map = Root::<MapRef>::new(*name)
+            .get(&txn)
+            .ok_or(DecodeFault::Rejected)?;
+        let text = Root::<TextRef>::new(*name)
+            .get(&txn)
+            .ok_or(DecodeFault::Rejected)?;
+        if *name == "html" {
+            if map.len(&txn) != 0
+                || text.diff(&txn, |_| ()).iter().any(|d| {
+                    d.attributes.is_some() || !matches!(&d.insert, Out::Any(Any::String(_)))
+                })
+            {
+                return Err(DecodeFault::Rejected);
+            }
+            let source = text.get_string(&txn);
+            if text.len(&txn) as usize != source.len() {
+                return Err(DecodeFault::Rejected);
+            }
+            roots.insert((*name).into(), Value::String(source));
+        } else {
+            if text.len(&txn) != 0 {
+                return Err(DecodeFault::Rejected);
+            }
+            let mut values = serde_json::Map::new();
+            for (key, value) in map.iter(&txn) {
+                let Out::Any(value) = value else {
+                    return Err(DecodeFault::Rejected);
+                };
+                values.insert(
+                    key.into(),
+                    serde_json::to_value(value).map_err(|_| DecodeFault::Rejected)?,
+                );
+            }
+            roots.insert((*name).into(), Value::Object(values));
+        }
+    }
+    let projection = Value::Object(roots);
+    validate_projection(wire.namespace, &projection)?;
+    // Merge the author update set, never encode the materialized shared document.
+    let merged = yrs::merge_updates_v1(updates.iter().map(Vec::as_slice))
+        .map_err(|_| DecodeFault::Rejected)?;
+    if merged.len() > UPDATE_BYTES {
+        return Err(DecodeFault::Rejected);
+    }
+    let reply = WireResult {
+        version: 1,
+        namespace: wire.namespace,
+        input_hash: URL_SAFE_NO_PAD.encode(Sha256::digest(&input)),
+        merged: URL_SAFE_NO_PAD.encode(merged),
+        projection,
+        memory_limit: memory_limit(),
+        pid: std::process::id(),
+    };
+    let output = serde_json::to_vec(&reply).map_err(|_| DecodeFault::InvalidOutput)?;
+    if output.len() > STREAM_BYTES {
+        return Err(DecodeFault::InvalidOutput);
+    }
+    tmt_cli_style::stream::stdout(true)
+        .write_all(&output)
+        .map_err(|_| DecodeFault::InvalidOutput)
+}
+
+fn diagnostic(message: &str) {
+    let _ = writeln!(tmt_cli_style::stream::stderr(), "{message}");
+}
