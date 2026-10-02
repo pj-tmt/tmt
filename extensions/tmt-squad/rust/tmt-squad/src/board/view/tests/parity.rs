@@ -1,4 +1,4 @@
-//! Frozen output from main 4076e46b; markup remains test-scoped.
+//! Frozen output from reviewed #1074 implementation 66b748ae; markup remains test-scoped.
 //! Existing CJK fixture strings intentionally exercise terminal width.
 use super::*;
 use crate::config::{Config, Layout};
@@ -85,7 +85,7 @@ fn baseline() -> Value {
             "ls_json": serde_json::to_string(&document).unwrap()}),
         );
     }
-    json!({"source": "4076e46b941307a41ecb9386e99d3ab39d9ffcc5", "fixtures": fixtures})
+    json!({"source": "66b748ae73449cd595cdf7f21f97cd8e15942112", "fixtures": fixtures})
 }
 
 #[test]
