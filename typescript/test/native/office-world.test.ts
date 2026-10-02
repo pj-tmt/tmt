@@ -24,16 +24,27 @@ it(
       const office = (args: string[]) =>
         runCli(sandbox, ['office', '--prefix', prefix, ...args, '--json'], { deadlineMs: 15_000 });
       expectError(await office(['layout', 'show']), 'OFFICE_NOT_INSTALLED');
+      // Retained-install fixture: public Office acquisition is frozen.
       const artifact = await createArtifact(sandbox, '0.1.0-alpha.4', new Uint8Array(), 'office');
       success(
-        await office([
-          'install',
-          '--yes',
-          '--archive',
-          artifact.archive,
-          '--manifest',
-          artifact.manifest,
-        ])
+        await runCli(
+          sandbox,
+          [
+            '__native-install',
+            '--product',
+            'office',
+            '--channel',
+            'alpha',
+            '--prefix',
+            prefix,
+            '--json',
+            '--archive',
+            artifact.archive,
+            '--manifest',
+            artifact.manifest,
+          ],
+          { deadlineMs: 15_000 }
+        )
       );
       // No tmux, identity, credentials or HTTP service is needed. Each invocation is a new process.
       const preview = success(await office(['layout', 'show']));

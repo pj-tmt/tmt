@@ -24,6 +24,14 @@ pub(crate) fn execute(
     operation: invocation::OfficeOperation,
     mode: crate::invocation::OutputMode,
 ) -> std::io::Result<u8> {
+    if matches!(
+        operation,
+        invocation::OfficeOperation::Install { .. } | invocation::OfficeOperation::Upgrade { .. }
+    ) && let Err(error) = crate::extension_install_command::require_installable(
+        tmt_core::native_install::Product::Office,
+    ) {
+        return error.publish(mode);
+    }
     tmt_office_command::execute(prefix, operation, mode, &InProcessCoreAccess)
 }
 

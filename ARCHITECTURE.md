@@ -2670,8 +2670,9 @@ bounded release lookup (`latest_release_version`, metadata only), and a failed
 lookup reports `unknown`. Shadowing canonicalizes every `tmt-<name>` on PATH and
 reports those that resolve elsewhere, without executing them. Root help groups
 discovered extension names that resolve to the same file (`squad (also: sq)`).
-`tmt office install|upgrade|status|rm` keeps its own Office-specific
-flow for now.
+`tmt office install|upgrade` calls the same CLI-owned `require_installable`
+guard before entering the Office handler, retaining one frozen rule and message.
+The facade's status and removal operations keep their Office-specific flow.
 
 An extension's agent skills belong to one owner named after it (`squad`,
 `office`) in the owned-skill registry (`skill_installation::owned`). After

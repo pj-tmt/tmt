@@ -21,12 +21,15 @@ export async function installNativeOffice(
     executable
   );
   const prefix = path.join(sandbox.root, 'office-prefix');
+  // Build a retained-install fixture without public Office acquisition.
   const installed = await runCli(
     sandbox,
     [
+      '__native-install',
+      '--product',
       'office',
-      'install',
-      '--yes',
+      '--channel',
+      'alpha',
       '--prefix',
       prefix,
       '--archive',

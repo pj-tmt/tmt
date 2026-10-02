@@ -49,7 +49,7 @@ const CONSENT: &str = "EXTENSION_CONSENT_REQUIRED";
 // Historical products stay recognizable for receipt recovery and removal.
 const INSTALLABLE_EXTENSIONS: &[Product] = &[Product::Squad];
 
-fn require_installable(product: Product) -> Result<(), Failure> {
+pub(crate) fn require_installable(product: Product) -> Result<(), Failure> {
     if INSTALLABLE_EXTENSIONS.contains(&product) {
         return Ok(());
     }

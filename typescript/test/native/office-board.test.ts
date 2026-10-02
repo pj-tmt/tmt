@@ -24,10 +24,16 @@ it(
           prefix,
           ...args,
         ]);
+      // Retained-install fixture: public Office acquisition is frozen.
       const artifact = await createArtifact(sandbox, '0.1.0-alpha.4', new Uint8Array(), 'office');
-      await office([
-        'install',
-        '--yes',
+      await cli('internal Office fixture install', [
+        '__native-install',
+        '--product',
+        'office',
+        '--channel',
+        'alpha',
+        '--prefix',
+        prefix,
         '--archive',
         artifact.archive,
         '--manifest',
