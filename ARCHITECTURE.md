@@ -2068,7 +2068,13 @@ and clipboard are extension features). Names that a later host reads as targets
 one keeps it for lookup and marker checks, and explicit resolution prefers it.
 
 `tmux` uses explicit socket/server evidence, bounded command budgets,
-owned buffers and no ambient host fallback. A failed paste or Enter is an
+owned buffers and no ambient host fallback. Explicit target resolution preserves
+command deadline, I/O, spawn, output-limit and signal failures through the host
+port as `RECONCILIATION_FAILED` (exit 1), rather than `PANE_NOT_FOUND` (exit 3).
+A completed unsuccessful lookup or a successful reply without a valid pane ID
+still yields no target; socket denial remains `TMUX_PERMISSION_DENIED` (exit 1),
+and failed cleanup is never suppressed. Optional caller evidence retains its
+best-effort absence policy. A failed paste or Enter is an
 uncertain delivery and is never retried as if unsent.
 Message delivery changes ASCII `!` to fullwidth `！` to avoid agent bash-mode
 shortcuts; this is transport policy, not arbitrary output rewriting. `check`

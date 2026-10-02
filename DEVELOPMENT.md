@@ -910,6 +910,13 @@ The opt-in stress test `cargo test -p tmt-office-command text_file_busy_stress
 -- --ignored --nocapture` reproduces the race and reports failures with and
 without the retry.
 
+For explicit tmux target-resolution errors (#949), run
+`cargo test --locked -p tmt-adapters tmux::io_tests` and
+`cargo test --locked -p tmt-cli --test target_resolution` from `rust/`.
+The adapter tests inject execution faults; the CLI fixture uses a slow stand-in
+under an isolated HOME, verifies check/add error codes and confirms timeout cleanup.
+It does not contact a real tmux server or replace Docker routing evidence.
+
 The external-host shell fixtures use a test-local runner with a thirty-second
 execution budget for success cases. This does not change the driver's wire
 `deadlineMs` or output limit. Conformance timing uses scripted elapsed values;
