@@ -422,6 +422,7 @@ impl App {
             if let (Some(name), Ok(view)) = (snapshot.squad, snapshot.view) {
                 self.cache.insert(name, view);
             }
+            self.prune_views();
             return;
         }
         self.current = snapshot.squad;
@@ -497,7 +498,13 @@ impl App {
                 self.error = Some(error);
             }
         }
+        self.prune_views();
         self.clamp();
+    }
+
+    fn prune_views(&mut self) {
+        self.cache
+            .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
     }
 
     fn switch(&mut self, step: isize) -> Effect {
@@ -623,7 +630,7 @@ impl App {
         let squad = self
             .current
             .clone()
-            .filter(|name| !super::tabs::builtin(name));
+            .filter(|name| !super::tabs::aggregate(name));
         self.view_picker = Some(super::view_picker::Picker::open(
             config, squad, board, self.focus,
         )?);
@@ -1007,7 +1014,7 @@ impl App {
             .unwrap_or_default();
         match action.verb {
             Verb::Talk => self.ask(format!("talk {name}"), Compose::Talk { to: name }, squad),
-            Verb::Annotate if self.current.as_deref().is_some_and(super::tabs::builtin) => {
+            Verb::Annotate if self.current.as_deref().is_some_and(super::tabs::aggregate) => {
                 self.say("Annotate from the squad's own tab.")
             }
             Verb::Annotate => {
@@ -1837,6 +1844,21 @@ pub(crate) mod tests {
             press(&mut app, KeyCode::Right),
             Effect::Load("infra".into())
         );
+    }
+
+    #[test]
+    fn removed_user_tabs_drop_cached_views_and_late_results() {
+        let key = "@tab:needs-me";
+        let mut app = App::new(Some("product".into()));
+        app.apply(snapshot("product", json!([])));
+        let mut late = snapshot(key, json!([]));
+        late.hidden = vec![key.into()];
+        app.apply(late);
+        assert!(app.cache.contains_key(key), "hidden views stay reachable");
+        app.apply(snapshot("product", json!([])));
+        assert!(!app.cache.contains_key(key), "removed definition is pruned");
+        app.apply(snapshot(key, json!([])));
+        assert!(!app.cache.contains_key(key), "late load cannot restore it");
     }
 
     #[test]

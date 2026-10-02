@@ -3,8 +3,9 @@
 
 use crate::{
     attention::Attention,
-    config::Config,
+    config::{Config, Rank, SortKey, UserTab},
     core::{Core, SquadError},
+    filter::Row,
     requests,
     rows::Rows,
     squad::Squad,
@@ -12,7 +13,10 @@ use crate::{
     tabs::{self, ALL, LEADS},
 };
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, BTreeSet},
+};
 
 pub struct Document {
     pub document: Value,
@@ -20,16 +24,78 @@ pub struct Document {
     pub attention: BTreeMap<String, Attention>,
 }
 
-/// Resolve only explicitly supported tabs, never a squad with the same name.
-pub fn key(name: &str) -> Result<&'static str, SquadError> {
-    match name {
-        "leads" => Ok(LEADS),
-        "all" => Ok(ALL),
-        _ => Err(SquadError::new(
-            "SQUAD_TAB_NOT_FOUND",
-            format!("Tab '{name}' does not exist."),
-        )),
+/// A row retains numeric values and source state ranks outside its public JSON.
+pub(crate) struct ProjectedRow {
+    pub value: Value,
+    numbers: BTreeMap<String, f64>,
+    rank: Rank,
+}
+impl Row for ProjectedRow {
+    fn value(&self, field: &str) -> Option<&str> {
+        self.value.value(field)
     }
+}
+impl ProjectedRow {
+    fn compare(&self, key: &SortKey, other: &Self) -> Ordering {
+        status::compare_values(
+            key,
+            self,
+            other,
+            (self.numbers.get(&key.field), other.numbers.get(&key.field)),
+            (self.rank, other.rank),
+        )
+    }
+}
+pub(crate) struct Acquired {
+    pub documents: BTreeMap<String, Value>,
+    rows: BTreeMap<String, Vec<ProjectedRow>>,
+    pub failures: Vec<Value>,
+}
+
+pub fn key(config: &Config, name: &str) -> Result<String, SquadError> {
+    match name {
+        "leads" => Ok(LEADS.into()),
+        "all" => Ok(ALL.into()),
+        _ => {
+            let name = name.strip_prefix("tab:").unwrap_or(name);
+            config
+                .tabs()?
+                .user
+                .iter()
+                .any(|tab| tab.name == name)
+                .then(|| tabs::user_key(name))
+                .ok_or_else(|| {
+                    SquadError::new(
+                        "SQUAD_TAB_NOT_FOUND",
+                        format!("Tab '{name}' does not exist."),
+                    )
+                })
+        }
+    }
+}
+
+pub(crate) fn user_document(tab: &UserTab, order: &[String], acquired: &Acquired) -> Value {
+    let mut rows = in_tab_order(order, &acquired.documents)
+        .into_iter()
+        .flat_map(|name| acquired.rows.get(name).into_iter().flatten())
+        .filter(|row| tab.selection.includes(*row))
+        .collect::<Vec<_>>();
+    rows.sort_by(|a, b| {
+        tab.selection
+            .sort
+            .iter()
+            .map(|key| a.compare(key, b))
+            .find(|order| order.is_ne())
+            .unwrap_or(Ordering::Equal)
+    });
+    // References retain the one public projection and its sorting metadata.
+    let sections = status::sections(
+        &rows,
+        &tab.sections,
+        |key, a, b| a.compare(key, b),
+        |row| row.value.clone(),
+    );
+    json!({"squad": {"name": tab.name, "lead": null}, "sections": sections})
 }
 
 pub fn load(
@@ -40,19 +106,36 @@ pub fn load(
     me: Option<&crate::me::Me>,
     key: &str,
 ) -> Result<Document, SquadError> {
-    let listed = if key == LEADS {
+    let settings = config.tabs()?;
+    let user = settings
+        .user
+        .iter()
+        .find(|tab| Some(tab.name.as_str()) == tabs::user_name(key));
+    if !tabs::builtin(key) && user.is_none() {
+        return Err(SquadError::new("SQUAD_TAB_NOT_FOUND", "Unknown tab key."));
+    }
+    let listed = if key != ALL {
         Some(core.json(&["ls"])?)
     } else {
         None
     };
     let all = squads.iter().collect::<Vec<_>>();
-    let documents = roster_documents(core, config, &all, me, listed.as_ref());
-    let attention = tab_attention(&documents);
+    let acquired = roster_documents(core, config, &all, me, listed.as_ref());
+    let documents = &acquired.documents;
+    let attention = acquired.attention(config, tabs);
     let (mut document, rows) = match key {
-        LEADS => (leads_document(tabs, &documents), Rows::leads()),
-        ALL => (all_document(tabs, &documents, &attention), Rows::overview()),
-        _ => return Err(SquadError::new("SQUAD_TAB_NOT_FOUND", "Unknown tab key.")),
+        LEADS => (leads_document(tabs, documents), Rows::leads()),
+        ALL => (all_document(tabs, documents, &attention), Rows::overview()),
+        _ => (
+            user_document(user.expect("validated user tab"), tabs, &acquired),
+            Rows::leads(),
+        ),
     };
+    document["tab"] = json!(tabs::label(key));
+    if !acquired.failures.is_empty() {
+        document["partial"] = json!(true);
+        document["failures"] = json!(acquired.failures);
+    }
     let grid = rows.value();
     document["columns"] = grid["columns"].clone();
     document["lines"] = grid["lines"].clone();
@@ -101,7 +184,7 @@ pub(crate) fn all_document(
         .collect();
     json!({
         "squad": {"name": "all", "lead": null},
-        "sections": [{"title": null, "rows": rows}],
+        "sections": status::sections(&rows, &[], |_,_,_| Ordering::Equal, Clone::clone),
     })
 }
 
@@ -124,35 +207,138 @@ pub(crate) fn roster_documents(
     squads: &[&Squad],
     me: Option<&crate::me::Me>,
     listed: Option<&Value>,
-) -> BTreeMap<String, Value> {
+) -> Acquired {
+    let mut acquired = Acquired {
+        documents: BTreeMap::new(),
+        rows: BTreeMap::new(),
+        failures: Vec::new(),
+    };
     if squads.is_empty() {
-        return BTreeMap::new();
+        return acquired;
     }
+    let mut failure = |source: &str, squad: Option<&str>, error: SquadError| {
+        let mut item = error.to_json();
+        item["source"] = json!(source);
+        if let Some(name) = squad {
+            item["squad"] = json!(name);
+        }
+        acquired.failures.push(item);
+    };
     let waiting = match me {
         Some(me) => match requests::inbox(core, &me.id) {
             Ok(inbox) => Some((me.id.as_str(), inbox)),
-            Err(_) => return BTreeMap::new(),
+            Err(error) => {
+                failure("inbox", None, error);
+                None
+            }
         },
         None => None,
     };
-    squads
-        .iter()
-        .filter_map(|squad| {
-            let mut roster = squad.roster(core).ok()?;
+    for squad in squads {
+        let result = (|| {
+            let layout = config.layout(&squad.name)?;
+            let states = config.states(&squad.name, layout)?;
+            let sections = config.sections(&squad.name)?;
+            let rows = config.rows(&squad.name)?;
+            let mut members = squad.roster_with(core, rows.reads_metadata())?;
             if let Some(listed) = listed {
-                crate::squad::join_presence(&mut roster, listed);
+                crate::squad::join_presence(&mut members, listed);
             }
-            let waiting = waiting.as_ref().map(|(me, inbox)| (*me, inbox));
-            Some((
-                squad.name.clone(),
-                roster_document(config, squad, roster, waiting).ok()?,
-            ))
+            let providers = config.providers(&squad.name)?;
+            let cached = crate::provider::Cache::load(&squad.name);
+            crate::provider::apply(&providers, &mut members, &cached);
+            status::prepare(&rows, &states, &mut members);
+            let mut document =
+                status::prepared_document(squad, layout, &states, &sections, members.clone());
+            status::sort(&mut members, layout, &states);
+            members.sort_by_key(|member| !member.is_lead());
+            // Collect once before source sections or lead selection can omit or
+            // repeat identities; both documents use the public member projection.
+            let mut flat = json!({"squad": {"lead": null}, "sections":
+                status::sections(&members, &[], |_, _, _| Ordering::Equal, status::row)});
+            if let Some((me, inbox)) = &waiting {
+                requests::apply_waiting(&mut document, &squad.name, me, inbox);
+                requests::apply_waiting(&mut flat, &squad.name, me, inbox);
+            }
+            let projected = project_rows(&squad.name, &flat, &members, &states);
+            Ok::<_, SquadError>((document, projected))
+        })();
+        match result {
+            Ok((document, rows)) => {
+                acquired.documents.insert(squad.name.clone(), document);
+                acquired.rows.insert(squad.name.clone(), rows);
+            }
+            Err(error) => failure("squad", Some(&squad.name), error),
+        }
+    }
+    acquired
+}
+
+fn project_rows(
+    squad: &str,
+    document: &Value,
+    members: &[crate::squad::Member],
+    states: &crate::config::States,
+) -> Vec<ProjectedRow> {
+    let mut seen = BTreeSet::new();
+    std::iter::once(&document["squad"]["lead"])
+        .chain(
+            document["sections"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .flat_map(|section| section["rows"].as_array().into_iter().flatten()),
+        )
+        .filter_map(|row| {
+            let id = row["id"].as_str()?;
+            if !seen.insert(id) {
+                return None;
+            }
+            let member = members.iter().find(|member| member.id == id);
+            let mut value = row.clone();
+            value["squad"] = json!(squad);
+            value["fields"]["squad"] = json!(squad);
+            let rank = states.rank(value.value("state"));
+            Some(ProjectedRow {
+                value,
+                numbers: member
+                    .map(|member| member.numbers.clone())
+                    .unwrap_or_default(),
+                rank,
+            })
         })
         .collect()
 }
 
+impl Acquired {
+    pub fn attention(&self, config: &Config, order: &[String]) -> BTreeMap<String, Attention> {
+        let mut attention = tab_attention(&self.documents);
+        if let Ok(settings) = config.tabs() {
+            for tab in settings.user {
+                attention.insert(
+                    tabs::user_key(&tab.name),
+                    Attention::of(&user_document(&tab, order, self)),
+                );
+            }
+        }
+        attention
+    }
+    pub fn include(&mut self, config: &Config, squad: &str, document: Value) {
+        // Deferred attention only filters public text; no sort metadata is needed.
+        let states = config
+            .layout(squad)
+            .and_then(|layout| config.states(squad, layout));
+        if let Ok(states) = states {
+            let rows = project_rows(squad, &document, &[], &states);
+            self.rows.insert(squad.into(), rows);
+        }
+        self.documents.insert(squad.into(), document);
+    }
+}
+
 /// One squad's document from its roster: the same document `status`
 /// builds, so a tab and `ls --json` never disagree.
+#[cfg(test)]
 pub(crate) fn roster_document(
     config: &Config,
     squad: &Squad,
@@ -188,7 +374,7 @@ pub(crate) fn leads_document(tabs: &[String], documents: &BTreeMap<String, Value
         .collect();
     json!({
         "squad": {"name": "leads", "lead": null},
-        "sections": [{"title": null, "rows": rows}],
+        "sections": status::sections(&rows, &[], |_,_,_| Ordering::Equal, Clone::clone),
     })
 }
 

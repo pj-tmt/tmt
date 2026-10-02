@@ -179,6 +179,23 @@ describe('squad extension', () => {
       expect(text.stdout).toContain('product');
       expect(text.stdout).toContain('Sol');
       expect(text.stdout).toContain('quiet');
+      writeFileSync(
+        path.join(sandbox.globalDir, 'squad.toml'),
+        '[tabs]\nhide = ["product", "tab:members"]\n[tabs.members]\nfilter = "squad = product"\nsort = ["-name"]\n[[tabs.members.section]]\ntitle = "Leads"\nfilter = "name = Sol"\n'
+      );
+      const members = await squad(sandbox, ['ls', '--tab', 'members']);
+      expect(members.status).toBe(0);
+      expect(members.body.tab).toBe('members');
+      expect(members.body.sections).toMatchObject([
+        { title: 'Leads', rows: [{ name: 'Sol', squad: 'product' }] },
+        { title: null, rows: [{ name: 'worker', squad: 'product' }] },
+      ]);
+      expect(members.body.columns).toEqual(leads.body.columns);
+      const memberText = await runCli(sandbox, ['sq', 'ls', '--tab', 'members']);
+      expect(memberText.status).toBe(0);
+      expect(memberText.stdout).toContain('LEADS');
+      expect(memberText.stdout).toContain('worker');
+      expect((await squad(sandbox, ['ls', '--tab', 'tab:members'])).body).toEqual(members.body);
       const missing = await squad(sandbox, ['ls', '--tab', 'missing']);
       expect(missing.status).not.toBe(0);
       expect(missing.body.error.code).toBe('SQUAD_TAB_NOT_FOUND');
