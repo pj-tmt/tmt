@@ -112,6 +112,12 @@
       ]
     },
     {
+      "id": "colab-rust",
+      "consumers": ["native", "office"],
+      "why": "Colab Rust retains full workspace checks and existing Office consumers; private release ownership does not narrow CI coverage.",
+      "paths": ["extensions/tmt-colab/rust/**"]
+    },
+    {
       "id": "remote-rust",
       "consumers": ["native", "office"],
       "why": "Remote Rust retains full workspace checks and existing Office consumers; private release ownership does not narrow CI coverage.",

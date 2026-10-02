@@ -16,6 +16,8 @@ pub enum AttachmentError {
     MissingValue(OsString),
     InvalidEndpoint,
     InvalidWorkingDirectory,
+    UnsupportedPermission(&'static str),
+    UnsupportedConfig,
 }
 
 /// Arguments validated before any endpoint or provider process is created.
@@ -26,6 +28,8 @@ pub struct LaunchOptions {
     foreground: Vec<OsString>,
     server: Vec<OsString>,
     working_directory: PathBuf,
+    sandbox: Option<String>,
+    approval: Option<String>,
 }
 
 impl LaunchOptions {
@@ -37,6 +41,8 @@ impl LaunchOptions {
             foreground: Vec::new(),
             server: Vec::new(),
             working_directory: cwd.to_owned(),
+            sandbox: None,
+            approval: None,
         };
         let mut args = command.args.iter();
         while let Some(argument) = args.next() {
@@ -91,7 +97,60 @@ impl LaunchOptions {
             };
             return Ok(());
         }
-        self.foreground.extend([name.into(), value.clone()]);
+        if matches!(name, "-s" | "--sandbox" | "-a" | "--ask-for-approval") {
+            let text = value.to_str().unwrap_or("");
+            let (field, allowed, option): (&mut Option<String>, &[&str], &'static str) =
+                if matches!(name, "-s" | "--sandbox") {
+                    (
+                        &mut self.sandbox,
+                        &["read-only", "workspace-write", "danger-full-access"],
+                        "--sandbox",
+                    )
+                } else {
+                    (
+                        &mut self.approval,
+                        &["untrusted", "on-request", "never"],
+                        "--ask-for-approval",
+                    )
+                };
+            if !allowed.contains(&text) {
+                return Err(AttachmentError::UnsupportedPermission(option));
+            }
+            *field = Some(text.to_owned());
+        } else {
+            if matches!(name, "-c" | "--config") {
+                // The upstream remote-resume detector treats these root keys
+                // as permission overrides. Refuse their generic forms instead
+                // of silently changing policy; typed flags are supported.
+                // Only bare dotted keys are accepted so quoting/escapes cannot
+                // conceal one of these roots from the boundary check.
+                let key = value
+                    .to_str()
+                    .and_then(|text| text.split_once('='))
+                    .map(|(key, _)| key.trim())
+                    .ok_or(AttachmentError::UnsupportedConfig)?;
+                if key.split('.').any(|part| {
+                    part.is_empty()
+                        || !part
+                            .bytes()
+                            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+                }) || matches!(
+                    key.split('.').next(),
+                    Some(
+                        "approval_policy"
+                            | "approvals_reviewer"
+                            | "sandbox_mode"
+                            | "default_permissions"
+                            | "permissions"
+                            | "network"
+                            | "sandbox_workspace_write"
+                    )
+                ) {
+                    return Err(AttachmentError::UnsupportedConfig);
+                }
+            }
+            self.foreground.extend([name.into(), value.clone()]);
+        }
         match name {
             "-c" | "--config" | "--enable" | "--disable" => {
                 self.server.extend([name.into(), value])
@@ -117,6 +176,20 @@ impl LaunchOptions {
             }
         }
         Ok(())
+    }
+
+    pub fn thread_start_params(&self) -> serde_json::Value {
+        let mut params = serde_json::json!({
+            "cwd": self.working_directory,
+            "allowProviderModelFallback": false
+        });
+        if let Some(sandbox) = &self.sandbox {
+            params["sandbox"] = sandbox.clone().into();
+        }
+        if let Some(approval) = &self.approval {
+            params["approvalPolicy"] = approval.clone().into();
+        }
+        params
     }
 
     pub fn working_directory(&self) -> &Path {

@@ -1,7 +1,7 @@
 //! How a squad's rows are laid out: one shared grid of columns, and the
 //! lines each row takes, where a cell may span several columns. The board
-//! sizes the grid with tmt-cli-style's one solver; `ls` takes only the field
-//! selection and order, since a list stays complete.
+//! sizes the grid with tmt-cli-style's one solver; `ls` keeps natural list
+//! sizing unless a shown column opts into percentage width or overflow.
 //!
 //! `[squad.<name>.rows]` is the full form; the older `[squad.<name>.columns]`
 //! (`show` plus a `title`/`width` per field) reads as the same model.
@@ -11,7 +11,7 @@ use crate::{
     source::{ColumnSource, Format, PATHS},
 };
 use serde_json::{Value, json};
-use tmt_cli_style::grid::{Align, Track, Truncate};
+use tmt_cli_style::grid::{Align, Basis, Overflow, Track, Truncate};
 use toml_edit::{Item, TableLike};
 
 const MAX_COLUMNS: usize = 12;
@@ -29,13 +29,14 @@ const NARROWEST: usize = 4;
 pub struct Column {
     pub field: String,
     pub title: String,
-    /// An exact width; with `min` it may shrink that far.
-    pub width: Option<u16>,
+    /// A cell width or percentage basis; `min`/`max` stay in cells.
+    pub width: Option<Basis>,
     pub min: Option<u16>,
     pub max: Option<u16>,
     pub grow: u16,
     pub align: Align,
     pub truncate: Truncate,
+    pub overflow: Option<Overflow>,
     /// Steps aside on a narrow board, highest first; None never does.
     pub priority: Option<u16>,
     /// Where the value comes from, when not the squad field of its name.
@@ -44,6 +45,26 @@ pub struct Column {
     /// Numeric thresholds, strictly increasing: a value at or above `at`
     /// shows that token, the highest reached winning.
     pub color: Vec<Threshold>,
+}
+
+/// Existing lists keep natural sizing unless a shown column opts into the
+/// new configured fitting contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListSizing {
+    Natural,
+    Configured,
+}
+
+impl ListSizing {
+    pub fn for_columns(columns: &[Column]) -> Self {
+        if columns.iter().any(|column| {
+            matches!(column.width, Some(Basis::Percent(_))) || column.overflow.is_some()
+        }) {
+            Self::Configured
+        } else {
+            Self::Natural
+        }
+    }
 }
 
 /// From `at` upward, a cell's value shows `token` (a theme token).
@@ -64,11 +85,51 @@ impl Column {
             grow: 0,
             align: Align::Left,
             truncate: Truncate::End,
+            overflow: None,
             priority: None,
             from: None,
             format: Format::Text,
             color: Vec::new(),
         }
+    }
+
+    /// Display settings published by `Rows::value`; values and sources have
+    /// already been projected into the document's full row fields.
+    pub fn display(field: &str, value: &Value) -> Self {
+        let mut column = Self::new(field, value["title"].as_str());
+        column.width = value["width"]
+            .as_u64()
+            .map(|width| Basis::Cells(width as usize))
+            .or_else(|| {
+                value["width"]
+                    .as_str()?
+                    .strip_suffix('%')?
+                    .parse()
+                    .ok()
+                    .map(Basis::Percent)
+            });
+        column.min = value["min"].as_u64().map(|value| value as u16);
+        column.max = value["max"].as_u64().map(|value| value as u16);
+        column.grow = value["grow"].as_u64().unwrap_or(0) as u16;
+        column.priority = value["priority"].as_u64().map(|value| value as u16);
+        column.align = match value["align"].as_str() {
+            Some("right") => Align::Right,
+            Some("center") => Align::Center,
+            _ => Align::Left,
+        };
+        column.truncate = if value["truncate"] == "middle" {
+            Truncate::Middle
+        } else {
+            Truncate::End
+        };
+        column.overflow = match value["overflow"].as_str() {
+            Some("wrap") => Some(Overflow::Wrap {
+                max_lines: value["max_lines"].as_u64().unwrap_or(2).clamp(1, 8) as u8,
+            }),
+            Some("ellipsis") => Some(Overflow::Ellipsis),
+            _ => None,
+        };
+        column
     }
 
     /// The token of the highest threshold `number` reaches, if any.
@@ -92,7 +153,7 @@ impl Column {
         }
     }
 
-    fn sized(field: &str, title: &str, width: Option<u16>) -> Self {
+    fn sized(field: &str, title: &str, width: Option<Basis>) -> Self {
         let mut column = Self::new(field, Some(title));
         column.width = width;
         if width.is_none() {
@@ -105,16 +166,19 @@ impl Column {
     /// Its solver track; `natural` is its widest value, used when it has
     /// neither a width nor a grow share.
     pub fn track(&self, natural: usize) -> Track {
-        let width = self.width.map(usize::from);
+        let width = self.width;
         let basis = match (width, self.grow) {
             (Some(width), _) => width,
-            (None, 0) => natural,
-            (None, _) => 0,
+            (None, 0) => Basis::Cells(natural),
+            (None, _) => Basis::Cells(0),
         };
         let min = self.min.map_or_else(
             || match (width, self.grow) {
-                (Some(width), _) => width,
-                (None, 0) => NARROWEST.min(basis),
+                (Some(Basis::Cells(width)), _) => width,
+                (Some(Basis::Percent(_)), _) => {
+                    NARROWEST.min(self.max.map_or(NARROWEST, usize::from))
+                }
+                (None, 0) => NARROWEST.min(natural),
                 (None, _) => NARROWEST,
             },
             usize::from,
@@ -149,11 +213,11 @@ impl Rows {
     /// Every preset's rows: the name, state, task and pull request.
     pub fn preset() -> Self {
         // On a narrow board the link steps aside before anything is cut off.
-        let mut link = Column::sized("pr_link", "PR", Some(12));
+        let mut link = Column::sized("pr_link", "PR", Some(Basis::Cells(12)));
         link.priority = Some(1);
         Self::with_one_line(vec![
-            Column::sized("member", "MEMBER", Some(14)),
-            Column::sized("state", "STATE", Some(10)),
+            Column::sized("member", "MEMBER", Some(Basis::Cells(14))),
+            Column::sized("state", "STATE", Some(Basis::Cells(10))),
             Column::sized("task", "TASK", None),
             link,
         ])
@@ -162,9 +226,9 @@ impl Rows {
     /// The built-in leads tab (#507): each squad's lead on one line.
     pub fn leads() -> Self {
         Self::with_one_line(vec![
-            Column::sized("squad", "SQUAD", Some(14)),
-            Column::sized("member", "LEAD", Some(14)),
-            Column::sized("state", "STATE", Some(10)),
+            Column::sized("squad", "SQUAD", Some(Basis::Cells(14))),
+            Column::sized("member", "LEAD", Some(Basis::Cells(14))),
+            Column::sized("state", "STATE", Some(Basis::Cells(10))),
             Column::sized("task", "TASK", None),
         ])
     }
@@ -172,10 +236,10 @@ impl Rows {
     /// The built-in `all` tab (#507): one squad per line.
     pub fn overview() -> Self {
         Self::with_one_line(vec![
-            Column::sized("squad", "SQUAD", Some(14)),
-            Column::sized("lead", "LEAD", Some(14)),
-            Column::sized("members", "MEMBERS", Some(8)),
-            Column::sized("waiting", "WAITING", Some(8)),
+            Column::sized("squad", "SQUAD", Some(Basis::Cells(14))),
+            Column::sized("lead", "LEAD", Some(Basis::Cells(14))),
+            Column::sized("members", "MEMBERS", Some(Basis::Cells(8))),
+            Column::sized("waiting", "WAITING", Some(Basis::Cells(8))),
             Column::sized("blocked", "BLOCKED", None),
         ])
     }
@@ -229,14 +293,21 @@ impl Rows {
             Truncate::Middle => "middle",
         };
         json!({
-            "columns": self.columns.iter().map(|column| json!({
-                "field": column.field, "title": column.title, "width": column.width,
+            "columns": self.columns.iter().map(|column| {
+                let mut value = json!({
+                "field": column.field, "title": column.title, "width": width_value(column.width),
                 "min": column.min, "max": column.max, "grow": column.grow,
                 "align": align(column.align), "truncate": truncate(column.truncate),
                 "priority": column.priority,
                 "from": column.from.as_ref().map(|from| from.path.as_str()),
                 "format": column.format.as_str(),
-            })).collect::<Vec<_>>(),
+                });
+                if let Some(mode) = column.overflow {
+                    value["overflow"] = json!(if matches!(mode, Overflow::Wrap { .. }) { "wrap" } else { "ellipsis" });
+                    if let Overflow::Wrap { max_lines } = mode { value["max_lines"] = json!(max_lines); }
+                }
+                value
+            }).collect::<Vec<_>>(),
             "lines": self.lines.iter().map(|line| line.iter().map(|cell| json!({
                 "field": cell.field, "span": cell.span,
             })).collect::<Vec<_>>()).collect::<Vec<_>>(),
@@ -329,12 +400,69 @@ fn number(
         })
 }
 
+fn width(value: &Item, place: &str) -> Result<Basis, SquadError> {
+    if value.is_integer() {
+        return number(value, place, 1..=MAX_WIDTH).map(|width| Basis::Cells(usize::from(width)));
+    }
+    value
+        .as_str()
+        .and_then(|text| text.strip_suffix('%'))
+        .filter(|text| {
+            !text.is_empty()
+                && !text.starts_with('0')
+                && text.bytes().all(|byte| byte.is_ascii_digit())
+        })
+        .and_then(|text| text.parse::<u8>().ok())
+        .filter(|percent| (1..=100).contains(percent))
+        .map(Basis::Percent)
+        .ok_or_else(|| {
+            invalid(format!(
+                "`{place}` must be 1-{MAX_WIDTH} cells or a percentage 1%-100%."
+            ))
+        })
+}
+
+fn overflow(settings: &dyn TableLike, place: &str) -> Result<Option<Overflow>, SquadError> {
+    let mode = settings
+        .get("overflow")
+        .map(|item| {
+            item.as_str()
+                .ok_or_else(|| invalid(format!("`{place}.overflow` must be ellipsis or wrap.")))
+        })
+        .transpose()?;
+    let max_lines = settings
+        .get("max_lines")
+        .map(|item| number(item, &format!("{place}.max_lines"), 1..=8))
+        .transpose()?;
+    match (mode, max_lines) {
+        (None, None) => Ok(None),
+        (Some("wrap"), max_lines) => Ok(Some(Overflow::Wrap {
+            max_lines: max_lines.unwrap_or(2) as u8,
+        })),
+        (None | Some("ellipsis"), Some(_)) => Err(invalid(format!(
+            "`{place}.max_lines` requires overflow = wrap."
+        ))),
+        (Some("ellipsis"), None) => Ok(Some(Overflow::Ellipsis)),
+        _ => Err(invalid(format!(
+            "`{place}.overflow` must be ellipsis or wrap."
+        ))),
+    }
+}
+
+fn width_value(width: Option<Basis>) -> Value {
+    match width {
+        None => Value::Null,
+        Some(Basis::Cells(width)) => json!(width),
+        Some(Basis::Percent(percent)) => json!(format!("{percent}%")),
+    }
+}
+
 /// `[squad.<name>.rows]` when present, else the older `columns` table, else
 /// the preset. Setting both is refused rather than guessed.
 pub fn read(squad: Option<&dyn TableLike>, name: &str) -> Result<Rows, SquadError> {
     let rows = squad.and_then(|table| table.get("rows"));
     let columns = squad.and_then(|table| table.get("columns"));
-    match (rows, columns) {
+    let result = match (rows, columns) {
         (Some(_), Some(_)) => Err(invalid(format!(
             "`squad.{name}` sets both `rows` and `columns`; keep `rows`."
         ))),
@@ -350,7 +478,21 @@ pub fn read(squad: Option<&dyn TableLike>, name: &str) -> Result<Rows, SquadErro
         }
         (None, Some(columns)) => read_legacy(columns, &format!("squad.{name}.columns")),
         (None, None) => Ok(Rows::preset()),
+    }?;
+    let percent: u16 = result
+        .columns
+        .iter()
+        .map(|column| match column.width {
+            Some(Basis::Percent(percent)) => u16::from(percent),
+            _ => 0,
+        })
+        .sum();
+    if percent > 100 {
+        return Err(invalid(format!(
+            "`squad.{name}` configured column percentages must total at most 100%."
+        )));
     }
+    Ok(result)
 }
 
 fn read_rows(
@@ -425,7 +567,8 @@ fn read_column(
         match key {
             "name" => {}
             "title" => column.title = title(value, &place)?,
-            "width" => column.width = Some(number(value, &place, 1..=MAX_WIDTH)?),
+            "width" => column.width = Some(width(value, &place)?),
+            "overflow" | "max_lines" => {}
             "min" => column.min = Some(number(value, &place, 0..=MAX_WIDTH)?),
             "max" => column.max = Some(number(value, &place, 1..=MAX_WIDTH)?),
             "grow" => column.grow = number(value, &place, 0..=100)?,
@@ -477,12 +620,17 @@ fn read_column(
     let low = column.min;
     let high = column.max;
     let consistent = low.zip(high).is_none_or(|(low, high)| low <= high)
-        && column.width.is_none_or(|width| {
-            low.is_none_or(|low| low <= width) && high.is_none_or(|high| width <= high)
+        && column.width.is_none_or(|width| match width {
+            Basis::Percent(_) => true,
+            Basis::Cells(width) => {
+                low.is_none_or(|low| usize::from(low) <= width)
+                    && high.is_none_or(|high| width <= usize::from(high))
+            }
         });
     if !consistent {
         return Err(invalid(format!("`{here}` needs min <= width <= max.")));
     }
+    column.overflow = overflow(settings, here)?;
     Ok(column)
 }
 
@@ -614,13 +762,10 @@ fn read_legacy(item: &Item, place: &str) -> Result<Rows, SquadError> {
                     let here = format!("{place}.{field}.{key}");
                     match key {
                         "title" => column.title = title(value, &here)?,
+                        "overflow" | "max_lines" => {}
                         "width" => {
-                            column = Column::sized(
-                                &field,
-                                &column.title,
-                                Some(number(value, &here, 1..=MAX_WIDTH)?),
-                            );
-                            column.priority = priority;
+                            column.width = Some(width(value, &here)?);
+                            column.grow = 0;
                         }
                         other => {
                             return Err(invalid(format!(
@@ -629,6 +774,7 @@ fn read_legacy(item: &Item, place: &str) -> Result<Rows, SquadError> {
                         }
                     }
                 }
+                column.overflow = overflow(settings, &format!("{place}.{field}"))?;
             }
             Ok(column)
         })

@@ -2129,6 +2129,14 @@ planning resolves cwd once and names an exact thread. The channel contract owns
 the startup, credential and failure limits; real continuity and launcher crash
 recovery remain final consumer acceptance gates.
 
+The unregistered #785 foundations extend that record with persisted pane
+attribution and Unknown/Known foreground state. The record owns exact takeover,
+pruning and withdrawal; a server alone never proves an Unknown foreground ended.
+Startup errors carry cleanup certainty to their eventual lease caller. Permission
+planning routes supported typed settings to the server/thread and refuses generic
+permission overrides before spawn. No shared routing or registration changes in
+this slice; the [contract](contracts/codex-channel-v1.md) owns these definitions.
+
 ### Provider channels
 
 An optional driver port lets a launch hand talk payloads to a running agent
@@ -2546,8 +2554,20 @@ the cache (`--refresh-fields` runs what is due first), and the board hands each
 load's members to one fetcher thread that runs due work off the paint path and
 again at the shortest `every`; a save moves the cache directory's stamp, which
 `board::changes` watches, so the board reloads early. The board sizes it with `tmt-cli-style`'s one solver
-(`grid::solve`, `grid::span`, `grid::fit`); the text output takes only its
-field selection and order and keeps list sizing, so a list stays complete. With `--squad`, `ls` returns that squad's document;
+(`grid::solve`, `grid::span`, `grid::fit`, `grid::fit_lines`). `rows::Column`
+uses `grid::Basis` for cell or percent widths; bounds stay in cells. The solver
+resolves percentages against data width after marks/borders/gaps, rounds by
+largest remainder, clamps cell bounds (percent columns default to a four-cell minimum, capped by an explicit max), then grows. Hiding recomputes the shown set.
+`grid::fit_lines` owns escaped, exact-cell-width bounded wrapping, with a final
+end ellipsis. Column metadata preserves percent strings and adds `overflow`
+and wrap `max_lines` only when opted in; full row values never change.
+`rows::ListSizing` chooses the text sizing policy once from shown column
+settings: without percent/overflow it keeps legacy list sizing and complete
+piped values. Opt-in text lists decode only projected display settings through
+`rows::Column::display` and use the same grid solver/fitter. A pipe's budget is
+summed natural data widths plus gaps before priority hiding; such lists may
+truncate, wrap or hide columns. The existing list/table owner still renders
+sections and styles; no parallel layout engine is introduced. With `--squad`, `ls` returns that squad's document;
 without it, always `{squads: [...], you}` in name order (even for one squad or
 none), so a script's shape never depends on how many squads exist. Commands that
 change state still require `--squad` when several exist; `filter` owns a bounded boolean language over a row's text
@@ -2581,8 +2601,10 @@ visited squad, shows a cached one at once, and otherwise keeps the current
 frame (marked stale, so row actions refuse) until the new squad's snapshot
 swaps in whole. An uncached switch that lasts at least 100 ms shows a spinner in
 the fixed summary header, ticking every 80 ms; cached switches show no loading
-indicator. F5 defaults to refresh in squad, leads and all views; squad/leads
+indicator. `ctrl-r` defaults to refresh in squad, leads and all views; squad/leads
 bindings can rebind it through `[bind]`, while all keeps its own `[tabs.all.bind]`.
+The effective `ctrl-r` refresh binding is dispatched before text inputs, preserving
+search and composed messages. F5 has no default binding but remains configurable.
 Tabs are the same width selected or not: selection is a style, never extra
 characters. `attention::Attention` is the one definition of a squad's tab
 state, derived from its status document: members waiting on the user (`pending`
@@ -2693,7 +2715,7 @@ validated before raw mode. `split` owns how panes sit: a tree of row and column
 splits whose children have a percentage or a grow share (ratatui `Percentage`
 and `Fill`), nested up to three levels; `layout` is its full form and the
 `direction`/`panes`/`sizes` keys its one-level form, and the board draws either
-by one recursive walk. The tree's reading order is the focus order. The notes pane reads the lead's notebook only through
+by one recursive walk. The tree's reading order is the focus order. The detail pane appends full projected `row.fields` values for board columns not already represented by its header, task, note, activity or links, in column order; it escapes and wraps them without grid fitting, source lookups or provider calls. The notes pane reads the lead's notebook only through
 `tmt api notes.read` (bounded, never creating a file); `board::notes` removes
 every escape sequence, control character and hidden bidi/format character before
 display, since notes are agent-written. `board::markdown` is a thin
@@ -2726,7 +2748,9 @@ lines to `Scrolls::show`, which keeps a position per pane, clamps it to the
 content, reserves the last line for an `↑ n  ↓ m` indicator when the pane
 overflows, and records where the pane was drawn so the wheel scrolls the pane
 under the pointer and a left click focuses it. Panes keep no scroll state of their own; the rows pane only
-asks it to reveal the selected line while the selection is followed. `run` fills one argv element per template (refusing a value that would start an argument with `-`) and starts it like the
+asks it to reveal the selected record's visual-line range while followed (or
+its first line when taller than the viewport). The draw records record starts
+and hit targets for every continuation; paging moves by viewport lines for all rows, including existing notes/configured row lines, with record paging when no positions were drawn. `run` fills one argv element per template (refusing a value that would start an argument with `-`) and starts it like the
 opener (no shell, null stdio, its own process group, a reaper thread). `back` keeps a
 disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
 0700, atomic replacement, 32 entries, corrupt or foreign files read as empty).
@@ -2956,7 +2980,7 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 as `tmt remote`. `main` owns style/foreground composition and one bounded
 startup capabilities call. `core::CoreClient` owns fixed public `api`/`ls`
 subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
-`rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf.
+`rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf. Request-carried launch options preserve environment inheritance by default or explicitly clear it and copy only named allowlisted caller variables, preserving OS-string bytes and leaving the caller environment unchanged. This policy is configured through the existing invocation entry point; it supplies no memory sandbox or resource-limit guarantee.
 
 `http::Door` owns finite IPv4-loopback sockets, strict framing, acquisition,
 connection/rate bounds and shutdown. It has no CoreClient/storage reference.
@@ -2998,18 +3022,18 @@ and authority definition owner.
 
 ## Colab extension proposal
 
-**Status: proposed, not implemented.** The local-build-only pilot lives under
+**Status: persistence and foreground deny-all executable implemented; model,
+authentication, sync, decoder, browser and backend work remains proposed.** The local-build-only pilot lives under
 `extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
 owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
 bridge policy and acceptance gates. The #828 design owns product/UI choices;
-#829/#830 are bounded spike evidence. This documentation adds no registered
-executable, workspace package, listener, deployment or release.
+#829/#830 are bounded spike evidence. The executable is local-build-only; no deployment or official release is registered.
 
-Proposed Rust dependencies are `tmt-colab` → `tmt-colab-model`, `tmt-invoke`
-and `tmt-cli-style`, plus reviewed workspace pins. The model owns pure values,
+Current executable dependencies are `tmt-invoke`, `tmt-cli-style` and reviewed
+workspace pins. The proposed `tmt-colab-model` integration will own pure values,
 canonical bytes/codecs/crypto and policy, without I/O or core access. The
-executable owns CLI composition, foreground door, embedded app, SQLite/files,
-keyring and bridge. Core access is only through the absolute invoking
+executable owns CLI composition, foreground door, SQLite/files and keyring;
+the embedded app and bridge remain proposed. Core access is only through the absolute invoking
 `$TMT_EXECUTABLE api` and documented JSON commands via the invoke leaf; no
 `tmt-core`, `tmt-adapters`, Office or Remote behavior dependencies, core SQLite
 or pane scraping. Shared crypto extraction requires actual consumers and review.
@@ -3018,8 +3042,8 @@ Proposed extension-relative browser packages are `typescript/colab-client`
 (client crypto/log verification, Yjs state and SyncBinding) and `typescript/app`
 (trusted React/Vite chrome and renderer); backend packages are separate. They
 join the existing pnpm workspace/lockfile and pins when implemented. Shared
-workspace/component edits follow the two-lead rule; architecture guard and
-runtime CI-scope registration land with first code. The component map gives the
+workspace/component edits follow the two-lead rule; architecture guards and
+full runtime CI-scope coverage include the persistence library. The component map gives the
 contract directory private file ownership (`release: false`) and excludes it from
 CLI releases. #841 gates yrs adoption. Official registration/packaging is separate.
 
@@ -3036,5 +3060,52 @@ Servers never decode Yjs; foreign-writer decoding/merging runs in a bounded
 budgeted browser Worker terminated on overrun, as defined by the contract.
 That boundary contains decoder failure, without claiming an OS/key sandbox.
 Local acceptance precedes Firestore then Cloudflare; protocol, renderer and
-containment details/gates live only in the linked contract. DEVELOPMENT usage
-commands land in L2/L3, when the executable exists.
+containment details/gates live only in the linked contract. DEVELOPMENT
+documents the current local build and foreground run commands.
+
+### Persistence implementation
+
+`extensions/tmt-colab/rust/tmt-colab` is a private, local-build-only library
+slice for #847. `keyring::Layout` owns the injected absolute data root's
+`colab/` subtree, with owned 0700 directories and no-follow, bounded regular
+0600 files. It preserves existing root permissions and touches no core database,
+configuration or provider settings. `Keyring` publishes one software owner seed
+with create-only, synced file publication; existing invalid keys fail closed.
+The temporary space-ID builder follows the contract's domain-framed derivation and will
+move to the separately owned L1 model when that API lands.
+
+`store::Store` owns real SQLite ciphertext, durable create-only stream receipts,
+conflict freezing and epoch fencing. Namespace checkpoints prune only their
+covered prefix and superseded unpinned checkpoint payloads in the same
+transaction; receipts and concurrent tails survive. New checkpoint prefixes
+advance monotonically; exact retries never republish pruned bytes. The
+`pin_checkpoint` seam preserves authority-cut ciphertext for the later verified
+owner-log caller.
+Per-page capacity returns an error instead of evicting history. Envelope
+signatures, identity grammar, roles and owner-transition authorization belong
+to the future model/admission caller; this library creates no network authority.
+Tests own isolated directories and SQLite oracles. Sync, authentication, decoder and model integration remain later slices.
+The executable depends on the reviewed invoke/style leaves and pinned
+storage/network/crypto primitives, never core, adapter, Remote or Office crates. Its component is excluded from release;
+workspace checks and Docker build contexts include its manifest.
+
+### Foreground composition and loopback door
+
+`main` owns `serve` and read-only `spaces`, style/JSON output, signals and one
+foreground service lock. `core` makes one fixed `storage.root` public API call
+through the absolute invoking `TMT_EXECUTABLE` and `tmt-invoke`, with deadline,
+stream caps and cancellation; missing/invalid roots fail before state creation.
+`spaces` creates nothing. `serve` opens the private keyring/store before printing
+a working IPv4-loopback placeholder URL. Keyring publication and stale temporary
+cleanup share a short-lived private lock; matching files require bounded owned
+regular-file admission without following symlinks. Typed state/schema faults
+reach machine-readable CLI errors.
+
+`http::Door` has no keyring, store or core reference. It owns finite loopback
+sockets and joined workers, exact Host/Origin admission, strict HTTP/1.1 framing,
+body/header/connection bounds and absolute read/write deadlines. It serves only
+the static placeholder and denies every API/WebSocket upgrade, including forged
+cookies. Shutdown closes retained sockets before joining all workers. Accepted
+WebSocket framing, subscriber queues and slow-subscriber close remain L2b, along
+with sign-in, owner management and the decoder. Tests use real sockets and
+isolated CLI processes, with readiness channels and explicit kill/wait guards.

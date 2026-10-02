@@ -218,7 +218,7 @@ pub(crate) fn layout(tables: &[&Table], available: Option<u16>) -> Vec<usize> {
             match column {
                 Column::Fixed => Track::fixed(basis),
                 Column::Detail | Column::Name => Track {
-                    basis,
+                    basis: grid::Basis::Cells(basis),
                     min: basis.min(MINIMUM),
                     max: None,
                     grow: 0,

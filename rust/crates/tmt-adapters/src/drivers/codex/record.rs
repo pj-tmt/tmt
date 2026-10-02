@@ -7,8 +7,12 @@ use std::{
     io::{self, Read},
     os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
+    time::Instant,
 };
-use tmt_core::{binding::session::RuntimeLiveness, endpoint::ProcessIncarnation};
+use tmt_core::{
+    binding::session::RuntimeLiveness,
+    endpoint::{ProcessIncarnation, ServerEvidence},
+};
 
 const LIMIT: u64 = 8192;
 
@@ -39,9 +43,95 @@ pub struct Ready {
     pub thread: String,
 }
 
+/// Pre-spawn attribution copied from the launcher's claimed binding.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct Attribution {
+    pub identity_id: String,
+    pub host: String,
+    pub server_id: String,
+    pub socket_path: String,
+    pub server: Process,
+    pub pane_id: String,
+    pub pane_pid: u64,
+}
+impl Attribution {
+    pub fn new(
+        identity: &str,
+        server: &ServerEvidence,
+        pane_id: &str,
+        pane_pid: u64,
+    ) -> io::Result<Self> {
+        let value = Self {
+            identity_id: identity.into(),
+            host: server.host.as_str().into(),
+            server_id: server.server_id.clone(),
+            socket_path: server.socket_path.clone(),
+            server: Process {
+                pid: server.server_pid,
+                start: server.server_start_time.clone(),
+            },
+            pane_id: pane_id.into(),
+            pane_pid,
+        };
+        if !value.valid() {
+            return Err(invalid());
+        }
+        Ok(value)
+    }
+    fn valid(&self) -> bool {
+        uuid::Uuid::parse_str(&self.identity_id).is_ok()
+            && tmt_core::endpoint::valid_server_id(&self.server_id)
+            && tmt_core::host::HostKind::parse(&self.host).is_some()
+            && self.server.incarnation().is_some()
+            && !self.socket_path.is_empty()
+            && self.socket_path.len() <= 4096
+            && !self.socket_path.chars().any(char::is_control)
+            && !self.pane_id.is_empty()
+            && self.pane_id.len() <= 128
+            && !self.pane_id.chars().any(char::is_control)
+            && tmt_core::endpoint::valid_process_id(self.pane_pid)
+    }
+    pub fn matches(&self, server: &ServerEvidence, pane_id: &str, pane_pid: u64) -> bool {
+        self.host == server.host.as_str()
+            && self.server_id == server.server_id
+            && self.socket_path == server.socket_path
+            && self.server.pid == server.server_pid
+            && self.server.start == server.server_start_time
+            && self.pane_id == pane_id
+            && self.pane_pid == pane_pid
+    }
+}
+
+/// Unknown is durable before spawn; launcher death never proves child absence.
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(
+    tag = "state",
+    content = "process",
+    rename_all = "camelCase",
+    deny_unknown_fields
+)]
+pub enum Foreground {
+    #[default]
+    Unknown,
+    Known(Process),
+}
+impl Foreground {
+    fn valid(&self) -> bool {
+        match self {
+            Self::Known(process) => process.incarnation().is_some(),
+            Self::Unknown => true,
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Record {
+    #[serde(default)]
+    pub foreground: Foreground,
+    #[serde(default)]
+    pub attribution: Option<Attribution>,
     pub version: u8,
     pub binding_id: String,
     pub generation: String,
@@ -54,11 +144,28 @@ impl Record {
         uuid::Uuid::parse_str(binding_id).map_err(io::Error::other)?;
         Ok(Self {
             version: 1,
+            foreground: Foreground::Unknown,
+            attribution: None,
             binding_id: binding_id.into(),
             generation: uuid::Uuid::new_v4().to_string(),
             launch_owner: Process::of(owner),
             ready: None,
         })
+    }
+
+    /// A ready server can precede foreground spawn, so Unknown is never ended.
+    pub fn ended(&self, observe: &impl Fn(&ProcessIncarnation) -> RuntimeLiveness) -> bool {
+        let Foreground::Known(foreground) = &self.foreground else {
+            return false;
+        };
+        let gone = |process: &Process| {
+            process
+                .incarnation()
+                .is_some_and(|process| observe(&process) == RuntimeLiveness::Gone)
+        };
+        gone(foreground)
+            && gone(&self.launch_owner)
+            && self.ready.as_ref().is_none_or(|ready| gone(&ready.server))
     }
 
     fn same_lease(&self, other: &Self) -> bool {
@@ -69,6 +176,8 @@ impl Record {
 
     fn valid(&self, binding: &str) -> bool {
         self.version == 1
+            && self.foreground.valid()
+            && self.attribution.as_ref().is_none_or(Attribution::valid)
             && self.binding_id == binding
             && uuid::Uuid::parse_str(binding).is_ok()
             && uuid::Uuid::parse_str(&self.generation).is_ok()
@@ -174,7 +283,24 @@ impl Store {
                 return Err(io::ErrorKind::AlreadyExists.into());
             }
             let previous_owner = previous.launch_owner.incarnation().ok_or_else(invalid)?;
-            if previous_owner != owner && observe(&previous_owner) != RuntimeLiveness::Gone {
+            let process_gone = |process: &Process| {
+                process
+                    .incarnation()
+                    .is_some_and(|process| observe(&process) == RuntimeLiveness::Gone)
+            };
+            let foreground_gone = match &previous.foreground {
+                Foreground::Known(process) => process_gone(process),
+                Foreground::Unknown => {
+                    previous.attribution.is_some() && previous.attribution == record.attribution
+                }
+            };
+            if !foreground_gone
+                || previous
+                    .ready
+                    .as_ref()
+                    .is_some_and(|ready| !process_gone(&ready.server))
+                || observe(&previous_owner) != RuntimeLiveness::Gone
+            {
                 return Err(io::ErrorKind::AlreadyExists.into());
             }
         }
@@ -192,6 +318,22 @@ impl Store {
         Ok(current)
     }
 
+    /// The launcher publishes only its original owned child's incarnation.
+    pub fn foreground(
+        &self,
+        expected: &Record,
+        process: &ProcessIncarnation,
+    ) -> io::Result<Record> {
+        let _lock = self.lock(&expected.binding_id)?;
+        let mut current = self.read(&expected.binding_id)?.ok_or_else(invalid)?;
+        if !current.same_lease(expected) || !matches!(current.foreground, Foreground::Unknown) {
+            return Err(invalid());
+        }
+        current.foreground = Foreground::Known(Process::of(process));
+        self.write(&current)?;
+        Ok(current)
+    }
+
     pub fn withdraw(&self, expected: &Record) -> io::Result<bool> {
         let _lock = self.lock(&expected.binding_id)?;
         let Some(current) = self.read(&expected.binding_id)? else {
@@ -203,6 +345,48 @@ impl Store {
         fs::remove_file(self.path(&expected.binding_id)?)?;
         fs::File::open(&self.directory)?.sync_all()?;
         Ok(true)
+    }
+
+    /// Only enrollment mutates ended records. Read-only pane queries never prune.
+    /// Unknown survives even after server cleanup; observe again under each
+    /// record lock and leave replacements or unreadable records untouched.
+    pub fn prune(
+        &self,
+        deadline: Instant,
+        observe: impl Fn(&ProcessIncarnation) -> RuntimeLiveness,
+    ) -> io::Result<usize> {
+        let mut removed = 0;
+        for entry in fs::read_dir(&self.directory)? {
+            if Instant::now() >= deadline {
+                return Err(io::ErrorKind::TimedOut.into());
+            }
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().is_none_or(|extension| extension != "json") {
+                continue;
+            }
+            let Some(binding) = path.file_stem().and_then(|value| value.to_str()) else {
+                continue;
+            };
+            if uuid::Uuid::parse_str(binding).is_err() {
+                continue;
+            }
+            let Ok(_lock) = self.lock(binding) else {
+                continue;
+            };
+            let Ok(Some(record)) = self.read(binding) else {
+                continue;
+            };
+            if !record.ended(&observe) {
+                continue;
+            }
+            fs::remove_file(self.path(binding)?)?;
+            removed += 1;
+        }
+        if removed != 0 {
+            fs::File::open(&self.directory)?.sync_all()?;
+        }
+        Ok(removed)
     }
 
     fn lock(&self, binding: &str) -> io::Result<nix::fcntl::Flock<fs::File>> {
@@ -219,6 +403,41 @@ impl Store {
             &serde_json::to_vec(record).map_err(io::Error::other)?,
         )
     }
+}
+
+/// This is guidance only. Delivery never executes recovery or pastes afterward.
+pub fn recovery(path: &Path, record: &Record) -> String {
+    let pane = record.attribution.as_ref().map_or_else(
+        || "the original pane (attribution is unavailable)".to_owned(),
+        |attribution| {
+            format!(
+                "pane {:?} (pid {}) on server {:?} at {:?}",
+                attribution.pane_id,
+                attribution.pane_pid,
+                attribution.server_id,
+                attribution.socket_path
+            )
+        },
+    );
+    let foreground = match &record.foreground {
+        Foreground::Unknown => {
+            "the original foreground (its incarnation was not published)".to_owned()
+        }
+        Foreground::Known(process) => format!(
+            "the original foreground pid {} start {:?}",
+            process.pid, process.start
+        ),
+    };
+    let action = match path.to_str() {
+        Some(path) => format!("Only after verification, remove this exact record with: rm -- {}", shell_quote(path)),
+        None => "After verification, remove only this exact named record using a tool that preserves its non-UTF-8 path.".into(),
+    };
+    format!(
+        "Enrollment record {path:?}. Verify {pane} no longer runs the opted-in session, and that {foreground}, the launch owner and the owned app-server are gone. {action}. Recovery sends or pastes nothing."
+    )
+}
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 fn private(metadata: &fs::Metadata) -> bool {
