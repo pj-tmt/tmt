@@ -26,6 +26,7 @@ tmt-invoke.workspace = true
 yrs.workspace = true
 base64.workspace = true
 serde.workspace = true
+tmt-colab-model = { path = "../tmt-colab-model" }
 
 [lints]
 workspace = true

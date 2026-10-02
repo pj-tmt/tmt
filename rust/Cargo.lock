@@ -2728,6 +2728,7 @@ dependencies = [
  "sha2",
  "signal-hook 0.4.4",
  "tmt-cli-style",
+ "tmt-colab-model",
  "tmt-invoke",
  "yrs",
 ]

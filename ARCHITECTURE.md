@@ -3746,9 +3746,9 @@ bridge policy and acceptance gates. The #828 design owns product/UI choices;
 #829/#830 are bounded spike evidence. The executable is local-build-only; no deployment or official release is registered.
 The [channel boundary](extensions/tmt-colab/contracts/colab-v1.md#channel-boundary) marks which colab-v1 sections move to remote, stay or retire.
 
-Current executable dependencies are `tmt-invoke`, `tmt-cli-style` and reviewed
-workspace pins. The proposed `tmt-colab-model` integration will own pure values,
-canonical bytes/codecs/crypto and policy, without I/O or core access. The
+Current executable dependencies are `tmt-invoke`, `tmt-cli-style`, the pure
+`tmt-colab-model` space-ID derivation and reviewed workspace pins. The model owns
+canonical bytes/codecs/crypto without I/O or core access. The
 executable owns CLI composition, foreground door, SQLite/files and keyring;
 the embedded app and bridge remain proposed. Core access is only through the absolute invoking
 `$TMT_EXECUTABLE api` and documented JSON commands via the invoke leaf; no
@@ -3772,9 +3772,8 @@ strict Ed25519, sign-in HMAC/possession, management
 bytes, namespace-bound cuts and immutable object codecs/seal/open. Its only OS
 operations are crypto-only entropy for internal object IDs and fresh HPKE
 ephemeral keys. Long-term key generation stays in the executable keyring; no
-filesystem, process or network use. No core or extension behavior
-crate depends on it yet; the architecture guard rejects runtime/core dependencies
-and unreviewed consumers. Envelope syntax/signature success does not establish
+filesystem, process or network use. The executable keyring uses its space-ID derivation; the architecture guard
+rejects runtime/core dependencies and other unreviewed consumers. Envelope syntax/signature success does not establish
 log, session, role, epoch or sequence authority; callers admit those before open.
 The model also owns device/chain syntax, purpose-separated link keys and
 owner-authenticated HPKE Base wraps. Caller-owned live-issuer/history/transition
@@ -3821,8 +3820,6 @@ slice for #847. `keyring::Layout` owns the injected absolute data root's
 0600 files. It preserves existing root permissions and touches no core database,
 configuration or provider settings. `Keyring` publishes one software owner seed
 with create-only, synced file publication; existing invalid keys fail closed.
-The temporary space-ID builder follows the contract's domain-framed derivation and will
-move to the separately owned L1 model when that API lands.
 
 `store::Store` owns real SQLite ciphertext, durable create-only stream receipts,
 conflict freezing and epoch fencing. Namespace checkpoints prune only their
@@ -3834,7 +3831,7 @@ owner-log caller.
 Per-page capacity returns an error instead of evicting history. Envelope
 signatures, identity grammar, roles and owner-transition authorization belong
 to the future model/admission caller; this library creates no network authority.
-Tests own isolated directories and SQLite oracles. Sync, authentication, decoder and model integration remain later slices.
+Tests own isolated directories and SQLite oracles. Sync, authentication, decoder and further model integration remain later slices.
 The executable depends on the reviewed invoke/style leaves and pinned
 storage/network/crypto primitives, never core, adapter, Remote or Office crates. Its component is excluded from release;
 workspace checks and Docker build contexts include its manifest.

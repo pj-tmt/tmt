@@ -234,6 +234,10 @@ fn owner_identity_matches_independent_rfc8032_and_python_vector() {
         "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
     );
     assert_eq!(owner.space_id, "4kph3kmtxo7dinlvoixpw642ozfibd2w");
+    assert_eq!(
+        owner.space_id,
+        tmt_colab_model::crypto::space_id(&owner.owner_public()).unwrap()
+    );
 }
 
 #[test]
@@ -477,4 +481,34 @@ fn too_new_schema_has_a_typed_fault_and_preserves_the_database() {
         Some(Fault::UnsupportedSchema(99))
     ));
     assert_eq!(fs::read(path).unwrap(), before);
+}
+
+#[test]
+fn existing_space_keeps_model_id_owner_seed_and_ciphertext_on_reopen() {
+    use std::io::Write;
+    let fixture = Fixture::new();
+    let layout = fixture.layout();
+    // Existing L2a space: public fixture seed and the independently frozen ID.
+    let seed = (0..32).collect::<Vec<u8>>();
+    layout.file("owner.key").unwrap().write_all(&seed).unwrap();
+    let mut store = Store::open(&layout).unwrap();
+    store.create_page("page").unwrap();
+    store.append(&envelope(1, Namespace::Content)).unwrap();
+    drop(store);
+    let reopened = Keyring::read(&layout).unwrap();
+    assert_eq!(reopened.space_id, "4kph3kmtxo7dinlvoixpw642ozfibd2w");
+    assert_eq!(
+        reopened.space_id,
+        tmt_colab_model::crypto::space_id(&reopened.owner_public()).unwrap()
+    );
+    assert_eq!(fs::read(layout.directory.join("owner.key")).unwrap(), seed);
+    let mut store = Store::open(&layout).unwrap();
+    assert_eq!(
+        store.payload(scope(), 1).unwrap(),
+        Some(b"opaque-ciphertext".to_vec())
+    );
+    assert_eq!(
+        store.append(&envelope(1, Namespace::Content)).unwrap(),
+        Accepted::Replay
+    );
 }

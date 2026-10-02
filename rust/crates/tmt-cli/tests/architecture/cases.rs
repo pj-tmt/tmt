@@ -1696,3 +1696,33 @@ fn colab_yrs_imports_are_confined_to_the_decoder_child() {
         );
     }
 }
+
+#[test]
+fn colab_model_space_id_consumer_is_confined_to_keyring() {
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-colab",
+            vec![dependency("tmt-colab-model", "normal", None, None)]
+        ))
+        .is_empty()
+    );
+    assert_exact(
+        &[syntax(
+            "tmt-colab",
+            "keyring.rs",
+            "use tmt_colab_model::crypto::space_id;",
+        )],
+        &[],
+    );
+    for file in ["http.rs", "core.rs", "store.rs"] {
+        assert!(
+            policy::source_violations(&[syntax(
+                "tmt-colab",
+                file,
+                "use tmt_colab_model::crypto::space_id;"
+            )])
+            .iter()
+            .any(|v| v.contains("unreviewed colab model consumer"))
+        );
+    }
+}
