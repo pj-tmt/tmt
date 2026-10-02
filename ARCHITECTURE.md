@@ -2512,8 +2512,8 @@ guard allows exactly those edges.
 `tmt-driver-herdr` executable depends on the protocol crate, `tmt-invoke` (its
 bounded process owner), `serde_json` and `semver`, and never on core or the
 adapters; the architecture guard holds it to those edges. It answers `caller`,
-`server`, `resolve-target`, `snapshot`, `publish`, `clear`, `capture` and
-`input` through Herdr's documented CLI (floor 0.9.1) and `ps`. Its children get an allowlisted
+`server`, `resolve-target`, `snapshot`, `publish`, `clear`, `capture`, `input`
+and `prompt` through Herdr's documented CLI (floor 0.9.1) and `ps`. Its children get an allowlisted
 environment without `TMT_DRIVER_CALL`. Herdr reports no server pid, so `server`
 names the parent of a pane's shell, and a server with no pane reads as no
 server. `publish` refuses with `not_found` unless the pane still runs `panePid`,
@@ -2522,9 +2522,12 @@ byte for byte: both crates test against one fixture
 (`tmt-driver-herdr/src/fixtures/builtin-marker.json`). `input` takes one
 line: Herdr's `send-text` types raw, so a line break would submit before core's
 Enter, and text with CR or LF is refused as `bad_request` before any effect. A
-message reaches an agent pane through `prompt`; a plain pane gets single-line
-input, otherwise the inbox. The driver doesn't yet declare `prompt`, and it
-doesn't declare `focus` (Herdr has no command that focuses a pane by ID). It
+message reaches an agent pane through `prompt`: Herdr's `agent prompt` pastes
+the whole text (bracketed when the agent enabled it) and submits it. Its
+`agent_not_found`, `agent_blocked` and `agent_not_ready` become `no_agent`,
+`blocked` and `not_ready`, and no other operation answers those codes. A plain
+pane gets single-line input, otherwise the inbox. The driver doesn't declare
+`focus` (Herdr has no command that focuses a pane by ID). It
 isn't packaged and doesn't serve `HostKind::Herdr`; the built-in `herdr/`
 adapter does until the driver replaces it.
 

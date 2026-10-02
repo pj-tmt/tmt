@@ -1110,8 +1110,9 @@ runs commands inside its panes, and fails if any server process remains.
 The Herdr host driver (`tmt-driver-herdr`, not packaged: `dist = false`) has
 its own executable test, which uses the same pinned binary. It runs the protocol
 conformance harness and every declared operation against a private server and
-HOME, and fails if a server process remains. Without `TMT_TEST_HERDR`, only the
-stand-in `herdr` conformance case runs. Its checks:
+HOME, and fails if a server process remains. Its prompt case runs a
+shell-script stand-in named `claude` in a pane, never a real agent. Without
+`TMT_TEST_HERDR`, only the stand-in `herdr` conformance case runs. Its checks:
 
 ```bash
 (cd rust && cargo test --locked -p tmt-driver-herdr)

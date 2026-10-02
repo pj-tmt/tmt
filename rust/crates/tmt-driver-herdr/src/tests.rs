@@ -194,7 +194,8 @@ fn the_declared_capabilities_decode_with_the_read_side_ops_only() {
             "publish",
             "clear",
             "capture",
-            "input"
+            "input",
+            "prompt"
         ]
     );
     assert!(grammar.is_pane_id("term_65ca1161edc141"));
@@ -614,4 +615,51 @@ fn input_that_would_submit_early_or_reach_no_pane_is_not_sent() {
         "failed"
     );
     runner.done();
+}
+
+#[test]
+fn a_prompt_goes_to_the_agent_herdr_recognizes_and_maps_its_refusals() {
+    let request = json!({"socket": SOCKET, "paneId": "term_a1", "text": "hi\nthere"});
+    let runner = Scripted::default();
+    runner
+        .json(list(vec![pane("w1:p1", "term_a1", None)]))
+        .text("");
+    assert_eq!(serve(&runner, "prompt", request.clone()), json!({}));
+    // The whole message in one call; Herdr submits it.
+    assert_eq!(
+        runner.calls.borrow()[1].args,
+        ["agent", "prompt", "w1:p1", "hi\nthere"]
+    );
+    runner.done();
+    for (herdr, code) in [
+        ("agent_not_found", "no_agent"),
+        ("agent_blocked", "blocked"),
+        ("agent_not_ready", "not_ready"),
+        ("pane_not_found", "not_found"),
+        ("server_not_running", "unavailable"),
+        ("permission_denied", "failed"),
+    ] {
+        let runner = Scripted::default();
+        runner
+            .json(list(vec![pane("w1:p1", "term_a1", None)]))
+            .refuse(herdr);
+        assert_eq!(
+            error_code(&serve(&runner, "prompt", request.clone())),
+            code,
+            "{herdr}"
+        );
+        runner.done();
+    }
+    let runner = Scripted::default();
+    runner.json(list(vec![]));
+    assert_eq!(error_code(&serve(&runner, "prompt", request)), "not_found");
+    // Prompt-only codes never leak into another operation's answer.
+    let runner = Scripted::default();
+    runner.refuse("agent_not_found");
+    let answer = serve(
+        &runner,
+        "snapshot",
+        json!({"socket": SOCKET, "panes": null}),
+    );
+    assert_eq!(error_code(&answer), "failed");
 }

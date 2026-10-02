@@ -13,8 +13,9 @@ use run::{Runner, deadline};
 use tmt_driver_protocol::{
     CallerPane, CallerRequest, CallerResponse, Capabilities, CaptureRequest, CaptureResponse,
     ClearRequest, ClearResponse, DriverError, ErrorCode, Grammar, Handler, InputRequest, Pane,
-    PaneIdSyntax, PublishRequest, Request, ResolveTargetRequest, ResolveTargetResponse,
-    ServerIncarnation, ServerRequest, ServerResponse, SnapshotRequest, SnapshotResponse,
+    PaneIdSyntax, PromptRequest, PublishRequest, Request, ResolveTargetRequest,
+    ResolveTargetResponse, ServerIncarnation, ServerRequest, ServerResponse, SnapshotRequest,
+    SnapshotResponse,
 };
 
 /// The most panes one snapshot reports, as the contract bounds it.
@@ -22,7 +23,8 @@ const MAX_PANES: usize = 4096;
 
 /// What the driver declares. `input` takes one line: Herdr types text raw,
 /// so a line break would submit early, and such text is refused before any
-/// effect. Messages reach agent panes through `prompt`. `focus` is not
+/// effect. Messages reach agent panes through `prompt`, which Herdr submits
+/// whole. `focus` is not
 /// declared: Herdr has no command that focuses a pane by its ID.
 pub fn capabilities() -> Capabilities {
     Capabilities {
@@ -39,6 +41,7 @@ pub fn capabilities() -> Capabilities {
             "clear",
             "capture",
             "input",
+            "prompt",
         ]
         .map(String::from)
         .into(),
@@ -420,6 +423,45 @@ impl<R: Runner> Handler for HerdrDriver<R> {
                 })?;
         }
         Ok(())
+    }
+
+    /// Herdr's `agent prompt`: the agent it recognizes in the pane takes the
+    /// text and Herdr submits it. One attempt, no waiting; a pane with no
+    /// agent answers `no_agent`, and core decides whether to type instead.
+    fn prompt(&mut self, request: Request<PromptRequest>) -> Result<(), DriverError> {
+        let deadline = deadline(request.deadline_ms);
+        let socket = self.socket(&request.body.socket)?;
+        let pane_id = self.pane_id(&request.body.pane_id)?;
+        let pane = self
+            .find(socket, pane_id, deadline)
+            .map_err(HerdrError::into_driver)?
+            .ok_or_else(|| DriverError::new(ErrorCode::NotFound, "the pane is gone"))?;
+        self.herdr
+            .act(
+                socket,
+                &[
+                    "agent",
+                    "prompt",
+                    pane.target.as_str(),
+                    request.body.text.as_str(),
+                ],
+                deadline,
+            )
+            .map_err(|error| {
+                // These codes are prompt answers alone (the protocol's
+                // prompt-only codes), so only this call maps them.
+                let code = match error.code() {
+                    Some("agent_not_found") => Some(ErrorCode::NoAgent),
+                    Some("agent_blocked") => Some(ErrorCode::Blocked),
+                    Some("agent_not_ready") => Some(ErrorCode::NotReady),
+                    _ => None,
+                };
+                let mut error = error.into_driver();
+                if let Some(code) = code {
+                    error.code = code;
+                }
+                error
+            })
     }
 }
 
