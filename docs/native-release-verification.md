@@ -98,10 +98,8 @@ published release of its product), `migration` (no commit of the release carries
 `BREAKING CHANGE:` footer; outside the alpha channel the component's migration list, named in
 `.github/components.json`, also has no more entries than at the product's last published
 release, while an alpha publishes new entries and the gate's summary only reports them) and
-`upgrade` (the proof above; the first release of a product has nothing to upgrade from; the
-CLI proof writes one identity with the previous release and reads it with the candidate, which
-applies the candidate's pending migrations to that record only, so no publication gate exercises
-a migration of any other existing data). A failed gate does
+`upgrade` (the proof above, which for the CLI includes migrating state the previous release
+wrote; the first release of a product has nothing to upgrade from). A failed gate does
 not make the draft a failed build. The draft gets `publication-held.json` (`tag`, `sha`,
 `gate`, `reason`, `runUrl`, `recordedAt`), and later runs list it as held and leave it alone.
 The jobs that evaluate the gates hold the write token, so they run `main`'s code and only read
@@ -189,7 +187,17 @@ re-check the digests and run the scripts of the release's own commit on them. A 
 goes through
 `verify-native-installation.mjs`: the previous archive is installed pinned, the candidate
 is refused while pinned and installed with `--unpin`, the exact skills are served, SQLite is
-unchanged, the old executable is preserved, a repeat is a no-op and a downgrade is refused.
+unchanged by the installation, the old executable is preserved, a repeat is a no-op and a
+downgrade is refused. It also proves the migration of state the previous release wrote
+(`migrated-state.mjs`): before the upgrade the previous release writes identities (one with a
+preamble, role, metadata and status) and a room they joined with a message queued to each
+member, all through commands that need no tmux; once the candidate has opened that state, the
+proof reads the database file and requires exactly the migrations the candidate's source lists
+(the publication gate's `countMigrations`), clean `integrity_check` and `foreign_key_check`,
+every id the previous release wrote still held by some table, and no table that held rows
+short of them. Only ids, counts and these SQLite checks are compared, never command output.
+Binding a pane needs tmux, which the proof does not use, so `bindings` and `host_servers` stay
+empty and a migration that rebuilds them over rows is not exercised.
 An Office or Squad release is installed over the previous one by the newest published CLI
 with `tmt extension install <extension>` and read back with `tmt extension ls`
 (`verify-native-extension-upgrade.mjs`): the version changes, the previous release stays on
@@ -455,7 +463,8 @@ node typescript/scripts/verify-native-installation.mjs \
 This reuses the bounded packed-command runner and independent archive verifier.
 It checks exact old/new versions with no runtime PATH, pinned rejection, explicit
 unpin advancement, a retained executable, no-op and downgrade rejection, exact
-embedded skill and unchanged SQLite bytes during installation. Its temporary
+embedded skill, unchanged SQLite bytes during installation and the migration of state the
+previous release wrote. Its temporary
 prefix/application state is always invocation-owned and removed afterward.
 
 ## Native curl bootstrap verification
