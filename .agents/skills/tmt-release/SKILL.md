@@ -18,6 +18,15 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
 - The native version is owned by `rust/Cargo.toml` and exposed through Cargo's package version; there is no TypeScript fallback. Keep any retained developer package version and public release instructions consistent when changing versions. The native skill ships with the CLI; there is no separately versioned plugin or marketplace.
 - Follow `AGENTS.md` for GitHub issue state, branch and pull-request links, verification evidence, and safe worktree cleanup.
 
+## Private-leaf attribution
+
+The component map's `releaseConsumers` currently attributes private TUI changes to Squad.
+The release workflow's small `release-please-run.mjs` wrapper adds only in-memory consumer paths
+before release-please's splitter and cutoffs; 17.11.2 has no `additional-paths` config option.
+Keep its pinned API shape and the tooling test dependency aligned with the release job's pin.
+Follow DEVELOPMENT's generator and real-candidate checks before changing this consumption rule
+or upgrading release-please. This does not change publication authorization or private-leaf version ownership.
+
 ## Promotion and prerelease checks
 
 Read the complete [native release verification guide](../../../docs/native-release-verification.md)

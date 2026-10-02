@@ -229,19 +229,17 @@ describe('release workflow (release.yml)', () => {
     expect(release.match(/^ {4}environment:/gm)).toHaveLength(1);
   });
 
-  it('runs release-please as the pinned CLI, and as a dry run unless the run is live', () => {
+  it('runs the pinned release-please API wrapper with the mode gate result', () => {
     const releasePlease = job(release, 'release-please');
     expect(releasePlease).toContain('pnpm install --frozen-lockfile --ignore-scripts');
     expect(releasePlease).toContain('working-directory: .github/release-please');
     expect(releasePlease).toContain('for command in release-pr github-release; do');
-    expect(releasePlease).toContain('dry=--dry-run');
-    expect(releasePlease).toContain('if [ "$LIVE" = true ]; then dry=; fi');
+    expect(releasePlease).toContain('LIVE: ${{ steps.mode.outputs.live }}');
     expect(releasePlease).toContain('set -o pipefail');
-    // release-please reads both files from the target branch through the API, not from here.
-    expect(releasePlease).toContain('--config-file release-please-config.json');
-    expect(releasePlease).toContain('--manifest-file .release-please-manifest.json');
-    expect(releasePlease).not.toContain('../');
-    expect(releasePlease).toContain('--target-branch main');
+    expect(releasePlease).toContain(
+      'node ../../typescript/scripts/release-please-run.mjs "$command"'
+    );
+    // Candidate construction and dry/live mutation controls are exercised by release-config tests.
     expect(releasePlease).not.toMatch(/googleapis\/release-please-action/);
   });
 

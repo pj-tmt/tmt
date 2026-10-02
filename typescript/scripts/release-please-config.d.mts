@@ -34,6 +34,7 @@ export interface ReleasePleaseExtraFile {
 
 export interface ReleasePleasePackage {
   readonly 'release-type': string;
+  readonly 'prerelease-type': string;
   readonly component: string;
   readonly 'include-component-in-tag': boolean;
   readonly prerelease: boolean;
@@ -56,3 +57,7 @@ export function renderReleasePleaseConfig(input: {
   components: ComponentMap['components'];
   workspace: Workspace;
 }): string;
+
+export function releaseConsumption(
+  components: ComponentMap['components']
+): { source: string; target: string }[];

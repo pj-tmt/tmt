@@ -1,0 +1,17 @@
+import type { GitHub, Manifest } from 'release-please';
+import type { ComponentMap } from './ci-scope.mjs';
+
+export function assertReleasePleaseApi(api: unknown): void;
+export function attributeReleaseConsumption(
+  github: GitHub,
+  components: ComponentMap['components']
+): GitHub;
+
+export function executeReleasePlease(
+  manifest: Pick<
+    Manifest,
+    'createPullRequests' | 'buildPullRequests' | 'createReleases' | 'buildReleases'
+  >,
+  command: string,
+  live: boolean
+): Promise<unknown>;

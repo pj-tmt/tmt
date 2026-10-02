@@ -62,6 +62,10 @@ export function parseComponentMap(text) {
     name,
     package: component.package,
     release: component.release,
+    releaseConsumers:
+      component.releaseConsumers === undefined
+        ? []
+        : nonEmptyStrings(component.releaseConsumers, `components.${name}.releaseConsumers`),
     owns: nonEmptyStrings(component.owns, `components.${name}.owns`),
     excludes: component.excludes ?? [],
     migrations:

@@ -296,7 +296,16 @@ runs that test on every pull request, including Squad-only ones whose Unit tests
 because Squad's manifest is one of its inputs. The
 generator needs `cargo` and reads no network. Update the pinned release-please CLI in
 `.github/release-please/` with `pnpm install` there and commit its lockfile; the test
-requires an exact version and an integrity hash for every locked package.
+requires an exact version and an integrity hash for every locked package. Keep the tooling
+workspace's exact `release-please` test dependency at that same version.
+
+Private leaves declare `releaseConsumers` in the component map; today only TUI names Squad.
+The release workflow uses `release-please-run.mjs` with the pinned API to attribute these commits
+before the ordinary splitter, excludes and product release cutoffs. No `additional-paths` option
+exists in 17.11.2. An upgrade must re-verify the API shape and run
+`pnpm exec vitest run test/tooling/release-please-config.test.ts` from `typescript/`:
+the suite exercises real release candidates, TUI-only and unrelated/private controls, mixed commits
+and independent release cutoffs. Ownership, CI selection and version/lock updates remain separate.
 
 For the separate Office Auth/Firestore environment, follow
 [`extensions/tmt-office/typescript/services/office/README.md`](extensions/tmt-office/typescript/services/office/README.md). It uses Docker-contained
