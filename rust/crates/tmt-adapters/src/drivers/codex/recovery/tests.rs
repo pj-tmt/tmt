@@ -383,3 +383,47 @@ fn an_unreadable_record_stays_manual_only_and_a_non_uuid_names_nothing() {
         );
     }
 }
+
+#[test]
+fn a_capability_that_cannot_be_removed_keeps_the_record_so_recovery_can_finish_later() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = TestDirectory::new();
+    let store = Store::open(&fixture.path).unwrap();
+    let record = enrollment(&store, BINDING, &gone(), Some(&gone()));
+    let generation = generation_files(&store, &record);
+    let before = bytes(&store.path(BINDING).unwrap());
+    // A directory without write permission refuses every unlink inside it.
+    fs::set_permissions(&generation, fs::Permissions::from_mode(0o500)).unwrap();
+
+    let result = recover(
+        &UnixCommandRunner,
+        &fixture.path,
+        BINDING,
+        &record.generation,
+        deadline(),
+    );
+    fs::set_permissions(&generation, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(
+        result,
+        Err(RecoveryError::Failed {
+            path: generation.join(CAPABILITY_FILE)
+        })
+    );
+    assert_eq!(bytes(&store.path(BINDING).unwrap()), before);
+    assert_eq!(bytes(&generation.join(CAPABILITY_FILE)), b"secret");
+
+    // The same command finishes once the file can be removed.
+    let result = recover(
+        &UnixCommandRunner,
+        &fixture.path,
+        BINDING,
+        &record.generation,
+        deadline(),
+    );
+    assert!(
+        matches!(result, Ok(Recovery::Recovered { .. })),
+        "{result:?}"
+    );
+    assert!(!store.path(BINDING).unwrap().exists());
+    assert!(fs::symlink_metadata(&generation).is_err());
+}

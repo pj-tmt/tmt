@@ -200,6 +200,9 @@ pub enum Removal<T> {
     Absent,
     /// The record on file is no longer the observed one; nothing was touched.
     Changed,
+    /// `cleanup` could not remove this path, so the record was kept and the same
+    /// recovery can run again.
+    Retained(PathBuf),
     Removed(T),
 }
 
@@ -358,13 +361,14 @@ impl Store {
 
     /// User-requested recovery of the exact `observed` record: under the record lock
     /// and only while the record on file is still exactly it, runs `cleanup` (for
-    /// the generation directory) and then removes the record. The caller has
+    /// the generation directory) and then removes the record, unless `cleanup`
+    /// names a path it could not remove: the record then stays. The caller has
     /// already proven every recorded process gone; an exact incarnation that is
     /// gone never returns, so an unchanged record keeps that proof valid.
     pub fn recover<T>(
         &self,
         observed: &Record,
-        cleanup: impl FnOnce() -> T,
+        cleanup: impl FnOnce() -> Result<T, PathBuf>,
     ) -> io::Result<Removal<T>> {
         let _lock = self.lock(&observed.binding_id)?;
         match self.read(&observed.binding_id)? {
@@ -372,7 +376,10 @@ impl Store {
             Some(current) if current != *observed => return Ok(Removal::Changed),
             Some(_) => {}
         }
-        let cleaned = cleanup();
+        let cleaned = match cleanup() {
+            Ok(cleaned) => cleaned,
+            Err(path) => return Ok(Removal::Retained(path)),
+        };
         fs::remove_file(self.path(&observed.binding_id)?)?;
         fs::File::open(&self.directory)?.sync_all()?;
         Ok(Removal::Removed(cleaned))

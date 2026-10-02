@@ -56,8 +56,8 @@ pub fn recover<R: CommandRunner>(
     let removal = store
         .recover(&record, || match &generation_directory {
             Some(GenerationDirectory::Proven(path)) => clean(path),
-            Some(GenerationDirectory::Unproven(path)) => (Vec::new(), vec![path.clone()]),
-            None => (Vec::new(), Vec::new()),
+            Some(GenerationDirectory::Unproven(path)) => Ok((Vec::new(), vec![path.clone()])),
+            None => Ok((Vec::new(), Vec::new())),
         })
         .map_err(|_| RecoveryError::Failed {
             path: report.record.clone(),
@@ -65,6 +65,7 @@ pub fn recover<R: CommandRunner>(
     match removal {
         Removal::Absent => Ok(Recovery::Absent),
         Removal::Changed => Err(RecoveryError::Changed(Box::new(report))),
+        Removal::Retained(path) => Err(RecoveryError::Failed { path }),
         Removal::Removed((cleaned, kept)) => Ok(Recovery::Recovered {
             removed: [vec![report.record.clone()], cleaned].concat(),
             report,
@@ -200,27 +201,28 @@ fn observe<R: CommandRunner>(
 /// Removes the launch's known files and then the directory itself, never
 /// recursively. A file that is not a regular file of this user, and any entry
 /// the launch did not create, is left and reported; the directory then stays.
-fn clean(directory: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
+/// A known file of this user that cannot be removed (a leftover capability) is
+/// an `Err`, so the record stays and the same recovery can finish it later.
+fn clean(directory: &Path) -> Result<(Vec<PathBuf>, Vec<PathBuf>), PathBuf> {
     let mut removed = Vec::new();
     let mut kept = Vec::new();
     let owner = nix::unistd::geteuid().as_raw();
     match fs::symlink_metadata(directory) {
         Ok(metadata) if metadata.is_dir() && metadata.uid() == owner => {}
-        Ok(_) => return (removed, vec![directory.to_owned()]),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return (removed, kept),
-        Err(_) => return (removed, vec![directory.to_owned()]),
+        Ok(_) => return Ok((removed, vec![directory.to_owned()])),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok((removed, kept)),
+        Err(_) => return Err(directory.to_owned()),
     }
     for name in [CAPABILITY_FILE, LOG_FILE] {
         let path = directory.join(name);
         match fs::symlink_metadata(&path) {
             Ok(metadata) if metadata.is_file() && metadata.uid() == owner => {
-                match fs::remove_file(&path) {
-                    Ok(()) => removed.push(path),
-                    Err(_) => kept.push(path),
-                }
+                fs::remove_file(&path).map_err(|_| path.clone())?;
+                removed.push(path);
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            _ => kept.push(path),
+            Ok(_) => kept.push(path),
+            Err(_) => return Err(path),
         }
     }
     match fs::read_dir(directory) {
@@ -243,7 +245,7 @@ fn clean(directory: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
     } else if !kept.iter().any(|path| path == directory) {
         kept.push(directory.to_owned());
     }
-    (removed, kept)
+    Ok((removed, kept))
 }
 
 #[cfg(test)]

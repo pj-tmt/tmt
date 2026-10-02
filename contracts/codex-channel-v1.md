@@ -212,7 +212,9 @@ gone, recovery removes `codex/<binding-id>.json`. It cleans the generation
 directory only when the app-server was recorded ready and is gone: it removes the
 launch's own `capability` and `server.log` when each is a regular file of this
 user, then the directory with a non-recursive `rmdir`; any other entry, a link,
-or the directory itself when it is not empty is left and reported. When no
+or the directory itself when it is not empty is left and reported. If one of those
+known files cannot be removed, the record stays and recovery reports
+`CHANNEL_RECOVERY_FAILED`, so running the same command again can finish it. When no
 app-server was ever recorded, nothing proves it gone, so the directory is left and
 reported. `tmt channel` refuses an unreadable record and names a manual
 `rm -- '<record>'` with the path quoted, including embedded apostrophes. Recovery
