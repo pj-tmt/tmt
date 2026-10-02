@@ -14,6 +14,7 @@ use tmt_remote::{
     limits,
     routes::Routes,
 };
+const PREFIX: &str = "/r/0123456789abcdef0123456789abcdef";
 struct Running {
     addr: SocketAddr,
     prefix: String,
@@ -22,7 +23,7 @@ struct Running {
 }
 impl Running {
     fn new() -> Self {
-        let routes = Arc::new(Routes::new(1024).unwrap());
+        let routes = Arc::new(Routes::new(1024, PREFIX.into()).unwrap());
         let prefix = routes.prefix().to_owned();
         assert_eq!(prefix.len(), 35);
         let door = Door::bind(0).unwrap();
@@ -244,6 +245,14 @@ fn capacity_acquisition_and_shutdown_close_retained_sockets_twice() {
         .err()
         .unwrap();
     assert_eq!(busy.code, "REMOTE_PORT_BUSY");
-    assert!(Routes::new(0).is_err());
-    assert!(Routes::new(limits::CORE_INPUT_BYTES + 1).is_err());
+    assert!(Routes::new(0, PREFIX.into()).is_err());
+    assert!(Routes::new(limits::CORE_INPUT_BYTES + 1, PREFIX.into()).is_err());
+    for prefix in [
+        "/r/0123456789abcdef0123456789ABCDEF",
+        "/r/0123456789abcdef0123456789abcde",
+        "/x/0123456789abcdef0123456789abcdef",
+        "/r/0123456789abcdef0123456789abcdef/",
+    ] {
+        assert!(Routes::new(1024, prefix.into()).is_err(), "{prefix}");
+    }
 }

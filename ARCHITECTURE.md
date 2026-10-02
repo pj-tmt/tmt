@@ -3656,14 +3656,31 @@ narrow, a 32 MiB in-flight body budget reserved before any body byte is read
 shutdown that closes retained sockets before joining workers. It has no
 CoreClient/storage reference. A `Handler` admits each framed head (route,
 Origin, cookie and body limit) before any body byte is read. `routes::Routes`
-is that handler for the per-run `/r/<prefix>/` binding routes and the
+is that handler for the machine's stable `/r/<prefix>/` binding routes and the
 20-attempt-per-minute unauthenticated budget; `limits` names the binding bounds.
 `transport::Transport` moves append/subscribe/ack envelopes to one message
 owner, which currently denies every request. Startup discovery is not a remote
 operation. The pilot cannot pair, adopt a request, approve, send or subscribe;
-no grant/journal/core DB is created. The foreground door has no default
+no grant, journal or core DB is created. The foreground door has no default
 deadline; it runs until interrupted. Colab keeps its own copy of the door
 until its routes mount on the remote door.
+
+`state` owns remote's private `<dataRoot>/remote/` subtree, relocated from the
+colab keyring: an owned 0700 directory, owned 0600 regular files opened without
+following symlinks, a lock-guarded create-only Ed25519 machine key
+(`machine.key`, a software file with no hardware claim) and one foreground
+serve lock per data root. `store::Store` owns `remote.db` (SQLite) and opens only
+with the `state::Serving` proof that the serve lock is held: while serve runs it
+is the database's only opener and writer, and every other path (pairing, device
+management) reaches remote state only through serve, over the owner-only control socket that pairing adds. Its
+schema history uses core's `_migrations` table (append-only, recorded names must
+match, a newer history refuses) with `foreign_keys=ON`. Unlike core's shared
+WAL database it keeps `journal_mode=DELETE`, since there is no concurrent
+reader, and `synchronous=FULL`, so committed grants and receipts survive power
+loss. Schema 1 creates the machine identity once: a UUIDv4 machine ID and the
+`/r/<32 lowercase hex>` route prefix, both stable across restarts and neither a
+credential. Unsafe state fails closed before the door binds. Colab keeps its own
+copy of the layout code until a shared leaf exists (#1041).
 
 `site::Site` is the door's handler: `/x/` paths go to `mount::Mounts`, all
 others to the `/r/` binding. Mounts forward `/x/<extension>/` to

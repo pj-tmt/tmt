@@ -2162,8 +2162,11 @@ uses its own Prettier configuration; shared docs use the tooling formatter.
 ## Remote pilot development
 
 The local-build-only remote crate is a foreground deny-all door. It performs
-two public startup reads (capabilities and `storage.root`), then refuses every
-remote application request. It mounts colab under `/x/colab/` while
+two public startup reads (capabilities and `storage.root`), creates or reopens
+its private `<dataRoot>/remote/` state (0700 directory; 0600 machine key,
+SQLite database and locks), then refuses every remote application request. The
+`/r/` route prefix and machine ID persist across restarts, and a second serve
+on the same data root fails with `REMOTE_ALREADY_SERVING`. It mounts colab under `/x/colab/` while
 `<dataRoot>/colab/door.sock` exists as an owner-only socket in a 0700
 directory; mounted requests carry no device context until pairing lands.
 Colab gets at most 16 live WebSocket tunnels, each closed after 120 seconds

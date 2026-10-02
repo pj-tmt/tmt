@@ -162,9 +162,26 @@ fn startup_reads_capabilities_and_root_mounts_without_core_calls_and_sigterm_rea
         let request: Value =
             serde_json::from_slice(&fs::read(pilot.root.join("input")).unwrap()).unwrap();
         assert_eq!(request["operation"], "storage.root");
-        assert!(
-            !pilot.root.join("state").exists(),
-            "startup creates no state"
+        // Startup creates only remote's private subtree beside the extension roots.
+        let state: Vec<_> = fs::read_dir(pilot.root.join("state"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(state, ["remote"]);
+        let remote = fs::symlink_metadata(pilot.root.join("state/remote")).unwrap();
+        assert_eq!(remote.permissions().mode() & 0o777, 0o700);
+        for name in ["machine.key", "remote.db", "serve.lock", "key.lock"] {
+            let file = fs::symlink_metadata(pilot.root.join("state/remote").join(name)).unwrap();
+            assert!(
+                file.is_file() && file.permissions().mode() & 0o777 == 0o600,
+                "{name}"
+            );
+        }
+        assert_eq!(
+            fs::metadata(pilot.root.join("state/remote/machine.key"))
+                .unwrap()
+                .len(),
+            32
         );
         // The running process mounts colab once its owner-only socket appears.
         let get = format!("GET /x/colab/ HTTP/1.1\r\nHost: {socket}\r\n\r\n");
@@ -221,4 +238,88 @@ fn startup_reads_capabilities_and_root_mounts_without_core_calls_and_sigterm_rea
             "no request adoption/core DB"
         );
     }
+}
+
+/// Start `serve --json` and return the child with its descriptor.
+fn serve(pilot: &Pilot) -> (Child, Value) {
+    let mut child = pilot
+        .command()
+        .args(["serve", "--json"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let pipe = child.stdout.take().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        BufReader::new(pipe).read_line(&mut line).unwrap();
+        let _ = tx.send(line);
+    });
+    let line = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    (child, serde_json::from_str(&line).unwrap())
+}
+fn terminate(mut child: Child) {
+    assert!(
+        Command::new("/bin/kill")
+            .args(["-TERM", &child.id().to_string()])
+            .status()
+            .unwrap()
+            .success()
+    );
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            assert!(status.success());
+            return;
+        }
+        assert!(Instant::now() < deadline, "foreground process leaked");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+#[test]
+fn machine_identity_and_route_prefix_survive_restart_and_one_serve_per_root() {
+    let pilot = Pilot::new();
+    let (first, before) = serve(&pilot);
+    let prefix = |d: &Value| {
+        d["address"]
+            .as_str()
+            .unwrap()
+            .split_once("/r/")
+            .unwrap()
+            .1
+            .to_owned()
+    };
+    // A second serve on the same data root refuses while the first runs.
+    let second = pilot.command().args(["serve", "--json"]).output().unwrap();
+    assert!(!second.status.success());
+    assert!(
+        String::from_utf8(second.stdout)
+            .unwrap()
+            .contains("REMOTE_ALREADY_SERVING")
+    );
+    let key = fs::read(pilot.root.join("state/remote/machine.key")).unwrap();
+    terminate(first);
+    let (restarted, after) = serve(&pilot);
+    assert_eq!(prefix(&after), prefix(&before));
+    assert_eq!(prefix(&before).len(), 32);
+    assert_eq!(after["machineId"], before["machineId"]);
+    assert_eq!(before["machineId"].as_str().unwrap().len(), 36);
+    assert_eq!(
+        fs::read(pilot.root.join("state/remote/machine.key")).unwrap(),
+        key
+    );
+    terminate(restarted);
+    // Unsafe state fails closed before the door binds.
+    fs::set_permissions(
+        pilot.root.join("state/remote"),
+        fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    let refused = pilot.command().args(["serve", "--json"]).output().unwrap();
+    assert!(!refused.status.success());
+    assert!(
+        String::from_utf8(refused.stdout)
+            .unwrap()
+            .contains("REMOTE_STATE_UNSAFE")
+    );
 }

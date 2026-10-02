@@ -24,24 +24,18 @@ struct Attempts {
     reset: Instant,
 }
 impl Routes {
-    /// `input_limit` is the core-advertised decoded input bound.
-    pub fn new(input_limit: usize) -> Result<Self, RemoteError> {
-        if input_limit == 0 || input_limit > limits::CORE_INPUT_BYTES {
+    /// `input_limit` is the core-advertised decoded input bound; `prefix` is the
+    /// machine's stable `/r/<32 lowercase hex>` route prefix.
+    pub fn new(input_limit: usize, prefix: String) -> Result<Self, RemoteError> {
+        let prefix_valid = prefix.strip_prefix("/r/").is_some_and(|hex| {
+            hex.len() == 32 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        });
+        if input_limit == 0 || input_limit > limits::CORE_INPUT_BYTES || !prefix_valid {
             return Err(RemoteError::new(
                 "REMOTE_INPUT_INVALID",
-                "Invalid remote input bound.",
+                "Invalid remote input bound or route prefix.",
             ));
         }
-        let mut entropy = [0; 16];
-        getrandom::fill(&mut entropy)
-            .map_err(|_| RemoteError::new("REMOTE_ENTROPY", "Could not obtain route entropy."))?;
-        let prefix = format!(
-            "/r/{}",
-            entropy
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect::<String>()
-        );
         Ok(Self {
             prefix,
             body_limit: 4 * (input_limit + limits::METADATA_BYTES).div_ceil(3)
