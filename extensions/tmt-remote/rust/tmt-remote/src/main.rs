@@ -117,6 +117,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
             machine.id.clone(),
             uuid_v4()?,
             machine_key.public(),
+            door.origin.clone(),
             Arc::new(Mutex::new(store)),
             Timing::CONTRACT,
         ));

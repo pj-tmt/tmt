@@ -3722,7 +3722,8 @@ of the current run (window): a random 16-byte code and 128-bit challenge held on
 in serve's memory, a ten-minute deadline, and its phase (open, pinned candidate,
 confirmed). `/pair` admits strict enrollment JSON (exactly the contract fields,
 strict base64url, the request Origin equal to a browser/add-on's proposed origin
-and absent for `cli`), verifies the full HMAC and the possession signature, pins
+and absent for `cli`, and a `browser` origin equal to this door's own origin),
+verifies the full HMAC and the possession signature, pins
 the first valid candidate and reports it to the pairing client with its four
 fingerprint words. Identical candidates coalesce and competing ones refuse;
 three failed code proofs, owner refusal, the pairing client leaving, expiry, a
@@ -3764,7 +3765,8 @@ extension reply 502. Mounted traffic makes no core call and never reaches `/r/`.
 
 `canonical` owns pure decoded-value local-v1 envelope framing and the
 `tmt-device-pair-v1` device enrollment and possession framing (kinds `addon`,
-`browser` with the door's exact loopback origin, and `cli`; the device proposes
+`browser` with a loopback door origin, which `Pairing` binds to this door, and
+`cli`; the device proposes
 no agents, scopes, mode or expiry), the pairing-code text codec (26 base32
 symbols, separators limited to ASCII spaces and hyphens) and the four-word key
 fingerprint over the pinned BIP-39 English list in

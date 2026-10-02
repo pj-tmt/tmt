@@ -56,16 +56,17 @@ impl Harness {
         let mut store = Store::open(&serving).unwrap();
         let machine = store.machine().unwrap();
         let store = Arc::new(Mutex::new(store));
+        let door = Door::bind(0).unwrap();
+        let addr = door.socket_addr().unwrap();
+        let origin = door.origin.clone();
         let pairing = Arc::new(Pairing::new(
             machine.id.clone(),
             uuid_v4().unwrap(),
             machine_public,
+            origin.clone(),
             Arc::clone(&store),
             timing,
         ));
-        let door = Door::bind(0).unwrap();
-        let addr = door.socket_addr().unwrap();
-        let origin = door.origin.clone();
         let routes = Routes::new(1024, machine.route_prefix.clone())
             .unwrap()
             .with_pairing(Arc::clone(&pairing));
@@ -424,7 +425,22 @@ fn wrong_possession_origin_and_fields_refuse_without_pinning() {
     let forged = device.body(&descriptor, &code, &impostor).to_string();
     assert_eq!(h.post(&forged, origin).0, 404);
     let good = device.body(&descriptor, &code, &device.key);
+    // A page on another live loopback port that proposes and sends its own
+    // origin is still not this door's origin.
+    let elsewhere = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let foreign = Device {
+        origin: format!(
+            "http://127.0.0.1:{}",
+            elsewhere.local_addr().unwrap().port()
+        ),
+        ..Device::browser(&h, 7)
+    };
     let mut cases = vec![
+        (
+            foreign.body(&descriptor, &code, &foreign.key).to_string(),
+            Some(foreign.origin.clone()),
+            "another loopback port",
+        ),
         (good.to_string(), None, "missing Origin"),
         (
             good.to_string(),

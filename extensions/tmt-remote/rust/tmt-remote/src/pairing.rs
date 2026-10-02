@@ -133,6 +133,8 @@ pub struct Pairing {
     machine_id: String,
     window_id: String,
     machine_public: [u8; 32],
+    /// This door's exact origin, the only origin a `browser` device may bind.
+    door_origin: String,
     store: Arc<Mutex<Store>>,
     timing: Timing,
     offer: Mutex<Option<Offer>>,
@@ -143,6 +145,7 @@ impl Pairing {
         machine_id: String,
         window_id: String,
         machine_public: [u8; 32],
+        door_origin: String,
         store: Arc<Mutex<Store>>,
         timing: Timing,
     ) -> Self {
@@ -150,6 +153,7 @@ impl Pairing {
             machine_id,
             window_id,
             machine_public,
+            door_origin,
             store,
             timing,
             offer: Mutex::new(None),
@@ -373,9 +377,12 @@ impl Pairing {
         let client_nonce = hex16("clientNonce")?;
         let kind = text("kind")?;
         let origin = text("origin")?;
-        // A browser or add-on must send the exact proposed Origin; a CLI sends none.
+        // A browser or add-on must send the exact proposed Origin; a CLI sends
+        // none. A browser enrolled here must be on this door's own origin, not
+        // another loopback port that merely proposes itself.
         let origin_matches = match kind {
             "cli" => request_origin.is_none(),
+            "browser" => origin == self.door_origin && request_origin == Some(origin),
             _ => request_origin == Some(origin),
         };
         if !origin_matches {
