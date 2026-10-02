@@ -1210,6 +1210,10 @@ before fixture deletion, and receive signals only when they are task-owned.
 Tests never use host tmux, global provider state, or process-wide environment
 mutation as setup.
 
+Office companion scenarios are grouped under `test/native/office-*.test.ts`; retained-install
+fixtures use `__native-install` without acquiring or publishing a product release.
+The public Office acquisition contract remains separately asserted while it ships.
+
 Use `withSandbox` for callback-owned native fixtures. Its descriptor clones
 share active runs; disposal stops outstanding commands before deleting files
 and rejects later launches. Each run has its execution deadline plus at most
