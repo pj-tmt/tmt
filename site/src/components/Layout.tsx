@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { legacyAnchors, pages, type Page } from "../chapters";
 import { languageOf, withLang } from "../lang/languages";
 import { readLangPreference } from "../lang/preference";
+import { english } from "../lang/strings";
 import { localize } from "../lang/translations";
 import { useLang } from "../lang/useLang";
+import { useStrings } from "../lang/useStrings";
 import { applyTheme, themeAtom } from "../state/theme";
 import { LocalLink } from "./LocalLink";
 import { Tag } from "./marks";
@@ -23,6 +25,7 @@ function useCurrent() {
 }
 
 function Toc({ current }: { current: Page }) {
+  const { ui } = useStrings();
   const [heads, setHeads] = useState<{ id: string; text: string; level: number }[]>([]);
   const [active, setActive] = useState("");
   useEffect(() => {
@@ -56,11 +59,11 @@ function Toc({ current }: { current: Page }) {
   if (heads.length < 2) return null;
   return (
     <aside
-      aria-label="On this page"
+      aria-label={ui.onThisPage}
       className="sticky top-9 hidden max-h-[calc(100vh-36px)] self-start overflow-auto pt-10 font-mono text-[12.5px] leading-[1.45] xl:block"
     >
       <div className="mb-2.5 text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">
-        On this page
+        {ui.onThisPage}
       </div>
       {heads.map((head) => (
         <a
@@ -80,6 +83,7 @@ function Toc({ current }: { current: Page }) {
 }
 
 function Pager({ current }: { current: Page }) {
+  const { ui } = useStrings();
   const { lang } = useLang();
   const at = pages.indexOf(current);
   const previous = pages[at - 1];
@@ -89,12 +93,12 @@ function Pager({ current }: { current: Page }) {
   const small = "font-mono text-[11px] leading-none tracking-[0.06em] text-muted uppercase";
   return (
     <nav
-      aria-label="Page navigation"
+      aria-label={ui.pageNavigation}
       className="mt-14 grid grid-cols-1 gap-3.5 border-t border-rule pt-5 sm:grid-cols-2"
     >
       {previous ? (
         <LocalLink to={previous.path} className={card}>
-          <small className={small}>← previous</small>
+          <small className={small}>{ui.previous}</small>
           <span className="font-display text-[15px] leading-snug font-semibold">
             {localize(lang, previous).title}
           </span>
@@ -104,7 +108,7 @@ function Pager({ current }: { current: Page }) {
       )}
       {next && (
         <LocalLink to={next.path} className={`${card} sm:text-right`}>
-          <small className={small}>next →</small>
+          <small className={small}>{ui.next}</small>
           <span className="font-display text-[15px] leading-snug font-semibold">
             {localize(lang, next).title}
           </span>
@@ -173,12 +177,15 @@ export function Layout() {
 // The page body: the chapter's border rule and title, then its content.
 export function Chapter() {
   const { lang, current, title, Content, translated } = useCurrent();
-  const note = lang !== "en" && !translated && <NotTranslated />;
+  const fallback = lang !== "en" && !translated;
+  const note = fallback && <NotTranslated />;
   if (current.path === "/")
     return (
       <section className="pt-14 pb-2">
         {note}
-        <Content />
+        <div lang={fallback ? "en" : undefined}>
+          <Content />
+        </div>
       </section>
     );
   return (
@@ -192,19 +199,22 @@ export function Chapter() {
         {title}
       </h2>
       {note}
-      <Content />
+      <div lang={fallback ? "en" : undefined}>
+        <Content />
+      </div>
     </section>
   );
 }
 
 // Shown above an English page read under /ja or /zh until its translation lands.
 function NotTranslated() {
+  const { ui } = useStrings();
   return (
     <p
-      lang="en"
+      lang={ui.notTranslated === english.ui.notTranslated ? "en" : undefined}
       className="mb-5 rounded-md border border-rule bg-sheet px-3.5 py-2.5 font-mono text-[13px] leading-normal text-muted"
     >
-      Not yet translated. This page is shown in English.
+      {ui.notTranslated}
     </p>
   );
 }

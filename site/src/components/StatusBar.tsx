@@ -2,6 +2,7 @@ import { useAtom } from "jotai";
 import { useEffect, useState } from "react";
 import { windows, type Page } from "../chapters";
 import { themeAtom, type ThemeChoice } from "../state/theme";
+import { useStrings } from "../lang/useStrings";
 import { ChapterTree } from "./ChapterTree";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { LocalLink } from "./LocalLink";
@@ -17,6 +18,7 @@ const focus =
 // windows, then the theme, how far you've read and the time. The session name
 // opens the choose-tree of every page.
 export function StatusBar({ current }: { current: Page }) {
+  const { ui } = useStrings();
   const [theme, setTheme] = useAtom(themeAtom);
   const [percent, setPercent] = useState(0);
   const [clock, setClock] = useState("--:--");
@@ -55,13 +57,13 @@ export function StatusBar({ current }: { current: Page }) {
   return (
     <header className="sticky top-0 z-10 pt-[env(safe-area-inset-top)] bg-t-accent">
       <nav
-        aria-label="Chapter windows"
+        aria-label={ui.chapterWindows}
         className="relative flex items-stretch overflow-x-auto bg-t-accent font-mono text-[13px] leading-none font-semibold whitespace-nowrap text-term-bar [scrollbar-width:none]"
       >
         <button
           type="button"
           onClick={() => setMenuOpen((open) => !open)}
-          aria-label="All chapters"
+          aria-label={ui.allChapters}
           aria-expanded={menuOpen}
           aria-controls="chapter-menu"
           className={`flex min-h-9 cursor-pointer items-center gap-1.5 bg-term-bar px-2.5 text-t-accent sm:px-3 ${focus}`}
@@ -116,7 +118,7 @@ export function StatusBar({ current }: { current: Page }) {
         <>
           <button
             type="button"
-            aria-label="Close menu"
+            aria-label={ui.closeMenu}
             tabIndex={-1}
             onClick={() => setMenuOpen(false)}
             className="fixed inset-0 -z-10 cursor-default bg-black/40"
