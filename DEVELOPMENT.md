@@ -860,19 +860,16 @@ cargo build --locked --example tmux-probe
 cargo +1.95.0 build --locked
 ```
 
-For the unregistered Codex queue transport (#736), focused deterministic checks
-are `cargo test --locked -p tmt-adapters drivers::codex::queue` and
+For Codex queue transport, focused deterministic checks are
+`cargo test --locked -p tmt-adapters drivers::codex::queue` and
 `cargo test --locked -p tmt-adapters drivers::codex::transport`. The transport
 tests own local loopback peers and exercise receipt loss and absolute deadlines.
 The refusal fixture holds a bound, non-listening socket through the connect attempt;
 it never releases a port for a parallel test to claim. It uses the existing nix
 Unix dev-dependency with `net`, without a new runtime dependency. These tests do
-not start a model or inspect provider credentials. Dependency review
-also records exact features/graph, Rust 1.95, licenses, current advisories and an
-actual CLI release baseline/candidate under one toolchain/profile. Label a
-zero delta from unused/dead-stripped groundwork honestly and repeat the size
-measurement after the final consumer links it. See the
-[owning contract](contracts/codex-channel-v1.md) for remaining integration gates.
+not start a model or inspect provider credentials. The
+[owning contract](contracts/codex-channel-v1.md#transport-and-qualification)
+defines the dependency boundary, supported builds and integrated evidence gates.
 
 Private Codex enrollment state (#737) is checked with
 `cargo test --locked -p tmt-adapters drivers::codex::record`. These tests own
