@@ -1,247 +1,291 @@
-//! Finite single-owner loopback reactor; no core client or storage handle.
-use crate::{
-    error::RemoteError,
-    transport::{LoopbackTransport, Transport},
-};
+//! Bounded loopback HTTP workers. L2a denies every API and WebSocket upgrade.
+use crate::{Result, limits};
+use nix::poll::{PollFd, PollFlags, poll};
 use std::{
-    io::{self, Read, Write},
-    net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream},
+    collections::BTreeSet,
+    io::{Read, Write},
+    net::{Ipv4Addr, Shutdown, TcpListener, TcpStream},
+    os::fd::AsFd,
     sync::atomic::{AtomicBool, Ordering},
-    thread,
-    time::{Duration, Instant},
+    thread::{self, JoinHandle},
+    time::Instant,
 };
-const HEADERS: usize = 8192;
-const PAIR: usize = 16384;
-const CONNECTIONS: usize = 32;
-const ACQUISITION: Duration = Duration::from_secs(5);
 
-pub struct ServeOptions {
-    pub port: u16,
-    pub window: Duration,
-    pub input_limit: usize,
-}
 pub struct Door {
     listener: TcpListener,
     pub address: String,
-    prefix: String,
-    port: u16,
-    window: Duration,
-    body_limit: usize,
+    host: String,
+    origin: String,
+}
+struct Worker {
+    socket: TcpStream,
+    handle: JoinHandle<()>,
 }
 impl Door {
-    pub fn bind(options: ServeOptions) -> Result<Self, RemoteError> {
-        if options.window.is_zero()
-            || options.window > Duration::from_secs(86400)
-            || options.input_limit == 0
-            || options.input_limit > 16 * 1024 * 1024
-        {
-            return Err(RemoteError::new(
-                "REMOTE_INPUT_INVALID",
-                "Invalid remote window or input bound.",
-            ));
-        }
-        let mut entropy = [0; 16];
-        getrandom::fill(&mut entropy)
-            .map_err(|_| RemoteError::new("REMOTE_ENTROPY", "Could not obtain route entropy."))?;
-        let prefix = format!(
-            "/r/{}",
-            entropy
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect::<String>()
-        );
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, options.port))?;
+    pub fn bind(port: u16) -> Result<Self> {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AddrInUse {
+                std::io::Error::new(
+                    error.kind(),
+                    format!("Loopback port {port} is busy; choose another with --port, or use --port 0 for a free port."),
+                )
+            } else {
+                error
+            }
+        })?;
         listener.set_nonblocking(true)?;
-        let port = listener.local_addr()?.port();
+        let host = listener.local_addr()?.to_string();
+        let origin = format!("http://{host}");
         Ok(Self {
             listener,
-            address: format!("http://127.0.0.1:{port}{prefix}"),
-            prefix,
-            port,
-            window: options.window,
-            body_limit: 4 * (options.input_limit + 8192).div_ceil(3) + 8192,
+            address: format!("{origin}/"),
+            host,
+            origin,
         })
     }
-    pub fn socket_addr(&self) -> io::Result<SocketAddr> {
-        self.listener.local_addr()
-    }
-    /// Denied traffic never refreshes idle, and termination drops all sockets.
-    pub fn run(self, stop: &AtomicBool) -> Result<(), RemoteError> {
-        let transport = LoopbackTransport::default();
-        let end = Instant::now() + self.window.min(Duration::from_secs(900));
-        let mut reset = Instant::now() + Duration::from_secs(60);
-        let mut attempts = 0;
-        let mut pending: Vec<Connection> = Vec::new();
-        while !stop.load(Ordering::Relaxed) && Instant::now() < end {
-            if Instant::now() >= reset {
-                attempts = 0;
-                reset = Instant::now() + Duration::from_secs(60);
-            }
-            // Bound per-turn accepts as well as retained connections.
-            for _ in 0..=CONNECTIONS {
-                match self.listener.accept() {
-                    Ok((stream, _)) => {
-                        stream.set_nonblocking(true)?;
-                        attempts += 1;
-                        if attempts > 20 || pending.len() == CONNECTIONS {
-                            write_rejection(stream, 429);
-                        } else {
-                            pending.push(Connection {
-                                stream,
-                                bytes: Vec::new(),
-                                deadline: Instant::now() + ACQUISITION,
-                            });
-                        }
+    pub fn run(self, stop: &AtomicBool) -> Result<()> {
+        let mut workers: Vec<Worker> = Vec::new();
+        let result = (|| -> Result<()> {
+            while !stop.load(Ordering::Acquire) {
+                for i in (0..workers.len()).rev() {
+                    if workers[i].handle.is_finished() {
+                        workers
+                            .swap_remove(i)
+                            .handle
+                            .join()
+                            .map_err(|_| "HTTP worker panicked.")?;
                     }
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                }
+                let mut events = [PollFd::new(self.listener.as_fd(), PollFlags::POLLIN)];
+                match poll(&mut events, 100u16) {
+                    Ok(_) => {}
+                    Err(nix::errno::Errno::EINTR) => continue,
                     Err(e) => return Err(e.into()),
                 }
-            }
-            for index in (0..pending.len()).rev() {
-                let connection = &mut pending[index];
-                let mut bytes = [0; 4096];
-                let status = match connection.stream.read(&mut bytes) {
-                    Ok(0) => Some(400),
-                    Ok(count) => {
-                        connection.bytes.extend_from_slice(&bytes[..count]);
-                        frame(
-                            &connection.bytes,
-                            self.port,
-                            &self.prefix,
-                            self.body_limit,
-                            &transport,
-                        )
+                for _ in 0..limits::SOCKETS {
+                    let (mut socket, _) = match self.listener.accept() {
+                        Ok(c) => c,
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                        Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                        Err(e) => return Err(e.into()),
+                    };
+                    if stop.load(Ordering::Acquire) {
+                        break;
                     }
-                    Err(e)
-                        if e.kind() == io::ErrorKind::WouldBlock
-                            || e.kind() == io::ErrorKind::Interrupted =>
-                    {
-                        None
+                    socket.set_nonblocking(false)?;
+                    if workers.len() == limits::SOCKETS {
+                        let _ = response(&mut socket, 429, b"CAPACITY", false);
+                        continue;
                     }
-                    Err(_) => Some(400),
-                };
-                if let Some(status) =
-                    status.or_else(|| (Instant::now() >= connection.deadline).then_some(400))
-                {
-                    write_rejection(pending.swap_remove(index).stream, status);
+                    let retained = socket.try_clone()?;
+                    let host = self.host.clone();
+                    let origin = self.origin.clone();
+                    let handle = thread::Builder::new().name("colab-http".into()).spawn(move || {
+                        let result = acquire(&mut socket,&host,&origin);
+                        let (status,body,html) = match result {
+                            Ok(true) => (200,b"<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><title>TMT Colab</title><h1>TMT Colab</h1><p>Local space is running. Sign-in and sync are not available in this pilot slice.</p></html>".as_slice(),true),
+                            Ok(false) => (403,b"DENIED".as_slice(),false),
+                            Err(status) => (status,b"INVALID".as_slice(),false),
+                        };
+                        let _ = response(&mut socket,status,body,html);
+                    })?;
+                    workers.push(Worker {
+                        socket: retained,
+                        handle,
+                    });
                 }
             }
-            thread::sleep(Duration::from_millis(10));
+            Ok(())
+        })();
+        drop(self.listener);
+        // Close retained handles before joining, interrupting blocked reads/writes.
+        for worker in &workers {
+            let _ = worker.socket.shutdown(Shutdown::Both);
         }
-        Ok(())
+        let mut panicked = false;
+        for worker in workers {
+            panicked |= worker.handle.join().is_err();
+        }
+        if panicked {
+            return Err("HTTP worker cleanup failed.".into());
+        }
+        result
     }
 }
-struct Connection {
-    stream: TcpStream,
-    bytes: Vec<u8>,
-    deadline: Instant,
-}
-fn write_rejection(mut stream: TcpStream, status: u16) {
-    let reason = match status {
-        400 => "Bad Request",
-        413 => "Payload Too Large",
-        429 => "Too Many Requests",
-        _ => "Not Found",
+fn response(socket: &mut TcpStream, status: u16, body: &[u8], html: bool) -> std::io::Result<()> {
+    let deadline = Instant::now() + limits::RESPONSE;
+    let kind = if html {
+        "text/html; charset=utf-8"
+    } else {
+        "text/plain; charset=utf-8"
     };
-    let response = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}"
+    let bytes = format!(
+        "HTTP/1.1 {status} Response\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Security-Policy: default-src 'none'; base-uri 'none'; frame-ancestors 'none'\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n\r\n",
+        body.len()
     );
-    // Nonblocking, bounded response; failed delivery never becomes authority.
-    let _ = stream.write_all(response.as_bytes());
-    let _ = stream.shutdown(std::net::Shutdown::Write);
+    for mut bytes in [bytes.as_bytes(), body] {
+        while !bytes.is_empty() {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .filter(|d| !d.is_zero())
+                .ok_or(std::io::ErrorKind::TimedOut)?;
+            socket.set_write_timeout(Some(remaining))?;
+            match socket.write(bytes) {
+                Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
+                Ok(n) => bytes = &bytes[n..],
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e),
+            }
+        }
+    }
+    socket.shutdown(Shutdown::Write)?;
+    // FIN lets the peer finish reading the response before closing its write half.
+    // Wait for that EOF: immediately readable bytes alone omit input in flight,
+    // and a final close with unread input can reset a fully written capacity reply.
+    // The write and drain share one deadline and the drain has a byte budget.
+    socket.set_nonblocking(true)?;
+    let mut discarded = [0; 1024];
+    let mut remaining_bytes = limits::HEADER_BYTES + limits::HTTP_BODY_BYTES;
+    while remaining_bytes != 0 {
+        let Some(remaining_time) = deadline.checked_duration_since(Instant::now()) else {
+            break;
+        };
+        let size = remaining_bytes.min(discarded.len());
+        match socket.read(&mut discarded[..size]) {
+            Ok(0) => break,
+            Ok(n) => remaining_bytes -= n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                let mut events = [PollFd::new(socket.as_fd(), PollFlags::POLLIN)];
+                let timeout = remaining_time.as_millis().min(u16::MAX as u128) as u16;
+                match poll(&mut events, timeout) {
+                    Ok(0) => break,
+                    Ok(_) | Err(nix::errno::Errno::EINTR) => continue,
+                    Err(_) => break,
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    Ok(())
 }
-fn frame(
-    bytes: &[u8],
-    port: u16,
-    prefix: &str,
-    body_limit: usize,
-    transport: &impl Transport,
-) -> Option<u16> {
-    let Some(header_end) = bytes
-        .windows(4)
-        .position(|x| x == b"\r\n\r\n")
-        .map(|p| p + 4)
-    else {
-        return (bytes.len() > HEADERS).then_some(413);
+/// One request only; no pipelining, forwarded authority or HTTP transfer encoding.
+fn acquire(socket: &mut TcpStream, host: &str, origin: &str) -> std::result::Result<bool, u16> {
+    let deadline = Instant::now() + limits::ACQUISITION;
+    let mut bytes = Vec::new();
+    let mut chunk = [0; 1024];
+    let end = loop {
+        if bytes.len() >= limits::HEADER_BYTES {
+            return Err(413);
+        }
+        read(socket, &mut bytes, &mut chunk, deadline)?;
+        if let Some(p) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+            break p + 4;
+        }
     };
-    if header_end > HEADERS {
-        return Some(413);
+    if end > limits::HEADER_BYTES {
+        return Err(413);
     }
-    let mut slots = [httparse::EMPTY_HEADER; 32];
-    let mut request = httparse::Request::new(&mut slots);
-    if !matches!(
-        request.parse(&bytes[..header_end]),
-        Ok(httparse::Status::Complete(_))
-    ) || request.version != Some(1)
+    if bytes[..end].iter().enumerate().any(|(i, b)| {
+        (*b == b'\n' && (i == 0 || bytes[i - 1] != b'\r'))
+            || (*b == b'\r' && bytes.get(i + 1) != Some(&b'\n'))
+    }) {
+        return Err(400);
+    }
+    let mut fields = [httparse::EMPTY_HEADER; limits::HEADER_FIELDS];
+    let mut request = httparse::Request::new(&mut fields);
+    if request.parse(&bytes[..end]).map_err(|_| 400u16)? != httparse::Status::Complete(end)
+        || request.version != Some(1)
     {
-        return Some(400);
+        return Err(400);
     }
-    let mut seen = std::collections::BTreeSet::new();
-    let mut host = None;
-    let mut length = None;
-    let mut content = None;
+    let mut seen = BTreeSet::new();
+    let mut actual_host = None;
+    let mut actual_origin = None;
+    let mut size = 0;
+    let mut upgrade = false;
     for header in request.headers.iter() {
         let name = header.name.to_ascii_lowercase();
         if !seen.insert(name.clone())
             || [
                 "transfer-encoding",
-                "cookie",
-                "authorization",
                 "forwarded",
                 "x-forwarded-host",
+                "x-forwarded-proto",
             ]
             .contains(&name.as_str())
         {
-            return Some(400);
+            return Err(400);
         }
-        let Ok(value) = std::str::from_utf8(header.value) else {
-            return Some(400);
-        };
+        let value = std::str::from_utf8(header.value).map_err(|_| 400u16)?;
         match name.as_str() {
-            "host" => host = Some(value),
-            "content-length" => length = Some(value),
-            "content-type" => content = Some(value),
+            "host" => actual_host = Some(value),
+            "origin" => actual_origin = Some(value),
+            "upgrade" => upgrade = true,
+            "connection" => {
+                upgrade |= value
+                    .split(',')
+                    .any(|v| v.trim().eq_ignore_ascii_case("upgrade"))
+            }
+            "content-length" => {
+                if value.is_empty()
+                    || !value.bytes().all(|b| b.is_ascii_digit())
+                    || (value.len() > 1 && value.starts_with('0'))
+                {
+                    return Err(400);
+                }
+                size = value.parse::<usize>().map_err(|_| 413u16)?;
+                if size > limits::HTTP_BODY_BYTES {
+                    return Err(413);
+                }
+            }
             _ => {}
         }
     }
-    if host != Some(format!("127.0.0.1:{port}").as_str()) {
-        return Some(400);
+    if actual_host != Some(host) {
+        return Err(403);
     }
-    let path = request.path.unwrap_or("");
-    let suffix = path.strip_prefix(prefix).unwrap_or("");
-    if request.method != Some("POST")
-        || !["/append", "/subscribe", "/ack", "/pair"].contains(&suffix)
-    {
-        return Some(404);
+    let path = request.path.ok_or(400u16)?;
+    if !path.starts_with('/') || path.contains(['?', '#', '%']) {
+        return Err(400);
     }
-    if content != Some("application/json") {
-        return Some(400);
+    let placeholder = request.method == Some("GET") && path == "/" && !upgrade;
+    if (!placeholder || actual_origin.is_some()) && actual_origin != Some(origin) {
+        return Err(403);
     }
-    let Some(length) = length
-        .filter(|x| !x.is_empty() && x.bytes().all(|b| b.is_ascii_digit()))
-        .and_then(|x| x.parse::<usize>().ok())
-    else {
-        return Some(400);
-    };
-    if length > if suffix == "/pair" { PAIR } else { body_limit } {
-        return Some(413);
+    if placeholder && size != 0 {
+        return Err(400);
     }
-    let received = bytes.len() - header_end;
-    if received > length {
-        return Some(400);
+    // Drop header borrows before acquiring the bounded body; no body is interpreted.
+    while bytes.len() < end + size {
+        read(socket, &mut bytes, &mut chunk, deadline)?;
     }
-    if received < length {
-        return None;
+    if bytes.len() != end + size {
+        return Err(400);
     }
-    let body = &bytes[header_end..];
-    let denied = match suffix {
-        "/append" => transport.append(body),
-        "/subscribe" => transport.subscribe(body),
-        "/ack" => transport.ack(body),
-        _ => return Some(404),
-    };
-    // No successful admission exists in this slice. Fail closed if it changes.
-    let _ = denied;
-    Some(404)
+    Ok(placeholder)
 }
+fn read(
+    socket: &mut TcpStream,
+    bytes: &mut Vec<u8>,
+    chunk: &mut [u8],
+    deadline: Instant,
+) -> std::result::Result<(), u16> {
+    let remaining = deadline
+        .checked_duration_since(Instant::now())
+        .filter(|d| !d.is_zero())
+        .ok_or(408u16)?;
+    socket
+        .set_read_timeout(Some(remaining))
+        .map_err(|_| 400u16)?;
+    let n = socket.read(chunk).map_err(|_| 408u16)?;
+    if n == 0 {
+        return Err(400);
+    }
+    bytes.extend_from_slice(&chunk[..n]);
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "http_tests.rs"]
+mod tests;
