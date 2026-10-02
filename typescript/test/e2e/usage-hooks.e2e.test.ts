@@ -133,77 +133,81 @@ const resumeOf = (stdout: string) =>
     (identity) => identity.name === 'Usage Reader'
   )?.resume;
 
-describe('turn-end usage hooks with a real pane and verified runtime', { concurrent: false }, () => {
-  for (const provider of providers) {
-    it(`records ${provider.name} usage only for the remembered conversation`, async () => {
-      await withE2EFixture(
-        async (fixture) => {
-          expect((await fixture.runJsonCli(['name', 'Owner', '-s'])).code).toBe(0);
-          const results = await runScenario(fixture, provider);
-          expect(results).toHaveLength(15);
-          for (const result of results) {
-            expect(result.code).toBe(0);
-            expect(result.stderr).toBe('');
-          }
-          // Turn ends print nothing: Stop output could carry a decision.
-          for (const index of [2, 4, 5, 6, 7, 9, 11]) expect(results[index].stdout).toBe('');
-          const recorded = resumeOf(results[3].stdout);
-          expect(recorded).toMatchObject({ driver: provider.name, model: 'model-a' });
-          expect(recorded?.usage).toMatchObject(provider.usage);
-          expect(Object.keys(recorded?.usage as object).sort()).toEqual(
-            [...Object.keys(provider.usage), 'observedAtMs'].sort()
-          );
-          expect(recorded?.consumption).toMatchObject({
-            ...provider.consumption,
-            sequence: 1,
-            observedAtMs: expect.any(Number),
-            epoch: expect.stringMatching(/^[0-9a-f-]{36}$/),
-            complete: false,
-            gap: true,
-          });
-          expect(Object.keys(recorded?.consumption as object).sort()).toEqual([
-            'cachedInputTokens',
-            'complete',
-            'epoch',
-            'gap',
-            'inputTokens',
-            'observedAtMs',
-            'outputTokens',
-            'sequence',
-          ]);
-          expect(resumeOf(results[8].stdout)).toEqual(recorded);
-          const updated = resumeOf(results[10].stdout)?.consumption;
-          expect(updated).toMatchObject({
-            ...provider.updated,
-            epoch: (recorded?.consumption as Record<string, unknown>).epoch,
-            sequence: 2,
-            complete: true,
-            gap: false,
-          });
-          expect(resumeOf(results[12].stdout)?.consumption).toEqual(updated);
-          const compacted = resumeOf(results[14].stdout);
-          expect(compacted).toMatchObject({ model: 'model-a' });
-          expect(compacted).not.toHaveProperty('usage');
-          expect(compacted).not.toHaveProperty('consumption');
+describe(
+  'turn-end usage hooks with a real pane and verified runtime',
+  { concurrent: false },
+  () => {
+    for (const provider of providers) {
+      it(`records ${provider.name} usage only for the remembered conversation`, async () => {
+        await withE2EFixture(
+          async (fixture) => {
+            expect((await fixture.runJsonCli(['name', 'Owner', '-s'])).code).toBe(0);
+            const results = await runScenario(fixture, provider);
+            expect(results).toHaveLength(15);
+            for (const result of results) {
+              expect(result.code).toBe(0);
+              expect(result.stderr).toBe('');
+            }
+            // Turn ends print nothing: Stop output could carry a decision.
+            for (const index of [2, 4, 5, 6, 7, 9, 11]) expect(results[index].stdout).toBe('');
+            const recorded = resumeOf(results[3].stdout);
+            expect(recorded).toMatchObject({ driver: provider.name, model: 'model-a' });
+            expect(recorded?.usage).toMatchObject(provider.usage);
+            expect(Object.keys(recorded?.usage as object).sort()).toEqual(
+              [...Object.keys(provider.usage), 'observedAtMs'].sort()
+            );
+            expect(recorded?.consumption).toMatchObject({
+              ...provider.consumption,
+              sequence: 1,
+              observedAtMs: expect.any(Number),
+              epoch: expect.stringMatching(/^[0-9a-f-]{36}$/),
+              complete: false,
+              gap: true,
+            });
+            expect(Object.keys(recorded?.consumption as object).sort()).toEqual([
+              'cachedInputTokens',
+              'complete',
+              'epoch',
+              'gap',
+              'inputTokens',
+              'observedAtMs',
+              'outputTokens',
+              'sequence',
+            ]);
+            expect(resumeOf(results[8].stdout)).toEqual(recorded);
+            const updated = resumeOf(results[10].stdout)?.consumption;
+            expect(updated).toMatchObject({
+              ...provider.updated,
+              epoch: (recorded?.consumption as Record<string, unknown>).epoch,
+              sequence: 2,
+              complete: true,
+              gap: false,
+            });
+            expect(resumeOf(results[12].stdout)?.consumption).toEqual(updated);
+            const compacted = resumeOf(results[14].stdout);
+            expect(compacted).toMatchObject({ model: 'model-a' });
+            expect(compacted).not.toHaveProperty('usage');
+            expect(compacted).not.toHaveProperty('consumption');
 
-          const identity = JSON.parse(results[0].stdout);
-          const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
-            readonly: true,
-          });
-          try {
-            expect(
-              db
-                .prepare(
-                  'SELECT driver_state_version, driver_state FROM identity_session_preferences WHERE identity_id = ?'
-                )
-                .get(identity.id)
-            ).toEqual({ driver_state_version: 1, driver_state: '{"model":"model-a"}' });
-          } finally {
-            db.close();
-          }
-        },
-        { mode: 'input-log' }
-      );
-    });
+            const identity = JSON.parse(results[0].stdout);
+            const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+              readonly: true,
+            });
+            try {
+              expect(
+                db
+                  .prepare(
+                    'SELECT driver_state_version, driver_state FROM identity_session_preferences WHERE identity_id = ?'
+                  )
+                  .get(identity.id)
+              ).toEqual({ driver_state_version: 1, driver_state: '{"model":"model-a"}' });
+            } finally {
+              db.close();
+            }
+          },
+          { mode: 'input-log' }
+        );
+      });
+    }
   }
-});
+);
