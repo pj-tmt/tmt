@@ -24,5 +24,5 @@ pub const ACQUISITION: Duration = Duration::from_secs(5);
 pub const RESPONSE: Duration = Duration::from_secs(1);
 /// Total time for a mounted extension to accept a request and reply.
 pub const MOUNT_RESPONSE: Duration = Duration::from_secs(15);
-/// Per-chunk write bound inside an upgraded tunnel.
+/// No-progress bound for pending bytes inside an upgraded tunnel.
 pub const SPLICE_WRITE: Duration = Duration::from_secs(5);

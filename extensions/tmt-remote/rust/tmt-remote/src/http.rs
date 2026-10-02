@@ -107,6 +107,9 @@ pub trait Handler: Send + Sync {
     /// Return a reply for the door to write, or `None` after taking over the
     /// client socket (an upgraded tunnel). Door shutdown closes that socket.
     fn handle(&self, request: Request, client: &mut TcpStream) -> Option<Reply>;
+    /// Called once when the door stops, before its workers are joined, to end
+    /// anything the handler took over.
+    fn shutdown(&self) {}
 }
 
 pub struct Door {
@@ -205,6 +208,7 @@ impl Door {
             Ok(())
         })();
         drop(self.listener);
+        handler.shutdown();
         // Close retained handles before joining, interrupting blocked reads/writes.
         for worker in &workers {
             let _ = worker.socket.shutdown(Shutdown::Both);

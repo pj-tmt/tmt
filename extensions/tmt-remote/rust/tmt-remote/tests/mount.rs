@@ -19,7 +19,8 @@ use std::{
 };
 use tmt_remote::{
     http::{Door, Handler},
-    mount::{DeviceContext, Mounts, NoSessions, Sessions},
+    limits,
+    mount::{DeviceContext, EXTENSIONS, Extension, Mounts, NoSessions, Sessions},
     routes::Routes,
     site::Site,
 };
@@ -56,12 +57,12 @@ impl Recorder {
     }
 }
 /// Fixture extension process stand-in on a real Unix socket.
-struct Extension {
+struct Fixture {
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
     seen: Recorder,
 }
-impl Extension {
+impl Fixture {
     fn serve(socket: &Path, behavior: Behavior) -> Self {
         let listener = UnixListener::bind(socket).unwrap();
         fs::set_permissions(socket, fs::Permissions::from_mode(0o600)).unwrap();
@@ -69,7 +70,9 @@ impl Extension {
         let stop = Arc::new(AtomicBool::new(false));
         let seen = Recorder::default();
         let (flag, record) = (Arc::clone(&stop), seen.clone());
+        // One thread per connection, so concurrent tunnels are served at once.
         let thread = thread::spawn(move || {
+            let mut connections = Vec::new();
             while !flag.load(Ordering::Acquire) {
                 match listener.accept() {
                     Ok((stream, _)) => {
@@ -77,10 +80,14 @@ impl Extension {
                         stream
                             .set_read_timeout(Some(Duration::from_secs(5)))
                             .unwrap();
-                        behavior(stream, &record);
+                        let (behavior, record) = (Arc::clone(&behavior), record.clone());
+                        connections.push(thread::spawn(move || behavior(stream, &record)));
                     }
                     Err(_) => thread::sleep(Duration::from_millis(5)),
                 }
+            }
+            for connection in connections {
+                connection.join().unwrap();
             }
         });
         Self {
@@ -90,7 +97,7 @@ impl Extension {
         }
     }
 }
-impl Drop for Extension {
+impl Drop for Fixture {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
         self.thread.take().unwrap().join().unwrap();
@@ -135,6 +142,9 @@ struct Mounted {
 }
 impl Mounted {
     fn new(sessions: Arc<dyn Sessions>) -> Self {
+        Self::with(sessions, &EXTENSIONS)
+    }
+    fn with(sessions: Arc<dyn Sessions>, extensions: &'static [Extension]) -> Self {
         // Short absolute root: Unix socket paths are limited to about 100 bytes.
         let root = PathBuf::from(format!(
             "/tmp/tmt-1039-{}-{}",
@@ -151,7 +161,7 @@ impl Mounted {
         let origin = door.origin.clone();
         let site = Arc::new(Site {
             routes,
-            mounts: Mounts::new(root.clone(), &origin, sessions),
+            mounts: Mounts::with_extensions(root.clone(), &origin, sessions, extensions),
         });
         let stop = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&stop);
@@ -168,8 +178,8 @@ impl Mounted {
     fn socket(&self) -> PathBuf {
         self.root.join("colab/door.sock")
     }
-    fn extension(&self, behavior: Behavior) -> Extension {
-        Extension::serve(&self.socket(), behavior)
+    fn extension(&self, behavior: Behavior) -> Fixture {
+        Fixture::serve(&self.socket(), behavior)
     }
     fn get(&self, path: &str, headers: &str) -> String {
         format!(
@@ -358,7 +368,7 @@ fn unsafe_or_missing_sockets_are_not_mounted() {
     let elsewhere = door.root.join("real");
     fs::create_dir(&elsewhere).unwrap();
     fs::set_permissions(&elsewhere, fs::Permissions::from_mode(0o700)).unwrap();
-    let _extension = Extension::serve(&elsewhere.join("door.sock"), replying(PAGE));
+    let _extension = Fixture::serve(&elsewhere.join("door.sock"), replying(PAGE));
     std::os::unix::fs::symlink(elsewhere.join("door.sock"), door.socket()).unwrap();
     assert_eq!(door.status(&get), 404, "symlinked socket");
     fs::remove_file(door.socket()).unwrap();
@@ -531,4 +541,95 @@ fn websocket_bytes_pass_through_unchanged_and_close_with_either_side() {
     assert!(seen[0].contains("connection: upgrade\r\nupgrade: websocket\r\n"));
     assert!(seen[0].contains("sec-websocket-key: dGhlIHNhbXBsZSBub25jZQ==\r\n"));
     assert!(seen[0].contains(&format!("origin: {}\r\n", door.origin)));
+}
+
+/// More tunnels than edge sockets, with a short idle bound for the test.
+static WIDE: [Extension; 1] = [Extension {
+    name: "colab",
+    body_bytes: 64 * 1024,
+    reply_bytes: 1024,
+    tunnels: limits::SOCKETS + 2,
+    tunnel_idle: Duration::from_millis(600),
+}];
+/// Upgrade a new client and return it after the 101 head.
+fn tunnel(door: &Mounted) -> TcpStream {
+    let mut client = TcpStream::connect(door.addr).unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    let origin = format!("Origin: {}\r\n{UPGRADE}", door.origin);
+    client
+        .write_all(door.get("/x/colab/sync", &origin).as_bytes())
+        .unwrap();
+    let mut head = Vec::new();
+    let mut byte = [0; 1];
+    while !head.ends_with(b"\r\n\r\n") {
+        client.read_exact(&mut byte).unwrap();
+        head.push(byte[0]);
+    }
+    assert!(head.starts_with(b"HTTP/1.1 101"));
+    let mut early = [0; 5];
+    client.read_exact(&mut early).unwrap();
+    assert_eq!(&early, b"early");
+    client
+}
+fn closed(client: &mut TcpStream) -> bool {
+    matches!(client.read(&mut [0; 1]), Ok(0))
+        || matches!(client.read(&mut [0; 1]), Err(ref e) if e.kind() == std::io::ErrorKind::ConnectionReset)
+}
+
+#[test]
+fn tunnels_have_their_own_cap_and_idle_bound() {
+    let (sender, _ended) = mpsc::channel();
+    let door = Mounted::with(Arc::new(NoSessions), &WIDE);
+    let _extension = door.extension(echo(sender));
+    // More live tunnels than door edge sockets: they no longer occupy them.
+    let mut clients: Vec<_> = (0..WIDE[0].tunnels).map(|_| tunnel(&door)).collect();
+    let binding = format!(
+        "POST {}/append HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{{}}",
+        door.prefix, door.addr
+    );
+    assert_eq!(door.status(&binding), 404, "/r/ keeps its edge sockets");
+    // A full pool refuses the next upgrade with a retry hint, before reaching the extension.
+    let origin = format!("Origin: {}\r\n{UPGRADE}", door.origin);
+    let refused = door.send(door.get("/x/colab/sync", &origin).as_bytes());
+    assert!(refused.starts_with("HTTP/1.1 503"));
+    assert!(refused.contains(&format!(
+        "retry-after: {}\r\n",
+        tmt_remote::mount::RETRY_AFTER_SECONDS
+    )));
+    // An active tunnel outlives the idle bound; idle ones close and free their slots.
+    let active = &mut clients[0];
+    let start = Instant::now();
+    while start.elapsed() < WIDE[0].tunnel_idle * 2 {
+        active.write_all(b"ping").unwrap();
+        let mut echo = [0; 4];
+        active.read_exact(&mut echo).unwrap();
+        assert_eq!(&echo, b"ping");
+        thread::sleep(WIDE[0].tunnel_idle / 4);
+    }
+    for client in &mut clients[1..] {
+        assert!(closed(client), "idle tunnel left open");
+    }
+    let mut replacement = tunnel(&door);
+    replacement.write_all(b"again").unwrap();
+    let mut echo = [0; 5];
+    replacement.read_exact(&mut echo).unwrap();
+    assert_eq!(&echo, b"again");
+}
+
+#[test]
+fn cross_site_fetch_metadata_is_refused() {
+    let door = Mounted::new(Arc::new(NoSessions));
+    let _extension = door.extension(replying(PAGE));
+    assert_eq!(
+        door.status(&door.get("/x/colab/", "Sec-Fetch-Site: cross-site\r\n")),
+        403
+    );
+    for site in ["same-origin", "none"] {
+        assert_eq!(
+            door.status(&door.get("/x/colab/", &format!("Sec-Fetch-Site: {site}\r\n"))),
+            200
+        );
+    }
 }

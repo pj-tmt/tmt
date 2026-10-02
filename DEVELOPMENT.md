@@ -2091,6 +2091,9 @@ two public startup reads (capabilities and `storage.root`), then refuses every
 remote application request. It mounts colab under `/x/colab/` while
 `<dataRoot>/colab/door.sock` exists as an owner-only socket in a 0700
 directory; mounted requests carry no device context until pairing lands.
+Colab gets at most 16 live WebSocket tunnels, each closed after 120 seconds
+without traffic; a full pool answers 503 with `retry-after`, so colab should
+keep one socket per tab and reconnect after idle close.
 Pairing, signing, grants, hold, sends, the relay and journal/SDK integration
 are not implemented. The [channel contract](contracts/remote-channel-v1.md) is
 proposed; [the separately owned browser shell](#browser-add-on-shell)

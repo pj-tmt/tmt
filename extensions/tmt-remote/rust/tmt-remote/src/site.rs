@@ -28,4 +28,7 @@ impl Handler for Site {
             self.routes.handle(request, client)
         }
     }
+    fn shutdown(&self) {
+        self.mounts.shutdown();
+    }
 }

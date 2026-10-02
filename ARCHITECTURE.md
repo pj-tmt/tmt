@@ -3575,9 +3575,15 @@ client. Until pairing supplies sessions, every forwarded request is non-owner.
 The extension owns its reply: status, content type, CSP and other headers pass
 through; the door only fills absent security defaults and drops `Set-Cookie`.
 Replies stream one chunk at a time. WebSocket upgrades are spliced as unparsed
-bytes in both directions with bounded per-direction buffers until either side
-closes, a write stalls past its bound or the door shuts down. A missing or
-unsafe socket is 404, an unreachable one 503 and a malformed extension reply 502. Mounted traffic makes no core call and never reaches `/r/`.
+bytes in both directions with bounded per-direction buffers, on a tunnel thread
+outside the door's edge sockets so open pages cannot starve `/r/`, pairing or
+page loads. Each extension has its own tunnel cap (colab: 16) and idle bound
+(colab: 120 s without bytes either way); a full pool refuses the upgrade with
+503 and `retry-after`. A tunnel also ends when either side closes or pending
+bytes stall past their bound, and door shutdown closes and joins every tunnel
+before its workers. `Sec-Fetch-Site: cross-site` is refused when present. A
+missing or unsafe socket is 404, an unreachable one 503 and a malformed
+extension reply 502. Mounted traffic makes no core call and never reaches `/r/`.
 
 `canonical` owns pure decoded-value local-v1 envelope framing and the
 `tmt-device-pair-v1` device enrollment and possession framing (kinds `addon`,
