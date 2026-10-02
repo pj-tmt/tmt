@@ -750,6 +750,8 @@ release-please after its first release pull request. The CLI is pinned with a lo
 `.github/release-please/`, outside the `typescript` workspace. Only the release job and CI jobs running
 release-config tests install it; tests load that same isolated pin to verify the wrapper's API shape
 and real Manifest attribution, without adding release tooling to other workspace installs.
+`check:tooling` runs the wrapper's read-only install prerequisite before type checking;
+[Development](DEVELOPMENT.md) owns the explicit installation command.
 The config retains `always-update` for conflict recovery: each component edits the shared
 manifest, whose adjacent lines can conflict. `release-please-run.mjs` wraps the pinned
 GitHub update boundary to preserve an open PR's head when its title, complete inline
