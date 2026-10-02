@@ -17,7 +17,8 @@ const { selectNativeArtifact, withNativeArtifact } = (await import(
     manifestFile: string,
     archiveFile: string,
     target: string,
-    product?: 'cli' | 'office' | 'squad'
+    product?: 'cli' | 'office' | 'squad',
+    options?: { readonly release?: boolean }
   ) => NativeArtifact;
   withNativeArtifact: <T>(
     archiveFile: string,
@@ -476,29 +477,47 @@ describe('native artifact policy', () => {
     });
   });
 
-  it('requires the CLI companion driver, executable, and only in the CLI archive', async () => {
+  it('reads companions from the archive manifest and requires them all of a release', async () => {
     await withSandbox(async (sandbox) => {
+      const release = (fixture: ArchiveFixture) =>
+        selectNativeArtifact(fixture.manifestFile, fixture.archiveFile, TARGET, 'cli', {
+          release: true,
+        });
       const cli = await createArchiveFixture(sandbox);
+      expect(release(cli)).toEqual(cli.metadata);
       await withNativeArtifact(cli.archiveFile, cli.metadata, (root) => {
         expect(fs.readdirSync(root)).toContain('tmt-driver-herdr');
         expect(fs.statSync(path.join(root, 'tmt-driver-herdr')).mode & 0o111).not.toBe(0);
       });
 
-      await expect(createArchiveFixture(sandbox, { declareCompanions: false })).rejects.toThrow(
-        'Manifest must describe exactly the native runtime files'
+      // A published CLI from before the companion (5.0.0-alpha.39 and older) reads as it was
+      // released, but is never an archive under release.
+      const published = await createArchiveFixture(sandbox, {
+        declareCompanions: false,
+        omit: 'tmt-driver-herdr',
+      });
+      await withNativeArtifact(published.archiveFile, published.metadata, (root) => {
+        expect(fs.readdirSync(root)).not.toContain('tmt-driver-herdr');
+      });
+      expect(() => release(published)).toThrow(
+        'A release archive must carry every companion executable'
       );
 
+      // A declared companion must be archived and executable; an undeclared one is foreign.
       const missing = await createArchiveFixture(sandbox, { omit: 'tmt-driver-herdr' });
       await expect(
         withNativeArtifact(missing.archiveFile, missing.metadata, () => undefined)
       ).rejects.toThrow(
         'Missing native archive entry: tmux-team-5.0.0-alpha.1-aarch64-apple-darwin/tmt-driver-herdr'
       );
-
       const nonExecutable = await createArchiveFixture(sandbox, { companionExecutable: false });
       await expect(
         withNativeArtifact(nonExecutable.archiveFile, nonExecutable.metadata, () => undefined)
       ).rejects.toThrow('Native executable lacks execute permission');
+      const undeclared = await createArchiveFixture(sandbox, { declareCompanions: false });
+      await expect(
+        withNativeArtifact(undeclared.archiveFile, undeclared.metadata, () => undefined)
+      ).rejects.toThrow('Unexpected native archive entry');
 
       const squad = await createArchiveFixture(sandbox, {
         product: 'squad',

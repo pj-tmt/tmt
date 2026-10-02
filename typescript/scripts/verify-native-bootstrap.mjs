@@ -16,7 +16,9 @@ const { values } = parseArgs({
 for (const name of ['manifest', 'archive', 'target', 'skill']) {
   assert(values[name], `--${name} is required`);
 }
-const metadata = selectNativeArtifact(values.manifest, values.archive, values.target);
+const metadata = selectNativeArtifact(values.manifest, values.archive, values.target, 'cli', {
+  release: true,
+});
 const architecture = { arm64: 'aarch64', x64: 'x86_64' }[process.arch];
 const platform = { darwin: 'apple-darwin', linux: 'unknown-linux-musl' }[process.platform];
 assert(architecture && platform, 'Unsupported verification host');

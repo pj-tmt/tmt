@@ -33,7 +33,7 @@ const { runtimeFiles, companionFiles } = (await import(
   runtimeFiles: () => string[];
   companionFiles: () => string[];
 };
-const REQUIRED_FILES = runtimeFiles();
+const REQUIRED_FILES = [...runtimeFiles(), ...companionFiles()];
 const COMPANIONS = companionFiles();
 
 function nativeTarget(): string {

@@ -30,7 +30,9 @@ for (const name of [
 ]) {
   assert(values[name], `--${name} is required`);
 }
-const current = selectNativeArtifact(values.manifest, values.archive, values.target);
+const current = selectNativeArtifact(values.manifest, values.archive, values.target, 'cli', {
+  release: true,
+});
 const previous = selectNativeArtifact(
   values['previous-manifest'],
   values['previous-archive'],

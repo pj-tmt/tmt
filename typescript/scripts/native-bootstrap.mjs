@@ -51,7 +51,7 @@ export async function generateNativeBootstrap(manifestFile, archiveDirectory, pl
     assert(!seen.has(target), 'Duplicate bootstrap target');
     seen.add(target);
     const archive = path.join(archiveDirectory, name);
-    const metadata = selectNativeArtifact(manifestFile, archive, target);
+    const metadata = selectNativeArtifact(manifestFile, archive, target, 'cli', { release: true });
     // Restrict code interpolation to URL-safe version tokens. Runtime semver and
     // forward-only pin policy remain in the native installer, not this generator.
     assert(

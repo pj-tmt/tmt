@@ -7,6 +7,7 @@ import { createArtifact, nativeTarget } from '../support/native-artifact.js';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const verifier = path.join(repositoryRoot, 'scripts/verify-native-extension-upgrade.mjs');
+const installationVerifier = path.join(repositoryRoot, 'scripts/verify-native-installation.mjs');
 const PROOF_BUDGET_MS = 60_000;
 
 type Artifact = Awaited<ReturnType<typeof createArtifact>>;
@@ -17,9 +18,14 @@ type Artifact = Awaited<ReturnType<typeof createArtifact>>;
 // installed as, which a built `tmt-office` can do for one version only; the verifier builds the
 // same commands for both extensions.
 describe('extension upgrade proof against the real CLI', () => {
-  it(
-    'upgrades Squad through `tmt extension install` and `tmt extension ls` only',
-    async () => {
+  // The driver is the newest published CLI: today's, carrying its companion, or one released
+  // before companions existed (5.0.0-alpha.39), read against its own manifest.
+  it.each([
+    ['a current CLI', undefined],
+    ['a CLI published before companions', null],
+  ] as const)(
+    'upgrades Squad through `tmt extension install` and `tmt extension ls` only, driven by %s',
+    async (_, driverCompanions) => {
       await withSandbox(async (sandbox) => {
         const log = path.join(sandbox.root, 'driver commands.log');
         const wrapper = path.join(sandbox.root, 'recording tmt');
@@ -36,7 +42,10 @@ describe('extension upgrade proof against the real CLI', () => {
             {
               root: path.join(sandbox.root, name),
               // The wrapper stands in for tmt; its companions are the build's.
-              cli: { executable: wrapper, companions: path.dirname(sandbox.cli.executable) },
+              cli: {
+                executable: wrapper,
+                companions: driverCompanions === null ? null : path.dirname(sandbox.cli.executable),
+              },
             },
             version,
             new Uint8Array(),
@@ -61,6 +70,37 @@ describe('extension upgrade proof against the real CLI', () => {
     },
     PROOF_BUDGET_MS
   );
+});
+
+describe('CLI installation proof', () => {
+  it('refuses a CLI archive under release that lacks a companion', async () => {
+    await withSandbox(async (sandbox) => {
+      const cli = (name: string, version: string, companions: string | null) =>
+        createArtifact(
+          { root: path.join(sandbox.root, name), cli: { ...sandbox.cli, companions } },
+          version
+        );
+      const previous = await cli('previous', '5.0.0-alpha.39', null);
+      const current = await cli('current', '5.0.0-alpha.40', null);
+      const result = await runCli({ ...sandbox, cli: { executable: process.execPath, args: [] } }, [
+        installationVerifier,
+        '--archive',
+        current.archive,
+        '--manifest',
+        current.manifest,
+        '--previous-archive',
+        previous.archive,
+        '--previous-manifest',
+        previous.manifest,
+        '--target',
+        nativeTarget(),
+        '--skill',
+        path.join(repositoryRoot, '..', 'skills', 'tmux-team', 'SKILL.md'),
+      ]);
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('A release archive must carry every companion executable');
+    });
+  });
 });
 
 function runProof(

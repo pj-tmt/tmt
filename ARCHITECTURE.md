@@ -2895,12 +2895,15 @@ broken guidance; its single consent prompt names the skills and targets.
 
 A release may also carry a companion executable beside its own
 (`Product::companions()`): the CLI carries `tmt-driver-herdr`, the
-first-party Herdr host driver (#479). Releases built from this repository
-always carry it; `typescript/scripts/native-artifact-policy.mjs` mirrors the
-list, requires the file and its execute bit, and the artifact verifier runs
-it (`capabilities`: name `herdr`, the CLI's version, system-only linkage).
-The installer treats a companion as optional, so a release from before it
-existed still verifies:
+first-party Herdr host driver (#479). `typescript/scripts/native-artifact-policy.mjs`
+mirrors the list and reads an archive against its own manifest, as the
+installer does: published archives from before a companion existed (CLI
+5.0.0-alpha.39 and older), such as an upgrade proof's previous release or CLI
+driver, still read. An archive under release is selected with `release: true`
+by every verifier and the bootstrap generator, so it must declare and carry
+every companion; the artifact verifier also runs the driver (`capabilities`:
+name `herdr`, the CLI's version, system-only linkage). The installer treats a
+companion as optional, so a release from before it existed still verifies:
 
 - the manifest may declare it once, and the archive must then hold it as an
   executable regular file; an archived companion that isn't declared, or a
