@@ -102,6 +102,9 @@ jobs:
       - name: Install dependencies
         working-directory: typescript
         run: pnpm --filter tmux-team install --frozen-lockfile
+      - name: Install pinned release-config test API
+        working-directory: .github/release-please
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Run code quality checks
         working-directory: typescript
         run: |
@@ -292,6 +295,9 @@ jobs:
       - name: Install dependencies
         working-directory: typescript
         run: pnpm --filter tmux-team install --frozen-lockfile
+      - name: Install pinned release-config test API
+        working-directory: .github/release-please
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Download the native executable for tooling tests
         uses: actions/download-artifact@v4
         with:
