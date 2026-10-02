@@ -524,3 +524,11 @@ fn write_report(
     };
     message::hint(output, terminal, &hint)
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
+    &[crate::cli_style_tests::HintSpec::skipped(
+        "{option} takes the UUID that talk or tmt channel inspect printed, not {value:?}.",
+        "Executable or option reference in prose, not a full command suggestion.",
+    )];

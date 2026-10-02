@@ -695,3 +695,66 @@ mod presentation_tests {
         assert!(text.lines().all(|line| line.starts_with("✓ ")));
     }
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "Office data (office.db) and its backups; see their paths with: tmt office storage status, and delete them there only if you no longer need them",
+        &[", and"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "lifecycle hook consent; withdraw it with: tmt extension hooks disable {name}",
+        &[""],
+        &[
+            ("{name}", "squad"),
+            ("{}", "squad"),
+            ("{SUGGESTED_EXTENSION}", "squad"),
+        ],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "tmt extension install {} --repair --yes --prefix {}",
+        &[""],
+        &[
+            ("tmt extension install {}", "tmt extension install squad"),
+            ("{}", "/tmp/hint-prefix"),
+        ],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "{error} Inspect with: tmt extension ls",
+        &[""],
+        &[
+            ("{name}", "squad"),
+            ("{}", "squad"),
+            ("{SUGGESTED_EXTENSION}", "squad"),
+        ],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "{} has an activation but no command link. Finish removal with: tmt extension rm {} --yes",
+        &[""],
+        &[
+            ("{name}", "squad"),
+            ("{}", "squad"),
+            ("{SUGGESTED_EXTENSION}", "squad"),
+        ],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "{} is frozen; installation and upgrades are unavailable. Existing installations can still be listed and removed with tmt extension ls and tmt extension rm {}.",
+        &[" and tmt ", "."],
+        &[
+            ("{name}", "squad"),
+            ("{}", "squad"),
+            ("{SUGGESTED_EXTENSION}", "squad"),
+        ],
+    ),
+];
+
+#[cfg(test)]
+pub(crate) use list_upgrade::PRINTED_HINTS as LIST_UPGRADE_HINTS;
+
+#[cfg(test)]
+pub(crate) use skills::PRINTED_HINTS as SKILLS_HINTS;
+
+#[cfg(test)]
+pub(crate) use upgrade_all::PRINTED_HINTS as UPGRADE_ALL_HINTS;

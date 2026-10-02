@@ -334,3 +334,11 @@ fn failure(mode: OutputMode, code: &'static str, message: &str) -> io::Result<u8
     // Parse and existing configuration failures retain their exit-1 contract.
     output::Failure::new(code, message, 1).publish(mode)
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
+    &[crate::cli_style_tests::HintSpec::skipped(
+        "tmt runs no command for a host driver; a driver gets what it needs in its request.",
+        "Executable or option reference in prose, not a full command suggestion.",
+    )];

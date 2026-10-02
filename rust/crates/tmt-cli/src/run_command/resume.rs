@@ -169,3 +169,28 @@ pub(super) fn settle_resume(
         }
     }
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "Specify a command, e.g. tmt run opus claude; no usable harness is remembered.",
+        &[";"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "forget it with tmt resume --forget {name}, or try once more with tmt resume --retry {name}",
+        &[", or", ""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "{message} Start fresh with: tmt run {name}",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "{name}'s remembered {harness} session looked gone when it was last resumed. Forget it with: tmt resume --forget {name}; try it once more with: tmt resume --retry {name}.",
+        &[";", "."],
+        &[],
+    ),
+];

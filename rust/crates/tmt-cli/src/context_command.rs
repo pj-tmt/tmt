@@ -127,3 +127,6 @@ pub(crate) fn unbound_text() -> io::Result<String> {
 
 #[cfg(test)]
 pub(crate) use presentation::hint_commands;
+
+#[cfg(test)]
+pub(crate) use presentation::PRINTED_HINTS as PRESENTATION_HINTS;

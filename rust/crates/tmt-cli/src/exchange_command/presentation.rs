@@ -237,3 +237,23 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
 fn write_exact(output: &mut impl Write, text: &str) -> io::Result<()> {
     writeln!(output, "{text}")
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "more with tmt x ls --after {after} --identity {}",
+        &[""],
+        &[("{after}", "1")],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "tmt reply {} --receipt {receipt} --message <text>",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "tmt reply {} --receipt {} --message <text>",
+        &[""],
+        &[],
+    ),
+];

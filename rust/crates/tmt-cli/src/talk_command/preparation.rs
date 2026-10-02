@@ -281,3 +281,18 @@ mod tests {
         );
     }
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "For a saved identity without an active pane, use `tmt talk <identity> <message> --inbox` for durable delivery.",
+        &["`"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "{message}\n\n<tmt-reply from=\"{}\">\ntmt reply {} --receipt {receipt} --message <text>\n</tmt-reply>\nSubmit your response with the command above. Chat output alone does not complete the request. After successful submission, show a brief summary; report submission errors.",
+        &["\n"],
+        &[],
+    ),
+];

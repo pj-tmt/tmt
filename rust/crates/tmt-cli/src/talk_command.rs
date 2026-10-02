@@ -618,3 +618,29 @@ fn warn_unattributed_record(record: &std::path::Path) {
         Some("delete it if its session is gone"),
     );
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "Inspect with 'tmt result {}' and 'tmt check {}' before deciding whether to retry.",
+        &["' and", "' before"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "Inspect with 'tmt result {}'. Do not resend solely because the observer ended.",
+        &["'."],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "do not resend; inspect it with tmt result {}",
+        &[""],
+        &[],
+    ),
+];
+
+#[cfg(test)]
+pub(crate) use preparation::PRINTED_HINTS as PREPARATION_HINTS;
+
+#[cfg(test)]
+pub(crate) use presentation::PRINTED_HINTS as PRESENTATION_HINTS;

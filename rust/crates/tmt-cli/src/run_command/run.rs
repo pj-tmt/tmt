@@ -559,3 +559,23 @@ fn finish(
         )
     })
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "'{name}' is both an identity and a registered command. Use `tmt run {name} {name}` to launch that identity, or `tmt run <new-name> {name}` for a new one.",
+        &["`", "`"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "prior runtime evidence is unknown; automatic delivery will remain unavailable. After this command exits, run `tmt run` again to establish runtime ownership.",
+        &["`"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "tmt: {} name: {name}; name this agent with tmt this <name>",
+        &[""],
+        &[],
+    ),
+];

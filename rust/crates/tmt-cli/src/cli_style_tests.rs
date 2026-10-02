@@ -145,3 +145,158 @@ fn printed_command_validation_rejects_the_reported_regressions() {
         parse(&argv[1..]).unwrap_or_else(|error| panic!("{command:?}: {error}"));
     }
 }
+
+mod hints;
+pub(crate) use hints::HintSpec;
+
+fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
+    vec![
+        ("answer_command.rs", crate::answer_command::PRINTED_HINTS),
+        ("appearance.rs", crate::appearance::PRINTED_HINTS),
+        ("binding_command.rs", crate::binding_command::PRINTED_HINTS),
+        (
+            "binding_command/presentation.rs",
+            crate::binding_command::PRESENTATION_HINTS,
+        ),
+        ("channel_command.rs", crate::channel_command::PRINTED_HINTS),
+        ("config_command.rs", crate::config_command::PRINTED_HINTS),
+        (
+            "context_command/presentation.rs",
+            crate::context_command::PRESENTATION_HINTS,
+        ),
+        ("driver_command.rs", crate::driver_command::PRINTED_HINTS),
+        (
+            "exchange_command/listen.rs",
+            crate::exchange_command::LISTEN_HINTS,
+        ),
+        (
+            "exchange_command/presentation.rs",
+            crate::exchange_command::PRESENTATION_HINTS,
+        ),
+        (
+            "extension_command.rs",
+            crate::extension_command::PRINTED_HINTS,
+        ),
+        (
+            "extension_install_command.rs",
+            crate::extension_install_command::PRINTED_HINTS,
+        ),
+        (
+            "extension_install_command/list_upgrade.rs",
+            crate::extension_install_command::LIST_UPGRADE_HINTS,
+        ),
+        (
+            "extension_install_command/skills.rs",
+            crate::extension_install_command::SKILLS_HINTS,
+        ),
+        (
+            "extension_install_command/upgrade_all.rs",
+            crate::extension_install_command::UPGRADE_ALL_HINTS,
+        ),
+        (
+            "guidance_command.rs",
+            crate::guidance_command::PRINTED_HINTS,
+        ),
+        (
+            "identity_command.rs",
+            crate::identity_command::PRINTED_HINTS,
+        ),
+        ("install_command.rs", crate::install_command::PRINTED_HINTS),
+        ("main.rs", crate::PRINTED_HINTS),
+        (
+            "native_upgrade_command.rs",
+            crate::native_upgrade_command::PRINTED_HINTS,
+        ),
+        (
+            "native_upgrade_command/extensions.rs",
+            crate::native_upgrade_command::EXTENSIONS_HINTS,
+        ),
+        ("parser.rs", crate::parser::PRINTED_HINTS),
+        (
+            "reply_notice_command.rs",
+            crate::reply_notice_command::PRINTED_HINTS,
+        ),
+        ("room_command.rs", crate::room_command::PRINTED_HINTS),
+        (
+            "room_command/dispatch.rs",
+            crate::room_command::DISPATCH_HINTS,
+        ),
+        ("run_command/channel.rs", crate::run_command::CHANNEL_HINTS),
+        ("run_command/resume.rs", crate::run_command::RESUME_HINTS),
+        ("run_command/run.rs", crate::run_command::RUN_HINTS),
+        ("setup_command.rs", crate::setup_command::PRINTED_HINTS),
+        (
+            "setup_command/guided.rs",
+            crate::setup_command::GUIDED_HINTS,
+        ),
+        (
+            "skill_refresh_command.rs",
+            crate::skill_refresh_command::PRINTED_HINTS,
+        ),
+        ("skill_reminder.rs", crate::skill_reminder::PRINTED_HINTS),
+        ("talk_command.rs", crate::talk_command::PRINTED_HINTS),
+        (
+            "talk_command/preparation.rs",
+            crate::talk_command::PREPARATION_HINTS,
+        ),
+        (
+            "talk_command/presentation.rs",
+            crate::talk_command::PRESENTATION_HINTS,
+        ),
+        (
+            "uninstall_command.rs",
+            crate::uninstall_command::PRINTED_HINTS,
+        ),
+    ]
+}
+
+#[test]
+fn printed_hint_templates_have_source_coverage() {
+    use std::collections::BTreeSet;
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let samples = hint_samples();
+    let mut paths = Vec::new();
+    hints::source_files(&root, &mut paths);
+    let mut failures = Vec::new();
+    for path in paths {
+        let relative = path.strip_prefix(&root).unwrap().to_str().unwrap();
+        let source = std::fs::read_to_string(&path).unwrap();
+        let templates = hints::literals(&source);
+        let registered = samples
+            .iter()
+            .find(|(owner, _)| *owner == relative)
+            .map(|(_, specs)| *specs)
+            .unwrap_or(&[]);
+        let expected: BTreeSet<String> = registered
+            .iter()
+            .map(|spec| spec.template.to_owned())
+            .collect();
+        for missing in templates.difference(&expected) {
+            failures.push(format!("{relative}: uncollected {missing:?}"));
+        }
+        for stale in expected.difference(&templates) {
+            failures.push(format!("{relative}: stale sample {stale:?}"));
+        }
+        for spec in registered {
+            match hints::commands(spec) {
+                Err(error) => failures.push(format!("{relative}: {error}")),
+                Ok(commands) => {
+                    for command in commands {
+                        let example = tmt_cli_style::help::ShownExample {
+                            note: String::new(),
+                            command,
+                        };
+                        if let Err(error) = example.argv().and_then(|argv| parse(&argv[1..])) {
+                            failures.push(format!("{relative}: {:?}: {error}", example.command));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "Printed hint source guard:\n{}",
+        failures.join("\n")
+    );
+}

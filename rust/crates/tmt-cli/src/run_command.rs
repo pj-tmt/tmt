@@ -426,3 +426,12 @@ mod tests {
         assert!(!failure_is_trustworthy(1, false), "hooks absent at launch");
     }
 }
+
+#[cfg(test)]
+pub(crate) use channel::PRINTED_HINTS as CHANNEL_HINTS;
+
+#[cfg(test)]
+pub(crate) use resume::PRINTED_HINTS as RESUME_HINTS;
+
+#[cfg(test)]
+pub(crate) use run::PRINTED_HINTS as RUN_HINTS;

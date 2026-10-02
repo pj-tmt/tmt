@@ -278,3 +278,23 @@ pub(crate) fn hint_commands() -> Vec<String> {
         })
         .collect()
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "Incoming X items: {count} unacknowledged; pull with tmt inbox --identity '{identity}' --json\n",
+        &["\n"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "TMT: this pane has no identity. If the user wants TMT messaging here, they can run: tmt name <name> (-s to save).",
+        &[" ("],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "tmt x{} --identity '{identity}' --json",
+        &[""],
+        &[("{}", "")],
+    ),
+];

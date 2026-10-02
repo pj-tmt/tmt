@@ -206,3 +206,23 @@ fn unchanged(product: Product, version: &str) -> Value {
         "version": version,
     })
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "Invalid extension upgrade plan; run tmt upgrade again.",
+        &[" again"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "tmt extension upgrade {name} --unpin",
+        &[""],
+        &[
+            ("{name}", "squad"),
+            ("{}", "squad"),
+            ("{SUGGESTED_EXTENSION}", "squad"),
+        ],
+    ),
+    crate::cli_style_tests::HintSpec::core("tmt upgrade --yes", &[""], &[]),
+];

@@ -604,3 +604,17 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
     crate::skill_reminder::present(outcome, mode, true);
     Ok(0)
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core("Use: tmt add {name} {pane}", &[""], &[]),
+    crate::cli_style_tests::HintSpec::core(
+        "`tmt ls --here` needs a tmux pane, and this is not one.",
+        &["`"],
+        &[],
+    ),
+];
+
+#[cfg(test)]
+pub(crate) use presentation::PRINTED_HINTS as PRESENTATION_HINTS;

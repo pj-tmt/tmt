@@ -277,3 +277,14 @@ pub fn execute(request: DriverRequest, mode: OutputMode) -> io::Result<u8> {
         Err(error) => error.publish(mode),
     }
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "Approved host driver {name}. Remove it with: tmt driver rm {name}",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core("tmt driver install {again}", &[""], &[]),
+];

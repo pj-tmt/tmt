@@ -146,3 +146,19 @@ pub(super) fn inbox_hints(correlation: &Correlation) -> Vec<String> {
     }
     hints
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "recipient inspection: tmt x show {} --incoming --identity '{}' --json",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "recipient pull: tmt inbox --identity '{}' --json",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core("retrieve it later with tmt result {}", &[""], &[]),
+];

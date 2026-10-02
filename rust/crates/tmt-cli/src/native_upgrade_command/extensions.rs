@@ -129,3 +129,14 @@ fn phase_failure(error: io::Error) -> Value {
 
 #[cfg(test)]
 mod tests;
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "The installed executable could not complete extension upgrades: {error} Run tmt upgrade again; no fallback to the previous executable was attempted.",
+        &[" again"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core("tmt upgrade", &[""], &[]),
+];

@@ -259,3 +259,35 @@ fn exists(path: &Path) -> io::Result<bool> {
         Err(error) => Err(error),
     }
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "tmt extension rm {name} --yes --prefix {}",
+        &[""],
+        &[
+            ("{name}", "squad"),
+            ("{SUGGESTED_EXTENSION}", "squad"),
+            ("{}", "/tmp/hint-prefix"),
+        ],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "{name} is not installed. Install it with: tmt extension install {name}",
+        &[""],
+        &[
+            ("{name}", "squad"),
+            ("{}", "squad"),
+            ("{SUGGESTED_EXTENSION}", "squad"),
+        ],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "{name} {version} is pinned; nothing changed. Clear the pin with: tmt extension upgrade {name} --unpin",
+        &[""],
+        &[
+            ("{name}", "squad"),
+            ("{}", "squad"),
+            ("{SUGGESTED_EXTENSION}", "squad"),
+        ],
+    ),
+];

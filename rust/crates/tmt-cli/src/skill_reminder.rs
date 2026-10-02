@@ -200,3 +200,23 @@ mod tests {
         write_hint(&mut Broken, tmt_cli_style::Terminal::PLAIN, "optional");
     }
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "receive work for this saved identity with tmt x listen --identity <name>",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "run tmt install for the intended provider; inspect conflicts before using --force, then reload the agent",
+        &[" for the intended provider"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "this temporary identity ends with its pane; keep it with tmt identity create <name>",
+        &[""],
+        &[],
+    ),
+];

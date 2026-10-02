@@ -776,3 +776,25 @@ fn duration(value: &str) -> Result<f64, String> {
         "Invalid time format: {value}. Use number (seconds) or number with ms/s/m suffix."
     ))
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "The command must not start with '-'. TMT options go before the name: tmt run -s Alice <command>.",
+        &["."],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "Usage: name who is waiting (tmt answer <from> <text>) or choose --request <id>.",
+        &[")"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "Use `tmt run --resume <name>` to resume, or pass the command's own flags after the name; do not combine both forms.",
+        &["`"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core("tmt help", &[""], &[]),
+    crate::cli_style_tests::HintSpec::core("tmt help {}", &[""], &[("{}", "talk")]),
+];

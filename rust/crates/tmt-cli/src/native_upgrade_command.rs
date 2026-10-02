@@ -380,3 +380,29 @@ fn retry_hint(report: &UpgradeReport) -> String {
 #[cfg(test)]
 #[path = "native_upgrade_command_tests.rs"]
 mod tests;
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "Run the current managed tmt upgrade to retry.",
+        &[" to retry"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::skipped(
+        "Run the current managed tmt with upgrade --to {version} to retry without clearing the pin.",
+        "Executable or option reference in prose, not a full command suggestion.",
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "reload or restart your agent to use updated guidance; existing conversations can read tmt learn --skill",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::skipped(
+        "tmt {} at {}",
+        "Installed-executable summary, not a command suggestion.",
+    ),
+];
+
+#[cfg(test)]
+pub(crate) use extensions::PRINTED_HINTS as EXTENSIONS_HINTS;

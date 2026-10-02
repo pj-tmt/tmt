@@ -129,3 +129,13 @@ pub fn execute(mode: OutputMode) -> io::Result<u8> {
     }
     Ok(if failure.is_some() { 1 } else { 0 })
 }
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "reload or restart your agent to use the current skill; existing conversations can read tmt learn --skill",
+        &[""],
+        &[],
+    ),
+];
