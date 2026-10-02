@@ -264,3 +264,17 @@ mod tests {
         );
     }
 }
+
+/// Samples from the same formatter that publishes human and JSON inspect commands.
+#[cfg(test)]
+pub(crate) fn hint_commands() -> Vec<String> {
+    [false, true]
+        .into_iter()
+        .map(|incoming| {
+            requests(1, "1071f0fc-45f2-4ebc-94ed-05d98e204dcd", incoming)["inspect"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect()
+}
