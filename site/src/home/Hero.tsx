@@ -2,7 +2,7 @@ import { Inline } from "../components/Inline";
 import { LocalLink } from "../components/LocalLink";
 import { Tag } from "../components/marks";
 import { useStrings } from "../lang/useStrings";
-import { BoardScene } from "./BoardScene";
+import { HandoffScene } from "./HandoffScene";
 
 export function Hero() {
   const { home } = useStrings();
@@ -11,6 +11,8 @@ export function Hero() {
     { name: "Claude Code" },
     { name: "Codex" },
     { name: "tmux" },
+    { name: "Herdr", note: home.planned },
+    { name: "cmux", note: home.planned },
     { name: home.yourHarness, note: home.planned },
     { name: home.yourServer, note: home.designing },
   ];
@@ -24,6 +26,9 @@ export function Hero() {
       </h1>
       <div className="grid grid-cols-1 items-center gap-8 md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
         <div className="min-w-0">
+          <p className="mb-3 font-mono text-[clamp(18px,2.2vw,22px)] leading-snug font-semibold text-balance">
+            {home.tagline}
+          </p>
           <p className="mb-3.5 text-[17px] leading-normal sm:text-[18px]">{home.lede}</p>
           <p className="mt-5 mb-0 font-mono text-sm">
             <LocalLink
@@ -38,7 +43,7 @@ export function Hero() {
             </LocalLink>
           </p>
         </div>
-        <BoardScene />
+        <HandoffScene />
       </div>
       <ul
         aria-label={home.worksWith}

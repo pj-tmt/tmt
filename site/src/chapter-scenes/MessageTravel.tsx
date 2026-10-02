@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
 import { useStrings } from "../lang/useStrings";
+import { Pane, cmd, dim, ok, warn, type Row } from "../scenes/Pane";
 import { useFrames } from "../scenes/useFrames";
 
 // One request, step by step: lead talks, tmt stores and delivers, builder
@@ -8,18 +8,6 @@ import { useFrames } from "../scenes/useFrames";
 // under reduced motion.
 const STEPS = 4;
 const REST = 3;
-
-type Row = { from: number; node: ReactNode };
-
-const cmd = (text: string) => (
-  <>
-    <span className="text-t-accent">$ </span>
-    {text}
-  </>
-);
-const dim = (text: string) => <span className="text-t-dim">{text}</span>;
-const ok = (text: string) => <span className="text-t-working">{text}</span>;
-const warn = (text: string) => <span className="text-t-waiting">{text}</span>;
 
 const leadRows: Row[] = [
   { from: 0, node: cmd('tmt talk builder "rotate tokens"') },
@@ -39,41 +27,6 @@ const builderRows: Row[] = [
   { from: 2, node: cmd('tmt reply req_9ba4… --receipt v2_… --message "Done"') },
   { from: 3, node: ok("Submitted response.") },
 ];
-
-function Pane({
-  name,
-  tag,
-  tone,
-  rows,
-  step,
-}: {
-  name: string;
-  tag: string;
-  tone: string;
-  rows: Row[];
-  step: number;
-}) {
-  return (
-    <div className="min-w-0 bg-term p-3 font-mono text-[12.5px] leading-[1.55] text-t-text">
-      <div className="mb-2 flex justify-between text-t-muted">
-        <b className="text-t-text">{name}</b>
-        <span className={tone}>{tag}</span>
-      </div>
-      <div className="min-h-[7.5em]">
-        {rows.map((row, index) => (
-          <div
-            key={index}
-            className={`break-words transition-opacity duration-300 motion-reduce:transition-none ${
-              row.from <= step ? "opacity-100" : "opacity-0"
-            }`}
-          >
-            {row.node}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 // Where the request sits over the three panes at steps 0 to 2; the reply step hides it.
 const PACKET = ["16%", "50%", "84%"];
