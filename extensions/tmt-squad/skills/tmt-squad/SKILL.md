@@ -213,6 +213,21 @@ tmt squad rm <name>                           # leaves the squad; the agent keep
   given a receipt). `tmt squad talk`, `reply` and `replies` were removed and
   only refuse.
 
+## Keep your notebook current
+
+The notes pane shows the squad lead's own saved-identity notebook, read-only.
+There is no separate squad notebook. Find your notebook with
+`tmt notes path --identity <lead>` and edit that file with ordinary filesystem
+tools. The board never creates it: a saved lead without a notebook shows
+`(no notes yet)`, while a temporary lead shows the
+`NOTEBOOK_SAVED_IDENTITY_REQUIRED` failure text.
+
+Keep a short **Current state** section at the top of your own notebook, with
+**Now / Next / Blocked** in a few lines, because the user reads it on the board.
+Update those lines when the working state changes; keep history below them.
+The per-member `note` field remains your one-line summary for that member;
+user annotations remain requests about a row.
+
 ## Annotations from the user
 
 The user may annotate a row from the board. It arrives as an ordinary TMT
