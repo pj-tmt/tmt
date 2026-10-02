@@ -108,10 +108,12 @@ fn yes_approves_after_showing_what_the_driver_declares() {
     let stdout = text(&output.stdout);
     let canonical = fs::canonicalize(&driver).unwrap();
     for line in [
-        "Host driver fake 0.0.0-test (protocol 1)".to_owned(),
-        format!("  Executable: {}", canonical.display()),
-        "  Operations: caller, server, snapshot, publish, clear".to_owned(),
-        "  Reads:      FAKE_PANE_ID".to_owned(),
+        "Host driver fake".to_owned(),
+        "  version     0.0.0-test".to_owned(),
+        "  protocol    1".to_owned(),
+        format!("  executable  {}", canonical.display()),
+        "  operations  caller, server, snapshot, publish, clear".to_owned(),
+        "  reads       FAKE_PANE_ID".to_owned(),
         "TMT will run this program for these operations whenever it works with fake panes."
             .to_owned(),
         "Approved host driver fake. Remove it with: tmt driver rm fake".to_owned(),
@@ -137,7 +139,7 @@ fn without_yes_and_a_terminal_nothing_is_approved() {
             .contains("Approving host driver fake requires explicit --yes; nothing changed")
     );
     // The user still sees what they would approve.
-    assert!(text(&output.stdout).contains("Host driver fake 0.0.0-test (protocol 1)"));
+    assert!(text(&output.stdout).contains("  sha256      "));
     let (code, refused) = fixture.json(&["driver", "install", path(&driver), "--json"]);
     assert_eq!(code, 1);
     assert_eq!(refused["error"]["code"], "DRIVER_CONSENT_REQUIRED");
@@ -214,16 +216,24 @@ fn ls_shows_a_changed_or_missing_driver_with_its_fix() {
         })
         .collect();
     assert_eq!(states, [("changed", "changed"), ("missing", "missing")]);
+    // One section, a state mark per row, and re-approval as the row's action.
     let human = text(&fixture.tmt(&["driver", "ls"]).stdout);
-    for driver in [&changed, &missing] {
-        let fix = format!(
-            "  Approve it again with: tmt driver install {}",
-            fs::canonicalize(driver.parent().unwrap())
-                .unwrap()
-                .join("tmt-driver")
-                .display()
+    let lines: Vec<&str> = human.lines().collect();
+    assert_eq!(lines[0], "HOST DRIVERS 2", "{human}");
+    for (line, (mark, state, driver)) in lines[1..]
+        .iter()
+        .zip([("✗", "changed", &changed), ("○", "missing", &missing)])
+    {
+        let canonical = fs::canonicalize(driver.parent().unwrap())
+            .unwrap()
+            .join("tmt-driver");
+        let words: Vec<&str> = line.split_whitespace().collect();
+        assert_eq!(words[0], mark, "{line}");
+        assert_eq!(words[3], state, "{line}");
+        assert!(
+            line.ends_with(&format!("tmt driver install {}", canonical.display())),
+            "{line}"
         );
-        assert!(human.contains(&fix), "missing {fix:?} in:\n{human}");
     }
 }
 
@@ -250,4 +260,19 @@ fn rm_withdraws_an_approval_without_asking() {
     let (code, missing) = fixture.json(&["driver", "rm", "fake", "--json"]);
     assert_eq!(code, 1);
     assert_eq!(missing["error"]["code"], "DRIVER_NOT_FOUND");
+}
+
+/// Approval waits past the protocol's one-second `capabilities` bound, so a
+/// driver slow to start on a busy machine isn't refused as "not a driver".
+#[test]
+fn a_driver_slow_to_start_is_still_approved() {
+    let fixture = Fixture::new("slow");
+    let driver = fixture.driver("slow", &capabilities("slow", "slow-", "s{n}"));
+    fs::write(
+        &driver,
+        "#!/bin/sh\nsleep 1.5\ncat \"$(dirname \"$0\")/capabilities\"\n",
+    )
+    .unwrap();
+    let output = fixture.tmt(&["driver", "install", path(&driver), "--yes"]);
+    assert!(output.status.success(), "{output:?}");
 }

@@ -41,8 +41,8 @@ Read the numbers as tokens, not cost. They describe completed requests, not live
 Every other driver will be its own package with its own version, installed and updated like an extension. Anyone can publish one: a driver is a program named `tmt-driver-<name>` that answers tmt's driver protocol, and the built-in drivers sit behind the same interface. A driver you install can also take over from a built-in one, for example a Claude Code driver with extra features. `tmt driver ls` then always shows which driver handles which program.
 
 <Cmd>{`
-$ tmt driver install herdr     # asks before changing anything
-$ tmt driver ls                # every driver, built in or installed, and what it handles
+$ tmt driver install ./tmt-driver-herdr   # shows what it will run, then asks
+$ tmt driver ls                          # approved host drivers: ok, changed or missing
 $ tmt driver rm herdr
 `}</Cmd>
 

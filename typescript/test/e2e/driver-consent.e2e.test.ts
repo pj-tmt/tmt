@@ -59,7 +59,8 @@ describe('host driver consent on a real terminal', () => {
     await withE2EFixture(async (fixture) => {
       const driver = writeDriver(fixture);
       const screen = await answer(fixture, driver, reply);
-      expect(screen).toContain('Host driver fake 0.0.0-test (protocol 1)');
+      expect(screen).toContain('Host driver fake');
+      expect(screen).toContain('version     0.0.0-test');
       expect(screen).toContain('Host driver fake was not approved; nothing changed.');
       const listed = await fixture.runJsonCli(['driver', 'ls']);
       expect(listed.json).toEqual({ drivers: [] });
