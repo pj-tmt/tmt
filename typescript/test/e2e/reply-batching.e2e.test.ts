@@ -183,7 +183,7 @@ async function terminal(fixture: E2EFixture, pane: string) {
   }
 }
 
-describe.sequential('reply notice batching and real key debounce', () => {
+describe('reply notice batching and real key debounce', { concurrent: false }, () => {
   it('uses one fixed default window and one paste for three senders across reply processes', async () => {
     await withE2EFixture(
       async (fixture) => {
