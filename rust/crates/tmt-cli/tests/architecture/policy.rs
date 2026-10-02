@@ -237,6 +237,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "sha2",
         ],
         "tmt-remote" => &[
+            // Strict unpadded base64url for contract binary fields (#1039).
+            "base64",
             "ed25519-dalek",
             "hmac",
             "sha2",

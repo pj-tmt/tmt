@@ -52,18 +52,6 @@ fn independent_python_enrollment_and_possession_vectors() {
     let fixtures = fixtures();
     for v in fixtures["enrollments"].as_array().unwrap() {
         let i = &v["input"];
-        let agents: Vec<_> = i["agentIds"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|s| s.as_str().unwrap())
-            .collect();
-        let scopes: Vec<_> = i["scopes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|s| s.as_str().unwrap())
-            .collect();
         let value = Enrollment {
             machine_id: text(i, "machineId"),
             window_id: text(i, "windowId"),
@@ -74,37 +62,8 @@ fn independent_python_enrollment_and_possession_vectors() {
             origin: text(i, "origin"),
             name: text(i, "name"),
             public_key: &bytes(text(i, "publicKey")).try_into().unwrap(),
-            agent_ids: &agents,
-            scopes: &scopes,
         };
         expected(v, &canonical::enrollment(&value).unwrap());
-        if v["name"] == "addon" {
-            // Independent Python oracle hashes coordinated with #691; no product encoder oracle.
-            for (id, digest) in [
-                (
-                    "00000000-0000-1000-8000-000000000008",
-                    "3b04e045f03e8eb236b8f8518105449c3f04b586dbbbffc0b7563627e0849382",
-                ),
-                (
-                    "00000000-0000-5000-8000-000000000008",
-                    "79bb1944f9db766ae1880ed97b064f477a8430290c2df60d82b41e6d1618db40",
-                ),
-                (
-                    "00000000-0000-0000-0000-000000000001",
-                    "150a2d2f244ad3225c33905567329e9ed5500c227e31d337747243c48f36cbfe",
-                ),
-            ] {
-                let ids = [id];
-                let value = Enrollment {
-                    agent_ids: &ids,
-                    ..value
-                };
-                assert_eq!(
-                    Sha256::digest(canonical::enrollment(&value).unwrap()).as_slice(),
-                    bytes(digest)
-                );
-            }
-        }
     }
     let v = &fixtures["possession"];
     expected(
@@ -131,6 +90,7 @@ fn reject_invalid_envelope_values_without_normalizing() {
         ("sessionId", "new"),
         ("operation", ""),
         ("origin", "http://localhost"),
+        ("origin", "http://127.0.0.1:0"),
         ("origin", "chrome-extension://short"),
     ] {
         let mut changed = original.clone();
@@ -176,7 +136,14 @@ fn exact_payload_and_unicode_are_not_reserialized_or_normalized() {
     assert!(String::from_utf8(invalid_utf8).is_err());
 }
 #[test]
-fn reject_bad_enrollment_names_lists_and_origin() {
+fn door_origin_is_an_envelope_origin() {
+    let fixtures = fixtures();
+    let mut value = input(&fixtures["envelopes"][0]["input"], b"{}");
+    value.origin = "http://127.0.0.1:7341";
+    assert!(canonical::envelope(&value).is_ok());
+}
+#[test]
+fn reject_bad_enrollment_names_kinds_and_origins() {
     let id = "00000000-0000-4000-8000-000000000001";
     let value = Enrollment {
         machine_id: id,
@@ -188,8 +155,6 @@ fn reject_bad_enrollment_names_lists_and_origin() {
         origin: "cli",
         name: "CLI",
         public_key: &[2; 32],
-        agent_ids: &[],
-        scopes: &[],
     };
     assert!(canonical::enrollment(&value).is_ok());
     for name in [
@@ -205,79 +170,125 @@ fn reject_bad_enrollment_names_lists_and_origin() {
             "{name:?}"
         );
     }
-    for scopes in [
-        &["talk.hold", "agents.read"][..],
-        &["status.read", "status.read"],
-        &["admin"],
-    ] {
-        assert!(canonical::enrollment(&Enrollment { scopes, ..value }).is_err());
-    }
     assert!(
         canonical::enrollment(&Enrollment {
-            agent_ids: &[id, id],
-            ..value
-        })
-        .is_err()
-    );
-    let distinct_ids: Vec<_> = (1..=257)
-        .map(|n| format!("00000000-0000-4000-8000-{n:012x}"))
-        .collect();
-    let agent_ids: Vec<_> = distinct_ids.iter().map(String::as_str).collect();
-    assert!(
-        canonical::enrollment(&Enrollment {
-            agent_ids: &agent_ids[..256],
+            name: &"é".repeat(32),
             ..value
         })
         .is_ok()
     );
-    assert!(
-        canonical::enrollment(&Enrollment {
-            agent_ids: &agent_ids,
-            ..value
-        })
-        .is_err()
-    );
-    for good in [
-        "00000000-0000-1000-8000-000000000008",
-        "00000000-0000-5000-8000-000000000008",
-        "00000000-0000-0000-0000-000000000001",
+    let addon = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let door = "http://127.0.0.1:7341";
+    // Each kind accepts exactly its own origin form.
+    for (kind, origin, valid) in [
+        ("cli", "cli", true),
+        ("addon", addon, true),
+        ("browser", door, true),
+        ("browser", "http://127.0.0.1:65535", true),
+        ("browser", "http://127.0.0.1:1", true),
+        ("cli", addon, false),
+        ("cli", door, false),
+        ("addon", "cli", false),
+        ("addon", door, false),
+        ("browser", "cli", false),
+        ("browser", addon, false),
+        ("browser", "http://127.0.0.1:0", false),
+        ("browser", "http://127.0.0.1:07341", false),
+        ("browser", "http://127.0.0.1:65536", false),
+        ("browser", "http://127.0.0.1", false),
+        ("browser", "http://127.0.0.1:7341/", false),
+        ("browser", "http://localhost:7341", false),
+        ("browser", "https://127.0.0.1:7341", false),
+        ("browser", "null", false),
+        ("device", "cli", false),
     ] {
-        assert!(
+        assert_eq!(
             canonical::enrollment(&Enrollment {
-                agent_ids: &[good],
+                kind,
+                origin,
+                name: "é🚀",
                 ..value
             })
-            .is_ok()
+            .is_ok(),
+            valid,
+            "{kind} {origin}"
         );
     }
-    for bad in [
-        "00000000-0000-0000-0000-000000000000",
-        "00000000-0000-1000-8000-00000000000A",
-        "00000000000010008000000000000001",
-        "00000000-0000-1000-8000-000000000001\n",
+}
+#[test]
+fn independent_python_pairing_code_and_fingerprint_vectors() {
+    let fixtures = fixtures();
+    for v in fixtures["pairingCodes"].as_array().unwrap() {
+        let code: [u8; 16] = bytes(text(v, "code")).try_into().unwrap();
+        let shown = text(v, "text");
+        assert_eq!(canonical::pairing_code_text(&code), shown);
+        assert_eq!(canonical::pairing_code(shown).unwrap(), code);
+        // Only ASCII spaces and hyphens are removed before decoding.
+        let compact: String = shown.chars().filter(|c| *c != '-').collect();
+        assert_eq!(canonical::pairing_code(&compact).unwrap(), code);
+        assert_eq!(
+            canonical::pairing_code(&shown.replace('-', " ")).unwrap(),
+            code
+        );
+    }
+    let valid = text(&fixtures["pairingCodes"][0], "text");
+    let compact: String = valid.chars().filter(|c| *c != '-').collect();
+    for invalid in [
+        compact.to_lowercase(),
+        compact.replace('A', "1"),
+        compact.replace('A', "="),
+        format!("{compact}A"),
+        compact[..25].to_owned(),
+        format!("{}\t{}", &compact[..4], &compact[4..]),
+        format!("{}_{}", &compact[..4], &compact[4..]),
+        // Nonzero unused bits: the last symbol may only encode two data bits.
+        format!("{}5", &compact[..25]),
     ] {
-        assert!(
-            canonical::enrollment(&Enrollment {
-                agent_ids: &[bad],
-                ..value
-            })
-            .is_err()
+        assert!(canonical::pairing_code(&invalid).is_err(), "{invalid}");
+    }
+    assert_eq!(
+        fixtures["wordlist"]["sha256"],
+        "2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda"
+    );
+    for v in fixtures["fingerprints"].as_array().unwrap() {
+        let key: [u8; 32] = bytes(text(v, "publicKey")).try_into().unwrap();
+        let indexes: Vec<u16> = v["indexes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i.as_u64().unwrap() as u16)
+            .collect();
+        let words: Vec<&str> = v["words"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|w| w.as_str().unwrap())
+            .collect();
+        assert_eq!(
+            canonical::fingerprint_indexes(&key).unwrap().to_vec(),
+            indexes
+        );
+        assert_eq!(canonical::fingerprint_words(&key).unwrap().to_vec(), words);
+    }
+}
+#[test]
+fn independent_python_base64url_vectors_and_strict_refusals() {
+    let fixtures = fixtures();
+    for v in fixtures["base64url"]["valid"].as_array().unwrap() {
+        let raw = bytes(text(v, "hex"));
+        assert_eq!(canonical::base64url(&raw), text(v, "text"));
+        let length = v["length"].as_u64().unwrap() as usize;
+        assert_eq!(
+            canonical::base64url_bytes(text(v, "text"), length).unwrap(),
+            raw
         );
     }
-    assert!(
-        canonical::enrollment(&Enrollment {
-            kind: "addon",
-            ..value
-        })
-        .is_err()
-    );
-    assert!(
-        canonical::enrollment(&Enrollment {
-            kind: "addon",
-            origin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            name: "é🚀",
-            ..value
-        })
-        .is_ok()
-    );
+    for v in fixtures["base64url"]["invalid"].as_array().unwrap() {
+        let length = v["length"].as_u64().unwrap() as usize;
+        assert!(
+            canonical::base64url_bytes(text(v, "text"), length).is_err(),
+            "{}",
+            v["reason"]
+        );
+    }
 }

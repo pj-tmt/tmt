@@ -3520,16 +3520,23 @@ no grant/journal/core DB is created. The foreground door has no default
 deadline; it runs until interrupted. Colab keeps its own copy of the door
 until its routes mount on the remote door.
 
-`canonical` owns pure decoded-value local-v1 envelope, enrollment and possession
-framing; `crypto` owns strict Ed25519 verification, full HMAC-SHA256 verification
-and pure receipt-key/proof derivation. Neither module has I/O, clock, storage or
-CoreClient access, and neither is wired into the deny-all door. Referenced agent
-IDs use canonical non-nil UUID syntax independently of core; remote-generated IDs
-remain UUIDv4. Byte construction and valid signatures establish no authority.
+`canonical` owns pure decoded-value local-v1 envelope framing and the
+`tmt-device-pair-v1` device enrollment and possession framing (kinds `addon`,
+`browser` with the door's exact loopback origin, and `cli`; the device proposes
+no agents, scopes, mode or expiry), the pairing-code text codec (26 base32
+symbols, separators limited to ASCII spaces and hyphens) and the four-word key
+fingerprint over the pinned BIP-39 English list in
+`extensions/tmt-remote/rust/tmt-remote/assets/bip39-english.txt`. `crypto` owns strict Ed25519
+verification, full HMAC-SHA256 verification and pure `K_response`/`serverProof`
+derivation. Neither module has I/O, clock, storage or CoreClient access, and
+neither is wired into the deny-all door. Remote-generated IDs remain UUIDv4.
+Byte construction and valid signatures establish no authority.
 Rust tests consume the independent Python canonical fixtures read-only; Rust-owned
-RFC/Python/WebCrypto vectors exercise cryptographic validity separately. The only
-new production dependencies are the contract's pinned Ed25519 and HMAC primitives,
-with the existing pinned SHA-256 dependency. Real Chrome MV3 security and browser
+RFC/Python/WebCrypto vectors exercise cryptographic validity separately. The codec
+dependencies are the contract's pinned Ed25519 and HMAC primitives, the existing
+pinned SHA-256 dependency and the workspace `base64` engine configured for strict
+unpadded base64url (no padding, no trailing bits), whose refusals have shared
+oracle vectors. Real Chrome MV3 security and browser
 interoperability remain later gates; local Node conformance does not replace them.
 
 [`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns the proposed
@@ -3538,8 +3545,8 @@ the admitted operations, the extension channel API (device context, route mounti
 opaque relay, operations, agent status) and backends/deploy. Extensions such as colab
 are apps on remote and consume that API instead of shipping their own door, sign-in,
 pairing or backends. Pairing/authentication/log/SDK behavior remains proposed until
-its implementation slices land; the `canonical` builders below still follow the
-superseded M1 enrollment layout and are replaced by the first implementation slice.
+its implementation slices land; the `canonical` and `remote-client` builders below
+follow the channel contract's device enrollment, receipt-proof and fingerprint rules.
 `firestore` and `cloudflare` are not permitted until their edge admission and
 encryption profile are specified. Core never owns a listener or remote state. Official
 product/release registration is deferred. Its private component owner excludes
@@ -3547,10 +3554,11 @@ remote versions from real-product releases; cargo-dist excludes this pilot binar
 For shell ownership, see the [browser add-on shell](#browser-add-on-shell).
 
 The private [`remote-client`](extensions/tmt-remote/typescript/remote-client/README.md)
-TypeScript module owns decoded-value envelope, enrollment and possession signing-byte
-builders and independent exact-byte/SHA-256 fixtures. Enrollment agent references follow
-core canonical non-nil UUID syntax; remote-generated IDs remain UUIDv4, as defined
-by the client contract. Syntax validation establishes neither identity existence nor authority.
+TypeScript module owns decoded-value envelope, device enrollment and possession
+signing-byte builders, the `K_response`/`serverProof` HMAC inputs, pairing-code
+decoding and fingerprint indexes, with independent exact-byte/SHA-256 fixtures
+shared with the Rust tests. Remote-generated IDs remain UUIDv4, as defined by the
+channel contract. Syntax validation establishes no authority.
 It uses standard UTF-8 and WebCrypto SHA-256 primitives and runs byte conformance in the existing Code
 quality job: the independent Python oracle must pass before the workspace-pinned
 Vitest suite runs. It implements no wire decoder, signing, key persistence, transport,

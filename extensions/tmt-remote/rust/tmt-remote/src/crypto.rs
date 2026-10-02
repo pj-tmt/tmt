@@ -33,23 +33,24 @@ pub fn verify_mac(key: &[u8], message: &[u8], tag: &[u8]) -> Result<()> {
 pub fn enrollment_mac(code: &[u8; 16], enrollment: &[u8]) -> [u8; 32] {
     mac(code, enrollment)
 }
-/// Derivation only: does not issue an offer, receipt, grant or reusable enrollment token.
-pub fn receipt_key(code: &[u8; 16], enrollment: &[u8]) -> Result<[u8; 32]> {
+/// `K_response`; derivation only, never a reusable enrollment token.
+pub fn response_key(code: &[u8; 16], enrollment: &[u8]) -> Result<[u8; 32]> {
     Ok(mac(
         code,
-        &framed(&[b"tmt-local-pair-response-key-v1", enrollment])?,
+        &framed(&[b"tmt-device-pair-response-key-v1", enrollment])?,
     ))
 }
-pub fn receipt_proof(key: &[u8; 32], exact_receipt: &[u8]) -> Result<[u8; 32]> {
+/// `serverProof` over the exact receipt JSON bytes.
+pub fn server_proof(key: &[u8; 32], exact_receipt: &[u8]) -> Result<[u8; 32]> {
     Ok(mac(
         key,
-        &framed(&[b"tmt-local-pair-response-v1", exact_receipt])?,
+        &framed(&[b"tmt-device-pair-response-v1", exact_receipt])?,
     ))
 }
-pub fn verify_receipt(key: &[u8; 32], exact_receipt: &[u8], proof: &[u8]) -> Result<()> {
+pub fn verify_server_proof(key: &[u8; 32], exact_receipt: &[u8], proof: &[u8]) -> Result<()> {
     verify_mac(
         key,
-        &framed(&[b"tmt-local-pair-response-v1", exact_receipt])?,
+        &framed(&[b"tmt-device-pair-response-v1", exact_receipt])?,
         proof,
     )
 }

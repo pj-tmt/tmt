@@ -633,13 +633,16 @@ actual request still requires its proof/signature.
 
 ## Current implementation and migration
 
-Implemented today: a foreground deny-all door, pure `local-v1` canonical envelope, enrollment and
-possession builders, strict Ed25519/HMAC verification and receipt-key derivation in Rust, and the
-matching TypeScript byte builders with independent fixtures. Those builders and fixtures follow the
-superseded M1 enrollment layout (`tmt-local-pair-v1` labels, client-proposed agents/scopes and
-`hold`-only mode). The first implementation slice replaces them with the enrollment, receipt and
-grant fields above and regenerates the fixtures from the independent oracle. Envelope bytes are
-unchanged.
+Implemented today: a foreground deny-all door, pure `local-v1` canonical envelope framing,
+`tmt-device-pair-v1` enrollment and possession builders, pairing-code text decoding, four-word
+fingerprints over the pinned list (bitcoin/bips `ce1862ac` `bip-0039/english.txt`, SHA-256
+`2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda`, committed as
+`extensions/tmt-remote/rust/tmt-remote/assets/bip39-english.txt`), strict Ed25519/HMAC
+verification and `K_response`/`serverProof` derivation in Rust, and the matching TypeScript
+builders. Their fixtures
+are regenerated from the independent oracle (#1039); the superseded M1 enrollment vectors are
+removed and envelope bytes are unchanged. Grants, receipts and the pairing ceremony are not yet
+implemented.
 
 Colab's working loopback door, sign-in and sync transport code relocates into `tmt-remote` as the
 local door, device sign-in and relay where it meets this contract, rather than being rewritten.

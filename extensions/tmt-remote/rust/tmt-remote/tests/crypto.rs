@@ -112,7 +112,7 @@ fn rfc4231_full_hmac_and_wrong_or_truncated_tags() {
     }
 }
 #[test]
-fn independent_python_receipt_derivation_and_domain_separation() {
+fn independent_python_server_proof_derivation_and_domain_separation() {
     let v: Value = serde_json::from_str(include_str!("fixtures/mac-vectors.json")).unwrap();
     let field = |name: &str| bytes(v[name].as_str().unwrap());
     let code = field("code").try_into().unwrap();
@@ -120,17 +120,17 @@ fn independent_python_receipt_derivation_and_domain_separation() {
     let receipt = field("receipt");
     let mac = crypto::enrollment_mac(&code, &enrollment);
     assert_eq!(mac.as_slice(), field("enrollmentMac"));
-    let key = crypto::receipt_key(&code, &enrollment).unwrap();
-    assert_eq!(key.as_slice(), field("receiptKey"));
-    let proof = crypto::receipt_proof(&key, &receipt).unwrap();
-    assert_eq!(proof.as_slice(), field("receiptProof"));
-    assert!(crypto::verify_receipt(&key, &receipt, &proof).is_ok());
-    assert!(crypto::verify_receipt(&key, b"{}", &proof).is_err());
-    assert!(crypto::verify_receipt(&key, &receipt, &proof[..31]).is_err());
-    assert_ne!(key, crypto::receipt_key(&[99; 16], &enrollment).unwrap());
+    let key = crypto::response_key(&code, &enrollment).unwrap();
+    assert_eq!(key.as_slice(), field("responseKey"));
+    let proof = crypto::server_proof(&key, &receipt).unwrap();
+    assert_eq!(proof.as_slice(), field("serverProof"));
+    assert!(crypto::verify_server_proof(&key, &receipt, &proof).is_ok());
+    assert!(crypto::verify_server_proof(&key, b"{}", &proof).is_err());
+    assert!(crypto::verify_server_proof(&key, &receipt, &proof[..31]).is_err());
+    assert_ne!(key, crypto::response_key(&[99; 16], &enrollment).unwrap());
     let mut changed = enrollment.clone();
     changed[0] ^= 1;
-    assert_ne!(key, crypto::receipt_key(&code, &changed).unwrap());
+    assert_ne!(key, crypto::response_key(&code, &changed).unwrap());
     assert_ne!(proof, crypto::mac(&key, &receipt));
     assert_ne!(key, mac);
     let possession = canonical::possession(&enrollment, &mac).unwrap();

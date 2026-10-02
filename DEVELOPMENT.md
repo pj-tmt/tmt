@@ -2091,8 +2091,10 @@ node typescript/scripts/release-please-config.mjs --check
 ```
 
 Pure byte/crypto conformance runs with the remote Rust tests above, including
-shared independent canonical vectors, strict Ed25519 refusals, full HMAC tags and
-receipt domain separation. Regenerate/check only Rust-owned crypto fixtures with:
+shared independent canonical, pairing-code and fingerprint vectors, strict Ed25519
+refusals, full HMAC tags and `serverProof` domain separation. The shared vectors
+come from `extensions/tmt-remote/typescript/remote-client/test/reference.py`,
+which also checks the pinned BIP-39 list digest. Regenerate/check only Rust-owned crypto fixtures with:
 
 ```bash
 python3 extensions/tmt-remote/rust/tmt-remote/tests/fixtures/mac-reference.py --check

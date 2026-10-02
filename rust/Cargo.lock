@@ -2862,6 +2862,7 @@ dependencies = [
 name = "tmt-remote"
 version = "0.1.0-alpha.1"
 dependencies = [
+ "base64 0.22.1",
  "clap",
  "ed25519-dalek",
  "getrandom 0.4.3",

@@ -61,13 +61,13 @@ const code = fromHex(v.code),
 assert.equal(hex(await mac(code, enrollment)), v.enrollmentMac);
 const responseKey = await mac(
   code,
-  Buffer.concat([lp(utf8('tmt-local-pair-response-key-v1')), lp(enrollment)])
+  Buffer.concat([lp(utf8('tmt-device-pair-response-key-v1')), lp(enrollment)])
 );
-assert.equal(hex(responseKey), v.receiptKey);
+assert.equal(hex(responseKey), v.responseKey);
 assert.equal(
-  hex(await mac(responseKey, Buffer.concat([lp(utf8('tmt-local-pair-response-v1')), lp(receipt)]))),
-  v.receiptProof
+  hex(await mac(responseKey, Buffer.concat([lp(utf8('tmt-device-pair-response-v1')), lp(receipt)]))),
+  v.serverProof
 );
 console.log(
-  `${process.version}: seven Ed25519 signatures and enrollment/receipt HMACs match; browser security remains a separate gate`
+  `${process.version}: ${cases.length} Ed25519 signatures and enrollment/serverProof HMACs match; browser security remains a separate gate`
 );
