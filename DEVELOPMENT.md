@@ -1966,6 +1966,48 @@ no-op, core and cross-owner claims, force backup, Office adoption, removal by
 owner (all skills or a named subset) and drift. Runtime/linkage proof shared by archive
 and raw verification lives in `typescript/scripts/native-runtime-proof.mjs`.
 
+## Release PR safety gates
+
+`Code quality` runs `node typescript/scripts/release-pr-safety.mjs notes` for PRs
+(including body edits) and merge groups. A release branch under
+`release-please--branches--main--` must resolve to a released component. Its notes
+must compare from that component's newest published tag; each linked commit SHA
+must be a descendant of that tag and an ancestor of the candidate base, excluding
+the tag itself. The gate does not regenerate release-please's changelog or compare
+expected entry counts. Missing tags, malformed notes and incomplete data fail.
+Existing locked Cargo workers verify the cumulative queue result through the
+[CI selector](ARCHITECTURE.md#ci-selection-and-worker-model), so a later prose-only HEADGREEN tip retains earlier
+release version/lock changes.
+
+The notes job fetches full history and tags. For a PR it uses the event's base SHA;
+for a merge group it reads all pending squash commits from the common ancestor of
+fetched `origin/main` and the queue head. GitHub appends `(#PR)` to each squash
+subject; REST reads resolve those PRs and require matching title, repository and
+main base metadata before inspecting release candidates. A candidate's parent is
+its notes range endpoint. Unavailable, stale or oversized queue evidence fails
+rather than dropping a candidate. Rerun after publication metadata settles; an
+outdated compare anchor or out-of-range note requires release-please regeneration.
+
+Before release-please runs, `node typescript/scripts/release-pr-safety.mjs draft`
+checks all manifest versions. A matching draft with no exact git tag writes
+`skip=true` and a summary naming the held tag(s). `release-pr` is skipped;
+`github-release` and draft build/publication dispatch continue, including in dry
+runs. Once the tag exists, the next main push resumes release PR creation. This
+pre-check is an observation, not an atomic fence with later publication.
+
+Both gates use workflow tokens and REST only, with 30-second command bounds,
+at most ten 100-item pages per list and 60 requests per invocation; queue discovery
+is capped at 40 commits. Errors and caps fail visibly. Test with fixtures only:
+
+```bash
+cd typescript
+pnpm exec vitest run test/tooling/release-pr-safety.test.ts
+pnpm test:run
+pnpm check
+cd ..
+actionlint .github/workflows/ci.yml .github/workflows/release.yml
+```
+
 ## Queued release pull requests
 
 Before `release-pr`, `Release` runs `typescript/scripts/release-please-queue.mjs`.

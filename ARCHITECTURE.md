@@ -3494,6 +3494,21 @@ queued, preserving the candidate and continuing `github-release`. Query errors
 and release-please errors remain failures. The check is not atomic with a later
 branch update; [Development](DEVELOPMENT.md#queued-release-pull-requests) owns
 its race, token and recovery behavior.
+`release-pr-safety.mjs` owns the read-only release PR safety gates. `Code quality`
+checks PR notes on PR body edits and merge groups: the compare base must be the
+component's newest published tag, and each linked commit must descend from that
+tag and be an ancestor of the candidate base, excluding the tag itself. It reuses
+release version/policy owners and does not regenerate or count expected changelog
+entries. Pending squash queue commits have no REST commit/PR associations yet;
+the gate resolves their GitHub-appended PR numbers, verifies PR title/repository/base
+metadata and checks every release candidate in the cumulative pending range.
+Missing or inconsistent anchors, notes, queue data and bounded discovery fail visibly.
+The same owner checks every manifest component version before release-please:
+a matching draft without an exact git tag skips `release-pr`, while `github-release`
+and build dispatch remain available. Published releases and tagged drafts do not
+hold creation. REST reads use explicit workflow credentials and bounded pages;
+no release or tag is mutated by either gate.
+
 `release.yml` never publishes. `native-release-upgrade.yml` proves, for a draft or
 published release, its upgrade from the last published release of the same product on the
 four matching hosts. It only reads releases: a write-token job on `main`'s code fetches the

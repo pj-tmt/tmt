@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   merge_group:
   # Main pushes, weekly schedules and manual dispatch seed Rust caches.
   # PR and merge-group runs only restore; cache writers require the main ref.
@@ -95,11 +96,15 @@ jobs:
     if: ${{ always() && needs.changes.outputs.verify != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Set up Node.js and pnpm
         uses: ./.github/actions/setup-tooling
       - name: Install dependencies
@@ -113,6 +118,10 @@ jobs:
         run: |
           pnpm check:tooling
           pnpm exec vitest run test/tooling/ci-scope.test.ts test/tooling/release-please-config.test.ts
+      - name: Verify release PR notes
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node typescript/scripts/release-pr-safety.mjs notes
       - name: Require selected Office verification
         env:
           OFFICE_SELECTED: ${{ needs.changes.outputs.office }}

@@ -27,6 +27,19 @@ Keep its pinned API shape verified by tooling tests loading the release job's is
 Follow DEVELOPMENT's generator and real-candidate checks before changing this consumption rule
 or upgrading release-please. This does not change publication authorization or private-leaf version ownership.
 
+## Release PR safety
+
+Release PRs must pass `Code quality`'s notes gate before merge: compare from the
+component's newest published tag, with every linked commit inside its ancestry
+range through the candidate base. Do not replace release-please's changelog rules
+or expected entry counts with a second parser. The cumulative merge-group selector
+keeps existing locked Cargo workers selected for earlier pending release changes.
+A matching manifest draft without its git tag holds `release-pr` creation while
+`github-release` and draft processing continue. Missing or inconsistent evidence
+fails closed. [DEVELOPMENT's safety gates](../../../DEVELOPMENT.md#release-pr-safety-gates)
+own token, bounded REST discovery, fixtures and recovery procedures. Neither gate
+authorizes manual tagging, release editing or publication.
+
 ## Promotion and prerelease checks
 
 Read the complete [native release verification section](../../../DEVELOPMENT.md#native-release-verification)
