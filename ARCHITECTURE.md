@@ -4089,8 +4089,8 @@ device context, certificates and silent session reopening.
 
 ## Colab extension proposal
 
-**Status: persistence, foreground deny-all executable, isolated decoder and model foundation implemented;
-the stream sync library is available without socket wiring; authentication, browser and backend work remains proposed.** The local-build-only pilot lives under
+**Status: persistence, foreground socket executable, isolated decoder and model foundation implemented;
+the stream sync library is available without socket wiring; owner-browser registration is implemented; browser and backend work remains proposed.** The local-build-only pilot lives under
 `extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
 owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
 bridge policy and acceptance gates. The #828 design owns product/UI choices;
@@ -4166,10 +4166,10 @@ trusts `tmt-device-context` because only the owner can reach the socket. It
 keeps the relocated door's bounds (16 request workers, 8 KiB/32 header fields,
 64 KiB bodies, acquisition/response deadlines, drained replies) and answers the
 placeholder page for owner and non-owner requests. It accepts a `colab-sync-v1`
-WebSocket upgrade only with an owner context, version 13 and a well-formed
+WebSocket upgrade only with an active registered owner context, version 13 and a well-formed
 16-byte key, computing the accept value with the workspace `tungstenite`
 handshake, then holds the tunnel (16 at most, closed after 120 s without
-inbound bytes) until colab-sync-v1 frames exist. Shutdown closes
+inbound bytes) pending stream-sync socket composition (#1119). Shutdown closes
 every request socket and tunnel before joining.
 
 Servers never decode Yjs; foreign-writer decoding/merging runs in a bounded
@@ -4214,34 +4214,48 @@ cuts and baseline production; this storage API creates no network authority and
 is not a transition engine. Epoch secrets are private local key material, not
 ciphertext or an encrypted-at-rest guarantee; the root seed stays in Keyring.
 `store::schema` owns append-only migrations. Schema 2 adds authority tables and
-preserves schema-1 ciphertext/receipts/checkpoints. Newer schemas fail with a
+preserves schema-1 ciphertext/receipts/checkpoints. Schema 3 adds `device_registrations`
+(device ID, binding bytes, revocation flag and highest remote grant revision),
+preserving previous rows. Newer schemas fail with a
 typed fault before database mutation. Tests own isolated directories and SQL
 oracles for preservation, rollback, concurrent head fencing and durable replay.
-Sync, authentication and transition policy remain later slices.
+Sync composition and owner transition policy remain later slices.
 The executable depends on the reviewed invoke/style leaves and pinned
 storage/network/crypto primitives, never core, adapter, Remote or Office crates. Its component is excluded from release;
 workspace checks and Docker build contexts include its manifest.
 
-### Foreground composition and loopback door
+### Foreground composition and owner registration
 
 `main` owns `serve` and read-only `spaces`, style/JSON output, signals and one
 foreground service lock. `core` makes one fixed `storage.root` public API call
 through the absolute invoking `TMT_EXECUTABLE` and `tmt-invoke`, with deadline,
 stream caps and cancellation; missing/invalid roots fail before state creation.
 `spaces` creates nothing. `serve` opens the private keyring/store before printing
-a working IPv4-loopback placeholder URL. Keyring publication and stale temporary
-cleanup share a short-lived private lock; matching files require bounded owned
-regular-file admission without following symlinks. Typed state/schema faults
-reach machine-readable CLI errors.
+the owner-only socket descriptor. Keyring publication and stale temporary cleanup
+share a short-lived private lock; matching files require bounded owned regular
+file admission without following symlinks. Typed state/schema faults reach
+machine-readable CLI errors.
 
-`http::Door` has no keyring, store or core reference. It owns finite loopback
-sockets and joined workers, exact Host/Origin admission, strict HTTP/1.1 framing,
-body/header/connection bounds and absolute read/write deadlines. It serves only
-the static placeholder and denies every API/WebSocket upgrade, including forged
-cookies. Shutdown closes retained sockets before joining all workers. Accepted
-WebSocket framing, sign-in and sessions are parked for relocation into the
-Remote application boundary; the merged placeholder/store remain. Tests use real
-sockets and isolated CLI processes, with readiness channels and explicit kill/wait guards.
+`registration::Registration` owns the store/keyring pair behind the socket's
+shared mutex. The mounted registration endpoint verifies both remote-owned
+extension-key certificates against the full forwarded owner context before any
+signing. Remote alone owns Host/Origin, pairing, cookies and live grant admission;
+colab adds no cookie/session credential. The existing owner transaction owns
+revision-1 management-member genesis. Purpose-separated local management keys
+stay in Keyring; a separate device transaction serializes pinned-member admission,
+certificate signing, binding and exact response persistence without advancing the
+owner log. Retry/renewal, key derivation, endpoint and failure codes are owned by
+[colab-v1](extensions/tmt-colab/contracts/colab-v1.md#implemented-owner-browser-registration-1162).
+
+The trusted revision-ordered revocation callback atomically clears an active
+registration and retains a tombstone, including for unknown IDs. Mounted owner
+upgrades in the executable require an active registered device and recheck the
+tombstone/expiry. Remote already terminates its session tunnels on revocation;
+its event delivery into this callback awaits #1100. Owner-signed revocation cuts
+and epoch rotation remain #1157. The callback is not an HTTP capability.
+Socket shutdown closes retained sockets before joining workers and closing the
+registration store. Real SQLite and socket tests prove persistence, retry,
+rollback, admission denial, renewal, ordered revocation and cleanup.
 
 ### Stream sync transport
 
@@ -4281,8 +4295,8 @@ the existing append transaction. Outbound objects reserve queue entries and emit
 one frame per turn from immutable shared bytes. Revocation/drop clears partial
 state and pending transfer bytes; clients verify reassembled data before applying.
 The exact grammar/budgets live in colab-v1, with timers and socket workers still
-caller-owned. Registration belongs to #1162 and socket wiring to #1119.
-The foreground executable is not yet wired to this library.
+caller-owned. Owner registration is implemented under #1162; socket wiring belongs to #1119.
+The foreground executable holds registered-owner upgrades without sync composition.
 
 ### Isolated Colab decoder
 

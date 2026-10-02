@@ -392,6 +392,61 @@ device binding and revocation; a cached token cannot revive a revoked device.
 The sign-in code, device certificate and server session do not create a machine-
 local agent grant; that requires the separate pairing ceremony below.
 
+### Implemented owner-browser registration (#1162)
+
+Remote owns sign-in and pairing. Colab accepts `POST /api/devices/register` on
+its owner-only mount socket, beneath remote's `/r/<prefix>/x/colab/` mount. The
+request is strict JSON with exactly `deviceId`, `sign`, and `enc`. Each certificate
+has exactly `publicKey` (canonical base64url key32), `issuedAtMs` (safe integer UTC
+milliseconds), and `signature` (canonical base64url signature64). Both signatures
+use the remote-owned `tmt-ext-cert-v1` input, with extension `colab` and their
+respective `sign` or `enc` purpose. There is no added version or device-ID field
+in those signed bytes. The request's device ID MUST match the authenticated
+forwarded context; the strict verifier uses that context's `publicKey`.
+
+Registration requires the full forwarded owner context with `owner:true`, a
+canonical device ID/key and positive grant revision. Cookie-only and non-owner
+requests cannot register. Colab trusts this header only on the owned 0600 socket
+inside its owned 0700 directory; remote strips client-supplied context and
+rechecks its live session/grant. Both key certificates MUST be no more than ten
+minutes old and MUST NOT be future-dated. Syntax failure returns HTTP 400
+`INVALID`; absent/non-owner context, device mismatch, signature failure or
+revocation returns 403 `DENIED`; stale/future certificate returns 403 `EXPIRED`;
+changed keys or remote identity binding returns 409 `CONFLICT`; state/keyring
+failure returns 503 `UNAVAILABLE`. Success returns JSON `{chain, issuerStatement}`,
+where the issuer statement is the exact revision-1 model envelope as JSON.
+
+If the owner log is absent, the existing owner transaction creates its initial
+editor management member with no page assignments. Its fixed operation ID is
+`00000000-0000-4000-8000-000000000001`; it is reserved for genesis. Existing
+incompatible owner-member bindings fail closed. Local management key derivation
+uses HKDF-SHA256 with owner seed as input, empty salt, and
+`LP(label, space)` as info, with 32-byte output. The exact labels are
+`tmt-colab-management-signing-seed-v1`,
+`tmt-colab-management-encryption-seed-v1`, and
+`tmt-colab-management-member-id-v1`. Ed25519/X25519 public derivation follows the
+fixed suite; member ID uses the first 16 bytes of its independent output, setting
+UUIDv4 version/variant bits. These private outputs never leave Keyring. The
+independent Python vectors are `vectors/management-key-v1.json`.
+
+A subsequent owner-store writer transaction checks the pinned management member,
+revocation and existing binding before signing/persisting the colab certificate,
+remote context and exact response. Device registration does not advance the
+membership log. Colab certificates last 365 days; the same certified key binding
+returns its exact saved response until fewer than 30 days remain, when fresh
+remote certificates silently renew it. Every retry still requires fresh input
+certificates and current owner context. Registration and local revocation are
+serialized; a context older than the highest observed grant revision is denied.
+
+The trusted `Registration::revoke(deviceId, grantRevision)` callback records a
+local tombstone, clears the active registration and marks an existing device
+revoked in one transaction. Unknown IDs are tombstoned too; older events are
+ignored and repeated events are idempotent. No later context revives a tombstone.
+Registered-device admission rechecks durable revocation and certificate expiry.
+Remote event delivery remains #1100; there is no browser revocation route.
+This local tombstone is not the owner-signed `device.revoke` transition with cuts
+and epoch rotation (#1157). Sync composition remains #1119.
+
 ## Page state, roles and epochs
 
 Each device has one signed append stream per `(space, page, epoch)`. Sequences

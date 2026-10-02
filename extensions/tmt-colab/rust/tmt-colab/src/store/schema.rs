@@ -31,6 +31,11 @@ const MIGRATIONS: &[&str] = &[
         FOREIGN KEY(page,epoch) REFERENCES epoch_secrets(page,epoch));
     CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
     "#,
+    // Schema 3: remote device bindings and durable local revocation tombstones.
+    r#"
+    CREATE TABLE device_registrations(device_id TEXT PRIMARY KEY, binding BLOB,
+        revoked INTEGER NOT NULL CHECK(revoked IN (0,1)), grant_revision TEXT NOT NULL);
+    "#,
 ];
 
 pub(super) fn check_version(connection: &Connection) -> StoreResult<u32> {

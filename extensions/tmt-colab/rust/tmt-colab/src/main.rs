@@ -3,12 +3,13 @@ use serde_json::json;
 use std::{
     io::Write,
     process::ExitCode,
-    sync::{Arc, atomic::AtomicBool},
+    sync::{Arc, Mutex, atomic::AtomicBool},
 };
 use tmt_cli_style::{CommandSpec, Example, OutputModes, Route};
 use tmt_colab::{
     Result, core,
     keyring::{Keyring, Layout},
+    registration::Registration,
     socket::{MountSocket, Tunnels},
     store::Store,
 };
@@ -68,12 +69,15 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         let keyring = Keyring::open(&layout)?;
         let mut output = tmt_cli_style::stream::stdout(json_output);
         let store = Store::open(&layout)?;
-        let socket = MountSocket::bind(&layout, &keyring.space_id, Tunnels::PRODUCT)?;
+        let space_id = keyring.space_id.clone();
+        let registration = Arc::new(Mutex::new(Registration::new(store, keyring)));
+        let socket = MountSocket::bind(&layout, &space_id, Tunnels::PRODUCT)?
+            .with_registration(Arc::clone(&registration));
         if json_output {
             writeln!(
                 output,
                 "{}",
-                json!({"spaceId":keyring.space_id,"socket":socket.path,"profile":"colab-sync-v1","state":"mounted"})
+                json!({"spaceId":space_id,"socket":socket.path,"profile":"colab-sync-v1","state":"mounted"})
             )?;
         } else {
             let terminal = output.terminal();
@@ -82,7 +86,7 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
                 terminal,
                 "LOCAL SPACE",
                 &[
-                    ("space", keyring.space_id),
+                    ("space", space_id),
                     ("socket", socket.path.display().to_string()),
                     (
                         "open",
@@ -95,7 +99,11 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         output.flush()?;
         drop(output);
         let result = socket.run(&stop);
-        let closed = store.close();
+        let closed = Arc::try_unwrap(registration)
+            .map_err(|_| "Registration worker retained.")?
+            .into_inner()
+            .map_err(|_| "Registration lock poisoned.")?
+            .close();
         result?;
         closed
     })();

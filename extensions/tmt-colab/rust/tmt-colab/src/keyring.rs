@@ -233,6 +233,58 @@ impl Keyring {
     ) -> tmt_colab_model::Result<tmt_colab_model::wrap::Envelope> {
         tmt_colab_model::wrap::seal(header, secret, &self.owner)
     }
+
+    /// Purpose-separated local management keys. Private material never leaves Keyring.
+    fn management_seed(&self, label: &[u8]) -> tmt_colab_model::Result<[u8; 32]> {
+        let info = tmt_colab_model::framing::frame(&[label, self.space_id.as_bytes()])?;
+        let mut root = self.owner.to_bytes();
+        let seed = tmt_colab_model::crypto::derive_key(&root, &[], &info);
+        root.fill(0);
+        Ok(seed)
+    }
+    pub fn management_member(
+        &self,
+    ) -> tmt_colab_model::Result<tmt_colab_model::statement::OwnerMember> {
+        let mut id = self.management_seed(b"tmt-colab-management-member-id-v1")?;
+        id[6] = (id[6] & 15) | 64;
+        id[8] = (id[8] & 63) | 128;
+        let text = hex(&id[..16]);
+        let member_id = format!(
+            "{}-{}-{}-{}-{}",
+            &text[..8],
+            &text[8..12],
+            &text[12..16],
+            &text[16..20],
+            &text[20..]
+        );
+        id.fill(0);
+        let signer = self.management_signer()?;
+        let mut seed = self.management_seed(b"tmt-colab-management-encryption-seed-v1")?;
+        let recipient = tmt_colab_model::wrap::RecipientKey::from_seed(&seed);
+        seed.fill(0);
+        Ok(tmt_colab_model::statement::OwnerMember {
+            id: member_id,
+            signing_key: signer.verifying_key().to_bytes(),
+            encryption_key: recipient?.public_key(),
+        })
+    }
+    fn management_signer(&self) -> tmt_colab_model::Result<SigningKey> {
+        let mut seed = self.management_seed(b"tmt-colab-management-signing-seed-v1")?;
+        let key = SigningKey::from_bytes(&seed);
+        seed.fill(0);
+        Ok(key)
+    }
+    /// Caller admits the remote certificate and pinned owner-member binding first.
+    pub(crate) fn sign_device_certificate(
+        &self,
+        cert: &tmt_colab_model::certificate::Certificate<'_>,
+    ) -> tmt_colab_model::Result<[u8; 64]> {
+        use ed25519_dalek::Signer;
+        Ok(self
+            .management_signer()?
+            .sign(&tmt_colab_model::certificate::input(cert)?)
+            .to_bytes())
+    }
     pub fn owner_public(&self) -> [u8; 32] {
         self.owner.verifying_key().to_bytes()
     }
