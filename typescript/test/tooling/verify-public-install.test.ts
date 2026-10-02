@@ -1,6 +1,8 @@
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   installerUrl,
@@ -27,6 +29,7 @@ interface Fake {
   /** Body of `tmt upgrade`'s JSON: the fields to override. */
   upgrade?: Record<string, unknown>;
   upgradeStderr?: string;
+  upgradeStdout?: string;
   installerStatus?: number;
   withoutBinary?: boolean;
   /** An extension: whether the CLI has `tmt extension`, what it installs and lists, and whether it links the CLI. */
@@ -73,7 +76,7 @@ case "$*" in
   --version) echo '${fake.installed ?? version}' ;;
   "upgrade --channel alpha --json")
     count=$(cat "$HOME/upgrade-count" 2>/dev/null || echo 0); echo $((count + 1)) > "$HOME/upgrade-count"
-    ${fake.upgradeStderr ? `echo '${fake.upgradeStderr}' >&2; exit 1` : `printf '%s' '${JSON.stringify(upgrade)}' | sed "s#@EXE@#$exe#"`} ;;
+    ${fake.upgradeStderr ? `printf '%s' '${fake.upgradeStdout ?? ''}'; echo '${fake.upgradeStderr}' >&2; exit 1` : `printf '%s' '${JSON.stringify(upgrade)}' | sed "s#@EXE@#$exe#"`} ;;
   "extension install squad "*)
     ${extension.command === false ? 'echo "error: unrecognized subcommand \'extension\'" >&2; exit 2' : 'true'}
     prefix=$(echo "$*" | sed 's/.*--prefix //')
@@ -263,6 +266,75 @@ describe('the public installer smoke of a CLI release', () => {
     expect(attempt.waits).toEqual([20_000, 20_000]);
     const other = await run({ upgradeStderr: 'boom' }).results;
     expect(other.at(-1)?.reason).not.toContain('rate limit');
+  });
+});
+
+describe('failed command diagnostics', () => {
+  it('keeps both bounded streams in the run log and result file after retries', () => {
+    const root = path.join(base, 'diagnostic-cli');
+    const source = path.join(root, 'source');
+    for (const [name, text] of Object.entries({ 'tmux-team': SKILL, 'tmt-inbox': INBOX })) {
+      mkdirSync(path.join(source, 'skills', name), { recursive: true });
+      writeFileSync(path.join(source, 'skills', name, 'SKILL.md'), text);
+    }
+    const preload = path.join(root, 'fetch.mjs');
+    writeFileSync(
+      preload,
+      `globalThis.fetch = async () => ({ ok: true, text: async () => ${JSON.stringify(
+        installerText({
+          upgradeStdout: 'stdout-cause-' + 'x'.repeat(4000),
+          upgradeStderr: 'stderr-cause-' + 'y'.repeat(4000),
+        })
+      )} });`
+    );
+    // No real network or retry sleeps: timers are immediate only in this isolated test process.
+    writeFileSync(preload, '\nglobalThis.setTimeout = (fn) => { fn(); return 0; };\n', {
+      flag: 'a',
+    });
+    const resultFile = path.join(root, 'result.json');
+    const process = spawnSync(
+      globalThis.process.execPath,
+      [
+        '--import',
+        preload,
+        fileURLToPath(new URL('../../scripts/verify-public-install.mjs', import.meta.url)),
+        '--product',
+        'cli',
+        '--tag',
+        'v5.0.0-alpha.12',
+        '--source',
+        source,
+        '--target',
+        'aarch64-apple-darwin',
+        '--result-file',
+        resultFile,
+      ],
+      {
+        encoding: 'utf8',
+        timeout: 20_000,
+        env: { ...globalThis.process.env, GITHUB_REPOSITORY: 'pj-tmt/tmt' },
+      }
+    );
+    expect(process.error).toBeUndefined();
+    expect(process.status).toBe(1);
+    const result = JSON.parse(readFileSync(resultFile, 'utf8'));
+    expect(result.target).toBe('aarch64-apple-darwin');
+    expect(result.failed).toHaveLength(1);
+    const failure = result.failed[0];
+    expect(failure.check).toBe('tmt upgrade');
+    expect(failure.reason.length).toBeLessThanOrEqual(500);
+    expect(failure.detail.length).toBeLessThanOrEqual(6000);
+    for (const text of [
+      'failed after 3 attempts',
+      'stdout: stdout-cause-',
+      'stderr: stderr-cause-',
+      '(4013 characters)',
+    ]) {
+      expect(failure.detail).toContain(text);
+      expect(process.stderr).toContain(text);
+    }
+    expect(failure.detail).not.toContain('x'.repeat(2001));
+    expect(failure.detail).not.toContain('y'.repeat(2001));
   });
 });
 

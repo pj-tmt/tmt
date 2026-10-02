@@ -2945,6 +2945,8 @@ evidence. Storage adapter tests prove migrations, transaction rollback,
 contention, crash cleanup, retention, acknowledgment and late-final behavior.
 Tooling tests prove release-script policy and bounded command wrappers; they do
 not count as native runtime or release-archive proof.
+The public-install smoke keeps short issue reasons and separate bounded command
+diagnostics in its run log and result artifact; the packed runner owns stream capture.
 
 Docker E2E `harness.ts` retains scenario imports; `harness/fixture.ts` owns
 fixture resources and process registries.
