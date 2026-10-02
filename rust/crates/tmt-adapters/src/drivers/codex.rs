@@ -384,6 +384,13 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         crate::runtime::driver_state::state_activity(state)
     }
 
+    fn state_consumption(
+        &self,
+        state: &tmt_core::binding::session::DriverState,
+    ) -> Option<crate::runtime::consumption::Consumption> {
+        crate::runtime::driver_state::state_consumption(state).map(|state| state.value)
+    }
+
     fn decode_prompt(&self, bytes: &[u8]) -> Option<ProviderSessionId> {
         crate::runtime::hook_protocol::decode_prompt(bytes)
     }
@@ -399,13 +406,24 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         previous: Option<&tmt_core::binding::session::DriverState>,
         now_ms: u64,
     ) -> Option<tmt_core::binding::session::DriverState> {
-        let (tokens, window) = crate::runtime::transcript::latest(
-            &codex_home(environment).join("sessions"),
-            turn.transcript.as_deref()?,
-            transcript_usage,
-        )?;
-        let usage = crate::runtime::driver_state::Usage::new(tokens, window, now_ms)?;
-        crate::runtime::driver_state::after_turn(usage, previous)
+        let root = codex_home(environment).join("sessions");
+        let path = turn.transcript.as_deref()?;
+        let usage = crate::runtime::transcript::latest(&root, path, transcript_usage).and_then(
+            |(tokens, window)| crate::runtime::driver_state::Usage::new(tokens, window, now_ms),
+        );
+        let previous_consumption =
+            previous.and_then(crate::runtime::driver_state::state_consumption);
+        let consumption = (usage.is_some() || previous_consumption.is_some())
+            .then(|| {
+                crate::runtime::consumption::codex(
+                    &root,
+                    path,
+                    previous_consumption.as_ref(),
+                    now_ms,
+                )
+            })
+            .flatten();
+        crate::runtime::driver_state::after_observation(usage, consumption, previous)
     }
 
     fn observe_replacement(

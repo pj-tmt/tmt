@@ -1409,7 +1409,13 @@ The claude and codex drivers implement persistence with one document
 `"usage": {"tokens", "windowTokens"?, "observedAtMs"}` (the model is then
 optional). Version 3 additionally stores session-scoped main-turn activity,
 including the exact provider session and process incarnation. Documents without
-activity retain versions 1/2, byte for byte; all three versions are read. The model's only source is the `model` field
+activity retain versions 1/2, byte for byte. Version 4 adds optional cumulative
+consumption and its private source cursor; all four versions are read. Optional
+consumption is omitted if it would exceed the existing 1 KiB DriverState cap,
+preserving model/context/activity evidence. Reading versions 1–3 retains their
+model/context/activity without inventing counters; their first consumption
+observation starts a new epoch with gap=true and complete=false. Older readers discard an unknown
+version under the existing reconciliation contract. The model's only source is the `model` field
 of a starting hook event, which both providers document (see
 `runtime/fixtures/README.md`). Claude may omit it, for example after `/clear`, and
 then the previous model stays. When a provider sends no model, nothing is stored.
@@ -1456,12 +1462,53 @@ only for usage numbers:
 - the path must be a regular `.jsonl` file under the driver's own tree
   (`~/.claude/projects`, or `$CODEX_HOME/sessions`);
 - it is opened without following a final symlink and without blocking;
-- only the last MiB is read, and a line cut by that window is skipped.
+- context usage reads at most the last MiB, skipping a line cut by that window;
+- consumption reads at most one additional MiB (plus a boundary byte), from the
+  appended Claude cursor or the latest Codex tail. No polling is introduced.
 
-Anything unexpected writes nothing. A start that changes the context
+Unusable context usage writes nothing for that value. A start that changes the context
 (startup, clear, compact) drops usage; a resumed Claude start records the
 `context_tokens` it reports. Core never parses the document:
 `RuntimeRegistry::remembered_usage` projects it as `resume.usage`.
+
+Completed-request consumption (#872) is separate from context size.
+RuntimeLifecycle/RuntimeRegistry project the driver's counters as optional
+`resume.consumption` in ls/identity JSON: `inputTokens`, `outputTokens`,
+`cachedInputTokens`, epoch, sequence, `observedAtMs`, complete and gap.
+Cached input is a subset of input. Claude input adds uncached input, cache-read
+and cache-creation; cached input is cache-read. Codex uses `total_token_usage`
+input/output/cached fields; reasoning is already in output. Input plus output
+counts provider-reported token units, not cost or interchangeable text volume.
+These are accepted completed-request observations, not streaming throughput.
+
+The first Claude observation baselines at current EOF with zero counters and
+retains the last main message ID's hash; historical requests are not replayed.
+The append-only scan counts each new contiguous `message.id` group once, carries
+the last ID across reads, cross-checks `requestId` and usage equality, and skips
+sidechains/synthetic records. Private dev/inode/offset and hashed IDs retain
+equality without transcript text or paths. Counter evidence and its cursor use
+the same trusted descriptor and captured file end. Noncontiguous older ID repeats are
+not expected and may count again: exact historical-ID dedup is deliberately
+outside the bounded one-KiB contract. In-place rewrites that retain inode and
+do not shrink also violate the append-only assumption. A partial final line
+waits for its newline, with `complete=false` and `gap=false`. Cursor loss, shrink,
+replacement, a scan over one MiB, invalid main records or overflow starts a new
+epoch at current EOF with `gap=true` and `complete=false`; a cut fragment is
+discarded through its next newline, and history is never recounted.
+
+Codex's first observation baselines at the provider's cumulative totals.
+Unterminated final records wait for a newline with complete=false; an invalid
+newest token_count is unavailable rather than falling back to older totals.
+A component decrease, file shrink or replacement starts a new epoch/gap.
+Epochs and sequence are driver measurement coordinates, not provider IDs;
+sequence increases within an epoch when source evidence advances.
+`observedAtMs` is acceptance time, not token generation time or a heartbeat.
+Duplicate hooks without source changes retain the counter's timestamp/sequence.
+A later complete scan clears the gap flag within its new epoch. Every start
+resets consumption; failed reads leave it absent or unchanged rather than
+inventing zero. Rate consumers baseline first/reset/gap observations and never
+differentiate context usage. All writer verification/CAS/deadline behavior stays
+with the existing hook owner; core does not parse the cursor or counters.
 
 Runtime observations retain a driver-supplied PID/start-identity pair and an
 optional provider session ID. Schema 34 additionally retains an optional launch

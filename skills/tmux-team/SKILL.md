@@ -48,6 +48,15 @@ for pane death.
 Check the selected executable's help instead of inferring capabilities from
 a remembered version number.
 
+The opt-in `tmt setup --usage` hook can expose `resume.usage` (context size) and
+optional `resume.consumption` in ls/identity JSON. Consumption reports cumulative
+completed-request counters; measure changes within an epoch. Cached input
+already belongs to input.
+Use its epoch/sequence and completeness/gap evidence, never context-size
+differences or a missing value as zero. Hook timestamps are not heartbeats.
+USER-GUIDE.md owns user instructions and ARCHITECTURE.md owns the bounded
+provider normalization and scan contract.
+
 ## Delivery safety
 
 ### Caller identity

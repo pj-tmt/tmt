@@ -84,9 +84,10 @@ idle merely because the provider has gone quiet.
 
 Context usage is opt-in. `tmt setup --usage` (or `tmt setup claude --usage`)
 also installs a TMT `Stop` hook. After each turn, that hook reads the token
-counts from the end of the agent's own transcript and stores them with the
+context counts from the end of the agent's own transcript and stores them with the
 remembered session; no transcript content is stored. `tmt identity show --json`
 and `tmt ls --json` then include `resume.usage`:
+
 - `tokens`: the context the agent's next request re-sends;
 - `windowTokens`: the context window, when the provider states it (Codex does,
   Claude does not);
@@ -98,6 +99,25 @@ transcript formats are unofficial, so a provider update can stop the readings;
 nothing else is affected. A later `tmt setup` keeps whatever you chose.
 `--no-usage` removes only the `Stop` hook, and `--remove` removes it with the
 others.
+
+The same opt-in hook also records `resume.consumption` when it has usable
+completed-request evidence. `inputTokens` includes cached input; `outputTokens`
+includes reasoning reported within output. `cachedInputTokens` is a subset of
+`inputTokens`, so total consumption is `inputTokens + outputTokens`. These are
+provider-reported token units, not cost or live streaming throughput.
+
+epoch and sequence identify a measurement baseline and its updates;
+`observedAtMs` is when evidence was accepted. `complete=false` means unfinished or
+lost evidence; `gap=true` marks a discontinuity requiring a new rate baseline.
+Claude starts tracking at the first observation's current file end, counting
+new contiguous main-request groups once; it does not reconstruct history.
+Codex uses its cumulative provider counters. New starts/compaction, file
+replacement/truncation and lost source continuity reset the baseline. An
+unexpected noncontiguous repeat of an older Claude message ID may count again.
+Unsupported/failed readings or the one-KiB state budget may omit consumption;
+missing data is unavailable, never zero. A moving rate describes tokens of
+completed requests observed in its window, and hooks may lag. Counter timestamps
+are not heartbeats. See [the runtime contract](ARCHITECTURE.md#identity-names-and-bindings) for the bounded scan.
 
 In a verified bound tmux pane, starts restore the small `whoami --context` summary
 and record the exact independent Claude/Codex session for resume. Clear and compact do not change
@@ -302,7 +322,7 @@ explicit command.
 
 While a session is remembered, `tmt identity show --json` and `tmt ls --json`
 include a `resume` object with the driver, mode, session, model and `staleAtMs`,
-plus `usage` while the opt-in usage hook has recorded one (see setup above).
+plus usage and optional consumption while the opt-in hook has recorded them (see setup above).
 
 The command inherits the terminal and foreground job control. Ctrl-C reaches the
 command; Ctrl-Z suspends it together with TMT, and `fg` resumes both. TMT returns

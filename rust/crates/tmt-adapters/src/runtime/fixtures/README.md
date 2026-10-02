@@ -28,7 +28,7 @@ its source listed here.
   editing one field (for example a sidechain flag, a diverging `iterations[]`, a
   null `info`, or reasoning tokens).
 - Claude usage is the top-level `message.usage`: `input_tokens +
-  cache_read_input_tokens + cache_creation_input_tokens`. The line also carries
+cache_read_input_tokens + cache_creation_input_tokens`. The line also carries
   `iterations[]`, whose single entry equals the top level here; a test pins that
   the top level is read when they differ. Sidechain and `<synthetic>` messages are
   skipped. The window is not in the transcript, so none is stored.
@@ -47,10 +47,10 @@ The resume commands follow each CLI's usage line. These were observed read-only
 with `--help` under a disposable `HOME` (and `CODEX_HOME`) on 2026-09-29:
 
 - codex-cli 0.158.0, `codex resume --help`: `Usage: codex resume [OPTIONS]
-  [SESSION_ID] [PROMPT]`, with `-m, --model <MODEL>` among the resume options.
+[SESSION_ID] [PROMPT]`, with `-m, --model <MODEL>` among the resume options.
   The driver emits `codex resume -m <model> <session>`.
 - Claude Code 2.1.284, `claude --help`: `Usage: claude [options] [command]
-  [prompt]`, with the `--model <model>` and `-r, --resume [value]` options. The
+[prompt]`, with the `--model <model>` and `-r, --resume [value]` options. The
   driver emits `claude --resume <session> --model <model>`.
 
 ## Prompt-submit context (#652)
@@ -84,3 +84,23 @@ async hooks; changing an owned entry to async is reported as an edited hook by
 setup inspection. Such a modification violates this source contract. TMT does not
 infer execution mode from payload fields or timing and does not read all effective
 settings on every event. Expired calls cannot defer activity work beyond return.
+
+## Completed-request consumption (#872)
+
+`claude-usage-sequence.jsonl` is a real 24-record Claude Code sequence supplied
+and minimized by tmt-lead on 2026-10-02. Content was removed (only content block
+types remain); uuid/`requestId`/`message.id` were replaced by consistent synthetic
+IDs preserving equality. Usage objects are verbatim. There are 16 distinct
+message IDs, with identical contiguous duplicates for content blocks.
+No provider files were read by the implementer. The first message is the
+baseline; independently summed totals for the remaining 15 IDs are input
+5,415,987, output 5,609 and cache-read 5,405,674. Cached input is part of input.
+The existing real Codex fixture supplies `total_token_usage`: input
+2,674,657,871, output 6,910,968, cached input 2,624,251,008 and total
+2,681,568,839; reasoning is already included in output.
+
+Failure/partial-line/decrease/replacement and noncontiguous-repeat variants
+are assembled from these structures. Last-ID-only deduplication assumes
+append-only, contiguous content-block groups as observed in this sequence,
+not arbitrary historical deduplication. Its known limitation is documented in
+ARCHITECTURE. Both provider formats remain unofficial.
