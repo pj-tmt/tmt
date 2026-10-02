@@ -1706,11 +1706,13 @@ describe('required CI gate', () => {
     expect(workflow).toContain(
       'run: node typescript/scripts/ci-scope.mjs merge-group "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"'
     );
-    const writers = workflow.match(/^\s+save-if:.*$/gm) ?? [];
+    const cachePolicies = workflow.match(/^\s+save-if:.*$/gm) ?? [];
+    const writers = cachePolicies.filter((line) => line.trim() !== 'save-if: false');
+    expect(cachePolicies).toHaveLength(7);
     expect(writers).toHaveLength(3);
     for (const writer of writers) {
       expect(writer.trim()).toBe(
-        "save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}"
+        "save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}"
       );
     }
     for (const name of ['code-quality', 'docker-e2e', 'native-install-gate']) {
@@ -1789,7 +1791,7 @@ describe('required CI gate', () => {
     expect(rustGate).toContain(`ci-scope.mjs gate-rust "$NATIVE_SCOPE" ${rustArguments}`);
     expect(job('native-msrv')).toContain('shared-key: native-rust-msrv');
     expect(job('native-msrv')).toContain(
-      "save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}"
+      "save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}"
     );
     expect(job('native-msrv')).toContain('["workspace"]["package"]["rust-version"]');
     expect(job('native-msrv')).toContain('RUSTUP_TOOLCHAIN=%s');
@@ -1885,7 +1887,7 @@ describe('required CI gate', () => {
     }
     for (const worker of ['native-workspace-tests', 'native-runtime-build', 'native-msrv']) {
       expect(job(worker)).toContain(
-        "save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}"
+        "save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}"
       );
     }
     // The gate names the same eight jobs, in the order nativeGatePasses expects.

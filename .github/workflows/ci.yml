@@ -183,7 +183,7 @@ jobs:
         with:
           workspaces: rust
           shared-key: native-rust
-          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+          save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}
       - name: Test and build workspace
         if: needs.changes.outputs.native_scope == 'full'
         working-directory: rust
@@ -373,7 +373,7 @@ jobs:
         with:
           workspaces: rust
           shared-key: native-rust-msrv
-          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
+          save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}
       - name: Check all workspace targets at MSRV
         working-directory: rust
         run: cargo +"$MSRV" check --locked --workspace --all-targets
@@ -536,7 +536,7 @@ jobs:
         with:
           workspaces: rust
           shared-key: runtime-${{ matrix.target }}
-          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
+          save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}
       - name: Build the reviewed native runtime
         working-directory: rust
         env:

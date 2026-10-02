@@ -613,12 +613,14 @@ fixtures remain independently built in the native worker.
 Rust dependency caches (`Swatinem/rust-cache`, pinned by commit SHA) have one
 main-only writer per key: workspace tests write the shared dev dependency cache,
 MSRV writes its toolchain-specific cache, and each native runtime target writes
-its own cache. Other workers restore the shared cache without saving. Dev debug
+its own cache. Every writer uses the single seed-event classification (`verify=false`)
+and the main ref; PR and merge-group runs only restore. Other workers restore
+the shared cache without saving. Dev debug
 information and incremental compilation are disabled across CI; release profiles
 retain their manifest policy. Main cache seeding runs on selected Cargo/workflow
 changes, weekly and manually; feature-branch dispatches only restore. A seeding
 run has no diff and takes full native scope. Its Rust aggregate still checks the
-workers; the outer pull-request gates remain skipped.
+workers; the outer verification gates remain skipped.
 
 `ci.yml` owns all four required checks: Code quality, Unit tests, Docker E2E and
 Native package matrix. Both pull requests and `merge_group` candidates run those
