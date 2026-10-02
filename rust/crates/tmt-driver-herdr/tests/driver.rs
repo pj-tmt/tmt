@@ -355,6 +355,55 @@ fn the_driver_reads_and_marks_a_real_herdr_server() {
     let snapshot = call(&env, "snapshot", json!({"socket": socket, "panes": null}));
     assert_eq!(snapshot["ok"]["panes"][0]["marker"], json!(null));
 
+    // Staged input as core sends it: the line, then Enter alone. The line
+    // runs only after Enter; a line break is refused with nothing typed.
+    let input = |text: &str, enter: bool| {
+        call(
+            &env,
+            "input",
+            json!({"socket": socket, "paneId": terminal, "text": text, "enter": enter}),
+        )
+    };
+    let capture = || {
+        call(
+            &env,
+            "capture",
+            json!({"socket": socket, "paneId": terminal, "lines": 20}),
+        )["ok"]["text"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let until = |what: &str, check: &dyn Fn(&str) -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let text = capture();
+            if check(&text) {
+                return text;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for {what}:\n{text}"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+    assert_eq!(
+        input("echo staged\necho early", false)["error"]["code"],
+        "bad_request"
+    );
+    assert_eq!(input("echo -- tmt-$((40+2))", false), json!({"ok": {}}));
+    let typed = until("the typed line", &|text| {
+        text.contains("echo -- tmt-$((40+2))")
+    });
+    assert!(
+        !typed.contains("tmt-42"),
+        "the line ran before Enter:\n{typed}"
+    );
+    assert!(!typed.contains("early"));
+    assert_eq!(input("", true), json!({"ok": {}}));
+    until("the line to run", &|text| text.contains("tmt-42"));
+
     let findings = conformance::check(
         &mut |args, request| invoke(&env, args, request),
         &Fixture {

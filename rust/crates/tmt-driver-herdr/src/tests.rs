@@ -192,13 +192,15 @@ fn the_declared_capabilities_decode_with_the_read_side_ops_only() {
             "resolve-target",
             "snapshot",
             "publish",
-            "clear"
+            "clear",
+            "capture",
+            "input"
         ]
     );
     assert!(grammar.is_pane_id("term_65ca1161edc141"));
     assert!(grammar.is_target("w12:p3"));
-    // Delivery and focus are not claimed until they exist.
-    for op in ["capture", "input", "focus", "probe"] {
+    // Focus has no Herdr command by pane ID; core leads every probe.
+    for op in ["focus", "probe"] {
         assert_eq!(error_code(&serve(&runner, op, json!({}))), "unsupported");
     }
     assert!(runner.calls.borrow().is_empty());
@@ -530,5 +532,86 @@ fn clearing_removes_only_this_bindings_marker() {
     }
     assert_eq!(runner.calls.borrow()[3].args, expected);
     assert_eq!(runner.calls.borrow().len(), 4);
+    runner.done();
+}
+
+#[test]
+fn a_capture_reads_the_recent_lines_of_the_pane_by_its_current_target() {
+    let runner = Scripted::default();
+    runner
+        .json(list(vec![pane("w2:p1", "term_a1", None)]))
+        .text("one\ntwo\n")
+        .json(list(vec![]));
+    let request = json!({"socket": SOCKET, "paneId": "term_a1", "lines": 40});
+    assert_eq!(
+        serve(&runner, "capture", request.clone()),
+        json!({"text": "one\ntwo\n"})
+    );
+    assert_eq!(
+        runner.commands()[1],
+        "herdr pane read w2:p1 --source recent --lines 40 --format text"
+    );
+    assert_eq!(error_code(&serve(&runner, "capture", request)), "not_found");
+    let zero = json!({"socket": SOCKET, "paneId": "term_a1", "lines": 0});
+    assert_eq!(error_code(&serve(&runner, "capture", zero)), "bad_request");
+    runner.done();
+}
+
+fn input(text: &str, enter: bool) -> Value {
+    json!({"socket": SOCKET, "paneId": "term_a1", "text": text, "enter": enter})
+}
+
+#[test]
+fn input_types_one_line_literally_and_enter_only_when_asked() {
+    let runner = Scripted::default();
+    let panes = || list(vec![pane("w1:p1", "term_a1", None)]);
+    runner.json(panes()).text("").json(panes()).text("");
+    // Core stages input: the text, then Enter alone.
+    assert_eq!(
+        serve(&runner, "input", input("--help ！ é", false)),
+        json!({})
+    );
+    assert_eq!(serve(&runner, "input", input("", true)), json!({}));
+    assert_eq!(
+        runner.calls.borrow()[1].args,
+        ["pane", "send-text", "w1:p1", "--help ！ é"]
+    );
+    assert_eq!(runner.commands()[3], "herdr pane send-keys w1:p1 Enter");
+    runner.done();
+}
+
+#[test]
+fn input_that_would_submit_early_or_reach_no_pane_is_not_sent() {
+    // Herdr would submit at a line break, so nothing is asked of it.
+    for text in ["one\ntwo", "one\r", "\n"] {
+        let runner = Scripted::default();
+        assert_eq!(
+            error_code(&serve(&runner, "input", input(text, false))),
+            "bad_request"
+        );
+        assert!(runner.calls.borrow().is_empty());
+    }
+    let runner = Scripted::default();
+    runner
+        .json(list(vec![]))
+        .json(list(vec![pane("w1:p1", "term_a1", None)]))
+        .refuse("pane_not_found");
+    for _ in 0..2 {
+        assert_eq!(
+            error_code(&serve(&runner, "input", input("hi", false))),
+            "not_found"
+        );
+    }
+    runner.done();
+    // Once text was typed, a pane gone before Enter is uncertain, not unsent.
+    let runner = Scripted::default();
+    runner
+        .json(list(vec![pane("w1:p1", "term_a1", None)]))
+        .text("")
+        .refuse("pane_not_found");
+    assert_eq!(
+        error_code(&serve(&runner, "input", input("hi", true))),
+        "failed"
+    );
     runner.done();
 }
