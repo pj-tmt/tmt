@@ -17,6 +17,35 @@ import { createArtifact, type ArtifactFixture } from '../support/native-artifact
 const INSTALL_PROCESS_BUDGET_MS = 15_000;
 
 describe('tmt extension install surface', () => {
+  it('offers exactly the released extension components', async () => {
+    const { components } = JSON.parse(
+      readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
+    ) as { components: Record<string, { package?: string; release?: boolean }> };
+    const released = Object.entries(components)
+      .filter(
+        ([name, component]) => name !== 'cli' && component.package && component.release !== false
+      )
+      .map(([name]) => name)
+      .sort();
+    expect(released.length).toBeGreaterThan(0);
+    await withSandbox(async (sandbox) => {
+      const result = await runCli(sandbox, [
+        'extension',
+        'ls',
+        '--prefix',
+        path.join(sandbox.root, 'empty prefix'),
+        '--json',
+      ]);
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe('');
+      const listed = parseWholeStdout(result) as {
+        extensions: { name: string; installed: boolean }[];
+      };
+      expect(listed.extensions.every((extension) => !extension.installed)).toBe(true);
+      expect(listed.extensions.map((extension) => extension.name).sort()).toEqual(released);
+    });
+  });
+
   it('installs, lists offline, refuses without consent, and uninstalls squad keeping its releases', async () => {
     await withSandbox(async (sandbox) => {
       const prefix = path.join(sandbox.root, 'extension prefix');

@@ -715,9 +715,11 @@ that inherits the workspace version is declared by the owner of `rust/Cargo.toml
 a private `release: false` component owns the crate, because the next locked build fails
 when that release leaves its entry behind. Office is parked this way: it owns its files and
 CI scope but has no release-please package, manifest entry or release run, and its binary
-opts out of cargo-dist with `dist = false`. The native-release entry checks the same
-component policy before preparation or draft planning, so a parked product cannot
-enter the bundle pipeline through manual preparation.
+opts out of cargo-dist with `dist = false`. The native-release entry delegates to
+`native-release-policy.mjs require-released`, which checks the same component policy
+before preparation or draft planning, so a parked product cannot enter the bundle
+pipeline through manual preparation. Native tests compare the CLI's installable
+extensions with the released extension components in the map.
 release-please attributes a commit to a package by the files it touches under the package
 path and can only drop paths, so the CLI's `exclude-paths` lists everything under each
 extension root except the crates the CLI links (today the Office model, command and service

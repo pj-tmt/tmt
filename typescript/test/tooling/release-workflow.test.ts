@@ -64,6 +64,10 @@ describe('per-product release run (native-release.yml)', () => {
 
   it('refuses parked Office before preparation or draft planning, retaining released products', () => {
     const plan = job(run, 'plan');
+    expect(plan).toContain(
+      'node typescript/scripts/native-release-policy.mjs require-released "$PRODUCT"'
+    );
+    expect(plan).not.toMatch(/node[^\n]*\s-e\s/);
     const shell = plan
       .slice(plan.indexOf('        run: |\n') + '        run: |\n'.length)
       .split('\n')

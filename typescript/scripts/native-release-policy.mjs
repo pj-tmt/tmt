@@ -1,3 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { isReleased, parseComponentMap } from './ci-scope.mjs';
+
 // How each native product's GitHub release is published. The CLI release is
 // the repository's "latest" release, so
 // `releases/latest/download/install.sh` always reaches the CLI installer.
@@ -60,4 +65,23 @@ export function checkLatestTag(tag) {
     );
   }
   return true;
+}
+
+// The component map also gates preparation, which bypasses draft planning.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    const [command, product, ...extra] = process.argv.slice(2);
+    if (command !== 'require-released' || !product || extra.length) {
+      throw new Error('Usage: native-release-policy.mjs require-released <product>');
+    }
+    const map = parseComponentMap(
+      readFileSync(new URL('../../.github/components.json', import.meta.url), 'utf8')
+    );
+    if (!isReleased(map, product)) {
+      throw new Error(`${product} is not released (release: false in .github/components.json).`);
+    }
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+  }
 }

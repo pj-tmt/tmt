@@ -76,15 +76,7 @@ jobs:
           HOLD: ${{ inputs.hold }}
         run: |
           # Only released products may enter either preparation or draft publication.
-          node --input-type=module -e '
-            import { readFileSync } from "node:fs";
-            import { isReleased, parseComponentMap } from "./typescript/scripts/ci-scope.mjs";
-            const map = parseComponentMap(readFileSync(".github/components.json", "utf8"));
-            if (!isReleased(map, process.env.PRODUCT)) {
-              console.error(process.env.PRODUCT + " is not released (release: false in .github/components.json).");
-              process.exit(1);
-            }
-          '
+          node typescript/scripts/native-release-policy.mjs require-released "$PRODUCT"
           if [ "$PREPARE" = true ]; then
             if [ -n "$RETRY" ] || [ -n "$HOLD" ]; then
               echo 'A retry and a released hold need prepare turned off.' >&2
