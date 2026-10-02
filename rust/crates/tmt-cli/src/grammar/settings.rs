@@ -19,7 +19,7 @@ pub(in crate::grammar) fn config() -> Command {
         "View or modify settings",
         [
             "Show settings" => "tmt config show",
-            "Change a setting" => "tmt config set timeout 120",
+            "Change a setting" => "tmt config set preambleEvery 2",
         ]
     ))
     .subcommand(general(spec!(
@@ -35,8 +35,8 @@ pub(in crate::grammar) fn config() -> Command {
                 "set",
                 "Set a setting",
                 [
-                    "Change a workspace setting" => "tmt config set timeout 120",
-                    "Change a global setting" => "tmt config set --global captureLines 200",
+                    "Change a workspace setting" => "tmt config set preambleEvery 2",
+                    "Change a global setting" => "tmt config set --global pasteEnterDelayMs 500",
                 ]
             )),
             &["global"],
@@ -50,7 +50,7 @@ pub(in crate::grammar) fn config() -> Command {
             "Reset local setting overrides; global settings and defaults stay",
             details = "With a key, remove that workspace override; without a key, remove all local\noverrides. Global settings and built-in defaults are retained.",
             [
-                "Clear a workspace setting" => "tmt config rm timeout",
+                "Clear a workspace setting" => "tmt config rm preambleEvery",
             ]
         ))
         .alias("clear")

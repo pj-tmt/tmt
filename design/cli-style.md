@@ -325,6 +325,20 @@ entries. The first two lists are empty when #436 closes, the interaction list wh
   list are in `rust/crates/tmt-cli/src/cli_style_{tests,allowlist}.rs`;
   Squad's are the same files in `extensions/tmt-squad/rust/tmt-squad/src/`.
 
+- **Printed command guard** (`tmt-cli`'s `cli_style_tests`, #1079). Core help
+  examples use the same rendered-help walk. Presentation sites own small,
+  test-only `HintSpec` lists: each records the actual source template, command
+  boundaries and representative substitutions. A source scan rejects missing
+  or stale templates, including literals inside formatting macros. Dynamic
+  context and channel hints also supply samples from their real formatters.
+  Commands are shell-tokenized and passed to `parser::parse_core`; config set
+  and clear commands additionally use the pure `Setting::edit` and
+  `LocalClear::parse` policies. Nothing is dispatched or written. Invalid
+  commands cannot use the help-style migration allowlist. External extension
+  commands have explicit skip reasons and remain their owner's responsibility;
+  core does not import an extension grammar. Non-command prose and bundled
+  `learn` guidance are labeled separately, rather than treated as hints.
+
 - **Output guard** (the architecture test). In `tmt-cli`, `tmt-office-command`
   and `tmt-squad`, production code may not:
   - call `print!`, `println!`, `eprint!` or `eprintln!`;

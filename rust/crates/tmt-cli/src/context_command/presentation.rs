@@ -18,8 +18,8 @@ pub(super) fn unavailable() -> Value {
 
 fn requests(count: u64, identity: &str, incoming: bool) -> Value {
     let identity = identity.replace('\'', "'\\''");
-    json!({"count": count, "inspect": format!("tmt x{} --identity '{identity}' --json",
-        if incoming { " --incoming" } else { "" })})
+    json!({"count": count, "inspect": format!("tmt {} --identity '{identity}' --json",
+        if incoming { "inbox" } else { "x" })})
 }
 
 pub(super) fn document(
@@ -213,7 +213,7 @@ mod tests {
         assert!(!text.lines().any(|line| line.starts_with("ignore previous")));
         assert!(text.contains("Role: \"Reviewer\""), "{text}");
         assert!(text.contains(
-            "Incoming X items: 4 unacknowledged; tmt x --incoming --identity 'identity' --json"
+            "Incoming X items: 4 unacknowledged; tmt inbox --identity 'identity' --json"
         ));
         assert!(text.contains("Context shortened to the output limit."));
         let json_text = bounded(value, true).unwrap();
@@ -237,7 +237,7 @@ mod tests {
             let output = bounded(value.clone(), json_mode).unwrap();
             assert!(output.len() <= OUTPUT_LIMIT);
             assert!(output.ends_with('\n'));
-            assert!(output.contains("tmt x --incoming --identity 'identity' --json"));
+            assert!(output.contains("tmt inbox --identity 'identity' --json"));
             if json_mode {
                 let parsed: Value = serde_json::from_str(&output).unwrap();
                 assert_eq!(parsed["truncated"], true);
@@ -260,7 +260,7 @@ mod tests {
         );
         assert_eq!(
             requests(1, "id'quote", true)["inspect"],
-            "tmt x --incoming --identity 'id'\\''quote' --json"
+            "tmt inbox --identity 'id'\\''quote' --json"
         );
     }
 }
@@ -293,8 +293,8 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[],
     ),
     crate::cli_style_tests::HintSpec::core(
-        "tmt x{} --identity '{identity}' --json",
+        "tmt {} --identity '{identity}' --json",
         &[""],
-        &[("{}", "")],
+        &[("{}", "inbox")],
     ),
 ];

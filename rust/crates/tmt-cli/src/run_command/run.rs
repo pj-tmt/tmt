@@ -218,7 +218,7 @@ pub(super) fn run_bound(
                 ));
             }
             diagnostic(
-                "prior runtime evidence is unknown; automatic delivery will remain unavailable. After this command exits, run `tmt run` again to establish runtime ownership.",
+                "prior runtime evidence is unknown; automatic delivery will remain unavailable. After this command exits, run `tmt run <name>` again to establish runtime ownership.",
             );
             false
         } else {
@@ -569,7 +569,7 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[],
     ),
     crate::cli_style_tests::HintSpec::core(
-        "prior runtime evidence is unknown; automatic delivery will remain unavailable. After this command exits, run `tmt run` again to establish runtime ownership.",
+        "prior runtime evidence is unknown; automatic delivery will remain unavailable. After this command exits, run `tmt run <name>` again to establish runtime ownership.",
         &["`"],
         &[],
     ),

@@ -371,7 +371,7 @@ fn path_warning(executable: &Path) -> Option<String> {
 fn retry_hint(report: &UpgradeReport) -> String {
     match &report.state.pinned_version {
         Some(version) => format!(
-            "Run the current managed tmt with upgrade --to {version} to retry without clearing the pin."
+            "Run the current managed tmt upgrade --to {version} to retry without clearing the pin."
         ),
         None => "Run the current managed tmt upgrade to retry.".into(),
     }
@@ -389,9 +389,10 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[" to retry"],
         &[],
     ),
-    crate::cli_style_tests::HintSpec::skipped(
-        "Run the current managed tmt with upgrade --to {version} to retry without clearing the pin.",
-        "Executable or option reference in prose, not a full command suggestion.",
+    crate::cli_style_tests::HintSpec::core(
+        "Run the current managed tmt upgrade --to {version} to retry without clearing the pin.",
+        &[" to retry"],
+        &[("{version}", "0.2.0")],
     ),
     crate::cli_style_tests::HintSpec::core(
         "reload or restart your agent to use updated guidance; existing conversations can read tmt learn --skill",

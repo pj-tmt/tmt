@@ -95,14 +95,17 @@ fn every_printed_hint_and_help_example_is_runnable() {
         .filter(|violation| violation.rule == audit::Rule::ExampleParse)
         .map(|violation| format!("{}: {}", violation.command(&program), violation.detail))
         .collect();
-    for command in crate::context_command::hint_commands() {
+    for command in crate::context_command::hint_commands()
+        .into_iter()
+        .chain(crate::channel_command::hint_commands())
+    {
         let example = tmt_cli_style::help::ShownExample {
             note: String::new(),
             command,
         };
         let result = example.argv().and_then(|argv| parse(&argv[1..]));
         if let Err(error) = result {
-            failures.push(format!("context hint {:?}: {error}", example.command));
+            failures.push(format!("rendered hint {:?}: {error}", example.command));
         }
     }
     assert!(

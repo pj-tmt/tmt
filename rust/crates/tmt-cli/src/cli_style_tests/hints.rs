@@ -163,7 +163,9 @@ pub(super) fn source_files(root: &Path, output: &mut Vec<std::path::PathBuf>) {
     for entry in std::fs::read_dir(root).expect("source directory") {
         let path = entry.expect("source entry").path();
         let name = path.file_name().unwrap().to_str().unwrap();
-        if name.contains("test")
+        if name == "tests"
+            || name == "tests.rs"
+            || name.ends_with("_tests.rs")
             || name.starts_with("cli_style")
             || name == "grammar"
             || name == "grammar.rs"
