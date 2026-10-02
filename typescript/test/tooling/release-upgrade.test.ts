@@ -1,6 +1,7 @@
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -613,11 +614,11 @@ describe('release-upgrade.mjs', () => {
     mkdirSync(bin);
     const calls = path.join(directory, 'gh-calls');
     writeFileSync(calls, '');
-    writeFileSync(
+    writeExecutable(
       path.join(bin, 'gh'),
-      `#!/bin/sh\necho "$*" >> '${calls}'\ncase "$*" in\n  *commits/*) echo ${'c'.repeat(40)} ;;\n  *) echo '${JSON.stringify([releases])}' ;;\nesac\n`
+      `#!/bin/sh\necho "$*" >> '${calls}'\ncase "$*" in\n  *commits/*) echo ${'c'.repeat(40)} ;;\n  *) echo '${JSON.stringify([releases])}' ;;\nesac\n`,
+      0o755
     );
-    chmodSync(path.join(bin, 'gh'), 0o755);
     const output = path.join(directory, 'output');
     writeFileSync(output, '');
     const run = (args: string[], environment: Record<string, string> = {}) =>

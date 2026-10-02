@@ -1,13 +1,6 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import { spawnSync } from 'node:child_process';
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,8 +32,11 @@ function fakeTools(
   mkdirSync(bin);
   const calls = path.join(sandbox.root, 'calls.log');
   const tool = (name: string, body: string) => {
-    writeFileSync(path.join(bin, name), `#!/bin/sh\necho "${name} $*" >> "${calls}"\n${body}\n`);
-    chmodSync(path.join(bin, name), 0o755);
+    writeExecutable(
+      path.join(bin, name),
+      `#!/bin/sh\necho "${name} $*" >> "${calls}"\n${body}\n`,
+      0o755
+    );
   };
   // POSIX `df -Pk` layout: the fourth column of the data row is available KiB.
   tool(

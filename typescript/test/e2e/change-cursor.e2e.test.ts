@@ -1,3 +1,4 @@
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,9 +17,7 @@ function installCursorReader(fixture: E2EFixture): () => Promise<number> {
   const input = path.join(fixture.root, 'cursor.json');
   fs.writeFileSync(input, JSON.stringify({ version: 1, operation: 'changes.cursor', input: {} }));
   const reader = path.join(fixture.wrapperDir, 'tmt-cursor');
-  fs.writeFileSync(reader, `#!/bin/sh\nexec "$TMT_EXECUTABLE" api < '${input}'\n`, {
-    mode: 0o700,
-  });
+  writeExecutable(reader, `#!/bin/sh\nexec "$TMT_EXECUTABLE" api < '${input}'\n`, 0o700);
   return async () => expectJsonResult(await fixture.runCli<{ cursor: number }>(['cursor'])).cursor;
 }
 
@@ -33,10 +32,10 @@ describe('change cursor on a live host', { concurrent: false }, () => {
       const shell = fixture.createShellPane('cursor-runner').pane;
       const ready = path.join(fixture.root, 'runner-ready.json');
       const fake = path.join(fixture.wrapperDir, 'cursor-harness');
-      fs.writeFileSync(
+      writeExecutable(
         fake,
         `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(ready)}, JSON.stringify({ child: process.pid }));\nsetInterval(() => {}, 1000);\n`,
-        { mode: 0o700 }
+        0o700
       );
       const command = [fixture.executables.cli.executable, ...fixture.executables.cli.args]
         .concat(['run', '-s', 'Bob', fake])

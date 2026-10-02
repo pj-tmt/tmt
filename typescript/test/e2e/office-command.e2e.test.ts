@@ -1,4 +1,5 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { expect, it } from 'vitest';
 import { resolveCliExecutables } from '../support/cli-executable.mjs';
@@ -20,10 +21,10 @@ async function office(fixture: E2EFixture) {
     ['officefacade', '"$TMT_EXECUTABLE" office'],
     ['officedirect', quote(companion)],
   ]) {
-    writeFileSync(
+    writeExecutable(
       path.join(fixture.wrapperDir, `tmt-${name}`),
       `#!/bin/sh\nexec env ${environment} ${command} "$@"\n`,
-      { mode: 0o755 }
+      0o755
     );
   }
   const run = (entry: string, args: string[], options: CliRunOptions = {}) =>

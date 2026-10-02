@@ -1,13 +1,6 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import { spawnSync } from 'node:child_process';
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,8 +21,7 @@ beforeAll(() => {
   bin = path.join(root, 'bin');
   mkdirSync(bin);
   const tool = (name: string, body: string) => {
-    writeFileSync(path.join(bin, name), `#!/bin/sh\n${body}\n`);
-    chmodSync(path.join(bin, name), 0o755);
+    writeExecutable(path.join(bin, name), `#!/bin/sh\n${body}\n`, 0o755);
   };
   // Records each wait, so no case sleeps or depends on the host's `sleep`.
   tool('sleep', 'echo "$*" >> "$LOG_DIR/sleeps.log"');

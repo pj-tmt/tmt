@@ -1,5 +1,6 @@
-import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
+import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
@@ -251,7 +252,7 @@ describe.skipIf(!HERDR || !PREVIOUS_TMT)(
         const agents = path.join(sandbox.root, 'agents');
         const received = path.join(sandbox.root, 'agent-received.log');
         mkdirSync(agents);
-        writeFileSync(
+        writeExecutable(
           path.join(agents, 'claude'),
           [
             '#!/bin/sh',
@@ -267,7 +268,7 @@ describe.skipIf(!HERDR || !PREVIOUS_TMT)(
             `echo exited >> '${received}'`,
             '',
           ].join('\n'),
-          { mode: 0o755 }
+          0o755
         );
         sandbox.env.PATH = `${agents}${path.delimiter}${sandbox.env.PATH}`;
         const herdr = await startHerdr(sandbox);
@@ -363,10 +364,10 @@ describe('ls with Herdr target-shaped text', () => {
       const herdrLog = path.join(sandbox.root, 'herdr-invocations.log');
       const tripwire = path.join(sandbox.root, 'herdr-tripwire');
       mkdirSync(tripwire);
-      writeFileSync(
+      writeExecutable(
         path.join(tripwire, 'herdr'),
         `#!/bin/sh\nprintf "%s\\n" "$*" >> '${herdrLog}'\nexit 97\n`,
-        { mode: 0o755 }
+        0o755
       );
       // macOS delays a new executable's first run past a driver call's
       // deadline; run it once so the driver's call is the one recorded.

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import {
   checkQueueTitles,
   conventionalPrTitle,
@@ -114,15 +115,17 @@ function reportFixture(
 ) {
   const directory = mkdtempSync(path.join(tmpdir(), 'tmt-pr-title-report-'));
   try {
-    writeFileSync(
+    writeExecutable(
       path.join(directory, 'git'),
       `#!${process.execPath}\nconst fs = require('node:fs');\nif (process.env.GIT_FIXTURE_STATUS !== '0') process.exit(Number(process.env.GIT_FIXTURE_STATUS));\nconsole.log(process.argv[2] === 'merge-base' ? '${base}' : fs.readFileSync(process.env.GIT_FIXTURE_LOG, 'utf8'));\n`,
-      { mode: 0o700 }
+      0o700
     );
     // Any accidental REST/GraphQL title read makes this fixture fail visibly.
-    writeFileSync(path.join(directory, 'gh'), '#!/bin/sh\necho unexpected-REST >&2\nexit 29\n', {
-      mode: 0o700,
-    });
+    writeExecutable(
+      path.join(directory, 'gh'),
+      '#!/bin/sh\necho unexpected-REST >&2\nexit 29\n',
+      0o700
+    );
     const eventPath = path.join(directory, 'event.json');
     writeFileSync(eventPath, JSON.stringify(event));
     const invoke = (

@@ -1,3 +1,4 @@
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -33,8 +34,7 @@ describe('extension contributions to the rehydration context', { concurrent: fal
       const dir = fixture.wrapperDir;
       fs.chmodSync(dir, 0o755);
       const executable = path.join(dir, 'tmt-ctxfix');
-      fs.writeFileSync(executable, FIXTURE);
-      fs.chmodSync(executable, 0o755);
+      writeExecutable(executable, FIXTURE, 0o755);
       const reply = (value: unknown) =>
         fs.writeFileSync(path.join(dir, 'ctxfix-reply'), JSON.stringify(value));
       const input = path.join(dir, 'ctxfix-input');
@@ -119,8 +119,7 @@ it.each([
     await withE2EFixture(async (fixture) => {
       const executable = path.join(fixture.wrapperDir, 'tmt-ctxfix');
       fs.chmodSync(fixture.wrapperDir, 0o755);
-      fs.writeFileSync(executable, FIXTURE);
-      fs.chmodSync(executable, 0o755);
+      writeExecutable(executable, FIXTURE, 0o755);
       fs.writeFileSync(
         path.join(fixture.wrapperDir, 'ctxfix-reply'),
         JSON.stringify({ summary: 'Next turn: "quoted"\nsecond line' })

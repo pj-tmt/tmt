@@ -1,13 +1,6 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import { spawnSync } from 'node:child_process';
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,8 +21,7 @@ beforeAll(() => {
   mkdirSync(bin);
   const tool = (name: string, body: string) => {
     const target = path.join(bin, name);
-    writeFileSync(target, `#!/bin/sh\n${body}\n`);
-    chmodSync(target, 0o755);
+    writeExecutable(target, `#!/bin/sh\n${body}\n`, 0o755);
   };
   // All privileged and host-package operations are isolated fakes.
   tool('grep', 'printf "%s\\n" /etc/apt/sources.list.d/google-chrome.list');

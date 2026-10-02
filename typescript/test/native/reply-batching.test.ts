@@ -1,3 +1,4 @@
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import Database from 'better-sqlite3';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -106,8 +107,11 @@ async function fixture(sandbox: Sandbox, window: number, coldHost = false) {
   const startup = coldHost
     ? `const fs = require('node:fs'); if (!fs.existsSync(${JSON.stringify(path.join(sandbox.root, 'host-ready'))})) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1500);\n`
     : '';
-  fs.writeFileSync(host, `#!${process.execPath}\n${startup}require(${JSON.stringify(helper)});\n`);
-  fs.chmodSync(host, 0o755);
+  writeExecutable(
+    host,
+    `#!${process.execPath}\n${startup}require(${JSON.stringify(helper)});\n`,
+    0o755
+  );
   sandbox.env.PATH = `${directory}${path.delimiter}${sandbox.env.PATH ?? ''}`;
   sandbox.env.TMT_954_ROOT = sandbox.root;
   // Keep first-exec assessment outside unchanged product deadlines. The shared

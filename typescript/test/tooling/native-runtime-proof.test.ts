@@ -1,4 +1,5 @@
-import { chmodSync, existsSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -41,8 +42,7 @@ describe('native runtime proof boundary', () => {
     await withSandbox(async (sandbox) => {
       const executable = path.join(sandbox.root, 'not-native');
       const marker = path.join(sandbox.root, 'executed');
-      writeFileSync(executable, `#!/bin/sh\n: > ${JSON.stringify(marker)}\n`, { mode: 0o755 });
-      chmodSync(executable, 0o755);
+      writeExecutable(executable, `#!/bin/sh\n: > ${JSON.stringify(marker)}\n`, 0o755);
       const calibrated = await runCli(
         {
           ...sandbox,
@@ -82,8 +82,7 @@ describe('native runtime proof boundary', () => {
     await withSandbox(async (sandbox) => {
       const executable = path.join(sandbox.root, 'not-native');
       const marker = path.join(sandbox.root, 'executed');
-      writeFileSync(executable, `#!/bin/sh\n: > ${JSON.stringify(marker)}\n`, { mode: 0o755 });
-      chmodSync(executable, 0o755);
+      writeExecutable(executable, `#!/bin/sh\n: > ${JSON.stringify(marker)}\n`, 0o755);
       await expect(
         verifyNativeRuntime({
           executable,

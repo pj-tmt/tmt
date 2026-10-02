@@ -1,3 +1,4 @@
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, it } from 'vitest';
@@ -12,11 +13,11 @@ it.each(['claude', 'codex'] as const)(
         const executable = path.join(fixture.wrapperDir, 'tmt-squad');
         const cache = path.join(fixture.root, 'cache');
         fs.chmodSync(fixture.wrapperDir, 0o755);
-        fs.writeFileSync(
+        writeExecutable(
           executable,
-          `#!/bin/sh\nexec env XDG_CACHE_HOME=${quote(cache)} ${quote(path.join(path.dirname(fixture.executables.cli.executable), 'tmt-squad'))} "$@"\n`
+          `#!/bin/sh\nexec env XDG_CACHE_HOME=${quote(cache)} ${quote(path.join(path.dirname(fixture.executables.cli.executable), 'tmt-squad'))} "$@"\n`,
+          0o755
         );
-        fs.chmodSync(executable, 0o755);
         expect((await fixture.runJsonCli(['name', 'Fixture Owner', '-s'])).code).toBe(0);
         expect((await fixture.runJsonCli(['identity', 'create', 'Reminder Lead'])).code).toBe(0);
         const initialized = await fixture.runCli([

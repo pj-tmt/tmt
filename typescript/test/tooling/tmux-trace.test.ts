@@ -5,6 +5,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { E2EFixture } from '../e2e/harness.js';
 import { installTmuxTrace } from '../e2e/tmux-trace.js';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 
 describe('fixture tmux tracing guards', () => {
   it('refuses a second installation without replacing either wrapper', () => {
@@ -14,7 +15,7 @@ describe('fixture tmux tracing guards', () => {
       fs.mkdirSync(wrapperDir);
       const wrapper = path.join(wrapperDir, 'tmux');
       const inner = path.join(wrapperDir, 'tmux-inner');
-      fs.writeFileSync(wrapper, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      writeExecutable(wrapper, '#!/bin/sh\nexit 0\n', 0o755);
       const fixture = { root, wrapperDir } as E2EFixture;
       const trace = installTmuxTrace(fixture);
       execFileSync(wrapper, ['display-message', '-p', 'literal value'], {
@@ -37,10 +38,10 @@ describe('fixture tmux tracing guards', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-tmux-trace-'));
     try {
       const pidFile = path.join(root, 'pid');
-      fs.writeFileSync(
+      writeExecutable(
         path.join(root, 'tmux'),
         `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));\nsetTimeout(() => process.exit(42), 15000);\n`,
-        { mode: 0o755 }
+        0o755
       );
       // Exercise the fixture method without discovering or starting host tmux.
       const fixture = Object.assign(Object.create(E2EFixture.prototype), {

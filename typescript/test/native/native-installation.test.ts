@@ -1,14 +1,14 @@
 import {
-  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
-  readlinkSync,
   readdirSync,
+  readlinkSync,
   realpathSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
@@ -78,7 +78,7 @@ describe('native installation process contract', () => {
     await withSandbox(async (sandbox) => {
       const prefix = installPrefix(sandbox);
       const companion = path.join(sandbox.root, 'storage-uncertain-office');
-      writeFileSync(
+      writeExecutable(
         companion,
         `#!/bin/sh
 control="\${0%/lib/tmt-office/releases/*}/storage-uncertain-operation"
@@ -99,9 +99,9 @@ board-post)
   ;;
 *) exit 1 ;;
 esac
-`
+`,
+        0o755
       );
-      chmodSync(companion, 0o755);
       const fixture = await createArtifact(
         sandbox,
         '0.1.0-alpha.2',

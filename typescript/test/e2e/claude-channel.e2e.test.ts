@@ -1,3 +1,4 @@
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import Database from 'better-sqlite3';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -33,15 +34,6 @@ interface Session {
 
 function quote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
-/**
- * A short-lived `sh` writes the executable, so this process never holds a write
- * descriptor that a concurrent fork could carry into the exec of the file (the
- * ETXTBSY race; see the "ETXTBSY" rule in the developer guide).
- */
-function writeExecutable(file: string, script: string): void {
-  execFileSync('/bin/sh', ['-c', 'cat > "$1" && chmod 755 "$1"', 'sh', file], { input: script });
 }
 
 /** The mock `claude`, published once per fixture and never rewritten while sessions run it. */

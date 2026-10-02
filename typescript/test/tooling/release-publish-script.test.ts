@@ -1,13 +1,6 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import { spawnSync } from 'node:child_process';
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -95,8 +88,7 @@ function scenario(options: Scenario = {}) {
   const bin = path.join(directory, 'bin');
   mkdirSync(bin);
   const ghFile = path.join(bin, 'gh');
-  writeFileSync(ghFile, FAKE_GH);
-  chmodSync(ghFile, 0o755);
+  writeExecutable(ghFile, FAKE_GH, 0o755);
   const calls = path.join(directory, 'calls');
   writeFileSync(calls, '');
   const stateFile = path.join(directory, 'state.json');

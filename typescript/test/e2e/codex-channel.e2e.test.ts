@@ -1,3 +1,4 @@
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import Database from 'better-sqlite3';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -51,14 +52,11 @@ function start(
   const status = `${log}.status`;
   const executable = path.join(f.wrapperDir, 'codex');
   if (!fs.existsSync(executable)) {
-    // A short-lived writer prevents inherited writable descriptors / ETXTBSY.
     if (extra.MOCK_HOOK_MODEL) {
       // This scenario needs real Codex-named app-server ancestry for its hooks.
-      execFileSync('/bin/sh', ['-c', 'cp "$1" "$2" && chmod 755 "$2"', 'sh', mock, executable]);
+      writeExecutable(executable, fs.readFileSync(mock));
     } else {
-      execFileSync('/bin/sh', ['-c', 'cat > "$1" && chmod 755 "$1"', 'sh', executable], {
-        input: `#!/bin/sh\nexec ${quote(mock)} "$@"\n`,
-      });
+      writeExecutable(executable, `#!/bin/sh\nexec ${quote(mock)} "$@"\n`);
     }
   }
   const home = path.join(f.root, `home-${name}-${run}`);

@@ -1,5 +1,6 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import Database from 'better-sqlite3';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { expectError, fileSnapshot, runCli, withSandbox } from '../support/cli-process.js';
@@ -32,11 +33,11 @@ describe('native check process preflight', () => {
       const executable = path.join(directory, 'tmux');
       sandbox.env.PATH = `${directory}${path.delimiter}${sandbox.env.PATH ?? ''}`;
       for (const reason of ['Permission denied', 'Operation not permitted']) {
-        writeFileSync(
+        writeExecutable(
           executable,
-          `#!/bin/sh\nprintf "error connecting to /tmp/private.sock (${reason})\\n" >&2\nexit 1\n`
+          `#!/bin/sh\nprintf "error connecting to /tmp/private.sock (${reason})\\n" >&2\nexit 1\n`,
+          0o755
         );
-        chmodSync(executable, 0o755);
         for (const args of [
           ['check', '%14', '--json'],
           ['talk', '%14', 'must not send', '--detach', '--json'],

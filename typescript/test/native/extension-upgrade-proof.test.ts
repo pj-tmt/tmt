@@ -1,4 +1,5 @@
-import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -30,11 +31,11 @@ describe('extension upgrade proof against the real CLI', () => {
         const log = path.join(sandbox.root, 'driver commands.log');
         const wrapper = path.join(sandbox.root, 'recording tmt');
         // The proof runs it with an empty PATH: only shell builtins and an absolute path are used.
-        writeFileSync(
+        writeExecutable(
           wrapper,
-          `#!/bin/sh\nprintf '%s %s\\n' "$1" "$2" >> "${log}"\nexec "${sandbox.cli.executable}" "$@"\n`
+          `#!/bin/sh\nprintf '%s %s\\n' "$1" "$2" >> "${log}"\nexec "${sandbox.cli.executable}" "$@"\n`,
+          0o755
         );
-        chmodSync(wrapper, 0o755);
         expect(sandbox.cli.args).toEqual([]);
 
         const artifact = (name: string, version: string, product: 'cli' | 'squad') =>

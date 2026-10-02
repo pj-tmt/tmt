@@ -3604,6 +3604,14 @@ only then removes fixture state. Signals are sent only to task-owned child
 processes. No host tmux server, provider installation or global environment
 mutation is test evidence.
 
+`typescript/test/support/executable-fixture.mjs` owns publication of test-written
+executable and interpreter fixture bytes across all three TypeScript suites. A
+short-lived Node writer stages, fsyncs and closes the file before chmod and atomic
+rename; the parent waits for writer exit before spawning. Test workers never open
+those bytes for writing, so concurrent forks cannot inherit a writable descriptor.
+Synthetic shell installers invoke the same writer. Scenario callers retain their
+bytes and explicit executable or deliberately non-executable modes.
+
 `typescript/test/support/cli-process.ts` owns each native sandbox's active child runs.
 It also owns `TMUX_TMPDIR` under the sandbox, so ancestor discovery cannot reach
 the host's default tmux server after caller variables are cleared. Native process

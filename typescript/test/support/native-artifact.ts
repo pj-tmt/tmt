@@ -1,7 +1,8 @@
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { chmodSync, copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import * as tar from 'tar';
+import { writeExecutable } from './executable-fixture.mjs';
 
 // The archive's file list has one owner, the artifact policy the release
 // verifiers use; fixtures build from it rather than copying it.
@@ -71,11 +72,8 @@ export async function createArtifact(
         ? companionExecutable
         : path.resolve('../rust/target/debug/tmt-squad');
   if (source === undefined) throw new Error(`Missing ${product} executable for artifact fixture.`);
-  copyFileSync(source, path.join(root, executableName));
   const executable = path.join(root, executableName);
-  chmodSync(executable, 0o755);
-  if (executableSuffix.byteLength > 0)
-    writeFileSync(executable, Buffer.concat([readFileSync(executable), executableSuffix]));
+  writeExecutable(executable, Buffer.concat([readFileSync(source), executableSuffix]));
   writeFileSync(path.join(root, 'LICENSE'), 'MIT\n');
   writeFileSync(path.join(root, 'NATIVE-INSTALL.md'), 'Native local installation fixture.\n');
   writeFileSync(path.join(root, 'THIRD-PARTY-NOTICES.txt'), 'Synthetic test notice fixture.\n');
@@ -84,8 +82,7 @@ export async function createArtifact(
   const companions = sources.cli?.companions === null ? [] : companionFiles(product);
   for (const companion of companions) {
     const built = sources.cli?.companions ?? path.dirname(source);
-    copyFileSync(path.join(built, companion), path.join(root, companion));
-    chmodSync(path.join(root, companion), 0o755);
+    writeExecutable(path.join(root, companion), readFileSync(path.join(built, companion)), 0o755);
   }
   for (const [file, content] of Object.entries(skills)) {
     mkdirSync(path.dirname(path.join(root, 'skills', file)), { recursive: true });

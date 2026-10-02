@@ -1,6 +1,4 @@
-import Database from 'better-sqlite3';
 import {
-  chmodSync,
   closeSync,
   constants,
   existsSync,
@@ -15,6 +13,8 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
+import Database from 'better-sqlite3';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
@@ -114,11 +114,11 @@ async function reminderFixture(sandbox: Sandbox) {
 
 /** Publish once, then assess the executable before a short production deadline. */
 async function readyContextFixture(sandbox: Sandbox, file: string, payload: string) {
-  writeFileSync(
+  writeExecutable(
     file,
-    `#!/bin/sh\nif [ "$1" = __tmt_fixture_ready ]; then exit 0; fi\n${payload}\n`
+    `#!/bin/sh\nif [ "$1" = __tmt_fixture_ready ]; then exit 0; fi\n${payload}\n`,
+    0o755
   );
-  chmodSync(file, 0o755);
   const ready = await runCli(
     { ...sandbox, cli: { executable: file, args: [] } },
     ['__tmt_fixture_ready'],
@@ -192,11 +192,11 @@ describe('squad extension', () => {
       ).toBe(0);
       const calls = path.join(sandbox.root, 'gh-calls');
       const gh = path.join(bin, 'gh');
-      writeFileSync(
+      writeExecutable(
         gh,
-        `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\nprintf '%s\\n' '{"number":412,"state":"OPEN","isDraft":false,"reviewDecision":"APPROVED"}'\n`
+        `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\nprintf '%s\\n' '{"number":412,"state":"OPEN","isDraft":false,"reviewDecision":"APPROVED"}'\n`,
+        0o755
       );
-      chmodSync(gh, 0o755);
       const metadata = observe(sandbox);
       const listed = await squad(sandbox, ['ls', '--squad', 'product', '--refresh-fields']);
       expect(listed.status).toBe(0);
@@ -1884,13 +1884,12 @@ sort = ["-name"]
       const copied = path.join(sandbox.root, 'copied');
       const opener = path.join(bin, 'record-open');
       const clipboard = path.join(bin, 'record-copy');
-      writeFileSync(
+      writeExecutable(
         opener,
-        `#!/bin/sh\nprintf '%s\\n' "$@" > '${opened}.tmp'\nmv '${opened}.tmp' '${opened}'\n`
+        `#!/bin/sh\nprintf '%s\\n' "$@" > '${opened}.tmp'\nmv '${opened}.tmp' '${opened}'\n`,
+        0o755
       );
-      writeFileSync(clipboard, `#!/bin/sh\ncat > '${copied}'\n`);
-      chmodSync(opener, 0o755);
-      chmodSync(clipboard, 0o755);
+      writeExecutable(clipboard, `#!/bin/sh\ncat > '${copied}'\n`, 0o755);
       const squadToml = path.join(sandbox.globalDir, 'squad.toml');
       writeFileSync(
         squadToml,

@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -129,9 +130,9 @@ describe('packed command verifier', () => {
   it('puts the executable, its first three subcommand words and the first line it said on one line', () => {
     const root = createFixture();
     try {
-      // Run by node, so no executable is written. It fails the way a CLI does, per its mode.
+      // Run by Node without executable bits. It fails the way a CLI does, per its mode.
       const script = path.join(root, 'fake-tmt.mjs');
-      writeFileSync(
+      writeExecutable(
         script,
         [
           'const mode = process.argv[2];',
@@ -139,7 +140,8 @@ describe('packed command verifier', () => {
           "if (mode === 'plain') process.stdout.write('\\n  first line\\nsecond line\\n');",
           "if (mode === 'long') process.stderr.write('z'.repeat(500));",
           'process.exitCode = 1;',
-        ].join('\n')
+        ].join('\n'),
+        0o644
       );
       const firstLine = (...args: string[]): string => {
         try {

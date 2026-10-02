@@ -1,3 +1,4 @@
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -222,14 +223,15 @@ describe('non-invasive pane badge presentation', { concurrent: false }, () => {
       );
       const wrapper = path.join(fixture.wrapperDir, 'tmux');
       const denied = path.join(fixture.root, 'badge-denied.log');
-      fs.writeFileSync(
+      writeExecutable(
         wrapper,
         fs
           .readFileSync(wrapper, 'utf8')
           .replace(
             '#!/bin/sh\n',
             `#!/bin/sh\nfor argument in "$@"; do\n  if [ "$argument" = "@tmux-team.badge" ]; then printf 'denied\\n' >> '${denied}'; exit 1; fi\ndone\n`
-          )
+          ),
+        0o755
       );
       expectJsonResult(await fixture.runJsonCli(['name', 'alice']));
       const identity = durableIdentity(fixture, 'alice');

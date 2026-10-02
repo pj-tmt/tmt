@@ -1,5 +1,6 @@
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -77,8 +78,11 @@ describe('per-product release run (native-release.yml)', () => {
     const directory = mkdtempSync(path.join(os.tmpdir(), 'release-product-'));
     try {
       const gh = path.join(directory, 'gh');
-      writeFileSync(gh, '#!/bin/sh\nprintf "unexpected release API call\\n" >&2\nexit 97\n');
-      chmodSync(gh, 0o700);
+      writeExecutable(
+        gh,
+        '#!/bin/sh\nprintf "unexpected release API call\\n" >&2\nexit 97\n',
+        0o700
+      );
       const search = `${directory}${path.delimiter}${process.env.PATH ?? ''}`;
       for (const prepare of ['true', 'false']) {
         const result = spawnSync('/bin/sh', ['-eu', '-c', shell], {

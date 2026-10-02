@@ -1,3 +1,4 @@
+import { writeExecutable as publishExecutable } from '../support/executable-fixture.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,7 +18,7 @@ function temporaryRoot(): string {
 
 function writeExecutable(root: string, name: string, source: string, mode = 0o755): string {
   const executable = path.join(root, name);
-  fs.writeFileSync(executable, source, { mode });
+  publishExecutable(executable, source, mode);
   return executable;
 }
 

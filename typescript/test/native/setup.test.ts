@@ -1,3 +1,4 @@
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -191,7 +192,7 @@ describe('consented provider setup and bounded hook boundary', () => {
     await withSandbox(async (sandbox) => {
       const bin = path.join(sandbox.root, 'no-pane');
       fs.mkdirSync(bin);
-      fs.writeFileSync(path.join(bin, 'tmux'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+      writeExecutable(path.join(bin, 'tmux'), '#!/bin/sh\nexit 1\n', 0o755);
       sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
       const before = fileSnapshot(sandbox.root);
       for (const event of [
@@ -237,10 +238,10 @@ describe('consented provider setup and bounded hook boundary', () => {
       const bin = path.join(sandbox.root, 'probes');
       fs.mkdirSync(bin);
       const pidFile = path.join(sandbox.root, 'probe-child');
-      fs.writeFileSync(
+      writeExecutable(
         path.join(bin, 'tmux'),
         '#!/bin/sh\n/bin/sleep 20 &\necho $! > "$TMT_TEST_PROBE_PID"\nwait\n',
-        { mode: 0o755 }
+        0o755
       );
       sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
       sandbox.env.TMT_TEST_PROBE_PID = pidFile;

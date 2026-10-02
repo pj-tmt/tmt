@@ -1,4 +1,5 @@
-import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, statSync } from 'node:fs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
@@ -12,11 +13,11 @@ it('preserves arguments, caller directory and exit status in a checkout with spa
     mkdirSync(path.join(root, 'scripts'), { recursive: true });
     mkdirSync(path.join(root, 'rust/target/debug'), { recursive: true });
     const script = path.join(root, 'scripts/tmt-dev.sh');
-    copyFileSync(launcher, script);
-    writeFileSync(
+    writeExecutable(script, readFileSync(launcher), statSync(launcher).mode & 0o777);
+    writeExecutable(
       path.join(root, 'rust/target/debug/tmt'),
       '#!/bin/sh\npwd -P\nprintf "<%s>\\n" "$@"\nexit 7\n',
-      { mode: 0o755 }
+      0o755
     );
     const result = await runCli({ ...sandbox, cli: { executable: '/bin/sh', args: [script] } }, [
       'office',
@@ -36,7 +37,7 @@ it('fails with build guidance instead of invoking a PATH binary when the checkou
   await withSandbox(async (sandbox) => {
     mkdirSync(path.join(sandbox.root, 'scripts'));
     const script = path.join(sandbox.root, 'scripts/tmt-dev.sh');
-    copyFileSync(launcher, script);
+    writeExecutable(script, readFileSync(launcher), statSync(launcher).mode & 0o777);
     const result = await runCli({ ...sandbox, cli: { executable: '/bin/sh', args: [script] } }, [
       '--version',
     ]);

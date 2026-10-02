@@ -1,3 +1,4 @@
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,7 +19,7 @@ describe('Docker wrapper executable forwarding', () => {
         const bin = path.join(sandbox.root, 'fake docker');
         fs.mkdirSync(bin);
         const log = path.join(sandbox.root, 'docker.jsonl');
-        fs.writeFileSync(
+        writeExecutable(
           path.join(bin, 'docker'),
           `#!/usr/bin/env node
 const fs = require('node:fs');
@@ -26,7 +27,7 @@ const args = process.argv.slice(2);
 fs.appendFileSync(process.env.TMT_RUNNER_LOG, JSON.stringify(args) + '\\n');
 process.exitCode = args[0] === 'run' ? Number(process.env.TMT_RUNNER_STATUS) : 0;
 `,
-          { mode: 0o755 }
+          0o755
         );
         sandbox.env.PATH = `${bin}${path.delimiter}${process.env.PATH ?? ''}`;
         sandbox.env.TMT_RUNNER_LOG = log;
@@ -82,12 +83,12 @@ process.exitCode = args[0] === 'run' ? Number(process.env.TMT_RUNNER_STATUS) : 0
       const bin = path.join(sandbox.root, 'fake docker');
       fs.mkdirSync(bin);
       const log = path.join(sandbox.root, 'docker.jsonl');
-      fs.writeFileSync(
+      writeExecutable(
         path.join(bin, 'docker'),
         `#!/usr/bin/env node
 require('node:fs').appendFileSync(process.env.TMT_RUNNER_LOG, JSON.stringify(process.argv.slice(2)) + '\\n');
 `,
-        { mode: 0o755 }
+        0o755
       );
       sandbox.env.PATH = `${bin}${path.delimiter}${process.env.PATH ?? ''}`;
       sandbox.env.TMT_RUNNER_LOG = log;
