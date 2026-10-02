@@ -1,4 +1,6 @@
-//! Strict operation-specific JSON schemas. Syntax does not execute transitions or widen authority.
+//! Strict owner-statement JSON schemas. Syntax does not execute transitions or widen authority.
+//! Absent page.history means shared; callers apply that default and the 64-most-recent-epochs
+//! forward-wrap cap, sorted unique wrap-list bounds and atomic multi-list join admission.
 use crate::{Invalid, Result, bounded::List, crypto, require, stream_cut, values, wrap};
 use serde::Deserialize;
 pub const MAX_BYTES: usize = 768 * 1024;
@@ -18,9 +20,9 @@ pub enum ShareMode {
 }
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum ScriptMode {
-    Static,
-    Interactive,
+pub enum HistoryMode {
+    Shared,
+    Current,
 }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -93,9 +95,9 @@ pub struct PageShare {
 }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct PageScripts {
+pub struct PageHistory {
     pub page_id: String,
-    pub mode: ScriptMode,
+    pub mode: HistoryMode,
 }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -144,7 +146,7 @@ pub enum Payload {
     BridgeAdd(BridgeAdd),
     EpochAdvance(EpochAdvance),
     PageShare(PageShare),
-    PageScripts(PageScripts),
+    PageHistory(PageHistory),
     RetentionSet(RetentionSet),
     Archive(Page),
     Delete(Page),
@@ -280,10 +282,10 @@ pub fn decode(operation: &str, bytes: &[u8]) -> Result<Payload> {
             })?;
             Payload::PageShare(v)
         }
-        "page.scripts" => {
-            let v: PageScripts = parse(bytes)?;
+        "page.history" => {
+            let v: PageHistory = parse(bytes)?;
             values::generated_id(&v.page_id)?;
-            Payload::PageScripts(v)
+            Payload::PageHistory(v)
         }
         "retention.set" => {
             let v: RetentionSet = parse(bytes)?;

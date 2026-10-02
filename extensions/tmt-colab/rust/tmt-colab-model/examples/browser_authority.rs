@@ -32,8 +32,8 @@ fn main() {
         .verify_next(space, owner.verifying_key().as_bytes(), None)
         .unwrap()
         .head;
-    let payload = serde_json::to_vec(&json!({"pageId":string("page"),"mode":"static"})).unwrap();
-    let successor = statement::sign(space, Some(&head), "page.scripts", &payload, &owner).unwrap();
+    let payload = serde_json::to_vec(&json!({"pageId":string("page"),"mode":"shared"})).unwrap();
+    let successor = statement::sign(space, Some(&head), "page.history", &payload, &owner).unwrap();
     let fixture = wrap::Envelope::from_json(&serde_json::to_vec(&v["wrap"]).unwrap()).unwrap();
     let header = fixture.header().unwrap();
     let recipient = wrap::RecipientKey::from_seed(&hex(string("recipientSeed"))).unwrap();

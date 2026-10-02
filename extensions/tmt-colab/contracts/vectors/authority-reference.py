@@ -18,6 +18,24 @@ def public(k):
     return k.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
 def b64(v):
     return base64.urlsafe_b64encode(v).decode().rstrip("=")
+def seal_wrap(owner, header, sk_r, sk_e, epoch_key):
+    r, e = X25519PrivateKey.from_private_bytes(sk_r), X25519PrivateKey.from_private_bytes(sk_e)
+    enc, pk_r = public(e), public(r)
+    info = lp(b"tmt-colab-hpke-info-v1", header)
+    def extract(suite, label, value, salt=b""):
+        return mac(salt, b"HPKE-v1" + suite + label + value)
+    def labeled_expand(suite, key, label, value, n):
+        return expand(key, struct.pack(">H", n) + b"HPKE-v1" + suite + label + value, n)
+    kem = b"KEM" + bytes.fromhex("0020")
+    shared = labeled_expand(kem, extract(kem, b"eae_prk", e.exchange(r.public_key())), b"shared_secret", enc + pk_r, 32)
+    suite = b"HPKE" + bytes.fromhex("002000010002")
+    context = b"\x00" + extract(suite, b"psk_id_hash", b"") + extract(suite, b"info_hash", info)
+    secret = extract(suite, b"secret", b"", shared)
+    key = labeled_expand(suite, secret, b"key", context, 32)
+    nonce = labeled_expand(suite, secret, b"base_nonce", context, 12)
+    ct = AESGCM(key).encrypt(nonce, epoch_key, header)
+    signature = owner.sign(lp(b"tmt-colab-wrap-signature-v1", b"1", header, enc, digest(ct)))
+    return dict(header=b64(header), enc=b64(enc), ciphertext=b64(ct), signature=b64(signature))
 def generate():
     seed = bytes.fromhex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
     owner = Ed25519PrivateKey.from_private_bytes(seed)
@@ -31,22 +49,8 @@ def generate():
     r, e = X25519PrivateKey.from_private_bytes(sk_r), X25519PrivateKey.from_private_bytes(sk_e)
     enc, pk_r = public(e), public(r)
     header = lp(b"tmt-colab-wrap-v1", b"1", b"base-x25519-hkdfsha256-aes256gcm", space.encode(), page.encode(), b"1", b"device", device.encode(), pk_r, pub, b"2", b"epoch-key")
-    info = lp(b"tmt-colab-hpke-info-v1", header)
-    def extract(suite, label, value, salt=b""):
-        return mac(salt, b"HPKE-v1" + suite + label + value)
-    def labeled_expand(suite, key, label, value, n):
-        return expand(key, struct.pack(">H", n) + b"HPKE-v1" + suite + label + value, n)
-    kem = b"KEM" + bytes.fromhex("0020")
-    shared = labeled_expand(kem, extract(kem, b"eae_prk", e.exchange(r.public_key())), b"shared_secret", enc + pk_r, 32)
-    suite = b"HPKE" + bytes.fromhex("002000010002")
-    context = b"\x00" + extract(suite, b"psk_id_hash", b"") + extract(suite, b"info_hash", info)
-    secret = extract(suite, b"secret", b"", shared)
-    key = labeled_expand(suite, secret, b"key", context, 32)
-    nonce = labeled_expand(suite, secret, b"base_nonce", context, 12)
     epoch_key = bytes(range(32))
-    ct = AESGCM(key).encrypt(nonce, epoch_key, header)
-    signature = owner.sign(lp(b"tmt-colab-wrap-signature-v1", b"1", header, enc, digest(ct)))
-    wrap = dict(header=b64(header), enc=b64(enc), ciphertext=b64(ct), signature=b64(signature))
+    wrap = seal_wrap(owner, header, sk_r, sk_e, epoch_key)
     payload = json.dumps(dict(memberId=device,role="editor",signKey=b64(pub),encKey=b64(pk_r),pages=[page]), separators=(",", ":")).encode()
     statement = lp(b"tmt-colab-membership-v1", b"1", space.encode(), b"1", bytes(32), b"member.add", digest(payload))
     sig = owner.sign(statement)
@@ -71,12 +75,51 @@ def owner_member_vectors(authority):
             statement = lp(b"tmt-colab-membership-v1", b"1", authority["space"].encode(), b"2", bytes.fromhex(authority["statementHash"]), operation.encode(), digest(payload))
             cases.append(dict(name=target + "-" + operation, operation=operation, accepted=accepted, envelope=dict(statement=b64(statement), payload=b64(payload), signature=b64(owner.sign(statement)))))
     return dict(cases=cases)
+def history_vectors(a):
+    owner = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(a["seed"]))
+    def signed(operation, raw, signer=owner):
+        message = lp(b"tmt-colab-membership-v1", b"1", a["space"].encode(), b"2", bytes.fromhex(a["statementHash"]), operation.encode(), digest(raw))
+        return dict(statement=b64(message), payload=b64(raw), signature=b64(signer.sign(message)))
+    cases = []
+    for name, operation, value, accepted in [
+        ("shared", "page.history", dict(pageId=a["page"],mode="shared"), True),
+        ("current", "page.history", dict(pageId=a["page"],mode="current"), True),
+        ("old-static", "page.scripts", dict(pageId=a["page"],mode="static"), False),
+        ("old-interactive", "page.scripts", dict(pageId=a["page"],mode="interactive"), False),
+        ("wrong-mode", "page.history", dict(pageId=a["page"],mode="static"), False),
+        ("missing-mode", "page.history", dict(pageId=a["page"]), False),
+        ("null-mode", "page.history", dict(pageId=a["page"],mode=None), False),
+        ("number-mode", "page.history", dict(pageId=a["page"],mode=1), False),
+        ("extra-field", "page.history", dict(pageId=a["page"],mode="shared",extra=True), False),
+    ]:
+        raw = json.dumps(value, separators=(",", ":")).encode()
+        cases.append(dict(name=name,operation=operation,payload=raw.decode(),accepted=accepted,envelope=signed(operation,raw)))
+    raw = ('{"pageId":"'+a["page"]+'","mode":"shared","mode":"current"}').encode()
+    cases.append(dict(name="duplicate-mode",operation="page.history",payload=raw.decode(),accepted=False,envelope=signed("page.history",raw)))
+    raw = cases[1]["payload"].encode()
+    wrong_owner = signed("page.history",raw,Ed25519PrivateKey.from_private_bytes(bytes([7])*32))
+    member = "00000000-0000-4000-8000-000000000051"
+    recipient_seed = bytes([7])*32
+    recipient = X25519PrivateKey.from_private_bytes(recipient_seed)
+    pages = [f"00000000-0000-4000-8000-{n:012x}" for n in range(100,109)]
+    pub = bytes.fromhex(a["public"])
+    def forward(page, epoch):
+        header = lp(b"tmt-colab-wrap-v1",b"1",b"base-x25519-hkdfsha256-aes256gcm",a["space"].encode(),page.encode(),str(epoch).encode(),b"member",member.encode(),public(recipient),pub,b"2",b"epoch-key")
+        ephemeral = digest(b"1070-public-fixture-ephemeral"+header)
+        return seal_wrap(owner,header,recipient_seed,ephemeral,bytes.fromhex(a["epochKey"]))
+    # Current plus63 earlier epochs, nine pages:576 wraps in two atomic caller lists.
+    wraps = [json.dumps(forward(page,epoch),separators=(",", ":")) for page in pages for epoch in range(1,65)]
+    assert len(wraps)==576 and len(set(wraps))==576
+    join_payload = json.dumps(dict(memberId=member,role="viewer",signKey=b64(public(Ed25519PrivateKey.from_private_bytes(bytes([7])*32))),encKey=b64(public(recipient)),pages=pages),separators=(",", ":")).encode()
+    return dict(historyCases=cases,historyWrongOwner=wrong_owner,forwardWrap=forward(pages[0],63),historyJoin=dict(currentEpoch="64",membershipRevision="2",recipientSeed=recipient_seed.hex(),memberAdd=signed("member.add",join_payload),wrapLists=[wraps[:512],wraps[512:]]))
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--write",action="store_true")
     args = parser.parse_args()
     authority = generate()
+    authority.update(history_vectors(authority))
     for destination, value in [(DEST, authority), (DEST.with_name("owner-member-v1.json"), owner_member_vectors(authority))]:
         frozen = json.dumps(value, indent=2) + "\n"
         if args.write:

@@ -35,8 +35,8 @@ def generate():
     signin = lp(b'tmt-colab-signin-v1', b'1', code_id, space, device, public, bytes([7])*32, bytes(range(16)))
     possession = lp(b'tmt-colab-signin-possession-v1', b'1', signin)
     cut = lp(b'tmt-colab-stream-cut-v1', b'1', device, b'content', bytes([8])*32, b'2', b'3', bytes([11])*32)
-    payload = b'{"mode":"static"}'
-    management = lp(b'tmt-colab-management-v1', b'1', space, page, b'1', code_id, b'page.scripts', digest(payload), device, b'1790860000000', b'1790860600000')
+    payload = json.dumps(dict(pageId=page.decode(),mode="shared"),separators=(",", ":")).encode()
+    management = lp(b'tmt-colab-management-v1', b'1', space, page, b'1', code_id, b'page.history', digest(payload), device, b'1790860000000', b'1790860600000')
     return {k:dump(v) for k,v in dict(seed=seed,public=public,master=master,header=header,key=key,plaintext=plaintext,ciphertext=ct,signature=signature,envelopeHash=digest(lp(b'tmt-colab-envelope-hash-v1',header,bytes(12),ct,signature)),code=bytes(range(16)),signin=signin,proof=mac(bytes(range(16)),signin),possession=possession,possessionSignature=signer.sign(possession),cut=cut,payload=payload,management=management).items()}
 
 if __name__ == '__main__':

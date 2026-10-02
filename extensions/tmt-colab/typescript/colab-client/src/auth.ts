@@ -78,7 +78,7 @@ const OPERATIONS = [
   'bridge.add',
   'epoch.advance',
   'page.share',
-  'page.scripts',
+  'page.history',
   'retention.set',
   'page.archive',
   'page.delete',

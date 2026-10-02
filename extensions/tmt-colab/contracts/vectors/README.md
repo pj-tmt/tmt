@@ -40,3 +40,14 @@ The same independent generator freezes `owner-member-v1.json`: valid owner-signe
 removal and role-change statements targeting the pinned owner are rejected, with
 accepted peer-target controls isolating the owner-binding rule from signature and
 payload admission. Rust and browser verifiers consume these exact envelopes.
+
+The authority oracle also freezes strict `page.history` payload/statement cases,
+obsolete `page.scripts` rejection and a wrong-owner signature control. An absent
+history statement defaults to `shared` in caller policy, not by accepting a
+missing payload mode. `forwardWrap` covers epoch 63 at current epoch 64 and
+membership revision 2 with the existing epoch-key wrap grammar. `historyJoin`
+carries an owner-signed member addition and 576 existing wrap envelopes, serialized
+as compact JSON strings in sorted unique 512/64-entry lists for nine pages at
+the 64-most-recent-epochs cap. Atomic join delivery, global list admission, the
+history default and epoch cap remain caller policy; the model only parses and
+authenticates existing values. No aggregate join wire grammar is introduced.

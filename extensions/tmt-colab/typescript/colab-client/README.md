@@ -17,6 +17,10 @@ live issuer statement/key and exact certificate context, including validity.
 and a persisted non-extractable recipient handle. Its fixed RFC 9180 schedule
 uses native X25519/HMAC/AES-GCM; no raw private or intermediate-secret API exists.
 The model's current-state policy remains outside these byte/crypto ports.
+`page.history` is owner-only statement syntax; callers default an absent statement
+to `shared` and enforce the 64-most-recent-epochs forward-wrap cap and atomic
+join lists of at most 512 sorted unique entries. Earlier-epoch wraps use the
+existing epoch-key grammar at the current membership revision.
 
 Subject-key admission deliberately differs: browser syntax checks canonical
 encoding and torsion; native admission additionally decompresses the point.

@@ -1,4 +1,5 @@
-/** Strict payload syntax; current-state transitions and recipient filtering stay external. */
+/** Owner-statement syntax only. Callers default absent page.history to shared and apply
+ * the 64-most-recent-epochs cap, bounded sorted unique wrap lists and atomic joins. */
 import {
   binary,
   decimal,
@@ -15,6 +16,7 @@ import { strictJson } from './json.js';
 import * as streamCut from './stream-cut.js';
 import * as wrap from './wrap.js';
 export const MAX_BYTES = 768 * 1024;
+export type HistoryMode = 'shared' | 'current';
 export type Role = 'viewer' | 'commenter' | 'editor';
 export interface Cut {
   pageId: string;
@@ -62,7 +64,7 @@ export interface Values {
     epoch: string;
     publishedKeys?: PublishedKey[];
   };
-  'page.scripts': { pageId: string; mode: 'static' | 'interactive' };
+  'page.history': { pageId: string; mode: HistoryMode };
   'retention.set': { pageId: string; days: number | null };
   'page.archive': { pageId: string };
   'page.delete': { pageId: string };
@@ -228,10 +230,10 @@ export function decode(operation: string, raw: Uint8Array): Payload {
       requireValue(mode === 'public' ? current : keys.length === 0);
       break;
     }
-    case 'page.scripts':
+    case 'page.history':
       exactKeys(v, ['pageId', 'mode']);
       id(v, 'pageId');
-      requireValue(['static', 'interactive'].includes(string(v, 'mode')));
+      requireValue(['shared', 'current'].includes(string(v, 'mode')));
       break;
     case 'retention.set':
       exactKeys(v, ['pageId', 'days']);
