@@ -226,7 +226,8 @@ fn screens_get_the_same_style() {
     let selected = screen::style(&tmt, Role::Selection, Depth::TrueColor);
     assert_eq!(selected.bg, Some(ScreenColor::Rgb(0x28, 0x34, 0x57)));
     let dim = screen::style(&tmt, Role::Dim, Depth::Ansi16);
-    assert_eq!(dim.fg, Some(ScreenColor::DarkGray));
+    assert_eq!(dim.fg, None);
+    assert!(dim.add_modifier.contains(Modifier::DIM));
     let mono = screen::style(&Theme::new(Base::Mono), Role::Blocked, Depth::TrueColor);
     assert!(mono.add_modifier.contains(Modifier::BOLD));
     assert_eq!(mono.fg, None);

@@ -272,6 +272,27 @@ mod tests {
     }
 
     #[test]
+    fn terminal_dim_matches_the_unthemed_effect_without_a_foreground() {
+        use crate::Base;
+        let dim = Style::new().dimmed();
+        for token in [Token::Dim, Token::Driver(None)] {
+            assert_eq!(token.style(), dim);
+            for base in Base::ALL {
+                assert_eq!(token.themed(Some((Theme::new(base), Depth::Ansi16))), dim);
+            }
+            assert_eq!(
+                token.themed(Some((Theme::new(Base::Terminal), Depth::TrueColor))),
+                dim,
+            );
+        }
+        let overridden = Theme::parse("theme", [("base", "terminal"), ("dim", "bold")]).unwrap();
+        assert_eq!(
+            Token::Dim.themed(Some((overridden, Depth::Ansi16))),
+            Style::new().bold()
+        );
+    }
+
+    #[test]
     fn a_terminal_reporting_zero_columns_has_no_known_width() {
         assert_eq!(known_width(Some(0)), None);
         assert_eq!(known_width(None), None);

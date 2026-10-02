@@ -21,12 +21,17 @@ or 256-color values are used.
 | `ok`             | green     | success (`✓`)                         |
 | `warn`           | yellow    | needs attention                       |
 | `error`          | red       | `error:`, failed                      |
-| `dim`            | dim       | counts, times, offline, secondary     |
+| `dim`            | SGR dim   | counts, times, offline, secondary     |
 | `title`          | bold      | section titles and help headings      |
 | `literal`        | bold      | commands and flags a reader types     |
 | driver `claude`  | magenta   | `review`: an address driven by Claude |
 | driver `codex`   | cyan      | `link`: an address driven by Codex    |
 | any other driver | dim       | including the `tmux:%N` transport     |
+
+The `dim` token uses the SGR dim effect with the terminal's own foreground:
+without a theme, with the `terminal` base, and in every 16-color fallback.
+Truecolor themes keep their contrast-tested RGB dim values; explicit overrides
+and `mono` retain their configured rendering.
 
 Help uses the same tokens through clap `Styles`. A full-screen view, such as the
 Squad board, draws only design tokens, through `theme::screen::style`. This crate
