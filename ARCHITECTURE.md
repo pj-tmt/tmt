@@ -3450,8 +3450,12 @@ the host's default tmux server after caller variables are cleared. Native proces
 fixtures do not start default-socket servers; real tmux scenarios belong to Docker.
 Descriptor clones share that lifetime. Direct-child exit starts same-group
 cleanup even when descendants retain output pipes. Success requires direct
-close and confirmed group absence; cleanup failure is bounded and retains
-fixture files for diagnosis. Sandbox disposal cancels outstanding runs before
+close and confirmed group absence. A SIGKILL or initial group-probe permission
+error is tolerated only after direct-child close and a subsequent ESRCH group
+probe; live or unknown
+groups still fail within the cleanup bound. An unconfirmed group is never
+signalled; other initial probe or signal errors remain failures. Cleanup failure
+is bounded and retains fixture files for diagnosis. Sandbox disposal cancels outstanding runs before
 removing files. This is not containment of descendants that create new sessions,
 and does not replace the separate Docker harness or release verifier.
 

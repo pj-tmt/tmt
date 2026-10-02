@@ -291,13 +291,13 @@ fn output_is_one_clean_line_or_a_value_with_a_color_token() {
 fn programs_run_directly_and_every_failure_is_a_failed_run() {
     let dir = scratch("run");
     let echo = dir.join("echo-args");
-    crate::test_support::write_executable(&echo, "#!/bin/sh\nprintf '%s|' \"$@\"\n");
+    crate::test_support::write_ready_executable(&echo, "#!/bin/sh\nprintf '%s|' \"$@\"\n");
     let fail = dir.join("fail");
-    crate::test_support::write_executable(&fail, "#!/bin/sh\necho partial\nexit 3\n");
+    crate::test_support::write_ready_executable(&fail, "#!/bin/sh\necho partial\nexit 3\n");
     let slow = dir.join("slow");
-    crate::test_support::write_executable(&slow, "#!/bin/sh\nsleep 5\necho late\n");
+    crate::test_support::write_ready_executable(&slow, "#!/bin/sh\nsleep 5\necho late\n");
     let loud = dir.join("loud");
-    crate::test_support::write_executable(
+    crate::test_support::write_ready_executable(
         &loud,
         "#!/bin/sh\nhead -c 100000 /dev/zero | tr '\\0' x\n",
     );

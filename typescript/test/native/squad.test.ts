@@ -1,9 +1,12 @@
 import Database from 'better-sqlite3';
 import {
   chmodSync,
+  closeSync,
+  constants,
   existsSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readdirSync,
   realpathSync,
@@ -73,6 +76,57 @@ function observe(sandbox: Sandbox) {
   } finally {
     db.close();
   }
+}
+
+/** Cache setup shared only by the context invocation and deadline scenarios. */
+async function reminderFixture(sandbox: Sandbox) {
+  installSquad(sandbox);
+  const lead = await identity(sandbox, 'Sol');
+  expect((await squad(sandbox, ['init', 'product', '--me', 'Sol'])).status).toBe(0);
+  expect((await squad(sandbox, ['lead', 'Sol'])).status).toBe(0);
+  const config = path.join(sandbox.globalDir, 'squad.toml');
+  writeFileSync(
+    config,
+    readFileSync(config, 'utf8') + '\n[squad.product.reminders]\nenabled=true\nstale_after="1m"\n'
+  );
+  const notebook = JSON.parse(
+    (await runCli(sandbox, ['notes', 'path', '--identity', 'Sol', '--json'])).stdout
+  ).path;
+  writeFileSync(notebook, 'Current plan');
+  const cacheFile = () => {
+    const directory = path.join(sandbox.root, 'cache', 'tmt-squad', 'staleness');
+    return path.join(directory, readdirSync(directory).find((name) => name.endsWith('.json'))!);
+  };
+  const age = () => {
+    const cache = JSON.parse(readFileSync(cacheFile(), 'utf8'));
+    cache.notes.sinceMs = Date.now() - 125_000;
+    cache.observedAtMs = cache.notes.sinceMs;
+    writeFileSync(cacheFile(), JSON.stringify(cache));
+  };
+  const context = () =>
+    runCli(
+      { ...sandbox, cli: { executable: squadExecutable, args: [] } },
+      ['__tmt-hooks', '1', 'context'],
+      { stdin: JSON.stringify({ version: 1, identityId: lead }) }
+    );
+  return { lead, cacheFile, age, context };
+}
+
+/** Publish once, then assess the executable before a short production deadline. */
+async function readyContextFixture(sandbox: Sandbox, file: string, payload: string) {
+  writeFileSync(
+    file,
+    `#!/bin/sh\nif [ "$1" = __tmt_fixture_ready ]; then exit 0; fi\n${payload}\n`
+  );
+  chmodSync(file, 0o755);
+  const ready = await runCli(
+    { ...sandbox, cli: { executable: file, args: [] } },
+    ['__tmt_fixture_ready'],
+    { deadlineMs: 30_000 }
+  );
+  expect(ready.status, ready.stderr).toBe(0);
+  expect(ready.signal).toBeNull();
+  expect(ready.stdout).toBe('');
 }
 
 /** The version tmt-squad reports: its package version. */
@@ -280,72 +334,130 @@ describe('squad extension', () => {
     });
   });
 
-  it('keeps cold and fresh context silent without calling core, and kills timed-out descendants', async () => {
+  it('keeps cold and fresh context silent and invokes core for stale context', async () => {
     await withSandbox(async (sandbox) => {
-      installSquad(sandbox);
-      const lead = await identity(sandbox, 'Sol');
-      expect((await squad(sandbox, ['init', 'product', '--me', 'Sol'])).status).toBe(0);
-      expect((await squad(sandbox, ['lead', 'Sol'])).status).toBe(0);
-      const config = path.join(sandbox.globalDir, 'squad.toml');
-      writeFileSync(
-        config,
-        readFileSync(config, 'utf8') +
-          '\n[squad.product.reminders]\nenabled=true\nstale_after="1m"\n'
-      );
-      const notebook = JSON.parse(
-        (await runCli(sandbox, ['notes', 'path', '--identity', 'Sol', '--json'])).stdout
-      ).path;
-      writeFileSync(notebook, 'Current plan');
-      const fake = path.join(sandbox.root, 'slow-core');
-      writeFileSync(
+      const { context, age, cacheFile } = await reminderFixture(sandbox);
+      const fake = path.join(sandbox.root, 'sentinel-core');
+      await readyContextFixture(
+        sandbox,
         fake,
-        '#!/bin/sh\nroot=${0%/*}\nprintf called > "$root/core-called"\n(sleep 0.8; touch "$root/leaked-child") &\nsleep 30\n'
+        [
+          'root=${0%/*}',
+          'printf called > "$root/core-called"',
+          `printf '%s\\n' '{"error":{"code":"FIXTURE","message":"core invoked"}}'`,
+          'exit 1',
+          '',
+        ].join('\n')
       );
-      chmodSync(fake, 0o755);
       sandbox.env.TMT_EXECUTABLE = fake;
-      const context = (deadlineMs = 5_000) =>
-        runCli(
-          { ...sandbox, cli: { executable: squadExecutable, args: [] } },
-          ['__tmt-hooks', '1', 'context'],
-          {
-            stdin: JSON.stringify({ version: 1, identityId: lead }),
-            deadlineMs,
-          }
-        );
       expect(JSON.parse((await context()).stdout)).toEqual({ summary: null });
       expect(existsSync(path.join(sandbox.root, 'core-called'))).toBe(false);
-      await squad(sandbox, ['ls']);
+      expect((await squad(sandbox, ['ls'])).status).toBe(0);
       expect(JSON.parse((await context()).stdout)).toEqual({ summary: null });
       expect(existsSync(path.join(sandbox.root, 'core-called'))).toBe(false);
-      const directory = path.join(sandbox.root, 'cache', 'tmt-squad', 'staleness');
-      const file = path.join(
-        directory,
-        readdirSync(directory).find((name) => name.endsWith('.json'))!
-      );
-      const age = () => {
-        const cache = JSON.parse(readFileSync(file, 'utf8'));
-        cache.notes.sinceMs = Date.now() - 125_000;
-        cache.observedAtMs = cache.notes.sinceMs;
-        writeFileSync(file, JSON.stringify(cache));
-      };
       age();
-      const started = performance.now();
-      const timedOut = await context();
-      expect(timedOut.signal).toBe('SIGKILL');
-      expect(timedOut.stdout).toBe('');
-      expect(performance.now() - started).toBeLessThan(1_000);
-      expect(existsSync(path.join(sandbox.root, 'core-called'))).toBe(true);
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
-      expect(existsSync(path.join(sandbox.root, 'leaked-child'))).toBe(false);
-      expect(JSON.parse(readFileSync(file, 'utf8')).notes.claimed).toBe(false);
-      // The outer runner may have less time than Squad's local 300 ms budget.
-      unlinkSync(path.join(sandbox.root, 'core-called'));
-      await expect(context(200)).rejects.toThrow();
-      expect(existsSync(path.join(sandbox.root, 'core-called'))).toBe(true);
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
-      expect(existsSync(path.join(sandbox.root, 'leaked-child'))).toBe(false);
+      const before = readFileSync(cacheFile(), 'utf8');
+      const invoked = await context();
+      expect(invoked.status, invoked.stderr).toBe(0);
+      expect(invoked.signal).toBeNull();
+      expect(JSON.parse(invoked.stdout)).toEqual({ summary: null });
+      expect(readFileSync(path.join(sandbox.root, 'core-called'), 'utf8')).toBe('called');
+      expect(readFileSync(cacheFile(), 'utf8')).toBe(before);
     });
-  });
+  }, 90_000);
+
+  it('kills context hooks and seeded descendants within local and outer deadlines', async () => {
+    await withSandbox(async (sandbox) => {
+      const { lead, age, cacheFile } = await reminderFixture(sandbox);
+      expect((await squad(sandbox, ['ls'])).status).toBe(0);
+      age();
+      const before = readFileSync(cacheFile(), 'utf8');
+      const gate = path.join(sandbox.root, 'child-gate');
+      const ready = path.join(sandbox.root, 'child-ready');
+      const fifos = await runCli({ ...sandbox, cli: { executable: '/usr/bin/mkfifo', args: [] } }, [
+        gate,
+        ready,
+      ]);
+      expect(fifos.status, fifos.stderr).toBe(0);
+      const gateFd = openSync(gate, constants.O_RDWR);
+      try {
+        const launcher = path.join(sandbox.root, 'context-launcher');
+        await readyContextFixture(
+          sandbox,
+          launcher,
+          [
+            'root=${0%/*}',
+            // The descendant owns its gate before the hook (and its budget) starts.
+            '(',
+            '  exec 3< "$root/child-gate"',
+            '  printf "ready\\n" > "$root/child-ready"',
+            '  IFS= read -r release <&3',
+            '  printf leaked > "$root/leaked-child"',
+            ') &',
+            'printf "%s\\n" "$!" > "$root/child-pid"',
+            'IFS= read -r ready < "$root/child-ready"',
+            '[ "$ready" = ready ] || exit 1',
+            'printf "%s\\n" "$$" > "$root/hook-group"',
+            // exec preserves runCli's owned process group and leader PID.
+            'exec "$TMT_TEST_CONTEXT_EXECUTABLE" "$@"',
+            '',
+          ].join('\n')
+        );
+        const fake = path.join(sandbox.root, 'blocked-core');
+        await readyContextFixture(
+          sandbox,
+          fake,
+          'root=${0%/*}\nIFS= read -r release < "$root/child-gate"\n'
+        );
+        for (const witness of ['child-pid', 'hook-group', 'leaked-child']) {
+          expect(existsSync(path.join(sandbox.root, witness))).toBe(false);
+        }
+        sandbox.env.TMT_EXECUTABLE = fake;
+        sandbox.env.TMT_TEST_CONTEXT_EXECUTABLE = squadExecutable;
+        const context = (deadlineMs = 5_000) =>
+          runCli(
+            { ...sandbox, cli: { executable: launcher, args: [] } },
+            ['__tmt-hooks', '1', 'context'],
+            { stdin: JSON.stringify({ version: 1, identityId: lead }), deadlineMs }
+          );
+        const assertNoDescendant = () => {
+          const child = Number(readFileSync(path.join(sandbox.root, 'child-pid'), 'utf8'));
+          expect(Number.isSafeInteger(child) && child > 1).toBe(true);
+          const group = Number(readFileSync(path.join(sandbox.root, 'hook-group'), 'utf8'));
+          expect(Number.isSafeInteger(group) && group > 1).toBe(true);
+          // runCli confirms close and group exit before settling; independently
+          // check the seeded child and the group recorded after its handshake.
+          for (const target of [child, -group]) {
+            let gone = false;
+            try {
+              process.kill(target, 0);
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+              gone = true;
+            }
+            expect(gone).toBe(true);
+          }
+          expect(existsSync(path.join(sandbox.root, 'leaked-child'))).toBe(false);
+          expect(readFileSync(cacheFile(), 'utf8')).toBe(before);
+        };
+        const started = performance.now();
+        const timedOut = await context();
+        expect(timedOut.signal).toBe('SIGKILL');
+        expect(timedOut.stdout).toBe('');
+        expect(performance.now() - started).toBeLessThan(1_000);
+        assertNoDescendant();
+        unlinkSync(path.join(sandbox.root, 'child-pid'));
+        unlinkSync(path.join(sandbox.root, 'hook-group'));
+        // The outer runner can cut off the hook before its local 300 ms budget.
+        const outerStarted = performance.now();
+        await expect(context(200)).rejects.toThrow('200 millisecond test bound');
+        expect(performance.now() - outerStarted).toBeLessThan(1_000);
+        assertNoDescendant();
+      } finally {
+        closeSync(gateFd);
+      }
+    });
+  }, 90_000);
 
   it('reports observed age without changing board metadata or creating missing notes', async () => {
     await withSandbox(async (sandbox) => {

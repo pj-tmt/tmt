@@ -162,6 +162,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
     let outputBytes = 0;
     let failure: Error | undefined;
     let cleanupError: Error | undefined;
+    let cleanupPermissionDenied = false;
     let inspectionError: unknown;
     let closed: { status: number | null; signal: NodeJS.Signals | null } | undefined;
     let groupGone = child.pid === undefined;
@@ -212,7 +213,9 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
         inspectionError = error;
       }
       if (closed && groupGone) {
-        finish(cleanupError);
+        // A denied signal or initial probe can race with group exit. Require
+        // direct-child close and a subsequent ESRCH probe before excusing it.
+        finish(cleanupPermissionDenied ? undefined : cleanupError);
         return;
       }
       if (performance.now() >= cleanupDeadline) {
@@ -232,10 +235,15 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
       cleanupDeadline = performance.now() + 1000;
       try {
         // Signal once while still owned; never signal a PID after observing absence.
-        if (groupExists()) process.kill(-child.pid!, 'SIGKILL');
+        if (groupExists()) {
+          process.kill(-child.pid!, 'SIGKILL');
+        }
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ESRCH') groupGone = true;
-        else cleanupError = new Error('Could not stop CLI process group.', { cause: error });
+        else {
+          cleanupPermissionDenied = (error as NodeJS.ErrnoException).code === 'EPERM';
+          cleanupError = new Error('Could not stop CLI process group.', { cause: error });
+        }
       }
       pollCleanup();
     };

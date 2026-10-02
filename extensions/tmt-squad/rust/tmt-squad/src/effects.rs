@@ -329,8 +329,11 @@ mod tests {
             calls = calls.display(),
             dir = dir.display()
         );
-        crate::test_support::write_executable(&fake, &script);
+        crate::test_support::write_ready_executable(&fake, &script);
         let set = |name: &str, value: &str| std::fs::write(dir.join(name), value).unwrap();
+
+        assert!(!calls.exists(), "readiness does not record a tmux call");
+        assert!(!dir.join("buffer").exists(), "readiness does not copy text");
 
         set("version", "tmux 3.1c\n");
         let refused = copy_through_tmux(&fake, "/sock/a", "x").unwrap_err();

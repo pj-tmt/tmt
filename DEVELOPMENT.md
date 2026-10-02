@@ -1087,6 +1087,18 @@ TMT_TEST_STORAGE_PROBE='{"executable":"/absolute/checkout/rust/target/debug/exam
   pnpm test:native
 ```
 
+Squad context fixtures separate successful core-invocation evidence from deadline
+termination. Cold/fresh reads and a promptly returning stale-context sentinel
+assert the cache-only gate independently. Timeout scenarios establish a gated
+child in the hook's owned process group before exec, so descendant cleanup never
+requires core to start within the 300 ms local or 200 ms outer deadline. Assert
+SIGKILL, empty output, the sub-second bound, unchanged claims and child/group
+absence. Before timed sections, freshly written context, provider and clipboard
+fixtures execute one reserved readiness branch with a 30 s failure ceiling; it
+returns before every payload effect and the file is never rewritten afterward.
+This keeps macOS first-exec assessment outside production deadlines. Do not add
+readiness sleeps, retries or larger production budgets.
+
 The maximum-body, 50-reply installed-companion page is an explicit load diagnostic,
 not required process acceptance:
 
@@ -1230,7 +1242,10 @@ Frozen public Office acquisition refusal is asserted separately in `office-freez
 Use `withSandbox` for callback-owned native fixtures. Its descriptor clones
 share active runs; disposal stops outstanding commands before deleting files
 and rejects later launches. Each run has its execution deadline plus at most
-one second to confirm direct close and process-group exit. Unconfirmed cleanup
+one second to confirm direct close and process-group exit. Signal or initial
+group-probe EPERM is tolerated only after child close and a subsequent ESRCH
+group probe; live or unknown groups and other initial probe or signal errors
+still fail cleanup. An unconfirmed group is never signalled. Unconfirmed cleanup
 fails and reports the retained fixture path instead of deleting potentially
 live state. Focused lifecycle regressions live in `typescript/test/tooling/cli-process.test.ts`;
 they use explicit Node fixtures, not a product-runtime fallback.
