@@ -142,9 +142,11 @@ cap after the window; at the cap the notice delivers anyway. tmux activity has
 second resolution, so quiet detection conservatively permits an extra second.
 This is recent key evidence, not proof of an empty application input buffer.
 No matching attached client, unsupported hosts, or ordinarily unavailable evidence means
-Unknown, which delivers after the window. Channel-enrolled panes bypass batching
-and typing deferral and keep individual driver delivery; they never paste. Failed
-probe cleanup aborts the worker instead of claiming Unknown.
+Unknown, which delivers after the window. Enrollment present at reply acceptance
+bypasses batching and typing deferral, keeping individual driver delivery without
+paste. If enrollment begins while a notice is queued, its existing window and
+quiet policy finish before the delivery owner sends individual channel frames.
+Failed probe cleanup aborts the worker instead of claiming Unknown.
 
 `notification: "queued"` means the hint is persisted, not sent. A worker cannot
 send a queued hint to a replacement binding. It seals batch membership before

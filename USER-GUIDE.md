@@ -1078,7 +1078,7 @@ usual sent/completed output and does not leave duplicate incoming attention.
 Detached or interrupted callers may receive a reply hint at their
 current verified binding; a live blocking waiter gets only the full reply.
 Ordinary pane hints batch for 5 s and wait for a 2 s typing quiet period, bounded
-to 30 s after the batch window. Channels keep immediate individual notices. See
+to 30 s after the batch window. Channels keep individual driver notices. See
 [reply notification behavior](REQUEST-RESPONSE.md) for configuration and recovery.
 Notification failure never invalidates a stored final. Use `tmt result <id>`
 from a hint, rather than re-sending. Explicit `--inbox` remains queue-only.

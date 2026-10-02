@@ -199,7 +199,7 @@ receipt, select the latest request, or infer a current pane. Both `reply` and
 are storage-only; first reply acceptance may also attempt an independent
 originator hint. Ordinary pane reply notices batch for 5 s and debounce recent
 attached-client keys for a 2 s quiet period, bounded to 30 s after the window. Unknown input
-activity delivers after the window; channels retain individual immediate notices.
+activity delivers after the window; channels retain individual driver notices.
 JSON `notification: "queued"` means the notice is persisted, not sent. A failed
 hint does not invalidate the stored reply. This is
 not remote transport or authentication.
