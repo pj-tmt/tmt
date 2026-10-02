@@ -34,6 +34,7 @@ mod split;
 mod squad;
 mod staleness;
 mod status;
+mod tabs;
 mod template;
 #[cfg(test)]
 mod test_support;
