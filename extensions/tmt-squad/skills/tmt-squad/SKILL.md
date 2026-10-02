@@ -295,7 +295,13 @@ tools. The board never creates it: a saved lead without a notebook shows
 `(no notes yet)`, while a temporary lead shows the
 `NOTEBOOK_SAVED_IDENTITY_REQUIRED` failure text.
 
-Keep a short **Current state** section at the top of your own notebook, with
+The detail pane shows the selected member's own notebook after its fields,
+using the same read-only Markdown/plain rendering as lead notes. A saved member
+without a notebook shows `(no notes yet)`; temporary members show
+`(temporary identity: no notebook)`. Only the visible selected detail is read,
+on selection and board refresh. The leads/all tabs remain rows only.
+
+Every member should keep a short **Current state** section at the top of their own notebook, with
 **Now / Next / Blocked** in a few lines, because the user reads it on the board.
 Update those lines when the working state changes; keep history below them.
 User annotations remain requests about a row.

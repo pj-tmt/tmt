@@ -71,6 +71,12 @@ pub(super) enum BoardEvent {
         room: String,
         input: Result<rate::Input, ()>,
     },
+    Notebook {
+        cancellation: crate::runner::Cancellation,
+        identity: String,
+        revision: u64,
+        notes: app::Notes,
+    },
     Attention {
         cancellation: crate::runner::Cancellation,
         attention: std::collections::BTreeMap<String, crate::attention::Attention>,
@@ -178,15 +184,20 @@ fn reload_interval(app: &App) -> Option<Duration> {
 
 /// The board loop, independent of the real terminal. It always returns within
 /// one input wait of a stop signal or a closed input, whatever the reader does.
+#[allow(clippy::too_many_arguments)] // The terminal-independent loop injects both worker request kinds.
 fn session(
     app: &mut App,
     stop: &AtomicUsize,
     input: &Receiver<BoardEvent>,
     request: impl Fn(Option<String>, bool, bool),
+    notebook: impl Fn(u64, Option<String>),
     mut act: impl FnMut(Request) -> Result<String, String>,
     mut load_config: impl FnMut() -> Result<Config, String>,
     mut draw: impl FnMut(&mut App) -> io::Result<()>,
 ) -> io::Result<Option<i32>> {
+    let mut revision = 0;
+    // None defers selection work until a pending reload publishes its snapshot.
+    let mut requested = Some(None);
     let mut refreshed = Instant::now();
     let mut dirty = true;
     let mut marks = view::time_marks(app, crate::status::now_ms());
@@ -205,6 +216,12 @@ fn session(
         if dirty {
             draw(app)?;
             dirty = false;
+        }
+        let identity = app.notebook_identity();
+        if requested.is_some() && requested.as_ref() != Some(&identity) {
+            revision += 1;
+            notebook(revision, identity.clone());
+            requested = Some(identity);
         }
         // Timers still wake for stop signals and interval reloads, but a
         // silent wake never rebuilds an unchanged view.
@@ -227,7 +244,24 @@ fn session(
                 snapshot,
             }) => {
                 if !cancellation.cancelled() {
+                    revision += 1;
+                    requested = Some(None);
                     app.apply(*snapshot);
+                    dirty = true;
+                }
+                Effect::None
+            }
+            Ok(BoardEvent::Notebook {
+                cancellation,
+                identity,
+                revision: read_revision,
+                notes,
+            }) => {
+                if !cancellation.cancelled()
+                    && read_revision == revision
+                    && app.notebook_identity().as_deref() == Some(identity.as_str())
+                {
+                    app.notebooks.borrow_mut().keep(identity, notes);
                     dirty = true;
                 }
                 Effect::None
@@ -276,10 +310,14 @@ fn session(
         match effect {
             Effect::Quit => return Ok(None),
             Effect::Load(squad) => {
+                revision += 1;
+                requested = None;
                 request(Some(squad), true, false);
                 refreshed = Instant::now();
             }
             Effect::Refresh => {
+                revision += 1;
+                requested = None;
                 request(app.current.clone(), false, app.view_picker.is_some());
                 refreshed = Instant::now();
             }
@@ -288,6 +326,8 @@ fn session(
                     .and_then(|config| app.open_view_picker(config).map_err(|error| error.message))
                 {
                     Ok(()) => {
+                        revision += 1;
+                        requested = None;
                         request(app.current.clone(), true, app.view_picker.is_some());
                         refreshed = Instant::now();
                     }
@@ -295,6 +335,8 @@ fn session(
                 }
             }
             Effect::CancelView => {
+                revision += 1;
+                requested = None;
                 request(app.current.clone(), true, false);
                 refreshed = Instant::now();
             }
@@ -305,6 +347,8 @@ fn session(
                             let message = picker.saved_message(changed);
                             app.close_view_picker(true);
                             app.finished(Ok(message));
+                            revision += 1;
+                            requested = None;
                             request(app.current.clone(), true, false);
                             refreshed = Instant::now();
                         }
@@ -339,6 +383,8 @@ fn session(
                             }
                             app.theme_picker = None;
                             app.finished(Ok(message));
+                            revision += 1;
+                            requested = None;
                             request(app.current.clone(), false, app.view_picker.is_some());
                             refreshed = Instant::now();
                         }
@@ -356,6 +402,8 @@ fn session(
                     return Ok(None);
                 }
                 if sends {
+                    revision += 1;
+                    requested = None;
                     request(app.current.clone(), false, app.view_picker.is_some());
                     refreshed = Instant::now();
                 }
@@ -364,6 +412,8 @@ fn session(
         }
         // A snapshot may change the interval, including turning reload off.
         if reload_interval(app).is_some_and(|interval| refreshed.elapsed() >= interval) {
+            revision += 1;
+            requested = None;
             request(app.current.clone(), false, app.view_picker.is_some());
             refreshed = Instant::now();
         }
@@ -412,6 +462,7 @@ pub fn run(
         &stop,
         &input,
         |squad, preempt, preview| worker.request(squad, preempt, preview),
+        |revision, identity| worker.notebook(revision, identity),
         |request| execute(&core, request),
         || Config::load(&core).map_err(|error| error.message),
         |app| {
@@ -436,6 +487,110 @@ mod tests {
     use super::*;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use std::sync::{atomic::Ordering, mpsc::channel};
+
+    #[test]
+    fn selected_notebooks_are_lazy_and_late_selection_or_refresh_results_are_ignored() {
+        let mut app = App::new(Some("product".into()));
+        let mut snapshot = app::tests::snapshot(
+            "product",
+            serde_json::json!([{"rows":[
+            {"id":"A", "name":"a", "lifetime":"saved"}, {"id":"B", "name":"b", "lifetime":"saved"}]}]),
+        );
+        snapshot.view.as_mut().unwrap().refresh = None;
+        snapshot.view.as_mut().unwrap().board = crate::config::Board::simple(
+            crate::config::BoardMode::Split,
+            crate::config::Direction::LeftRight,
+            vec![crate::config::Pane::Rows, crate::config::Pane::Detail],
+            &[50, 50],
+        );
+        let view = snapshot.view.as_mut().unwrap();
+        view.bindings = crate::action::preset(true, &view.board.panes);
+        app.apply(snapshot);
+        let (events, input) = mpsc::channel();
+        let reads = std::cell::RefCell::new(Vec::new());
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();
+        session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _, _| {},
+            |revision, identity| {
+                let Some(identity) = identity else { return };
+                reads.borrow_mut().push(identity.clone());
+                let result = |id, rev, text: &str| BoardEvent::Notebook {
+                    cancellation: Default::default(),
+                    identity: id,
+                    revision: rev,
+                    notes: app::Notes::Text(text.into()),
+                };
+                if identity == "A" {
+                    events.send(key(KeyCode::Down)).unwrap();
+                    events.send(result(identity, revision, "OLD A")).unwrap();
+                } else if reads.borrow().len() == 2 {
+                    let mut fresh = app::tests::snapshot("product", serde_json::json!([{"rows":[
+                        {"id":"A", "name":"a", "lifetime":"saved"}, {"id":"B", "name":"b", "lifetime":"saved"}]}]));
+                    let view = fresh.view.as_mut().unwrap();
+                    view.refresh = None;
+                    view.board = crate::config::Board::simple(crate::config::BoardMode::Split,
+                        crate::config::Direction::LeftRight, vec![crate::config::Pane::Rows, crate::config::Pane::Detail], &[50,50]);
+                    view.bindings = crate::action::preset(true, &view.board.panes);
+                    events.send(snapshot_event(fresh)).unwrap();
+                    events.send(result(identity, revision, "BEFORE REFRESH")).unwrap();
+                } else {
+                    events
+                        .send(result("A".into(), revision, "WRONG ID"))
+                        .unwrap();
+                    events
+                        .send(result(identity.clone(), revision - 1, "OLD REFRESH"))
+                        .unwrap();
+                    events
+                        .send(result(identity, revision, "CURRENT B"))
+                        .unwrap();
+                    events.send(key(KeyCode::Char('q'))).unwrap();
+                }
+            },
+            no_actions,
+            no_load_config,
+            |app| {
+                terminal
+                    .draw(|frame| {
+                        app.set_body_width(100);
+                        view::render(frame, app);
+                    })
+                    .unwrap();
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(*reads.borrow(), ["A", "B", "B"]);
+        let mut cache = app.notebooks.borrow_mut();
+        let text = cache.lines("B", 80, app.look(), crate::config::NotesRender::Plain);
+        assert_eq!(text[0].to_string(), "CURRENT B");
+        assert!(
+            cache.lines("A", 80, app.look(), crate::config::NotesRender::Plain)[0]
+                .to_string()
+                .contains("loading")
+        );
+        drop(cache);
+        app.key(ratatui::crossterm::event::KeyEvent::new(
+            KeyCode::Char('d'),
+            ratatui::crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(app.notebook_identity(), None);
+        app.key(ratatui::crossterm::event::KeyEvent::new(
+            KeyCode::Char('d'),
+            ratatui::crossterm::event::KeyModifiers::NONE,
+        ));
+        app.view.as_mut().unwrap().board.mode = crate::config::BoardMode::Tabs;
+        app.focus = 0;
+        assert_eq!(app.notebook_identity(), None);
+        app.focus = 1;
+        assert_eq!(app.notebook_identity().as_deref(), Some("B"));
+        app.view.as_mut().unwrap().document["sections"][0]["rows"][1]["lifetime"] =
+            "temporary".into();
+        assert_eq!(app.notebook_identity(), None);
+    }
 
     #[test]
     fn view_confirm_saves_once_and_preview_requests_end_with_the_existing_fence() {
@@ -472,6 +627,7 @@ mod tests {
             &AtomicUsize::new(0),
             &input,
             |_, preempt, preview| reloads.borrow_mut().push((preempt, preview)),
+            |_, _| {},
             |request| {
                 assert_eq!(request, Request::Jump("coder".into()));
                 actions += 1;
@@ -524,6 +680,7 @@ mod tests {
             &AtomicUsize::new(0),
             &input,
             |_, _, _| reloads.set(reloads.get() + 1),
+            |_, _| {},
             |request| {
                 assert_eq!(request, Request::Jump("coder".into()));
                 actions += 1;
@@ -572,6 +729,7 @@ mod tests {
             &AtomicUsize::new(0),
             &input,
             |_, _, _| panic!("a failed save must not reload or retry"),
+            |_, _| {},
             no_actions,
             || Config::read(path.clone()).map_err(|error| error.message),
             |app| {
@@ -675,6 +833,7 @@ mod tests {
                 &stop,
                 &input,
                 |_, _, _| {},
+                |_, _| {},
                 no_actions,
                 no_load_config,
                 |_| Ok(()),
@@ -712,6 +871,7 @@ mod tests {
                 &AtomicUsize::new(0),
                 &input,
                 |_, _, _| {},
+                |_, _| {},
                 |request| {
                     assert_eq!(request, Request::Jump("auth-fix".into()));
                     jumps += 1;
@@ -739,6 +899,7 @@ mod tests {
             &AtomicUsize::new(0),
             &input,
             |_, _, _| {},
+            |_, _| {},
             no_actions,
             no_load_config,
             |_| Err(io::Error::other("terminal gone")),
@@ -763,6 +924,7 @@ mod tests {
                 &AtomicUsize::new(0),
                 &input,
                 |_, _, _| {},
+                |_, _| {},
                 no_actions,
                 no_load_config,
                 |app| {
@@ -821,6 +983,7 @@ mod tests {
                     |squad, _, _| {
                         requested.send(squad).unwrap();
                     },
+                    |_, _| {},
                     no_actions,
                     no_load_config,
                     |_| {
@@ -862,6 +1025,7 @@ mod tests {
                 &read,
                 &input,
                 |_, _, _| {},
+                |_, _| {},
                 no_actions,
                 no_load_config,
                 |_| {
@@ -915,6 +1079,7 @@ mod tests {
                 &AtomicUsize::new(0),
                 &input,
                 |_, _, _| {},
+                |_, _| {},
                 no_actions,
                 no_load_config,
                 |_| {
@@ -954,6 +1119,7 @@ mod tests {
                 &AtomicUsize::new(0),
                 &input,
                 |_, _, _| panic!("automatic refresh was turned off by the snapshot"),
+                |_, _| {},
                 no_actions,
                 no_load_config,
                 |_| Ok(())

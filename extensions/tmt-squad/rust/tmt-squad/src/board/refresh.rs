@@ -63,7 +63,7 @@ impl Generation {
 }
 
 pub struct Worker {
-    requests: Sender<Reload>,
+    requests: Sender<Work>,
     generation: Arc<Generation>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -118,6 +118,15 @@ impl Worker {
                             attention: job.complete(&reader),
                             cancellation: cancellation.clone(),
                         },
+                        Deferred::Notebook { identity, revision } => super::BoardEvent::Notebook {
+                            cancellation: cancellation.clone(),
+                            identity: identity.clone(),
+                            revision,
+                            notes: member_notes(
+                                reader
+                                    .api("notes.read", serde_json::json!({"identityId": identity})),
+                            ),
+                        },
                         Deferred::Usage(input) => {
                             let sample = reader
                                 .json(&["ls", "--room", &input.room])
@@ -150,10 +159,18 @@ impl Worker {
         } else {
             self.generation.number.load(Ordering::Acquire)
         };
-        let _ = self.requests.send(Reload {
+        let _ = self.requests.send(Work::Reload(Reload {
             squad,
             generation,
             preview_panes,
+        }));
+    }
+    pub fn notebook(&self, revision: u64, identity: Option<String>) {
+        let generation = self.generation.number.load(Ordering::Acquire);
+        let _ = self.requests.send(Work::Notebook {
+            identity,
+            revision,
+            generation,
         });
     }
 }
@@ -169,6 +186,15 @@ impl Drop for Worker {
             let _ = thread.join();
         }
     }
+}
+
+enum Work {
+    Reload(Reload),
+    Notebook {
+        identity: Option<String>,
+        revision: u64,
+        generation: u64,
+    },
 }
 
 #[derive(Clone)]
@@ -196,6 +222,7 @@ impl Loaded {
 enum Deferred {
     Attention(Box<AttentionJob>),
     Usage(super::rate::Input),
+    Notebook { identity: String, revision: u64 },
 }
 
 /// Other tabs' attention follows the shown snapshot on the same worker.
@@ -281,7 +308,7 @@ fn fetcher() -> Sender<Fetch> {
 /// squad's load, unless its view has automatic reload off. The input loop's
 /// interval reloads are requests like any other and never wait on this.
 fn serve(
-    pending: &Receiver<Reload>,
+    pending: &Receiver<Work>,
     mut publish: impl FnMut(Snapshot, u64) -> bool,
     check_every: Duration,
     generation: &AtomicU64,
@@ -297,11 +324,11 @@ fn serve(
         let wait = sampling.as_ref().map_or(check_every, |(_, _, next)| {
             check_every.min(next.saturating_duration_since(Instant::now()))
         });
-        let mut wanted = match pending.recv_timeout(wait) {
+        let received = match pending.recv_timeout(wait) {
             Ok(wanted) => wanted,
             Err(RecvTimeoutError::Timeout) => match &last {
                 Some((reload, true, seen)) if seen.moved(&stamp(reload.generation)) => {
-                    reload.clone()
+                    Work::Reload(reload.clone())
                 }
                 _ => {
                     if let (Some((reload, _, _)), Some((input, every, next))) =
@@ -320,9 +347,28 @@ fn serve(
             },
             Err(RecvTimeoutError::Disconnected) => break,
         };
-        while let Ok(newer) = pending.try_recv() {
-            wanted = newer;
+        let mut wanted = None;
+        let mut notebook = None;
+        for work in std::iter::once(received).chain(pending.try_iter()) {
+            match work {
+                Work::Reload(reload) => wanted = Some(reload),
+                Work::Notebook {
+                    identity,
+                    revision,
+                    generation,
+                } => notebook = Some((identity, revision, generation)),
+            }
         }
+        let Some(wanted) = wanted else {
+            if let Some((Some(identity), revision, expected)) = notebook
+                && generation.load(Ordering::Acquire) == expected
+                && !deferred(Deferred::Notebook { identity, revision }, expected)
+            {
+                break;
+            }
+            continue;
+        };
+        // Reloads take priority; their snapshot schedules a fresh selected read.
         // Taken before the load, so a change during it shows at the next check.
         let seen = stamp(wanted.generation);
         if generation.load(Ordering::Acquire) != wanted.generation {
@@ -675,6 +721,15 @@ fn all_view(
     Ok((view, loaded.attention))
 }
 
+fn member_notes(read: Result<Value, crate::core::SquadError>) -> Notes {
+    match read {
+        Err(error) if error.code == "NOTEBOOK_SAVED_IDENTITY_REQUIRED" => {
+            Notes::Failed("(temporary identity: no notebook)".into())
+        }
+        other => lead_notes(Some(other)),
+    }
+}
+
 /// The lead's notebook, from the `notes.read` the observation made: bounded,
 /// read-only, and never creating a missing notebook.
 fn lead_notes(read: Option<Result<Value, crate::core::SquadError>>) -> Notes {
@@ -682,7 +737,7 @@ fn lead_notes(read: Option<Result<Value, crate::core::SquadError>>) -> Notes {
         None => Notes::NoLead,
         Some(Ok(note)) => Notes::Text(sanitize(note["content"].as_str().unwrap_or_default())),
         Some(Err(error)) if error.code == "NOTEBOOK_NOT_FOUND" => Notes::Missing,
-        Some(Err(error)) => Notes::Failed(error.to_string()),
+        Some(Err(error)) => Notes::Failed(sanitize(&error.to_string())),
     }
 }
 
@@ -719,7 +774,7 @@ mod tests {
     fn serving(
         automatic: bool,
     ) -> (
-        Sender<Reload>,
+        Sender<Work>,
         Receiver<Option<String>>,
         std::sync::Arc<std::sync::atomic::AtomicU64>,
     ) {
@@ -758,6 +813,173 @@ mod tests {
     }
 
     const WAIT: Duration = Duration::from_millis(300);
+
+    #[test]
+    fn selected_notebook_reader_uses_public_api_and_shutdown_cancels_the_child() {
+        let dir = std::env::temp_dir().join(format!("squad-selected-notes-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("tmt");
+        let calls = dir.join("calls");
+        crate::test_support::write_ready_executable(
+            &fake,
+            &format!(
+                r###"#!/bin/sh
+if [ "$1" = api ]; then
+  request=$(cat)
+  case "$request" in
+    *'"notes.read"'*) printf '%s' "$request" > '{}'; printf '%s\n' '{{"content":"## Now\nSafe"}}'; exit 0 ;;
+  esac
+fi
+printf '%s\n' '{{}}'
+"###,
+                calls.display()
+            ),
+        );
+        let (events, input) = mpsc::channel();
+        let worker = Worker::spawn(Core::at(fake.clone()), false, events);
+        worker.notebook(7, Some("selected-id".into()));
+        let super::super::BoardEvent::Notebook {
+            identity,
+            revision,
+            notes,
+            cancellation,
+        } = input.recv_timeout(Duration::from_secs(30)).unwrap()
+        else {
+            panic!("notebook event")
+        };
+        assert_eq!((identity.as_str(), revision), ("selected-id", 7));
+        assert_eq!(notes, Notes::Text("## Now\nSafe".into()));
+        assert!(!cancellation.cancelled());
+        let request: Value = serde_json::from_slice(&std::fs::read(&calls).unwrap()).unwrap();
+        assert_eq!(
+            request,
+            json!({"version":1,"operation":"notes.read","input":{"identityId":"selected-id"}})
+        );
+        drop(worker);
+        assert!(cancellation.cancelled());
+        let ready = dir.join("started");
+        let slow = dir.join("slow");
+        crate::test_support::write_ready_executable(
+            &slow,
+            &format!(
+                r###"#!/bin/sh
+if [ "$1" = api ]; then
+  request=$(cat)
+  case "$request" in *'"notes.read"'*) echo $$ > '{}'; exec sleep 30 ;; esac
+fi
+printf '%s\n' '{{}}'
+"###,
+                ready.display()
+            ),
+        );
+        let (events, _) = mpsc::channel();
+        let worker = Worker::spawn(Core::at(slow), false, events);
+        worker.notebook(8, Some("selected-id".into()));
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !ready.exists() {
+            assert!(Instant::now() < deadline, "reader did not start");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let pid = std::fs::read_to_string(&ready).unwrap();
+        let started = Instant::now();
+        drop(worker);
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(
+            !std::process::Command::new("kill")
+                .args(["-0", pid.trim()])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn notebooks_coalesce_behind_reload_and_obey_the_existing_generation() {
+        let (sender, pending) = mpsc::channel();
+        let generation = AtomicU64::new(1);
+        let queue = |identity: Option<&str>, revision, expected| {
+            sender
+                .send(Work::Notebook {
+                    identity: identity.map(str::to_owned),
+                    revision,
+                    generation: expected,
+                })
+                .unwrap()
+        };
+        queue(Some("old"), 1, 1);
+        sender
+            .send(Work::Reload(Reload {
+                squad: Some("product".into()),
+                generation: 1,
+                preview_panes: false,
+            }))
+            .unwrap();
+        let steps = std::cell::RefCell::new(Vec::new());
+        serve(
+            &pending,
+            |_, _| {
+                steps.borrow_mut().push("snapshot".to_owned());
+                queue(Some("stale"), 2, 0);
+                queue(Some("old"), 3, 1);
+                queue(Some("selected"), 4, 1);
+                true
+            },
+            CHECK_EVERY,
+            &generation,
+            |_| Stamp::cursor(0),
+            |_, _, _| Loaded::only(crate::board::app::tests::snapshot("product", json!([]))),
+            |job, expected| {
+                let Deferred::Notebook { identity, revision } = job else {
+                    panic!("other work")
+                };
+                assert_eq!((identity.as_str(), revision, expected), ("selected", 4, 1));
+                steps.borrow_mut().push(identity);
+                false
+            },
+        );
+        assert_eq!(*steps.borrow(), ["snapshot", "selected"]);
+        // No selection and obsolete generation perform no deferred read.
+        let (sender, pending) = mpsc::channel();
+        sender
+            .send(Work::Notebook {
+                identity: Some("stale".into()),
+                revision: 5,
+                generation: 0,
+            })
+            .unwrap();
+        drop(sender);
+        serve(
+            &pending,
+            |_, _| panic!("no snapshot"),
+            CHECK_EVERY,
+            &generation,
+            |_| Stamp::cursor(0),
+            |_, _, _| panic!("no load"),
+            |_, _| panic!("no read"),
+        );
+        for (code, expected) in [
+            ("NOTEBOOK_NOT_FOUND", "(no notes yet)"),
+            (
+                "NOTEBOOK_SAVED_IDENTITY_REQUIRED",
+                "(temporary identity: no notebook)",
+            ),
+        ] {
+            let note = member_notes(Err(crate::core::SquadError::new(code, "ignored")));
+            let lines = super::super::view::notebook_lines(
+                &note,
+                80,
+                crate::look::Look::default(),
+                NotesRender::Markdown,
+            );
+            assert_eq!(lines[0].to_string(), expected);
+        }
+        assert_eq!(
+            member_notes(Ok(json!({"content":"## Now\n\u{1b}[31mSafe"}))),
+            Notes::Text("## Now\nSafe".into())
+        );
+    }
 
     #[test]
     fn built_in_board_documents_equal_ls_tab_documents() {
@@ -951,11 +1173,11 @@ esac
         use std::sync::atomic::Ordering;
         let (requests, loads, cursor) = serving(true);
         requests
-            .send(Reload {
+            .send(Work::Reload(Reload {
                 preview_panes: false,
                 squad: Some("product".into()),
                 generation: 0,
-            })
+            }))
             .unwrap();
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("product".into())));
         assert!(loads.recv_timeout(WAIT).is_err(), "nothing changed");
@@ -964,11 +1186,11 @@ esac
         assert!(loads.recv_timeout(WAIT).is_err(), "once per change");
         // A request is served as before and becomes the squad to watch.
         requests
-            .send(Reload {
+            .send(Work::Reload(Reload {
                 preview_panes: false,
                 squad: Some("infra".into()),
                 generation: 0,
-            })
+            }))
             .unwrap();
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("infra".into())));
         cursor.store(3, Ordering::SeqCst);
@@ -981,21 +1203,21 @@ esac
         use std::sync::atomic::Ordering;
         let (requests, loads, cursor) = serving(false);
         requests
-            .send(Reload {
+            .send(Work::Reload(Reload {
                 preview_panes: false,
                 squad: Some("product".into()),
                 generation: 0,
-            })
+            }))
             .unwrap();
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("product".into())));
         cursor.store(2, Ordering::SeqCst);
         assert!(loads.recv_timeout(WAIT).is_err());
         requests
-            .send(Reload {
+            .send(Work::Reload(Reload {
                 preview_panes: false,
                 squad: Some("product".into()),
                 generation: 0,
-            })
+            }))
             .unwrap();
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("product".into())));
     }
@@ -1194,11 +1416,11 @@ esac
         sender
             .as_ref()
             .unwrap()
-            .send(Reload {
+            .send(Work::Reload(Reload {
                 preview_panes: false,
                 squad: Some("old".into()),
                 generation: 0,
-            })
+            }))
             .unwrap();
         let generation = AtomicU64::new(0);
         let mut loaded = Vec::new();
@@ -1220,11 +1442,11 @@ esac
                         sender
                             .as_ref()
                             .unwrap()
-                            .send(Reload {
+                            .send(Work::Reload(Reload {
                                 preview_panes: false,
                                 squad: Some(name.into()),
                                 generation: 1,
-                            })
+                            }))
                             .unwrap();
                     }
                 } else {
@@ -1245,11 +1467,11 @@ esac
     fn the_shown_snapshot_is_published_before_other_tab_attention() {
         let (sender, pending) = mpsc::channel();
         sender
-            .send(Reload {
+            .send(Work::Reload(Reload {
                 preview_panes: false,
                 squad: Some("product".into()),
                 generation: 0,
-            })
+            }))
             .unwrap();
         drop(sender);
         let steps = std::cell::RefCell::new(Vec::new());
@@ -1332,11 +1554,11 @@ esac
         let (sender, pending) = mpsc::channel();
         for name in ["old", "new"] {
             sender
-                .send(Reload {
+                .send(Work::Reload(Reload {
                     preview_panes: false,
                     squad: Some(name.into()),
                     generation: 0,
-                })
+                }))
                 .unwrap();
         }
         let mut loads = Vec::new();
