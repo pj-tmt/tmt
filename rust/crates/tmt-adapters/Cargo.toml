@@ -33,7 +33,7 @@ tmt-office-model.workspace = true
 [target.'cfg(unix)'.dev-dependencies]
 rustls.workspace = true
 rcgen.workspace = true
-nix = { workspace = true, features = ["term"] }
+nix = { workspace = true, features = ["term", "net"] }
 
 [lints]
 workspace = true

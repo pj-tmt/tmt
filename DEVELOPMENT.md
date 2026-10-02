@@ -849,8 +849,11 @@ cargo +1.95.0 build --locked
 For the unregistered Codex queue transport (#736), focused deterministic checks
 are `cargo test --locked -p tmt-adapters drivers::codex::queue` and
 `cargo test --locked -p tmt-adapters drivers::codex::transport`. The transport
-tests own local loopback peers and exercise receipt loss and absolute deadlines;
-they do not start a model or inspect provider credentials. Dependency review
+tests own local loopback peers and exercise receipt loss and absolute deadlines.
+The refusal fixture holds a bound, non-listening socket through the connect attempt;
+it never releases a port for a parallel test to claim. It uses the existing nix
+Unix dev-dependency with `net`, without a new runtime dependency. These tests do
+not start a model or inspect provider credentials. Dependency review
 also records exact features/graph, Rust 1.95, licenses, current advisories and an
 actual CLI release baseline/candidate under one toolchain/profile. Label a
 zero delta from unused/dead-stripped groundwork honestly and repeat the size
