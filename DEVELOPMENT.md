@@ -2634,7 +2634,8 @@ paired owner's device context.
 
 The socket bounds are named in `src/limits.rs`: 16 request workers, 8 KiB/32
 header fields, 64 KiB HTTP bodies, 2-second total acquisition and 1-second total
-response, and 16 WebSocket tunnels closed after 120 seconds without bytes. HTTP
+response, and 16 WebSocket tunnels closed after 120 seconds without inbound
+bytes. HTTP
 body capacity is for later sign-in/management; page objects use the future sync
 path. The stream sync library enforces 64 KiB frames and 8 queued frames with
 `RESYNC_REQUIRED` close for slow subscribers; serve accepts and holds an owner's

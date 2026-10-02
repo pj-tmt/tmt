@@ -4,7 +4,8 @@ use std::time::Duration;
 pub const SOCKETS: usize = 16;
 /// Live colab-sync-v1 tunnels, matching the remote door's colab mount cap.
 pub const TUNNELS: usize = 16;
-/// A tunnel without bytes either way closes after this, until heartbeats exist.
+/// A tunnel that receives no inbound bytes for this long closes, until
+/// colab-sync-v1 heartbeats exist (colab sends nothing on it yet).
 pub const TUNNEL_IDLE: Duration = Duration::from_secs(120);
 pub const HEADER_BYTES: usize = 8 * 1024;
 pub const HEADER_FIELDS: usize = 32;

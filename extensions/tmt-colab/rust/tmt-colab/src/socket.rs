@@ -4,7 +4,11 @@
 //! this user can connect to the socket, and answers its own pages and
 //! WebSocket upgrades. Relocated from colab's former loopback door: the
 //! bounded single-request reader and the drained reply are unchanged.
-use crate::{Result, keyring::Layout, limits};
+use crate::{
+    Result,
+    keyring::{Layout, StateFault},
+    limits,
+};
 use nix::poll::{PollFd, PollFlags, poll};
 use serde_json::Value;
 use std::{
@@ -40,8 +44,8 @@ const POLICY: &str = "default-src 'none'; base-uri 'none'; frame-ancestors 'none
 #[derive(Clone, Copy)]
 pub struct Tunnels {
     pub cap: usize,
-    /// A tunnel with no bytes for this long closes, until colab-sync-v1
-    /// heartbeats exist.
+    /// A tunnel that receives no inbound bytes for this long closes, until
+    /// colab-sync-v1 heartbeats exist.
     pub idle: Duration,
 }
 impl Tunnels {
@@ -101,6 +105,15 @@ impl MountSocket {
     /// a stale leftover of an earlier serve and is replaced; anything else
     /// refuses.
     pub fn bind(layout: &Layout, space_id: &str, tunnels: Tunnels) -> Result<Self> {
+        // The bind-then-chmod window is safe only because nobody else can
+        // enter this directory, so recheck it right before binding.
+        let directory = fs::symlink_metadata(&layout.directory)?;
+        if !directory.is_dir()
+            || directory.uid() != nix::unistd::getuid().as_raw()
+            || directory.mode() & 0o077 != 0
+        {
+            return Err(StateFault::UnsafeDirectory.into());
+        }
         let path = layout.directory.join(SOCKET);
         if path.as_os_str().len() > SOCKET_PATH_BYTES {
             return Err(SocketFault::PathTooLong(path).into());
@@ -207,6 +220,7 @@ struct Request {
     owner: Option<String>,
     upgrade: bool,
     key: Option<String>,
+    version: Option<String>,
     protocols: Vec<String>,
 }
 fn serve(mut socket: UnixStream, space_id: &str, live: &AtomicUsize, tunnels: Tunnels) {
@@ -220,6 +234,8 @@ fn serve(mut socket: UnixStream, space_id: &str, live: &AtomicUsize, tunnels: Tu
     if request.upgrade {
         let accepted = request.method == "GET"
             && request.path == "/sync"
+            && request.version.as_deref() == Some("13")
+            && request.key.as_deref().is_some_and(websocket_key)
             && request.protocols.iter().any(|p| p == PROTOCOL);
         let Some(key) = request.key.filter(|_| accepted) else {
             let _ = response(&mut socket, 400, b"INVALID", false);
@@ -274,6 +290,19 @@ fn hold(socket: &mut UnixStream, key: &str, idle: Duration) {
     let mut discarded = [0; 1024];
     while matches!(socket.read(&mut discarded), Ok(n) if n > 0) {}
     let _ = socket.shutdown(std::net::Shutdown::Both);
+}
+/// RFC 6455: the key is the base64 of exactly 16 bytes, so 22 symbols (the
+/// last one carrying no unused bits) and `==`.
+fn websocket_key(key: &str) -> bool {
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes = key.as_bytes();
+    bytes.len() == 24
+        && bytes.ends_with(b"==")
+        && bytes[..22].iter().all(|b| ALPHABET.contains(b))
+        && ALPHABET
+            .iter()
+            .position(|b| *b == bytes[21])
+            .is_some_and(|value| value & 0b1111 == 0)
 }
 fn escape(text: &str) -> String {
     text.replace('&', "&amp;")
@@ -375,6 +404,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
         owner: None,
         upgrade: false,
         key: None,
+        version: None,
         protocols: Vec::new(),
     };
     let mut size = 0;
@@ -395,6 +425,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
         match name.as_str() {
             "upgrade" => request.upgrade |= value.eq_ignore_ascii_case("websocket"),
             "sec-websocket-key" => request.key = Some(value.to_owned()),
+            "sec-websocket-version" => request.version = Some(value.to_owned()),
             "sec-websocket-protocol" => {
                 request.protocols = value.split(',').map(|p| p.trim().to_owned()).collect()
             }

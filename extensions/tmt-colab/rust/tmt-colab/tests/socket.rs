@@ -14,7 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_colab::{
-    keyring::Layout,
+    keyring::{Layout, StateFault},
     limits,
     socket::{MountSocket, Tunnels},
 };
@@ -203,6 +203,20 @@ fn owner_upgrades_are_accepted_capped_and_closed_when_idle() {
             ),
             400,
         ),
+        (
+            format!(
+                "{OWNER}\r\n{}",
+                UPGRADE.replace("Version: 13", "Version: 8")
+            ),
+            400,
+        ),
+        (
+            format!(
+                "{OWNER}\r\n{}",
+                UPGRADE.replace("dGhlIHNhbXBsZSBub25jZQ==", "c2hvcnQ=")
+            ),
+            400,
+        ),
     ] {
         assert!(
             server
@@ -259,4 +273,25 @@ fn capacity_and_shutdown_close_retained_sockets_and_tunnels_twice() {
             .request("GET / HTTP/1.1\r\n")
             .starts_with("HTTP/1.1 408")
     );
+}
+
+#[test]
+fn bind_refuses_a_colab_directory_others_can_enter() {
+    let root = PathBuf::from(format!(
+        "/tmp/tmt-1039-colab-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir(&root).unwrap();
+    let layout = Layout::open(&root).unwrap();
+    fs::set_permissions(&layout.directory, fs::Permissions::from_mode(0o755)).unwrap();
+    let error = MountSocket::bind(&layout, SPACE, Tunnels::PRODUCT)
+        .err()
+        .expect("a group/other-enterable directory refuses");
+    assert_eq!(
+        error.downcast_ref::<StateFault>(),
+        Some(&StateFault::UnsafeDirectory)
+    );
+    assert!(!layout.directory.join("door.sock").exists());
+    fs::remove_dir_all(&root).unwrap();
 }

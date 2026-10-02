@@ -21,3 +21,22 @@ fn response_drains_input_sent_after_its_fin_until_peer_eof() {
     peer.shutdown(std::net::Shutdown::Write).unwrap();
     worker.join().unwrap();
 }
+
+#[test]
+fn websocket_keys_are_exactly_sixteen_base64_bytes() {
+    // RFC 6455 section 1.3 sample key.
+    assert!(websocket_key("dGhlIHNhbXBsZSBub25jZQ=="));
+    assert!(websocket_key("AAAAAAAAAAAAAAAAAAAAAA=="));
+    for invalid in [
+        "",
+        "dGhlIHNhbXBsZSBub25jZQ",
+        "dGhlIHNhbXBsZSBub25jZQ=",
+        "dGhlIHNhbXBsZSBub25jZR==",
+        "dGhlIHNhbXBsZSBub25jZQ===",
+        "dGhlIHNhbXBsZSBub25j-Q==",
+        "dGhlIHNhbXBsZSBub25jZQ==\r",
+        "AAAAAAAAAAAAAAAAAAAAAAAA",
+    ] {
+        assert!(!websocket_key(invalid), "{invalid:?}");
+    }
+}
