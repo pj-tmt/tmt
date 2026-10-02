@@ -1005,8 +1005,9 @@ before effects.
 
 The local space is loopback-only: there is no `--bind`, LAN or other
 non-loopback mode. Other people's machines reach a page only through a cloud
-backend (Firestore, then Cloudflare). L2 verifies Host allowlisting,
-body/acquisition caps and timeout/shutdown behavior.
+backend (Firestore, then Cloudflare). L2 verifies owner-only socket admission,
+body/acquisition caps and timeout/shutdown behavior; Host allowlisting is
+remote's.
 
 Firestore uses Hosting, Anonymous Auth for link holders/bridge connector and
 named Google sign-in for named members, Spark by default. Rules admit uid,
