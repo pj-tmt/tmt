@@ -55,8 +55,8 @@ a new thread or guesses a remembered session from arbitrary user argv. A Default
 resume that cannot enroll before startup may run only the original exact-resume
 command, with the visible paste notice and the same cleanup/evidence guards;
 it never silently downgrades an enrolled thread. Disabled explicitly chooses
-plain exact resume and still cannot bypass enrollment evidence already in the
-pane. Required fails instead of launching plainly.
+plain exact resume without enrollment; retained enrollment evidence still blocks
+paste delivery into that pane. Required fails instead of launching plainly.
 
 An enrolled Codex launch owns one extra app-server process, plus its existing
 supervisor, for that foreground's lifetime. Normal exit and Ctrl-C use the same

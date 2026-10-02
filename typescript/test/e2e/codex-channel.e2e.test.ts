@@ -693,15 +693,22 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       );
       await f.waitFor(() => gone(record.foreground.process!.pid), 10000, 'old foreground ended');
       const before = fs.readFileSync(file, 'utf8');
-      const fallback = start(f, 'Worker', 'default', { MOCK_VERSION: '0.160.1' }, old.pane);
-      expect(
-        await waitForFileContent(fallback.status, {
-          description: 'retained enrollment blocks fallback launch',
-        })
-      ).toBe('1');
-      expect(events(fallback, 'started')).toEqual([]);
+      // Plain launch makes no enrollment attempt, but retained Unknown evidence
+      // must still refuse delivery into that pane before any terminal write.
+      const defaultPlain = start(f, 'Worker', 'default', { MOCK_AUTOREPLY: '0' }, old.pane);
+      await ready(f, defaultPlain);
+      expect(records(f).find((row) => row.file === file)?.record.foreground.state).toBe('unknown');
       expect(fs.readFileSync(file, 'utf8')).toBe(before);
-      expect(f.capture(200, fallback.pane)).not.toContain('uses paste delivery:');
+      const retainedTrace = installTmuxTrace(f);
+      for (const target of ['Worker', defaultPlain.pane]) {
+        const result = await talk(f, target, 'retained enrollment must not paste');
+        expect(result.code, result.stdout + result.stderr).toBe(1);
+        expect(result.json).toMatchObject({ error: { code: 'DELIVERY_PREPARATION_FAILED' } });
+      }
+      expect(events(defaultPlain, 'paste')).toEqual([]);
+      expect(writes(retainedTrace, defaultPlain.pane)).toEqual([]);
+      await quit(defaultPlain);
+      expect(fs.readFileSync(file, 'utf8')).toBe(before);
       const plain = start(f, 'Bystander', false, { MOCK_AUTOREPLY: '0' });
       await ready(f, plain);
       const trace = installTmuxTrace(f);
