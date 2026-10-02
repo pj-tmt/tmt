@@ -256,3 +256,43 @@ export async function fingerprintIndexes(
   const index = (shift: bigint): number => Number((bits >> shift) & 0x7ffn);
   return [index(33n), index(22n), index(11n), index(0n)];
 }
+
+const BASE64URL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+/** Unpadded RFC 4648 base64url. */
+export function base64url(bytes: Uint8Array): string {
+  requireValue(bytes instanceof Uint8Array, 'base64url bytes');
+  let text = '';
+  for (let index = 0; index < bytes.length; index += 3) {
+    const chunk = (bytes[index]! << 16) | ((bytes[index + 1] ?? 0) << 8) | (bytes[index + 2] ?? 0);
+    const symbols = Math.min(4, Math.ceil(((bytes.length - index) * 8) / 6));
+    for (let symbol = 0; symbol < symbols; symbol++)
+      text += BASE64URL[(chunk >> (18 - 6 * symbol)) & 63];
+  }
+  return text;
+}
+
+/**
+ * Decode exactly `length` bytes of strict base64url: no padding, no other
+ * alphabet or whitespace, and zero unused bits, so each value has one spelling.
+ */
+export function base64urlBytes(textValue: string, length: number): Uint8Array {
+  requireValue(typeof textValue === 'string' && textValue.length % 4 !== 1, 'base64url length');
+  const bytes = new Uint8Array(Math.floor((textValue.length * 6) / 8));
+  let buffer = 0;
+  let bits = 0;
+  let index = 0;
+  for (const symbol of textValue) {
+    const value = BASE64URL.indexOf(symbol);
+    requireValue(value >= 0, 'base64url alphabet');
+    buffer = ((buffer << 6) | value) & 0x3fff;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      bytes[index++] = (buffer >> bits) & 0xff;
+    }
+  }
+  requireValue((buffer & ((1 << bits) - 1)) === 0, 'base64url unused bits');
+  requireValue(bytes.length === length, 'base64url decoded length');
+  return bytes;
+}

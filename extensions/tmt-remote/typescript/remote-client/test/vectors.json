@@ -182,5 +182,61 @@
       "code": "ffffffffffffffffffffffffffffffff",
       "text": "7777-7777-7777-7777-7777-7777-74"
     }
-  ]
+  ],
+  "base64url": {
+    "valid": [
+      {
+        "hex": "",
+        "length": 0,
+        "text": ""
+      },
+      {
+        "hex": "fbff",
+        "length": 2,
+        "text": "-_8"
+      },
+      {
+        "hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "length": 32,
+        "text": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+      },
+      {
+        "hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "length": 64,
+        "text": "_____________________________________________________________________________________w"
+      }
+    ],
+    "invalid": [
+      {
+        "reason": "padding",
+        "length": 2,
+        "text": "-_8="
+      },
+      {
+        "reason": "standard alphabet",
+        "length": 2,
+        "text": "+/8"
+      },
+      {
+        "reason": "nonzero unused bits",
+        "length": 2,
+        "text": "-_9"
+      },
+      {
+        "reason": "wrong length",
+        "length": 31,
+        "text": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+      },
+      {
+        "reason": "impossible symbol count",
+        "length": 3,
+        "text": "AAAAA"
+      },
+      {
+        "reason": "whitespace",
+        "length": 2,
+        "text": " -_8"
+      }
+    ]
+  }
 }

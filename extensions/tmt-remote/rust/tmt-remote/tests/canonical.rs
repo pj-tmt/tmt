@@ -271,3 +271,24 @@ fn independent_python_pairing_code_and_fingerprint_vectors() {
         assert_eq!(canonical::fingerprint_words(&key).unwrap().to_vec(), words);
     }
 }
+#[test]
+fn independent_python_base64url_vectors_and_strict_refusals() {
+    let fixtures = fixtures();
+    for v in fixtures["base64url"]["valid"].as_array().unwrap() {
+        let raw = bytes(text(v, "hex"));
+        assert_eq!(canonical::base64url(&raw), text(v, "text"));
+        let length = v["length"].as_u64().unwrap() as usize;
+        assert_eq!(
+            canonical::base64url_bytes(text(v, "text"), length).unwrap(),
+            raw
+        );
+    }
+    for v in fixtures["base64url"]["invalid"].as_array().unwrap() {
+        let length = v["length"].as_u64().unwrap() as usize;
+        assert!(
+            canonical::base64url_bytes(text(v, "text"), length).is_err(),
+            "{}",
+            v["reason"]
+        );
+    }
+}

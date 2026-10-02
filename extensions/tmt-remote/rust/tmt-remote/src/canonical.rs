@@ -1,4 +1,9 @@
 //! Pure decoded-value framing. These builders do not admit wire input or grant authority.
+use base64::{
+    Engine,
+    alphabet::URL_SAFE,
+    engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig},
+};
 use sha2::{Digest, Sha256};
 use std::fmt;
 
@@ -240,4 +245,23 @@ pub fn fingerprint_words(public_key: &[u8; 32]) -> Result<[&'static str; 4]> {
     let words: Vec<&'static str> = WORDLIST.lines().collect();
     require(words.len() == 2048)?;
     Ok(fingerprint_indexes(public_key)?.map(|i| words[usize::from(i)]))
+}
+
+/// Unpadded RFC 4648 base64url. Decoding refuses padding, other alphabets and
+/// nonzero unused bits, so every value has exactly one accepted spelling.
+const BASE64URL: GeneralPurpose = GeneralPurpose::new(
+    &URL_SAFE,
+    GeneralPurposeConfig::new()
+        .with_encode_padding(false)
+        .with_decode_padding_mode(DecodePaddingMode::RequireNone)
+        .with_decode_allow_trailing_bits(false),
+);
+pub fn base64url(bytes: &[u8]) -> String {
+    BASE64URL.encode(bytes)
+}
+/// Decode exactly `length` bytes of strict base64url.
+pub fn base64url_bytes(text: &str, length: usize) -> Result<Vec<u8>> {
+    let bytes = BASE64URL.decode(text).map_err(|_| InvalidBytes)?;
+    require(bytes.len() == length)?;
+    Ok(bytes)
 }

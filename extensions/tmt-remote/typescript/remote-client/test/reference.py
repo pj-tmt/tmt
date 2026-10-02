@@ -62,6 +62,10 @@ def code_text(code):
     return dict(code=code.hex(), text='-'.join(symbols[i:i + 4] for i in range(0, len(symbols), 4)))
 
 
+def b64url(raw):
+    return base64.urlsafe_b64encode(raw).decode('ascii').rstrip('=')
+
+
 def fixture(name, value, raw):
     return dict(name=name, input=value, hex=raw.hex(), sha256=hashlib.sha256(raw).hexdigest())
 
@@ -95,6 +99,18 @@ result = dict(
     wordlist=dict(source=WORDLIST_SOURCE, sha256=WORDLIST_SHA256),
     fingerprints=[fingerprint(key) for key in [bytes(range(32)), rfc8032_key, bytes([255]*32)]],
     pairingCodes=[code_text(code) for code in [bytes(range(16)), bytes(16), bytes([255]*16)]],
+    base64url=dict(
+        valid=[dict(hex=raw.hex(), length=len(raw), text=b64url(raw))
+               for raw in [b'', bytes([0xfb, 0xff]), bytes(range(32)), bytes([255] * 64)]],
+        # Each invalid spelling changes one condition of a valid 2- or 32-byte value.
+        invalid=[
+            dict(reason='padding', length=2, text=b64url(bytes([0xfb, 0xff])) + '='),
+            dict(reason='standard alphabet', length=2, text='-_8'.replace('-', '+').replace('_', '/')),
+            dict(reason='nonzero unused bits', length=2, text='-_9'),
+            dict(reason='wrong length', length=31, text=b64url(bytes(range(32)))),
+            dict(reason='impossible symbol count', length=3, text='AAAAA'),
+            dict(reason='whitespace', length=2, text=' -_8'),
+        ]),
 )
 path = Path(__file__).with_name('vectors.json')
 if '--check' in sys.argv:

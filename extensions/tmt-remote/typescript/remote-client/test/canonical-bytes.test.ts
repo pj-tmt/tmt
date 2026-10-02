@@ -7,6 +7,8 @@ import {
   envelopeSigningBytes,
   enrollmentSigningBytes,
   enrollmentPossessionSigningBytes,
+  base64url,
+  base64urlBytes,
   fingerprintIndexes,
   pairingCode,
   responseKeyInput,
@@ -248,3 +250,15 @@ for (const length of [0, 31, 33]) {
     );
   });
 }
+
+test('independent base64url vectors and strict refusals', () => {
+  for (const vector of vectors.base64url.valid) {
+    assert.equal(base64url(bytes(vector.hex)), vector.text);
+    assert.equal(
+      Buffer.from(base64urlBytes(vector.text, vector.length)).toString('hex'),
+      vector.hex,
+    );
+  }
+  for (const vector of vectors.base64url.invalid)
+    assert.throws(() => base64urlBytes(vector.text, vector.length), /base64url/, vector.reason);
+});
