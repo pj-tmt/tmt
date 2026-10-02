@@ -62,8 +62,6 @@ Current exceptions and moves are **pending**, not shipped:
 - The handbook has resumed (#1000). `docs/` remains a temporary home under #997/#998.
   `docs/NATIVE-INSTALL.md` and `docs/performance.md` stay there pending their move to
   `site/` under #998; the directory exception remains until its retained contents move.
-- #996 removes `nx`, `nx.bat`, `nx.json` and `.nx/`. Whichever PR lands second
-  reconciles those exceptions against its merged base.
 
 New homes or exceptions require an infra-reviewed proposal with a component owner
 and bounded responsibility. Update this map and the JSON allowlist together;
