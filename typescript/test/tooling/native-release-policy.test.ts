@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -14,6 +16,29 @@ const { checkLatestTag, productOfTag, publishFlags, releaseFlags, releasePolicy 
 };
 
 describe('native release publication policy', () => {
+  it.each(['cli', 'squad', 'office'])(
+    'gates %s through the component release policy',
+    (product) => {
+      const result = spawnSync(
+        process.execPath,
+        [
+          path.join(repositoryRoot, 'scripts', 'native-release-policy.mjs'),
+          'require-released',
+          product,
+        ],
+        { cwd: os.tmpdir(), encoding: 'utf8', timeout: 10_000, maxBuffer: 64 * 1024 }
+      );
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(product === 'office' ? 1 : 0);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toBe(
+        product === 'office'
+          ? 'office is not released (release: false in .github/components.json).\n'
+          : ''
+      );
+    }
+  );
+
   it('makes only the CLI the latest release', () => {
     expect(releaseFlags('cli')).toEqual(['--latest=true']);
     for (const extension of ['office', 'squad']) {

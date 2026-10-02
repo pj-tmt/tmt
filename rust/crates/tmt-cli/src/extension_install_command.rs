@@ -46,6 +46,24 @@ use tmt_cli_style::{
 
 const CONSENT: &str = "EXTENSION_CONSENT_REQUIRED";
 
+// Historical products stay recognizable for receipt recovery and removal.
+const INSTALLABLE_EXTENSIONS: &[Product] = &[Product::Squad];
+
+fn require_installable(product: Product) -> Result<(), Failure> {
+    if INSTALLABLE_EXTENSIONS.contains(&product) {
+        return Ok(());
+    }
+    Err(Failure::new(
+        "EXTENSION_FROZEN",
+        format!(
+            "{} is frozen; installation and upgrades are unavailable. Existing installations can still be listed and removed with tmt extension ls and tmt extension rm {}.",
+            product.as_str(),
+            product.as_str()
+        ),
+        1,
+    ))
+}
+
 /// Consent for one change to the user's installation.
 fn ask(yes: bool, mode: OutputMode, action: &str) -> Result<bool, Failure> {
     ask_declining(yes, mode, action, "No changes made.")
@@ -90,7 +108,7 @@ pub fn execute(request: ExtensionInstallRequest, mode: OutputMode) -> io::Result
     }
 }
 
-/// The official extensions, by the name users type.
+/// Recognized extension products, including frozen historical installations.
 fn extension(name: &str) -> Result<Product, Failure> {
     Product::ALL
         .into_iter()
@@ -109,10 +127,9 @@ fn extension(name: &str) -> Result<Product, Failure> {
 }
 
 fn names() -> String {
-    Product::ALL
-        .into_iter()
-        .filter(|product| *product != Product::Cli)
-        .map(Product::as_str)
+    INSTALLABLE_EXTENSIONS
+        .iter()
+        .map(|product| product.as_str())
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -266,6 +283,7 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
             repair,
         } => {
             let product = extension(&name)?;
+            require_installable(product)?;
             let prefix = prefix(selected.as_deref())?;
             let action = if repair {
                 format!("Repair the {name} extension; retain the damaged release")
@@ -493,11 +511,7 @@ mod tests {
         for name in ["cli", "tmt", "sq", "unknown"] {
             let error = extension(name).unwrap_err();
             assert_eq!(error.code, "EXTENSION_UNKNOWN");
-            assert!(
-                error
-                    .message
-                    .ends_with("Official extensions: office, squad.")
-            );
+            assert!(error.message.ends_with("Official extensions: squad."));
         }
     }
 

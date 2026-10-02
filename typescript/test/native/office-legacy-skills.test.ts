@@ -3,10 +3,16 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseWholeStdout, runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 import { createArtifact } from '../support/native-artifact.js';
+import { workspaceVersion } from '../support/workspace-version.js';
 import { oldLayout } from '../support/legacy-extension-skills.js';
 
 async function installOffice(sandbox: Sandbox, prefix: string) {
-  const artifact = await createArtifact(sandbox, '0.1.0-alpha.4', new Uint8Array(), 'office');
+  const artifact = await createArtifact(
+    sandbox,
+    workspaceVersion('tmt-office'),
+    new Uint8Array(),
+    'office'
+  );
   const args = [
     '__native-install',
     '--product',

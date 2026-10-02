@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -58,6 +60,65 @@ describe('per-product release run (native-release.yml)', () => {
     );
     expect(job(run, 'plan')).toContain(`'matrix={"include":[{"tag":"","sha":""}]}'`);
     expect(job(run, 'plan')).toContain('A retry and a released hold need prepare turned off.');
+  });
+
+  it('refuses parked Office before preparation or draft planning, retaining released products', () => {
+    const plan = job(run, 'plan');
+    expect(plan).toContain(
+      'node typescript/scripts/native-release-policy.mjs require-released "$PRODUCT"'
+    );
+    expect(plan).not.toMatch(/node[^\n]*\s-e\s/);
+    const shell = plan
+      .slice(plan.indexOf('        run: |\n') + '        run: |\n'.length)
+      .split('\n')
+      .map((line) => line.replace(/^ {10}/, ''))
+      .join('\n');
+    expect(run).toMatch(/options:\n {10}- cli\n {10}- squad/);
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'release-product-'));
+    try {
+      const gh = path.join(directory, 'gh');
+      writeFileSync(gh, '#!/bin/sh\nprintf "unexpected release API call\\n" >&2\nexit 97\n');
+      chmodSync(gh, 0o700);
+      const search = `${directory}${path.delimiter}${process.env.PATH ?? ''}`;
+      for (const prepare of ['true', 'false']) {
+        const result = spawnSync('/bin/sh', ['-eu', '-c', shell], {
+          cwd: repository,
+          env: { PATH: search, PRODUCT: 'office', PREPARE: prepare },
+          encoding: 'utf8',
+          timeout: 10_000,
+        });
+        expect(result.error).toBeUndefined();
+        expect(result.status).toBe(1);
+        expect(result.stdout).toBe('');
+        expect(result.stderr.trim()).toBe(
+          'office is not released (release: false in .github/components.json).'
+        );
+      }
+      for (const product of ['cli', 'squad']) {
+        const output = path.join(directory, product);
+        const result = spawnSync('/bin/sh', ['-eu', '-c', shell], {
+          cwd: repository,
+          env: {
+            PATH: search,
+            PRODUCT: product,
+            PREPARE: 'true',
+            RETRY: '',
+            HOLD: '',
+            GITHUB_OUTPUT: output,
+          },
+          encoding: 'utf8',
+          timeout: 10_000,
+        });
+        expect(result.error).toBeUndefined();
+        expect(result.status).toBe(0);
+        expect(result.stderr).toBe('');
+        expect(readFileSync(output, 'utf8')).toBe(
+          'matrix={"include":[{"tag":"","sha":""}]}\nany=true\n'
+        );
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('grants write access only to the jobs that list, upload to or publish draft releases', () => {

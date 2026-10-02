@@ -2,8 +2,8 @@
 
 use super::skills::settle_skills;
 use super::{
-    ExtensionListRow, Human, Outcome, ask, extension, extension_list, failure, installed,
-    interruptible, prefix,
+    ExtensionListRow, Human, INSTALLABLE_EXTENSIONS, Outcome, ask, extension, extension_list,
+    failure, installed, interruptible, prefix, require_installable,
 };
 use crate::{invocation::OutputMode, output::Failure};
 use serde_json::{Value, json};
@@ -21,6 +21,7 @@ pub(super) fn upgrade_extension(
     mode: OutputMode,
 ) -> Result<Outcome, Failure> {
     let product = extension(&name)?;
+    require_installable(product)?;
     let prefix = prefix(selected.as_deref())?;
     if !installed(product, &prefix)? {
         return Err(Failure::new(
@@ -124,9 +125,15 @@ pub(super) fn listing(
                 Err(error) => return Err(error),
             }
         };
+        let frozen = !INSTALLABLE_EXTENSIONS.contains(&product);
+        if frozen && state.is_none() && !partial {
+            continue;
+        }
         let shadowed = shadowing_in(product, prefix, search);
         // Only an explicit --check touches the network; unreachable is unknown.
-        let update = if check {
+        let update = if check && frozen {
+            Some("frozen")
+        } else if check {
             let channel = state.as_ref().map_or(Channel::Alpha, |state| state.channel);
             Some(
                 match native_install::latest_release_version(product, channel) {
@@ -150,6 +157,9 @@ pub(super) fn listing(
             "commands": product.links(),
             "shadowedBy": shadowed,
         });
+        if frozen {
+            row["frozen"] = true.into();
+        }
         if let Some(update) = update {
             row["update"] = update.into();
         }
@@ -176,6 +186,11 @@ pub(super) fn listing(
                 ),
                 None => "not installed".into(),
             }
+        };
+        let status = if frozen {
+            format!("{status} (frozen)")
+        } else {
+            status
         };
         lines.push(ExtensionListRow {
             name: name.into(),

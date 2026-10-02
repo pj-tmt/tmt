@@ -23,7 +23,6 @@ on:
         type: choice
         options:
           - cli
-          - office
           - squad
       prepare:
         description: Build and verify one bundle from this main commit, without a draft release; nothing is attached
@@ -76,6 +75,8 @@ jobs:
           RETRY: ${{ inputs.retry }}
           HOLD: ${{ inputs.hold }}
         run: |
+          # Only released products may enter either preparation or draft publication.
+          node typescript/scripts/native-release-policy.mjs require-released "$PRODUCT"
           if [ "$PREPARE" = true ]; then
             if [ -n "$RETRY" ] || [ -n "$HOLD" ]; then
               echo 'A retry and a released hold need prepare turned off.' >&2

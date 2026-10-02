@@ -715,7 +715,11 @@ that inherits the workspace version is declared by the owner of `rust/Cargo.toml
 a private `release: false` component owns the crate, because the next locked build fails
 when that release leaves its entry behind. Office is parked this way: it owns its files and
 CI scope but has no release-please package, manifest entry or release run, and its binary
-opts out of cargo-dist with `dist = false`.
+opts out of cargo-dist with `dist = false`. The native-release entry delegates to
+`native-release-policy.mjs require-released`, which checks the same component policy
+before preparation or draft planning, so a parked product cannot enter the bundle
+pipeline through manual preparation. Native tests compare the CLI's installable
+extensions with the released extension components in the map.
 release-please attributes a commit to a package by the files it touches under the package
 path and can only drop paths, so the CLI's `exclude-paths` lists everything under each
 extension root except the crates the CLI links (today the Office model, command and service
@@ -2653,8 +2657,14 @@ is the public surface for the official extensions over this path. Its facade
 retains dispatch, consent, errors, interruption, rendering and uninstall; private
 `extension_install_command/` modules own install, repair, list/upgrade and skills
 settlement through the existing native-installer and owned-skill adapters. The names
-come from the fixed product table, never from PATH or archive data. Install, upgrade
-and uninstall require consent (`--yes`, or an interactive prompt), and refuse a
+come from the fixed product table, never from PATH or archive data. Installable
+eligibility is separate from historical product recognition: Office is frozen,
+so install and explicit extension upgrade refuse before consent or acquisition.
+Root upgrade skips Office without inspecting its installation. Listing omits an
+absent Office, marks an existing or partially removed Office as frozen, and never
+looks up an Office upgrade, even with `--check`. Historical receipts and Office
+skill catalog names remain available for listing and consented removal. Other
+install, upgrade and uninstall operations require consent (`--yes`, or an interactive prompt), and refuse a
 non-interactive run without it. `ls` reads local receipts only. `--check` adds a
 bounded release lookup (`latest_release_version`, metadata only), and a failed
 lookup reports `unknown`. Shadowing canonicalizes every `tmt-<name>` on PATH and

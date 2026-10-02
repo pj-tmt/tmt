@@ -17,6 +17,35 @@ import { createArtifact, type ArtifactFixture } from '../support/native-artifact
 const INSTALL_PROCESS_BUDGET_MS = 15_000;
 
 describe('tmt extension install surface', () => {
+  it('offers exactly the released extension components', async () => {
+    const { components } = JSON.parse(
+      readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
+    ) as { components: Record<string, { package?: string; release?: boolean }> };
+    const released = Object.entries(components)
+      .filter(
+        ([name, component]) => name !== 'cli' && component.package && component.release !== false
+      )
+      .map(([name]) => name)
+      .sort();
+    expect(released.length).toBeGreaterThan(0);
+    await withSandbox(async (sandbox) => {
+      const result = await runCli(sandbox, [
+        'extension',
+        'ls',
+        '--prefix',
+        path.join(sandbox.root, 'empty prefix'),
+        '--json',
+      ]);
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe('');
+      const listed = parseWholeStdout(result) as {
+        extensions: { name: string; installed: boolean }[];
+      };
+      expect(listed.extensions.every((extension) => !extension.installed)).toBe(true);
+      expect(listed.extensions.map((extension) => extension.name).sort()).toEqual(released);
+    });
+  });
+
   it('installs, lists offline, refuses without consent, and uninstalls squad keeping its releases', async () => {
     await withSandbox(async (sandbox) => {
       const prefix = path.join(sandbox.root, 'extension prefix');
@@ -79,15 +108,6 @@ describe('tmt extension install surface', () => {
       const listed = parseWholeStdout(await cli(['extension', 'list', '--prefix', prefix]));
       expect(listed).toEqual({
         extensions: [
-          {
-            name: 'office',
-            installed: false,
-            version: null,
-            channel: null,
-            pinned: null,
-            commands: ['tmt-office'],
-            shadowedBy: [],
-          },
           {
             name: 'squad',
             installed: true,
@@ -457,7 +477,7 @@ describe('tmt extension install surface', () => {
 
 describe('aggregate official upgrades', () => {
   it(
-    'keeps independent CLI/Squad pins and reports an invalid Office without undoing them',
+    'keeps independent CLI/Squad pins and skips frozen Office even with invalid state',
     { timeout: 60000 },
     async () => {
       await withSandbox(async (sandbox) => {
@@ -507,17 +527,12 @@ describe('aggregate official upgrades', () => {
           },
         ]);
         writeFileSync(path.join(prefix, 'bin/tmt-office'), 'not a managed installation');
-        const failed = await runCli(managed, ['upgrade', '--yes', '--json'], {
+        const skipped = await runCli(managed, ['upgrade', '--yes', '--json'], {
           deadlineMs: INSTALL_PROCESS_BUDGET_MS,
         });
-        expect(failed.status).toBe(1);
-        expect(parseWholeStdout(failed).products).toMatchObject([
+        expect(skipped.status, skipped.stderr + skipped.stdout).toBe(0);
+        expect(parseWholeStdout(skipped).products).toMatchObject([
           { product: 'cli', status: 'skippedPinned' },
-          {
-            product: 'office',
-            status: 'failed',
-            error: { code: 'EXTENSION_INSTALLATION_INVALID' },
-          },
           { product: 'squad', status: 'skippedPinned' },
         ]);
         expect(readFileSync(squadReceipt).equals(before)).toBe(true);
