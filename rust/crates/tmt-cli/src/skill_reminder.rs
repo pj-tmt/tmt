@@ -113,6 +113,11 @@ fn driver_hint(
 
 /// Shows the Herdr driver hint after a command's own result, once a day for
 /// each pane, unless hints are off. Returns whether it was shown.
+///
+/// Transitional: reading `HERDR_PANE_ID` and `HERDR_SOCKET_PATH` here is
+/// the one place core still names Herdr's environment, only to guide users
+/// of the former built-in host to its driver; the driver's `callerEnv`
+/// owns these variables otherwise.
 pub fn present_driver_hint() -> bool {
     if !hints_enabled() {
         return false;
