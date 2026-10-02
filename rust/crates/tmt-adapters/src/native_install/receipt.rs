@@ -228,7 +228,14 @@ impl Receipt {
             .filter(|name| skills_tree::is_skill_path(name))
             .map(String::as_str)
             .collect::<Vec<_>>();
-        if hashes.len() != product.files().len() + skill_hashes.len() {
+        // A companion is recorded exactly when the release carries it.
+        let companions = product
+            .companions()
+            .iter()
+            .copied()
+            .filter(|name| hashes.contains_key(*name))
+            .collect::<Vec<_>>();
+        if hashes.len() != product.files().len() + skill_hashes.len() + companions.len() {
             return Err(invalid("Unexpected installed file digest inventory."));
         }
         skills_tree::validate(product, skill_hashes.iter().copied())?;
@@ -237,6 +244,7 @@ impl Receipt {
             .files()
             .into_iter()
             .chain(skill_hashes.iter().copied())
+            .chain(companions.iter().copied())
         {
             let expected = hashes
                 .get(name)
@@ -257,8 +265,14 @@ impl Receipt {
     }
 
     pub(super) fn verify(&self, product: Product, directory: &Path) -> io::Result<()> {
+        let companions = product
+            .companions()
+            .iter()
+            .copied()
+            .filter(|name| self.file_hashes.contains_key(*name))
+            .collect::<Vec<_>>();
         let mut inventory = fs::read_dir(directory)?
-            .take(product.files().len() + 3)
+            .take(product.files().len() + product.companions().len() + 3)
             .map(|entry| entry.map(|entry| entry.file_name()))
             .collect::<io::Result<Vec<_>>>()?;
         inventory.sort();
@@ -270,6 +284,7 @@ impl Receipt {
             .files()
             .into_iter()
             .chain(["receipt.json"])
+            .chain(companions.iter().copied())
             .chain(has_skills.then_some(skills_tree::ROOT))
             .map(std::ffi::OsString::from)
             .collect::<Vec<_>>();
@@ -286,12 +301,17 @@ impl Receipt {
         if has_skills == skill_hashes.is_empty() {
             return Err(inventory_changed());
         }
-        for name in product.files() {
+        for name in product
+            .files()
+            .into_iter()
+            .chain(companions.iter().copied())
+        {
             let metadata = fs::symlink_metadata(directory.join(name))?;
             let mode = metadata.permissions().mode();
+            let executable = name == product.executable() || companions.contains(&name);
             if !metadata.file_type().is_file()
                 || mode & 0o7000 != 0
-                || (name == product.executable() && mode & 0o111 == 0)
+                || (executable && mode & 0o111 == 0)
             {
                 return Err(invalid(
                     "Installed release file type or permissions have changed.",

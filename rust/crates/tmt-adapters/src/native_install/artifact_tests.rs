@@ -13,6 +13,8 @@ use tar::{Builder, EntryType, Header};
 const TARGET: &str = "aarch64-apple-darwin";
 const OFFICE_PAYLOAD: &[u8] = b"#!/bin/sh\nprintf 'TMT-OFFICE/1\\n1.2.3\\n'\n";
 
+#[path = "companion_archive_tests.rs"]
+mod companion_archive_tests;
 #[path = "skills_release_tests.rs"]
 mod skills_release_tests;
 #[path = "squad_product_tests.rs"]

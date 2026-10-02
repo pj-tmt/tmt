@@ -6,6 +6,9 @@ use crate::native_install::{
 };
 use std::fs;
 
+#[path = "companion_release_tests.rs"]
+mod companion_release_tests;
+
 fn release_download() -> impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>> {
     let (release, manifest, archive, _) =
         release::valid_fixture("1.2.4", "aarch64-apple-darwin", 42);

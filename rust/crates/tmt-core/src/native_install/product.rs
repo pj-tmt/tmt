@@ -92,6 +92,17 @@ impl Product {
         }
     }
 
+    /// Executables a release may carry beside the product's own, such as a
+    /// first-party host driver in the CLI release (#479). Each is optional:
+    /// the receipt records one exactly when the release carries it, so a
+    /// release from before a companion existed still verifies.
+    pub const fn companions(self) -> &'static [&'static str] {
+        match self {
+            Self::Cli => &["tmt-driver-herdr"],
+            Self::Office | Self::Squad => &[],
+        }
+    }
+
     pub const fn files(self) -> [&'static str; 4] {
         [
             self.executable(),

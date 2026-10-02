@@ -8,8 +8,9 @@ pub use remove::{ProductRemoval, plan_product_removal, remove_product, uninstall
 pub use tmt_core::native_install::Product;
 mod managed;
 pub use managed::{
-    ManagedInstallation, inspect, inspect_product, inspect_product_prefix, release_skill_names,
-    release_skills, with_active_product, with_active_release,
+    Companion, ManagedInstallation, active_companion, inspect, inspect_product,
+    inspect_product_prefix, release_skill_names, release_skills, with_active_product,
+    with_active_release,
 };
 #[cfg(test)]
 mod artifact_tests;

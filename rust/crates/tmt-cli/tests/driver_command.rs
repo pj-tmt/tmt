@@ -276,3 +276,20 @@ fn a_driver_slow_to_start_is_still_approved() {
     let output = fixture.tmt(&["driver", "install", path(&driver), "--yes"]);
     assert!(output.status.success(), "{output:?}");
 }
+
+/// A first-party driver ships with a managed native installation; a dev
+/// build has none, and says how to approve an executable instead.
+#[test]
+fn a_first_party_name_outside_a_managed_install_is_refused_with_the_path_form() {
+    let fixture = Fixture::new("first-party");
+    let (code, refused) = fixture.json(&["driver", "install", "herdr", "--yes", "--json"]);
+    assert_eq!(code, 1);
+    assert_eq!(refused["error"]["code"], "DRIVER_REFUSED");
+    let message = refused["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("ships only with a managed native installation")
+            && message.contains("tmt driver install <path>"),
+        "{message}"
+    );
+    assert!(!fixture.registry().exists());
+}

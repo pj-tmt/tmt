@@ -273,6 +273,14 @@ impl Layout {
                     },
                 )?;
             }
+            // Companion executables the release carries sit beside the
+            // product's own.
+            for name in self.product.companions() {
+                if let Some(bytes) = artifact.files.get(*name) {
+                    checkpoint()?;
+                    write(&release.join(name), bytes, 0o755)?;
+                }
+            }
             // A verified skills tree is published with its release, read-only
             // content under directories only this release owns.
             let skills = artifact
