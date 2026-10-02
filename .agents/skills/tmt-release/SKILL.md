@@ -56,6 +56,17 @@ Changed release content still needs fresh checks; no queue priority jump is used
 owns request bounds, failure and recovery details. Tooling tests must cover pagination,
 single-active selection, unchanged generated files and original conflict/update behavior.
 
+## Conventional PR titles
+
+Merge groups report conventional squash-title syntax through the shared safety
+owner. The report-only phase writes findings and unavailable evidence to job
+output/summary and always exits zero; it does not enforce titles yet. Do not add
+an `edited` trigger to full CI or compare ordinary queued subjects against mutable
+REST titles. [DEVELOPMENT's rollout](../../../DEVELOPMENT.md#conventional-pr-title-rollout)
+owns the observation day and the separate explicit UTC cutover, 24 hours after
+the report-only PR merges. Keep release-please as the release attribution and
+changelog owner.
+
 ## Promotion and prerelease checks
 
 Read the complete [native release verification section](../../../DEVELOPMENT.md#native-release-verification)
