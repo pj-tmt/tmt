@@ -795,7 +795,10 @@ interaction decision, `Interaction`). Migrated command
 modules, starting with `binding_command` (`tmt ls`, `name`, `add`, `rm`,
 `whoami`, `unbind`), also render through it directly and write through its
 `stream`. That crate is a leaf with no TMT dependency, so extension CLIs may
-share it; the architecture guard enforces both. `extensions/tmt-office/rust/tmt-office-command` owns the public Office
+share it; the architecture guard enforces both. `mark::Mark` owns each shared
+mark's symbol, canonical description and style token. Theme tests compare the
+design registry against those descriptions; board-only registry entries remain
+outside the shared enum. `extensions/tmt-office/rust/tmt-office-command` owns the public Office
 grammar, typed requests and handlers. Core's reserved `tmt office` facade mounts
 that grammar and calls the same handlers through an in-process `CoreAccess` port.
 `tmt-cli/src/office_facade.rs` is the sole core registration and command-library
