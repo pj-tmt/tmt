@@ -113,6 +113,44 @@ export function preserveUnchangedReleasePullRequests(github, fileNotFoundError) 
   return github;
 }
 
+/** The pinned plugin hook retains paths before the manifest emits/upserts separate PRs. */
+export function holdTaglessDraftCandidates(manifest, heldPaths) {
+  if (
+    !Array.isArray(heldPaths) ||
+    heldPaths.some(
+      (path) => typeof path !== 'string' || !Object.hasOwn(manifest.repositoryConfig, path)
+    )
+  ) {
+    throw new Error('Invalid tagless draft manifest paths.');
+  }
+  if (!heldPaths.length) return manifest;
+  if (manifest.separatePullRequests !== true || !Array.isArray(manifest.plugins)) {
+    throw new Error('Tagless draft holds require separate release PR candidates.');
+  }
+  const { ManifestPlugin } = requirePinned('release-please/build/src/plugin.js');
+  const held = new Set(heldPaths);
+  class TaglessDraftHold extends ManifestPlugin {
+    async run(candidates) {
+      if (
+        !Array.isArray(candidates) ||
+        candidates.some(
+          (candidate) =>
+            !candidate ||
+            typeof candidate.path !== 'string' ||
+            !Object.hasOwn(manifest.repositoryConfig, candidate.path)
+        )
+      ) {
+        throw new Error('Missing tagless draft candidate path data.');
+      }
+      return candidates.filter((candidate) => !held.has(candidate.path));
+    }
+  }
+  manifest.plugins.unshift(
+    new TaglessDraftHold(manifest.github, manifest.targetBranch, manifest.repositoryConfig)
+  );
+  return manifest;
+}
+
 /** The existing mode gate selects planning or mutation; no publication is performed here. */
 export async function executeReleasePlease(manifest, command, live) {
   if (typeof live !== 'boolean') throw new Error('Release mode must be boolean.');
@@ -160,6 +198,8 @@ async function main(command) {
     'release-please-config.json',
     '.release-please-manifest.json'
   );
+  if (command === 'release-pr')
+    holdTaglessDraftCandidates(manifest, JSON.parse(process.env.TAGLESS_DRAFT_PATHS ?? '[]'));
   const result = await executeReleasePlease(manifest, command, process.env.LIVE === 'true');
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }

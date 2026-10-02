@@ -245,7 +245,7 @@ export function taglessDrafts({ manifest, components, reader }) {
     ) {
       throw new Error(`Invalid git tag data for ${tag}.`);
     }
-    if (!refs.some((ref) => ref.ref === `refs/tags/${tag}`)) held.push(tag);
+    if (!refs.some((ref) => ref.ref === `refs/tags/${tag}`)) held.push(path);
   }
   return held;
 }
@@ -293,13 +293,16 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       const held = taglessDrafts({ manifest, components, reader });
       if (!process.env.GITHUB_OUTPUT || !process.env.GITHUB_STEP_SUMMARY)
         throw new Error('Workflow output/summary paths are required.');
-      appendFileSync(process.env.GITHUB_OUTPUT, `skip=${held.length > 0}\n`);
+      appendFileSync(
+        process.env.GITHUB_OUTPUT,
+        `skip=${held.length === Object.keys(manifest).length}\nheld_paths=${JSON.stringify(held)}\n`
+      );
       if (held.length)
         appendFileSync(
           process.env.GITHUB_STEP_SUMMARY,
-          `Tagless manifest draft(s): ${held.join(', ')}; skipping release-pr. github-release still runs.\n`
+          `Tagless manifest path(s): ${held.join(', ')}; holding only those release PR candidates. github-release still runs.\n`
         );
-      process.stdout.write(held.length ? 'skip\n' : 'run\n');
+      process.stdout.write(held.length === Object.keys(manifest).length ? 'skip\n' : 'run\n');
     }
   } catch (error) {
     if (command === 'titles-report') {

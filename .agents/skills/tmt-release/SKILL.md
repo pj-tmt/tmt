@@ -34,8 +34,9 @@ component's newest published tag, with every linked commit inside its ancestry
 range through the candidate base. Do not replace release-please's changelog rules
 or expected entry counts with a second parser. The cumulative merge-group selector
 keeps existing locked Cargo workers selected for earlier pending release changes.
-A visible matching manifest draft without its git tag holds `release-pr` creation while
-`github-release` and draft processing continue. Missing or inconsistent evidence
+A visible matching manifest draft without its git tag holds only that component’s
+release PR candidate; unheld components regenerate normally. Only all-held
+manifest paths skip `release-pr`; `github-release` and draft processing continue. Missing or inconsistent evidence
 fails closed. [DEVELOPMENT's safety gates](../../../DEVELOPMENT.md#release-pr-safety-gates)
 own draft-token visibility, bounded REST discovery, fixtures and recovery procedures. Neither gate
 authorizes manual tagging, release editing or publication.

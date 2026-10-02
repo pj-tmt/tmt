@@ -2215,13 +2215,18 @@ rather than dropping a candidate. Rerun after publication metadata settles; an
 outdated compare anchor or out-of-range note requires release-please regeneration.
 
 Before release-please runs, `node typescript/scripts/release-pr-safety.mjs draft`
-checks all manifest versions. A matching draft with no exact git tag writes
-`skip=true` and a summary naming the held tag(s). `release-pr` is skipped;
+checks all manifest versions. A matching draft with no exact git tag holds only
+its manifest path. The step writes JSON `held_paths` and a summary naming them;
+`skip=true` only when every released manifest path is held. The workflow passes
+`TAGLESS_DRAFT_PATHS` to the pinned wrapper. Its ManifestPlugin candidate hook
+filters held paths before separate PR updates, allowing unheld components to
+regenerate; malformed/unknown hold paths fail closed. Both held means a full
+`release-pr` skip; either held alone does not stall the other component.
 `github-release` and draft build/publication dispatch continue. The guard needs a
 token that can see draft releases: live mode uses the Release App token. Dry runs
 fall back to `github.token` with `contents: read`, which sees no drafts, so the
-tagless-draft guard does nothing in those runs. Once the tag exists, the next main
-push resumes release PR creation. This pre-check is an observation, not an atomic
+tagless-draft guard does nothing in those runs. Once its tag exists, the next main
+push resumes that component’s release PR creation. This pre-check is an observation, not an atomic
 fence with later publication.
 
 Both gates use workflow tokens and REST only, with 30-second command bounds,

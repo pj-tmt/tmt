@@ -27,6 +27,7 @@ export function verifyReleasePrNotes(input: {
   components: ComponentMap['components'];
   reader: SafetyReader;
 }): number;
+/** Manifest paths held until matching draft tags exist. */
 export function taglessDrafts(input: {
   manifest: unknown;
   components: ComponentMap['components'];
