@@ -25,6 +25,29 @@ tmt only remembers what a driver reports through the agent's hooks. `/clear` or 
 
 When a resume fails before the agent confirms the session, tmt marks it stale and won't try it again until you decide: `tmt resume --retry reviewer` tries once more, and `--forget` drops it. Ctrl-C never marks a session stale.
 
+### Rename, retire and create names
+
+Names are global and temporary unless you save them. `tmt mv` renames one and keeps everything that belongs to it: its conversation, role, notes, metadata, rooms and history. Requests sent before the rename still reach it; new ones must use the new name. `tmt rm` retires a name and leaves its pane running. A saved name needs `--force`, which also removes its role and preamble; its exchanges are kept.
+
+<Cmd>{`
+$ tmt mv reviewer code-review
+$ tmt rm builder                  # a temporary name
+$ tmt rm --force planner          # a saved one
+$ tmt unbind                      # in a pane: detach it; a temporary name is retired, a saved one goes offline
+`}</Cmd>
+
+`tmt add <pane> <name>` binds another pane. The pane is a tmux pane id such as `%12`, a `window.pane` or a `session:window.pane`. `tmt marked <name>` binds the pane you marked in tmux, never the active one. Add `-s` to either to save the name.
+
+A name doesn't need a pane. `tmt identity create coordinator` makes a saved name with no pane yet, and requests sent to it wait in its inbox. `tmt identity show coordinator` and `tmt identity ls` read names without tmux; add `--json` for scripts. You can attach searchable facts to a name and filter by them:
+
+<Cmd>{`
+$ tmt identity meta set --identity reviewer project tmt
+$ tmt identity meta ls --identity reviewer
+$ tmt identity ls --where project=tmt --has capability.review
+`}</Cmd>
+
+A key is lowercase, such as `project` or `capability.review`, and a value is text of up to 1024 bytes. A name holds at most 64 entries, and several filters must all match. Metadata is not authentication, authorization or a place for secrets.
+
 ### `tmt talk` and `tmt reply`
 
 `talk` waits for the agent to submit its reply with `tmt reply`, not for the terminal to go quiet. The request the agent receives carries a request ID and a receipt, and the agent answers with exactly those. The reply is stored, so a timeout never loses it. `talk` waits 180 seconds unless you pass `--timeout`, such as `--timeout 10m`, up to 24 hours. When it gives up it exits with `TIMEOUT`. That ends only your waiting: the request stays open, and `tmt result <request-id>` prints the reply once it has arrived. With `--detach`, tmt returns right away and your pane gets one line when the reply arrives. There's no reminder while you wait, because you chose not to wait.
@@ -92,8 +115,11 @@ $ tmt x --identity coordinator
 - **Paste, wait, Enter.** tmt pastes the whole message into the pane, waits half a second, then presses Enter. `pasteEnterDelayMs` changes the wait. Line breaks are kept.
 - **`!` becomes `！`.** An ASCII `!` is sent as the fullwidth `！`, so a message can't start an agent's shell mode. Code such as `if (!ready)` therefore isn't delivered byte for byte; the stored request keeps the original text.
 - **Uncertain means look.** If the text may have reached the pane but tmt can't tell, `talk` fails with `DELIVERY_UNCERTAIN` and never sends again by itself. Look with `tmt check`, then decide. A timeout or a quiet pane doesn't prove nothing ran.
-- **tmux can't see approval prompts.** A delivered message says nothing about whether the agent is ready to act on it.
-- **No pane, no paste.** An ended or unbound recipient gets the request in its inbox, never in a shell. `--inbox` queues on purpose without trying the pane, and `tmt x listen --identity reviewer` waits for new inbox work. It waits, up to `--timeout`, and then exits; there is no background listener.
+- **tmux can't see approval prompts.** A delivered message says nothing about whether the agent is ready to act on it. A host that does report that the agent is waiting on its user (an approval or a question) makes `talk` fail with `DELIVERY_AWAITING_APPROVAL`: nothing was sent, the request stays queued, and tmt never types around the prompt. Retry once the agent has continued.
+- **No pane, no paste.** An ended or unbound recipient gets the request in its inbox, never in a shell.
+- **`--inbox` only queues.** It is for queue-only delivery: tmt makes no live attempt, even when the agent is ready, and coming online doesn't deliver the backlog. The recipient has to pull it with `tmt inbox`. The output you get back says so and prints the commands the recipient runs; with `--json` it also carries `notification: "not_attempted"` and `waitingFor: "recipient_inbox_pull"`. Use plain `talk` when you want a live message.
+- **Waiting for inbox work.** `tmt x listen --identity reviewer` waits for new inbox work. It waits, up to `--timeout`, and then exits; there is no background listener.
+- **A nudge at each prompt.** With the agent's hooks installed (see [`tmt setup`](#tmt-setup)), a prompt the agent submits carries one extra line while something is waiting in its inbox, such as `Incoming X items: 2 unacknowledged; pull with tmt inbox --identity '4f3793b4-…' --json`. The identity in it is the agent's own id. The line is absent when nothing is waiting, and it changes nothing about how requests are delivered.
 
 ### Notes, roles and preambles
 
