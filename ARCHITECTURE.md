@@ -844,9 +844,20 @@ row IDs remain separate. Expansion admits at most 20,000 nodes, 20,000 repeat
 iterations and 8 MiB of aggregate text/ID bytes (including the duplicate-ID
 registry). Stable IDs are nonempty, nonnumeric strings of at most 256 bytes.
 Borrowed text is charged before copying; source callbacks own their allocations.
-Geometry and painting remain unimplemented; row-track attributes remain for the
-existing grid compiler to admit. The guard permits XML parsing, borrowed JSON
-and the shared style leaf, never core, adapters, CLI or extension behavior.
+`geometry::layout` maps materialized styles into one private Taffy 0.7.7 flex/grid
+computation. It borrows node identity/style, injects scalar intrinsic/wrap metrics,
+and returns whole-cell rectangles, content, ancestor clips and overflow/cut intent.
+Text measurement and later painting share its recorded integer width; fractional
+spare cells are styled blanks inside hits; alignment uses the recorded width.
+A cut grid cell preserves its logical width/height, exposes at least four visible
+cells or hides whole, and later painting
+fits each visual line to the clip with end/middle ellipsis. Squad owns priority
+selection before geometry, not Taffy; production compilation/painting remain later
+slices. Markup percentages use CSS content-box shares with gaps in addition. The
+existing board/list solver retains its after-gap percentage base and largest-
+remainder rounding until board adoption (#774); no percent adapter or correction
+loop joins the models. The guard permits XML parsing, borrowed JSON, shared style
+and private Taffy geometry, never core, adapters, CLI or extension behavior.
 Squad is the sole reviewed product edge, with a test-scoped adapter until the
 row-track compiler adopts it. Existing board and list production paths remain
 unchanged; `tmt-cli-style::grid` remains the sole row sizing policy.

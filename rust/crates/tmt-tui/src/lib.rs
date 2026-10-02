@@ -4,6 +4,7 @@
 use std::{collections::BTreeMap, fmt};
 
 pub mod binding;
+pub mod geometry;
 pub mod style;
 
 pub const MAX_BYTES: usize = 256 * 1024;
