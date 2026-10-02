@@ -204,6 +204,15 @@ fn observe<R: CommandRunner>(
 /// A known file of this user that cannot be removed (a leftover capability) is
 /// an `Err`, so the record stays and the same recovery can finish it later.
 fn clean(directory: &Path) -> Result<(Vec<PathBuf>, Vec<PathBuf>), PathBuf> {
+    clean_with(directory, |path| fs::remove_file(path))
+}
+
+/// `clean` with the unlink injected, so a failed removal can be tested without
+/// relying on permissions a privileged test user would bypass.
+fn clean_with(
+    directory: &Path,
+    remove: impl Fn(&Path) -> io::Result<()>,
+) -> Result<(Vec<PathBuf>, Vec<PathBuf>), PathBuf> {
     let mut removed = Vec::new();
     let mut kept = Vec::new();
     let owner = nix::unistd::geteuid().as_raw();
@@ -217,7 +226,7 @@ fn clean(directory: &Path) -> Result<(Vec<PathBuf>, Vec<PathBuf>), PathBuf> {
         let path = directory.join(name);
         match fs::symlink_metadata(&path) {
             Ok(metadata) if metadata.is_file() && metadata.uid() == owner => {
-                fs::remove_file(&path).map_err(|_| path.clone())?;
+                remove(&path).map_err(|_| path.clone())?;
                 removed.push(path);
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
