@@ -273,7 +273,7 @@ as the cumulative baseline. A site-only tip still selects checks for earlier
 pending release version/lock changes. Docs-only groups skip native suites,
 Squad-only groups run Squad checks, and shared changes select the full native
 scope. Missing, unreadable, ambiguous or empty range evidence fails closed to
-full native verification with Office unselected with both E2E shards, and the selection summary
+full native verification with both E2E shards and Office unselected, and the selection summary
 reports the fallback. PR merge-base selection is unchanged. The macOS exception is described in the runtime smoke matrix below.
 Check event wiring with `pnpm exec vitest run test/tooling/ci-scope.test.ts`
 from `typescript/` and `actionlint .github/workflows/ci.yml` from the root.

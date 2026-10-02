@@ -46,14 +46,14 @@ describe('CI area selection', () => {
     ).toThrow('release must be boolean');
   });
 
-  it('owns colab-client privately without narrowing its CI consumers', () => {
+  it('owns colab-client privately while frozen Office stays unselected', () => {
     const file = 'extensions/tmt-colab/typescript/colab-client/src/object.ts';
     expect(ownerOf(file)).toBe('colab-client');
     const map = parseComponentMap(
       readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
     );
     expect(isReleased(map, 'colab-client')).toBe(false);
-    expect(selectCiAreas([file])).toEqual({ native: true, office: true, nativeOffice: true });
+    expect(selectCiAreas([file])).toEqual({ native: true, office: false, nativeOffice: false });
     const workflow = readFileSync(
       new URL('../../../.github/workflows/ci.yml', import.meta.url),
       'utf8'
@@ -155,6 +155,7 @@ describe('CI area selection', () => {
     'typescript/apps/office/src/main.tsx',
     'contracts/office/request.json',
     'docs/office.md.orig',
+    'rust/archive/NATIVE-INSTALL.md',
   ])('keeps native verification without frozen Office work for %s', (file) => {
     expect(selectCiAreas([file])).toEqual({ native: true, office: false, nativeOffice: false });
   });
@@ -1000,14 +1001,20 @@ describe('CI diff and command integration', () => {
       const shared = commit('unknown-input', 'shared');
       const full = select(['seed']).outputs;
       expect(select(['full']).outputs).toMatchObject({
-        office: 'true', native_office: 'true', office_browser: 'true',
+        office: 'true',
+        native_office: 'true',
+        office_browser: 'true',
       });
       const office = commit('extensions/tmt-office/rust/tmt-office/src/main.rs', '// Office');
       expect(select([shared, office]).outputs).toMatchObject({
-        office: 'true', native_office: 'true', office_browser: 'true',
+        office: 'true',
+        native_office: 'true',
+        office_browser: 'true',
       });
       expect(select(['merge-group', office]).outputs).toMatchObject({
-        office: 'false', native_office: 'false', office_browser: 'false',
+        office: 'false',
+        native_office: 'false',
+        office_browser: 'false',
       });
       expect(select(['merge-group', shared]).outputs).toEqual(full);
       git(['update-ref', 'refs/remotes/origin/main', docs]);

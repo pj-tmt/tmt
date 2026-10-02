@@ -125,7 +125,7 @@
     {
       "id": "colab-rust",
       "consumers": ["native"],
-      "why": "Colab Rust retains full workspace checks and existing Office consumers; private release ownership does not narrow CI coverage.",
+      "why": "Colab Rust retains full workspace checks; frozen Office selection follows its own ownership rather than private release ownership.",
       "paths": ["extensions/tmt-colab/rust/**"]
     },
     {
