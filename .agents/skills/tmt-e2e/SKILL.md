@@ -63,7 +63,7 @@ Read the relevant files before changing behavior:
   checks and independent SQL assertions. Never use the native implementation to
   regenerate its own expected migration results. Keep stopped-schema public reply
   coverage on schema 8 rather than substituting an already-current database.
-- [Runtime performance](../../../docs/performance.md) for optional runtime
+- [Optional performance probes](../../../DEVELOPMENT.md#optional-performance-probes) for optional runtime
   measurements. Use the same isolated fixture and causal assertions; keep timing
   samples out of ordinary CI thresholds and distinguish measured from unavailable
   process resources. A skipped benchmark is not native parity evidence.
