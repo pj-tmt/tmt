@@ -27,6 +27,7 @@ yrs.workspace = true
 base64.workspace = true
 serde.workspace = true
 tmt-colab-model.workspace = true
+tungstenite.workspace = true
 
 [lints]
 workspace = true

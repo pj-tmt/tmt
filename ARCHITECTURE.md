@@ -3856,7 +3856,7 @@ and authority definition owner.
 ## Colab extension proposal
 
 **Status: persistence, foreground deny-all executable, isolated decoder and model foundation implemented;
-authentication, sync, browser and backend work remains proposed.** The local-build-only pilot lives under
+the stream sync library is available without socket wiring; authentication, browser and backend work remains proposed.** The local-build-only pilot lives under
 `extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
 owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
 bridge policy and acceptance gates. The #828 design owns product/UI choices;
@@ -3974,6 +3974,35 @@ cookies. Shutdown closes retained sockets before joining all workers. Accepted
 WebSocket framing, sign-in and sessions are parked for relocation into the
 Remote application boundary; the merged placeholder/store remain. Tests use real
 sockets and isolated CLI processes, with readiness channels and explicit kill/wait guards.
+
+### Stream sync transport
+
+`sync::Server` owns opaque append admission and bounded live subscriber queues
+behind a caller-authenticated, already-upgraded duplex stream. `Connection::poll`
+is externally driven over nonblocking `Read + Write`; the socket worker owns
+readiness, timers and shutdown. No new listener, runtime or threads are created.
+The caller implements `Admission` from its verified owner log and device chains,
+including live page, role, namespace, revision, expiry and epoch policy. Policy
+changes use the server lock, which also serializes append and subscriber writes.
+The server checks exact model envelope/header/hash/signature bindings before
+calling the existing create-only Store; it never decrypts or invokes the decoder.
+An exact retry returns the same receipt without rebroadcast. Awareness is ephemeral.
+
+Each connection has at most eight outbound frames, including its blocked frame;
+frames/messages are at most 64 KiB. Queue overflow closes with `RESYNC_REQUIRED`.
+A blocked write expires after one second when the caller drives the timer. If a
+close would flush stalled ciphertext, the connection drops the stream instead;
+clients must resync after any abnormal close. Pending subscription data is removed
+on admission failure. Bytes already written to the transport cannot be recalled.
+No cookie or unsigned frame establishes the caller's principal.
+
+This is the bounded #1156 transport slice, not a browser-ready sync service.
+`hello` and nonempty catchup cursors return `RESYNC_REQUIRED`; live subscription
+with empty cursors starts at the current arrival point and provides no history
+proof. Catchup/baseline/membership paging, cursor resolution and large-object
+chunks belong to #1166. Registration belongs to #1162 and socket wiring to #1119.
+Unsupported chunks, object references and inbound server-only frames are refused.
+The foreground executable still denies every WebSocket upgrade.
 
 ### Isolated Colab decoder
 

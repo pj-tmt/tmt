@@ -219,6 +219,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         // Taffy owns admitted flex/grid geometry; scalar measurement stays injected.
         "tmt-tui" => &["roxmltree", "serde_json", "tmt-cli-style", "taffy"],
         "tmt-colab" => &[
+            "tungstenite",
             "serde",
             "yrs",
             "base64",
