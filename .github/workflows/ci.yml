@@ -40,6 +40,7 @@ jobs:
       macos: ${{ steps.event.outputs.macos }}
       native: ${{ steps.scope.outputs.native || steps.queue.outputs.native || steps.seed.outputs.native }}
       office: ${{ steps.scope.outputs.office || steps.queue.outputs.office || steps.seed.outputs.office }}
+      native_office: ${{ steps.scope.outputs.native_office || steps.queue.outputs.native_office || steps.seed.outputs.native_office }}
       native_scope: ${{ steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}
       scoped_native_tests: ${{ steps.scope.outputs.scoped_native_tests || steps.queue.outputs.scoped_native_tests }}
       e2e_shard_1: ${{ steps.scope.outputs.e2e_shard_1 || steps.queue.outputs.e2e_shard_1 }}
@@ -61,8 +62,10 @@ jobs:
       - name: Select the cache-seeding jobs
         if: steps.event.outputs.verify != 'true'
         id: seed
-        # A seeding run builds the whole workspace, so its scope is the full one.
-        run: printf 'native=true\noffice=false\nnative_scope=full\n' >> "$GITHUB_OUTPUT"
+        # Weekly/manual runs revive Office coverage; main pushes only seed Rust caches.
+        env:
+          SEED_SCOPE: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'full' || 'seed' }}
+        run: node typescript/scripts/ci-scope.mjs "$SEED_SCOPE" >> "$GITHUB_OUTPUT"
       - name: Select consumers from the cumulative merge-group diff
         if: github.event_name == 'merge_group'
         id: queue
@@ -223,7 +226,7 @@ jobs:
   native-office-build:
     name: Build Office native fixture
     needs: changes
-    if: needs.changes.outputs.native_scope == 'full'
+    if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_office == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -271,7 +274,7 @@ jobs:
   native-office:
     name: Native Rust Office local service
     needs: [changes, native-office-build]
-    if: needs.changes.outputs.native_scope == 'full'
+    if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_office == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -302,7 +305,7 @@ jobs:
   native-process-tests:
     name: Native process contracts
     needs: [changes, native-office-build]
-    if: ${{ always() && needs.changes.outputs.native == 'true' && (needs.changes.outputs.native_scope == 'squad' || needs.native-office-build.result == 'success') }}
+    if: ${{ always() && needs.changes.outputs.native == 'true' && (needs.changes.outputs.native_scope == 'squad' || needs.changes.outputs.native_office == 'false' || (needs.changes.outputs.native_office == 'true' && needs.native-office-build.result == 'success')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -342,13 +345,13 @@ jobs:
           cargo build --locked -p tmt-squad
           cargo build --locked --release -p tmt-cli
       - name: Download the verified Office companion
-        if: needs.changes.outputs.native_scope == 'full'
+        if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_office == 'true'
         uses: actions/download-artifact@v4
         with:
           name: native-office-companion
           path: .
       - name: Verify Office companion identity and executable mode
-        if: needs.changes.outputs.native_scope == 'full'
+        if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_office == 'true'
         working-directory: rust/target/debug
         run: |
           sha256sum --check tmt-office.sha256
@@ -359,8 +362,16 @@ jobs:
         env:
           TMT_TEST_CLI: '{"executable":"${{ github.workspace }}/rust/target/release/tmt","args":[]}'
           TMT_TEST_STORAGE_PROBE: '{"executable":"${{ github.workspace }}/rust/target/debug/examples/storage-probe","args":[]}'
+          NATIVE_OFFICE_SELECTED: ${{ needs.changes.outputs.native_office }}
         run: |
-          pnpm test:native --reporter=verbose
+          if [ "$NATIVE_OFFICE_SELECTED" = true ]; then
+            pnpm test:native --reporter=verbose
+          elif [ "$NATIVE_OFFICE_SELECTED" = false ]; then
+            pnpm test:native --reporter=verbose --exclude 'test/native/office-*.test.ts'
+          else
+            echo 'Missing Office native selection' >&2
+            exit 1
+          fi
       - name: Verify Squad native contracts
         if: needs.changes.outputs.native_scope == 'squad'
         working-directory: typescript
@@ -424,12 +435,13 @@ jobs:
       - name: Require every selected Rust worker
         env:
           NATIVE_SCOPE: ${{ needs.changes.outputs.native_scope }}
+          NATIVE_OFFICE_SELECTED: ${{ needs.changes.outputs.native_office }}
           CLIPPY_RESULT: ${{ needs.native-clippy.result }}
           TESTS_RESULT: ${{ needs.native-workspace-tests.result }}
           OFFICE_RESULT: ${{ needs.native-office.result }}
           NATIVE_RESULT: ${{ needs.native-process-tests.result }}
           MSRV_RESULT: ${{ needs.native-msrv.result }}
-        run: node typescript/scripts/ci-scope.mjs gate-rust "$NATIVE_SCOPE" "$CLIPPY_RESULT" "$TESTS_RESULT" "$OFFICE_RESULT" "$NATIVE_RESULT" "$MSRV_RESULT"
+        run: node typescript/scripts/ci-scope.mjs gate-rust "$NATIVE_SCOPE" "$NATIVE_OFFICE_SELECTED" "$CLIPPY_RESULT" "$TESTS_RESULT" "$OFFICE_RESULT" "$NATIVE_RESULT" "$MSRV_RESULT"
 
   unit-tests:
     name: Unit tests

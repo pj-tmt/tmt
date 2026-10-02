@@ -2,8 +2,8 @@
   "$comment": [
     "The one component map. typescript/scripts/ci-scope.mjs reads it to decide which CI consumers a changed path selects, and typescript/scripts/release-please-config.mjs reads the same ownership to generate release-please-config.json.",
     "components: who owns which paths. `owns` roots minus `excludes` decide ownership, a `selectedBy` glob wins over the root, and `package` is the Cargo package.",
-    "rules: ordered, the first rule whose `paths` match a changed path decides which consumers it selects: `native` (the native Rust, tooling and E2E jobs) and `office` (the Office web checks). No match fails closed to both.",
-    "The advisory native Office browser shards are selected by consumedByNativeOffice in ci-scope.mjs, not by these rules; its verified denylist has its own tests.",
+    "rules: ordered, the first rule whose `paths` match a changed path decides which consumers it selects: `native` (the native Rust, tooling and E2E jobs) and `office` (the Office web checks). No match retains full native verification. Frozen Office verification additionally requires Office ownership or Office-specific machinery, as enforced by ci-scope.mjs.",
+    "Office SPA, browser and local-service/companion verification share the ownership-only Office selector in ci-scope.mjs; weekly/manual runs cover shared inputs, while merge groups and main pushes never select Office work.",
     "migrations: the source files that list a component's SQLite migrations; outside the alpha channel a release that has more entries in one than the last published release of that component is held for the owner, while an alpha only reports them (typescript/scripts/publication-gates.mjs).",
     "scopedChecks: a component that cannot affect the others (only Squad) lists the native test files and E2E files its own scope runs; ci-scope.mjs turns that into the native_scope outputs.",
     "Globs: `**` matches any path, `*` and `?` stay inside one directory. A rule may only narrow selection for a path that provably no job of the dropped consumer reads; ci-scope.test.ts guards each narrowed class.",
@@ -131,7 +131,7 @@
     {
       "id": "remote-rust",
       "consumers": ["native", "office"],
-      "why": "Remote Rust retains full workspace checks and existing Office consumers; private release ownership does not narrow CI coverage.",
+      "why": "Remote Rust retains full workspace checks; frozen Office selection follows its own ownership rather than private release ownership.",
       "paths": ["extensions/tmt-remote/rust/**"]
     },
     {
@@ -149,13 +149,13 @@
     {
       "id": "office-rust",
       "consumers": ["native"],
-      "why": "Office's Rust crates are built and tested by the workspace's Cargo jobs; the Office web checks build no Rust. The advisory native Office shards are still selected by consumedByNativeOffice.",
+      "why": "Office's Rust crates remain in workspace Cargo checks and select the frozen Office web, local-service and companion suites through Office ownership.",
       "paths": ["extensions/tmt-office/rust/**"]
     },
     {
       "id": "native-tests",
       "consumers": ["native"],
-      "why": "Core-only test suites and E2E scenario files: run by the native jobs. The Office image reads only the E2E harness and test support, which stay unmapped (guarded by ci-scope.test.ts).",
+      "why": "Test suites and E2E scenarios retain native coverage. Office-owned native suites additionally select Office verification; shared support changes rely on weekly/manual Office runs.",
       "paths": [
         "typescript/test/native/**",
         "typescript/test/tooling/**",

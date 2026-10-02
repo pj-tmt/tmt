@@ -239,15 +239,15 @@ changes also run the required `Office SPA` job, which builds the existing
 `browser-tests-base` target without executing Playwright. That target owns the
 Office service check/test/build, Office type/lint/format/unit checks, browser-test
 type checking and partition inventory, and local, preview, emulator and cloud SPA
-builds. A conservative
-diff selector, driven by the component map `.github/components.json`, skips expensive
-native jobs only for Office-only paths, and skips Office for native-source/skill-only
-paths, Office's Rust crates, core-only test suites and E2E scenario files. Prose that
-no job reads selects nothing beyond Code quality, and the run summary lists every
-changed path with its owner, rule and selection. A change confined to the Squad extension
-runs a Squad scope under the same job names (its Cargo checks and the architecture guard,
-its native tests, its E2E file); the map's Squad `scopedChecks` name the tests, and
-`Native package matrix` expects exactly the scoped results. Shared/unknown paths run both.
+builds. The component-map selector keeps native coverage conservative for shared and unknown
+inputs and scopes Squad-only changes to its declared tests. Frozen Office web,
+local-service and companion-dependent native verification runs only for Office-owned
+PR paths (including Office-specific verification machinery), weekly or manually.
+Merge groups and main cache-seeding pushes never select that work. Workspace Rust
+checks still compile and test Office; unselected native process runs need no Office
+artifact and exclude only the Office-owned suites. The run summary records each
+changed path's owner, rule and selection, and aggregate gates require exact selected
+or skipped results.
 The [CI selection and worker model](ARCHITECTURE.md#ci-selection-and-worker-model)
 owns worker responsibilities, scope expectations, fixture handoff and cache policy.
 To reproduce the MSRV check, read `workspace.package.rust-version` from
@@ -255,7 +255,7 @@ To reproduce the MSRV check, read `workspace.package.rust-version` from
 `cargo +"$MSRV" check --locked --workspace --all-targets` from `rust/`.
 Rustup resolves the manifest's two-part minimum to its latest patch release,
 rather than duplicating a patch pin in the workflow.
-Remote Rust retains full native and Office coverage; remote TypeScript and browser
+Remote Rust retains full native coverage; remote TypeScript and browser
 paths are outside that Rust rule. Code
 quality includes the selector's own focused tests even when native unit jobs are
 unselected, and requires the selected Office check. The native aggregator rejects
@@ -273,7 +273,7 @@ as the cumulative baseline. A site-only tip still selects checks for earlier
 pending release version/lock changes. Docs-only groups skip native suites,
 Squad-only groups run Squad checks, and shared changes select the full native
 scope. Missing, unreadable, ambiguous or empty range evidence fails closed to
-full native/Office verification with both E2E shards, and the selection summary
+full native verification with Office unselected with both E2E shards, and the selection summary
 reports the fallback. PR merge-base selection is unchanged. The macOS exception is described in the runtime smoke matrix below.
 Check event wiring with `pnpm exec vitest run test/tooling/ci-scope.test.ts`
 from `typescript/` and `actionlint .github/workflows/ci.yml` from the root.
@@ -422,16 +422,11 @@ the partition count alone.
 
 ### Office browser verification
 
-A change affects Office when `typescript/scripts/ci-scope.mjs` selects
-`native_office` for it: Office's own app, service, crates, contracts and skills;
-every workspace crate under `rust/crates/` other than `tmt-cli`, except the modules
-the script's verified denylist names; the CLI Office facade, API command and native install
-commands; workspace build inputs; the shared test support and E2E harness the
-image reads; and any path the script does not recognize. Squad, core skills, other
-CLI code, prose outside Office, core-only test suites and E2E scenarios do not
-affect it. `ci-scope.mjs` owns this mapping (the component map owns the rest of the
-selection); its tests recompute what the Office crates and the API module reach across
-the workspace crates so the denylist cannot go stale.
+`ci-scope.mjs` owns the frozen Office selection described by the
+[CI selection and worker model](ARCHITECTURE.md#ci-selection-and-worker-model).
+Office-owned scenarios require the companion fixture; shared and unknown changes
+rely on the weekly/manual Office safety net. Local verification of an Office-owned
+change still uses the full browser and native acceptance suites.
 
 - Run the local browser suite above before opening a PR for an Office-affecting
   change, and record the result in the PR.

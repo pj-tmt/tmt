@@ -84,6 +84,7 @@ export function nativeGatePasses(
 export function rustGatePasses(
   scope: string,
   results: readonly string[],
+  officeSelected: string,
   map?: ComponentMap
 ): boolean;
 export function e2eGatePasses(scope: string, results: E2eShardResults, map?: ComponentMap): boolean;
@@ -113,8 +114,4 @@ export function runCiScope(
   }
 ): void;
 export function ciGatePasses(selected: string, results: readonly string[]): boolean;
-export const NATIVE_OFFICE_UNREACHABLE: Readonly<
-  Record<'tmt-adapters' | 'tmt-core', readonly string[]>
->;
-
 export const RUST_WORKERS: readonly ['clippy', 'tests', 'office', 'process', 'msrv'];
