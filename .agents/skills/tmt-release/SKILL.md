@@ -31,8 +31,13 @@ or upgrading release-please. This does not change publication authorization or p
 
 Release PRs must pass `Code quality`'s notes gate before merge: compare from the
 component's newest published tag, with every linked commit inside its ancestry
-range through the candidate base. Do not replace release-please's changelog rules
-or expected entry counts with a second parser. The cumulative merge-group selector
+range through the candidate base. COVERAGE requires a link for every commit the
+pinned release-please renderer lists for the component in that range. Use its
+parser, path splitter, exclusions and private-leaf attribution with the
+candidate-base config's changelog sections or pinned defaults; do not introduce
+a second visible-type list or entry-count policy. Missing links hold the merge
+group until release-please refreshes the notes on a main push.
+The cumulative merge-group selector
 keeps existing locked Cargo workers selected for earlier pending release changes.
 A visible matching manifest draft without its git tag holds only that component’s
 release PR candidate; unheld components regenerate normally. Only all-held

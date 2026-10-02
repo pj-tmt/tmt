@@ -417,6 +417,7 @@ describe('component map', () => {
       'typescript/test/tooling/ci-scope.test.ts',
       'typescript/test/tooling/release-please-config.test.ts',
       'typescript/test/tooling/release-stall.test.ts',
+      'typescript/test/tooling/release-pr-safety.test.ts',
     ];
     const qualityCommand = /vp test run ([^\n]+)/.exec(
       readFileSync(path.join(repository, '.github/workflows/ci.yml'), 'utf8')
