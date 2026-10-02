@@ -464,7 +464,7 @@ fn deliver(
         Ok(None)
     };
     if let Ok(Some(hint)) = &released {
-        crate::delivery::notify(storage, hint);
+        crate::reply_notice_command::notify(storage, hint);
     }
     // Waiter release always runs, including rejected transport and read errors.
     match pending {

@@ -51,6 +51,17 @@ impl<R: CommandRunner> HostDriver for BindingSession<'_, R> {
         Ok(self.observe_pane_start(pane_pid)?)
     }
 
+    fn input_activity(
+        &mut self,
+        binding: &Binding,
+    ) -> Result<tmt_core::driver::InputActivity, HostError> {
+        Ok(self.tmux.input_activity(
+            &binding.server.socket_path,
+            &binding.pane_id,
+            self.options(None),
+        )?)
+    }
+
     fn has_input(&self) -> bool {
         true
     }
@@ -198,6 +209,81 @@ mod tests {
         ]
         .join(evidence::SEPARATOR)
         .into_bytes()
+    }
+
+    #[test]
+    fn client_key_evidence_requires_the_target_binding_to_be_present() {
+        use tmt_core::driver::InputActivity;
+        for marked in [false, true] {
+            let entry = entry();
+            let runner = ScriptedRunner::default();
+            runner.push_output(observation(&entry, 654, marked), Vec::new());
+            if marked {
+                runner.push_output(
+                    format!("%9{}1\n", evidence::SEPARATOR).into_bytes(),
+                    Vec::new(),
+                );
+            }
+            let tmux = Tmux::new(runner);
+            let mut session = BindingSession::new(&tmux);
+            let activity = driver::input_activity(&mut session, &entry).unwrap();
+            if marked {
+                assert!(matches!(activity, InputActivity::ElapsedMs(elapsed) if elapsed >= 2000));
+            } else {
+                assert_eq!(activity, InputActivity::Unknown);
+            }
+            let calls = tmux.runner.calls.borrow();
+            assert_eq!(calls.len(), if marked { 2 } else { 1 });
+            assert!(calls.iter().all(|call| {
+                call.args[..2] == ["-S", "/tmp/tmt-driver.sock"]
+                    && !call.args.iter().any(|arg| {
+                        ["capture-pane", "set-buffer", "paste-buffer", "send-keys"]
+                            .contains(&arg.as_str())
+                    })
+            }));
+            if marked {
+                assert_eq!(calls[1].args[2], "list-clients");
+            }
+        }
+        let mut unbound = entry();
+        unbound.binding = None;
+        let tmux = Tmux::new(ScriptedRunner::default());
+        assert_eq!(
+            driver::input_activity(&mut BindingSession::new(&tmux), &unbound).unwrap(),
+            InputActivity::Unknown
+        );
+        assert!(tmux.runner.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn failed_probe_cleanup_is_surfaced_instead_of_claiming_unknown_input() {
+        use tmt_core::driver::InputActivity;
+        for activity_query in [false, true] {
+            for cleanup_failed in [false, true] {
+                let entry = entry();
+                let runner = ScriptedRunner::default();
+                if activity_query {
+                    runner.push_output(observation(&entry, 654, true), Vec::new());
+                }
+                runner
+                    .results
+                    .borrow_mut()
+                    .push_back(Err(failure(cleanup_failed)));
+                let tmux = Tmux::new(runner);
+                let result = driver::input_activity(&mut BindingSession::new(&tmux), &entry);
+                if cleanup_failed {
+                    assert!(
+                        matches!(result, Err(ActionError::Evidence(error)) if error.cleanup_failed())
+                    );
+                } else {
+                    assert_eq!(result.unwrap(), InputActivity::Unknown);
+                }
+                assert_eq!(
+                    tmux.runner.calls.borrow().len(),
+                    if activity_query { 2 } else { 1 }
+                );
+            }
+        }
     }
 
     #[test]
@@ -639,6 +725,12 @@ mod tests {
         }
         fn pane_incarnation(&mut self, pane_pid: u64) -> Result<Option<String>, HostError> {
             HostDriver::pane_incarnation(&mut self.tmux, pane_pid)
+        }
+        fn input_activity(
+            &mut self,
+            binding: &Binding,
+        ) -> Result<tmt_core::driver::InputActivity, HostError> {
+            HostDriver::input_activity(&mut self.tmux, binding)
         }
         fn has_input(&self) -> bool {
             true

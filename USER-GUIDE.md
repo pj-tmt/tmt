@@ -1075,8 +1075,11 @@ This is local attribution, not authentication. An offline recipient keeps the
 request in Inbox; TMT reports it immediately and never pastes into an ended
 session or automatically sends again when it returns. Live delivery keeps the
 usual sent/completed output and does not leave duplicate incoming attention.
-Detached or interrupted callers may receive a one-line reply hint at their
+Detached or interrupted callers may receive a reply hint at their
 current verified binding; a live blocking waiter gets only the full reply.
+Ordinary pane hints batch for 5 s and wait for a 2 s typing quiet period, bounded
+to 30 s after the batch window. Channels keep immediate individual notices. See
+[reply notification behavior](REQUEST-RESPONSE.md) for configuration and recovery.
 Notification failure never invalidates a stored final. Use `tmt result <id>`
 from a hint, rather than re-sending. Explicit `--inbox` remains queue-only.
 To recover requests after timeout, detach, process restart, or
@@ -1165,13 +1168,15 @@ tmt config set preambleEvery 3
 tmt config set exchange.retentionDays 90 --global
 ```
 
-| Setting                  | Default  | Scope                                                |
-| ------------------------ | -------- | ---------------------------------------------------- |
-| `preambleMode`           | `always` | Local override or `--global`; `always` / `disabled`  |
-| `preambleEvery`          | `3`      | Local override or `--global`; `0` disables injection |
-| `pasteEnterDelayMs`      | `500`    | Local override or `--global`; `0` removes the delay  |
-| `exchange.retentionDays` | `90`     | Global only; new requests, integer days `1..3650`    |
-| `ui.paneBadge`           | `off`    | Global only; `on` / `off`                            |
+| Setting                            | Default  | Scope                                                               |
+| ---------------------------------- | -------- | ------------------------------------------------------------------- |
+| `preambleMode`                     | `always` | Local override or `--global`; `always` / `disabled`                 |
+| `preambleEvery`                    | `3`      | Local override or `--global`; `0` disables injection                |
+| `pasteEnterDelayMs`                | `500`    | Local override or `--global`; `0` removes the delay                 |
+| `exchange.retentionDays`           | `90`     | Global only; new requests, integer days `1..3650`                   |
+| `notifications.replyBatchWindowMs` | `5000`   | Global only; integer milliseconds `0..60000`; `0` disables grouping |
+| `notifications.typingQuietMs`      | `2000`   | Global only; integer milliseconds `0..30000`; key debounce          |
+| `ui.paneBadge`                     | `off`    | Global only; `on` / `off`                                           |
 
 Human `config show` identifies each value's actual source, accepted values and
 whether the setting is CLI-editable locally/globally or global-file-only.

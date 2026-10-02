@@ -28,7 +28,10 @@ use tmt_core::{
 
 enum Report {
     NotRequired(String),
-    Submitted(FinalResponse, Option<tmt_core::request::WakeState>),
+    Submitted(
+        FinalResponse,
+        Option<tmt_core::request::notification::NotificationOutcome>,
+    ),
     Completed(FinalResponse),
 }
 
@@ -161,7 +164,7 @@ fn run(request: Invocation) -> Result<Report, Failure> {
             accepted.map(|(response, hint)| {
                 let notification = hint
                     .as_ref()
-                    .map(|hint| crate::delivery::notify(&mut storage, hint));
+                    .map(|hint| crate::reply_notice_command::notify(&mut storage, hint));
                 Report::Submitted(response, notification)
             })
         }

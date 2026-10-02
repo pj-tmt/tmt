@@ -1973,7 +1973,7 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 43, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 44, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
@@ -2106,8 +2106,32 @@ waiter ownership inside it. Acceptance and notification outcomes remain separate
 `delivery` composes registered runtime send with verified host fallback through
 the core routing policy; accepted, uncertain, denied and approval-required sends
 never fall through. Drivers own fresh runtime proof and sticky-Ended recovery.
+Schema 44 persists fixed reply-notice windows and rendered notice members under
+`storage::requests::reply_batch`, independently of immutable final bodies and X
+attention. `request::notification::batch` owns the quiet/deadline policy;
+`reply_notice` composes enrollment evidence, enqueue, binding-fenced delivery and
+one-shot settlement. `reply_notice_command` schedules finite detached workers,
+with process-incarnation CAS claims before waits, sealed batch membership, and
+per-frame attempt evidence before transport. A unique SQLite sending claim
+serializes worker transport per binding, including separate zero-window notices.
+Only exact process-death evidence may release a stranded sending claim; attempted
+frames retire uncertain and untouched members remain queued. Workers hold no
+transaction while sleeping or probing. A failed send never replays; later eligible enqueue can
+recover a proven-dead worker's never-attempted frames while settling its unresolved
+attempted frames uncertain. Clean workers remove their own logs; failed workers
+retain them.
+Channel enrollment bypasses enqueue, and enrollment beginning during a window
+keeps individual driver notices. The delivery owner retains all routing and paste
+gates. `HostDriver::input_activity` reports elapsed real key evidence or Unknown;
+core applies the configured quiet period. Ordinary missing evidence is Unknown;
+failed probe cleanup aborts the worker and retains diagnostics. tmux matches attached clients' current
+pane and reads `client_activity`; other hosts explicitly report Unknown. No
+screen contents or provider prompt buffer is interpreted as typing. See
+[request notification behavior](REQUEST-RESPONSE.md) for timing and limits.
+
 `process::detached` owns startup acknowledgment and failure cleanup for one
-request deadline observer, and the observer's removal of its own stderr log
+request deadline observer or reply notice worker, and the worker's removal of its
+own stderr log
 after a clean exit, only when the path still names that same file (device and
 inode). Failed and crashed observers keep their log as bounded diagnostics;
 there is no sweeper. `request_observer_command` owns the per-request log path

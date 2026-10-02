@@ -1273,6 +1273,14 @@ channel hook transitions. Keep unknown ownership and ordinary non-channel resume
 controls alongside them. Direct module tests do not replace the final CLI/router
 and native receipt/notification scenarios at activation.
 
+`reply-batching` owns fixed pane windows, disabled grouping, uncertainty and
+binding-replacement fencing, real attached PTY key debounce, the 30 s usability
+bound, and worker/log cleanup. Its Python fixture owns and reaps a normal tmux
+client so actual terminal key bytes exercise `client_activity`; control-mode
+`send-keys` is not user key activity. `claude-channel` retains individual channel
+notice routing. Storage adapter tests own durable batch reopen and claim CAS;
+native configuration tests own global editing and bounds.
+
 ## Docker E2E
 
 Run the full private tmux/caller lifecycle harness twice for lifecycle,

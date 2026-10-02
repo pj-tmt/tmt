@@ -136,6 +136,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     .subcommand(installation::hook(hooked))
     .subcommand(launch::channel_server())
     .subcommand(requests::request_observer())
+    .subcommand(requests::reply_notice_worker())
     .subcommand(
         general(spec!(
             "completion",

@@ -881,54 +881,73 @@ describe('Claude channel delivery', { concurrent: false }, () => {
     });
   }, 90_000);
 
-  it('a reply notification reaches an opted-in originator through its channel and never by paste', async () => {
-    await withE2EFixture(async (fixture) => {
-      const worker = start(fixture, 'Worker', { channel: true });
-      const boss = start(fixture, 'Boss', {
-        channel: true,
-        env: { MOCK_AUTOREPLY: '0', MOCK_RESULT_ON_HINT: '1' },
+  it.each(['current', 'legacy'])(
+    '%s enrollment delivers a reply notification through its channel and never by paste',
+    async (recordKind) => {
+      await withE2EFixture(async (fixture) => {
+        const worker = start(fixture, 'Worker', { channel: true });
+        const boss = start(fixture, 'Boss', {
+          channel: true,
+          env: { MOCK_AUTOREPLY: '0', MOCK_RESULT_ON_HINT: '1' },
+        });
+        const plain = start(fixture, 'Plain', { channel: false, env: { MOCK_AUTOREPLY: '0' } });
+        await ready(fixture, worker, 'Worker');
+        await ready(fixture, boss, 'Boss');
+        await ready(fixture, plain, 'Plain');
+        await waitForReady(fixture, 2);
+        if (recordKind === 'legacy') {
+          // Earlier enrollments identify their binding but omit the pane. The
+          // real native channel still owns delivery, including reply notices.
+          const bossEnrollment = enrollments(fixture).find(
+            ({ record }) => record.pane?.paneId === boss.pane
+          );
+          expect(
+            bossEnrollment,
+            'the originator enrolled before testing legacy bytes'
+          ).toBeDefined();
+          const legacy = bossEnrollment!;
+          delete legacy.record.pane;
+          fs.writeFileSync(legacy.file, JSON.stringify(legacy.record));
+        }
+
+        const trace = installTmuxTrace(fixture);
+        const asBoss = await talk(fixture, 'Worker', 'boss asks', ['--detach'], boss.pane);
+        const asPlain = await talk(fixture, 'Worker', 'plain asks', ['--detach'], plain.pane);
+        expect(asBoss.code, asBoss.stderr || asBoss.stdout).toBe(0);
+        expect(asPlain.code, asPlain.stderr || asPlain.stdout).toBe(0);
+
+        // The never-opted-in originator keeps the baseline: its notification is a paste.
+        await fixture.waitFor(
+          () =>
+            named(plain, 'paste').some((line) => String(line.line).includes('reply from Worker')),
+          20_000,
+          'the plain originator was pasted its reply notification'
+        );
+        // The opted-in originator receives the same notification through its channel,
+        // and the durable reply was already readable when the hint arrived.
+        await fixture.waitFor(
+          () => named(boss, 'hint-response').length > 0,
+          20_000,
+          'durable response at hint receipt'
+        );
+        expect(contents(boss)).toHaveLength(1);
+        expect(contents(boss)[0]).toContain('reply from Worker');
+        expect(String(named(boss, 'hint-response')[0].body)).toContain('channel-ok');
+        expect(named(boss, 'paste')).toEqual([]);
+
+        // Per originator: tmux wrote to the plain pane (the probe works) and to no
+        // opted-in pane, neither the originator nor the recipient.
+        expect(terminalWrites(trace, plain.pane).length).toBeGreaterThan(0);
+        expect(terminalWrites(trace, boss.pane)).toEqual([]);
+        expect(terminalWrites(trace, worker.pane)).toEqual([]);
+        expect(named(worker, 'paste')).toEqual([]);
+        expect(contents(worker).filter((text) => text.includes('asks'))).toHaveLength(2);
+
+        for (const session of [boss, plain, worker]) expect(await quit(session)).toBe('0');
       });
-      const plain = start(fixture, 'Plain', { channel: false, env: { MOCK_AUTOREPLY: '0' } });
-      await ready(fixture, worker, 'Worker');
-      await ready(fixture, boss, 'Boss');
-      await ready(fixture, plain, 'Plain');
-      await waitForReady(fixture, 2);
-
-      const trace = installTmuxTrace(fixture);
-      const asBoss = await talk(fixture, 'Worker', 'boss asks', ['--detach'], boss.pane);
-      const asPlain = await talk(fixture, 'Worker', 'plain asks', ['--detach'], plain.pane);
-      expect(asBoss.code, asBoss.stderr || asBoss.stdout).toBe(0);
-      expect(asPlain.code, asPlain.stderr || asPlain.stdout).toBe(0);
-
-      // The never-opted-in originator keeps the baseline: its notification is a paste.
-      await fixture.waitFor(
-        () => named(plain, 'paste').some((line) => String(line.line).includes('reply from Worker')),
-        20_000,
-        'the plain originator was pasted its reply notification'
-      );
-      // The opted-in originator receives the same notification through its channel,
-      // and the durable reply was already readable when the hint arrived.
-      await fixture.waitFor(
-        () => named(boss, 'hint-response').length > 0,
-        20_000,
-        'durable response at hint receipt'
-      );
-      expect(contents(boss)).toHaveLength(1);
-      expect(contents(boss)[0]).toContain('reply from Worker');
-      expect(String(named(boss, 'hint-response')[0].body)).toContain('channel-ok');
-      expect(named(boss, 'paste')).toEqual([]);
-
-      // Per originator: tmux wrote to the plain pane (the probe works) and to no
-      // opted-in pane, neither the originator nor the recipient.
-      expect(terminalWrites(trace, plain.pane).length).toBeGreaterThan(0);
-      expect(terminalWrites(trace, boss.pane)).toEqual([]);
-      expect(terminalWrites(trace, worker.pane)).toEqual([]);
-      expect(named(worker, 'paste')).toEqual([]);
-      expect(contents(worker).filter((text) => text.includes('asks'))).toHaveLength(2);
-
-      for (const session of [boss, plain, worker]) expect(await quit(session)).toBe('0');
-    });
-  }, 90_000);
+    },
+    90_000
+  );
 
   it('timeout and answer notifications reach an opted-in originator through its channel only', async () => {
     await withE2EFixture(async (fixture) => {

@@ -159,6 +159,7 @@ fn show_json(
                 "pasteEnterDelayMs": settings.paste_enter_delay_ms,
             },
             "exchange": { "retentionDays": settings.retention_days },
+            "notifications": { "replyBatchWindowMs": settings.reply_batch_window_ms, "typingQuietMs": settings.typing_quiet_ms },
             "ui": { "paneBadge": settings.pane_badge.as_str() },
             "theme": theme,
         },
@@ -167,6 +168,7 @@ fn show_json(
             "preambleEvery": loaded.source(SettingKey::PreambleEvery),
             "pasteEnterDelayMs": loaded.source(SettingKey::PasteEnterDelayMs),
             "exchange": { "retentionDays": loaded.source(SettingKey::RetentionDays) },
+            "notifications": { "replyBatchWindowMs": loaded.source(SettingKey::ReplyBatchWindowMs), "typingQuietMs": loaded.source(SettingKey::TypingQuietMs) },
             "ui": { "paneBadge": loaded.source(SettingKey::PaneBadge) },
             "theme": theme_source,
         },
@@ -183,6 +185,16 @@ fn show_text(
 ) -> io::Result<()> {
     let settings = &loaded.settings;
     let rows = [
+        (
+            SettingKey::ReplyBatchWindowMs,
+            "notifications.replyBatchWindowMs",
+            settings.reply_batch_window_ms.to_string(),
+        ),
+        (
+            SettingKey::TypingQuietMs,
+            "notifications.typingQuietMs",
+            settings.typing_quiet_ms.to_string(),
+        ),
         (
             SettingKey::PreambleMode,
             "preambleMode",

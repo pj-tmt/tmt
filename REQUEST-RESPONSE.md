@@ -130,6 +130,35 @@ atomically with valid first acceptance; uncertain process evidence cannot releas
 it. Detached, timed-out and interrupted callers instead receive one best-effort
 hint at their identity UUID's current verified binding:
 `[tmt] reply from <replier> to <id>: tmt result <id>`.
+Ordinary pane reply hints share a fixed window from the first notice (5 s by
+default). New notices never reset that window. A finite detached worker reads
+durable SQLite state across invocations, delivers one combined paste containing
+every sender and request ID, and exits. Global
+`notifications.replyBatchWindowMs` accepts integer milliseconds `0..60000`;
+`0` disables grouping. `notifications.typingQuietMs` accepts `0..30000`, default
+`2000`: attached tmux clients viewing that pane defer delivery until no key has
+arrived for that quiet period. Each key resets the quiet debounce, with a 30 s
+cap after the window; at the cap the notice delivers anyway. tmux activity has
+second resolution, so quiet detection conservatively permits an extra second.
+This is recent key evidence, not proof of an empty application input buffer.
+No matching attached client, unsupported hosts, or ordinarily unavailable evidence means
+Unknown, which delivers after the window. Channel-enrolled panes bypass batching
+and typing deferral and keep individual driver delivery; they never paste. Failed
+probe cleanup aborts the worker instead of claiming Unknown.
+
+`notification: "queued"` means the hint is persisted, not sent. A worker cannot
+send a queued hint to a replacement binding. It seals batch membership before
+transport and records each driver frame, or all joined host members, as attempted
+before external input. Uncertain transport
+or process loss never permits replay of attempted notices. A later eligible reply
+can resume only untouched frames after proving the exact previous worker gone;
+known per-frame outcomes remain settled. There is no automatic restart or daemon.
+Worker notices serialize per binding, including separate notices when grouping
+is disabled. A live or unobservable competing sender is never interrupted; after
+a bounded 3 s transport grace beyond the typing cap, untouched notices remain
+queued with diagnostics rather than overlapping input. Direct talk sends retain
+the existing transport behavior and do not participate in this notice claim.
+Scheduling or hint delivery failure never rejects the accepted final.
 Callbacks contain no final body and never acknowledge X. Failed callbacks do not
 reject accepted replies; the reply reports notification outcome separately.
 Identical retries cannot acquire another notification claim. A retained claim

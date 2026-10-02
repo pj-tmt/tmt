@@ -6,6 +6,14 @@ import { describe, expect, it } from 'vitest';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 import { expectJsonResult } from './cli-assertions.js';
 
+// These routing scenarios isolate immediate delivery; reply-batching owns windows.
+function immediateNotices(fixture: E2EFixture) {
+  fs.writeFileSync(
+    path.join(fixture.globalDir, 'config.json'),
+    JSON.stringify({ notifications: { replyBatchWindowMs: 0, typingQuietMs: 0 } })
+  );
+}
+
 function observerLog(fixture: E2EFixture, id: string): string {
   return path.join(fixture.globalDir, 'request-observers', `${id}.log`);
 }
@@ -70,6 +78,7 @@ describe('session-aware durable routing', { concurrent: false }, () => {
   it('a detached request starts no timeout observer and its reply callback still fires once', async () => {
     await withE2EFixture(
       async (fixture) => {
+        immediateNotices(fixture);
         expectJsonResult(await fixture.runJsonCli(['name', 'receiver']));
         const sender = await fixture.createMockPane('sender');
         expectJsonResult(await fixture.runJsonCli(['name', 'sender'], { pane: sender.pane }));
@@ -105,6 +114,7 @@ describe('session-aware durable routing', { concurrent: false }, () => {
     async (transition) => {
       await withE2EFixture(
         async (fixture) => {
+          immediateNotices(fixture);
           expectJsonResult(await fixture.runJsonCli(['name', 'receiver']));
           const sender = await fixture.createMockPane('sender');
           expectJsonResult(
@@ -166,6 +176,7 @@ describe('session-aware durable routing', { concurrent: false }, () => {
     async ({ mode, notification, hints }) => {
       await withE2EFixture(
         async (fixture) => {
+          immediateNotices(fixture);
           expectJsonResult(await fixture.runJsonCli(['name', 'receiver']));
           const sender = await fixture.createMockPane('sender');
           expectJsonResult(await fixture.runJsonCli(['name', 'sender'], { pane: sender.pane }));
@@ -215,10 +226,14 @@ describe('session-aware durable routing', { concurrent: false }, () => {
   it('a detached request past its deadline gets no timeout hint and a late reply still wakes the originator once', async () => {
     await withE2EFixture(
       async (fixture) => {
+        immediateNotices(fixture);
         expectJsonResult(await fixture.runJsonCli(['name', 'receiver']));
         fs.writeFileSync(
           path.join(fixture.globalDir, 'config.json'),
-          JSON.stringify({ defaults: { timeout: 1 } })
+          JSON.stringify({
+            defaults: { timeout: 1 },
+            notifications: { replyBatchWindowMs: 0, typingQuietMs: 0 },
+          })
         );
         const sender = await fixture.createMockPane('sender');
         expectJsonResult(await fixture.runJsonCli(['name', 'sender'], { pane: sender.pane }));
@@ -259,6 +274,7 @@ describe('session-aware durable routing', { concurrent: false }, () => {
 
   it('does not paste into an ended shell and recovers a fresh plain runtime without replaying old work', async () => {
     await withE2EFixture(async (fixture) => {
+      immediateNotices(fixture);
       expectJsonResult(await fixture.runJsonCli(['name', 'sender']));
       const recipient = fixture.createShellPane('restart');
       const scenario = path.join(fixture.root, 'ended.json');
@@ -321,6 +337,7 @@ describe('session-aware durable routing', { concurrent: false }, () => {
   });
   it('keeps live talk output and delivers once without incoming attention or a second waiter hint', async () => {
     await withE2EFixture(async (fixture) => {
+      immediateNotices(fixture);
       expectJsonResult(await fixture.runJsonCli(['name', 'receiver']));
       const sender = await fixture.createMockPane('sender');
       expectJsonResult(await fixture.runJsonCli(['name', 'sender'], { pane: sender.pane }));
@@ -369,6 +386,7 @@ describe('session-aware durable routing', { concurrent: false }, () => {
   it('wakes a detached originator once and does not notify again for an identical reply', async () => {
     await withE2EFixture(
       async (fixture) => {
+        immediateNotices(fixture);
         expectJsonResult(await fixture.runJsonCli(['name', 'receiver']));
         const sender = await fixture.createMockPane('sender');
         expectJsonResult(await fixture.runJsonCli(['name', 'sender'], { pane: sender.pane }));
@@ -417,6 +435,7 @@ describe('session-aware durable routing', { concurrent: false }, () => {
 
   it('losing the offline timeout observer does not resend or suppress the later reply callback', async () => {
     await withE2EFixture(async (fixture) => {
+      immediateNotices(fixture);
       expectJsonResult(await fixture.runJsonCli(['name', 'sender']));
       expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'offline']));
       const sent = expectJsonResult(
@@ -477,6 +496,7 @@ describe('session-aware durable routing', { concurrent: false }, () => {
 
   it('queues an offline recipient, emits a bounded timeout hint and never re-wakes after binding', async () => {
     await withE2EFixture(async (fixture) => {
+      immediateNotices(fixture);
       expectJsonResult(await fixture.runJsonCli(['name', 'sender']));
       expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'offline']));
       const result = expectJsonResult(

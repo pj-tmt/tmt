@@ -33,3 +33,21 @@ pub struct OriginatorHint {
     pub kind: HintKind,
     pub timeout_ms: u64,
 }
+
+/// Persisted advisory reply batches and their one-shot transport claims.
+pub mod batch;
+
+/// Advisory scheduling is independent of accepting the immutable final response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotificationOutcome {
+    Queued,
+    Delivered(WakeState),
+}
+impl NotificationOutcome {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Delivered(state) => state.as_str(),
+        }
+    }
+}

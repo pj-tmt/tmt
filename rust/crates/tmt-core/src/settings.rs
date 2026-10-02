@@ -87,14 +87,18 @@ pub enum SettingKey {
     PasteEnterDelayMs,
     RetentionDays,
     PaneBadge,
+    ReplyBatchWindowMs,
+    TypingQuietMs,
 }
 
-pub const EDITABLE_KEYS: [SettingKey; 5] = [
+pub const EDITABLE_KEYS: [SettingKey; 7] = [
     SettingKey::PreambleMode,
     SettingKey::PaneBadge,
     SettingKey::PreambleEvery,
     SettingKey::PasteEnterDelayMs,
     SettingKey::RetentionDays,
+    SettingKey::ReplyBatchWindowMs,
+    SettingKey::TypingQuietMs,
 ];
 
 impl SettingKey {
@@ -108,6 +112,8 @@ impl SettingKey {
             Self::PasteEnterDelayMs => "pasteEnterDelayMs",
             Self::RetentionDays => "exchange.retentionDays",
             Self::PaneBadge => "ui.paneBadge",
+            Self::ReplyBatchWindowMs => "notifications.replyBatchWindowMs",
+            Self::TypingQuietMs => "notifications.typingQuietMs",
         }
     }
 
@@ -121,11 +127,16 @@ impl SettingKey {
             Self::PasteEnterDelayMs => "a finite number from 0 through 2147483647",
             Self::RetentionDays => "an integer from 1 through 3650",
             Self::PaneBadge => "'on' or 'off'",
+            Self::ReplyBatchWindowMs => "an integer from 0 through 60000 milliseconds",
+            Self::TypingQuietMs => "an integer from 0 through 30000 milliseconds",
         }
     }
 
     pub fn global_only(self) -> bool {
-        matches!(self, Self::RetentionDays | Self::PaneBadge)
+        matches!(
+            self,
+            Self::RetentionDays | Self::PaneBadge | Self::ReplyBatchWindowMs | Self::TypingQuietMs
+        )
     }
 
     pub fn editable(name: &str) -> Result<Self, String> {
@@ -159,6 +170,8 @@ pub enum Setting {
     PasteEnterDelayMs(f64),
     RetentionDays(u64),
     PaneBadge(PaneBadge),
+    ReplyBatchWindowMs(u64),
+    TypingQuietMs(u64),
 }
 
 fn unsigned_integer(value: f64, maximum: u64) -> bool {
@@ -217,6 +230,16 @@ impl Setting {
             {
                 Some(Self::RetentionDays(value as u64))
             }
+            (SettingKey::ReplyBatchWindowMs, Scalar::Number(value))
+                if unsigned_integer(value, 60_000) =>
+            {
+                Some(Self::ReplyBatchWindowMs(value as u64))
+            }
+            (SettingKey::TypingQuietMs, Scalar::Number(value))
+                if unsigned_integer(value, 30_000) =>
+            {
+                Some(Self::TypingQuietMs(value as u64))
+            }
             _ => None,
         }
     }
@@ -260,6 +283,8 @@ impl Setting {
             Self::PasteEnterDelayMs(_) => SettingKey::PasteEnterDelayMs,
             Self::RetentionDays(_) => SettingKey::RetentionDays,
             Self::PaneBadge(_) => SettingKey::PaneBadge,
+            Self::ReplyBatchWindowMs(_) => SettingKey::ReplyBatchWindowMs,
+            Self::TypingQuietMs(_) => SettingKey::TypingQuietMs,
         }
     }
 }
@@ -274,6 +299,8 @@ pub struct Settings {
     pub paste_enter_delay_ms: f64,
     pub retention_days: u64,
     pub pane_badge: PaneBadge,
+    pub reply_batch_window_ms: u64,
+    pub typing_quiet_ms: u64,
 }
 
 pub struct ResolvedSettings {
@@ -322,6 +349,8 @@ impl Default for Settings {
             paste_enter_delay_ms: 500.0,
             retention_days: DEFAULT_RETENTION_DAYS,
             pane_badge: PaneBadge::Off,
+            reply_batch_window_ms: 5_000,
+            typing_quiet_ms: 2_000,
         }
     }
 }
@@ -337,6 +366,8 @@ impl Settings {
             Setting::PasteEnterDelayMs(value) => self.paste_enter_delay_ms = value,
             Setting::RetentionDays(value) => self.retention_days = value,
             Setting::PaneBadge(value) => self.pane_badge = value,
+            Setting::ReplyBatchWindowMs(value) => self.reply_batch_window_ms = value,
+            Setting::TypingQuietMs(value) => self.typing_quiet_ms = value,
         }
     }
 }

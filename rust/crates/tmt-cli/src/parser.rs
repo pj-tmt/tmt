@@ -223,6 +223,10 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             generation: text(m, "generation").expect("required generation"),
             directory: text(m, "directory").expect("required directory").into(),
         },
+        ["__reply-notice-worker"] => Invocation::ReplyNoticeWorker {
+            batch_id: text(m, "batch-id").expect("required batch ID"),
+            log_id: text(m, "log-id").expect("required log ID"),
+        },
         ["__request-observer"] => Invocation::RequestObserver {
             request_id: text(m, "request-id").expect("required request ID"),
         },

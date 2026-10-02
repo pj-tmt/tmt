@@ -38,10 +38,25 @@ describe('native configuration process boundary', () => {
             line.startsWith('pasteEnter') ||
             line.startsWith('defaults.') ||
             line.startsWith('exchange.') ||
-            line.startsWith('ui.')
+            line.startsWith('ui.') ||
+            line.startsWith('notifications.')
         )
         .map((line) => line.split(/\s{2,}/));
       expect(rows).toEqual([
+        [
+          'notifications.replyBatchWindowMs',
+          '5000',
+          'default',
+          'global CLI',
+          'an integer from 0 through 60000 milliseconds',
+        ],
+        [
+          'notifications.typingQuietMs',
+          '2000',
+          'default',
+          'global CLI',
+          'an integer from 0 through 30000 milliseconds',
+        ],
         ['preambleMode', 'disabled', 'global', 'local/global CLI', "'always' or 'disabled'"],
         ['preambleEvery', '0', 'local', 'local/global CLI', 'a safe non-negative integer'],
         [
@@ -76,6 +91,48 @@ describe('native configuration process boundary', () => {
       expect(result.stdout).toContain(`  global  ${sandbox.globalConfig}\n`);
       expect(result.stdout).toContain(`  local   ${fs.realpathSync(sandbox.localConfig)}\n`);
       expect(fileSnapshot(sandbox.root)).toEqual(before);
+      expect(fs.existsSync(sandbox.database)).toBe(false);
+    });
+  });
+
+  it('edits global notification windows, preserves siblings and rejects local writes', async () => {
+    await withSandbox(async (sandbox) => {
+      fs.mkdirSync(sandbox.globalDir, { recursive: true });
+      fs.writeFileSync(sandbox.globalConfig, JSON.stringify({ notifications: { future: 'keep' } }));
+      for (const [key, value] of [
+        ['replyBatchWindowMs', '0'],
+        ['typingQuietMs', '1200'],
+      ]) {
+        expect(
+          (
+            await runCli(sandbox, [
+              'config',
+              'set',
+              `notifications.${key}`,
+              value,
+              '--global',
+              '--json',
+            ])
+          ).status
+        ).toBe(0);
+      }
+      expect(JSON.parse(fs.readFileSync(sandbox.globalConfig, 'utf8'))).toEqual({
+        notifications: { future: 'keep', replyBatchWindowMs: 0, typingQuietMs: 1200 },
+      });
+      const before = fileSnapshot(sandbox.root);
+      for (const args of [
+        ['config', 'set', 'notifications.replyBatchWindowMs', '1'],
+        ['config', 'clear', 'notifications.typingQuietMs'],
+        ['config', 'set', 'notifications.replyBatchWindowMs', '60001', '--global'],
+        ['config', 'set', 'notifications.typingQuietMs', '2s', '--global'],
+      ]) {
+        expectError(await runCli(sandbox, [...args, '--json']), 'ERROR');
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+      }
+      expect(parseWholeStdout(await runCli(sandbox, ['config', 'show', '--json']))).toMatchObject({
+        resolved: { notifications: { replyBatchWindowMs: 0, typingQuietMs: 1200 } },
+        sources: { notifications: { replyBatchWindowMs: 'global', typingQuietMs: 'global' } },
+      });
       expect(fs.existsSync(sandbox.database)).toBe(false);
     });
   });
@@ -141,6 +198,7 @@ describe('native configuration process boundary', () => {
         },
         exchange: { retentionDays: 90 },
         ui: { paneBadge: 'off' },
+        notifications: { replyBatchWindowMs: 5000, typingQuietMs: 2000 },
         theme: {},
       });
       expect(document.sources).toEqual({
@@ -149,6 +207,7 @@ describe('native configuration process boundary', () => {
         pasteEnterDelayMs: 'default',
         exchange: { retentionDays: 'default' },
         ui: { paneBadge: 'default' },
+        notifications: { replyBatchWindowMs: 'default', typingQuietMs: 'default' },
         theme: 'default',
       });
       expect(fileSnapshot(sandbox.root)).toEqual(before);
@@ -276,6 +335,7 @@ describe('native configuration process boundary', () => {
         },
         exchange: { retentionDays: 90 },
         ui: { paneBadge: 'off' },
+        notifications: { replyBatchWindowMs: 5000, typingQuietMs: 2000 },
         theme: {},
       });
       expect(document.sources).toEqual({
@@ -284,6 +344,7 @@ describe('native configuration process boundary', () => {
         pasteEnterDelayMs: 'global',
         exchange: { retentionDays: 'default' },
         ui: { paneBadge: 'default' },
+        notifications: { replyBatchWindowMs: 'default', typingQuietMs: 'default' },
         theme: 'default',
       });
       expect(fileSnapshot(sandbox.root)).toEqual(before);

@@ -94,7 +94,7 @@ fn meeting_migration_rolls_back_both_roster_tables_and_history() {
     oracle.execute_batch("DROP TRIGGER reject_rooms;").unwrap();
     oracle.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 43);
+    assert_eq!(storage.health().unwrap().schema_version, 44);
     assert!(storage.list_meeting_rooms().unwrap().is_empty());
     storage.close().unwrap();
 }
