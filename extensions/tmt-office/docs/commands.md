@@ -4,7 +4,9 @@
 
 Office is frozen and kept internal. No new Office release is published. Official
 `tmt extension install office` (including repair) and `tmt extension upgrade office`
-refuse with a frozen message before consent or network access. Root `tmt upgrade`
+refuse with a frozen message before consent or network access. The legacy
+`tmt office install` and `tmt office upgrade` facade uses the same rule and message.
+Local archives, `--yes` and `--force` do not bypass it. Root `tmt upgrade`
 skips Office. The extension listing omits Office when absent and marks retained
 or partially removed installations as frozen; `--check` does not look for an Office update.
 
