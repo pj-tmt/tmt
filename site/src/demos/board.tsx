@@ -121,31 +121,26 @@ export function BoardSketch() {
       className={sketch}
     >
       <pre className={`${pre} border-b border-term-edge`}>
-        <span className="font-bold text-t-accent">squad</span>
-        {"  "}
-        <span className="bg-t-selection">{" product "}</span>
-        <span className="text-t-waiting">{"◆1 "}</span>
-        <span className="text-t-blocked">{"✗1 "}</span>
-        <span className="text-t-dim">{" reviews infra"}</span>
+        <span className="bg-t-selection font-bold text-t-waiting">{" product ◆1 ✗1 "}</span>
+        <span className="text-t-muted">{" reviews  infra "}</span>
         {"\n"}
-        <span className="text-t-dim">lead sol · 4 members</span>
+        <span className="text-t-muted">lead sol · 4 members</span>
       </pre>
       <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,62fr)_minmax(0,38fr)]">
         <pre className={`${pre} border-b border-term-edge sm:border-r sm:border-b-0`}>
-          <span className="text-t-dim">rows</span>
+          <span className="text-t-muted">rows</span>
           {"\n"}
-          <span className="text-t-dim">{"    MEMBER      STATE     TASK            PR"}</span>
+          <span className="text-t-muted">{"    MEMBER      STATE     TASK            PR"}</span>
           {"\n"}
           <span className="bg-t-selection">
-            {"▸ "}
+            {"  "}
             <span className="text-t-waiting">◆</span>
             {" auth-fix    "}
             <span className="text-t-blocked">blocked</span>
             {"   rotate session… #412 draft"}
             {"\n"}
             {"                          "}
-            <span className="text-t-waiting">approve rotation plan</span>
-            {"     "}
+            {"approve rotation plan     "}
           </span>
           {"\n    docs-sweep  "}
           <span className="text-t-review">review</span>
@@ -160,7 +155,7 @@ export function BoardSketch() {
         </pre>
         <div>
           <pre className={`${pre} border-b border-term-edge`}>
-            <span className="text-t-dim">detail</span>
+            <span className="text-t-muted">detail</span>
             {"\n"}
             <span className="font-bold">auth-fix</span>
             {"\n"}
@@ -168,13 +163,13 @@ export function BoardSketch() {
             {" approve\n  rotation plan\ntask: rotate session tokens\npr: #412 draft"}
           </pre>
           <pre className={pre}>
-            <span className="text-t-dim">replies</span>
+            <span className="text-t-muted">replies</span>
             {"\nsol · 2m  noted, passing it on"}
           </pre>
         </div>
       </div>
       <pre className={`${pre} border-t border-term-edge`}>
-        <span className="text-t-dim">notes · sol</span>
+        <span className="text-t-muted">notes · sol</span>
         {"\n"}
         <span className="font-bold text-t-accent">## Now</span>
         {
