@@ -103,6 +103,8 @@ ask when resolution would require an undecided product or authorization choice.
   mark the issue started when implementation begins. Split oversized work first.
 - Keep decisions, progress, blockers, deferred work, branch/PR links and evidence
   synchronized in GitHub. Do not mark work done before its delivery state supports it.
+- Keep the issue's Project fields, tracker parentage and Status current as defined in
+  [Project tracking](DEVELOPMENT.md#project-tracking).
 - Every Codex-created commit includes `Co-authored-by: Codex <codex@openai.com>`.
   Preserve the user's authorship and signing configuration.
 - Merge only when authorized and all required CI has passed on the reviewed head.
