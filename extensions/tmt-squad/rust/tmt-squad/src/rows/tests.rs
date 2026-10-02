@@ -66,7 +66,7 @@ fn columns_become_solver_tracks() {
     assert_eq!(
         rows.columns[0].track(7),
         Track {
-            basis: 7,
+            basis: Basis::Cells(7),
             min: 10,
             max: None,
             grow: 0,
@@ -76,7 +76,7 @@ fn columns_become_solver_tracks() {
     );
     assert_eq!(rows.columns[1].track(99), Track::fixed(9).with_max(None));
     let task = rows.columns[2].track(40);
-    assert_eq!((task.basis, task.min, task.grow), (0, 12, 1));
+    assert_eq!((task.basis, task.min, task.grow), (Basis::Cells(0), 12, 1));
     let bare = parse("[p.rows]\ncolumns = [{ name = \"note\" }]\n").unwrap();
     assert_eq!(
         bare.columns[0].track(2).min,
@@ -105,7 +105,7 @@ fn the_preset_and_the_older_columns_table_read_as_the_same_model() {
     // A width is fixed; no width grows into what is left, from four cells.
     assert_eq!(preset.columns[0].track(3), Track::fixed(14).with_max(None));
     let task = preset.columns[2].track(80);
-    assert_eq!((task.basis, task.min, task.grow), (0, 4, 1));
+    assert_eq!((task.basis, task.min, task.grow), (Basis::Cells(0), 4, 1));
     let legacy = parse(
         "[p.columns]\nshow = [\"member\", \"note\"]\nnote = { title = \"WHY\", width = 30 }\n",
     )
@@ -113,11 +113,11 @@ fn the_preset_and_the_older_columns_table_read_as_the_same_model() {
     assert_eq!(legacy.columns[1].title, "WHY");
     assert_eq!(
         (legacy.columns[1].width, legacy.columns[1].grow),
-        (Some(30), 0)
+        (Some(Basis::Cells(30)), 0)
     );
     assert_eq!(
         legacy.columns[0].width,
-        Some(14),
+        Some(Basis::Cells(14)),
         "known fields keep their preset width"
     );
     assert_eq!(legacy.fields(), ["member", "note"]);
@@ -127,7 +127,7 @@ fn the_preset_and_the_older_columns_table_read_as_the_same_model() {
         parse("[p.columns]\nshow = [\"member\", \"pr_link\"]\npr_link = { width = 20 }\n").unwrap();
     assert_eq!(
         (link.columns[1].width, link.columns[1].priority),
-        (Some(20), Some(1))
+        (Some(Basis::Cells(20)), Some(1))
     );
     assert_eq!(link.columns[0].priority, None);
     let tables = parse(
@@ -315,5 +315,130 @@ fn mistakes_are_refused_with_their_place() {
     ] {
         let message = error(text);
         assert!(message.contains(place), "{text}: {message}");
+    }
+}
+
+#[test]
+fn percentage_and_overflow_settings_are_validated_and_published() {
+    let rows = parse(
+        r#"[p.rows]
+columns = [{ name = "member", width = "30%", min = 3, max = 20 },
+           { name = "task", width = "70%", overflow = "wrap" }]
+"#,
+    )
+    .unwrap();
+    assert_eq!(rows.columns[0].width, Some(Basis::Percent(30)));
+    assert_eq!(
+        rows.columns[1].overflow,
+        Some(Overflow::Wrap { max_lines: 2 })
+    );
+    let value = rows.value();
+    assert_eq!(value["columns"][0]["width"], "30%");
+    assert!(value["columns"][0].get("overflow").is_none());
+    assert!(value["columns"][0].get("max_lines").is_none());
+    assert_eq!(value["columns"][1]["overflow"], "wrap");
+    assert_eq!(value["columns"][1]["max_lines"], 2);
+    let decoded = Column::display("member", &value["columns"][0]);
+    assert_eq!(decoded.track(90), rows.columns[0].track(90));
+    let legacy = parse(
+        r#"[p.columns]
+show = ["member", "task"]
+member = { width = "30%" }
+task = { width = "70%", overflow = "wrap", max_lines = 8 }
+"#,
+    )
+    .unwrap();
+    assert_eq!(
+        legacy.columns[1].overflow,
+        Some(Overflow::Wrap { max_lines: 8 })
+    );
+    for settings in [
+        "width = \"0%\"",
+        "width = \"101%\"",
+        "width = \"3.5%\"",
+        "width = \"x%\"",
+        "width = \"30\"",
+        "width = \"030%\"",
+        "overflow = \"wrap\", lines = 2",
+        "overflow = \"clip\"",
+        "max_lines = 2",
+        "overflow = \"ellipsis\", max_lines = 2",
+        "overflow = \"wrap\", max_lines = 0",
+        "overflow = \"wrap\", max_lines = 9",
+    ] {
+        let input = format!("[p.rows]\ncolumns = [{{ name = \"task\", {settings} }}]\n");
+        assert!(error(&input).contains("p.rows.columns"), "{input}");
+    }
+    assert!(
+        error(
+            r#"[p.rows]
+columns = [{ name = "member", width = "60%" }, { name = "task", width = "41%" }]
+"#
+        )
+        .contains("100%")
+    );
+}
+
+#[test]
+fn percent_tracks_keep_a_flexible_minimum_among_fixed_cell_columns() {
+    let rows = parse(
+        r#"[p.rows]
+columns = [{ name = "member", width = 6 }, { name = "task", width = "60%" }]
+"#,
+    )
+    .unwrap();
+    let tracks: Vec<_> = rows.columns.iter().map(|column| column.track(80)).collect();
+    assert_eq!(tracks[1].min, NARROWEST);
+    assert_eq!(
+        tmt_cli_style::grid::solve(&tracks, Some(11), 1),
+        [Some(6), Some(4)]
+    );
+    for available in 7..25 {
+        assert!(
+            tmt_cli_style::grid::solve(&tracks, Some(available), 1)
+                .iter()
+                .flatten()
+                .all(|width| *width > 0)
+        );
+    }
+    let bounded = parse(
+        r#"[p.rows]
+columns = [{ name = "task", width = "60%", max = 2 }]
+"#,
+    )
+    .unwrap();
+    let track = bounded.columns[0].track(80);
+    assert_eq!(tmt_cli_style::grid::solve(&[track], Some(80), 1), [Some(2)]);
+    let explicit = parse(
+        r#"[p.rows]
+columns = [{ name = "task", width = "60%", min = 1 }]
+"#,
+    )
+    .unwrap();
+    assert_eq!(explicit.columns[0].track(80).min, 1);
+}
+
+#[test]
+fn published_column_settings_round_trip_into_projected_display_settings() {
+    let rows = parse(r#"[p.rows]
+columns = [
+    { name = "member", width = 10, min = 4, max = 14, grow = 1, align = "center", truncate = "middle", overflow = "ellipsis", priority = 3 },
+    { name = "state", width = "30%", min = 2, max = 20, grow = 2, align = "right", overflow = "wrap", max_lines = 7 },
+    { name = "task", width = "25%", max = 2, overflow = "wrap" },
+    { name = "note", min = 1, max = 12, grow = 2, align = "center", truncate = "middle", priority = 1 },
+]
+"#).unwrap();
+    let value = rows.value();
+    for (index, column) in rows.columns.iter().enumerate() {
+        let decoded = Column::display(&column.field, &value["columns"][index]);
+        assert_eq!(decoded.field, column.field);
+        assert_eq!(decoded.title, column.title);
+        assert_eq!(decoded.width, column.width);
+        assert_eq!((decoded.min, decoded.max), (column.min, column.max));
+        assert_eq!(decoded.track(101), column.track(101));
+        assert_eq!(
+            (decoded.align, decoded.truncate, decoded.overflow),
+            (column.align, column.truncate, column.overflow)
+        );
     }
 }

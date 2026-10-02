@@ -8,7 +8,8 @@ name: Office browser verification
 # pull requests: the shards fail on every run and the local partitions in most, so on a pull
 # request they only cost runner time. They keep running weekly and on a manual dispatch so the
 # failure sets stay visible. The fix of each issue re-enables its partitions on pull requests.
-# The emulator partition still runs on a pull request that selects Office.
+# The emulator partition runs on PRs only for Office-owned paths. Weekly and
+# manual runs include it along with all local/native partitions as the safety net.
 on:
   pull_request:
   schedule:
@@ -27,10 +28,9 @@ jobs:
     name: Select affected Office browser checks
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Only a pull request has a diff to select from; a scheduled or dispatched run selects no
-    # emulator partition and runs the local partitions and the native shards.
+    # Only a pull request has a diff; scheduled/manual runs ignore this PR-only flag.
     outputs:
-      office: ${{ steps.scope.outputs.office || 'false' }}
+      office_browser: ${{ steps.scope.outputs.office_browser || 'false' }}
     steps:
       - if: github.event_name == 'pull_request'
         uses: actions/checkout@v4
@@ -52,9 +52,8 @@ jobs:
   image:
     name: Build Office browser image
     needs: changes
-    # A pull request builds it for the emulator partition only; a scheduled or dispatched run
-    # builds it for the local partitions and the native shards.
-    if: github.event_name != 'pull_request' || needs.changes.outputs.office == 'true'
+    # Office-owned PRs build for the emulator; scheduled/manual runs build for all partitions.
+    if: github.event_name != 'pull_request' || needs.changes.outputs.office_browser == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -77,7 +76,7 @@ jobs:
   office-emulator:
     name: Office browser (emulator)
     needs: [changes, image]
-    if: needs.changes.outputs.office == 'true'
+    if: github.event_name != 'pull_request' || needs.changes.outputs.office_browser == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

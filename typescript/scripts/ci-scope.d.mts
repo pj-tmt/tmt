@@ -66,6 +66,7 @@ export function explainCiSelection(
   map?: ComponentMap
 ): readonly CiSelectionRow[];
 export function selectCiAreas(paths: readonly string[], map?: ComponentMap): CiAreas;
+export function selectOfficeBrowser(paths: readonly string[], map?: ComponentMap): boolean;
 export function selectNativeScope(paths: readonly string[], map?: ComponentMap): string;
 export function scopedChecks(
   scope: string,
@@ -74,6 +75,11 @@ export function scopedChecks(
 export function nativeGatePasses(
   scope: string,
   results: NativeJobResults,
+  map?: ComponentMap
+): boolean;
+export function rustGatePasses(
+  scope: string,
+  results: readonly string[],
   map?: ComponentMap
 ): boolean;
 export function e2eGatePasses(scope: string, results: E2eShardResults, map?: ComponentMap): boolean;
