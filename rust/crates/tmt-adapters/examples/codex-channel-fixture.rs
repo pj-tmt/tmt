@@ -5,7 +5,7 @@ use std::{
     env, fs,
     io::{BufRead, Write},
     net::{TcpListener, TcpStream},
-    process::Command,
+    process::{Command, Stdio},
     sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant},
@@ -127,6 +127,34 @@ fn connection(stream: TcpStream, token: &str, state: Arc<Mutex<Option<String>>>)
                 socket
                     .send(Message::text(json!({"id":id,"result":result}).to_string()))
                     .unwrap();
+                if let Ok(model) = env::var("MOCK_HOOK_MODEL") {
+                    let peer: Value =
+                        serde_json::from_str(&env::var("MOCK_PEER").unwrap()).unwrap();
+                    let mut hook = Command::new(peer["executable"].as_str().unwrap())
+                        .args(
+                            peer["args"]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .map(|arg| arg.as_str().unwrap()),
+                        )
+                        .args(["__hook", "codex"])
+                        .stdin(Stdio::piped())
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped())
+                        .spawn()
+                        .unwrap();
+                    let payload = json!({"hook_event_name":"SessionStart","source":"resume","session_id":params["threadId"],"model":model});
+                    hook.stdin
+                        .take()
+                        .unwrap()
+                        .write_all(payload.to_string().as_bytes())
+                        .unwrap();
+                    let result = hook.wait_with_output().unwrap();
+                    log(
+                        json!({"event":"hook","ok":result.status.success(),"stdout":String::from_utf8_lossy(&result.stdout),"stderr":String::from_utf8_lossy(&result.stderr)}),
+                    );
+                }
                 log(json!({"event":"channel","content":content}));
                 continue;
             }

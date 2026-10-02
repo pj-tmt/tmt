@@ -315,6 +315,10 @@ struct Facts {
     declarations: Vec<Declaration>,
     broad_failure: bool,
     depth: usize,
+    function: Option<String>,
+    implementation: Option<(String, String)>,
+    binding_lookups: Vec<Option<String>>,
+    binding_locators: Vec<(String, String)>,
 }
 
 fn use_paths(tree: &UseTree, mut prefix: Vec<String>, paths: &mut Vec<Vec<String>>) {
@@ -349,6 +353,21 @@ fn type_named(value: &syn::Type, name: &str) -> bool {
 }
 
 impl<'ast> Visit<'ast> for Facts {
+    fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
+        let previous = self.function.replace(item.sig.ident.to_string());
+        visit::visit_item_fn(self, item);
+        self.function = previous;
+    }
+
+    fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
+        let previous = self.function.take();
+        if item.sig.ident == "verified_binding" {
+            self.binding_locators
+                .push(self.implementation.clone().unwrap_or_default());
+        }
+        visit::visit_impl_item_fn(self, item);
+        self.function = previous;
+    }
     fn visit_impl_item(&mut self, item: &'ast syn::ImplItem) {
         if production_impl(item) {
             visit::visit_impl_item(self, item);
@@ -389,7 +408,14 @@ impl<'ast> Visit<'ast> for Facts {
     }
 
     fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
-        use_paths(&item.tree, Vec::new(), &mut self.references);
+        let mut paths = Vec::new();
+        use_paths(&item.tree, Vec::new(), &mut paths);
+        for path in &paths {
+            if path.last().is_some_and(|p| p == "context_by_binding") {
+                self.binding_lookups.push(self.function.clone());
+            }
+        }
+        self.references.extend(paths);
         if matches!(item.vis, syn::Visibility::Public(_)) {
             use_paths(&item.tree, Vec::new(), &mut self.reexports);
         }
@@ -400,12 +426,36 @@ impl<'ast> Visit<'ast> for Facts {
     }
 
     fn visit_path(&mut self, path: &'ast syn::Path) {
+        if path
+            .segments
+            .last()
+            .is_some_and(|p| p.ident == "context_by_binding")
+        {
+            self.binding_lookups.push(self.function.clone());
+        }
         self.references
             .push(path.segments.iter().map(|p| p.ident.to_string()).collect());
         visit::visit_path(self, path);
     }
 
     fn visit_item_impl(&mut self, item: &'ast syn::ItemImpl) {
+        let previous = self.implementation.take();
+        self.implementation = Some((
+            match item.self_ty.as_ref() {
+                syn::Type::Path(path) => path
+                    .path
+                    .segments
+                    .last()
+                    .map(|p| p.ident.to_string())
+                    .unwrap_or_default(),
+                _ => String::new(),
+            },
+            item.trait_
+                .as_ref()
+                .and_then(|(_, path, _)| path.segments.last())
+                .map(|p| p.ident.to_string())
+                .unwrap_or_default(),
+        ));
         if let Some((_, path, _)) = &item.trait_
             && let Some(segment) = path.segments.last()
             && segment.ident == "From"
@@ -417,6 +467,7 @@ impl<'ast> Visit<'ast> for Facts {
             self.broad_failure |= string && type_named(&item.self_ty, "Failure");
         }
         visit::visit_item_impl(self, item);
+        self.implementation = previous;
     }
 }
 
@@ -471,6 +522,29 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
         .collect();
     let mut owners = BTreeMap::new();
     let mut violations = Vec::new();
+    for (source, facts) in sources.iter().zip(&facts) {
+        if facts.binding_lookups.iter().any(|function| {
+            source.package != "tmt-cli"
+                || source.file != "provider_hook_command.rs"
+                || function.as_deref() != Some("verified_caller")
+        }) {
+            violations.push(format!(
+                "{}/{}: enrolled binding context lookup belongs only to verified_caller",
+                source.package, source.file
+            ));
+        }
+        if facts.binding_locators.iter().any(|(owner, port)| {
+            source.package != "tmt-adapters"
+                || source.file != "drivers/codex/channel_hooks.rs"
+                || owner != "ChannelObservation"
+                || port != "LifecycleObservation"
+        }) {
+            violations.push(format!(
+                "{}/{}: private binding locator belongs only to Codex ChannelObservation",
+                source.package, source.file
+            ));
+        }
+    }
     for (source, facts) in sources.iter().zip(&facts) {
         if !owns_declarations(source) {
             continue;

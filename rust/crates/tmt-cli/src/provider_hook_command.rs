@@ -102,7 +102,8 @@ fn observe_turn(
     if matches!(host, HostEvidence::Unsupported) {
         return Ok(());
     }
-    let Caller::Bound(bound) = verified_caller(provider, lifecycle, host, &turn.session, deadline)?
+    let Caller::Bound(bound) =
+        verified_caller(provider, lifecycle, host, &turn.session, None, deadline)?
     else {
         return Ok(());
     };
@@ -182,15 +183,23 @@ fn verified_caller(
     lifecycle: &dyn RuntimeLifecycle,
     host: HostEvidence,
     session: &ProviderSessionId,
+    verified_binding: Option<&str>,
     deadline: Instant,
 ) -> Result<Caller, ()> {
     let paths = ConfigPaths::discover().map_err(|_| ())?;
     let now = tmt_adapters::request_runtime::wall_time_ms();
     let shared = host.shared();
     let (stored, snapshot, process) = if shared {
-        let Some(stored) =
-            Storage::context_by_provider_session(&paths.database, provider, session.as_str(), now)
-                .map_err(|_| ())?
+        let Some(stored) = match verified_binding {
+            Some(binding) => Storage::context_by_binding(&paths.database, binding, now),
+            None => Storage::context_by_provider_session(
+                &paths.database,
+                provider,
+                session.as_str(),
+                now,
+            ),
+        }
+        .map_err(|_| ())?
         else {
             return Ok(Caller::Unobserved);
         };
@@ -311,7 +320,14 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
         stored,
         snapshot,
         process,
-    } = match verified_caller(provider, lifecycle, host, event.session(), deadline)? {
+    } = match verified_caller(
+        provider,
+        lifecycle,
+        host,
+        event.session(),
+        event.verified_binding(),
+        deadline,
+    )? {
         Caller::Unobserved => return Ok(String::new()),
         // With no stored identity, only emit the fixed naming hint. The
         // command-derived suggested_name (for example "claude") is not a
@@ -460,7 +476,7 @@ fn observe_prompt(
     if matches!(host, HostEvidence::Unsupported) {
         return Ok(String::new());
     }
-    let Caller::Bound(bound) = verified_caller(provider, lifecycle, host, session, deadline)?
+    let Caller::Bound(bound) = verified_caller(provider, lifecycle, host, session, None, deadline)?
     else {
         return Ok(String::new());
     };
