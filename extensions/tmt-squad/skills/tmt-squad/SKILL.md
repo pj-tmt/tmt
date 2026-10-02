@@ -40,7 +40,8 @@ cell).
   `lead` (a row, or null) and `attention`: `state` (`waiting`, `blocked` or
   `normal`), `waiting` (members that owe the user a decision or wait for an
   answer) and `blocked` (members in the `blocked` state). The board colors the
-  squad's tab by it.
+  squad's tab by it; tab and switcher counts use `◆n` for waiting on you
+  and `✗n` for blocked members, including without color.
 - `sections`: always a list. Unless the user defined sections, it holds exactly
   one section with `title: null` containing every member except the lead. With
   user sections, members that match none follow in a final `title: null`
