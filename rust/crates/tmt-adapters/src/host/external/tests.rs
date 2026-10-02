@@ -311,14 +311,14 @@ fn late_oversized_or_malformed_answers_fail() {
     let installed = Installed::new("fake", answers("fake", "fake-", None));
     let record = installed.approve().unwrap();
     let driver = DriverProcess::open(record.clone(), FixtureRunner).unwrap();
-    // This call retains the actual 300 ms protocol deadline and cleanup owner.
+    // This call retains the actual 1 s protocol deadline and cleanup owner.
     let timed_driver = DriverProcess::open(record, ScriptRunner).unwrap();
     assert_eq!(
         driver.call::<ClearResponse>(clear(), soon()).unwrap(),
         Ok(ClearResponse { cleared: false })
     );
 
-    fs::write(installed.beside("sleep"), "1.5").unwrap();
+    fs::write(installed.beside("sleep"), "2.5").unwrap();
     let started = Instant::now();
     let result = timed_driver.call::<ClearResponse>(clear(), soon());
     assert!(
@@ -327,8 +327,8 @@ fn late_oversized_or_malformed_answers_fail() {
         "{result:?}"
     );
     assert!(
-        started.elapsed() < Duration::from_millis(1200),
-        "stopped at clear's 300 ms deadline, took {:?}",
+        started.elapsed() < Duration::from_millis(2000),
+        "stopped at clear's 1 s deadline, took {:?}",
         started.elapsed()
     );
     fs::remove_file(installed.beside("sleep")).unwrap();

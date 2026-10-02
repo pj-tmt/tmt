@@ -70,7 +70,7 @@ driver that runs past its operation's deadline.
 | Operation | Deadline | Answer bound |
 |---|---|---|
 | `capabilities` | 1 s | 4 KiB |
-| `caller`, `server`, `resolve-target`, `publish`, `clear`, `focus` | 300 ms | 4 KiB |
+| `caller`, `server`, `resolve-target`, `publish`, `clear`, `focus` | 1 s | 4 KiB |
 | `snapshot`, `probe`, `capture` | 2 s | 1 MiB |
 | `input`, `prompt` | 2 s | 4 KiB |
 
