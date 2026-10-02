@@ -1,7 +1,7 @@
 # Generate runtime dependency notices, not developer/build-tool inventories.
 # The HTTPS runtime adds ISC crypto code and CDLA-permissive root-certificate
 # data. Preserve their complete generated texts and copyright notices.
-# Zlib covers foldhash, which only Squad's closure (through ratatui) contains.
+# Zlib covers Squad's foldhash and the private TUI leaf's slotmap.
 accepted = ["MIT", "Apache-2.0", "Unicode-3.0", "ISC", "BSD-3-Clause", "CDLA-Permissive-2.0", "Zlib"]
 ignore-dev-dependencies = true
 ignore-build-dependencies = true

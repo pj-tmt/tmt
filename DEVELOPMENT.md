@@ -1006,6 +1006,8 @@ From `rust/`, run `cargo test --locked -p tmt-tui` and
 `cargo +1.95.0 test --locked -p tmt-tui` for structural XML admission and its
 byte/depth/node limits, integer utilities, property conflicts and literal theme
 tokens, schema binding, lexical repeats, scoped IDs and exact expansion limits.
+Geometry tests cover flex/grid, native percentages, fr/minmax/span, gaps/padding,
+fractional boundaries, shared text budgets, resize restoration and cut clipping.
 Run the architecture test for dependency changes, and
 `cargo test --locked -p tmt-squad` for its in-memory source adapter and frozen
 board/list parity fixture.
@@ -1020,17 +1022,31 @@ Decode the cell/style diff and attribute every change to the PR's approved behav
 review hit identities and list bytes too. Unexplained changes block handoff.
 Normal tests never write the fixture; it contains no host paths or clocks.
 
-The internal static subset is `flex`, `flex-row`, `flex-col`, `w-N`, `h-N`,
+The internal static subset retains `flex`, `flex-row`, `flex-col`, `w-N`, `h-N`,
 `w-full`, `h-full`, `gap-N`, `gap-x-N`, `gap-y-N`, `p-N`, `px-N`, `py-N`,
-`grow`, `grow-N`, `shrink`, `shrink-N`, and `truncate`. `N` is ASCII decimal
-0..4096, in cells (grow/shrink are integer weights). Overlapping properties,
-even equal duplicates, fail rather than applying class order. No fractions,
-variants, arbitrary values or CSS units are accepted. Padding is symmetric per
-axis. View/col default to column direction; other elements default to row.
-Sizes default to auto, gaps/padding/grow to zero, and shrink to one. Full means
-the parent's available axis. Text defaults to clipping; leaf `wrap="true"` or
-`wrap="false"` selects wrapping or clipping and conflicts with `truncate`.
-`token` must name a shared `Role`; omission preserves inheritance. Row-track attributes await the grid compiler; geometry and paint remain later stages.
+`grow`, `grow-N`, `shrink`, `shrink-N`, and `truncate`. Bracket cell forms are
+`w-[N]`, `h-[N]`, `basis-[N]`, `min-w-[N]`, `max-w-[N]`, `grow-[N]`,
+`gap-[N]`, `gap-x-[N]` and `gap-y-[N]`. `N` is ASCII decimal 0..4096;
+grow/shrink are integer weights. `w-[N%]`, `h-[N%]` and `basis-[N%]` accept
+integer percentages 0..100. Grid uses `grid grid-cols-[tracks]`, with underscore-
+separated cells, percentages, integer `Nfr`, or `minmax(a,b)` (no fr minimum),
+and positive `col-span-[N]`. Text adds `truncate-middle` (terminal extension)
+and positive `line-clamp-[N]`; the former `text-ellipsis-middle` proposal and
+unbracketed percentage forms are rejected. Unknown/malformed utilities and
+overlapping properties, including equal duplicates, fail with located errors.
+No variants, fractional numbers, arbitrary CSS values or CSS units are admitted.
+Padding is symmetric per axis. View/col default to column direction; other
+elements default to row. Sizes/basis default to auto, gaps/padding/grow to zero,
+and shrink to one. Grid conflicts with explicit flex direction. Text defaults
+to clipping; leaf `wrap="true"`/`"false"` conflicts with all text-flow utilities.
+`token` names a shared `Role`; omission preserves inheritance.
+
+Geometry consumes already selected tracks: Squad owns priority hiding (#774).
+CSS percentages use the parent's content box; gaps can cause grid overflow.
+Earlier tracks retain sizes; the cut cell needs four visible cells or hides whole.
+One injected scalar measurer owns intrinsic metrics and wrapping/clamp; paint
+reuses the recorded integer text width, then ellipsizes cut visual lines without
+reflow. See [architecture](ARCHITECTURE.md) for the inactive production seam.
 
 ## Native process and shared tests
 

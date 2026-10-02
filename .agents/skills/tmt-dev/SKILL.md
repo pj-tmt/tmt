@@ -33,7 +33,8 @@ Read the repository guidance before planning work:
 4. Before a Docker suite, run `scripts/dev-disk-check.sh`, and use the
    per-worktree image tag and cleanup in DEVELOPMENT's
    [disk section](../../../DEVELOPMENT.md#keep-local-development-from-filling-the-disk).
-   Verify the changed layers using DEVELOPMENT and CONVENTIONS. Record the
+   Verify the changed layers using DEVELOPMENT and CONVENTIONS. Shared markup
+   changes follow DEVELOPMENT's internal TUI admission and parity gates. Record the
    reviewed revision, findings, dispositions and exact verification evidence.
    When replacing implementations, map behavioral assertions, not test counts:
    returned-error rollback is not crash recovery. Preserve resource cleanup
