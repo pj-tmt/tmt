@@ -677,6 +677,64 @@ describe('squad extension', () => {
     });
   });
 
+  it('lists and edits view layers through real dispatch without changing workflow state', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'worker');
+      expect((await squad(sandbox, ['init', 'product'])).status).toBe(0);
+      expect((await squad(sandbox, ['add', 'worker', '--squad', 'product'])).status).toBe(0);
+      const file = path.join(sandbox.globalDir, 'squad.toml');
+      const original =
+        "# untouched\n[squad.product]\nlayout = 'crew'\n[squad.product.board]\nview = 'focus' # own\n";
+      writeFileSync(file, original);
+      const before = await squad(sandbox, ['ls', '--squad', 'product']);
+      const metadata = observe(sandbox).metadata;
+      const aliases = await Promise.all(
+        ['view', 'view ls', 'view list'].map((words) => squad(sandbox, words.split(' ')))
+      );
+      expect(aliases[0]).toEqual(aliases[1]);
+      expect(aliases[1]).toEqual(aliases[2]);
+      expect(aliases[0].body.views.map((view: { name: string }) => view.name)).toEqual([
+        'team',
+        'focus',
+        'notes',
+        'detail',
+        'wide',
+      ]);
+      expect((await runCli(sandbox, ['sq', 'view', 'ls'])).stdout).toContain('VIEWS 5');
+      expect((await squad(sandbox, ['view', 'set', 'notes', '--squad', 'product'])).status).toBe(0);
+      expect(readFileSync(file, 'utf8')).toBe(
+        original.replace("view = 'focus' # own", 'view = "notes" # own')
+      );
+      const after = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(after).toEqual(before);
+      expect(observe(sandbox).metadata).toEqual(metadata);
+      expect((await squad(sandbox, ['view', 'set', 'detail'])).status).toBe(0);
+      expect(
+        (await squad(sandbox, ['view', 'ls', '--squad', 'product'])).body.effective
+      ).toMatchObject({ view: 'notes', source: 'squad', layout: 'crew' });
+      expect((await squad(sandbox, ['view', 'rm', '--squad', 'product'])).status).toBe(0);
+      expect(
+        (await squad(sandbox, ['view', 'ls', '--squad', 'product'])).body.effective
+      ).toMatchObject({ view: 'detail', source: 'board' });
+      expect((await squad(sandbox, ['view', 'rm'])).status).toBe(0);
+      expect(readFileSync(file, 'utf8')).toBe(
+        original.replace("view = 'focus' # own\n", '') + '\n[board]\n'
+      );
+      const custom = original.replace("view = 'focus' # own", "panes = ['rows', 'notes'] # own");
+      writeFileSync(file, custom);
+      const refused = await squad(sandbox, ['view', 'set', 'wide', '--squad', 'product']);
+      expect(refused).toMatchObject({ status: 1, body: { error: { code: 'SQUAD_VIEW_CUSTOM' } } });
+      expect(readFileSync(file, 'utf8')).toBe(custom);
+      expect((await squad(sandbox, ['view', 'set', 'bogus'])).body.error.code).toBe(
+        'SQUAD_VIEW_UNKNOWN'
+      );
+      const help = await runCli(sandbox, ['sq', 'view', 'set', '--help']);
+      expect(help.stdout).toContain('Usage: tmt squad view set');
+      expect(help.stdout).toContain('hand-written board.layout or panes');
+    });
+  });
+
   it('keeps working when the global theme is wrong', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);

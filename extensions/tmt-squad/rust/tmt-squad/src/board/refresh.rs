@@ -902,6 +902,80 @@ mod tests {
     const WAIT: Duration = Duration::from_millis(300);
 
     #[test]
+    fn saved_views_acquire_notes_from_effective_board_without_changing_workflow() {
+        let root = std::env::temp_dir().join(format!("squad-view-notes-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let executable = root.join("tmt");
+        crate::test_support::write_executable(
+            &executable,
+            r##"#!/bin/sh
+root=${0%/*}
+case "$1" in
+  api)
+    input=$(cat)
+    case "$input" in
+      *'"rooms.roster"'*) printf '%s\n' '{"members":[{"id":"SOL","name":"sol","lifetime":"saved","metadata":{"squad.product.role":"lead","squad.product.task":"unchanged task"}}]}' ;;
+      *'"notes.read"'*) printf '%s\n' notes >> "$root/calls"; printf '%s\n' '{"identityId":"SOL","content":"# Lead notebook\nFinal notebook sentinel"}' ;;
+      *) exit 2 ;;
+    esac ;;
+  ls) printf '%s\n' '{"identities":[]}' ;;
+  *) exit 2 ;;
+esac
+"##,
+        );
+        let core = Core::at(executable);
+        let squad = Squad {
+            name: "product".into(),
+            room_id: "33333333-3333-4333-8333-333333333333".into(),
+        };
+        let (fetch, _pending) = mpsc::channel();
+        let mut kept = Kept {
+            bodies: BTreeMap::new(),
+            fetch,
+        };
+        for workflow in ["minimal", "crew"] {
+            let path = root.join("squad.toml");
+            std::fs::write(&path, format!("[squad.product]\nlayout = '{workflow}'\n")).unwrap();
+            let mut config = Config::read(path).unwrap();
+            let baseline = squad_view(&core, false, &config, &squad, None, &mut kept)
+                .unwrap()
+                .0;
+            if workflow == "minimal" {
+                assert_eq!(baseline.notes, Notes::NotShown);
+                assert!(!root.join("calls").exists());
+            }
+            config
+                .set_view(
+                    &crate::view::ViewScope::Squad("product".into()),
+                    crate::view::ViewName::Notes,
+                )
+                .unwrap();
+            let view = squad_view(&core, false, &config, &squad, None, &mut kept)
+                .unwrap()
+                .0;
+            assert_eq!(
+                view.document, baseline.document,
+                "workflow projection stays identical"
+            );
+            assert_eq!(
+                view.notes,
+                Notes::Text("# Lead notebook\nFinal notebook sentinel".into())
+            );
+            assert!(view.board.panes.contains(&Pane::Notes));
+            assert_eq!(config.layout("product").unwrap().as_str(), workflow);
+        }
+        assert_eq!(
+            std::fs::read_to_string(root.join("calls"))
+                .unwrap()
+                .lines()
+                .count(),
+            3,
+            "one read for each effective notes pane"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn advancing_generation_stops_all_old_readers_and_never_resets_them() {
         let generation = Generation::default();
         let old = generation.cancellation(0);

@@ -154,6 +154,34 @@ PgUp/PgDn and Home/End, or use the wheel over the pane. The scroll marks show
 remaining content. Older replies without a loaded body retain `tmt result <id>`
 hints; reading and scrolling acknowledge nothing.
 
+## Choose a board view
+
+`tmt sq view ls` (or bare `tmt sq view`) lists factory pane arrangements:
+`team`, `focus`, `notes`, `detail` and `wide`. Views change only pane positions
+and fold defaults. Workflow states, rows, providers, reminders, the token meter
+and theme keep their settings; crew, pr-queue and minimal remain workflow layouts.
+
+```sh
+tmt sq view set notes                      # all boards
+tmt sq view set wide --squad product       # this squad
+tmt sq view rm --squad product             # inherit the arrangement
+```
+
+The effective arrangement comes from a hand-written per-squad `board.layout`
+or `panes`, then `[squad.<name>.board] view`, then `[board] view`, then the
+workflow layout's own arrangement. `team` keeps today's responsive arrangement;
+`focus` starts detail/replies/notes folded, `notes` gives lead notes most space,
+`detail` places detail/replies below rows with notes folded, and `wide` uses
+three columns. Team folds detail/replies below 100 cells, detail folds replies
+below 100, and wide folds detail/replies below 180. Manual folds retain their
+existing session rules.
+
+Set and reset write only the selected layer's `view` key through the existing
+format-preserving writer and refuse a concurrently changed file. Scoped set
+refuses a custom layout with a manual-removal hint. Reset removes only `view`,
+retaining custom layout and fold keys; all-boards settings remain masked by
+custom and scoped arrangements. Agents change views only when requested.
+
 ## Fold board panes
 
 In split mode, press `d` to fold or expand detail and replies together when

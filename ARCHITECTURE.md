@@ -3128,6 +3128,25 @@ stays visible until that generation's update arrives; a newer switch preempts
 this lower-priority work. The cross-squad leads/all views still read the rosters
 needed for their own rows before publication.
 
+Squad's `view` command module owns the factory pane-arrangement catalog and
+registers `view ls` (hidden `list` alias), `set` and `rm`; bare `view` lists.
+The catalog uses the existing split/fold grammar: `team` reuses the current
+team arrangement, and `focus`, `notes`, `detail` and `wide` supply arrangements
+and initial fold settings only. `Config::board` resolves a hand-written
+per-squad `board.layout` or `panes` first, then per-squad `board.view`, then
+top-level `board.view`, then the workflow layout's own arrangement.
+`Config::resolve_layout` remains the workflow owner, so a view changes no
+states, rows, providers, reminders or meter policy. All view names are validated,
+including masked settings. Explicit per-squad fold settings override factory
+defaults through the same Board reader. Pane acquisition reads the resolved
+Board, independently of the workflow layout. Narrow `wide` folds its middle
+column below 180 cells and uses the existing solver's 40:30 redistribution
+between rows and notes; it has no width-dependent arrangement resolver.
+Named `Config::set_view` and `remove_view` edit only `view` in the chosen board
+layer through `Config::write`. Scoped set refuses a hand-written layout with a
+manual-removal hint; reset retains custom keys. All-boards choices remain masked
+by custom or scoped arrangements. No core settings writer is introduced.
+
 Squad's `theme` command module registers `theme ls` (hidden `list` alias),
 `set` and `rm`; bare `theme` lists. Lists and the board picker consume names and
 descriptions from `tmt-cli-style::Base`, never a Squad palette. The effective
@@ -3391,8 +3410,8 @@ reparsing Markdown. View replacement discards the cache. Replies keep the shared
 Membership commands are sequences of idempotent core commands, not one
 transaction; each reports what it applied, and a re-run converges. `squad.toml`,
 beside the global config that `tmt config show` reports, is the user's file.
-`Config::write` owns format-preserving replacement for `me`/`me_id`, tab order
-and board theme bases. It checks the original bytes, edits a cloned document,
+`Config::write` owns format-preserving replacement for `me`/`me_id`, tab order,
+board views and theme bases. It checks the original bytes, edits a cloned document,
 skips unchanged bytes and assigns the new document only after successful
 publication. A changed file is refused, not overwritten. Its byte check and
 atomic replacement are not a locking transaction; backups are not created.

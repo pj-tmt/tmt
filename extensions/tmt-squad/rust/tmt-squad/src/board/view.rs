@@ -1652,6 +1652,56 @@ mod tests {
     }
 
     #[test]
+    fn factory_views_render_crew_team_and_custom_rows_at_each_width() {
+        let path =
+            std::env::temp_dir().join(format!("squad-factory-render-{}.toml", std::process::id()));
+        for workflow in ["crew", "team"] {
+            for custom_rows in [false, true] {
+                for name in crate::view::ViewName::ALL {
+                    let rows = if custom_rows {
+                        "[squad.product.rows]\ncolumns = [{ name = 'member', width = 14 }, { name = 'task', grow = 1 }]\nlines = [[{ field = 'member' }, { field = 'task' }]]\n"
+                    } else {
+                        ""
+                    };
+                    std::fs::write(&path, format!("[squad.product]\nlayout = '{workflow}'\n[squad.product.board]\nview = '{}'\n{rows}", name.name())).unwrap();
+                    let config = crate::config::Config::read(path.clone()).unwrap();
+                    let mut app = board(
+                        json!([{ "title": null, "rows": [row("view-worker", "working", "visible task", json!({}))] }]),
+                    );
+                    let view = app.view.as_mut().unwrap();
+                    view.board = config.board("product").unwrap();
+                    view.rows = config.rows("product").unwrap();
+                    view.notes = Notes::Text("# Notebook\nLead notebook sentinel".into());
+                    for width in [80, 120, 200] {
+                        app.set_body_width(width);
+                        let screen = draw(&app, width, 42);
+                        assert!(
+                            screen.iter().any(|line| line.contains("view-worker")),
+                            "{} / {workflow} / custom={custom_rows} at {width}",
+                            name.name()
+                        );
+                        assert!(!app.hits.borrow().is_empty(), "rows remain interactive");
+                        assert!(
+                            app.title_hits
+                                .borrow()
+                                .iter()
+                                .all(|hit| hit.area.right() <= width && hit.area.bottom() <= 42)
+                        );
+                        if !app.collapsed_panes().contains(&Pane::Notes) {
+                            assert!(
+                                screen
+                                    .iter()
+                                    .any(|line| line.contains("Lead notebook sentinel"))
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn default_team_is_readable_at_80_120_and_200_columns() {
         let path =
             std::env::temp_dir().join(format!("squad-team-responsive-{}.toml", std::process::id()));
