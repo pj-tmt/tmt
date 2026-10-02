@@ -120,3 +120,77 @@ test("malformed pages are errors, each for its own reason", () => {
     assert.match(byPath[`site/src/i18n/zh/${name}`], pattern);
   }
 });
+
+const strings = (claim) => JSON.stringify({ $source: claim, home: { title: "ホーム" } });
+const STRINGS_TS = "export const english = {};\n";
+
+test("strings.json follows site/src/lang/strings.ts through its $source claim", () => {
+  const sha = blobSha(Buffer.from(STRINGS_TS));
+  const run = (json) =>
+    fixture(
+      { "site/src/lang/strings.ts": STRINGS_TS, "site/src/i18n/ja/strings.json": json },
+      (root) => checkTranslations(root, languages),
+    );
+  const fresh = run(strings({ source: "site/src/lang/strings.ts", sourceRevision: sha }));
+  assert.deepEqual([fresh.errors, fresh.stale], [[], []]);
+
+  const stale = run(
+    strings({ source: "site/src/lang/strings.ts", sourceRevision: "c".repeat(40) }),
+  );
+  assert.deepEqual(stale.errors, []);
+  assert.equal(stale.stale.length, 1);
+  assert.equal(stale.stale[0].path, "site/src/i18n/ja/strings.json");
+  assert.match(
+    stale.stale[0].message,
+    /is stale: written from ccccccc, site\/src\/lang\/strings\.ts/,
+  );
+});
+
+test("a strings.json without a usable $source is an error", () => {
+  const sha = "d".repeat(40);
+  const cases = [
+    ["{ not json", /is not valid JSON/],
+    [JSON.stringify({ home: {} }), /needs a top-level "\$source" object/],
+    [
+      JSON.stringify({ $source: "site/src/lang/strings.ts" }),
+      /needs a top-level "\$source" object/,
+    ],
+    [
+      strings({ source: "site/src/chapters/start.mdx", sourceRevision: sha }),
+      /source must be site\/src\/lang\/strings\.ts/,
+    ],
+    [
+      strings({ source: "site/src/lang/strings.ts", sourceRevision: "short" }),
+      /40-character git blob SHA/,
+    ],
+  ];
+  for (const [json, pattern] of cases) {
+    const result = fixture(
+      {
+        "site/src/lang/strings.ts": STRINGS_TS,
+        "site/src/chapters/start.mdx": "x",
+        "site/src/i18n/zh/strings.json": json,
+      },
+      (root) => checkTranslations(root, languages),
+    );
+    assert.equal(result.errors.length, 1, json);
+    assert.match(result.errors[0].message, pattern);
+    assert.equal(result.errors[0].path, "site/src/i18n/zh/strings.json");
+  }
+});
+
+test("a missing strings.ts is reported once as a dangling source", () => {
+  const result = fixture(
+    {
+      "site/src/i18n/ja/strings.json": strings({
+        source: "site/src/lang/strings.ts",
+        sourceRevision: "e".repeat(40),
+      }),
+    },
+    (root) => checkTranslations(root, languages),
+  );
+  assert.deepEqual(
+    result.errors.map((error) => error.message),
+    ["source site/src/lang/strings.ts does not exist"],
+  );
+});
