@@ -2,6 +2,7 @@ import { writeExecutable } from '../support/executable-fixture.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { syncBuiltinESMExports } from 'node:module';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { createSandbox, runCli, withSandbox } from '../support/cli-process.js';
 
@@ -60,6 +61,46 @@ async function cleanup(marker: string) {
 afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
+
+it.skipIf(process.platform !== 'linux').each(['discovery', 'recheck'])(
+  'cwd permission denial during %s keeps the guard within its inspection boundary',
+  async (phase) => {
+    const readlink = fs.readlinkSync.bind(fs);
+    const denied = Object.assign(new Error('Simulated cwd inspection denial'), { code: 'EACCES' });
+    let sandboxRoot = '';
+    let inspections = 0;
+    const inspection = vi.spyOn(fs, 'readlinkSync').mockImplementation((target, options) => {
+      if (String(target) === `/proc/${process.pid}/cwd`) {
+        inspections++;
+        if (phase === 'recheck' && inspections === 1) return sandboxRoot;
+        throw denied;
+      }
+      return readlink(target, options);
+    });
+    syncBuiltinESMExports();
+    try {
+      const result = withSandbox(async (sandbox) => {
+        sandboxRoot = sandbox.root;
+        roots.push(sandboxRoot);
+        return 'callback completed';
+      });
+      if (phase === 'discovery') {
+        await expect(result).resolves.toBe('callback completed');
+        expect(fs.existsSync(sandboxRoot)).toBe(false);
+      } else {
+        const error = await result.catch((error: unknown) => error);
+        expect(error).toBeInstanceOf(AggregateError);
+        expect((error as AggregateError).errors).toContain(denied);
+        expect((error as Error).message).toContain('retained fixture');
+        expect(fs.existsSync(sandboxRoot)).toBe(true);
+      }
+      expect(inspections).toBe(phase === 'discovery' ? 1 : 2);
+    } finally {
+      inspection.mockRestore();
+      syncBuiltinESMExports();
+    }
+  }
+);
 
 it('owns the default tmux socket directory and removes it with the sandbox', async () => {
   let socketRoot = '';
@@ -403,9 +444,9 @@ it.each(['signal', 'probe'])(
       expect(probeDenied).toBe(denial === 'probe');
       expect(fs.existsSync(sandboxRoot)).toBe(true);
       const { child, group } = JSON.parse(fs.readFileSync(f.marker, 'utf8'));
-      // Group cleanup failed, but the independent cwd guard still stops sandbox residents.
-      expect(alive(child)).toBe(false);
-      expect(alive(-group)).toBe(false);
+      // Linux's independent cwd guard stops residents even when group cleanup fails.
+      expect(alive(child)).toBe(process.platform !== 'linux');
+      expect(alive(-group)).toBe(process.platform !== 'linux');
     } finally {
       probe.mockRestore();
       await cleanup(f.marker);

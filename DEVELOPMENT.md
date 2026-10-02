@@ -1425,12 +1425,15 @@ still fail cleanup. An unconfirmed group is never signalled. Unconfirmed cleanup
 fails and reports the retained fixture path instead of deleting potentially
 live state. Focused lifecycle regressions live in `typescript/test/tooling/cli-process.test.ts`;
 they use explicit Node fixtures, not a product-runtime fallback.
-After registered runs stop, the post-callback cwd guard rejects live same-user
-processes inside the sandbox, re-verifies ownership before terminating them,
-and confirms absence before deleting files. Linux uses `/proc`; macOS requires
-`/usr/sbin/lsof`. A detected leak fails even when termination succeeds; failed
-inspection or termination retains the fixture. Detached Office service coverage
-is in `test/native/office-uninstall.test.ts`. Scenarios must still stop services
+On Linux, after registered runs stop, the post-callback cwd guard rejects live
+inspectable same-user processes inside the sandbox, re-verifies ownership before terminating them,
+and confirms absence before deleting files using `/proc`. The guard and its
+detached-service regression are skipped on macOS and other platforms; no
+user-wide process scan runs there. Linux discovery skips permission-denied entries
+(such as nondumpable system processes), so it cannot detect residents whose cwd
+is unreadable. A detected leak fails even when termination succeeds; failed
+re-inspection of a verified resident or termination retains the fixture. Detached
+Office service coverage is in `test/native/office-uninstall.test.ts`. Scenarios must still stop services
 they start through their existing control/receipt path on every callback exit.
 
 ### Optional performance probes

@@ -3629,12 +3629,14 @@ probe; live or unknown
 groups still fail within the cleanup bound. An unconfirmed group is never
 signalled; other initial probe or signal errors remain failures. Cleanup failure
 is bounded and retains fixture files for diagnosis. Sandbox disposal cancels outstanding runs before
-removing files. After registered-run cleanup, one post-callback guard inspects
-same-user processes' cwd (Linux `/proc`, macOS `lsof`). A live cwd inside the
-canonical sandbox root fails the test, including a service in a separate group.
+removing files. After registered-run cleanup, one post-callback guard reads
+inspectable same-user processes' cwd through Linux `/proc`; discovery skips
+permission-denied entries. This guard is skipped on macOS and other platforms.
+A live cwd inside the canonical sandbox root fails the test, including a service
+in a separate group.
 The guard re-verifies cwd before signalling each resident and confirms absence
-before deleting files. Unavailable inspection or unconfirmed cleanup retains
-the fixture; callback and cleanup failures remain visible together. This is not
+before deleting files. Failed inspection of a verified resident or unconfirmed
+cleanup retains the fixture; callback and cleanup failures remain visible together. This is not
 containment of descendants that leave the sandbox cwd, and does not replace the
 separate Docker harness or release verifier.
 

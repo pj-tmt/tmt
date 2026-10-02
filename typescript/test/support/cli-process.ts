@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
 import {
   mkdirSync,
@@ -347,63 +347,26 @@ export function fileSnapshot(root: string): Record<string, string> {
 }
 
 function processCwds(pid?: number): { pid: number; cwd: string }[] {
-  if (process.platform === 'linux') {
-    const pids =
-      pid === undefined ? readdirSync('/proc').filter((name) => /^\d+$/.test(name)) : [String(pid)];
-    return pids.flatMap((name) => {
-      try {
-        if (statSync(`/proc/${name}`).uid !== process.getuid!()) return [];
-        return [
-          {
-            pid: Number(name),
-            cwd: readlinkSync(`/proc/${name}/cwd`).replace(/ \(deleted\)$/, ''),
-          },
-        ];
-      } catch (error) {
-        if (['ENOENT', 'ESRCH'].includes((error as NodeJS.ErrnoException).code ?? '')) return [];
-        throw error;
-      }
-    });
-  }
-  if (process.platform !== 'darwin')
-    throw new Error('Sandbox cwd inspection requires Linux or macOS.');
-  let output: string;
-  try {
-    output = execFileSync(
-      '/usr/sbin/lsof',
-      [
-        '-a',
-        '-d',
-        'cwd',
-        '-Fpn',
-        ...(pid === undefined ? ['-u', String(process.getuid!())] : ['-p', String(pid)]),
-      ],
-      {
-        encoding: 'utf8',
-        timeout: 1000,
-        killSignal: 'SIGKILL',
-        stdio: ['ignore', 'pipe', 'pipe'],
-      }
-    );
-  } catch (error) {
-    // No lsof row is only conclusive when that selected process has exited.
-    if (pid !== undefined) {
-      try {
-        process.kill(pid, 0);
-      } catch (probeError) {
-        if ((probeError as NodeJS.ErrnoException).code === 'ESRCH') return [];
-      }
+  const pids =
+    pid === undefined ? readdirSync('/proc').filter((name) => /^\d+$/.test(name)) : [String(pid)];
+  return pids.flatMap((name) => {
+    try {
+      if (statSync(`/proc/${name}`).uid !== process.getuid!()) return [];
+      return [
+        {
+          pid: Number(name),
+          cwd: readlinkSync(`/proc/${name}/cwd`).replace(/ \(deleted\)$/, ''),
+        },
+      ];
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT' || code === 'ESRCH') return [];
+      // Same-user system processes can deny cwd access. Only discovery may skip them;
+      // an already verified resident must remain a cleanup failure if inspection fails.
+      if (pid === undefined && (code === 'EACCES' || code === 'EPERM')) return [];
+      throw error;
     }
-    throw error;
-  }
-  const processes: { pid: number; cwd: string }[] = [];
-  let currentPid = 0;
-  for (const line of output.split('\n')) {
-    if (/^p\d+$/.test(line)) currentPid = Number(line.slice(1));
-    else if (line.startsWith('n') && currentPid !== 0)
-      processes.push({ pid: currentPid, cwd: line.slice(1) });
-  }
-  return processes;
+  });
 }
 
 function sandboxProcesses(root: string, pid?: number): number[] {
@@ -430,7 +393,7 @@ export async function withSandbox<T>(callback: (sandbox: Sandbox) => T | Promise
   const errors = results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []));
   let leak: Error | undefined;
   try {
-    const leaked = sandboxProcesses(processRoot);
+    const leaked = process.platform === 'linux' ? sandboxProcesses(processRoot) : [];
     if (leaked.length) {
       leak = new Error(`Sandbox callback left live processes: ${leaked.join(', ')}.`);
       for (const pid of leaked) {

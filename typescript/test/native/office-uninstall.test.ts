@@ -56,75 +56,84 @@ describe('tmt uninstall on a disposable HOME and prefix', () => {
     });
   });
 
-  it('rejects and terminates a detached Office service left by the callback', async () => {
-    let root = '';
-    let receipt: { pid: number; port: number; controlToken: string; nonce: string } | undefined;
-    const alive = () => {
-      if (receipt === undefined) return false;
+  it.skipIf(process.platform !== 'linux')(
+    'rejects and terminates a detached Office service left by the callback',
+    async () => {
+      let root = '';
+      let receipt: { pid: number; port: number; controlToken: string; nonce: string } | undefined;
+      const alive = () => {
+        if (receipt === undefined) return false;
+        try {
+          process.kill(receipt.pid, 0);
+          return true;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false;
+          throw error;
+        }
+      };
       try {
-        process.kill(receipt.pid, 0);
-        return true;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false;
-        throw error;
-      }
-    };
-    try {
-      await expect(
-        withSandbox(async (sandbox) => {
-          root = sandbox.root;
-          const prefix = path.join(root, 'office prefix');
-          const artifact = await createArtifact(
-            sandbox,
-            '0.1.0-alpha.4',
-            new Uint8Array(),
-            'office'
-          );
-          const installed = await runCli(
-            sandbox,
-            [
-              '__native-install',
-              '--product',
+        await expect(
+          withSandbox(async (sandbox) => {
+            root = sandbox.root;
+            const prefix = path.join(root, 'office prefix');
+            const artifact = await createArtifact(
+              sandbox,
+              '0.1.0-alpha.4',
+              new Uint8Array(),
+              'office'
+            );
+            const installed = await runCli(
+              sandbox,
+              [
+                '__native-install',
+                '--product',
+                'office',
+                '--channel',
+                'alpha',
+                '--prefix',
+                prefix,
+                '--json',
+                '--archive',
+                artifact.archive,
+                '--manifest',
+                artifact.manifest,
+              ],
+              { deadlineMs: INSTALL_BUDGET_MS }
+            );
+            expect(installed.status, installed.stdout + installed.stderr).toBe(0);
+            const started = await runCli(sandbox, [
               'office',
-              '--channel',
-              'alpha',
               '--prefix',
               prefix,
+              'start',
               '--json',
-              '--archive',
-              artifact.archive,
-              '--manifest',
-              artifact.manifest,
-            ],
-            { deadlineMs: INSTALL_BUDGET_MS }
-          );
-          expect(installed.status, installed.stdout + installed.stderr).toBe(0);
-          const started = await runCli(sandbox, ['office', '--prefix', prefix, 'start', '--json']);
-          expect(started.status, started.stdout + started.stderr).toBe(0);
-          receipt = JSON.parse(
-            readFileSync(path.join(sandbox.globalDir, 'office/runtime/service-v1.json'), 'utf8')
-          ) as { pid: number; port: number; controlToken: string; nonce: string };
-          // Returning without stop recreates the callback cleanup gap.
-          expect(alive()).toBe(true);
-        })
-      ).rejects.toThrow('Sandbox callback left live processes');
-      expect(existsSync(root)).toBe(false);
-      await expect.poll(alive, { timeout: 1000 }).toBe(false);
-    } finally {
-      // Keep the regression safe when run against the original, unguarded harness.
-      if (receipt !== undefined && alive()) {
-        const stopped = await fetch(`http://127.0.0.1:${receipt.port}/control/v1/stop`, {
-          method: 'POST',
-          headers: {
-            authorization: `Bearer ${receipt.controlToken}`,
-            'x-tmt-office-nonce': receipt.nonce,
-          },
-          signal: AbortSignal.timeout(1000),
-        });
-        expect(stopped.status).toBe(200);
-        await stopped.arrayBuffer();
+            ]);
+            expect(started.status, started.stdout + started.stderr).toBe(0);
+            receipt = JSON.parse(
+              readFileSync(path.join(sandbox.globalDir, 'office/runtime/service-v1.json'), 'utf8')
+            ) as { pid: number; port: number; controlToken: string; nonce: string };
+            // Returning without stop recreates the callback cleanup gap.
+            expect(alive()).toBe(true);
+          })
+        ).rejects.toThrow('Sandbox callback left live processes');
+        expect(existsSync(root)).toBe(false);
         await expect.poll(alive, { timeout: 1000 }).toBe(false);
+      } finally {
+        // Keep the regression safe when run against the original, unguarded harness.
+        if (receipt !== undefined && alive()) {
+          const stopped = await fetch(`http://127.0.0.1:${receipt.port}/control/v1/stop`, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${receipt.controlToken}`,
+              'x-tmt-office-nonce': receipt.nonce,
+            },
+            signal: AbortSignal.timeout(1000),
+          });
+          expect(stopped.status).toBe(200);
+          await stopped.arrayBuffer();
+          await expect.poll(alive, { timeout: 1000 }).toBe(false);
+        }
       }
     }
-  });
+  );
 });
