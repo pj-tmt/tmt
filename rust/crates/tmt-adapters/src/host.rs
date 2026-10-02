@@ -540,8 +540,8 @@ impl<R: CommandRunner> Host<R> {
         self.tmux.focus_pane(invoker, pane, options)
     }
 
-    /// Post-commit pane cosmetics, tmux's alone; an external host's pane
-    /// carries only its marker.
+    /// Post-commit pane cosmetics. An external host's pane has no badge;
+    /// only its marker's name is kept current.
     pub fn update_binding_cosmetics(
         &self,
         binding: &Binding,
@@ -564,7 +564,17 @@ impl<R: CommandRunner> Host<R> {
             (HostKind::Tmux, _) => Ok(self
                 .tmux
                 .update_binding_cosmetics_until(binding, cosmetics, deadline)?),
-            (HostKind::External(_), _) => Ok(PaneRefresh::Absent),
+            (HostKind::External(host), PaneCosmetics::Bound { identity, .. }) => {
+                let mut session = external::Session::new(&self.external);
+                session.begin_coordination();
+                session.limit(Some(deadline));
+                match driver::refresh_marker_name(session.driver(host), binding, identity) {
+                    Ok(refresh) => Ok(refresh),
+                    Err(error) if error.cleanup_failed() => Err(error),
+                    Err(_) => Ok(PaneRefresh::Failed),
+                }
+            }
+            (HostKind::External(_), PaneCosmetics::Ended) => Ok(PaneRefresh::Absent),
         }
     }
 }

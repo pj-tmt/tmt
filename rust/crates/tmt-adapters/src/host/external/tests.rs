@@ -422,6 +422,7 @@ fn fixture_scheduling_does_not_change_the_capabilities_request() {
 
 /// Runs driver calls through the fixture's shell and everything else (the
 /// core's own `ps`) as production does.
+#[derive(Clone)]
 struct HostRunner;
 
 impl CommandRunner for HostRunner {
@@ -645,6 +646,66 @@ mod through_the_driver {
         let error = driver.publish(&binding, &identity()).unwrap_err();
         assert!(matches!(error, HostError::Refused { .. }), "{error:?}");
         assert_eq!(error.to_string(), "Host driver fake: the pane closed");
+    }
+
+    #[test]
+    fn a_rename_rewrites_only_this_bindings_stale_marker() {
+        use crate::host::{Host, PaneCosmetics, PaneRefresh};
+        let (pid, start) = live();
+        let installed = installed(pid);
+        installed.answer("publish", r#"{"ok": {}}"#);
+        let host = Host::for_server_with(&server(pid, &start), HostRunner)
+            .with_drivers(vec![installed.approve().unwrap()]);
+        let binding = binding(server(pid, &start), pid);
+        let refresh = |identity: &Identity, binding: &Binding| {
+            host.update_binding_cosmetics_until(
+                binding,
+                PaneCosmetics::Bound {
+                    identity,
+                    badge: true,
+                },
+                Instant::now() + Duration::from_secs(5),
+            )
+            .unwrap()
+        };
+        let publishes = || {
+            installed
+                .calls()
+                .iter()
+                .filter(|call| call.starts_with("publish"))
+                .count()
+        };
+
+        // The marker already carries the name: nothing to write.
+        assert_eq!(refresh(&identity(), &binding), PaneRefresh::Updated);
+        assert_eq!(publishes(), 0);
+        // Renamed: the marker is rewritten.
+        let renamed = Identity {
+            name: "Lead".into(),
+            canonical_name: "lead".into(),
+            ..identity()
+        };
+        assert_eq!(refresh(&renamed, &binding), PaneRefresh::Updated);
+        assert_eq!(publishes(), 1);
+        // A pane another binding owns is left alone.
+        let other = Binding {
+            id: "44444444-4444-4444-8444-444444444444".into(),
+            ..binding.clone()
+        };
+        assert_eq!(refresh(&renamed, &other), PaneRefresh::Absent);
+        assert_eq!(publishes(), 1);
+        // A driver that can't write reports the refresh failed, not an error.
+        installed.answer(
+            "publish",
+            r#"{"error": {"code": "not_found", "message": "the pane closed"}}"#,
+        );
+        assert_eq!(refresh(&renamed, &binding), PaneRefresh::Failed);
+        // An ended binding has nothing to show.
+        assert_eq!(
+            host.update_binding_cosmetics(&binding, PaneCosmetics::Ended)
+                .unwrap(),
+            PaneRefresh::Absent
+        );
     }
 
     #[derive(Default)]
