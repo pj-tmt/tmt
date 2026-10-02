@@ -145,7 +145,17 @@ export async function smokeRelease({
       results.push({ check: name, ok: true, reason: oneLine((await step()) ?? '') });
       return true;
     } catch (error) {
-      results.push({ check: name, ok: false, reason: oneLine(error.message, 500) });
+      const reason = oneLine(error.message, 500);
+      // Keep the packed runner's bounded command/streams instead of losing them in the short reason.
+      const detail = String(error.message)
+        .replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, (character) => (character === '\n' ? '\n' : ' '))
+        .slice(0, 6000);
+      results.push({
+        check: name,
+        ok: false,
+        reason,
+        ...(detail === reason ? {} : { detail }),
+      });
       return false;
     }
   };
@@ -294,8 +304,9 @@ export async function smokeRelease({
 /** Markdown for the run summary. */
 export function renderSmokeSummary({ tag, target, results }) {
   const lines = [`### Public install of \`${tag}\` (${target})`, ''];
-  for (const { check, ok, reason } of results) {
+  for (const { check, ok, reason, detail } of results) {
     lines.push(`- ${ok ? 'passed' : 'FAILED'} ${check}${reason ? `: ${reason}` : ''}`);
+    if (detail) lines.push('', ...detail.split('\n').map((line) => `    ${line}`), '');
   }
   return `${lines.join('\n')}\n`;
 }
@@ -345,7 +356,7 @@ async function main(argv, environment) {
       values['result-file'],
       JSON.stringify({
         target: values.target,
-        failed: results.filter(({ ok }) => !ok).map(({ check, reason }) => ({ check, reason })),
+        failed: results.filter(({ ok }) => !ok).map(({ ok: _ok, ...failure }) => failure),
       })
     );
   }
