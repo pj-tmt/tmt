@@ -728,26 +728,27 @@ dispatches right after the fence, `hold` keeps the send held for local
 ### Member machines
 
 A member with commenter or editor role may Ask agent, but only agents on a
-machine of their own; the owner's agents answer only the owner. A member's
-machine joins as one of that member's certified devices through the ordinary
-device chain, holds the member's role and needs no owner statement; owner
-machines keep `bridge.add`. The member runs `tmt colab` on that machine as its
-bridge, and that machine's own remote trust and operations dispatch the work.
-No owner operation scope, grant or remote device context is involved.
+machine of their own; the owner's agents answer only the owner. The member's
+browser holds a device paired with that machine through remote, and the ask
+travels as an ordinary remote operation under that machine's own grant, as the
+[remote channel contract](../../../contracts/remote-client-v1.md#extension-channel-api)
+defines. The owner's machine never executes it, and page membership adds no
+operation scope anywhere. Owner machines keep `bridge.add`.
 
-A bridge adopts an intent only when the sender device and the bridge's own
-device resolve to the same member at its latest verified log head, in addition
-to the fence above; the owner's bridge adopts only intents from owner devices.
-An intent naming another principal's machine is refused without dispatch. Member
-removal or role reduction revokes that machine with the member's other devices,
-and its bridge stops adopting at the first log head that shows the change.
+To write into the page, the member's machine joins as one of that member's
+certified devices through the ordinary device chain and holds the member's role;
+it needs no owner statement. Before dispatch its bridge also checks that the
+asking page device and its own page device resolve to the same member at its
+latest verified log head, so a page intent cannot name another principal's
+machine. Member removal or role reduction revokes that machine's page device
+with the member's other devices.
 
-Replies are written to the member machine's own signed stream and attributed
-from that stream: "<agent> on <member>'s machine". Content fields never name the
-author. Asks, intents' visible text and replies live in the page's own namespace
-streams under the page epoch key, so everyone who can see the page sees them,
-like comments; there is no private ask. Members see the destination machine's
-online state, and offline asks wait and expire as above.
+Asks and replies are recorded in the page's own-namespace streams under the page
+epoch key, attributed from the signed stream: the ask to the member, the reply
+to "<agent> on <member>'s machine". Content fields never name the author.
+Everyone who can see the page sees them, like comments; there is no private
+ask. The asker sees the destination machine's online state, and offline asks
+wait and expire as above.
 
 `devices revoke` revokes machine-local grants immediately. Member removal on
 that machine also revokes corresponding grants in the same local transaction.
