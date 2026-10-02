@@ -992,20 +992,22 @@ subscriber is explicitly closed with RESYNC_REQUIRED and must catch up; accepted
 durable payloads/receipts survive. Firestore listeners implement the same scoped
 immutable-object/cursor semantics without pretending to be a WebSocket server.
 
-Local storage uses extension SQLite/files and `colab-sync-v1` WebSocket; the
-HTTP door uses bounded std-thread sockets, workspace tungstenite and strict
-framing. Every HTTP request/upgrade requires exact configured Host, never a
-wildcard/forwarded-host fallback. Loopback admits `127.0.0.1:<port>` or
-`localhost:<port>` as configured; API and upgrades also require exact app Origin,
-no CORS. Upgrades need an enrolled-device session or link-device proof; a public
-reader can use only an explicitly read-only public session. Public does not
-make write/agent upgrades unauthenticated. DNS rebinding, hostile/missing Origin
-and unauthenticated upgrades MUST reject before effects.
+Local storage uses extension SQLite/files and `colab-sync-v1` WebSocket. Colab's
+local listener is only its owner-only socket `<dataRoot>/colab/door.sock`, which
+remote mounts at `/r/<prefix>/x/colab/` (#1039): remote's door owns Host, Origin,
+DNS-rebinding and cookie admission, and colab trusts the forwarded
+`tmt-device-context` because only the owner can reach the socket. Its HTTP
+handling uses bounded std-thread workers, workspace tungstenite and strict
+framing. Upgrades need an owner device context today; a link-device proof or an
+explicitly read-only public session is later work. Public does not make
+write/agent upgrades unauthenticated. Unauthenticated upgrades MUST reject
+before effects.
 
 The local space is loopback-only: there is no `--bind`, LAN or other
 non-loopback mode. Other people's machines reach a page only through a cloud
-backend (Firestore, then Cloudflare). L2 verifies Host allowlisting,
-body/acquisition caps and timeout/shutdown behavior.
+backend (Firestore, then Cloudflare). L2 verifies owner-only socket admission,
+body/acquisition caps and timeout/shutdown behavior; Host allowlisting is
+remote's.
 
 Firestore uses Hosting, Anonymous Auth for link holders/bridge connector and
 named Google sign-in for named members, Spark by default. Rules admit uid,
@@ -1096,7 +1098,8 @@ Required L1 gates include:
   arbitration. No deterministic fixture seeds/intermediate secrets in product APIs.
 
 L2 proves real temporary SQLite transactions, rollback/fork persistence, current
-epoch admission, Host/Origin/rebinding/upgrade denial and bounded door cleanup.
+epoch admission, owner-only socket admission, unauthenticated-upgrade denial and
+bounded socket cleanup; Host/Origin/rebinding denial is remote's door.
 L3/L4 prove two browsers and CLI concurrently edit/annotate, persist/reopen,
 namespace/role isolation, decoder hostile-corpus containment, dependency/delete-set
 compaction, concurrent tails, revoked checkpoint replacement, baseline resets,

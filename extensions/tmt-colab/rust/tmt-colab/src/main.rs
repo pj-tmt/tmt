@@ -1,4 +1,4 @@
-use clap::{Arg, Command};
+use clap::Command;
 use serde_json::json;
 use std::{
     io::Write,
@@ -8,8 +8,8 @@ use std::{
 use tmt_cli_style::{CommandSpec, Example, OutputModes, Route};
 use tmt_colab::{
     Result, core,
-    http::Door,
     keyring::{Keyring, Layout},
+    socket::{MountSocket, Tunnels},
     store::Store,
 };
 
@@ -22,17 +22,17 @@ fn grammar() -> Command {
             note: "Run the local foreground space",
         }],
         outputs: OutputModes::Human,
-        details: "Sign-in and sync are not available in this slice.",
+        details: "The space is reached through tmt remote, which mounts it for paired browsers. Sync is not available in this slice.",
     };
     const SERVE: CommandSpec = CommandSpec {
         name: "serve",
         summary: "Serve a local space in the foreground",
         examples: &[Example {
-            command: "tmt colab serve --port 0",
-            note: "Choose a free loopback port",
+            command: "tmt colab serve",
+            note: "Serve the space on its owner-only socket for tmt remote",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "Ctrl-C or SIGTERM closes the listener and all workers. APIs and upgrades are denied.",
+        details: "Listens only on <data root>/colab/door.sock; open it from a browser paired with tmt remote pair while tmt remote serve runs.\nCtrl-C or SIGTERM closes the socket, its workers and tunnels.",
     };
     const SPACES: CommandSpec = CommandSpec {
         name: "spaces",
@@ -47,15 +47,7 @@ fn grammar() -> Command {
     tmt_cli_style::command(&ROOT)
         .bin_name("tmt colab")
         .subcommand_required(true)
-        .subcommand(
-            tmt_cli_style::command(&SERVE).arg(
-                Arg::new("port")
-                    .long("port")
-                    .default_value("7341")
-                    .value_parser(clap::value_parser!(u16))
-                    .help("IPv4 loopback port (default 7341); 0 selects a free port"),
-            ),
-        )
+        .subcommand(tmt_cli_style::command(&SERVE))
         .subcommand(tmt_cli_style::command(&SPACES))
 }
 fn run(matches: &clap::ArgMatches) -> Result<()> {
@@ -76,12 +68,12 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         let keyring = Keyring::open(&layout)?;
         let mut output = tmt_cli_style::stream::stdout(json_output);
         let store = Store::open(&layout)?;
-        let door = Door::bind(*args.get_one::<u16>("port").unwrap())?;
+        let socket = MountSocket::bind(&layout, &keyring.space_id, Tunnels::PRODUCT)?;
         if json_output {
             writeln!(
                 output,
                 "{}",
-                json!({"spaceId":keyring.space_id,"url":door.address,"profile":"colab-sync-v1","state":"unauthenticated"})
+                json!({"spaceId":keyring.space_id,"socket":socket.path,"profile":"colab-sync-v1","state":"mounted"})
             )?;
         } else {
             let terminal = output.terminal();
@@ -91,14 +83,18 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
                 "LOCAL SPACE",
                 &[
                     ("space", keyring.space_id),
-                    ("url", door.address.clone()),
-                    ("state", "placeholder; sign-in and sync unavailable".into()),
+                    ("socket", socket.path.display().to_string()),
+                    (
+                        "open",
+                        "run tmt remote serve, then open colab from a browser paired with tmt remote pair"
+                            .into(),
+                    ),
                 ],
             )?;
         }
         output.flush()?;
         drop(output);
-        let result = door.run(&stop);
+        let result = socket.run(&stop);
         let closed = store.close();
         result?;
         closed
@@ -210,6 +206,11 @@ fn main() -> ExitCode {
             let code = error
                 .downcast_ref::<tmt_colab::keyring::StateFault>()
                 .map(|e| e.code())
+                .or_else(|| {
+                    error
+                        .downcast_ref::<tmt_colab::socket::SocketFault>()
+                        .map(|e| e.code())
+                })
                 .unwrap_or_else(|| {
                     if matches!(
                         error.downcast_ref::<tmt_colab::store::Fault>(),
@@ -243,17 +244,6 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn serve_defaults_to_the_fixed_port() {
-        let matches = grammar().try_get_matches_from(["colab", "serve"]).unwrap();
-        assert_eq!(
-            matches
-                .subcommand_matches("serve")
-                .unwrap()
-                .get_one::<u16>("port"),
-            Some(&7341)
-        );
-    }
     #[test]
     fn help_and_examples_obey_shared_style() {
         let help = |words: &[String]| match tmt_cli_style::route(&grammar(), words) {

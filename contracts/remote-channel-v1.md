@@ -697,10 +697,10 @@ certification) and the Rust and Python certificate vectors are implemented, as a
 pairing page, `/sdk/remote-v1.js` and `/sdk/mount` (#1039).
 
 Colab's working loopback door, sign-in and sync transport code relocates into `tmt-remote` as the
-local door, device sign-in and relay where it meets this contract, rather than being rewritten.
-The relocated door and `/r/<prefix>/x/<extension>/` route mounting are implemented (#1039), with only colab
-allowlisted; mounted requests carry no device context until pairing lands. Local colab keeps
-working until its routes mount on the remote door.
+local door, device sign-in and relay where it meets this contract, rather than being rewritten. The
+relocated door and `/r/<prefix>/x/<extension>/` route mounting are implemented (#1039), with only
+colab allowlisted. Colab serves only its owner-only socket and has no door of its own; an owner
+session's device context reaches it through the mount (#1039).
 
 ## Conformance and acceptance
 

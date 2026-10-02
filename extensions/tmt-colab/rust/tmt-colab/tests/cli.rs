@@ -7,8 +7,10 @@ use serde_json::{Value, json};
 use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
-    net::{TcpListener, TcpStream},
-    os::unix::fs::PermissionsExt,
+    os::unix::{
+        fs::PermissionsExt,
+        net::{UnixListener, UnixStream},
+    },
     path::PathBuf,
     process::{Child, Command, Stdio},
     sync::atomic::{AtomicUsize, Ordering},
@@ -90,7 +92,7 @@ impl Pilot {
     fn start(&mut self) -> Value {
         self.child = Some(
             self.command()
-                .args(["serve", "--port", "0", "--json"])
+                .args(["serve", "--json"])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
                 .spawn()
@@ -152,8 +154,9 @@ fn help_and_invalid_core_fail_without_creating_application_state() {
     let long = pilot.command().args(["help", "serve"]).output().unwrap();
     assert!(short.status.success() && long.status.success());
     assert_eq!(short.stdout, long.stdout);
-    assert!(String::from_utf8_lossy(&short.stdout).contains("default 7341"));
-    for args in [["serve", "--bind", "0.0.0.0"], ["serve", "--port", "65536"]] {
+    assert!(String::from_utf8_lossy(&short.stdout).contains("door.sock"));
+    // There is no TCP listener to configure any more.
+    for args in [["serve", "--bind", "0.0.0.0"], ["serve", "--port", "0"]] {
         assert!(
             !pilot
                 .command()
@@ -184,10 +187,7 @@ fn help_and_invalid_core_fail_without_creating_application_state() {
                 cmd.env("TMT_EXECUTABLE", path);
             }
         }
-        let output = cmd
-            .args(["serve", "--port", "0", "--json"])
-            .output()
-            .unwrap();
+        let output = cmd.args(["serve", "--json"]).output().unwrap();
         assert!(!output.status.success());
         assert_eq!(
             serde_json::from_slice::<Value>(&output.stdout).unwrap()["error"]["code"],
@@ -223,7 +223,6 @@ fn listing_is_read_only_and_foreground_shutdown_releases_state_and_sockets_twice
         assert!(!pilot.root.join("selected").exists());
         let descriptor = pilot.start();
         let id = descriptor["spaceId"].as_str().unwrap();
-        assert_eq!(descriptor["state"], "unauthenticated");
         assert_eq!(
             fs::read_to_string(pilot.root.join("calls")).unwrap(),
             "api\napi\n"
@@ -232,22 +231,26 @@ fn listing_is_read_only_and_foreground_shutdown_releases_state_and_sockets_twice
             serde_json::from_slice::<Value>(&fs::read(pilot.root.join("input")).unwrap()).unwrap(),
             json!({"version":1,"operation":"storage.root","input":{}})
         );
-        let address = descriptor["url"]
-            .as_str()
+        // The descriptor names the socket under the resolved data root.
+        let path = fs::canonicalize(&pilot.root)
             .unwrap()
-            .strip_prefix("http://")
-            .unwrap()
-            .trim_end_matches('/');
-        let mut socket = TcpStream::connect(address).unwrap();
+            .join("selected/colab/door.sock");
+        assert_eq!(descriptor["socket"], path.to_str().unwrap());
+        assert_eq!(descriptor["state"], "mounted");
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let mut socket = UnixStream::connect(&path).unwrap();
         socket
             .set_read_timeout(Some(Duration::from_secs(2)))
             .unwrap();
         socket
-            .write_all(format!("GET / HTTP/1.1\r\nHost: {address}\r\n\r\n").as_bytes())
+            .write_all(b"GET / HTTP/1.1\r\nHost: 127.0.0.1:1\r\n\r\n")
             .unwrap();
         let mut page = String::new();
         socket.read_to_string(&mut page).unwrap();
-        assert!(page.starts_with("HTTP/1.1 200") && page.contains("TMT Colab"));
+        assert!(page.starts_with("HTTP/1.1 200") && page.contains("This colab space is private"));
         assert_eq!(
             fs::read_to_string(pilot.root.join("calls")).unwrap(),
             "api\napi\n",
@@ -257,11 +260,7 @@ fn listing_is_read_only_and_foreground_shutdown_releases_state_and_sockets_twice
             pilot.call(&["spaces", "--json"]),
             json!({"spaces":[{"spaceId":id,"backend":"local","running":true}]})
         );
-        let duplicate = pilot
-            .command()
-            .args(["serve", "--port", "0", "--json"])
-            .output()
-            .unwrap();
+        let duplicate = pilot.command().args(["serve", "--json"]).output().unwrap();
         assert!(!duplicate.status.success());
         assert_eq!(
             serde_json::from_slice::<Value>(&duplicate.stdout).unwrap()["error"]["code"],
@@ -270,7 +269,8 @@ fn listing_is_read_only_and_foreground_shutdown_releases_state_and_sockets_twice
         let owner = pilot.root.join("selected/colab/owner.key");
         let saved = fs::read(&owner).unwrap();
         pilot.stop();
-        assert!(TcpStream::connect(address).is_err(), "listener leaked");
+        assert!(!path.exists(), "socket left behind");
+        assert!(UnixStream::connect(&path).is_err(), "listener leaked");
         assert_eq!(
             pilot.call(&["spaces", "--json"]),
             json!({"spaces":[{"spaceId":id,"backend":"local","running":false}]})
@@ -285,23 +285,39 @@ fn listing_is_read_only_and_foreground_shutdown_releases_state_and_sockets_twice
 }
 
 #[test]
-fn occupied_port_fails_with_a_port_hint() {
-    let pilot = Pilot::new(None);
-    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-    let port = listener.local_addr().unwrap().port().to_string();
-    let output = pilot
-        .command()
-        .args(["serve", "--port", &port, "--json"])
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    assert!(output.stderr.is_empty());
+fn only_a_stale_own_socket_is_replaced_and_long_paths_refuse() {
+    let mut pilot = Pilot::new(None);
+    let directory = pilot.root.join("selected/colab");
+    fs::create_dir_all(&directory).unwrap();
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let path = directory.join("door.sock");
+    // A non-socket at the path is never removed.
+    fs::write(&path, b"keep").unwrap();
+    let output = pilot.command().args(["serve", "--json"]).output().unwrap();
+    assert!(!output.status.success() && output.stderr.is_empty());
     let error: Value = serde_json::from_slice(&output.stdout).unwrap();
-    let message = error["error"]["message"].as_str().unwrap();
-    assert!(message.contains(&format!("port {port} is busy")));
-    assert!(message.contains("--port 0"));
-    // Failure releases the service lock and leaves an explicit free-port retry usable.
-    let mut pilot = pilot;
+    assert_eq!(error["error"]["code"], "COLAB_STATE_UNSAFE");
+    assert_eq!(fs::read(&path).unwrap(), b"keep");
+    fs::remove_file(&path).unwrap();
+    // A socket left by an earlier serve is replaced, and removed on exit.
+    drop(UnixListener::bind(&path).unwrap());
+    assert!(path.exists());
     pilot.start();
+    assert!(UnixStream::connect(&path).is_ok());
     pilot.stop();
+    assert!(!path.exists());
+    // A data root too deep for a Unix socket path refuses with the path named.
+    let deep = pilot.root.join("d".repeat(60)).join("e".repeat(40));
+    fs::create_dir_all(&deep).unwrap();
+    let long = Pilot::new(Some(&json!({ "dataRoot": deep }).to_string()));
+    let output = long.command().args(["serve", "--json"]).output().unwrap();
+    assert!(!output.status.success());
+    let error: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(error["error"]["code"], "COLAB_SOCKET_PATH_TOO_LONG");
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("door.sock")
+    );
 }

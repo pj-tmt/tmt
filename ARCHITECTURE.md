@@ -3857,8 +3857,8 @@ is that handler for the machine's stable `/r/<prefix>/` binding routes and the
 owner, which currently denies every request. Startup discovery is not a remote
 operation. Apart from pairing, the pilot cannot adopt a request, approve, send
 or subscribe; no journal or core DB is created. The foreground door has no default
-deadline; it runs until interrupted. Colab keeps its own copy of the door
-until its routes mount on the remote door.
+deadline; it runs until interrupted. Colab has no door of its own; remote
+mounts its owner-only socket.
 
 `state` owns remote's private `<dataRoot>/remote/` subtree, relocated from the
 colab keyring: an owned 0700 directory, owned 0600 regular files opened without
@@ -3914,13 +3914,13 @@ module and page are embedded with `include_str!` from the crate's `assets/`;
 and fails on any difference.
 
 `session::DoorSessions` admits the signed `session.open` control on
-`<prefix>/append`: exactly the envelope fields, this machine and window, a live
+`/r/<prefix>/append`: exactly the envelope fields, this machine and window, a live
 grant (not revoked, not expired), the envelope and request Origin equal to the
 grant origin (a `browser` grant to this door's own origin; none for `cli`), a
 timestamp within 60 seconds, a `{clientNonce}` payload whose nonce was not used
 by that device within two minutes, and the device signature over the canonical
 bytes. It answers a machine-signed response and, for a `browser` device, sets
-the `tmt_door` cookie (256-bit token, `Path=<prefix>/x/`, HttpOnly, SameSite=Strict)
+the `tmt_door` cookie (256-bit token, `Path=/r/<prefix>/x/`, HttpOnly, SameSite=Strict)
 whose SHA-256 is all serve keeps. Sessions live in serve memory, one per device:
 a newer session, revocation, 12 hours without use or stop ends one, and
 reopening is another signed `session.open`. Every refusal is the generic 404.
@@ -3928,13 +3928,13 @@ reopening is another signed `session.open`. Every refusal is the generic 404.
 pairing. `devices::Devices` lists grants and revokes one by disabling it and
 advancing its revision before acknowledging, then ends the device's session.
 
-`site::Site` is the door's handler: the mount space `<prefix>/x/` goes to
+`site::Site` is the door's handler: the mount space `/r/<prefix>/x/` goes to
 `mount::Mounts`, `/pair/` and `/sdk/` to `pages::Pages`, all others to the
 `/r/` binding, whose exact routes never overlap the mount space; the root `/x/`
 is a plain 404. Mounting under the unpredictable machine prefix keeps the door
 cookie (scoped to it) from other loopback listeners at a guessable path, and
 mounted replies keep `no-referrer` (or a narrower `same-origin`) so the prefix
-does not leak in `Referer`. Mounts forward `<prefix>/x/<extension>/` to
+does not leak in `Referer`. Mounts forward `/r/<prefix>/x/<extension>/` to
 `<dataRoot>/<extension>/door.sock` only for allowlisted extensions (exactly
 `colab` in this slice; a general enabled-extension registry is later work)
 and only when that socket and its directory are owned by the user, grant
@@ -4091,6 +4091,22 @@ owner-device identity, door route mounting, the opaque relay, agent operations a
 backends/deploy, and colab-v1 marks which of its sections move there or retire.
 Colab keeps page membership, content keys, epochs and before-effect verification;
 the public core API retains dispatch/final ownership.
+
+`socket::MountSocket` is colab's only listener: `<dataRoot>/colab/door.sock`
+(0600 in the 0700 colab directory), bound under the serve lock after rechecking
+that the directory is this user's and closed to group/other, which replaces
+only a stale socket owned by this user, refuses anything else, rejects paths too
+long for a Unix socket and removes its own socket on exit. Remote mounts it at
+`/r/<prefix>/x/colab/` and owns Host, Origin, cookies and browser framing; colab
+trusts `tmt-device-context` because only the owner can reach the socket. It
+keeps the relocated door's bounds (16 request workers, 8 KiB/32 header fields,
+64 KiB bodies, acquisition/response deadlines, drained replies) and answers the
+placeholder page for owner and non-owner requests. It accepts a `colab-sync-v1`
+WebSocket upgrade only with an owner context, version 13 and a well-formed
+16-byte key, computing the accept value with the workspace `tungstenite`
+handshake, then holds the tunnel (16 at most, closed after 120 s without
+inbound bytes) until colab-sync-v1 frames exist. Shutdown closes
+every request socket and tunnel before joining.
 
 Servers never decode Yjs; foreign-writer decoding/merging runs in a bounded
 `tmt-colab` child through `tmt-invoke` (deadline/caps/confirmed cleanup), or a
