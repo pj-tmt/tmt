@@ -85,6 +85,7 @@ impl Harness {
             machine.id.clone(),
             window_id.clone(),
             origin.clone(),
+            format!("{}/x/", machine.route_prefix),
             machine_key,
             Arc::clone(&store),
             idle,
@@ -109,7 +110,12 @@ impl Harness {
         .unwrap();
         let site = Arc::new(Site {
             routes,
-            mounts: Mounts::new(root.clone(), &origin, Arc::clone(&sessions) as _),
+            mounts: Mounts::new(
+                root.clone(),
+                &origin,
+                &machine.route_prefix,
+                Arc::clone(&sessions) as _,
+            ),
             pages: Some(Pages::new(
                 &origin,
                 machine.id.clone(),

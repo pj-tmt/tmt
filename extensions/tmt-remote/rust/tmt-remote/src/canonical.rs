@@ -185,7 +185,7 @@ pub fn possession(enrollment: &[u8], mac: &[u8; 32]) -> Result<Vec<u8>> {
     framed(&[b"tmt-device-pair-possession-v1", enrollment, mac])
 }
 
-/// An extension name as mounted under `/x/<extension>/`: a lowercase ASCII
+/// An extension name as mounted under `<prefix>/x/<extension>/`: a lowercase ASCII
 /// letter, then lowercase letters, digits or hyphens, at most 32 bytes.
 pub fn extension_name(value: &str) -> bool {
     value.len() <= 32

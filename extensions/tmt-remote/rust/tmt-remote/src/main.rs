@@ -78,7 +78,7 @@ const SERVE: CommandSpec = CommandSpec {
         note: "Print the bound descriptor for local testing",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Runs in the foreground until Ctrl-C or SIGTERM; there is no default deadline.\nOnly pairing is admitted; no core operation is forwarded.\nMounts colab under /x/colab/ while its owner-only socket exists.",
+    details: "Runs in the foreground until Ctrl-C or SIGTERM; there is no default deadline.\nOnly pairing is admitted; no core operation is forwarded.\nMounts colab under <prefix>/x/colab/ while its owner-only socket exists.",
 };
 fn grammar() -> Command {
     tmt_cli_style::command(&ROOT)
@@ -168,6 +168,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
             machine.id.clone(),
             window_id.clone(),
             door.origin.clone(),
+            format!("{}/x/", machine.route_prefix),
             machine_key,
             Arc::clone(&store),
             session::IDLE,
@@ -187,7 +188,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         )?;
         let site = Arc::new(Site {
             routes,
-            mounts: Mounts::new(root, &door.origin, sessions),
+            mounts: Mounts::new(root, &door.origin, &machine.route_prefix, sessions),
             pages: Some(Pages::new(
                 &door.origin,
                 machine.id.clone(),

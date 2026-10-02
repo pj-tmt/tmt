@@ -1,5 +1,5 @@
 //! Door-served browser assets on real sockets: the pairing page, the SDK
-//! module and the mount lookup, each disjoint from `/r/` and `/x/`.
+//! module and the mount lookup, each disjoint from the prefixed routes and mounts.
 #[allow(dead_code)]
 #[path = "support/door.rs"]
 mod door;
@@ -109,7 +109,7 @@ fn the_pairing_page_and_sdk_are_served_with_exact_types_and_policy() {
         include_str!("../assets/remote-v1.js"),
         "the embedded module is served unchanged"
     );
-    // Only the exact grammar is served; nothing here reaches `/r/` or `/x/`.
+    // Only the exact grammar is served; nothing here reaches operations or mounts.
     for (path, headers, status) in [
         ("/pair/", "", 404),
         ("/pair/a.b", "", 404),
@@ -128,8 +128,9 @@ fn the_pairing_page_and_sdk_are_served_with_exact_types_and_policy() {
 fn mount_lookup_answers_from_the_door_mapping_for_same_origin_pages() {
     let h = Harness::new(FAST);
     let origin = Some(h.origin.as_str());
-    let answer: Value =
-        serde_json::from_str(&mount(&h, r#"{"path":"/x/colab/space/1"}"#, origin).body).unwrap();
+    let colab = format!("{}/x/colab/", h.prefix);
+    let body = json!({ "path": format!("{colab}space/1") }).to_string();
+    let answer: Value = serde_json::from_str(&mount(&h, &body, origin).body).unwrap();
     assert_eq!(
         answer,
         json!({
@@ -137,10 +138,12 @@ fn mount_lookup_answers_from_the_door_mapping_for_same_origin_pages() {
             "windowId": h.window_id,
             "address": format!("{}{}", h.origin, h.prefix),
             "extension": "colab",
-            "mount": "/x/colab/",
+            "mount": colab,
         })
     );
-    for path in ["/pair/abc", "/x/other/", "/x/colab", "/"] {
+    let other = format!("{}/x/other/", h.prefix);
+    let bare = format!("{}/x/colab", h.prefix);
+    for path in ["/pair/abc", "/x/colab/", &other, &bare, "/"] {
         let body = json!({ "path": path }).to_string();
         let answer: Value = serde_json::from_str(&mount(&h, &body, origin).body).unwrap();
         assert_eq!(answer["extension"], Value::Null, "{path}");

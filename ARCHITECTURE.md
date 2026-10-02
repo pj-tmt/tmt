@@ -3826,7 +3826,7 @@ subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
 `http::Door` is the colab loopback door relocated under remote (#1039). It owns
 IPv4-loopback sockets, joined workers, strict HTTP/1.1 framing, exact numeric
 Host admission (no alias, so DNS rebinding fails), the origin-form target
-grammar that isolates `/r/` from future `/x/<extension>/` prefixes,
+grammar that keeps the operation routes and the mount space apart,
 header/connection bounds, a door-owned maximum body that handlers can only
 narrow, a 32 MiB in-flight body budget reserved before any body byte is read
 (bounding unauthenticated memory), absolute acquisition/response deadlines and
@@ -3886,7 +3886,7 @@ keeps only the candidate, receipt and proof for exact-retry recovery until the
 original deadline. A failed grant write ends the offer with no grant.
 
 `pages::Pages` serves the browser assets at the door root, disjoint from `/r/`
-and `/x/`: the pairing page at `/pair/<descriptor>` (strict CSP, same-origin
+and the route prefix: the pairing page at `/pair/<descriptor>` (strict CSP, same-origin
 script only), the device SDK module at `/sdk/remote-v1.js` and `/sdk/mount`,
 which answers a same-origin page's path with this run's machine and window and
 the extension whose mount contains it, from `Mounts::extension_of`. That lookup
@@ -3902,7 +3902,7 @@ grant origin (a `browser` grant to this door's own origin; none for `cli`), a
 timestamp within 60 seconds, a `{clientNonce}` payload whose nonce was not used
 by that device within two minutes, and the device signature over the canonical
 bytes. It answers a machine-signed response and, for a `browser` device, sets
-the `tmt_door` cookie (256-bit token, `Path=/x/`, HttpOnly, SameSite=Strict)
+the `tmt_door` cookie (256-bit token, `Path=<prefix>/x/`, HttpOnly, SameSite=Strict)
 whose SHA-256 is all serve keeps. Sessions live in serve memory, one per device:
 a newer session, revocation, 12 hours without use or stop ends one, and
 reopening is another signed `session.open`. Every refusal is the generic 404.
@@ -3910,8 +3910,13 @@ reopening is another signed `session.open`. Every refusal is the generic 404.
 pairing. `devices::Devices` lists grants and revokes one by disabling it and
 advancing its revision before acknowledging, then ends the device's session.
 
-`site::Site` is the door's handler: `/x/` paths go to `mount::Mounts`, all
-others to the `/r/` binding. Mounts forward `/x/<extension>/` to
+`site::Site` is the door's handler: the mount space `<prefix>/x/` goes to
+`mount::Mounts`, `/pair/` and `/sdk/` to `pages::Pages`, all others to the
+`/r/` binding, whose exact routes never overlap the mount space; the root `/x/`
+is a plain 404. Mounting under the unpredictable machine prefix keeps the door
+cookie (scoped to it) from other loopback listeners at a guessable path, and
+mounted replies keep `no-referrer` (or a narrower `same-origin`) so the prefix
+does not leak in `Referer`. Mounts forward `<prefix>/x/<extension>/` to
 `<dataRoot>/<extension>/door.sock` only for allowlisted extensions (exactly
 `colab` in this slice; a general enabled-extension registry is later work)
 and only when that socket and its directory are owned by the user, grant

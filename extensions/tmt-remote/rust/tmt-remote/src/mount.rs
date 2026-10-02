@@ -1,4 +1,6 @@
-//! `/x/<extension>/` mounts. Remote owns admission (Host, Origin, framing and
+//! `<prefix>/x/<extension>/` mounts, under the machine's unpredictable route
+//! prefix so the door cookie scoped there is not sent to other loopback
+//! listeners at a guessable path. Remote owns admission (Host, Origin, framing and
 //! bounds) and forwards to an owner-only local socket in the extension's data
 //! subtree, adding the authenticated device context only for owner sessions.
 //! The extension owns its replies: content type, CSP and other headers.
@@ -55,7 +57,7 @@ pub const RETRY_AFTER_SECONDS: u32 = 5;
 pub const SOCKET: &str = "door.sock";
 /// Set only by remote; never copied from a client request.
 pub const CONTEXT_HEADER: &str = "tmt-device-context";
-/// The mount prefix the forwarded path was taken from, for example `/x/colab/`.
+/// The mount the forwarded path was taken from, for example `/r/<prefix>/x/colab/`.
 pub const MOUNT_HEADER: &str = "tmt-mount";
 /// Client request headers an extension may see. Cookie (the remote door
 /// session) and anything else are dropped.
@@ -163,6 +165,8 @@ impl SessionState {
 
 pub struct Mounts {
     root: PathBuf,
+    /// `<prefix>/x/`, the start of every mount path.
+    base: String,
     origin: String,
     host: String,
     sessions: Arc<dyn Sessions>,
@@ -184,19 +188,22 @@ impl Drop for TunnelSlot {
     }
 }
 impl Mounts {
-    /// `root` is the absolute core data root; `origin` the door's exact origin.
-    pub fn new(root: PathBuf, origin: &str, sessions: Arc<dyn Sessions>) -> Self {
-        Self::with_extensions(root, origin, sessions, &EXTENSIONS)
+    /// `root` is the absolute core data root; `origin` the door's exact
+    /// origin; `prefix` the machine's `/r/<32 hex>` route prefix.
+    pub fn new(root: PathBuf, origin: &str, prefix: &str, sessions: Arc<dyn Sessions>) -> Self {
+        Self::with_extensions(root, origin, prefix, sessions, &EXTENSIONS)
     }
     /// As [`Mounts::new`] with an explicit allowlist and bounds.
     pub fn with_extensions(
         root: PathBuf,
         origin: &str,
+        prefix: &str,
         sessions: Arc<dyn Sessions>,
         extensions: &'static [Extension],
     ) -> Self {
         Self {
             root,
+            base: format!("{prefix}/x/"),
             host: origin.trim_start_matches("http://").to_owned(),
             origin: origin.to_owned(),
             sessions,
@@ -260,18 +267,34 @@ impl Mounts {
             tunnels.running.push((retained, thread));
         }
     }
-    /// The allowlisted extension whose mount contains `path`, from the door's
-    /// own mapping; the SDK uses it to scope a page's extension certificates.
-    pub fn extension_of(&self, path: &str) -> Option<&'static str> {
-        self.extension(path).map(|(_, extension, _)| extension.name)
+    /// Whether `path` is in the mount space; everything there is the
+    /// mounts' to admit or refuse.
+    pub fn serves(&self, path: &str) -> bool {
+        path.starts_with(&self.base)
     }
-    /// `/x/<name>/<rest>` for an allowlisted name; `rest` keeps its leading slash.
+    /// The cookie path covering every mount.
+    pub fn base(&self) -> &str {
+        &self.base
+    }
+    /// The allowlisted extension whose mount contains `path`, and that mount,
+    /// from the door's own mapping; the SDK uses it to scope a page's
+    /// extension certificates.
+    pub fn extension_of(&self, path: &str) -> Option<(&'static str, String)> {
+        self.extension(path)
+            .map(|(_, extension, _)| (extension.name, self.mount(extension)))
+    }
+    fn mount(&self, extension: &Extension) -> String {
+        format!("{}{}/", self.base, extension.name)
+    }
+    /// `<prefix>/x/<name>/<rest>` for an allowlisted name; `rest` keeps its
+    /// leading slash.
     fn extension<'a>(&self, path: &'a str) -> Option<(usize, &'static Extension, &'a str)> {
-        let (name, _) = path.strip_prefix("/x/")?.split_once('/')?;
+        let below = path.strip_prefix(&self.base)?;
+        let (name, _) = below.split_once('/')?;
         let grammar = canonical::extension_name(name);
         let extensions: &'static [Extension] = self.extensions;
         let index = extensions.iter().position(|e| grammar && e.name == name)?;
-        Some((index, &extensions[index], &path[3 + name.len()..]))
+        Some((index, &extensions[index], &below[name.len()..]))
     }
     /// The extension's socket, only if both it and its directory are owned by
     /// this user, grant nothing to group/other and are not symlinks. The 0700
@@ -392,7 +415,7 @@ impl Mounts {
         // A reply that fails after its head is sent ends with a short body.
         let headers: Vec<_> = headers
             .into_iter()
-            .filter(|(name, _)| name != "set-cookie")
+            .filter(|(name, value)| name != "set-cookie" && referrer_kept(name, value))
             .collect();
         let head = http::head(status, &headers, Some(length));
         let _ = (|| -> io::Result<()> {
@@ -419,8 +442,10 @@ impl Mounts {
         websocket: bool,
     ) -> String {
         let mut text = format!(
-            "{} {rest} HTTP/1.1\r\nhost: {}\r\n{MOUNT_HEADER}: /x/{}/\r\n",
-            request.method, self.host, extension.name
+            "{} {rest} HTTP/1.1\r\nhost: {}\r\n{MOUNT_HEADER}: {}\r\n",
+            request.method,
+            self.host,
+            self.mount(extension)
         );
         if let Some(origin) = &request.origin {
             text.push_str(&format!("origin: {origin}\r\n"));
@@ -568,6 +593,12 @@ fn read_head(stream: &mut UnixStream, deadline: Instant) -> io::Result<ReplyHead
 /// unflushed, so a slow peer applies backpressure instead of growing memory.
 /// Pending bytes that make no progress within the write bound end the tunnel,
 /// and door shutdown closes the client socket, which ends it too.
+/// Page URLs contain the machine prefix, so a mounted reply may only narrow
+/// the door's `no-referrer` default to `same-origin`; any other policy is
+/// dropped and the default applies.
+fn referrer_kept(name: &str, value: &str) -> bool {
+    name != "referrer-policy" || matches!(value.trim(), "no-referrer" | "same-origin")
+}
 /// `session` is the owner session the upgrade was admitted under, if any.
 fn splice(
     mut client: TcpStream,

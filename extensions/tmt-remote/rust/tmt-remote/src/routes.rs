@@ -95,7 +95,7 @@ impl Handler for Routes {
         if head.method != "POST" || head.upgrade {
             return Err(Reply::empty(404));
         }
-        // The door cookie is scoped to `/x/`, so a cookie here is never a
+        // The door cookie is scoped to the mount space, so a cookie here is never a
         // session and a cookie alone can never reach an operation or pairing.
         if head.cookie.is_some()
             || head.content_type != Some("application/json")
