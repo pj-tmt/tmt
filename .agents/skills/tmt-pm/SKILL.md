@@ -29,15 +29,15 @@ owns the procedure only.
    (head, checks, mergeable, updatedAt) and the merge queue. Read `tmt ls`
    for active members. Do not query items one by one.
 2. **Detect.**
-   - *Blocked without an owner*: the work waits on something that has no
+   - _Blocked without an owner_: the work waits on something that has no
      issue, no owner, or no recent movement.
-   - *Stale*: In Progress or blocked for more than 6 hours with no PR
+   - _Stale_: In Progress or blocked for more than 6 hours with no PR
      activity or comment.
-   - *Unstaffed*: a squad with In Progress or blocked work and no active
+   - _Unstaffed_: a squad with In Progress or blocked work and no active
      member.
-   - *Waiting on the maintainer*: a decision marked pending in an issue or
+   - _Waiting on the maintainer_: a decision marked pending in an issue or
      PR comment.
-   - *Oversized*: a tracker or child whose progress the board cannot show.
+   - _Oversized_: a tracker or child whose progress the board cannot show.
 3. **Act through the owning lead.** Name the item, what is missing, and the
    next action you propose: assign the blocker an owner, file the missing
    child, rebase, split, or request staff. Follow up next hour. A lead with
