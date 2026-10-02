@@ -324,8 +324,18 @@ because Squad's manifest is one of its inputs. The
 generator needs `cargo` and reads no network. Update the pinned release-please CLI in
 `.github/release-please/` with `pnpm install` there and commit its lockfile; the test
 requires an exact version and an integrity hash for every locked package. Before local tooling
-type checks or release-config tests, run `pnpm install --frozen-lockfile --ignore-scripts` in
-`.github/release-please/`; tests and the release wrapper load this single isolated pin.
+checks or release-config tests, run this explicit prerequisite from the repository root:
+
+```bash
+pnpm --dir .github/release-please install --frozen-lockfile --ignore-scripts
+```
+
+Tests and the release wrapper load this single isolated pin. `pnpm check:tooling`
+(and therefore `pnpm check`) first checks its runtime and type entry files through
+`release-please-run.mjs check-install`. A missing install stops before TypeScript
+checking with the command above, rather than cascading implicit-any diagnostics.
+The guard only reads files; it never installs packages. Direct `pnpm type:check` and
+release-config test runs also require the explicit install.
 
 Private leaves declare `releaseConsumers` in the component map; today only TUI names Squad.
 The release workflow uses `release-please-run.mjs` with the pinned API to attribute these commits

@@ -1,4 +1,5 @@
 // #912: release-please 17.11.2 has no additional-paths; attribute private leaves before splitting.
+import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { parseComponentMap } from './ci-scope.mjs';
@@ -125,8 +126,22 @@ export async function executeReleasePlease(manifest, command, live) {
 }
 
 async function main(command) {
+  if (command === 'check-install') {
+    for (const entry of ['index.js', 'index.d.ts']) {
+      const file = new URL(
+        `../../.github/release-please/node_modules/release-please/build/src/${entry}`,
+        import.meta.url
+      );
+      if (!existsSync(file))
+        throw new Error(
+          'Pinned release-please tooling is missing. From the repository root, run: ' +
+            'pnpm --dir .github/release-please install --frozen-lockfile --ignore-scripts'
+        );
+    }
+    return;
+  }
   if (!['release-pr', 'github-release'].includes(command)) {
-    throw new Error('Usage: release-please-run.mjs release-pr | github-release');
+    throw new Error('Usage: release-please-run.mjs release-pr | github-release | check-install');
   }
   if (!['true', 'false'].includes(process.env.LIVE)) throw new Error('LIVE must be true or false.');
   const [owner, repo, extra] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
