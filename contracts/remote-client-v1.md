@@ -551,6 +551,10 @@ possession or a member device signature) and attributes it as `{principal, owner
 way they reach only the routes and relay namespaces the extension admits, never the remote
 operation routes, and never receive operation scopes.
 
+**Pending owner decision:** whether an invited non-owner member may ask the owner's agents (for
+example colab's Ask agent). As written they cannot; allowing it needs an owner-approved revision of
+this section, not an extension-local grant.
+
 ## Backends and deploy
 
 The same message, relay and admission owners serve every backend: `local` (the door plus extension
