@@ -4,20 +4,20 @@ use std::{
     io::Write,
     process::ExitCode,
     sync::{Arc, atomic::AtomicBool},
-    time::Duration,
 };
 use tmt_cli_style::{CommandSpec, Example, OutputModes, Route};
 use tmt_remote::{
     core::CoreClient,
     error::RemoteError,
-    http::{Door, ServeOptions},
+    http::{Door, Handler},
+    routes::Routes,
 };
 const ROOT: CommandSpec = CommandSpec {
     name: "remote",
     summary: "Optional local remote door (deny-all pilot)",
     examples: &[Example {
         command: "tmt remote serve",
-        note: "Open a finite loopback door; all requests are refused",
+        note: "Open a loopback door; all requests are refused",
     }],
     outputs: OutputModes::Human,
     details: "Pairing and sends are not implemented. Core never listens.",
@@ -30,7 +30,7 @@ const SERVE: CommandSpec = CommandSpec {
         note: "Print the bound descriptor for local testing",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Stops on interrupt, window expiry or 15 minutes without authorized activity.\nAll remote requests are refused; no core operation is forwarded.",
+    details: "Runs in the foreground until Ctrl-C or SIGTERM; there is no default deadline.\nAll remote requests are refused; no core operation is forwarded.",
 };
 fn grammar() -> Command {
     tmt_cli_style::command(&ROOT)
@@ -39,21 +39,13 @@ fn grammar() -> Command {
         .arg(tmt_cli_style::version_arg(ArgAction::Version))
         .subcommand_required(true)
         .subcommand(
-            tmt_cli_style::command(&SERVE)
-                .arg(
-                    Arg::new("port")
-                        .long("port")
-                        .default_value("0")
-                        .value_parser(clap::value_parser!(u16))
-                        .help("Loopback port; 0 selects an unused port"),
-                )
-                .arg(
-                    Arg::new("window-seconds")
-                        .long("window-seconds")
-                        .default_value("3600")
-                        .value_parser(clap::value_parser!(u64).range(1..=86400))
-                        .help("Hard window, at most 86400 seconds"),
-                ),
+            tmt_cli_style::command(&SERVE).arg(
+                Arg::new("port")
+                    .long("port")
+                    .default_value("0")
+                    .value_parser(clap::value_parser!(u16))
+                    .help("Loopback port; 0 selects an unused port"),
+            ),
         )
 }
 fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
@@ -81,41 +73,36 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         }
         let input_limit = capabilities["limits"]["inputBytes"]
             .as_u64()
-            .filter(|n| *n > 0 && *n <= 16 * 1024 * 1024)
+            .filter(|n| *n > 0 && *n <= tmt_remote::limits::CORE_INPUT_BYTES as u64)
             .ok_or_else(|| {
                 RemoteError::new(
                     "REMOTE_CORE_UNAVAILABLE",
                     "Core did not advertise a valid input bound.",
                 )
             })? as usize;
-        let door = Door::bind(ServeOptions {
-            port: *serve.get_one::<u16>("port").unwrap(),
-            window: Duration::from_secs(*serve.get_one::<u64>("window-seconds").unwrap()),
-            input_limit,
-        })?;
+        let routes = Arc::new(Routes::new(input_limit)?);
+        let door = Door::bind(*serve.get_one::<u16>("port").unwrap())?;
+        let address = format!("{}{}", door.origin, routes.prefix());
         let json_output = serve.get_flag("json");
         let mut output = tmt_cli_style::stream::stdout(json_output);
         if json_output {
             writeln!(
                 output,
                 "{}",
-                json!({"profile":"local-v1","binding":"loopback-http","state":"closed","address":door.address,"startupCoreCalls":1})
+                json!({"profile":"local-v1","binding":"loopback-http","state":"closed","address":address,"startupCoreCalls":1})
             )?;
         } else {
             let terminal = output.terminal();
             tmt_cli_style::message::warning(
                 &mut output,
                 terminal,
-                &format!(
-                    "Deny-all door bound at {}; pairing and sends unavailable",
-                    door.address
-                ),
+                &format!("Deny-all door bound at {address}; pairing and sends unavailable"),
                 None,
             )?;
         }
         output.flush()?;
         drop(output);
-        door.run(&stop)
+        door.run(&stop, routes as Arc<dyn Handler>)
     })();
     for id in signals.into_iter().flatten() {
         signal_hook::low_level::unregister(id);

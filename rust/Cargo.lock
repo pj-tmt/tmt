@@ -2867,6 +2867,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hmac",
  "httparse",
+ "nix",
  "serde_json",
  "sha2",
  "signal-hook 0.4.4",
