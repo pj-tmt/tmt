@@ -542,10 +542,10 @@ planned.
 cd site
 pnpm install --frozen-lockfile
 pnpm dev                        # local preview at http://127.0.0.1:5173/tmt/
-pnpm check                      # types, oxlint and oxfmt
+pnpm check                      # types, Vite+ lint/format and MDX imports
 pnpm build                      # dist/ for GitHub Pages, one index.html per route
 SITE_BASE=/ pnpm build          # for a root path, such as a custom domain
-SITE_BASE=./ VITE_SITE_HISTORY=hash pnpm exec vite build   # a preview at an unknown path
+SITE_BASE=./ VITE_SITE_HISTORY=hash pnpm exec vp build   # a preview at an unknown path
 ```
 
 `.github/workflows/site.yml` checks and builds the site on pull requests and
