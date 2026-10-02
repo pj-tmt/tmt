@@ -136,7 +136,10 @@ export function BoardDemo({ steps, label }: { steps: Step[]; label: string }) {
   }
   return (
     <div ref={root} className="my-6 w-full" aria-label={label} role="group">
-      <div aria-hidden="true" className="overflow-hidden rounded-t-md bg-term">
+      <div
+        aria-hidden="true"
+        className="overflow-hidden border border-term-edge bg-term shadow-[6px_6px_0_var(--c-accent)]"
+      >
         <FitWidth width={620}>
           <div className="relative h-[340px] overflow-hidden font-mono text-[12.5px] leading-[1.6] text-t-text">
             <div className="absolute inset-0 flex flex-col justify-end overflow-hidden px-3.5 py-2.5 whitespace-pre">
@@ -146,14 +149,14 @@ export function BoardDemo({ steps, label }: { steps: Step[]; label: string }) {
               className={`absolute overflow-hidden bg-term px-3 py-2 whitespace-pre transition-[opacity,transform] duration-200 motion-reduce:transition-none ${
                 step.full
                   ? "inset-0"
-                  : "inset-[5%] rounded-[5px] border border-t-accent shadow-[0_10px_40px_rgba(0,0,0,.45)]"
+                  : "inset-[5%] border border-t-accent shadow-[0_10px_40px_rgba(0,0,0,.45)]"
               } ${frame.pop ? "opacity-100" : "pointer-events-none translate-y-1.5 scale-[.985] opacity-0"}`}
             >
               {frame.pop &&
                 boardLines(frame.pop.board, frame.pop.typed, frame.pop.replies, frame.pop.cursor)}
             </div>
             <div
-              className={`absolute right-3 bottom-3 rounded bg-t-accent px-2.5 py-2 text-xs leading-none font-semibold text-term transition-opacity ${
+              className={`absolute right-3 bottom-3 bg-t-accent px-2.5 py-2 text-xs leading-none font-semibold text-term transition-opacity ${
                 frame.toast ? "opacity-100" : "opacity-0"
               }`}
             >
@@ -164,7 +167,7 @@ export function BoardDemo({ steps, label }: { steps: Step[]; label: string }) {
       </div>
       <div
         aria-hidden="true"
-        className="flex items-center gap-3 overflow-hidden rounded-b-md bg-term-bar px-2.5 py-1.5 font-mono text-xs leading-none font-medium whitespace-nowrap text-t-dim"
+        className="flex items-center gap-3 overflow-hidden bg-term-bar px-2.5 py-1.5 font-mono text-xs leading-none font-medium whitespace-nowrap text-t-dim"
       >
         <span className="font-bold text-t-accent">[{step.sess}]</span>
         {step.windows.map((window, k) => (

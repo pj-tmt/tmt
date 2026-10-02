@@ -72,7 +72,7 @@ export function MeetScreen({
               const look = on
                 ? "border-(--t-text) bg-t-text text-term-bar"
                 : "border-term-edge bg-transparent text-t-muted";
-              const box = `flex-1 rounded border px-1.5 py-1.5 text-center text-[11px] font-semibold ${look}`;
+              const box = `flex-1 border px-1.5 py-1.5 text-center text-[11px] font-semibold ${look}`;
               return onMode ? (
                 <button
                   key={choice}

@@ -55,10 +55,10 @@ export function StatusBar({ current }: { current: Page }) {
   }, [menuOpen]);
 
   return (
-    <header className="sticky top-0 z-10 pt-[env(safe-area-inset-top)] bg-t-accent">
+    <header className="sticky top-0 z-10 pt-[env(safe-area-inset-top)] bg-accent">
       <nav
         aria-label={ui.chapterWindows}
-        className="relative flex items-stretch overflow-x-auto bg-t-accent font-mono text-[13px] leading-none font-semibold whitespace-nowrap text-term-bar [scrollbar-width:none]"
+        className="relative flex items-stretch overflow-x-auto bg-accent font-mono text-[13px] leading-none font-semibold whitespace-nowrap text-paper [scrollbar-width:none]"
       >
         <button
           type="button"
@@ -81,7 +81,7 @@ export function StatusBar({ current }: { current: Page }) {
               to={window.path}
               aria-current={on ? "page" : undefined}
               className={`flex items-center px-2.5 no-underline sm:px-3 ${focus} ${
-                on ? "bg-term-bar text-t-accent" : "text-term-bar hover:bg-term-bar/15"
+                on ? "bg-term-bar text-t-accent" : "text-paper hover:bg-term-bar/15"
               }`}
             >
               {window.n}
@@ -98,7 +98,7 @@ export function StatusBar({ current }: { current: Page }) {
             type="button"
             onClick={() => setTheme(THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length])}
             aria-label={`Theme: ${theme}. Change theme`}
-            className={`flex cursor-pointer items-center px-2.5 text-term-bar sm:px-3 hover:bg-term-bar/15 ${focus}`}
+            className={`flex cursor-pointer items-center px-2.5 text-paper sm:px-3 hover:bg-term-bar/15 ${focus}`}
           >
             {theme === "system" ? "◐" : theme === "light" ? "○" : "●"}
             <span className="ml-1.5 hidden sm:inline">{theme === "system" ? "auto" : theme}</span>

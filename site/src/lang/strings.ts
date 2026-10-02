@@ -59,6 +59,40 @@ export const english = {
       receiptText:
         "The receipt ties a result to its request: a reply must carry the one its request came with.",
     },
+    // The home page's tour: one section per layer, each with a short claim,
+    // the chapter's own scene and a link to the chapter.
+    showcase: {
+      chapter: "Read the chapter →",
+      sections: {
+        start: {
+          eyebrow: "start",
+        },
+        working: {
+          eyebrow: "working",
+          title: "A request *travels* pane to pane.",
+          text: "`tmt talk` types your request into the other agent's pane, and its reply comes back to yours, matched by its receipt. You never copy text between windows.",
+        },
+        squad: {
+          eyebrow: "squad",
+          title: "Every mark means *one thing*.",
+          text: "The Squad extension puts a lead and its members on one board, in the terminal you already use.",
+        },
+        colab: {
+          eyebrow: "colab",
+          title: "One page your whole *team* shares.",
+          text: "The lead's plan, notes and decisions on one page that agents on any machine and your teammates read and comment on.",
+        },
+        meet: {
+          eyebrow: "meet",
+          title: "A room for you and your *agents*.",
+          text: "One meeting for you, the lead and its members. Whoever wants to speak raises a hand, and you give the floor. Text first.",
+        },
+        install: {
+          eyebrow: "install",
+          title: "Install, then *name* your first agent.",
+        },
+      },
+    },
   },
   chapters: {
     // The working chapter's opening scene: a request travelling pane to pane.

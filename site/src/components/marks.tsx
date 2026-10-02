@@ -8,7 +8,7 @@ export function Tag({ kind, children }: { kind: Status; children?: ReactNode }) 
   const planned = kind === "planned" || kind === "designing" || kind === "in progress";
   return (
     <span
-      className={`ml-2 inline-block rounded-[3px] px-1.5 py-1 align-[0.2em] font-mono text-[10.5px] leading-none font-semibold tracking-[0.08em] whitespace-nowrap uppercase ${
+      className={`ml-2 inline-block px-1.5 py-1 align-[0.2em] font-mono text-[10.5px] leading-none font-semibold tracking-[0.08em] whitespace-nowrap uppercase ${
         planned ? "bg-waiting-soft text-waiting" : "bg-accent-soft text-accent"
       }`}
     >
@@ -35,7 +35,7 @@ export function St({ kind, children }: { kind: keyof typeof STATE; children: Rea
 
 export function Callout({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="my-4 rounded-r-md border-l-[3px] border-waiting bg-waiting-soft px-3.5 py-3 text-[15.5px]">
+    <div className="my-5 border-2 border-waiting bg-sheet px-3.5 py-3 text-[15.5px] shadow-[4px_4px_0_var(--c-waiting)]">
       <b className="text-waiting">{title}</b> {children}
     </div>
   );
@@ -63,7 +63,7 @@ export function Waiting() {
 
 export function More({ summary, children }: { summary: string; children: ReactNode }) {
   return (
-    <details className="my-4 rounded-md border border-rule bg-sheet px-3 py-2">
+    <details className="my-4 border border-rule bg-sheet px-3 py-2">
       <summary className="cursor-pointer font-mono text-sm text-muted">{summary}</summary>
       <div className="mt-2">{children}</div>
     </details>

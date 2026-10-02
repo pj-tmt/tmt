@@ -89,7 +89,7 @@ function Pager({ current }: { current: Page }) {
   const previous = pages[at - 1];
   const next = pages[at + 1];
   const card =
-    "flex flex-col gap-1 rounded-md border border-rule bg-sheet px-3.5 py-3 text-text no-underline hover:border-accent";
+    "flex flex-col gap-1 border border-rule bg-sheet px-3.5 py-3 text-text no-underline hover:border-accent";
   const small = "font-mono text-[11px] leading-none tracking-[0.06em] text-muted uppercase";
   return (
     <nav
@@ -166,13 +166,20 @@ export function Layout() {
   return (
     <>
       <StatusBar current={current} />
-      <div className="mx-auto grid max-w-[900px] grid-cols-1 px-4 pb-16 xl:max-w-[1120px] xl:grid-cols-[minmax(0,860px)_200px] xl:gap-12">
-        <main className="min-w-0">
+      {current.path === "/" ? (
+        // Home is one wide, edge-to-edge tour: no contents column, no pager.
+        <main className="mx-auto max-w-[1180px] min-w-0 px-4 pb-16">
           <Outlet />
-          <Pager current={current} />
         </main>
-        <Toc current={current} />
-      </div>
+      ) : (
+        <div className="mx-auto grid max-w-[900px] grid-cols-1 px-4 pb-16 xl:max-w-[1120px] xl:grid-cols-[minmax(0,860px)_200px] xl:gap-12">
+          <main className="min-w-0">
+            <Outlet />
+            <Pager current={current} />
+          </main>
+          <Toc current={current} />
+        </div>
+      )}
     </>
   );
 }
@@ -215,7 +222,7 @@ function NotTranslated() {
   return (
     <p
       lang={ui.notTranslated === english.ui.notTranslated ? "en" : undefined}
-      className="mb-5 rounded-md border border-rule bg-sheet px-3.5 py-2.5 font-mono text-[13px] leading-normal text-muted"
+      className="mb-5 border border-rule bg-sheet px-3.5 py-2.5 font-mono text-[13px] leading-normal text-muted"
     >
       {ui.notTranslated}
     </p>

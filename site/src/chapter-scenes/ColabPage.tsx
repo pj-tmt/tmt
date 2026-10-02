@@ -55,7 +55,7 @@ export function ColabPage() {
                 </li>
               ))}
             </ol>
-            <div className="rounded-md border border-(--t-waiting) bg-t-waiting/10 p-2.5 text-[13px] leading-snug">
+            <div className="border border-(--t-waiting) bg-t-waiting/10 p-2.5 text-[13px] leading-snug">
               {decision ? (
                 <>
                   <b className="font-mono text-t-working">✓ {colab.decided}</b> {decision} ·{" "}
@@ -70,7 +70,7 @@ export function ColabPage() {
                         key={choice}
                         type="button"
                         onClick={() => setDecision(choice)}
-                        className="cursor-pointer rounded border border-term-edge bg-term-bar px-2.5 py-1.5 font-mono text-xs font-semibold text-t-text hover:border-(--t-accent)"
+                        className="cursor-pointer border border-term-edge bg-term-bar px-2.5 py-1.5 font-mono text-xs font-semibold text-t-text hover:border-(--t-accent)"
                       >
                         {choice}
                       </button>

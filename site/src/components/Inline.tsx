@@ -6,10 +6,7 @@ export function Inline({ text }: { text: string }): ReactNode {
   return text.split(/(`[^`]+`|\*[^*]+\*)/).map((part, index) => {
     if (part.startsWith("`") && part.endsWith("`") && part.length > 2)
       return (
-        <code
-          key={index}
-          className="rounded-[3px] bg-accent-soft px-[.35em] py-[.12em] font-mono text-[.84em]"
-        >
+        <code key={index} className="bg-accent-soft px-[.35em] py-[.12em] font-mono text-[.84em]">
           {part.slice(1, -1)}
         </code>
       );
