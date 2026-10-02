@@ -74,6 +74,51 @@ pub(super) fn run_bound(
     let existing = storage
         .find_identity(&normalize_name(name))
         .map_err(storage_failure)?;
+    // A bare registered executable is a convenient fresh launch only when no
+    // identity holds that token. Explicit name + command keeps its old meaning.
+    let auto_harness = if resume.is_none()
+        && tmt_core::driver::ALL
+            .iter()
+            .any(|driver| driver.executables.contains(&name))
+    {
+        registry.claim(std::ffi::OsStr::new(name))
+    } else {
+        None
+    };
+    if auto_harness.is_some()
+        && existing.is_some()
+        && (command.is_empty() || command[0].as_encoded_bytes().starts_with(b"-"))
+    {
+        return Err(Failure::new(
+            "RUN_NAME_COLLISION",
+            format!(
+                "'{name}' is both an identity and a registered command. Use `tmt run {name} {name}` to launch that identity, or `tmt run <new-name> {name}` for a new one."
+            ),
+            5,
+        ));
+    }
+    let auto_named = auto_harness.is_some() && existing.is_none();
+    let generated;
+    let unnamed_command;
+    let (name, command) = if auto_named {
+        generated = tmt_core::identity::automatic_name(auto_harness.as_ref().unwrap().as_str());
+        unnamed_command = std::iter::once(std::ffi::OsString::from(name))
+            .chain(command.iter().cloned())
+            .collect::<Vec<_>>();
+        (generated.as_str(), unnamed_command.as_slice())
+    } else {
+        (name, command)
+    };
+    if command
+        .first()
+        .is_some_and(|word| word.as_encoded_bytes().starts_with(b"-"))
+    {
+        return Err(Failure::new(
+            "USAGE_ERROR",
+            "The command must not start with '-'. Put TMT options before the name.",
+            1,
+        ));
+    }
     let preferences = storage
         .with_binding_transaction::<_, StorageError>(|records| {
             let Some(identity) = &existing else {
@@ -104,9 +149,12 @@ pub(super) fn run_bound(
         .then(|| preflight(&registry, claim.as_ref(), &launch.command.executable, paths))
         .transpose()?;
     host.resolve_servers(storage).map_err(endpoint_failure)?;
-    let bound =
+    let bound = if auto_named {
+        binding::bind_auto_identity(storage, &mut host.session(), pane, name, save)
+    } else {
         binding::bind_identity_with_creation(storage, &mut host.session(), pane, name, save)
-            .map_err(binding_failure)?;
+    }
+    .map_err(binding_failure)?;
     let binding = bound
         .presence
         .binding
@@ -248,12 +296,25 @@ pub(super) fn run_bound(
                 .map_err(|error| unavailable(&error.to_string()))?,
         );
     }
+    if auto_named {
+        let mut stderr = tmt_cli_style::stream::stderr();
+        use std::io::Write;
+        let _ = writeln!(
+            stderr,
+            "tmt: {} name: {name}; name this agent with tmt this <name>",
+            if save { "Saved" } else { "Temporary" }
+        );
+    }
     let planned = lease.command(&launch.command);
     let child =
         InteractiveChild::start_with(&planned.executable, &planned.args, lease.environment())
             .map_err(|error| {
                 // No child exists, so nothing ran and the enrollment ends.
                 lease.never_spawned();
+                if auto_named && bound.created
+                    && binding::retire_failed_auto_launch(storage, &mut host.session(), binding).is_err() {
+                    diagnostic("could not retire the failed launch's temporary identity; inspect it before retrying.");
+                }
                 Failure::new("LAUNCH_FAILED", "Could not start the requested command.", 1)
                     .caused_by(error)
             })?;

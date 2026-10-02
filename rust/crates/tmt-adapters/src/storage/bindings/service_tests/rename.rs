@@ -128,3 +128,166 @@ fn an_unknown_old_name_or_an_invalid_new_name_fails_before_any_write() {
     assert_eq!(storage.find_identity("dana").unwrap(), Some(dana));
     storage.close().unwrap();
 }
+
+#[test]
+fn automatic_naming_is_one_verified_transaction_and_keeps_binding_and_preferences() {
+    use tmt_core::binding::session::{HarnessId, SessionPreferences};
+    use tmt_core::binding::{BindingRepository, bind_auto_identity, name_auto_identity};
+    for (launch_saved, naming_saved) in [(false, false), (false, true), (true, false)] {
+        let fixture = Fixture::new();
+        let mut storage = fixture.open();
+        let mut endpoint = FakeEndpoint::new(&["%1"]);
+        let bound = bind_auto_identity(
+            &mut storage,
+            &mut endpoint,
+            "%1",
+            "claude-test",
+            launch_saved,
+        )
+        .unwrap();
+        let id = &bound.presence.identity.id;
+        let preferences = SessionPreferences {
+            preferred_harness: Some(HarnessId::new("claude").unwrap()),
+            remembered: None,
+        };
+        storage
+            .with_binding_transaction::<_, crate::storage::StorageError>(|records| {
+                records.set_session_preferences(id, &preferences)?;
+                Ok(())
+            })
+            .unwrap();
+        let named = name_auto_identity(&mut storage, &mut endpoint, "%1", "Reviewer", naming_saved)
+            .unwrap()
+            .unwrap();
+        assert_eq!(&named.presence.identity.id, id);
+        assert_eq!(named.presence.binding, bound.presence.binding);
+        assert_eq!(
+            named.presence.identity.lifetime,
+            if launch_saved || naming_saved {
+                Lifetime::Saved
+            } else {
+                Lifetime::Temporary
+            }
+        );
+        assert_eq!(storage.session_preferences(id).unwrap(), preferences);
+        assert!(storage.find_identity("claude-test").unwrap().is_none());
+        assert!(
+            name_auto_identity(&mut storage, &mut endpoint, "%1", "Another", false)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            endpoint.publish_calls, 1,
+            "renaming never replaces the binding marker"
+        );
+        storage.close().unwrap();
+    }
+}
+
+#[test]
+fn automatic_name_conflict_or_unverified_marker_preserves_provenance_and_lifetime() {
+    use tmt_core::binding::{bind_auto_identity, name_auto_identity};
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    let before =
+        bind_auto_identity(&mut storage, &mut endpoint, "%1", "claude-test", false).unwrap();
+    create_or_resolve(&mut storage, "Taken", Lifetime::Saved).unwrap();
+    assert!(matches!(
+        name_auto_identity(&mut storage, &mut endpoint, "%1", "Taken", true),
+        Err(Error::NameTaken(_))
+    ));
+    let marker = endpoint.pane_mut("%1").marker.take();
+    assert!(matches!(
+        name_auto_identity(&mut storage, &mut endpoint, "%1", "Reviewer", true),
+        Err(Error::Unverified)
+    ));
+    assert_eq!(
+        storage.find_identity("claude-test").unwrap(),
+        Some(before.presence.identity.clone())
+    );
+    assert!(storage.find_identity("reviewer").unwrap().is_none());
+    endpoint.pane_mut("%1").marker = marker;
+    let named = name_auto_identity(&mut storage, &mut endpoint, "%1", "Reviewer", false)
+        .unwrap()
+        .unwrap();
+    assert_eq!(named.presence.identity.id, before.presence.identity.id);
+    assert_eq!(named.presence.identity.lifetime, Lifetime::Temporary);
+    storage.close().unwrap();
+}
+
+#[test]
+fn ordinary_names_that_look_generated_are_not_automatic() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    tmt_core::binding::bind_identity(
+        &mut storage,
+        &mut endpoint,
+        "%1",
+        "claude-012345678abc",
+        false,
+    )
+    .unwrap();
+    assert!(
+        tmt_core::binding::name_auto_identity(&mut storage, &mut endpoint, "%1", "Reviewer", true)
+            .unwrap()
+            .is_none()
+    );
+    storage.close().unwrap();
+}
+
+#[test]
+fn failed_automatic_spawn_retires_only_an_unchanged_temporary_binding() {
+    use tmt_core::binding::{bind_auto_identity, name_auto_identity, retire_failed_auto_launch};
+    for (save, named) in [(false, false), (true, false), (false, true)] {
+        let fixture = Fixture::new();
+        let mut storage = fixture.open();
+        let mut endpoint = FakeEndpoint::new(&["%1"]);
+        let bound =
+            bind_auto_identity(&mut storage, &mut endpoint, "%1", "claude-test", save).unwrap();
+        if named {
+            name_auto_identity(&mut storage, &mut endpoint, "%1", "Reviewer", false).unwrap();
+        }
+        retire_failed_auto_launch(
+            &mut storage,
+            &mut endpoint,
+            bound.presence.binding.as_ref().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            storage
+                .find_active_identity_by_id(&bound.presence.identity.id)
+                .unwrap()
+                .is_some(),
+            save || named
+        );
+        assert_eq!(endpoint.clear_calls, usize::from(!save && !named));
+        storage.close().unwrap();
+    }
+}
+
+#[test]
+fn a_generated_name_collision_never_reconciles_or_retires_its_existing_holder() {
+    use tmt_core::binding::bind_auto_identity;
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1", "%2"]);
+    let original = tmt_core::binding::bind_identity(
+        &mut storage,
+        &mut endpoint,
+        "%1",
+        "claude-collision",
+        false,
+    )
+    .unwrap();
+    endpoint.pane_mut("%1").pane_pid += 1; // Conclusive old endpoint loss is still not ours to reconcile.
+    assert!(
+        bind_auto_identity(&mut storage, &mut endpoint, "%2", "claude-collision", false).is_err()
+    );
+    assert_eq!(
+        storage.find_identity("claude-collision").unwrap(),
+        Some(original.identity)
+    );
+    storage.close().unwrap();
+}

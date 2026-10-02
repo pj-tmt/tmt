@@ -300,7 +300,17 @@ runs that test on every pull request, including Squad-only ones whose Unit tests
 because Squad's manifest is one of its inputs. The
 generator needs `cargo` and reads no network. Update the pinned release-please CLI in
 `.github/release-please/` with `pnpm install` there and commit its lockfile; the test
-requires an exact version and an integrity hash for every locked package.
+requires an exact version and an integrity hash for every locked package. Before local tooling
+type checks or release-config tests, run `pnpm install --frozen-lockfile --ignore-scripts` in
+`.github/release-please/`; tests and the release wrapper load this single isolated pin.
+
+Private leaves declare `releaseConsumers` in the component map; today only TUI names Squad.
+The release workflow uses `release-please-run.mjs` with the pinned API to attribute these commits
+before the ordinary splitter, excludes and product release cutoffs. No `additional-paths` option
+exists in 17.11.2. An upgrade must re-verify the API shape and run
+`pnpm exec vitest run test/tooling/release-please-config.test.ts` from `typescript/`:
+the suite exercises real release candidates, TUI-only and unrelated/private controls, mixed commits
+and independent release cutoffs. Ownership, CI selection and version/lock updates remain separate.
 
 For the separate Office Auth/Firestore environment, follow
 [`extensions/tmt-office/typescript/services/office/README.md`](extensions/tmt-office/typescript/services/office/README.md). It uses Docker-contained
@@ -879,6 +889,13 @@ The adapter `process::cleanup_policy_tests` must pass under both `cargo test` an
 nextest: isolated re-exec cases prove timeout cleanup regardless of whether the
 test runner makes its harness a process-group leader.
 
+For cumulative completed-request counters (#872), run
+`cargo test --locked -p tmt-adapters runtime::consumption` and
+`cargo test --locked -p tmt-cli --bin tmt output::tests`. Redacted real provider
+fixtures and source provenance live beside the runtime owner; failure and reset
+variants are assembled. `usage-hooks.e2e.test.ts` verifies admitted hooks,
+unchanged context usage, public consumption, silent failures and compaction.
+
 Before native installation/process tests, build the two product fixtures
 independently, after workspace checks:
 
@@ -1345,6 +1362,13 @@ in detected and already-managed custom roots. Verify exact embedded bytes,
 core-only preservation, sibling
 managed links, repeat no-op, backup/conflict and partial-failure behavior, lock
 ownership, refresh without resurrection, and no effects on SQLite or tmux.
+`test/native/legacy-extension-skills.test.ts` owns the old five-skill bundle
+regressions: twelve provider links, dangling generations, owner adoption,
+half-removed listing/removal, retired refresh intent, preservation of user
+content, executable conflict recovery commands and native upgrade causes. Every
+fixture uses the existing isolated HOME/config/process sandbox. Existing-source
+integrity and canonical-store/name rejection controls stay with the Rust skill
+owner tests.
 Follow `USER-GUIDE.md` and `skills/README.md` for provider/custom-root usage; do
 not add provider-specific skill copies. The squad lead skill
 (`extensions/tmt-squad/skills/tmt-squad/SKILL.md`) is deliberately outside this
@@ -1571,6 +1595,7 @@ The private Rust model has no server or CLI. From `rust/`, run
 workspace boundary changes also require the architecture guard above.
 Tests consume frozen contract vectors without Python. To check/regenerate the
 independent namespace/sign-in oracle, use Python with `cryptography` installed:
-`python3 extensions/tmt-colab/contracts/vectors/model-reference.py` from the
+`python3 extensions/tmt-colab/contracts/vectors/model-reference.py` and
+`python3 extensions/tmt-colab/contracts/vectors/authority-reference.py` from the
 repository root; add `--write` only after reviewing changed bytes. Fixture keys
 are public test data. This foundation does not satisfy the complete L1 gates.

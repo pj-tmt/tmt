@@ -73,7 +73,8 @@ pub fn uninstall(env: &ProviderEnvironment, global: &Path) -> io::Result<SkillsR
         .into_values()
         .collect::<BTreeSet<_>>()
     {
-        let report = owned::remove_owned(&global, &owner, None).map_err(|failure| failure.cause)?;
+        let report =
+            owned::remove_owned(None, &global, &owner, None).map_err(|failure| failure.cause)?;
         removal.removed.extend(report.removed);
         removal.kept.extend(report.kept);
     }

@@ -132,3 +132,33 @@ fn aggregate_report_keeps_cli_and_extension_outcomes_independent() {
         7
     );
 }
+
+#[test]
+fn upgrade_failure_document_always_keeps_a_nonempty_cause() {
+    for cause in ["connection refused", ""] {
+        let failure = Failure::new("NATIVE_UPGRADE_FAILED", "Cannot update installation", 1)
+            .caused_by(io::Error::other(cause));
+        let document = failure_document(&failure);
+        let diagnostic = document["error"]["cause"].as_str().unwrap();
+        assert!(!diagnostic.is_empty());
+        assert_eq!(
+            diagnostic,
+            if cause.is_empty() {
+                "Cannot update installation"
+            } else {
+                cause
+            }
+        );
+    }
+}
+
+#[test]
+fn conflict_commands_quote_paths_and_preserve_sources() {
+    let target = Path::new("/isolated/agent's home/skills/tmt-inbox");
+    let hint = crate::skill_refresh_command::conflict_hint(target);
+    assert!(hint.contains("User-owned or modified skill preserved"));
+    assert!(hint.contains("'\\''"));
+    assert!(hint.contains(".tmt-skill-backups/upgrade-conflict.XXXXXXXX"));
+    assert!(hint.contains("mv "));
+    assert!(!hint.contains("rm "));
+}

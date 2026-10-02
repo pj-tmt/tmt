@@ -48,6 +48,15 @@ for pane death.
 Check the selected executable's help instead of inferring capabilities from
 a remembered version number.
 
+The opt-in `tmt setup --usage` hook can expose `resume.usage` (context size) and
+optional `resume.consumption` in ls/identity JSON. Consumption reports cumulative
+completed-request counters; measure changes within an epoch. Cached input
+already belongs to input.
+Use its epoch/sequence and completeness/gap evidence, never context-size
+differences or a missing value as zero. Hook timestamps are not heartbeats.
+USER-GUIDE.md owns user instructions and ARCHITECTURE.md owns the bounded
+provider normalization and scan contract.
+
 ## Delivery safety
 
 ### Caller identity
@@ -593,6 +602,7 @@ Use `ls` for full active discovery; it is not a prerequisite for `talk` or `chec
 tmt ls
 tmt name <global-name>               # bind temporarily; add -s to save
 tmt this <global-name>               # exact supported alias for `name`
+tmt run <agent> [args...]             # auto-name temporarily; use tmt this later
 tmt run [-s] <global-name> <command...> # bind and launch; options before the name
 tmt add <pane-target> <global-name>  # bind an explicit pane by stable `%pane_id`
 tmt marked <global-name>             # bind the explicit tmux mark; add -s to save
@@ -647,6 +657,22 @@ identity but retains a saved identity/profile offline. There is no `migrate`
 command. Do not delete old user files as a migration workaround.
 
 ### Foreground identity launch
+
+`tmt run <registered-agent> [args...]` starts immediately under a generated
+temporary name such as `claude-12ab34cd56ef`, with one naming hint and no prompt.
+Inside the agent, `tmt this <name>` (or `name`) renames only a verified auto-named
+identity, preserving its UUID, binding, session and any opted-in channel.
+Naming does not save: use `tmt this --save <name>` or `tmt run --save <agent>`.
+Normal exit keeps the binding; temporary retirement still follows unbind or
+conclusive pane loss. A failed spawn retires only the new temporary auto-name.
+An existing destination name refuses without merging identities. Ordinary named
+panes retain their conflict rules; intentional later renaming uses `tmt mv`.
+If an identity holds the executable name, shorthand refuses: use
+`tmt run claude claude` for that identity or `tmt run <new-name> claude`.
+TMT options precede the first operand; shorthand provider arguments stay verbatim.
+Resume still needs the hook-recorded session; naming preserves it but never guesses
+one. Save to keep resume coordinates across pane loss. `--channel` remains opt-in,
+and naming an enrolled launch neither restarts its channel nor enables paste fallback.
 
 `tmt run [-s] <name> <command...>` binds this tmux pane and starts the exact
 command with its terminal streams and normal Ctrl-C/Ctrl-Z/`fg` job control.

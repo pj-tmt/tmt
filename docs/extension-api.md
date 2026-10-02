@@ -200,6 +200,16 @@ extras are currently empty. The opt-in `tmt setup --usage` Stop hook supplies en
 events; absent end events never cause an inferred idle transition. Extensions
 must use this public projection rather than inspect core state.
 
+Public `ls --json` also exposes the remembered driver's optional
+`resume.consumption`: cumulative completed-request input/output, cached input as
+a subset, epoch/sequence, observation time and explicit completeness/gap.
+It is separate from `resume.usage` (context size). Consumers baseline on first,
+epoch-change, gap or decreasing-counter observations; absent evidence is
+unavailable. Counter times are not heartbeats and no in-flight usage is exposed.
+See [the runtime contract](../ARCHITECTURE.md#identity-names-and-bindings) for exact fields, provider
+normalization and bounded-source limitations. Extensions read these public
+projections, never provider transcripts or private driver state.
+
 Provider prompt submission also requests this context for an already verified
 current session. The provider receives only extension summaries in
 `UserPromptSubmit.additionalContext`; startup identity context remains at

@@ -4,7 +4,7 @@ use ratatui::text::Line;
 
 #[derive(Default)]
 pub(super) struct Derived {
-    pub notes: Option<(usize, Vec<Line<'static>>)>,
+    pub notes: Option<(usize, crate::look::Look, Vec<Line<'static>>)>,
     pub grid: Option<Grid>,
 }
 

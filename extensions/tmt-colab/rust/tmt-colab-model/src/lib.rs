@@ -1,14 +1,17 @@
 //! Pure colab-v1 byte/crypto primitives. Syntax and signatures do not grant authority.
 //! Callers own log, session, role, epoch, sequence and aggregate-quota admission.
-//! The single OS-entropy exception is seal's internally generated object ID;
-//! no filesystem, process or network access, and no key-generation RNG.
+//! Two crypto-only OS-entropy uses: seal object IDs and HPKE ephemeral keys;
+//! no filesystem, process or network access, and no long-term key-generation RNG.
 pub mod auth;
+pub mod certificate;
 pub mod crypto;
 pub mod framing;
 pub mod keys;
+pub mod link;
 pub mod object;
 pub mod stream_cut;
 pub mod values;
+pub mod wrap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Invalid;

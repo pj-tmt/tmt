@@ -16,6 +16,48 @@ pub fn query(words: &[OsString], output: &mut impl Write) -> io::Result<()> {
     }
     match context(words) {
         Context::Static => writeln!(output, "static"),
+        Context::Launch { prefix } => {
+            writeln!(output, "identities")?;
+            let candidates = candidates(&prefix, false).unwrap_or_default();
+            for identity in &candidates {
+                writeln!(output, "{}", identity.name)?;
+            }
+            let registry = tmt_adapters::runtime::RuntimeRegistry::first_party();
+            for driver in tmt_core::driver::ALL {
+                for executable in driver.executables {
+                    if executable.starts_with(&prefix)
+                        && registry.claim(std::ffi::OsStr::new(executable)).is_some()
+                        && !candidates
+                            .iter()
+                            .any(|identity| identity.name == *executable)
+                    {
+                        writeln!(output, "{executable}")?;
+                    }
+                }
+            }
+            Ok(())
+        }
+        Context::LaunchCommand { first, offset } => {
+            let registry = tmt_adapters::runtime::RuntimeRegistry::first_party();
+            let prefix = first.to_str().unwrap_or_default();
+            let canonical = tmt_core::names::normalize_name(prefix);
+            let identities = candidates(prefix, false);
+            // Missing storage is normal on a first launch; unreadable existing
+            // storage cannot establish absence and keeps completion static.
+            match identities {
+                Some(identities) => {
+                    let named = identities
+                        .iter()
+                        .any(|identity| identity.canonical_name == canonical);
+                    writeln!(
+                        output,
+                        "command\n{}",
+                        offset + usize::from(named || registry.claim(&first).is_none())
+                    )
+                }
+                None => writeln!(output, "static"),
+            }
+        }
         Context::Command { offset } => writeln!(output, "command\n{offset}"),
         Context::Identities { prefix, remembered } => {
             writeln!(output, "identities")?;
@@ -72,4 +114,12 @@ fn extension_candidates(words: &[OsString], output: &mut impl Write) -> io::Resu
         writeln!(output, "files")?;
     }
     Ok(true)
+}
+
+fn candidates(prefix: &str, remembered: bool) -> Option<Vec<tmt_core::identity::Identity>> {
+    let paths = ConfigPaths::discover().ok()?;
+    if !paths.database.try_exists().ok()? {
+        return Some(Vec::new());
+    }
+    Storage::identity_candidates(&paths.database, prefix, remembered).ok()
 }

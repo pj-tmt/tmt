@@ -24,6 +24,7 @@ use serde_json::Value;
 use tmt_cli_style::{
     Role,
     grid::{self, Align, Truncate},
+    mark::Mark,
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -42,7 +43,7 @@ const KEYS: &[&str] = &[
 ];
 
 /// The footer names what the most used keys do for the selected row.
-fn hints(app: &App) -> String {
+fn hints(app: &App, width: usize) -> String {
     let bindings = app.bindings();
     let mut hints: Vec<String> = [
         ("enter", "⏎"),
@@ -51,6 +52,7 @@ fn hints(app: &App) -> String {
         ("d", "d"),
         ("tab", "tab"),
         ("ctrl-r", "ctrl-r"),
+        ("T", "T"),
     ]
     .into_iter()
     .filter_map(|(event, label)| {
@@ -75,7 +77,19 @@ fn hints(app: &App) -> String {
     if app.view.as_ref().is_some_and(|view| view.me.is_none()) {
         hints.push(crate::status::UNKNOWN_YOU.to_owned());
     }
-    hints.join("  ")
+    let mut shown = String::new();
+    for hint in hints {
+        let next = if shown.is_empty() {
+            hint
+        } else {
+            format!("{shown}  {hint}")
+        };
+        if next.width() > width {
+            break;
+        }
+        shown = next;
+    }
+    shown
 }
 
 /// Fixed keys, then every binding for the selected row.
@@ -286,10 +300,24 @@ fn pane_tab(look: crate::look::Look, name: &str, selected: bool) -> Span<'static
     }
 }
 
+/// A tab or switcher entry names its attention with the same shared marks.
+fn tab_label(name: &str, attention: Attention) -> String {
+    let mut text = format!(" {name}");
+    for (mark, count) in [
+        (Mark::Decision, attention.waiting),
+        (Mark::Failed, attention.blocked),
+    ] {
+        if count > 0 {
+            text.push_str(&format!(" {}{count}", mark.symbol()));
+        }
+    }
+    text
+}
+
 /// One tab. Selection adds a background tint to bold focus color, never extra characters,
 /// so switching never moves the tabs beside it (#504). The tab's attention
 /// colors it and, so color never carries meaning alone, also adds counts:
-/// `◆2` members waiting on you, `!1` blocked.
+/// `◆2` members waiting on you, `✗1` blocked.
 fn tab(
     look: crate::look::Look,
     name: &str,
@@ -297,13 +325,7 @@ fn tab(
     attention: Attention,
     colors: &TabColors,
 ) -> Span<'static> {
-    let mut text = format!(" {name}");
-    if attention.waiting > 0 {
-        text.push_str(&format!(" ◆{}", attention.waiting));
-    }
-    if attention.blocked > 0 {
-        text.push_str(&format!(" !{}", attention.blocked));
-    }
+    let mut text = tab_label(name, attention);
     text.push(' ');
     let style = match attention.state() {
         "waiting" => look.named(&colors.waiting),
@@ -574,7 +596,10 @@ pub fn render(frame: &mut Frame, app: &App) {
     } else if let Some(error) = &app.error {
         Line::from(Span::styled(error.as_str(), look.role(Role::Blocked)))
     } else {
-        Line::from(Span::styled(hints(app), look.role(Role::Muted)))
+        Line::from(Span::styled(
+            hints(app, usize::from(footer.width)),
+            look.role(Role::Muted),
+        ))
     };
     frame.render_widget(Paragraph::new(footer_line), footer);
     if app.help {
@@ -625,6 +650,9 @@ pub fn render(frame: &mut Frame, app: &App) {
     if let Some(switcher) = &app.switcher {
         render_switcher(frame, app, switcher, body);
     }
+    if let Some(picker) = &app.theme_picker {
+        super::theme_picker::render(frame, picker, look, body);
+    }
 }
 
 /// The quick switcher: the query, then the matching tabs with their counts
@@ -657,13 +685,7 @@ fn render_switcher(frame: &mut Frame, app: &App, switcher: &Switcher, body: Rect
     }
     for (index, key) in found.iter().enumerate().skip(first).take(shown) {
         let attention = app.attention.get(*key).copied().unwrap_or_default();
-        let mut text = format!(" {}", super::tabs::label(key));
-        if attention.waiting > 0 {
-            text.push_str(&format!(" ◆{}", attention.waiting));
-        }
-        if attention.blocked > 0 {
-            text.push_str(&format!(" !{}", attention.blocked));
-        }
+        let mut text = tab_label(super::tabs::label(key), attention);
         if app.hidden.contains(*key) {
             text.push_str(" (hidden)");
         }
@@ -826,7 +848,7 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
     if derived
         .notes
         .as_ref()
-        .is_none_or(|(cached_width, _)| *cached_width != width)
+        .is_none_or(|(cached_width, cached_look, _)| *cached_width != width || *cached_look != look)
     {
         let lines: Vec<Line> = match (&view.notes, view.render) {
             (Notes::Text(text), NotesRender::Markdown) => markdown::render(text, width, look),
@@ -838,9 +860,9 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
                 .map(|line| Line::styled(line, look.role(Role::Dim)))
                 .collect(),
         };
-        derived.notes = Some((width, lines));
+        derived.notes = Some((width, look, lines));
     }
-    let lines = &derived.notes.as_ref().expect("prepared notes").1;
+    let lines = &derived.notes.as_ref().expect("prepared notes").2;
     app.scrolls
         .show(frame, Pane::Notes, area, lines, look.role(Role::Dim));
 }
@@ -1232,6 +1254,24 @@ mod tests {
     use serde_json::json;
     use std::collections::BTreeMap;
     use unicode_width::UnicodeWidthChar;
+
+    #[test]
+    fn footer_omits_whole_hints_instead_of_clipping_words() {
+        let mut app = App::new(Some("product".into()));
+        app.apply(crate::board::app::tests::snapshot("product", json!([])));
+        let full = hints(&app, usize::MAX);
+        assert!(full.contains("T theme"));
+        for width in [0, 1, 20, 40, 108, 112] {
+            let shown = hints(&app, width);
+            assert!(shown.width() <= width);
+            assert!(full.starts_with(&shown));
+            assert!(
+                shown.is_empty() || full == shown || full[shown.len()..].starts_with("  "),
+                "partial hint at {width}: {shown}"
+            );
+        }
+        assert!(!draw(&app, 108, 8).last().unwrap().ends_with("◆ ne"));
+    }
 
     /// Rows read from a squad config snippet, as `squad.toml` would give them.
     fn rows_from(text: &str) -> Rows {
@@ -2416,7 +2456,7 @@ columns = [{ name = "member", width = "30%" },
             .map(|x| buffer[(x, 0)].symbol().to_owned())
             .collect();
         // Counts say what the color says, so no meaning is color-only.
-        assert_eq!(tabs.trim_end(), " product ◆1 !1   reviews !2");
+        assert_eq!(tabs.trim_end(), " product ◆1 ✗1   reviews ✗2");
         let column = |name: &str| tabs[..tabs.find(name).unwrap()].chars().count() as u16;
         let product = &buffer[(column("product"), 0)];
         // Waiting wins over blocked; selection is bold without moving the tab.
@@ -2454,6 +2494,36 @@ columns = [{ name = "member", width = "30%" },
             app.look().role(Role::Review).fg.unwrap_or_default()
         );
         assert_eq!(draw(&app, 60, 6)[1], "no lead · 1 member");
+    }
+
+    #[test]
+    fn attention_counts_keep_shared_marks_and_tab_width_without_color() {
+        let mut app = board(json!([{"title": null, "rows": []}]));
+        app.view.as_mut().unwrap().look.depth = tmt_cli_style::Depth::None;
+        let counts = Attention {
+            waiting: 2,
+            blocked: 1,
+        };
+        app.attention.insert("product".into(), counts);
+        assert_eq!(Mark::Failed.symbol().width(), 1);
+        assert_eq!(tab_label("product", Attention::default()), " product");
+        let colors = TabColors::default();
+        let plain = tab(app.look(), "product", false, counts, &colors);
+        let selected = tab(app.look(), "product", true, counts, &colors);
+        assert_eq!(selected.content, " product ◆2 ✗1 ");
+        assert_eq!(selected.content, plain.content);
+        assert_eq!(selected.width(), " product ◆2 ✗1 ".width());
+        assert_eq!(selected.style.fg, None);
+        assert!(draw(&app, 60, 8)[0].contains("product ◆2 ✗1"));
+        app.switcher = Some(Switcher {
+            query: "product".into(),
+            selected: 0,
+        });
+        assert!(
+            draw(&app, 60, 8)
+                .iter()
+                .any(|line| line.contains("product ◆2 ✗1"))
+        );
     }
 
     #[test]
@@ -3079,7 +3149,7 @@ columns = [{ name = "member", width = "30%" },
             .notes
             .as_ref()
             .unwrap()
-            .1
+            .2
             .clone();
         draw(&app, 25, 12);
         assert_ne!(
@@ -3091,7 +3161,7 @@ columns = [{ name = "member", width = "30%" },
                 .notes
                 .as_ref()
                 .unwrap()
-                .1,
+                .2,
             lines
         );
         app.apply(crate::board::app::tests::snapshot("product", json!([])));
@@ -3381,20 +3451,20 @@ columns = [{ name = "member", width = "30%" },
             split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
             Notes::NotShown,
         );
-        assert!(!hints(&app).contains("d toggle"));
+        assert!(!hints(&app, usize::MAX).contains("d toggle"));
         app.view.as_mut().unwrap().board = split(
             Direction::TopBottom,
             vec![Pane::Rows, Pane::Detail],
             vec![60, 40],
         );
-        assert!(hints(&app).contains("d toggle detail"));
+        assert!(hints(&app, usize::MAX).contains("d toggle detail"));
         assert!(draw(&app, 48, 12)[11].contains("d toggle detail"));
         app.view
             .as_mut()
             .unwrap()
             .bindings
             .insert("d".into(), crate::action::Action::parse("refresh").unwrap());
-        assert!(hints(&app).contains("d refresh"));
+        assert!(hints(&app, usize::MAX).contains("d refresh"));
         assert!(
             help_lines(&app)
                 .iter()

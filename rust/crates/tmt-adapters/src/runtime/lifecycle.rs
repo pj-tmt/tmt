@@ -108,7 +108,8 @@ pub trait RuntimeLifecycle {
 
     /// The driver state after `turn`, given the remembered session's previous
     /// state; `None` leaves it unchanged. Reads stay under the driver's own
-    /// tree in `environment` and within [`super::transcript::TAIL_LIMIT`].
+    /// tree in `environment`, with each context/consumption read bounded by
+    /// [`super::transcript::TAIL_LIMIT`] (plus consumption's boundary byte).
     fn turn_state(
         &self,
         _turn: &TurnEnd,
@@ -183,6 +184,11 @@ pub trait RuntimeLifecycle {
 
     /// The context usage recorded in this driver's own state, for display only.
     fn state_usage(&self, _state: &DriverState) -> Option<super::driver_state::Usage> {
+        None
+    }
+
+    /// Cumulative completed-request counters, never context-window size.
+    fn state_consumption(&self, _state: &DriverState) -> Option<super::consumption::Consumption> {
         None
     }
 

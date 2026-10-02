@@ -124,7 +124,7 @@ pub(super) fn remove(
     owner: &str,
     skills: Option<Vec<String>>,
 ) -> Result<Vec<u8>, Fault> {
-    skill_installation::remove_owned(global, owner, skills.as_deref())
+    skill_installation::remove_owned(None, global, owner, skills.as_deref())
         .map(|report| {
             serde_json::to_vec(&json!({
                 "owner": owner,

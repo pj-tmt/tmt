@@ -9,6 +9,7 @@ publish.workspace = true
 repository.workspace = true
 
 [dependencies]
+hpke.workspace = true
 aes-gcm.workspace = true
 base64.workspace = true
 ed25519-dalek.workspace = true

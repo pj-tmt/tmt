@@ -233,6 +233,16 @@ impl Base {
         }
     }
 
+    /// A short description shared by theme lists and pickers.
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Tmt => "soft truecolor for dark terminals",
+            Self::TmtLight => "the same palette for light terminals",
+            Self::Terminal => "your terminal's own 16 colors",
+            Self::Mono => "bold and dim only",
+        }
+    }
+
     pub fn parse(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|base| base.name() == name)
     }
@@ -243,7 +253,7 @@ impl Base {
         match role {
             Role::Text => Paint::Plain,
             Role::Muted => Paint::Ansi(AnsiColor::White),
-            Role::Dim => Paint::Ansi(AnsiColor::BrightBlack),
+            Role::Dim => Paint::Dimmed,
             Role::Accent => Paint::Ansi(AnsiColor::Blue),
             Role::Waiting => Paint::Ansi(AnsiColor::Yellow),
             Role::Working => Paint::Ansi(AnsiColor::Green),

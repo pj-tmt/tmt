@@ -392,15 +392,23 @@ fn operation(
     current_server: Option<ServerSelector<'_>>,
 ) -> Result<Report, Failure> {
     match request {
-        Invocation::Bind { name, save, .. } => binding::bind_identity_with_creation(
-            storage,
-            endpoint,
-            &pane.as_ref().expect("binding preflight").id,
-            &name,
+        Invocation::Bind {
+            name,
             save,
-        )
-        .map(Report::Bound)
-        .map_err(binding_failure),
+            pane: selector,
+        } => {
+            let pane = &pane.as_ref().expect("binding preflight").id;
+            if selector.is_none()
+                && let Some(bound) =
+                    binding::name_auto_identity(storage, endpoint, pane, &name, save)
+                        .map_err(binding_failure)?
+            {
+                return Ok(Report::Bound(bound));
+            }
+            binding::bind_identity_with_creation(storage, endpoint, pane, &name, save)
+                .map(Report::Bound)
+                .map_err(binding_failure)
+        }
         Invocation::BindMarked { name, save } => {
             let pane = pane.as_ref().expect("marked binding preflight");
             binding::bind_identity_with_creation_at(

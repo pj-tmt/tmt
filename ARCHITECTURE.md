@@ -657,11 +657,18 @@ release-please attributes a commit to a package by the files it touches under th
 path and can only drop paths, so the CLI's `exclude-paths` lists everything under each
 extension root except the crates the CLI links (today the Office model, command and service
 crates), and a change to those crates counts toward the CLI release as well as Office's. The
-reverse direction cannot be expressed: a change to a core crate an extension links opens an
-extension release only together with a change under that extension's own path.
+reverse direction has no release-please config option. The map's private TUI leaf declares
+`releaseConsumers: ["squad"]`. `release-please-run.mjs` wraps the pinned public commit iterator
+and adds a consumer-root marker to each matching commit's in-memory file list before the normal
+split, excludes and per-product release cutoff. Original files and ordering are preserved;
+no source file, private-leaf version or release manifest entry is created. TUI-only fixes therefore
+propose Squad, while the CLI remains excluded. Other shared leaves retain package-root attribution;
+expanding consumption requires a separate ownership review.
 `.release-please-manifest.json` holds the last published versions and belongs to
 release-please after its first release pull request. The CLI is pinned with a lockfile in
-`.github/release-please/`, outside the `typescript` workspace so no other job installs it.
+`.github/release-please/`, outside the `typescript` workspace. Only the release job and CI jobs running
+release-config tests install it; tests load that same isolated pin to verify the wrapper's API shape
+and real Manifest attribution, without adding release tooling to other workspace installs.
 The config sets `always-update`: release-please otherwise leaves an open release pull request
 untouched while its notes are unchanged, so a conflict with `main` (every release pull request
 edits the shared manifest, and adjacent lines conflict) would never clear.
@@ -1404,12 +1411,28 @@ from a host's or driver's text.
   matching what `ProcessIncarnation` accepts.
 - **Cursor:** the bindings cursor update trigger compares the column.
 
+Schema 43 adds `identities.auto_named`, a private boolean defaulting to false.
+Only an unnamed registered-runtime launch inserts true, independently of temporary
+or saved lifetime. No name pattern or user-editable metadata grants this provenance.
+The identities change-cursor trigger includes it. Existing identities remain explicit.
+Caller-scoped `name`/`this` checks the exact live binding and this flag inside one
+binding transaction, checks name uniqueness, renames the same UUID, optionally
+promotes its lifetime and consumes the flag. Binding/session rows are unchanged;
+ordinary binding and `add`/`marked` keep their existing conflict behavior. An ordinary
+`mv` also consumes provenance when it changes the name.
+
 The claude and codex drivers implement persistence with one document
 (`runtime::driver_state`): version 1 is `{"model": <slug>}`, and version 2 adds
 `"usage": {"tokens", "windowTokens"?, "observedAtMs"}` (the model is then
 optional). Version 3 additionally stores session-scoped main-turn activity,
 including the exact provider session and process incarnation. Documents without
-activity retain versions 1/2, byte for byte; all three versions are read. The model's only source is the `model` field
+activity retain versions 1/2, byte for byte. Version 4 adds optional cumulative
+consumption and its private source cursor; all four versions are read. Optional
+consumption is omitted if it would exceed the existing 1 KiB DriverState cap,
+preserving model/context/activity evidence. Reading versions 1–3 retains their
+model/context/activity without inventing counters; their first consumption
+observation starts a new epoch with gap=true and complete=false. Older readers discard an unknown
+version under the existing reconciliation contract. The model's only source is the `model` field
 of a starting hook event, which both providers document (see
 `runtime/fixtures/README.md`). Claude may omit it, for example after `/clear`, and
 then the previous model stays. When a provider sends no model, nothing is stored.
@@ -1456,12 +1479,53 @@ only for usage numbers:
 - the path must be a regular `.jsonl` file under the driver's own tree
   (`~/.claude/projects`, or `$CODEX_HOME/sessions`);
 - it is opened without following a final symlink and without blocking;
-- only the last MiB is read, and a line cut by that window is skipped.
+- context usage reads at most the last MiB, skipping a line cut by that window;
+- consumption reads at most one additional MiB (plus a boundary byte), from the
+  appended Claude cursor or the latest Codex tail. No polling is introduced.
 
-Anything unexpected writes nothing. A start that changes the context
+Unusable context usage writes nothing for that value. A start that changes the context
 (startup, clear, compact) drops usage; a resumed Claude start records the
 `context_tokens` it reports. Core never parses the document:
 `RuntimeRegistry::remembered_usage` projects it as `resume.usage`.
+
+Completed-request consumption (#872) is separate from context size.
+RuntimeLifecycle/RuntimeRegistry project the driver's counters as optional
+`resume.consumption` in ls/identity JSON: `inputTokens`, `outputTokens`,
+`cachedInputTokens`, epoch, sequence, `observedAtMs`, complete and gap.
+Cached input is a subset of input. Claude input adds uncached input, cache-read
+and cache-creation; cached input is cache-read. Codex uses `total_token_usage`
+input/output/cached fields; reasoning is already in output. Input plus output
+counts provider-reported token units, not cost or interchangeable text volume.
+These are accepted completed-request observations, not streaming throughput.
+
+The first Claude observation baselines at current EOF with zero counters and
+retains the last main message ID's hash; historical requests are not replayed.
+The append-only scan counts each new contiguous `message.id` group once, carries
+the last ID across reads, cross-checks `requestId` and usage equality, and skips
+sidechains/synthetic records. Private dev/inode/offset and hashed IDs retain
+equality without transcript text or paths. Counter evidence and its cursor use
+the same trusted descriptor and captured file end. Noncontiguous older ID repeats are
+not expected and may count again: exact historical-ID dedup is deliberately
+outside the bounded one-KiB contract. In-place rewrites that retain inode and
+do not shrink also violate the append-only assumption. A partial final line
+waits for its newline, with `complete=false` and `gap=false`. Cursor loss, shrink,
+replacement, a scan over one MiB, invalid main records or overflow starts a new
+epoch at current EOF with `gap=true` and `complete=false`; a cut fragment is
+discarded through its next newline, and history is never recounted.
+
+Codex's first observation baselines at the provider's cumulative totals.
+Unterminated final records wait for a newline with complete=false; an invalid
+newest token_count is unavailable rather than falling back to older totals.
+A component decrease, file shrink or replacement starts a new epoch/gap.
+Epochs and sequence are driver measurement coordinates, not provider IDs;
+sequence increases within an epoch when source evidence advances.
+`observedAtMs` is acceptance time, not token generation time or a heartbeat.
+Duplicate hooks without source changes retain the counter's timestamp/sequence.
+A later complete scan clears the gap flag within its new epoch. Every start
+resets consumption; failed reads leave it absent or unchanged rather than
+inventing zero. Rate consumers baseline first/reset/gap observations and never
+differentiate context usage. All writer verification/CAS/deadline behavior stays
+with the existing hook owner; core does not parse the cursor or counters.
 
 Runtime observations retain a driver-supplied PID/start-identity pair and an
 optional provider session ID. Schema 34 additionally retains an optional launch
@@ -1600,6 +1664,16 @@ configuration selection, and storage startup/close in the facade. Private
 `run_command/run.rs` owns the bound foreground launch and completion;
 `run_command/resume.rs` owns command selection, resume pending marks and settlement.
 The existing flow separates command selection, binding, spawn and runtime admission.
+A first operand recognized as a registered bare runtime executable selects an
+auto-named launch only when no active identity holds that token. A colliding bare
+or flag-bearing shorthand refuses with explicit named-command alternatives; the
+explicit name plus executable form retains its meaning. The parser admits opaque
+provider tails, while authoritative identity lookup and runtime recognition stay
+in launch composition. Auto-name creation uses the normal binding lifecycle and
+prints one line before spawn. Failed spawn retires only its exact unchanged,
+new temporary automatic binding; saved identities and renamed/replaced bindings
+remain. Provider hooks, foreground completion and channel enrollment retain the
+same UUID/binding owners across naming, without a separate anonymous session store.
 A verified live or stopped previous runtime prevents a second launch.
 An inconclusive previous-runtime probe permits a degraded launch only after
 fencing that same attachment's stored Running state to Unknown; known Ended is
@@ -1630,8 +1704,10 @@ Unavailable discovery is not evidence that an identity does not exist; binding
 and launch still perform their normal authoritative checks.
 The CLI's hidden completion query resolves the unfinished operand through the
 same public Clap grammar and emits only a context tag, candidate names or command
-offset. Shell adapters retain generated static completion and delegate arguments
-after `run`'s identity to the command's own shell completion. They do not own a
+offset. Shell adapters retain generated static completion and delegate `run` arguments
+to the command's own shell completion. Launch completion includes registered
+executables and identities; its storage-only composition resolves whether the
+command begins at the first operand or after an explicit identity. They do not own a
 second TMT parser or runtime-driver list. Discovery failures are silent and do
 not initialize storage. `run -s` uses the existing binding lifetime promotion;
 without it a new identity is temporary and an existing saved one stays saved.
@@ -1834,7 +1910,7 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 42, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 43, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
@@ -2322,14 +2398,28 @@ guard allows exactly those edges.
   is Live, anything else is Unknown. The driver's optional `probe` operation is
   not called. One batched `ps` (`process::runtime::observe_starts`) covers the
   server and the scoped pane shells.
+- **Caller and targets:** `CallerEnvironment` carries only the variables
+  approved drivers declare for `caller` (`driver_env`). A driver's `caller`
+  names a pane; core counts it only when that pane's shell is an ancestor of
+  the caller (`process::ancestry`), and the nearest verified pane wins across
+  tmux, Herdr and external hosts. Without a verified external pane the choice
+  is exactly the built-in one. The handle then keeps that pane and its socket
+  for `caller_pane`, server resolution and `resolve-target`. `Host::for_target`
+  picks the host whose registered grammar reads the text as a target (tmux, the
+  broadest, is the default), and an external target resolves through the
+  driver on the caller's server or the driver's default one. Only a definite
+  answer (no such pane, no server, no approved driver) is "not found"; a
+  driver that fails or runs late is a failure (`RECONCILIATION_FAILED`).
+  Caller detection stays best-effort: a failing driver is just not the
+  caller.
 
 The atomic owner-only replacement of such settings files is `private_file`,
 shared with the extension hook consents. The approved drivers' syntax is
-registered with core at start (see the host section above). Stored bindings
-on an external host are read, published and cleared through its driver;
-selecting an external host for `tmt add`, its caller environment, capture and
-input are still to come in slice 3b-2b. Until then, talk by name reaches such
-a binding only with `--inbox`.
+registered with core at start (see the host section above). Bindings on an
+external host are made from its caller or an explicit target, and read,
+published and cleared through its driver. Input, capture and focus arrive in
+slice 3b-2b-2; until then a send to such a binding is `Unsupported`, the
+request is kept, and `--inbox` queues.
 
 ## Managed skills and native installation
 
@@ -2352,6 +2442,14 @@ an owned core skill. CLI upgrades refresh recorded Office links without creating
 missing integrations. The driver descriptors (see Agent drivers) are the only
 provider inventory. Skill installation does not open application configuration, SQLite
 or tmux, and never silently replaces an unmanaged path.
+Ownership requires a matching known skill name and a link into this TMT home's
+canonical `skill-assets` store. Existing generations retain digest and inventory
+validation; a missing generation is a dangling TMT link, eligible for refresh or
+removal. A real directory, mismatched name, outside link, or modified source is
+preserved as a conflict. Historical bundled Office target intents join owner
+records for explicit extension removal, and completed removal retires those
+intents, including preserved user conflicts, so core refresh cannot resurrect
+or reclaim an integration the user removed.
 
 Extension-owned skills arrive as bytes through the local API
 (`skills.install`/`skills.remove`, both requiring explicit `consent: true` from
@@ -2407,8 +2505,9 @@ facade's `release_verifier` until PR B of #355.
 Removal (`uninstall_extension`, for any extension product) validates ownership
 of every command link, refuses a foreign same-named command, and deactivates the
 links without deleting releases or application data. It is recoverable, not a multi-file atomic deletion:
-a missing command link with a retained activation is reported as invalid and
-explicit uninstall can finish that state.
+a missing command link with a retained activation is reported by `extension ls`
+as `partiallyRemoved` with an exact removal command, and explicit uninstall
+can finish that state. Listing this state does not execute or mutate it.
 
 `tmt extension install|upgrade|rm|ls` (`tmt-cli::extension_install_command`)
 is the public surface for the official extensions over this path. Its facade
@@ -2491,6 +2590,11 @@ version pin; extension verification and skill settlement retain their existing o
 JSON/non-terminal runs without `--yes` report `consentRequired` without mutation.
 Product failures remain independent in the aggregate report; CLI failure stops the
 extension phase, while a pinned CLI permits it. No rollback or second installer exists.
+`NATIVE_UPGRADE_FAILED` includes an explicit diagnostic `cause` in JSON. HTTPS
+failures retain the transport cause or diagnostic class without echoing rejected
+URI/proxy credentials. Managed-skill conflict reports retain the path array and
+provide one shell-quoted backup command per preserved entry; recovery moves the
+entry outside skill discovery without changing its source.
 
 Explicit extension `install --repair` is a separate recovery composition in
 `native_install::repair`, for GitHub and local-archive receipts. `receipt`
@@ -2649,7 +2753,8 @@ painted data. Input, snapshots and deferred tab attention share one event channe
 a snapshot wakes the painter directly. The input loop rebuilds only after a
 state/input/resize change or when displayed clock text or the delayed spinner
 changes. Each immutable view owns disposable markdown wrapping and grid-width
-derivations keyed by effective pane width (and grid search); replacing the view
+derivations keyed by effective pane width (and grid search); markdown also keys
+its styled lines by the active look so theme previews repaint them. Replacing the view
 invalidates them, and the scroll renderer copies only visible lines.
 A switch advances the worker's generation, cancelling superseded core reads in
 the shared `tmt-invoke` bounded process owner. The refresh worker owns one never-reset stop flag per generation; preemption
@@ -2687,6 +2792,31 @@ each, plus one `inbox` read shared by all, and no `ls`). Previous tab attention
 stays visible until that generation's update arrives; a newer switch preempts
 this lower-priority work. The cross-squad leads/all views still read the rosters
 needed for their own rows before publication.
+
+Squad's `theme` command module registers `theme ls` (hidden `list` alias),
+`set` and `rm`; bare `theme` lists. Lists and the board picker consume names and
+descriptions from `tmt-cli-style::Base`, never a Squad palette. The effective
+base source is `default`, `cli`, `board` or `squad`; token overrides resolve
+independently. `config::Config` reads core's resolved appearance through public
+`config show`, then applies `[board.theme]` and `[squad.<name>.theme]` in
+`squad.toml` through `look::board_theme`. Invalid core appearance falls back to
+the built-in base with a notice; invalid Squad layers are configuration errors.
+All bases and token overrides are validated per layer, including masked values.
+Named `Config::set_theme_base` and `remove_theme_base` change only `base` through
+the existing writer, keeping token overrides and unrelated content. Squad never
+writes `config.json`, and command/picker text states that CLI colors stay unchanged.
+
+The bindable `theme` action (`T` in both host presets and the all tab) opens a
+small overlay owned by `board::theme_picker`. The session reads its Config at
+opening and keeps that baseline across refreshes. Preview applies the same
+in-memory layer edit as CLI set, cached when selection or scope changes, with no
+write; `App::look` supplies it to every
+pane and tab. Tab changes board/squad scope; built-in tabs have only board scope,
+and a masking squad base is named. Overlay input cannot operate underlying rows,
+tabs or panes. Enter calls the named Config edit once; failed saves retain the
+draft and notice without retry, while Esc drops preview and uses the latest
+saved view. A refreshed config cannot replace the opening baseline and permit an
+overwrite. No settings-view framework or core configuration writer is introduced.
 
 Squad `config::duration` owns UTF-8-safe whole-unit suffix conversion for provider,
 board refresh and reminder timing. Callers retain their accepted units, numeric
@@ -2905,9 +3035,12 @@ changes. Bodies are agent-written and are sanitized like notes before display.
 Membership commands are sequences of idempotent core commands, not one
 transaction; each reports what it applied, and a re-run converges. `squad.toml`,
 beside the global config that `tmt config show` reports, is the user's file.
-Squad writes only the top-level `me` and `me_id` (the UUID `me` named), together,
-with a changed-input check and atomic replacement that preserves the rest of the
-document. Nothing asks for `me`: `init` only creates the room (`--me`, for
+`Config::write` owns format-preserving replacement for `me`/`me_id`, tab order
+and board theme bases. It checks the original bytes, edits a cloned document,
+skips unchanged bytes and assigns the new document only after successful
+publication. A changed file is refused, not overwritten. Its byte check and
+atomic replacement are not a locking transaction; backups are not created.
+`me` and `me_id` (the UUID `me` named) are written together. Nothing asks for `me`: `init` only creates the room (`--me`, for
 scripts, is checked before any effect), and `tmt squad me [<name>|--clear]`
 shows, records or removes it. The UUID decides, as it
 does for binding markers: while `me_id` names an active identity, that identity is
@@ -2980,6 +3113,8 @@ evidence. Storage adapter tests prove migrations, transaction rollback,
 contention, crash cleanup, retention, acknowledgment and late-final behavior.
 Tooling tests prove release-script policy and bounded command wrappers; they do
 not count as native runtime or release-archive proof.
+The public-install smoke keeps short issue reasons and separate bounded command
+diagnostics in its run log and result artifact; the packed runner owns stream capture.
 
 Docker E2E `harness.ts` retains scenario imports; `harness/fixture.ts` owns
 fixture resources and process registries.
@@ -3171,12 +3306,16 @@ CLI releases. #841 gates yrs adoption. Official registration/packaging is separa
 syntax, deterministic Ed25519/X25519 public derivation, bounded LP framing,
 strict Ed25519, sign-in HMAC/possession, management
 bytes, namespace-bound cuts and immutable object codecs/seal/open. Its only OS
-operation is CSPRNG entropy for internal object IDs. No core or extension behavior
+operations are crypto-only entropy for internal object IDs and fresh HPKE
+ephemeral keys. Long-term key generation stays in the executable keyring; no
+filesystem, process or network use. No core or extension behavior
 crate depends on it yet; the architecture guard rejects runtime/core dependencies
 and unreviewed consumers. Envelope syntax/signature success does not establish
 log, session, role, epoch or sequence authority; callers admit those before open.
-Typed membership/payload schemas, HPKE/link derivation, browser client and the
-three-engine harness remain later L1 work. Frozen vectors are contract-owned;
+The model also owns device/chain syntax, purpose-separated link keys and
+owner-authenticated HPKE Base wraps. Caller-owned live-issuer/history/transition
+policy still gates application. Typed membership/payload schemas, browser client,
+pairing/send/baseline builders and the three-engine harness remain later L1 work. Frozen vectors are contract-owned;
 Rust tests read them without Python. Regeneration uses an independent Python
 cryptography oracle; the retained #829 corpus tests all 148 strict policy rows.
 

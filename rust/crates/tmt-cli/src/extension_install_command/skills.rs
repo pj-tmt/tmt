@@ -98,7 +98,7 @@ pub(super) fn settle_skills(
         .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
     let current = skill_names(&skills);
     let global = global_dir()?;
-    let owned = skill_installation::owned_by(&global, name)
+    let owned = skill_installation::owned_by(None, &global, name)
         .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
     let dropped: Vec<String> = previous
         .iter()
@@ -162,7 +162,7 @@ pub(super) fn settle_skills(
     }
     let mut removed = Vec::new();
     if !dropped.is_empty() {
-        let report = skill_installation::remove_owned(&global, name, Some(&dropped))
+        let report = skill_installation::remove_owned(None, &global, name, Some(&dropped))
             .map_err(|failure| {
                 Failure::new(
                     "EXTENSION_SKILLS_FAILED",

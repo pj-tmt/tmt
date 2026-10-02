@@ -1,7 +1,7 @@
 {
   "name": "tmt-release-please",
   "private": true,
-  "description": "Pinned release-please CLI for the release workflow; installed only by that job.",
+  "description": "Pinned release-please API for the release workflow and release-config tooling tests.",
   "packageManager": "pnpm@10.33.0",
   "dependencies": {
     "release-please": "17.11.2"

@@ -74,7 +74,6 @@ impl Door {
                     }
                     socket.set_nonblocking(false)?;
                     if workers.len() == limits::SOCKETS {
-                        socket.set_nonblocking(true)?;
                         let _ = response(&mut socket, 429, b"CAPACITY", false);
                         continue;
                     }
@@ -140,14 +139,32 @@ fn response(socket: &mut TcpStream, status: u16, body: &[u8], html: bool) -> std
         }
     }
     socket.shutdown(Shutdown::Write)?;
-    // Discard only immediately available bounded request bytes after the response.
-    // Closing with unread input may reset even a fully written capacity reply.
+    // FIN lets the peer finish reading the response before closing its write half.
+    // Wait for that EOF: immediately readable bytes alone omit input in flight,
+    // and a final close with unread input can reset a fully written capacity reply.
+    // The write and drain share one deadline and the drain has a byte budget.
     socket.set_nonblocking(true)?;
     let mut discarded = [0; 1024];
-    for _ in 0..(limits::HEADER_BYTES + limits::HTTP_BODY_BYTES) / discarded.len() {
-        match socket.read(&mut discarded) {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {}
+    let mut remaining_bytes = limits::HEADER_BYTES + limits::HTTP_BODY_BYTES;
+    while remaining_bytes != 0 {
+        let Some(remaining_time) = deadline.checked_duration_since(Instant::now()) else {
+            break;
+        };
+        let size = remaining_bytes.min(discarded.len());
+        match socket.read(&mut discarded[..size]) {
+            Ok(0) => break,
+            Ok(n) => remaining_bytes -= n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                let mut events = [PollFd::new(socket.as_fd(), PollFlags::POLLIN)];
+                let timeout = remaining_time.as_millis().min(u16::MAX as u128) as u16;
+                match poll(&mut events, timeout) {
+                    Ok(0) => break,
+                    Ok(_) | Err(nix::errno::Errno::EINTR) => continue,
+                    Err(_) => break,
+                }
+            }
+            Err(_) => break,
         }
     }
     Ok(())
@@ -268,3 +285,7 @@ fn read(
     bytes.extend_from_slice(&chunk[..n]);
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "http_tests.rs"]
+mod tests;

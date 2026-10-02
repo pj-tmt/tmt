@@ -8,7 +8,7 @@
 //! sent to a driver. Input, focus and capture arrive in slice 3b-2b: until
 //! then a send is `Unsupported`, so core uses the inbox.
 
-use super::{CallError, DriverProcess, registry::DriverRecord};
+use super::{CallError, DriverProcess, caller::ExternalCaller, registry::DriverRecord};
 use crate::{
     host::{ActionError, DeliveryError, HostError, driver::HostDriver, driver::Unavailable},
     process::{
@@ -42,6 +42,8 @@ pub struct Drivers<R> {
     runner: R,
     records: Vec<DriverRecord>,
     server: OnceCell<ServerEvidence>,
+    /// The caller's own pane, when the handle was chosen for it.
+    caller: OnceCell<ExternalCaller>,
 }
 
 impl<R: CommandRunner> Drivers<R> {
@@ -50,7 +52,24 @@ impl<R: CommandRunner> Drivers<R> {
             runner,
             records,
             server: OnceCell::new(),
+            caller: OnceCell::new(),
         }
+    }
+
+    pub(super) fn records(&self) -> &[DriverRecord] {
+        &self.records
+    }
+
+    pub(super) fn runner(&self) -> &R {
+        &self.runner
+    }
+
+    pub(crate) fn set_caller(&self, caller: ExternalCaller) {
+        let _ = self.caller.set(caller);
+    }
+
+    pub(crate) fn caller(&self) -> Option<&ExternalCaller> {
+        self.caller.get()
     }
 
     /// The first resolution stands for the handle's lifetime.
@@ -64,7 +83,7 @@ impl<R: CommandRunner> Drivers<R> {
 
     /// The approved driver for `host`, checked again before use: `None` when
     /// none is approved or it is no longer the approved executable.
-    fn open(&self, host: HostName) -> Option<DriverProcess<&R>> {
+    pub(super) fn open(&self, host: HostName) -> Option<DriverProcess<&R>> {
         let record = self
             .records
             .iter()
@@ -88,7 +107,16 @@ impl<R: CommandRunner> Drivers<R> {
         };
         let deadline = Instant::now() + Duration::from_secs(3);
         let answer = process
-            .call::<ServerResponse>(ServerRequest { socket: None }, deadline)
+            .call::<ServerResponse>(
+                ServerRequest {
+                    // The caller's own server, or the driver's default.
+                    socket: self
+                        .caller()
+                        .filter(|caller| caller.host == host)
+                        .map(|caller| caller.socket.clone()),
+                },
+                deadline,
+            )
             .map_err(HostError::Driver)?;
         let Some(server) = answer.map_err(|error| refused(&process, error))?.server else {
             return Ok(());
@@ -121,7 +149,10 @@ impl<R: CommandRunner> Drivers<R> {
     }
 }
 
-fn refused<R>(process: &DriverProcess<R>, error: tmt_driver_protocol::DriverError) -> HostError
+pub(super) fn refused<R>(
+    process: &DriverProcess<R>,
+    error: tmt_driver_protocol::DriverError,
+) -> HostError
 where
     R: CommandRunner,
 {
@@ -132,7 +163,10 @@ where
     }
 }
 
-fn driver_process<R: CommandRunner>(process: &DriverProcess<R>, error: CommandError) -> HostError {
+pub(super) fn driver_process<R: CommandRunner>(
+    process: &DriverProcess<R>,
+    error: CommandError,
+) -> HostError {
     HostError::Driver(CallError::Process {
         driver: process.name().to_owned(),
         error,

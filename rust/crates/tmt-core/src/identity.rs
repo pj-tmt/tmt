@@ -100,6 +100,7 @@ pub trait IdentityWriter: IdentityReader {
         &mut self,
         name: &ValidatedName,
         lifetime: Lifetime,
+        auto_named: bool,
     ) -> Result<Identity, Self::Error>;
     fn save_identity(&mut self, identity: &Identity) -> Result<Identity, Self::Error>;
 }
@@ -156,7 +157,7 @@ pub fn create_or_resolve<R: IdentityRepository>(
                 });
             }
             Ok(CreatedIdentity {
-                identity: records.insert_identity(&name, requested_lifetime)?,
+                identity: records.insert_identity(&name, requested_lifetime, false)?,
                 created: true,
             })
         })
@@ -202,4 +203,26 @@ pub fn find_by_name<R: IdentityReader + ?Sized>(
         Some(identity) => Ok(Some(identity)),
         None => Err(IdentityError::InvalidName(refusal)),
     }
+}
+
+/// A launch-generated name has explicit provenance, independent of lifetime.
+/// Insert only: even an improbable collision must never adopt another identity.
+pub fn create_auto_named<R: IdentityRepository>(
+    repository: &mut R,
+    name: &str,
+    lifetime: Lifetime,
+) -> Result<CreatedIdentity, IdentityError<R::Error>> {
+    let name = validate_name(name).map_err(IdentityError::InvalidName)?;
+    repository
+        .with_identity_transaction(|records| {
+            Ok(CreatedIdentity {
+                identity: records.insert_identity(&name, lifetime, true)?,
+                created: true,
+            })
+        })
+        .map_err(IdentityError::Repository)
+}
+
+pub fn automatic_name(harness: &str) -> String {
+    format!("{harness}-{}", &Uuid::new_v4().simple().to_string()[..12])
 }
