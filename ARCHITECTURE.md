@@ -4011,6 +4011,8 @@ slice for #847. `keyring::Layout` owns the injected absolute data root's
 0600 files. It preserves existing root permissions and touches no core database,
 configuration or provider settings. `Keyring` publishes one software owner seed
 with create-only, synced file publication; existing invalid keys fail closed.
+Its statement-signing and wrap-sealing methods call the model without exporting
+the root key. The caller owns request and transition authorization.
 
 `store::Store` owns real SQLite ciphertext, durable create-only stream receipts,
 conflict freezing and epoch fencing. Namespace checkpoints prune only their
@@ -4019,10 +4021,26 @@ transaction; receipts and concurrent tails survive. New checkpoint prefixes
 advance monotonically; exact retries never republish pruned bytes. The
 `pin_checkpoint` seam preserves authority-cut ciphertext for the later verified
 owner-log caller.
-Per-page capacity returns an error instead of evicting history. Envelope
-signatures, identity grammar, roles and owner-transition authorization belong
-to the future model/admission caller; this library creates no network authority.
-Tests own isolated directories and SQLite oracles. Sync, authentication and further model integration remain later slices.
+Per-page capacity returns an error instead of evicting history. Object-envelope
+signature and role admission remain with the future request boundary.
+
+`store::owner` adds authority persistence in the same private database. Its
+`BEGIN IMMEDIATE` closure checks the pinned space/root, operation digest and
+expected head before mutation; exact retries return the stored result without
+invoking the closure. Model verification fences each appended statement and
+retains the revision-1 owner member. Log/head, recipient/device projections,
+epoch secrets, signed wraps, page epoch and result receipt commit together;
+callers propagate mutation errors to roll everything back. Epoch secrets and
+wrap contexts are create-only, with conflicting replacements rejected. The
+caller still owns live certificate/session admission, recipient/history policy,
+cuts and baseline production; this storage API creates no network authority and
+is not a transition engine. Epoch secrets are private local key material, not
+ciphertext or an encrypted-at-rest guarantee; the root seed stays in Keyring.
+`store::schema` owns append-only migrations. Schema 2 adds authority tables and
+preserves schema-1 ciphertext/receipts/checkpoints. Newer schemas fail with a
+typed fault before database mutation. Tests own isolated directories and SQL
+oracles for preservation, rollback, concurrent head fencing and durable replay.
+Sync, authentication and transition policy remain later slices.
 The executable depends on the reviewed invoke/style leaves and pinned
 storage/network/crypto primitives, never core, adapter, Remote or Office crates. Its component is excluded from release;
 workspace checks and Docker build contexts include its manifest.

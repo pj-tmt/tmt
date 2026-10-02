@@ -2511,8 +2511,27 @@ per page across epochs. Capacity rejects writes without eviction. Checkpoint
 pruning keeps receipts and preserves the other namespace and concurrent tails;
 it also reclaims superseded unpinned checkpoint payloads. `pin_checkpoint` is
 the future verified authority-cut caller's preservation seam.
-Signatures and role admission are required at the future request boundary;
+Object signatures and role admission are required at the future request boundary;
 these storage tests prove transaction rollback and reopening, not crash recovery.
+
+The owner-state foundation uses the same private database and the append-only
+migration history in `src/store/schema.rs`. Schema 2 adds `owner_state`,
+`membership_log`, `recipients`, `devices`, `epoch_secrets`, `wraps` and
+`owner_operations`, without altering schema-1 tables. Epoch secrets are sensitive
+local key material protected by the existing directory/file permissions.
+Run its focused tests with:
+
+```bash
+(cd rust && cargo test --offline --locked -p tmt-colab --test owner_state)
+```
+
+The tests cover signed log/head and wrap round trips, operation replay/conflict,
+rollback at each write stage, concurrent expected-head checks, preservation of
+schema-1 rows and byte-for-byte database preservation on newer-schema refusal.
+Exact mutation outcomes are capped at 32 MiB; exceeding the cap rolls back.
+Callers must propagate transaction-method errors and perform live request,
+certificate, policy and baseline admission before committing authority changes.
+No management HTTP route, CLI transition or baseline producer is enabled here.
 
 ```bash
 (cd rust && cargo build --offline --locked -p tmt-cli -p tmt-colab)

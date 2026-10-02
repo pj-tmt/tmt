@@ -215,6 +215,24 @@ impl Keyring {
             .map_err(|_| StateFault::InvalidOwnerKey)?;
         Ok(Self { owner, space_id })
     }
+    /// Sign exact model-admitted bytes without exporting the root key.
+    /// Session, policy and mutation locking belong to the owner-transition caller.
+    pub fn sign_statement(
+        &self,
+        previous: Option<&tmt_colab_model::statement::Head>,
+        operation: &str,
+        payload: &[u8],
+    ) -> tmt_colab_model::Result<tmt_colab_model::statement::Envelope> {
+        tmt_colab_model::statement::sign(&self.space_id, previous, operation, payload, &self.owner)
+    }
+    /// Owner-authenticated wrap; recipient/history admission belongs to the caller.
+    pub fn seal_wrap(
+        &self,
+        header: &tmt_colab_model::wrap::Header,
+        secret: &[u8; 32],
+    ) -> tmt_colab_model::Result<tmt_colab_model::wrap::Envelope> {
+        tmt_colab_model::wrap::seal(header, secret, &self.owner)
+    }
     pub fn owner_public(&self) -> [u8; 32] {
         self.owner.verifying_key().to_bytes()
     }

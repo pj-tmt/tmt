@@ -1,5 +1,7 @@
 //! Durable opaque envelopes. Callers own signature/session/role admission.
 //! Receipt/hash rows survive payload pruning, including interleaved namespaces.
+pub mod owner;
+mod schema;
 use crate::{Result, keyring::Layout, limits};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
@@ -76,27 +78,12 @@ impl Store {
     pub fn open(layout: &Layout) -> Result<Self> {
         layout.file("space.db")?.sync_all()?;
         std::fs::File::open(&layout.directory)?.sync_all()?;
-        let connection = Connection::open_with_flags(
+        let mut connection = Connection::open_with_flags(
             layout.directory.join("space.db"),
             rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
         )?;
         connection.busy_timeout(Duration::from_secs(2))?;
-        let version: u32 = connection.pragma_query_value(None, "user_version", |r| r.get(0))?;
-        if version > 1 {
-            return Err(Fault::UnsupportedSchema(version).into());
-        }
-        connection.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL;
-            BEGIN IMMEDIATE;
-            CREATE TABLE IF NOT EXISTS pages(page TEXT PRIMARY KEY, epoch TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS streams(page TEXT, epoch TEXT, stream TEXT, frozen INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY(page,epoch,stream), FOREIGN KEY(page) REFERENCES pages(page));
-            CREATE TABLE IF NOT EXISTS receipts(page TEXT, epoch TEXT, stream TEXT, seq TEXT, namespace TEXT NOT NULL,
-                hash BLOB NOT NULL, digest BLOB NOT NULL, payload BLOB,
-                PRIMARY KEY(page,epoch,stream,seq), FOREIGN KEY(page,epoch,stream) REFERENCES streams(page,epoch,stream));
-            CREATE TABLE IF NOT EXISTS checkpoints(page TEXT, epoch TEXT, stream TEXT, namespace TEXT, seq TEXT,
-                hash BLOB NOT NULL, digest BLOB NOT NULL, head BLOB NOT NULL, payload BLOB, pinned INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY(page,epoch,stream,namespace,seq), FOREIGN KEY(page,epoch,stream) REFERENCES streams(page,epoch,stream));
-            PRAGMA user_version=1; COMMIT;")?;
+        schema::migrate(&mut connection)?;
         Ok(Self { connection })
     }
     pub fn create_page(&self, page: &str) -> StoreResult<()> {
@@ -107,17 +94,10 @@ impl Store {
     }
     /// Metadata seam for a caller's verified owner transition; no remote route in L2a.
     pub fn advance_epoch(&mut self, page: &str, expected: u64) -> StoreResult<()> {
-        let next = expected.checked_add(1).ok_or(Fault::Invalid)?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if transaction.execute(
-            "UPDATE pages SET epoch=? WHERE page=? AND epoch=?",
-            params![next.to_string(), page, expected.to_string()],
-        )? != 1
-        {
-            return Err(Fault::StaleEpoch);
-        }
+        advance_epoch(&transaction, page, expected)?;
         transaction.commit()?;
         Ok(())
     }
@@ -288,6 +268,17 @@ impl Store {
     pub fn close(self) -> Result<()> {
         self.connection.close().map_err(|(_, e)| e.into())
     }
+}
+fn advance_epoch(connection: &Connection, page: &str, expected: u64) -> StoreResult<()> {
+    let next = expected.checked_add(1).ok_or(Fault::Invalid)?;
+    if connection.execute(
+        "UPDATE pages SET epoch=? WHERE page=? AND epoch=?",
+        params![next.to_string(), page, expected.to_string()],
+    )? != 1
+    {
+        return Err(Fault::StaleEpoch);
+    }
+    Ok(())
 }
 fn sequence(n: u64) -> String {
     format!("{n:020}")
