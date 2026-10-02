@@ -1501,6 +1501,11 @@ tests run with `cargo test --locked -p tmt-squad`. For dependency changes,
 compare `cargo tree -p tmt-cli -e normal,build -f '{p} {f}'` with `main` and the
 package-scoped release `tmt` (see Rust checks) to prove the CLI is unchanged.
 
+Built-in tab parity is checked by `built_in_board_documents_equal_ls_tab_documents`:
+the board's leads/all views and `ls --tab` must have identical projected documents
+and row-grid metadata, including hidden squads and missing leads. `--tab` conflicts
+with `--squad` and `--refresh-fields`; aggregate reads do not run providers.
+
 For the completed-request meter, `board::rate`, `board::meter` and the view's
 backend recorder cover four-window bucket boundaries, bounded tab retention,
 no-data/zero/gap aging, key overrides/text inputs, easing and

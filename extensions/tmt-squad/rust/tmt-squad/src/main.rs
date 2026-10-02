@@ -34,6 +34,8 @@ mod split;
 mod squad;
 mod staleness;
 mod status;
+mod tab_view;
+mod tabs;
 mod template;
 #[cfg(test)]
 mod test_support;
@@ -146,6 +148,9 @@ fn grammar() -> Command {
             build(specs::LS)
                 .alias("status").alias("list")
                 .arg(squad_option())
+                .arg(Arg::new("tab").long("tab").value_name("NAME")
+                    .conflicts_with_all(["squad", "refresh-fields"])
+                    .help("List the same rows as the leads or all board tab"))
                 .arg(
                     Arg::new("refresh-fields")
                         .long("refresh-fields")
@@ -801,6 +806,11 @@ fn run(
     }
     if matches!(command, "ls" | "board") {
         let refresh_fields = command == "ls" && matches.get_flag("refresh-fields");
+        if command == "ls"
+            && let Some(tab) = text("tab")
+        {
+            return ls_tab_document(&core, &mut config, tab);
+        }
         return ls_document(&core, &mut config, text("squad"), refresh_fields);
     }
     if command == "jump" && matches.get_flag("lead") {
@@ -844,6 +854,32 @@ fn run(
         ),
         _ => unreachable!("tmt squad {command} is dispatched above"),
     }
+}
+
+/// List one aggregate tab through the same owner as the board worker.
+fn ls_tab_document(core: &Core, config: &mut Config, name: &str) -> Result<Outcome, SquadError> {
+    let key = tab_view::key(name)?;
+    let squads = Squad::list(core)?;
+    let names = squads
+        .iter()
+        .map(|squad| squad.name.clone())
+        .collect::<Vec<_>>();
+    let (tabs, _) = tabs::arrange(&names, &config.tabs()?);
+    let you = me::resolve_you(core, config)?;
+    let mut document = tab_view::load(
+        core,
+        config,
+        &squads,
+        &tabs,
+        you.as_ref().map(|(me, _)| me),
+        key,
+    )?
+    .document;
+    document["you"] = you.map_or(
+        Value::Null,
+        |(me, source)| json!({"id": me.id, "name": me.name, "source": source.as_str()}),
+    );
+    Ok(document.into())
 }
 
 /// `ls` (and `board` without a person at a terminal). With `--squad`, that
@@ -1224,7 +1260,7 @@ mod tests {
         assert!(!complete(&words("-- help ")).contains(&"help".to_owned()));
         assert_eq!(
             complete(&words("-- status --")),
-            ["--help", "--json", "--refresh-fields", "--squad"]
+            ["--help", "--json", "--refresh-fields", "--squad", "--tab"]
         );
         assert_eq!(complete(&words("-- skill s")), ["show"]);
         assert_eq!(

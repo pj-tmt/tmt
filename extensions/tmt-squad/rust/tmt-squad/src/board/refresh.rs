@@ -17,9 +17,9 @@ use crate::{
     provider::{self, Provider},
     requests,
     squad::{Member, Squad},
-    status,
+    tab_view::{self, roster_documents, tab_attention},
 };
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::{
     collections::BTreeMap,
     sync::{
@@ -591,17 +591,13 @@ fn leads_view(
     let settings = config.tabs()?;
     // The cross-squad tabs have no squad table: the global theme alone.
     let (theme, theme_notice) = config.theme("")?;
-    let listed = core.json(&["ls"])?;
-    let all: Vec<&Squad> = squads.iter().collect();
-    let documents = roster_documents(core, config, &all, me.as_ref(), Some(&listed));
-    let document = leads_document(tabs, &documents);
-    let attention = tab_attention(&documents);
+    let loaded = tab_view::load(core, config, squads, tabs, me.as_ref(), LEADS)?;
     let mut bindings = config.bindings(tmux, &[])?;
     bindings.extend(settings.leads);
     let view = View {
         token_rate: None,
         derived: Default::default(),
-        rows: crate::rows::Rows::leads(),
+        rows: loaded.rows,
         render: NotesRender::Markdown,
         bindings,
         section_bindings: Vec::new(),
@@ -620,9 +616,9 @@ fn leads_view(
             &[100],
         ),
         notes: Notes::NotShown,
-        document,
+        document: loaded.document,
     };
-    Ok((view, attention))
+    Ok((view, loaded.attention))
 }
 
 /// The built-in `all` tab: one row per squad with its lead, member count
@@ -638,9 +634,7 @@ fn all_view(
     let settings = config.tabs()?;
     // The cross-squad tabs have no squad table: the global theme alone.
     let (theme, theme_notice) = config.theme("")?;
-    let all: Vec<&Squad> = squads.iter().collect();
-    let documents = roster_documents(core, config, &all, me.as_ref(), None);
-    let attention = tab_attention(&documents);
+    let loaded = tab_view::load(core, config, squads, tabs, me.as_ref(), ALL)?;
     let mut bindings = crate::action::parse_bindings(
         [
             ("enter", Some("tab")),
@@ -657,7 +651,7 @@ fn all_view(
     let view = View {
         token_rate: None,
         derived: Default::default(),
-        rows: crate::rows::Rows::overview(),
+        rows: loaded.rows,
         render: NotesRender::Markdown,
         bindings,
         section_bindings: Vec::new(),
@@ -676,159 +670,9 @@ fn all_view(
             &[100],
         ),
         notes: Notes::NotShown,
-        document: all_document(tabs, &documents, &attention),
+        document: loaded.document,
     };
-    Ok((view, attention))
-}
-
-/// The `all` tab's document: a row per squad, `name` the squad's, with its
-/// lead, member count and attention counts as fields.
-fn all_document(
-    tabs: &[String],
-    documents: &BTreeMap<String, Value>,
-    attention: &BTreeMap<String, Attention>,
-) -> Value {
-    let rows: Vec<Value> = in_tab_order(tabs, documents)
-        .into_iter()
-        .map(|name| {
-            let document = &documents[name];
-            let lead = document["squad"]["lead"]["name"].as_str();
-            let members = document["sections"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .flat_map(|section| section["rows"].as_array().into_iter().flatten())
-                .filter_map(|row| row["name"].as_str())
-                .collect::<std::collections::BTreeSet<_>>()
-                .len();
-            let attention = attention.get(name).copied().unwrap_or_default();
-            json!({
-                "name": name,
-                "squad": name,
-                "state": attention.state(),
-                "fields": {
-                    "squad": name,
-                    "lead": lead,
-                    "members": members.to_string(),
-                    "waiting": attention.waiting.to_string(),
-                    "blocked": attention.blocked.to_string(),
-                },
-            })
-        })
-        .collect();
-    json!({
-        "squad": {"name": "all", "lead": null},
-        "sections": [{"title": null, "rows": rows}],
-    })
-}
-
-/// Squads in tab order, then squads off the tab line.
-fn in_tab_order<'a>(tabs: &'a [String], documents: &'a BTreeMap<String, Value>) -> Vec<&'a String> {
-    let mut order: Vec<&String> = tabs
-        .iter()
-        .filter(|key| documents.contains_key(*key))
-        .collect();
-    order.extend(documents.keys().filter(|key| !tabs.contains(key)));
-    order
-}
-
-/// Each squad's roster-only status document, with what waits on the user
-/// from one inbox read shared by all, and presence when an `ls` document is
-/// given. A squad that cannot be read is left out.
-fn roster_documents(
-    core: &Core,
-    config: &Config,
-    squads: &[&Squad],
-    me: Option<&crate::me::Me>,
-    listed: Option<&Value>,
-) -> BTreeMap<String, Value> {
-    if squads.is_empty() {
-        return BTreeMap::new();
-    }
-    let waiting = match me {
-        Some(me) => match requests::inbox(core, &me.id) {
-            Ok(inbox) => Some((me.id.as_str(), inbox)),
-            Err(_) => return BTreeMap::new(),
-        },
-        None => None,
-    };
-    squads
-        .iter()
-        .filter_map(|squad| {
-            let mut roster = squad.roster(core).ok()?;
-            if let Some(listed) = listed {
-                crate::squad::join_presence(&mut roster, listed);
-            }
-            let waiting = waiting.as_ref().map(|(me, inbox)| (*me, inbox));
-            Some((
-                squad.name.clone(),
-                roster_document(config, squad, roster, waiting).ok()?,
-            ))
-        })
-        .collect()
-}
-
-/// One squad's document from its roster: the same document `status`
-/// builds, so a tab and `ls --json` never disagree.
-fn roster_document(
-    config: &Config,
-    squad: &Squad,
-    roster: Vec<crate::squad::Member>,
-    waiting: Option<(&str, &requests::Window)>,
-) -> Result<Value, crate::core::SquadError> {
-    let layout = config.layout(&squad.name)?;
-    let states = config.states(&squad.name, layout)?;
-    let sections = config.sections(&squad.name)?;
-    let rows = config.rows(&squad.name)?;
-    let mut document = status::document(squad, layout, &states, &sections, &rows, roster);
-    if let Some((me, inbox)) = waiting {
-        requests::apply_waiting(&mut document, &squad.name, me, inbox);
-    }
-    Ok(document)
-}
-
-/// The leads tab's document: one row per squad that has a lead, in tab
-/// order (hidden squads last), each carrying its squad as `squad` and as
-/// the `squad` field.
-fn leads_document(tabs: &[String], documents: &BTreeMap<String, Value>) -> Value {
-    let rows: Vec<Value> = in_tab_order(tabs, documents)
-        .into_iter()
-        .filter_map(|name| {
-            let mut lead = documents[name]["squad"]["lead"].clone();
-            if !lead.is_object() {
-                return None;
-            }
-            lead["squad"] = json!(name);
-            lead["fields"]["squad"] = json!(name);
-            Some(lead)
-        })
-        .collect();
-    json!({
-        "squad": {"name": "leads", "lead": null},
-        "sections": [{"title": null, "rows": rows}],
-    })
-}
-
-/// Every squad tab's attention, and the leads tab's from its leads.
-fn tab_attention(documents: &BTreeMap<String, Value>) -> BTreeMap<String, Attention> {
-    let mut attention: BTreeMap<String, Attention> = documents
-        .iter()
-        .map(|(name, document)| (name.clone(), Attention::of(document)))
-        .collect();
-    attention.insert(
-        LEADS.to_owned(),
-        Attention::of(&leads_document(&[], documents)),
-    );
-    // Every squad's members, each counted once per squad.
-    let all = attention
-        .iter()
-        .filter(|(key, _)| !tabs::builtin(key))
-        .fold(Attention::default(), |sum, (_, one)| Attention {
-            waiting: sum.waiting + one.waiting,
-            blocked: sum.blocked + one.blocked,
-        });
-    attention.insert(ALL.to_owned(), all);
-    attention
+    Ok((view, loaded.attention))
 }
 
 /// The lead's notebook, from the `notes.read` the observation made: bounded,
@@ -846,6 +690,8 @@ fn lead_notes(read: Option<Result<Value, crate::core::SquadError>>) -> Notes {
 mod tests {
     use super::*;
     use crate::squad::Member;
+    use crate::tab_view::{all_document, leads_document, roster_document};
+    use serde_json::json;
 
     fn member(id: &str, fields: &[(&str, &str)]) -> Member {
         Member {
@@ -912,6 +758,90 @@ mod tests {
     }
 
     const WAIT: Duration = Duration::from_millis(300);
+
+    #[test]
+    fn built_in_board_documents_equal_ls_tab_documents() {
+        let root = std::env::temp_dir().join(format!("squad-tab-parity-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let executable = root.join("tmt");
+        crate::test_support::write_ready_executable(
+            &executable,
+            r##"#!/bin/sh
+case "$1" in
+room) printf '%s\n' '{"rooms":[{"id":"P","name":"squad-product"},{"id":"Q","name":"squad-quiet"}]}' ;;
+whoami) printf '%s\n' '{"bound":false}' ;;
+ls) printf '%s\n' '{"identities":[{"id":"S","name":"sol","presence":"offline"}]}' ;;
+api)
+ input=$(cat)
+ case "$input" in
+ *'"room":"P"'*) printf '%s\n' '{"members":[{"id":"S","name":"sol","lifetime":"saved","metadata":{"squad.product.role":"lead","squad.product.state":"blocked","squad.product.pending":"approve"}},{"id":"W","name":"worker","lifetime":"saved","metadata":{"squad.product.task":"ship"}}]}' ;;
+ *'"room":"Q"'*) printf '%s\n' '{"members":[]}' ;;
+ *) exit 2 ;;
+ esac ;;
+*) exit 2 ;;
+esac
+"##,
+        );
+        let core = Core::at(executable);
+        let path = root.join("squad.toml");
+        std::fs::write(
+            &path,
+            "[tabs]\norder = ['all', 'product', 'leads']\nhide = ['quiet']\n",
+        )
+        .unwrap();
+        let mut config = Config::read(path).unwrap();
+        let squads = Squad::list(&core).unwrap();
+        let names = squads
+            .iter()
+            .map(|squad| squad.name.clone())
+            .collect::<Vec<_>>();
+        let (tabs, _) = tabs::arrange(&names, &config.tabs().unwrap());
+        for (name, key) in [("leads", LEADS), ("all", ALL)] {
+            let view = if key == LEADS {
+                leads_view(&core, false, &config, &squads, &tabs, None)
+                    .unwrap()
+                    .0
+            } else {
+                all_view(&core, &config, &squads, &tabs, None).unwrap().0
+            };
+            let mut listed = crate::ls_tab_document(&core, &mut config, name)
+                .unwrap()
+                .document;
+            listed.as_object_mut().unwrap().remove("you");
+            assert_eq!(
+                view.document, listed,
+                "board and ls share complete projected documents"
+            );
+            assert_eq!(view.rows.value()["columns"], listed["columns"]);
+            assert_eq!(view.rows.value()["lines"], listed["lines"]);
+            assert_eq!(listed["sections"][0]["rows"][0]["squad"], "product");
+            assert!(
+                crate::status::text(&listed, tmt_cli_style::Terminal::PLAIN).contains("product")
+            );
+            if key == LEADS {
+                assert_eq!(listed["sections"][0]["rows"].as_array().unwrap().len(), 1);
+                assert_eq!(listed["sections"][0]["rows"][0]["pending"], "approve");
+            } else {
+                assert_eq!(
+                    listed["sections"][0]["rows"].as_array().unwrap().len(),
+                    2,
+                    "hidden squads stay in all"
+                );
+                assert_eq!(
+                    listed["sections"][0]["rows"][1]["fields"]["lead"],
+                    Value::Null
+                );
+            }
+        }
+        assert_eq!(
+            crate::ls_tab_document(&core, &mut config, "missing")
+                .err()
+                .unwrap()
+                .code,
+            "SQUAD_TAB_NOT_FOUND"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn saved_views_acquire_notes_from_effective_board_without_changing_workflow() {

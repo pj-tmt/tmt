@@ -10,7 +10,7 @@ pub(crate) mod notes;
 mod rate;
 mod refresh;
 mod scroll;
-mod tabs;
+pub(crate) use crate::tabs;
 mod terminal;
 mod theme_picker;
 mod view;
