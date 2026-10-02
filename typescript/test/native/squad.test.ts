@@ -112,6 +112,23 @@ async function reminderFixture(sandbox: Sandbox) {
   return { lead, cacheFile, age, context };
 }
 
+/** Publish once, then assess the executable before a short production deadline. */
+async function readyContextFixture(sandbox: Sandbox, file: string, payload: string) {
+  writeFileSync(
+    file,
+    `#!/bin/sh\nif [ "$1" = __tmt_fixture_ready ]; then exit 0; fi\n${payload}\n`
+  );
+  chmodSync(file, 0o755);
+  const ready = await runCli(
+    { ...sandbox, cli: { executable: file, args: [] } },
+    ['__tmt_fixture_ready'],
+    { deadlineMs: 30_000 }
+  );
+  expect(ready.status, ready.stderr).toBe(0);
+  expect(ready.signal).toBeNull();
+  expect(ready.stdout).toBe('');
+}
+
 /** The version tmt-squad reports: its package version. */
 const squadVersion = /^version = "([^"]+)"$/m.exec(
   readFileSync(
@@ -321,10 +338,10 @@ describe('squad extension', () => {
     await withSandbox(async (sandbox) => {
       const { context, age, cacheFile } = await reminderFixture(sandbox);
       const fake = path.join(sandbox.root, 'sentinel-core');
-      writeFileSync(
+      await readyContextFixture(
+        sandbox,
         fake,
         [
-          '#!/bin/sh',
           'root=${0%/*}',
           'printf called > "$root/core-called"',
           `printf '%s\\n' '{"error":{"code":"FIXTURE","message":"core invoked"}}'`,
@@ -332,7 +349,6 @@ describe('squad extension', () => {
           '',
         ].join('\n')
       );
-      chmodSync(fake, 0o755);
       sandbox.env.TMT_EXECUTABLE = fake;
       expect(JSON.parse((await context()).stdout)).toEqual({ summary: null });
       expect(existsSync(path.join(sandbox.root, 'core-called'))).toBe(false);
@@ -348,7 +364,7 @@ describe('squad extension', () => {
       expect(readFileSync(path.join(sandbox.root, 'core-called'), 'utf8')).toBe('called');
       expect(readFileSync(cacheFile(), 'utf8')).toBe(before);
     });
-  });
+  }, 90_000);
 
   it('kills context hooks and seeded descendants within local and outer deadlines', async () => {
     await withSandbox(async (sandbox) => {
@@ -366,10 +382,10 @@ describe('squad extension', () => {
       const gateFd = openSync(gate, constants.O_RDWR);
       try {
         const launcher = path.join(sandbox.root, 'context-launcher');
-        writeFileSync(
+        await readyContextFixture(
+          sandbox,
           launcher,
           [
-            '#!/bin/sh',
             'root=${0%/*}',
             // The descendant owns its gate before the hook (and its budget) starts.
             '(',
@@ -387,10 +403,15 @@ describe('squad extension', () => {
             '',
           ].join('\n')
         );
-        chmodSync(launcher, 0o755);
         const fake = path.join(sandbox.root, 'blocked-core');
-        writeFileSync(fake, '#!/bin/sh\nroot=${0%/*}\nIFS= read -r release < "$root/child-gate"\n');
-        chmodSync(fake, 0o755);
+        await readyContextFixture(
+          sandbox,
+          fake,
+          'root=${0%/*}\nIFS= read -r release < "$root/child-gate"\n'
+        );
+        for (const witness of ['child-pid', 'hook-group', 'leaked-child']) {
+          expect(existsSync(path.join(sandbox.root, witness))).toBe(false);
+        }
         sandbox.env.TMT_EXECUTABLE = fake;
         sandbox.env.TMT_TEST_CONTEXT_EXECUTABLE = squadExecutable;
         const context = (deadlineMs = 5_000) =>
@@ -436,7 +457,7 @@ describe('squad extension', () => {
         closeSync(gateFd);
       }
     });
-  });
+  }, 90_000);
 
   it('reports observed age without changing board metadata or creating missing notes', async () => {
     await withSandbox(async (sandbox) => {
