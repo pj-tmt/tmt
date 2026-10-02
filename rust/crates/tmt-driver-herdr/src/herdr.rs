@@ -126,6 +126,17 @@ impl<R: Runner> Herdr<R> {
         }
     }
 
+    /// A call that prints plain text (`pane read`).
+    pub fn text(
+        &self,
+        socket: &str,
+        args: &[&str],
+        deadline: Instant,
+    ) -> Result<String, HerdrError> {
+        self.execute(Some(socket), args, deadline)
+            .map(|stdout| String::from_utf8_lossy(&stdout).into_owned())
+    }
+
     /// A call whose success prints nothing (`pane report-metadata`).
     pub fn act(&self, socket: &str, args: &[&str], deadline: Instant) -> Result<(), HerdrError> {
         self.execute(Some(socket), args, deadline).map(|_| ())

@@ -192,13 +192,16 @@ fn the_declared_capabilities_decode_with_the_read_side_ops_only() {
             "resolve-target",
             "snapshot",
             "publish",
-            "clear"
+            "clear",
+            "capture",
+            "input",
+            "prompt"
         ]
     );
     assert!(grammar.is_pane_id("term_65ca1161edc141"));
     assert!(grammar.is_target("w12:p3"));
-    // Delivery and focus are not claimed until they exist.
-    for op in ["capture", "input", "focus", "probe"] {
+    // Focus has no Herdr command by pane ID; core leads every probe.
+    for op in ["focus", "probe"] {
         assert_eq!(error_code(&serve(&runner, op, json!({}))), "unsupported");
     }
     assert!(runner.calls.borrow().is_empty());
@@ -531,4 +534,153 @@ fn clearing_removes_only_this_bindings_marker() {
     assert_eq!(runner.calls.borrow()[3].args, expected);
     assert_eq!(runner.calls.borrow().len(), 4);
     runner.done();
+}
+
+#[test]
+fn a_capture_reads_the_recent_lines_of_the_pane_by_its_current_target() {
+    let runner = Scripted::default();
+    runner
+        .json(list(vec![pane("w2:p1", "term_a1", None)]))
+        .text("one\ntwo\n")
+        .json(list(vec![]));
+    let request = json!({"socket": SOCKET, "paneId": "term_a1", "lines": 40});
+    assert_eq!(
+        serve(&runner, "capture", request.clone()),
+        json!({"text": "one\ntwo\n"})
+    );
+    assert_eq!(
+        runner.commands()[1],
+        "herdr pane read w2:p1 --source recent --lines 40 --format text"
+    );
+    assert_eq!(error_code(&serve(&runner, "capture", request)), "not_found");
+    let zero = json!({"socket": SOCKET, "paneId": "term_a1", "lines": 0});
+    assert_eq!(error_code(&serve(&runner, "capture", zero)), "bad_request");
+    runner.done();
+}
+
+fn input(text: &str, enter: bool) -> Value {
+    json!({"socket": SOCKET, "paneId": "term_a1", "text": text, "enter": enter})
+}
+
+#[test]
+fn input_types_one_line_literally_and_enter_only_when_asked() {
+    let runner = Scripted::default();
+    let panes = || list(vec![pane("w1:p1", "term_a1", None)]);
+    runner.json(panes()).text("").json(panes()).text("");
+    // Core stages input: the text, then Enter alone.
+    assert_eq!(
+        serve(&runner, "input", input("--help ！ é", false)),
+        json!({})
+    );
+    assert_eq!(serve(&runner, "input", input("", true)), json!({}));
+    assert_eq!(
+        runner.calls.borrow()[1].args,
+        ["pane", "send-text", "w1:p1", "--help ！ é"]
+    );
+    assert_eq!(runner.commands()[3], "herdr pane send-keys w1:p1 Enter");
+    runner.done();
+}
+
+#[test]
+fn input_that_would_submit_early_or_reach_no_pane_is_not_sent() {
+    // Herdr would submit at a line break, so nothing is asked of it.
+    for text in ["one\ntwo", "one\r", "\n"] {
+        let runner = Scripted::default();
+        assert_eq!(
+            error_code(&serve(&runner, "input", input(text, false))),
+            "bad_request"
+        );
+        assert!(runner.calls.borrow().is_empty());
+    }
+    let runner = Scripted::default();
+    runner
+        .json(list(vec![]))
+        .json(list(vec![pane("w1:p1", "term_a1", None)]))
+        .refuse("pane_not_found");
+    for _ in 0..2 {
+        assert_eq!(
+            error_code(&serve(&runner, "input", input("hi", false))),
+            "not_found"
+        );
+    }
+    runner.done();
+    // Once text was typed, a pane gone before Enter is uncertain, not unsent.
+    let runner = Scripted::default();
+    runner
+        .json(list(vec![pane("w1:p1", "term_a1", None)]))
+        .text("")
+        .refuse("pane_not_found");
+    assert_eq!(
+        error_code(&serve(&runner, "input", input("hi", true))),
+        "failed"
+    );
+    runner.done();
+}
+
+#[test]
+fn a_prompt_goes_to_the_agent_herdr_recognizes_and_maps_its_refusals() {
+    let request = json!({"socket": SOCKET, "paneId": "term_a1", "text": "hi\nthere"});
+    let runner = Scripted::default();
+    runner
+        .json(list(vec![pane("w1:p1", "term_a1", None)]))
+        .text("");
+    assert_eq!(serve(&runner, "prompt", request.clone()), json!({}));
+    // The whole message in one call; Herdr submits it.
+    assert_eq!(
+        runner.calls.borrow()[1].args,
+        ["agent", "prompt", "w1:p1", "hi\nthere"]
+    );
+    runner.done();
+    for (herdr, code) in [
+        ("agent_not_found", "no_agent"),
+        ("agent_blocked", "blocked"),
+        ("agent_not_ready", "not_ready"),
+        ("pane_not_found", "not_found"),
+        ("server_not_running", "unavailable"),
+        ("permission_denied", "failed"),
+    ] {
+        let runner = Scripted::default();
+        runner
+            .json(list(vec![pane("w1:p1", "term_a1", None)]))
+            .refuse(herdr);
+        assert_eq!(
+            error_code(&serve(&runner, "prompt", request.clone())),
+            code,
+            "{herdr}"
+        );
+        runner.done();
+    }
+    let runner = Scripted::default();
+    runner.json(list(vec![]));
+    assert_eq!(error_code(&serve(&runner, "prompt", request)), "not_found");
+    // Prompt-only codes never leak into another operation's answer.
+    let runner = Scripted::default();
+    runner.refuse("agent_not_found");
+    let answer = serve(
+        &runner,
+        "snapshot",
+        json!({"socket": SOCKET, "panes": null}),
+    );
+    assert_eq!(error_code(&answer), "failed");
+}
+
+/// Herdr 0.9.1 reads the argument after the target as the text, whatever it
+/// looks like, and has no `--` separator (`agent prompt` refuses one, and
+/// `send-text` would type it). So the text is passed as the one last argv
+/// entry, as is; the real-Herdr test shows option-like text arrives intact.
+#[test]
+fn option_like_text_is_the_last_argument_with_no_separator() {
+    for text in ["-h", "--version", "--wait", "--", "- item"] {
+        let runner = Scripted::default();
+        let panes = || list(vec![pane("w1:p1", "term_a1", None)]);
+        runner.json(panes()).text("").json(panes()).text("");
+        assert_eq!(serve(&runner, "input", input(text, false)), json!({}));
+        let request = json!({"socket": SOCKET, "paneId": "term_a1", "text": text});
+        assert_eq!(serve(&runner, "prompt", request), json!({}));
+        let calls = runner.calls.borrow();
+        assert_eq!(calls[1].args, ["pane", "send-text", "w1:p1", text]);
+        assert_eq!(calls[3].args, ["agent", "prompt", "w1:p1", text]);
+        drop(calls);
+        runner.done();
+    }
 }

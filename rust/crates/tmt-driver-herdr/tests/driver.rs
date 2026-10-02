@@ -116,6 +116,15 @@ fn the_driver_conforms_and_its_children_never_see_the_call_guard() {
     assert!(!log.contains("UNRELATED_SECRET"));
 }
 
+/// An agent stand-in Herdr recognizes by its name (never a real agent). Like
+/// an agent's TUI it turns on bracketed paste, and it prints each submitted
+/// line's raw bytes, so a paste shows as `033 [ 2 0 0 ~`.
+const STAND_IN_AGENT: &str = r#"#!/bin/sh
+printf '\033[?2004h'
+stty -echo
+while IFS= read -r line; do printf '%s' "$line" | od -c | sed -n 1p; done
+"#;
+
 /// A headless Herdr server on a private socket and HOME, stopped on drop.
 struct Server {
     herdr: PathBuf,
@@ -135,10 +144,22 @@ impl Server {
             "[update]\nversion_check = false\nmanifest_check = false\n",
         )
         .unwrap();
+        // Panes inherit this PATH, so `claude` in a pane is the stand-in.
+        let agents = scratch.path("agents");
+        fs::create_dir_all(&agents).unwrap();
+        let agent = agents.join("claude");
+        fs::write(&agent, STAND_IN_AGENT).unwrap();
+        let mut permissions = fs::metadata(&agent).unwrap().permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
+        fs::set_permissions(&agent, permissions).unwrap();
         let env = vec![
             (
                 "PATH",
-                format!("{}:/usr/bin:/bin", herdr.parent().unwrap().display()),
+                format!(
+                    "{}:{}:/usr/bin:/bin",
+                    agents.display(),
+                    herdr.parent().unwrap().display()
+                ),
             ),
             ("HOME", home.display().to_string()),
             (
@@ -354,6 +375,121 @@ fn the_driver_reads_and_marks_a_real_herdr_server() {
     assert_eq!(clear(marker["bindingId"].as_str().unwrap()), true);
     let snapshot = call(&env, "snapshot", json!({"socket": socket, "panes": null}));
     assert_eq!(snapshot["ok"]["panes"][0]["marker"], json!(null));
+
+    // Staged input as core sends it: the line, then Enter alone. The line
+    // runs only after Enter; a line break is refused with nothing typed.
+    let input = |text: &str, enter: bool| {
+        call(
+            &env,
+            "input",
+            json!({"socket": socket, "paneId": terminal, "text": text, "enter": enter}),
+        )
+    };
+    let capture = || {
+        call(
+            &env,
+            "capture",
+            json!({"socket": socket, "paneId": terminal, "lines": 20}),
+        )["ok"]["text"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let until = |what: &str, check: &dyn Fn(&str) -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let text = capture();
+            if check(&text) {
+                return text;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for {what}:\n{text}"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+    assert_eq!(
+        input("echo staged\necho early", false)["error"]["code"],
+        "bad_request"
+    );
+    assert_eq!(input("echo -- tmt-$((40+2))", false), json!({"ok": {}}));
+    let typed = until("the typed line", &|text| {
+        text.contains("echo -- tmt-$((40+2))")
+    });
+    assert!(
+        !typed.contains("tmt-42"),
+        "the line ran before Enter:\n{typed}"
+    );
+    assert!(!typed.contains("early"));
+    assert_eq!(input("", true), json!({"ok": {}}));
+    until("the line to run", &|text| text.contains("tmt-42"));
+
+    // A plain shell has no agent: core may type instead, and nothing was.
+    let prompt = |pane: &str, text: &str| {
+        call(
+            &env,
+            "prompt",
+            json!({"socket": socket, "paneId": pane, "text": text}),
+        )
+    };
+    assert_eq!(prompt(&terminal, "hello")["error"]["code"], "no_agent");
+    assert!(!capture().contains("hello"));
+
+    // An agent takes the whole message as one paste, which Herdr submits.
+    server.json(&["workspace", "create", "--cwd", "/tmp"]);
+    let agent_pane = server.json(&["pane", "get", "w2:p1"])["result"]["pane"]["terminal_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    server.run(&["pane", "run", "w2:p1", "claude"]);
+    server.until("Herdr to see the agent", |server| {
+        server.json(&["pane", "get", "w2:p1"])["result"]["pane"]["agent"] == "claude"
+    });
+    assert_eq!(prompt(&agent_pane, "one\ntwo"), json!({"ok": {}}));
+    let read = || {
+        call(
+            &env,
+            "capture",
+            json!({"socket": socket, "paneId": agent_pane, "lines": 20}),
+        )["ok"]["text"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !read().contains("t   w   o 033   [   2   0   1   ~") {
+        assert!(Instant::now() < deadline, "no submitted paste:\n{}", read());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(read().contains("033   [   2   0   0   ~   o   n   e"));
+    // Option-like text is the message, not an option of Herdr's command:
+    // typed and prompted intact (Herdr 0.9.1 has no `--` separator).
+    assert_eq!(input("-h --version", false), json!({"ok": {}}));
+    until("option-like text", &|text| text.contains("-h --version"));
+    assert_eq!(input("", true), json!({"ok": {}}));
+    assert_eq!(prompt(&agent_pane, "--wait"), json!({"ok": {}}));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    // `-`, `-`, `w`: the stand-in's raw bytes of the pasted `--wait`.
+    while !read().contains("-   -   w   a   i   t") {
+        assert!(Instant::now() < deadline, "no --wait paste:\n{}", read());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // An agent waiting on its user refuses, and nothing more is typed.
+    server.run(&[
+        "pane",
+        "report-agent",
+        "w2:p1",
+        "--source",
+        "tmt-test",
+        "--agent",
+        "claude",
+        "--state",
+        "blocked",
+    ]);
+    let before = read();
+    assert_eq!(prompt(&agent_pane, "more")["error"]["code"], "blocked");
+    assert_eq!(read(), before);
 
     let findings = conformance::check(
         &mut |args, request| invoke(&env, args, request),
