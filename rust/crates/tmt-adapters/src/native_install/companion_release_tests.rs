@@ -16,7 +16,7 @@ const DRIVER_BYTES: &[u8] = b"#!/bin/sh\necho driver\n";
 fn serving(
     version: &'static str,
     companions: &'static [(&'static str, &'static [u8])],
-) -> impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>> {
+) -> impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response> {
     let (release, manifest, archive, _) = companion_fixture(
         crate::native_install::Product::Cli,
         version,
@@ -32,17 +32,17 @@ fn serving(
         } else if url.ends_with(&format!("/tags/v{version}")) {
             serde_json::to_vec(&release).unwrap()
         } else {
-            serde_json::to_vec(&vec![release.clone()]).unwrap()
+            serde_json::to_vec(&serde_json::json!([{ "ref": format!("refs/tags/{}", release["tag_name"].as_str().unwrap()) }])).unwrap()
         };
         assert!(bytes.len() <= limit);
-        Ok(bytes)
+        Ok(bytes.into())
     }
 }
 
 fn upgrade_to(
     executable: &Path,
     exact: Option<&str>,
-    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>>,
+    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
 ) -> UpgradeReport {
     upgrade_with(
         UpgradeRequest {
@@ -62,7 +62,7 @@ fn serving_owned(
     version: &'static str,
     name: &'static str,
     bytes: &'static [u8],
-) -> impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>> {
+) -> impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response> {
     let companions: &'static [(&'static str, &'static [u8])] = Box::leak(Box::new([(name, bytes)]));
     serving(version, companions)
 }

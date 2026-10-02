@@ -57,7 +57,7 @@ fn install_release_with(
     channel: Channel,
     verifier: Option<ReleaseVerifier<'_>>,
     mut checkpoint: impl FnMut() -> io::Result<()>,
-    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>>,
+    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
 ) -> io::Result<InstallReport> {
     checkpoint()?;
     let downloaded = release::download_product(
@@ -112,9 +112,9 @@ mod tests {
                 calls += 1;
                 assert_eq!(
                     url,
-                    "https://api.github.com/repos/pj-tmt/tmt/releases?per_page=100&page=1"
+                    "https://api.github.com/repos/pj-tmt/tmt/git/matching-refs/tags/tmt-office-v?per_page=100&page=1"
                 );
-                Ok(b"[]".to_vec())
+                Ok(b"[]".to_vec().into())
             },
         )
         .unwrap_err();

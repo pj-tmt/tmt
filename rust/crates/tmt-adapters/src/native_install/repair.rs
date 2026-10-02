@@ -188,7 +188,7 @@ fn repair_with(
     prefix: &Path,
     verifier: Option<ReleaseVerifier<'_>>,
     checkpoint: impl FnMut() -> io::Result<()>,
-    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>>,
+    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
 ) -> io::Result<RepairReport> {
     repair_using(product, prefix, verifier, checkpoint, |old, prefix| {
         let Some(provenance) = &old.provenance else {

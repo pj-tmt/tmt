@@ -62,7 +62,7 @@ impl Fixture {
             &self.layout.prefix,
             None,
             || Ok(()),
-            |url, _, _, _| self.download(url),
+            |url, _, _, _| self.download(url).map(Into::into),
         )
     }
 }
@@ -199,7 +199,7 @@ fn receipt_or_current_swap_during_acquisition_is_refused_before_publication() {
                         symlink("releases/not-owned", fixture.layout.root.join("current")).unwrap();
                     }
                 }
-                Ok(bytes)
+                Ok(bytes.into())
             },
         );
         assert!(result.is_err(), "{swap}");
@@ -238,9 +238,9 @@ fn unavailable_or_different_original_artifact_leaves_everything_unchanged() {
                 if url.ends_with("/tags/tmt-squad-v1.2.3") {
                     let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
                     value["id"] = 43.into();
-                    return Ok(serde_json::to_vec(&value).unwrap());
+                    return Ok(serde_json::to_vec(&value).unwrap().into());
                 }
-                Ok(bytes)
+                Ok(bytes.into())
             },
         )
         .unwrap_err();
@@ -394,7 +394,7 @@ fn concurrent_repair_installs_preserve_the_winner_and_clean_losing_staging() {
                             .recv_timeout(Duration::from_secs(5))
                             .map_err(io::Error::other)?;
                     }
-                    Ok(bytes)
+                    Ok(bytes.into())
                 },
             )
         });
@@ -416,7 +416,7 @@ fn concurrent_repair_installs_preserve_the_winner_and_clean_losing_staging() {
                             .recv_timeout(Duration::from_secs(5))
                             .map_err(io::Error::other)?;
                     }
-                    Ok(bytes)
+                    Ok(bytes.into())
                 },
             )
         });
