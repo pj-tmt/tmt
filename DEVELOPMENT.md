@@ -270,13 +270,17 @@ jobs failed. CI changes need positive
 and negative selection/gate evidence before pushing; do not change branch
 protection merely to get a newly skipped job accepted.
 
-Merge-group candidates run full verification through `node typescript/scripts/ci-scope.mjs full`,
-including both E2E shard lists and all four required checks, with the macOS
-exception described in the runtime smoke matrix below. PR path selection is
-unchanged. Check event wiring with `pnpm exec vitest run test/tooling/ci-scope.test.ts`
+Merge-group candidates use `node typescript/scripts/ci-scope.mjs merge-group
+"$BASE_SHA" "$HEAD_SHA"` with the event's exact base/head SHAs. The two-dot diff
+covers the cumulative group; docs-only groups skip native suites, Squad-only
+groups run Squad checks, and shared changes select the full native scope. Empty
+or unreadable diffs fail closed to full native/Office verification with both E2E
+shards, and the selection summary reports the fallback. PR merge-base selection
+is unchanged. The macOS exception is described in the runtime smoke matrix below.
+Check event wiring with `pnpm exec vitest run test/tooling/ci-scope.test.ts`
 from `typescript/` and `actionlint .github/workflows/ci.yml` from the root.
 [Architecture](ARCHITECTURE.md) owns the event, gate and main-ref cache policy;
-queue/ruleset activation is a separate repository-owner operation.
+queue/ruleset changes remain a repository-owner operation.
 
 Linux CI package installation uses `.github/actions/apt-install`: each apt update
 or install attempt has a 120-second timeout with a 10-second forced-kill grace.

@@ -32,6 +32,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       verify: ${{ steps.event.outputs.verify }}
+      macos: ${{ steps.event.outputs.macos }}
       native: ${{ steps.scope.outputs.native || steps.queue.outputs.native || steps.seed.outputs.native }}
       office: ${{ steps.scope.outputs.office || steps.queue.outputs.office || steps.seed.outputs.office }}
       native_scope: ${{ steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}
@@ -43,7 +44,8 @@ jobs:
         id: event
         env:
           VERIFY: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
-        run: printf 'verify=%s\n' "$VERIFY" >> "$GITHUB_OUTPUT"
+          MACOS: ${{ github.event_name != 'merge_group' }}
+        run: printf 'verify=%s\nmacos=%s\n' "$VERIFY" "$MACOS" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -56,10 +58,13 @@ jobs:
         id: seed
         # A seeding run builds the whole workspace, so its scope is the full one.
         run: printf 'native=true\noffice=false\nnative_scope=full\n' >> "$GITHUB_OUTPUT"
-      - name: Select full verification for the merge group
+      - name: Select consumers from the cumulative merge-group diff
         if: github.event_name == 'merge_group'
         id: queue
-        run: node typescript/scripts/ci-scope.mjs full >> "$GITHUB_OUTPUT"
+        env:
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+        run: node typescript/scripts/ci-scope.mjs merge-group "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
       - name: Select consumers from both sides of the diff
         if: github.event_name == 'pull_request'
         id: scope
@@ -415,7 +420,7 @@ jobs:
   native-runtime-build-macos:
     name: Build native runtime (${{ matrix.target }})
     needs: changes
-    if: github.event_name != 'merge_group' && needs.changes.outputs.native_scope == 'full'
+    if: needs.changes.outputs.macos == 'true' && needs.changes.outputs.native_scope == 'full'
     strategy:
       fail-fast: false
       matrix:
@@ -505,7 +510,7 @@ jobs:
   packed-native-install-macos:
     name: Packed install (${{ matrix.label }})
     needs: [changes, native-runtime-build-macos]
-    if: github.event_name != 'merge_group' && needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'
+    if: needs.changes.outputs.macos == 'true' && needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'
     strategy:
       fail-fast: false
       matrix:
@@ -556,6 +561,6 @@ jobs:
           MATRIX_RESULT: ${{ needs.packed-native-install.result }}
           MACOS_BUILD_RESULT: ${{ needs.native-runtime-build-macos.result }}
           MACOS_MATRIX_RESULT: ${{ needs.packed-native-install-macos.result }}
-          EVENT_NAME: ${{ github.event_name }}
+          MACOS_SELECTED: ${{ needs.changes.outputs.macos }}
         run: |
-          node typescript/scripts/ci-scope.mjs gate-native "$EVENT_NAME" "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$SHARD_1_RESULT" "$SHARD_2_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT" "$MACOS_BUILD_RESULT" "$MACOS_MATRIX_RESULT"
+          node typescript/scripts/ci-scope.mjs gate-native "$MACOS_SELECTED" "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$SHARD_1_RESULT" "$SHARD_2_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT" "$MACOS_BUILD_RESULT" "$MACOS_MATRIX_RESULT"

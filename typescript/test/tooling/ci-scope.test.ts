@@ -766,13 +766,13 @@ describe('remote Rust retains full CI coverage', () => {
       macosRuntimeBuild: 'success',
       macosPackedInstall: 'success',
     };
-    expect(nativeGatePasses(scope, results)).toBe(true);
+    expect(nativeGatePasses(scope, results, 'true')).toBe(true);
     for (const job of Object.keys(results)) {
       for (const result of ['skipped', 'failure', 'cancelled', undefined]) {
-        expect(nativeGatePasses(scope, { ...results, [job]: result })).toBe(false);
+        expect(nativeGatePasses(scope, { ...results, [job]: result }, 'true')).toBe(false);
       }
     }
-    expect(nativeGatePasses('remote', results)).toBe(false);
+    expect(nativeGatePasses('remote', results, 'true')).toBe(false);
   });
 
   it.each([
@@ -1108,6 +1108,124 @@ describe('CI diff and command integration', () => {
     }
   }, 5000);
 
+  it('selects cumulative merge-group endpoints and fails closed when the diff is unreadable', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'tmt-ci-queue-'));
+    const git = (args: string[]) =>
+      runPackedCommand('git', args, {
+        cwd: root,
+        env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' },
+      });
+    const commit = (name: string, contents: string) => {
+      mkdirSync(path.dirname(path.join(root, name)), { recursive: true });
+      writeFileSync(path.join(root, name), contents);
+      git(['add', '.']);
+      git([
+        '-c',
+        'user.name=TMT Test',
+        '-c',
+        'user.email=test@example.invalid',
+        '-c',
+        'commit.gpgsign=false',
+        'commit',
+        '--quiet',
+        '-m',
+        'Test fixture',
+      ]);
+      return git(['rev-parse', 'HEAD']).trim();
+    };
+    const select = (args: string[], cwd = root) => {
+      let output = '';
+      let evidence = '';
+      runCiScope(args, {
+        cwd,
+        stdout: {
+          write: (text) => {
+            output += text;
+          },
+        },
+        stderr: {
+          write: (text) => {
+            evidence += text;
+          },
+        },
+      });
+      return {
+        evidence,
+        outputs: Object.fromEntries(
+          output
+            .trim()
+            .split('\n')
+            .map((line) => line.split('='))
+        ),
+      };
+    };
+    try {
+      git(['init', '--quiet']);
+      const base = commit('README.md', 'base');
+      commit('docs/first.md', 'first PR');
+      const docs = commit('docs/second.md', 'second PR');
+      const docsRun = select(['merge-group', base, docs]);
+      expect(docsRun.outputs).toMatchObject({
+        native: 'false',
+        office: 'false',
+        native_scope: 'none',
+        e2e_shard_1: '',
+        e2e_shard_2: '',
+      });
+      expect(docsRun.evidence).toContain(`${base.slice(0, 12)}..${docs.slice(0, 12)}`);
+      expect(docsRun.evidence).toContain('docs/first.md');
+      expect(docsRun.evidence).toContain('docs/second.md');
+      expect(docsRun.outputs).toEqual(select([base, docs]).outputs);
+      const squad = commit('extensions/tmt-squad/rust/tmt-squad/src/main.rs', '// squad');
+      const squadRun = select(['merge-group', base, squad]);
+      expect(squadRun.outputs).toMatchObject({
+        native: 'true',
+        office: 'false',
+        native_scope: 'squad',
+        e2e_shard_2: '',
+      });
+      expect(squadRun.outputs.e2e_shard_1).toBe('squad.e2e.test.ts squad-reminder.e2e.test.ts');
+      expect(squadRun.outputs).toEqual(select([base, squad]).outputs);
+      const shared = commit('unknown-input', 'shared');
+      const full = select(['full']).outputs;
+      expect(select(['merge-group', base, shared]).outputs).toEqual(full);
+      const empty = select(['merge-group', docs, docs]);
+      expect(empty.outputs).toEqual(full);
+      expect(empty.evidence).toContain('diff is empty; using full verification');
+      for (const args of [
+        ['merge-group', '0'.repeat(40), docs],
+        ['merge-group', base, '0'.repeat(40)],
+        ['merge-group', '--help', docs],
+        ['merge-group'],
+      ]) {
+        const fallback = select(args);
+        expect(fallback.outputs).toEqual(full);
+        expect(fallback.evidence).toContain('diff unreadable; using full verification');
+      }
+      // Divergent endpoints prove queue mode uses two-dot rather than PR merge-base selection.
+      git(['checkout', '--quiet', '--detach', base]);
+      const core = commit('rust/fixture.rs', '// core');
+      expect(select(['merge-group', core, docs]).outputs.native_scope).toBe('full');
+      expect(select([core, docs]).outputs.native_scope).toBe('none');
+      // A real shallow checkout lacks the base object: it must not become an empty/none diff.
+      const shallow = path.join(root, 'shallow');
+      git([
+        '-c',
+        'advice.detachedHead=false',
+        'clone',
+        '--quiet',
+        '--depth=1',
+        `file://${root}`,
+        shallow,
+      ]);
+      const fallback = select(['merge-group', base, core], shallow);
+      expect(fallback.outputs).toEqual(full);
+      expect(fallback.evidence).toContain('diff unreadable; using full verification');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 5000);
+
   it('propagates gate failure to the command exit instead of only returning a boolean', () => {
     const script = fileURLToPath(new URL('../../scripts/ci-scope.mjs', import.meta.url));
     const options = { cwd: tmpdir(), env: process.env };
@@ -1202,7 +1320,7 @@ describe('required CI gate', () => {
     ['squad', squadRun],
     ['none', allSkipped],
   ])('accepts exactly the %s native results', (scope, expected) => {
-    expect(nativeGatePasses(scope, expected)).toBe(true);
+    expect(nativeGatePasses(scope, expected, 'true')).toBe(true);
   });
 
   it.each([
@@ -1223,34 +1341,34 @@ describe('required CI gate', () => {
     ['office', squadRun, 'a component without scoped checks'],
     ['squad', { ...squadRun, packedInstall: '' }, 'an empty result'],
   ])('rejects %s with %o (%s)', (scope, actual) => {
-    expect(nativeGatePasses(scope, actual)).toBe(false);
+    expect(nativeGatePasses(scope, actual, 'true')).toBe(false);
   });
 
   it('allows exactly the macOS omissions on merge groups and rejects missing evidence', () => {
     const queue = native({ macosRuntimeBuild: 'skipped', macosPackedInstall: 'skipped' });
-    expect(nativeGatePasses('full', queue, undefined, 'merge_group')).toBe(true);
-    expect(nativeGatePasses('full', queue, undefined, 'pull_request')).toBe(false);
-    expect(nativeGatePasses('full', native(), undefined, 'merge_group')).toBe(false);
+    expect(nativeGatePasses('full', queue, 'false')).toBe(true);
+    expect(nativeGatePasses('full', queue, 'true')).toBe(false);
+    expect(nativeGatePasses('full', native(), 'false')).toBe(false);
     for (const [job, expected] of Object.entries(queue)) {
       for (const result of ['success', 'skipped', 'failure', 'cancelled', '', undefined]) {
         if (result === expected) continue;
-        expect(
-          nativeGatePasses('full', { ...queue, [job]: result }, undefined, 'merge_group')
-        ).toBe(false);
+        expect(nativeGatePasses('full', { ...queue, [job]: result }, 'false')).toBe(false);
       }
     }
-    for (const event of ['', 'unknown']) {
-      expect(nativeGatePasses('full', queue, undefined, event)).toBe(false);
+    for (const macos of ['', 'unknown', undefined]) {
+      expect(nativeGatePasses('full', queue, macos as string)).toBe(false);
+      expect(nativeGatePasses('none', allSkipped, macos as string)).toBe(false);
+      expect(nativeGatePasses('squad', squadRun, macos as string)).toBe(false);
     }
-    expect(nativeGatePasses('squad', squadRun, undefined, 'merge_group')).toBe(true);
-    expect(nativeGatePasses('none', allSkipped, undefined, 'merge_group')).toBe(true);
+    expect(nativeGatePasses('squad', squadRun, 'false')).toBe(true);
+    expect(nativeGatePasses('none', allSkipped, 'false')).toBe(true);
   });
 
   it('rejects missing native results rather than claiming a pass', () => {
-    expect(nativeGatePasses('full', {} as never)).toBe(false);
-    expect(nativeGatePasses('none', undefined as never)).toBe(false);
+    expect(nativeGatePasses('full', {} as never, 'true')).toBe(false);
+    expect(nativeGatePasses('none', undefined as never, 'true')).toBe(false);
     const { e2eShard2: _missing, ...withoutShard } = native();
-    expect(nativeGatePasses('full', withoutShard as never)).toBe(false);
+    expect(nativeGatePasses('full', withoutShard as never, 'true')).toBe(false);
   });
 
   describe('Native Rust contracts gate', () => {
@@ -1369,19 +1487,19 @@ describe('required CI gate', () => {
         'skipped',
         'skipped',
       ];
-      runCiScope(['gate-native', 'merge_group', 'full', ...queueResults], io());
-      for (const event of ['pull_request', '', 'unknown']) {
-        expect(() => runCiScope(['gate-native', event, 'full', ...queueResults], io())).toThrow(
+      runCiScope(['gate-native', 'false', 'full', ...queueResults], io());
+      for (const macos of ['true', '', 'unknown']) {
+        expect(() => runCiScope(['gate-native', macos, 'full', ...queueResults], io())).toThrow(
           'native CI work'
         );
       }
       expect(() =>
-        runCiScope(['gate-native', 'merge_group', 'full', ...queueResults.slice(1)], io())
+        runCiScope(['gate-native', 'false', 'full', ...queueResults.slice(1)], io())
       ).toThrow('native CI work');
       runCiScope(
         [
           'gate-native',
-          'pull_request',
+          'true',
           'squad',
           'success',
           'skipped',
@@ -1398,7 +1516,7 @@ describe('required CI gate', () => {
         runCiScope(
           [
             'gate-native',
-            'pull_request',
+            'true',
             'full',
             'success',
             'success',
@@ -1454,10 +1572,10 @@ describe('required CI gate', () => {
       '- label: macOS arm64',
     ]);
     expect(macBuild).toContain(
-      "if: github.event_name != 'merge_group' && needs.changes.outputs.native_scope == 'full'"
+      "if: needs.changes.outputs.macos == 'true' && needs.changes.outputs.native_scope == 'full'"
     );
     expect(macPacked).toContain(
-      "if: github.event_name != 'merge_group' && needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'"
+      "if: needs.changes.outputs.macos == 'true' && needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'"
     );
     expect(macPacked).toContain('needs: [changes, native-runtime-build-macos]');
     expect(packed).toContain('needs: [changes, native-runtime-build]');
@@ -1472,7 +1590,7 @@ describe('required CI gate', () => {
       expect(section).toContain('name: Packed install (${{ matrix.label }})');
     }
     const gate = job('native-install-gate');
-    expect(gate).toContain('EVENT_NAME: ${{ github.event_name }}');
+    expect(gate).toContain('MACOS_SELECTED: ${{ needs.changes.outputs.macos }}');
     for (const name of ['native-runtime-build-macos', 'packed-native-install-macos']) {
       expect(gate).toContain(`        ${name},`);
     }
@@ -1533,7 +1651,7 @@ describe('required CI gate', () => {
     );
   });
 
-  it('runs full merge-group verification with complete disjoint shards and read-only caches', () => {
+  it('keeps complete disjoint fallback shards and wires merge-group selection with read-only caches', () => {
     const capture = () => {
       let value = '';
       return {
@@ -1571,8 +1689,13 @@ describe('required CI gate', () => {
     );
     expect(workflow).toContain("if: steps.event.outputs.verify != 'true'");
     expect(workflow).toContain('verify: ${{ steps.event.outputs.verify }}');
+    expect(workflow).toContain('macos: ${{ steps.event.outputs.macos }}');
+    expect(workflow).toContain("MACOS: ${{ github.event_name != 'merge_group' }}");
+    expect(workflow).toContain('fetch-depth: 0');
+    expect(workflow).toContain('BASE_SHA: ${{ github.event.merge_group.base_sha }}');
+    expect(workflow).toContain('HEAD_SHA: ${{ github.event.merge_group.head_sha }}');
     expect(workflow).toContain(
-      'run: node typescript/scripts/ci-scope.mjs full >> "$GITHUB_OUTPUT"'
+      'run: node typescript/scripts/ci-scope.mjs merge-group "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"'
     );
     const writers = workflow.match(/^\s+save-if:.*$/gm) ?? [];
     expect(writers).toHaveLength(3);
@@ -1726,7 +1849,7 @@ describe('required CI gate', () => {
     const gate = job('native-install-gate');
     expect(gate).toContain('NATIVE_SCOPE: ${{ needs.changes.outputs.native_scope }}');
     expect(gate).toContain(
-      'ci-scope.mjs gate-native "$EVENT_NAME" "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$SHARD_1_RESULT" "$SHARD_2_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT" "$MACOS_BUILD_RESULT" "$MACOS_MATRIX_RESULT"'
+      'ci-scope.mjs gate-native "$MACOS_SELECTED" "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$SHARD_1_RESULT" "$SHARD_2_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT" "$MACOS_BUILD_RESULT" "$MACOS_MATRIX_RESULT"'
     );
     for (const [variable, jobName] of [
       ['CONTRACT_RESULT', 'native-rust'],
