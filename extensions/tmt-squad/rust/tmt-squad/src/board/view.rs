@@ -153,7 +153,7 @@ fn grid_line(
             look.named(token)
         } else if failed {
             // A field provider's run failed: its `?` stays quiet.
-            look.named("dim")
+            look.role(Role::Dim)
         } else {
             Style::new()
         };
@@ -369,7 +369,7 @@ fn tab_line(app: &App, area: Rect) -> Line<'_> {
         match sum.state() {
             "waiting" => look.named(&colors.waiting),
             "blocked" => look.named(&colors.blocked),
-            _ => look.named("dim"),
+            _ => look.role(Role::Dim),
         }
     };
     let mut line = Vec::new();
@@ -414,7 +414,7 @@ fn tab_line(app: &App, area: Rect) -> Line<'_> {
         let frame = (started.elapsed().as_millis() / 100) as usize % SPINNER.len();
         line.push(Span::styled(
             format!("{} loading", SPINNER[frame]),
-            look.named("dim"),
+            look.role(Role::Dim),
         ));
     }
     Line::from(line)
@@ -517,7 +517,7 @@ fn summary_line(app: &App) -> Line<'_> {
     if view.document["olderRequestsNotShown"] == true {
         spans.push(Span::styled(
             " · older requests not shown",
-            look.named("dim"),
+            look.role(Role::Dim),
         ));
     }
     if let Some(notice) = &view.theme_notice {
@@ -550,9 +550,9 @@ pub fn render(frame: &mut Frame, app: &App) {
     } else if app.searching {
         Line::from(format!("/{}▏", app.search))
     } else if let Some(notice) = &app.notice {
-        Line::from(Span::styled(notice.as_str(), look.named("amber")))
+        Line::from(Span::styled(notice.as_str(), look.role(Role::Waiting)))
     } else if let Some(error) = &app.error {
-        Line::from(Span::styled(error.as_str(), look.named("red")))
+        Line::from(Span::styled(error.as_str(), look.role(Role::Blocked)))
     } else {
         Line::from(Span::styled(hints(app), look.role(Role::Muted)))
     };
@@ -632,7 +632,7 @@ fn render_switcher(frame: &mut Frame, app: &App, switcher: &Switcher, body: Rect
     if found.is_empty() {
         lines.push(Line::from(Span::styled(
             " (no matching tab)",
-            look.named("dim"),
+            look.role(Role::Dim),
         )));
     }
     for (index, key) in found.iter().enumerate().skip(first).take(shown) {
@@ -700,7 +700,7 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
         let style = if pane == focused && board.panes.len() > 1 {
             look.role(Role::Accent).add_modifier(Modifier::BOLD)
         } else {
-            look.named("dim")
+            look.role(Role::Dim)
         };
         Block::new()
             .borders(Borders::ALL)
@@ -797,14 +797,14 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
             }
             _ => wrap(text, width)
                 .into_iter()
-                .map(|line| Line::styled(line, look.named("dim")))
+                .map(|line| Line::styled(line, look.role(Role::Dim)))
                 .collect(),
         };
         derived.notes = Some((width, lines));
     }
     let lines = &derived.notes.as_ref().expect("prepared notes").1;
     app.scrolls
-        .show(frame, Pane::Notes, area, lines, look.named("dim"));
+        .show(frame, Pane::Notes, area, lines, look.role(Role::Dim));
 }
 
 /// Lines of one reply body shown before it is cut.
@@ -831,7 +831,7 @@ pub fn reply_lines(
         )));
         lines.push(Line::styled(
             fit(&format!("  › {}", text("prompt")), width),
-            look.named("dim"),
+            look.role(Role::Dim),
         ));
         match reply["response"].as_str() {
             Some(response) => {
@@ -840,7 +840,7 @@ pub fn reply_lines(
                     lines.push(Line::from(format!("  {line}")));
                 }
                 if body.len() > BODY_LINES {
-                    lines.push(Line::styled("  …", look.named("dim")));
+                    lines.push(Line::styled("  …", look.role(Role::Dim)));
                 }
             }
             None => {
@@ -850,7 +850,7 @@ pub fn reply_lines(
                 } else {
                     format!("  (final {})", text("status"))
                 };
-                lines.push(Line::styled(fit(&hint, width), look.named("dim")));
+                lines.push(Line::styled(fit(&hint, width), look.role(Role::Dim)));
             }
         }
         lines.push(Line::from(""));
@@ -868,7 +868,7 @@ fn render_replies(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 "(no replies to your squad requests yet)"
             },
-            look.named("dim"),
+            look.role(Role::Dim),
         )]
     } else {
         let now = std::time::SystemTime::now()
@@ -877,7 +877,7 @@ fn render_replies(frame: &mut Frame, app: &App, area: Rect) {
         reply_lines(look, &view.replies, usize::from(area.width), now)
     };
     app.scrolls
-        .show(frame, Pane::Replies, area, lines, look.named("dim"));
+        .show(frame, Pane::Replies, area, lines, look.role(Role::Dim));
 }
 
 /// Fields already shown by detail's header, body or links line.
@@ -902,7 +902,7 @@ fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     let Some(row) = app.selected_row() else {
         frame.render_widget(
-            Paragraph::new(Span::styled("(no row selected)", look.named("dim"))),
+            Paragraph::new(Span::styled("(no row selected)", look.role(Role::Dim))),
             area,
         );
         return;
@@ -915,7 +915,7 @@ fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
     if let Some(pending) = row["pending"].as_str() {
         lines.push(Line::styled(
             format!("waiting on you: {pending}"),
-            look.named("amber"),
+            look.role(Role::Waiting),
         ));
     }
     let place = [&row["pane"]["target"], &row["pane"]["cwd"]]
@@ -991,7 +991,7 @@ fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
     app.scrolls
-        .show(frame, Pane::Detail, area, lines, look.named("dim"));
+        .show(frame, Pane::Detail, area, lines, look.role(Role::Dim));
 }
 
 fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
@@ -1131,7 +1131,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 if let Some(note) = row["note"].as_str().filter(|_| !note_column) {
                     lines.push(Line::from(Span::styled(
                         fit(&format!("    note {note}"), usize::from(area.width)),
-                        look.named("dim"),
+                        look.role(Role::Dim),
                     )));
                     row_lines.push((lines.len() - 1, row_index));
                 }
@@ -1142,7 +1142,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                             &format!("    ✎ sent to {to}: {text}"),
                             usize::from(area.width),
                         ),
-                        look.named("dim"),
+                        look.role(Role::Dim),
                     )));
                     row_lines.push((lines.len() - 1, row_index));
                 }
@@ -1160,7 +1160,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 "  (no matching members)"
             },
-            look.named("dim"),
+            look.role(Role::Dim),
         )));
     }
     // The selection stays on screen until the wheel moves the rows away from
@@ -1171,7 +1171,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
     }
     let (offset, viewport) = app
         .scrolls
-        .show(frame, Pane::Rows, area, lines, look.named("dim"));
+        .show(frame, Pane::Rows, area, lines, look.role(Role::Dim));
     app.hits.borrow_mut().extend(
         row_lines
             .into_iter()
