@@ -1,3 +1,4 @@
+import { MarkLegend } from "../chapter-scenes/MarkLegend";
 import { Cmd, Code } from "../components/Cmd";
 import { Callout, Caption, KeyList, Lede, More, Tag, Waiting } from "../components/marks";
 import { Spaces, TokenTable } from "../components/samples";
@@ -21,6 +22,8 @@ import { BoardDemo, jumpAndTalk, startSquad } from "../demos/BoardDemo";
     waiting on you <Waiting />.
   </li>
 </KeyList>
+
+<MarkLegend />
 
 <Cmd>{`
 $ tmt extension install squad
