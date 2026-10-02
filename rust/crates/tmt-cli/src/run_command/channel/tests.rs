@@ -446,3 +446,17 @@ fn informational_advisory_does_not_gate_an_available_driver() {
         assert!(prepared.notice.is_none());
     }
 }
+
+#[test]
+fn unsupported_enrollment_keeps_the_driver_reason_and_stable_code() {
+    for reason in [
+        "This command has no channel support.",
+        "Claude channel enrollment on resume is not supported yet; resume without --channel",
+    ] {
+        let error = ChannelError::Unsupported(reason);
+        assert_eq!(error.to_string(), reason);
+        let failure = enrollment_failure(error);
+        assert_eq!(failure.code, "CHANNEL_UNSUPPORTED");
+        assert_eq!(failure.message, reason);
+    }
+}

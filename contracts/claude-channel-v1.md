@@ -37,6 +37,12 @@ processing.
   Claude advertises false and stays opt-in; the
   [Codex contract](codex-channel-v1.md#default-launch-policy)
   owns its default enrollment and exact-thread attachment.
+- Claude channel enrollment on exact resume remains unsupported pending
+  [#783](https://github.com/pj-tmt/tmt/issues/783). Both `tmt resume --channel`
+  and `tmt run --resume --channel` fail with `CHANNEL_UNSUPPORTED` before
+  enrollment writes or foreground startup, with guidance to resume without
+  `--channel`. Default keeps Claude resume plain, subject to the unchanged
+  no-paste check for retained enrollment.
 - A driver's preflight classifies an outcome as unavailable or informational.
   Informational advisories are shown and enrollment proceeds, including Claude's
   accepted-but-untested 2.x builds; its handshake decides readiness. Codex's

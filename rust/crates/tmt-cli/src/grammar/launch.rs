@@ -8,8 +8,8 @@ pub(in crate::grammar) fn run() -> Command {
         "run",
         "Start a known agent, or bind this pane and run a command",
         [
-            "Start an agent now and name it later with tmt this" => "tmt run claude",
-            "Require a message channel" => "tmt run --channel worker codex",
+            "Start and name an agent" => "tmt run worker claude",
+            "Save the agent for later" => "tmt run --save worker claude",
             "Use plain paste delivery" => "tmt run --no-channel worker codex",
         ]
     ))
@@ -111,7 +111,7 @@ pub(in crate::grammar) fn resume() -> Command {
         [
             "Resume an identity's last session" => "tmt resume worker",
             "Require a channel for exact resume" => "tmt resume --channel worker",
-            "Resume with plain paste delivery" => "tmt resume --no-channel worker",
+            "Forget an identity's last session" => "tmt resume --forget worker",
         ]
     ))
     .arg(

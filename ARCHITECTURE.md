@@ -2494,6 +2494,9 @@ ownership map.
   mutually exclusive run/resume flags. `RuntimeChannel::enabled_by_default`
   advertises only the driver's default; CLI policy contains no provider-name
   branch. Codex enables its default and Claude keeps the port's opt-in default.
+  Claude rejects typed resume enrollment in its driver until #783 is decided.
+  `ChannelError::Unsupported` carries the driver's reason; the launcher maps it
+  to `CHANNEL_UNSUPPORTED` without interpreting provider names or arguments.
   `run_command::channel` owns launcher policy and stable strict errors; each
   driver classifies preflight outcomes as unavailable or informational.
   Default failure before foreground startup can use only the original command,

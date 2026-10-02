@@ -333,8 +333,8 @@ pub enum RecoveryError {
 /// Failures before a channel launch: reported before any binding or spawn.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChannelError {
-    /// The claimed driver has no channel.
-    Unsupported,
+    /// The driver cannot enroll this launch and owns the reason shown to the user.
+    Unsupported(&'static str),
     /// The provider could not be probed within its bounds.
     ProviderUnavailable,
     /// The provider is outside the supported range.
@@ -359,7 +359,7 @@ pub enum ChannelError {
 impl fmt::Display for ChannelError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Unsupported => formatter.write_str("This command has no channel support."),
+            Self::Unsupported(reason) => formatter.write_str(reason),
             Self::ProviderUnavailable => {
                 formatter.write_str("The provider version could not be verified.")
             }
