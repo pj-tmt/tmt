@@ -73,7 +73,10 @@ pane titles and footer hints; `dim` remains for borders, empty values, times,
 staleness and scroll marks. Focus uses `accent` and bold, while attention tabs
 keep their attention token. The selected row uses the `selection` background
 and keeps its text/state/provider foregrounds. Without a background color
-(`terminal`, `mono`, 16 colors or `NO_COLOR`), selection uses reverse video.
+(`terminal`, `mono`, 16 colors or `NO_COLOR`), selection uses reverse video
+with one common foreground across the grid row, including empty and wrapped
+cells and its age label. Per-cell colors and dim are dropped in that fallback;
+state and attention text/marks use bold.
 Unselected body text keeps the terminal's default foreground. Selected squad and
 pane tabs keep their foreground and width, adding the same selection background
 or reverse fallback.

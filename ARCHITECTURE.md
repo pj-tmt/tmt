@@ -1968,7 +1968,11 @@ same resolved theme from `config show` and layers `[squad.<name>.theme]` over it
 (`look`), defaulting to `tmt`; a bad global theme is a notice on the board, a
 bad squad theme a `squad.toml` error. Only `tmt-cli-style` names colors: the
 native architecture test (`colors`) rejects color literals in other production
-code, the Rust extensions included.
+code, the Rust extensions included. `Look::row_span` owns the board's selected
+reverse-fallback span policy: cells, pending text/mark and age labels share one
+foreground, with semantic bold; real-background and unselected spans keep their
+original styles. The view supplies selection and semantic context, never a
+second depth/fallback decision.
 
 `json_document` owns editable config/tmux metadata number compatibility:
 IEEE-754 values with non-finite opaque values serialized as null. Known invalid

@@ -139,6 +139,7 @@ fn grid_line(
     cells: &[RowCell],
     row: &Value,
     first: bool,
+    selected: bool,
 ) -> Option<Vec<Vec<Span<'static>>>> {
     let mut fitted = Vec::new();
     let mut position = 0;
@@ -182,6 +183,12 @@ fn grid_line(
         } else {
             Style::new()
         };
+        let emphasize = value.is_some_and(|value| !value.is_empty())
+            && (matches!(cell.field.as_deref(), Some("state" | "pending"))
+                || token
+                    .and_then(crate::look::role)
+                    .is_some_and(|role| matches!(role, Role::Waiting | Role::Blocked)));
+        let style = look.row_span(selected, style, emphasize);
         fitted.push((
             grid::fit_lines(
                 text,
@@ -226,12 +233,21 @@ fn grid_line(
 
 /// Puts a row's age at the right edge of its first line when it fits after
 /// the cells; a narrow board drops it before any cell.
-fn age_mark(spans: &mut Vec<Span<'static>>, age: &str, width: usize, look: crate::look::Look) {
+fn age_mark(
+    spans: &mut Vec<Span<'static>>,
+    age: &str,
+    width: usize,
+    look: crate::look::Look,
+    selected: bool,
+) {
     let used: usize = spans.iter().map(Span::width).sum();
     let mark = age.width();
     if used + GAP + mark <= width {
         spans.push(Span::raw(" ".repeat(width - used - mark)));
-        spans.push(Span::styled(age.to_owned(), look.role(Role::Dim)));
+        spans.push(Span::styled(
+            age.to_owned(),
+            look.row_span(selected, look.role(Role::Dim), false),
+        ));
     }
 }
 
@@ -1171,15 +1187,23 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 };
                 for (index, cells) in rows.lines.iter().enumerate() {
                     let first = index == 0;
-                    let Some(cells) = grid_line(look, rows, widths, cells, row, first) else {
+                    let Some(cells) = grid_line(look, rows, widths, cells, row, first, selected)
+                    else {
                         continue;
                     };
                     for (visual, cells) in cells.into_iter().enumerate() {
                         let initial = first && visual == 0;
-                        let mut spans = vec![Span::raw(if initial { marker } else { "  " })];
+                        let mut spans = vec![Span::styled(
+                            if initial { marker } else { "  " },
+                            look.row_span(
+                                selected,
+                                Style::new(),
+                                initial && row["pending"].is_string(),
+                            ),
+                        )];
                         spans.extend(cells);
                         if let Some(age) = age.as_deref().filter(|_| initial) {
-                            age_mark(&mut spans, age, usize::from(area.width), look);
+                            age_mark(&mut spans, age, usize::from(area.width), look, selected);
                         }
                         row_lines.push((lines.len(), row_index));
                         lines.push(Line::from(spans).style(style));
@@ -1839,14 +1863,120 @@ columns = [{ name = "member", width = "30%" },
         for state in ["blocked", "blocked-on-ci"] {
             let row =
                 json!({"state": state, "fields": {"state": state}, "colors": {"state": "review"}});
-            let spans = grid_line(look, &rows, &[Some(20)], &rows.lines[0], &row, true).unwrap();
+            let spans =
+                grid_line(look, &rows, &[Some(20)], &rows.lines[0], &row, true, false).unwrap();
             assert_eq!(spans.len(), 1);
             assert_eq!(spans[0][0].style.fg, look.named("review").fg);
             assert_eq!(spans[0][0].content.trim(), state);
             let plain = json!({"state": state, "fields": {"state": state}});
-            let spans = grid_line(look, &rows, &[Some(20)], &rows.lines[0], &plain, true).unwrap();
+            let spans = grid_line(
+                look,
+                &rows,
+                &[Some(20)],
+                &rows.lines[0],
+                &plain,
+                true,
+                false,
+            )
+            .unwrap();
             assert_eq!(spans.len(), 1);
             assert_eq!(spans[0][0].style, Style::new());
+        }
+    }
+
+    #[test]
+    fn selected_reverse_rows_are_uniform_across_wrapping_empty_pending_and_age() {
+        let mut app = board(json!([{"title": null, "rows": [
+            row("auth-fix", "working", "rotate session tokens for the rollout", json!({
+                "pending": "approve the rollout plan",
+                "fields": {"state": "working", "task": "rotate session tokens for the rollout", "pr": "#42"},
+                "colors": {"state": "working", "task": "waiting", "pr": "review"},
+                "staleness": {"state": "stale", "ageMs": 3 * 3_600_000},
+            })),
+            row("docs", "review", "guide", json!({"colors": {"state": "review"}})),
+        ]}]));
+        app.view.as_mut().unwrap().rows = rows_from(
+            r#"[p.rows]
+columns = [
+    { name = "member", width = 12 },
+    { name = "state", width = 9 },
+    { name = "task", width = 12, overflow = "wrap", max_lines = 2 },
+    { name = "pr", width = 8 },
+    { name = "empty", width = 5 },
+]
+lines = [
+    ["member", "state", "task", "pr", "empty"],
+    ["", { field = "pending", span = 4 }],
+]
+"#,
+        );
+        let text = draw(&app, 80, 12);
+        for base in tmt_cli_style::Base::ALL {
+            for depth in [
+                tmt_cli_style::Depth::TrueColor,
+                tmt_cli_style::Depth::Ansi16,
+                tmt_cli_style::Depth::None,
+            ] {
+                let look = crate::look::Look {
+                    theme: tmt_cli_style::Theme::new(base),
+                    depth,
+                };
+                if look.selection().bg.is_some() {
+                    continue;
+                }
+                app.view.as_mut().unwrap().look = look;
+                let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+                terminal.draw(|frame| render(frame, &app)).unwrap();
+                let buffer = terminal.backend().buffer();
+                let screen = draw(&app, 80, 12);
+                assert_eq!(
+                    screen, text,
+                    "{base:?} {depth:?}: text and geometry stay exact"
+                );
+                let first = screen
+                    .iter()
+                    .position(|line| line.contains("auth-fix"))
+                    .unwrap();
+                let end = screen
+                    .iter()
+                    .position(|line| line.contains("docs "))
+                    .unwrap();
+                assert!(end - first >= 3, "wrapping and pending line are present");
+                assert!(screen[first].contains('–'));
+                assert!(screen[first].ends_with("stale 3h"));
+                let selection = look.selection();
+                let view = app.view.as_ref().unwrap();
+                let derived = view.derived.borrow();
+                let widths = &derived.grid.as_ref().unwrap().widths;
+                let grid_width = 2 + grid::span(widths, 0..view.rows.columns.len(), GAP);
+                for y in first..end {
+                    // The first line's age extends to the edge; later lines
+                    // keep the existing fixed-width grid extent.
+                    let width = if y == first { 80 } else { grid_width as u16 };
+                    for x in 0..width {
+                        let cell = &buffer[(x, y as u16)];
+                        assert_eq!(
+                            cell.fg,
+                            selection.fg.unwrap_or_default(),
+                            "{base:?} {depth:?} {x},{y}"
+                        );
+                        assert_eq!(cell.bg, selection.bg.unwrap_or_default());
+                        assert!(
+                            cell.modifier.contains(Modifier::REVERSED),
+                            "{base:?} {depth:?} {x},{y}: {cell:?}"
+                        );
+                        assert!(!cell.modifier.contains(Modifier::DIM));
+                    }
+                }
+                for word in ["◆", "working", "rotate", "approve"] {
+                    let y = screen.iter().position(|line| line.contains(word)).unwrap();
+                    let x = screen[y][..screen[y].find(word).unwrap()].chars().count() as u16;
+                    assert!(
+                        buffer[(x, y as u16)].modifier.contains(Modifier::BOLD),
+                        "{word}"
+                    );
+                }
+            }
         }
     }
 
