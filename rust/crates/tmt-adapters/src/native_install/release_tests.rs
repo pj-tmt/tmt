@@ -115,7 +115,12 @@ fn append_file(builder: &mut Builder<GzEncoder<Vec<u8>>>, path: &str, bytes: &[u
     builder.append(&header, bytes).unwrap();
 }
 
-fn archive(product: Product, version: &str, target: &str) -> (String, Vec<u8>) {
+fn archive(
+    product: Product,
+    version: &str,
+    target: &str,
+    companions: &[(&str, &[u8])],
+) -> (String, Vec<u8>) {
     let name = format!("{}-{version}-{target}.tar.gz", product.package());
     let root = name.strip_suffix(".tar.gz").unwrap();
     let encoder = GzEncoder::new(Vec::new(), Compression::default());
@@ -139,6 +144,9 @@ fn archive(product: Product, version: &str, target: &str) -> (String, Vec<u8>) {
         b"Third-party notices\n",
         0o644,
     );
+    for (name, bytes) in companions {
+        append_file(&mut builder, &format!("{root}/{name}"), bytes, 0o755);
+    }
     builder.finish().unwrap();
     (name, builder.into_inner().unwrap().finish().unwrap())
 }
@@ -158,7 +166,19 @@ pub(in crate::native_install) fn product_fixture(
     target: &str,
     release_id: u64,
 ) -> (Value, Vec<u8>, Vec<u8>, String) {
-    let (archive_name, archive) = archive(product, version, target);
+    companion_fixture(product, version, target, release_id, &[])
+}
+
+/// A release that also carries `companions`, each archived and listed in
+/// the manifest as cargo-dist lists a binary.
+pub(in crate::native_install) fn companion_fixture(
+    product: Product,
+    version: &str,
+    target: &str,
+    release_id: u64,
+    companions: &[(&str, &[u8])],
+) -> (Value, Vec<u8>, Vec<u8>, String) {
+    let (archive_name, archive) = archive(product, version, target, companions);
     let manifest = serde_json::to_vec(&json!({
         "artifacts": {
             archive_name.clone(): {
@@ -168,6 +188,8 @@ pub(in crate::native_install) fn product_fixture(
                 "checksums": {"sha256": sha256(&archive)},
                 "assets": product.files()
                     .iter()
+                    .copied()
+                    .chain(companions.iter().map(|(name, _)| *name))
                     .map(|path| json!({"path": path}))
                     .collect::<Vec<_>>(),
             }

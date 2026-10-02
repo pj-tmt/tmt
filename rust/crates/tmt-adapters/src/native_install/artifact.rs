@@ -87,6 +87,8 @@ struct Listed {
     version: Version,
     sha256: String,
     skills: bool,
+    /// The optional companion executables this archive declares.
+    companions: Vec<String>,
 }
 
 fn verified_archive(
@@ -100,6 +102,7 @@ fn verified_archive(
         version,
         sha256,
         skills,
+        companions,
     } = listed;
     if compressed.len() > COMPRESSED_LIMIT {
         return Err(invalid("Native archive exceeds its bound."));
@@ -107,7 +110,13 @@ fn verified_archive(
     if digest(compressed) != sha256 {
         return Err(invalid("Native archive checksum mismatch."));
     }
-    let files = decode(product, compressed, archive_root(name)?, skills)?;
+    let files = decode(
+        product,
+        compressed,
+        archive_root(name)?,
+        skills,
+        &companions,
+    )?;
     Ok(Artifact {
         name: name.into(),
         version,
@@ -205,9 +214,17 @@ fn metadata(product: Product, manifest: &Value, name: &str, target: &str) -> io:
     if skills && product == Product::Cli {
         return Err(invalid("The TMT CLI release carries no agent skills."));
     }
+    let companions: Vec<String> = inventory
+        .iter()
+        .filter(|path| product.companions().contains(path))
+        .map(|path| (*path).to_owned())
+        .collect();
+    if companions.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(invalid("Unexpected native archive asset inventory."));
+    }
     let mut required: Vec<&str> = inventory
         .into_iter()
-        .filter(|path| *path != skills_tree::ROOT)
+        .filter(|path| *path != skills_tree::ROOT && !product.companions().contains(path))
         .collect();
     let mut expected = product.files();
     expected.sort_unstable();
@@ -239,11 +256,12 @@ fn metadata(product: Product, manifest: &Value, name: &str, target: &str) -> io:
         version,
         sha256: sha256.into(),
         skills,
+        companions,
     })
 }
 
-/// Only the product's required files and, when the manifest declares it, one
-/// bounded skills tree. Every limit applies while decoding: the expansion
+/// Only the product's required files, the companion executables the manifest
+/// declares and, when the manifest declares it, one bounded skills tree. Every limit applies while decoding: the expansion
 /// bound, each skill file's size before its bytes are read, and the file count
 /// before the tree is validated as a whole.
 fn decode(
@@ -251,6 +269,7 @@ fn decode(
     compressed: &[u8],
     root: &str,
     skills: bool,
+    companions: &[String],
 ) -> io::Result<BTreeMap<String, Vec<u8>>> {
     let mut expanded = Vec::new();
     MultiGzDecoder::new(compressed)
@@ -289,14 +308,19 @@ fn decode(
         let name = path
             .strip_prefix(root)
             .and_then(|p| p.strip_prefix('/'))
-            .filter(|name| product.files().contains(name) || in_tree)
+            .filter(|name| {
+                product.files().contains(name)
+                    || companions.iter().any(|companion| companion == name)
+                    || in_tree
+            })
             .ok_or_else(|| invalid("Unexpected native archive path."))?;
         let mode = entry.header().mode()?;
         // Regular files only: never a link, device or special permission.
         if !entry.header().entry_type().is_file()
             || mode & 0o7000 != 0
             || entry.size() == 0
-            || (name == product.executable() && mode & 0o111 == 0)
+            || ((name == product.executable() || product.companions().contains(&name))
+                && mode & 0o111 == 0)
             || (in_tree && !skills_tree::file_fits(entry.size()))
         {
             return Err(invalid(
@@ -320,6 +344,7 @@ fn decode(
         .files()
         .iter()
         .any(|file| !files.contains_key(*file))
+        || companions.iter().any(|file| !files.contains_key(file))
     {
         return Err(invalid("Native archive is missing required files."));
     }
