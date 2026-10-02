@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { killAndWait } from '../e2e/harness/cleanup.js';
 
 const gone = Object.assign(new Error('group gone'), { code: 'ESRCH' });
