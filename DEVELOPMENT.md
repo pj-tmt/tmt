@@ -257,7 +257,7 @@ Rustup resolves the manifest's two-part minimum to its latest patch release,
 rather than duplicating a patch pin in the workflow.
 It replaces the MSRV executable builds and expands Squad MSRV coverage to the
 whole workspace without changing the declared minimum. Its separate
-`native-rust-msrv` cache has one writer, the MSRV job on main; PRs only restore.
+`native-rust-msrv` cache has one writer, the MSRV job on main; PR and merge-group events only restore.
 `Native Rust contracts` is the fail-closed aggregator of these two workers. It
 requires both to succeed, rejects missing selection, and stays skipped for scope
 `none`, preserving the outer native gate and required-check names.
@@ -269,6 +269,13 @@ partitions run in their own workflow (below), so a red `CI` run means one of its
 jobs failed. CI changes need positive
 and negative selection/gate evidence before pushing; do not change branch
 protection merely to get a newly skipped job accepted.
+
+Merge-group candidates run full verification through `node typescript/scripts/ci-scope.mjs full`,
+including both E2E shard lists and all four required checks. PR path selection is
+unchanged. Check event wiring with `pnpm exec vitest run test/tooling/ci-scope.test.ts`
+from `typescript/` and `actionlint .github/workflows/ci.yml` from the root.
+[Architecture](ARCHITECTURE.md) owns the event, gate and main-ref cache policy;
+queue/ruleset activation is a separate repository-owner operation.
 
 Linux CI package installation uses `.github/actions/apt-install`: each apt update
 or install attempt has a 120-second timeout with a 10-second forced-kill grace.
