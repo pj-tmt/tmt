@@ -458,7 +458,7 @@ describe('workflow safety wiring', () => {
   const release = readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
   const loop = release
     .split('      - name: Run release-please\n')[1]
-    .split('\n      # Release pull requests')[0]
+    .split('\n      # Only one release PR')[0]
     .split('        run: |\n')[1]
     .split('\n')
     .map((line) => line.slice(10))

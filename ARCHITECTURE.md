@@ -738,9 +738,16 @@ release-please after its first release pull request. The CLI is pinned with a lo
 `.github/release-please/`, outside the `typescript` workspace. Only the release job and CI jobs running
 release-config tests install it; tests load that same isolated pin to verify the wrapper's API shape
 and real Manifest attribution, without adding release tooling to other workspace installs.
-The config sets `always-update`: release-please otherwise leaves an open release pull request
-untouched while its notes are unchanged, so a conflict with `main` (every release pull request
-edits the shared manifest, and adjacent lines conflict) would never clear.
+The config retains `always-update` for conflict recovery: each component edits the shared
+manifest, whose adjacent lines can conflict. `release-please-run.mjs` wraps the pinned
+GitHub update boundary to preserve an open PR's head when its title, complete inline
+notes, generated file bytes and modes are unchanged and GitHub does not report a conflict.
+File comparisons use the observed immutable head SHA. Changed content, missing files
+and confirmed conflicts use the original updater; unknown mergeability preserves an
+otherwise unchanged head and returns normally so draft reconciliation continues. Acquisition
+errors fail visibly without treating uncertainty as equality. Overflow notes retain the
+original update/overflow behavior. This avoids CI restarts for unchanged release content;
+new release content still needs a new verified head.
 A tooling test fails when the committed config is not what the generator writes, when a
 workspace crate's lock entry or declared version is managed zero or several times, or when
 a tag disagrees with the policy or a package could leave the alpha line (release-please's
@@ -3570,19 +3577,24 @@ bundle, `verification-failed.json` parks a failed draft), so a replaced or cance
 loses nothing and a known-bad commit is not rebuilt. `release.yml` runs release-please
 (the CLI pinned in `.github/release-please`, configured by the generated
 `release-please-config.json`) on every push to `main`, documentation included: it
-opens one release pull request per component, enables auto-merge on them (they merge only
-through the required checks) and keeps them current, creates the draft release for a merged
+opens one release pull request per component, enables auto-merge on at most one (through
+required checks and the merge queue), creates the draft release for a merged
 one, and starts the per-product run for each product that has a draft without a bundle. A
 GitHub App token, created only in that job and only in a live run on `main`, is what lets
 the release pull requests run the required checks; the job runs in the `release`
 Environment and the App credentials are secrets of that Environment, restricted to `main`.
 Until they exist every push is a dry run that opens, merges, creates and starts nothing.
-`typescript/scripts/release-please-queue.mjs` owns the read-only queue pre-check:
-a workflow-token GraphQL query skips `release-pr` while any open release PR is
-queued, preserving the candidate and continuing `github-release`. Query errors
-and release-please errors remain failures. The check is not atomic with a later
-branch update; [Development](DEVELOPMENT.md#queued-release-pull-requests) owns
-its race, token and recovery behavior.
+`typescript/scripts/release-please-queue.mjs` owns paginated release-PR discovery and
+single-active auto-merge selection under the workflow's existing concurrency group.
+The workflow-token pre-check skips `release-pr` while an open release PR is queued,
+preserving the candidate and continuing `github-release`. Complete discovery precedes
+auto-merge enabling; an existing enabled or queued release blocks another. Otherwise
+the oldest eligible same-repository main release PR is enabled with its observed head
+SHA as a fence. Multiple already-active releases fail with reconciliation guidance.
+The owner does not update BEHIND branches: the queue verifies the merged result against
+current main. Query and release-please errors remain failures. Discovery is not atomic
+with external enqueues or a later branch update; [Development](DEVELOPMENT.md#queued-release-pull-requests)
+owns bounds, token and recovery behavior.
 `release-pr-safety.mjs` owns the read-only release PR safety gates. `Code quality`
 checks PR notes on PR updates and merge groups: the compare base must be the
 component's newest published tag, and each linked commit must descend from that

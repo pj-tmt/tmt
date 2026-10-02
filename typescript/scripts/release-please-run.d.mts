@@ -17,3 +17,8 @@ export function executeReleasePlease(
   command: string,
   live: boolean
 ): Promise<unknown>;
+
+export function preserveUnchangedReleasePullRequests(
+  github: GitHub,
+  fileNotFoundError: typeof import('../../.github/release-please/node_modules/release-please/build/src/index.js').Errors.FileNotFoundError
+): GitHub;

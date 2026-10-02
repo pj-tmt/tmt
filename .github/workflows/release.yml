@@ -12,9 +12,8 @@ on:
   push:
     branches:
       - main
-    # Every push starts a run, prose and the release commits that release-please itself merges
-    # included: a merge of any kind moves `main` under the open release pull requests, which
-    # `strict` requires to be up to date, and a run with nothing to do is cheap.
+    # Every push reconciles release content and merged drafts, including prose and release commits.
+    # Unchanged release PR heads retain their CI; the queue tests the merged result on current main.
   workflow_dispatch:
     inputs:
       dry_run:
@@ -102,20 +101,14 @@ jobs:
             node ../../typescript/scripts/release-please-run.mjs "$command" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
             printf '```\n\n' >> "$GITHUB_STEP_SUMMARY"
           done
-      # Release pull requests merge through the normal required checks, never around them.
-      # `strict` requires an up-to-date branch and GitHub does not update it by itself, so a
-      # release pull request that fell behind `main` is updated here on every push.
-      - name: Enable auto-merge and keep the release pull requests current
+      # Only one release PR is enabled at a time: separate components share the manifest.
+      # The merge queue tests current main without rewriting an unchanged PR's CI head.
+      - name: Enable auto-merge for one release pull request
         if: steps.mode.outputs.live == 'true'
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
-        run: |
-          for number in $(gh pr list --label 'autorelease: pending' --state open --json number --jq '.[].number'); do
-            enabled=$(gh pr view "$number" --json autoMergeRequest --jq '.autoMergeRequest != null')
-            if [ "$enabled" != true ]; then gh pr merge "$number" --auto --squash; fi
-            state=$(gh pr view "$number" --json mergeStateStatus --jq .mergeStateStatus)
-            if [ "$state" = BEHIND ]; then gh pr update-branch "$number"; fi
-          done
+          RELEASE_TOKEN: ${{ steps.app.outputs.token }}
+          LIVE: ${{ steps.mode.outputs.live }}
+        run: node typescript/scripts/release-please-queue.mjs enable
 
   dispatch:
     name: Start the release run for ${{ matrix.product }}

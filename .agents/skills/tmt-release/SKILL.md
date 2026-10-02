@@ -40,6 +40,22 @@ fails closed. [DEVELOPMENT's safety gates](../../../DEVELOPMENT.md#release-pr-sa
 own draft-token visibility, bounded REST discovery, fixtures and recovery procedures. Neither gate
 authorizes manual tagging, release editing or publication.
 
+## Release queue robustness
+
+The release workflow enables one same-repository main release PR at a time. Keep the
+queue pre-check's default `skip`/`run` interface and its live-only `enable` command in
+the single queue owner; complete paginated discovery and head-pinned enabling must fail
+visibly on uncertainty. Do not enable another component while a release PR is enabled
+or queued. Existing workflow concurrency serializes this policy, not external enqueues.
+
+Keep `always-update` for conflict recovery and the pinned update wrapper's unchanged
+release-content comparison for CI continuity. BEHIND alone does not require a branch
+refresh: the merge queue runs required checks against current main's merged result.
+Changed release content still needs fresh checks; no queue priority jump is used.
+[DEVELOPMENT's queue section](../../../DEVELOPMENT.md#queued-release-pull-requests)
+owns request bounds, failure and recovery details. Tooling tests must cover pagination,
+single-active selection, unchanged generated files and original conflict/update behavior.
+
 ## Promotion and prerelease checks
 
 Read the complete [native release verification section](../../../DEVELOPMENT.md#native-release-verification)
