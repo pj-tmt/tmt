@@ -41,6 +41,7 @@ flate2 = { version = "=1.1.10", default-features = false, features = ["rust_back
 tmt-core = { path = "crates/tmt-core" }
 tmt-host-grammar = { path = "crates/tmt-host-grammar" }
 tmt-office-model = { path = "../extensions/tmt-office/rust/tmt-office-model" }
+tmt-colab-model = { path = "../extensions/tmt-colab/rust/tmt-colab-model" }
 tmt-adapters = { path = "crates/tmt-adapters" }
 tmt-command-output = { path = "crates/tmt-command-output" }
 tmt-driver-protocol = { path = "crates/tmt-driver-protocol" }

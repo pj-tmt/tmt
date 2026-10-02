@@ -221,6 +221,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "serde",
             "yrs",
             "base64",
+            "tmt-colab-model",
             "ed25519-dalek",
             "getrandom",
             "nix",
@@ -608,7 +609,11 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
-            if root == "tmt_colab_model" && source.package != "tmt-colab-model" {
+            let colab_model_consumer = source.package == "tmt-colab";
+            if root == "tmt_colab_model"
+                && source.package != "tmt-colab-model"
+                && !colab_model_consumer
+            {
                 violations.push(format!(
                     "{location}: unreviewed colab model consumer {}",
                     source.package
@@ -625,6 +630,7 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 && root != "tmt_cli_style"
                 && root != "tmt_invoke"
                 && !(source.package == "tmt-squad" && root == "tmt_tui")
+                && !(root == "tmt_colab_model" && colab_model_consumer)
                 && root != source.package.replace('-', "_")
             {
                 violations.push(format!(

@@ -5,7 +5,6 @@ use nix::{
     fcntl::{Flock, FlockArg, OFlag},
     unistd::Uid,
 };
-use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
@@ -212,7 +211,8 @@ impl Keyring {
         let owner = SigningKey::from_bytes(&seed_array);
         seed_array.fill(0);
         seed.fill(0);
-        let space_id = space_id(&owner.verifying_key().to_bytes());
+        let space_id = tmt_colab_model::crypto::space_id(&owner.verifying_key().to_bytes())
+            .map_err(|_| StateFault::InvalidOwnerKey)?;
         Ok(Self { owner, space_id })
     }
     pub fn owner_public(&self) -> [u8; 32] {
@@ -253,26 +253,4 @@ fn cleanup_owner_temporaries(layout: &Layout) -> Result<()> {
 }
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-// L2a needs only trust-root naming. L2b replaces this with the merged L1 model API.
-fn space_id(public: &[u8; 32]) -> String {
-    let mut hash = Sha256::new();
-    for bytes in [b"tmt-colab-space-id-v1".as_slice(), public.as_slice()] {
-        hash.update((bytes.len() as u32).to_be_bytes());
-        hash.update(bytes);
-    }
-    let digest = hash.finalize();
-    let alphabet = b"abcdefghijklmnopqrstuvwxyz234567";
-    let mut result = String::new();
-    let mut bits = 0u32;
-    let mut count = 0;
-    for byte in &digest[..20] {
-        bits = (bits << 8) | u32::from(*byte);
-        count += 8;
-        while count >= 5 {
-            count -= 5;
-            result.push(alphabet[((bits >> count) & 31) as usize] as char);
-        }
-    }
-    result
 }
