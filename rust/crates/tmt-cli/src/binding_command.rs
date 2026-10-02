@@ -96,6 +96,25 @@ fn remembered_session(
         })
 }
 
+/// The caller's own pane with the label the user knows it by, or `missing`.
+fn labeled_caller_pane(
+    host: &Host,
+    environment: &CallerEnvironment,
+    missing: impl FnOnce() -> Failure,
+) -> Result<Option<ResolvedPane>, Failure> {
+    let id = host
+        .caller_pane(environment)
+        .map_err(endpoint_failure)?
+        .ok_or_else(missing)?;
+    let label = host.caller_label(&id).map_err(endpoint_failure)?;
+    Ok(Some(ResolvedPane {
+        label,
+        id,
+        frozen: None,
+        target: None,
+    }))
+}
+
 /// `listed_pane`: whether `ls <text>` addresses a pane, decided once by
 /// [`listed_target`] before any host is resolved.
 fn preflight(
@@ -150,46 +169,24 @@ fn preflight(
         } => {
             // `--here` is caller-scoped like `whoami`: it needs a tmux pane.
             crate::caller_context::require_independent_host()?;
-            return host
-                .caller_pane(environment)
-                .map_err(endpoint_failure)?
-                .map(|id| {
-                    Some(ResolvedPane {
-                        label: host.caller_label(&id),
-                        id,
-                        frozen: None,
-                        target: None,
-                    })
-                })
-                .ok_or_else(|| {
-                    Failure::new(
-                        "PANE_NOT_FOUND",
-                        "`tmt ls --here` needs a tmux pane, and this is not one.",
-                        3,
-                    )
-                    .suggestion("Run it inside tmux, or drop --here to list every agent.".into())
-                });
+            return labeled_caller_pane(host, environment, || {
+                Failure::new(
+                    "PANE_NOT_FOUND",
+                    "`tmt ls --here` needs a tmux pane, and this is not one.",
+                    3,
+                )
+                .suggestion("Run it inside tmux, or drop --here to list every agent.".into())
+            });
         }
         Invocation::Bind { pane: None, .. } | Invocation::Whoami | Invocation::Unbind => {
             crate::caller_context::require_independent_host()?;
-            return host
-                .caller_pane(environment)
-                .map_err(endpoint_failure)?
-                .map(|id| {
-                    Some(ResolvedPane {
-                        label: host.caller_label(&id),
-                        id,
-                        frozen: None,
-                        target: None,
-                    })
-                })
-                .ok_or_else(|| {
-                    Failure::new(
-                        "PANE_NOT_FOUND",
-                        "Not running inside a resolvable tmux pane.",
-                        3,
-                    )
-                });
+            return labeled_caller_pane(host, environment, || {
+                Failure::new(
+                    "PANE_NOT_FOUND",
+                    "Not running inside a resolvable tmux pane.",
+                    3,
+                )
+            });
         }
         _ => None,
     };

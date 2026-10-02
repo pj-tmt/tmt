@@ -384,25 +384,16 @@ impl<R: CommandRunner> Host<R> {
     }
 
     /// How the user names the caller's own pane `id`: its ID on tmux, its
-    /// public target on an external host, read with one bounded snapshot.
-    /// A pane the driver can't describe keeps its ID.
-    pub fn caller_label(&self, id: &str) -> String {
+    /// public target on an external host, as the driver reports it. A pane
+    /// the driver can't describe keeps its ID.
+    pub fn caller_label(&self, id: &str) -> Result<String, HostError> {
         let HostKind::External(_) = self.primary else {
-            return id.to_owned();
+            return Ok(id.to_owned());
         };
-        let panes = [id.to_owned()];
-        let options = OperationOptions {
-            deadline: Some(Instant::now() + Duration::from_secs(1)),
-            pane_ids: Some(&panes),
-        };
-        let target = self.snapshot(options).ok().and_then(|snapshot| {
-            snapshot
-                .panes
-                .into_iter()
-                .find(|pane| pane.id == id)
-                .and_then(|pane| pane.target)
-        });
-        self.primary.pane_address(id, target.as_deref()).to_owned()
+        let target = self
+            .external
+            .caller_target(Instant::now() + Duration::from_secs(1))?;
+        Ok(self.primary.pane_address(id, target.as_deref()).to_owned())
     }
 
     /// tmux's explicit mark; external hosts have none.

@@ -1273,10 +1273,23 @@ TMT_TEST_HERDR=/tmp/hdrbin/herdr pnpm exec vitest run --config test/native/vites
 ```
 
 It starts a headless server on a short private socket with update checks off,
-runs commands inside its panes, and fails if any server process remains.
+approves the `tmt-driver-herdr` built beside the tested `tmt`, runs commands
+inside its panes, and fails if any server process remains. Its carry-over case
+also needs `TMT_TEST_PREVIOUS_TMT`, an absolute `tmt` built from a revision
+before #1082 (when Herdr was built in) in its own worktree and target
+directory; it binds with that build, then proves the binding waits for the
+driver and carries over with its server ID once approved:
 
-The Herdr host driver (`tmt-driver-herdr`, not packaged: `dist = false`) has
-its own executable test, which uses the same pinned binary. It runs the protocol
+```bash
+git worktree add --detach ../tmt-previous <revision before #1082>
+(cd ../tmt-previous/rust && cargo build --locked -p tmt-cli --bin tmt)
+TMT_TEST_HERDR=/tmp/hdrbin/herdr TMT_TEST_PREVIOUS_TMT="$(cd ../tmt-previous && pwd)/rust/target/debug/tmt" \
+  pnpm exec vitest run --config test/native/vitest.config.ts test/native/herdr.test.ts
+```
+
+The Herdr host driver (the `tmt-driver-herdr` library, whose executable is a
+`tmt-cli` bin shipped in the CLI archive) has its own executable test, which
+uses the same pinned binary. It runs the protocol
 conformance harness and every declared operation against a private server and
 HOME, and fails if a server process remains. Its prompt case runs a
 shell-script stand-in named `claude` in a pane, never a real agent. Without
@@ -1284,9 +1297,9 @@ shell-script stand-in named `claude` in a pane, never a real agent. Without
 
 ```bash
 (cd rust && cargo test --locked -p tmt-driver-herdr)
-(cd rust && TMT_TEST_HERDR=/tmp/hdrbin/herdr cargo test --locked -p tmt-driver-herdr --test driver)
-(cd rust && cargo clippy --locked -p tmt-driver-herdr --all-targets -- -D warnings)
-(cd rust && cargo test --locked -p tmt-adapters --lib herdr::)
+(cd rust && TMT_TEST_HERDR=/tmp/hdrbin/herdr cargo test --locked -p tmt-cli --test herdr_driver)
+(cd rust && cargo clippy --locked -p tmt-driver-herdr -p tmt-cli --all-targets -- -D warnings)
+(cd rust && cargo test --locked -p tmt-adapters --lib host::external)
 (cd rust && cargo test --locked -p tmt-cli --test architecture)
 node typescript/scripts/release-please-config.mjs --check
 ```

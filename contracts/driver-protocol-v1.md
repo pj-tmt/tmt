@@ -10,14 +10,10 @@ runs one driver call exist. Core uses an approved driver for its host: it
 finds the caller's pane through `caller` and explicit targets through
 `resolve-target`, lists bindings through `snapshot`, keeps markers with
 `publish` and `clear`, records the server through `server`, and delivers,
-reads and focuses through `prompt`, `input`, `capture` and `focus`. Still to
-come:
-
-- Herdr moves out as the first driver in slice 4;
-- `tmt driver install|ls|rm` arrives in slice 6.
-
-The behavior described below for those operations is the contract those
-slices implement, not current behavior.
+reads and focuses through `prompt`, `input`, `capture` and `focus`. Users
+approve, list and remove drivers with `tmt driver install|ls|rm`. Herdr is
+served only by its first-party driver, `tmt-driver-herdr`, which ships in the
+CLI release (#1082).
 
 ## Invocation
 

@@ -15,7 +15,7 @@ use std::{collections::BTreeMap, time::Instant};
 use tmt_core::host::HostName;
 use tmt_driver_protocol::{
     CallerRequest, CallerResponse, ErrorCode, ResolveTargetRequest, ResolveTargetResponse,
-    ServerRequest, ServerResponse,
+    ServerRequest, ServerResponse, SnapshotRequest, SnapshotResponse,
 };
 
 /// A caller's pane on an external host, verified by core: `depth` is where
@@ -128,6 +128,32 @@ impl<R: CommandRunner> Drivers<R> {
             // The pane or its server is gone: as definite as `null`.
             Err(error) if error.code == ErrorCode::NotFound => Ok(None),
             Err(error) => Err(refused(&process, error)),
+        }
+    }
+
+    /// The public target of the caller's verified pane, for presentation
+    /// only: one `snapshot` scoped to that pane on the caller's server, with
+    /// no server resolved or recorded. A driver that can't say is `None`;
+    /// only a failed cleanup is an error.
+    pub(crate) fn caller_target(&self, deadline: Instant) -> Result<Option<String>, HostError> {
+        let Some(caller) = self.caller() else {
+            return Ok(None);
+        };
+        let Some(process) = self.open(caller.host) else {
+            return Ok(None);
+        };
+        let request = SnapshotRequest {
+            socket: caller.socket.clone(),
+            panes: Some(vec![caller.pane_id.clone()]),
+        };
+        match process.call::<SnapshotResponse>(request, deadline) {
+            Ok(Ok(snapshot)) => Ok(snapshot
+                .panes
+                .into_iter()
+                .find(|pane| pane.id == caller.pane_id)
+                .and_then(|pane| pane.target)),
+            Ok(Err(_)) => Ok(None),
+            Err(error) => unless_cleanup_failed(error).map(|()| None),
         }
     }
 }
