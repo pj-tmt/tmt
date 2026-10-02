@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
-    "build": "tsc --noEmit && vite build",
+    "dev": "vp dev --host 127.0.0.1",
+    "build": "tsc --noEmit && vp build",
     "check": "tsc --noEmit && oxlint --deny-warnings --react-plugin src test e2e *.ts && prettier --check .",
-    "test": "vitest run",
-    "test:browser": "playwright test"
+    "test": "vp test run --config vitest.config.ts",
+    "test:browser": "vp exec playwright test"
   },
   "dependencies": {
     "@tanstack/react-router": "1.170.33",
@@ -21,10 +21,10 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "6.1.1",
-    "oxlint": "^1.34.0",
+    "oxlint": "1.35.0",
     "prettier": "^3.7.4",
     "typescript": "^5.3.0",
-    "vite": "8.2.2",
-    "vitest": "5.0.1"
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0",
+    "vite-plus": "1.0.0"
   }
 }

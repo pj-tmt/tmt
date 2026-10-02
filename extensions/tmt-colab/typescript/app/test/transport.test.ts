@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { localTransport } from '../src/transport.js';
 import { captureRender, MAX_RENDER_SOURCE_BYTES } from '../src/renderer.js';
 import { createHash } from 'node:crypto';

@@ -2904,7 +2904,10 @@ are public test data. This foundation does not satisfy the complete L1 gates.
 
 ### Colab browser verification
 
-The private local page app has its own package and Chromium isolation suite:
+The private local page app has its own package and Chromium isolation suite.
+Its test/build/dev entry points use workspace-pinned Vite+; `vitest.config.ts`
+keeps app unit discovery separate. TypeScript, Oxlint and Prettier retain their
+existing check responsibilities:
 
 ```sh
 corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app install --frozen-lockfile --ignore-scripts
