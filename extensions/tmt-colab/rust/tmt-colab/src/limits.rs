@@ -17,3 +17,13 @@ pub const PAGE_BYTES: usize = 64 * 1024 * 1024;
 pub const PAGE_RECEIPTS: usize = 100_000;
 pub const ACQUISITION: Duration = Duration::from_secs(2);
 pub const RESPONSE: Duration = Duration::from_secs(1);
+
+/// Per-page sync namespace inventory / cursor budget. Store writes are unaffected.
+pub const SYNC_NAMESPACES: usize = 256;
+/// Raw bytes per chunk; base64 and control fields fit in a 64 KiB frame.
+pub const CHUNK_BYTES: usize = 32 * 1024;
+pub const CHUNK_COUNT: usize = OBJECT_BYTES.div_ceil(CHUNK_BYTES);
+/// Serialized update envelope reserve including base64 expansion and JSON syntax.
+pub const UPDATE_BYTES: usize = (256 * 1024 + 2048) * 4 / 3 + 2048;
+/// Bootstrap descriptor is metadata, not the baseline object itself.
+pub const SYNC_CONTEXT_BYTES: usize = 8 * 1024;

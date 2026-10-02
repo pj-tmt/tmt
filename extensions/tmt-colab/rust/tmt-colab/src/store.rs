@@ -45,6 +45,7 @@ pub enum Fault {
     Invalid,
     StaleEpoch,
     StaleCheckpoint,
+    ResyncRequired,
     UnsupportedSchema(u32),
     Gap,
     Conflict,
@@ -70,6 +71,18 @@ impl From<rusqlite::Error> for Fault {
     }
 }
 type StoreResult<T> = std::result::Result<T, Fault>;
+
+/// Delivery cursor, scoped separately to a stream and namespace.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct NamespaceCursor {
+    pub seq: u64,
+    pub hash: [u8; 32],
+}
+pub struct ReadObject {
+    pub cursor: NamespaceCursor,
+    pub checkpoint: bool,
+    pub bytes: Vec<u8>,
+}
 
 pub struct Store {
     connection: Connection,
@@ -267,6 +280,118 @@ impl Store {
             .optional()?
             .flatten())
     }
+    /// Bounded namespace inventory, including checkpoint-only namespaces. This
+    /// read transaction prevents an epoch transition between admission and reads.
+    pub fn namespaces(&self, page: &str, epoch: u64) -> StoreResult<Vec<(String, Namespace)>> {
+        bounded_id(page)?;
+        let tx = self.connection.unchecked_transaction()?;
+        current(
+            &tx,
+            StreamScope {
+                page,
+                epoch,
+                stream: "",
+            },
+        )?;
+        let mut query = tx.prepare(
+            "SELECT stream,namespace FROM receipts WHERE page=?1 AND epoch=?2
+             UNION SELECT stream,namespace FROM checkpoints WHERE page=?1 AND epoch=?2
+             ORDER BY stream,namespace LIMIT ?3",
+        )?;
+        let rows = query.query_map(
+            params![
+                page,
+                epoch.to_string(),
+                (limits::SYNC_NAMESPACES + 1) as i64
+            ],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+        )?;
+        let mut result = Vec::new();
+        for row in rows {
+            let (stream, namespace) = row?;
+            bounded_id(&stream)?;
+            let namespace = match namespace.as_str() {
+                "content" => Namespace::Content,
+                "own" => Namespace::Own,
+                _ => return Err(Fault::Invalid),
+            };
+            result.push((stream, namespace));
+        }
+        if result.len() > limits::SYNC_NAMESPACES {
+            return Err(Fault::Capacity);
+        }
+        Ok(result)
+    }
+    /// Resolves an exact retained update/checkpoint; an unknown or pruned cursor
+    /// cannot silently become the current head. Zero explicitly requests bootstrap.
+    pub fn resolve_cursor(
+        &self,
+        scope: StreamScope<'_>,
+        namespace: Namespace,
+        cursor: NamespaceCursor,
+    ) -> StoreResult<()> {
+        let tx = self.connection.unchecked_transaction()?;
+        current(&tx, scope)?;
+        resolve_cursor(&tx, scope, namespace, cursor)
+    }
+    /// One object per page, with SQL-side payload length admission before copying.
+    /// Bootstrap emits the latest namespace checkpoint first, then its tail.
+    /// Compaction between pages invalidates the retained cursor instead of skipping data.
+    pub fn namespace_next(
+        &self,
+        scope: StreamScope<'_>,
+        namespace: Namespace,
+        cursor: NamespaceCursor,
+    ) -> StoreResult<Option<ReadObject>> {
+        let tx = self.connection.unchecked_transaction()?;
+        current(&tx, scope)?;
+        resolve_cursor(&tx, scope, namespace, cursor)?;
+        let initial: Option<(String, Vec<u8>, Option<i64>)> = if cursor.seq == 0 {
+            tx.query_row("SELECT seq,hash,length(payload) FROM checkpoints WHERE page=? AND epoch=? AND stream=? AND namespace=? ORDER BY seq DESC LIMIT 1",
+                params![scope.page, scope.epoch.to_string(), scope.stream, namespace.name()],
+                |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?
+        } else {
+            None
+        };
+        let checkpoint = initial.is_some();
+        let row = match initial {
+            Some(row) => Some(row),
+            None => tx.query_row("SELECT seq,hash,length(payload) FROM receipts WHERE page=? AND epoch=? AND stream=? AND namespace=? AND seq>? ORDER BY seq LIMIT 1",
+                params![scope.page, scope.epoch.to_string(), scope.stream, namespace.name(), sequence(cursor.seq)],
+                |r| Ok((r.get::<_,String>(0)?,r.get::<_,Vec<u8>>(1)?,r.get::<_,Option<i64>>(2)?))).optional()?,
+        };
+        let Some((seq, hash, size)) = row else {
+            return Ok(None);
+        };
+        let size = size.ok_or(Fault::ResyncRequired)?;
+        if size <= 0 || size > limits::OBJECT_BYTES as i64 {
+            return Err(Fault::Capacity);
+        }
+        let sql = if checkpoint {
+            "SELECT payload FROM checkpoints WHERE page=? AND epoch=? AND stream=? AND namespace=? AND seq=?"
+        } else {
+            "SELECT payload FROM receipts WHERE page=? AND epoch=? AND stream=? AND namespace=? AND seq=?"
+        };
+        let bytes = tx.query_row(
+            sql,
+            params![
+                scope.page,
+                scope.epoch.to_string(),
+                scope.stream,
+                namespace.name(),
+                seq
+            ],
+            |r| r.get(0),
+        )?;
+        Ok(Some(ReadObject {
+            cursor: NamespaceCursor {
+                seq: seq.parse().map_err(|_| Fault::Invalid)?,
+                hash: hash.try_into().map_err(|_| Fault::Invalid)?,
+            },
+            checkpoint,
+            bytes,
+        }))
+    }
     pub fn close(self) -> Result<()> {
         self.connection.close().map_err(|(_, e)| e.into())
     }
@@ -350,4 +475,30 @@ fn capacity(c: &Connection, page: &str, added: usize, receipt: bool) -> StoreRes
         return Err(Fault::Capacity);
     }
     Ok(())
+}
+
+fn resolve_cursor(
+    c: &Connection,
+    scope: StreamScope<'_>,
+    namespace: Namespace,
+    cursor: NamespaceCursor,
+) -> StoreResult<()> {
+    bounded_id(scope.page)?;
+    bounded_id(scope.stream)?;
+    if cursor.seq == 0 {
+        return if cursor.hash == [0; 32] {
+            Ok(())
+        } else {
+            Err(Fault::Invalid)
+        };
+    }
+    let found: bool = c.query_row(
+        "SELECT EXISTS(SELECT 1 FROM receipts WHERE page=?1 AND epoch=?2 AND stream=?3 AND namespace=?4 AND seq=?5 AND hash=?6 AND payload IS NOT NULL
+         UNION ALL SELECT 1 FROM checkpoints WHERE page=?1 AND epoch=?2 AND stream=?3 AND namespace=?4 AND seq=?5 AND hash=?6 AND payload IS NOT NULL)",
+        params![scope.page, scope.epoch.to_string(), scope.stream, namespace.name(), sequence(cursor.seq), cursor.hash.as_slice()], |r| r.get(0))?;
+    if found {
+        Ok(())
+    } else {
+        Err(Fault::ResyncRequired)
+    }
 }

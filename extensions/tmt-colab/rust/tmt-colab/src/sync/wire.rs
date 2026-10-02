@@ -10,13 +10,24 @@ pub struct SyncScope {
     pub page: String,
     pub epoch: String,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SyncCursor {
     pub stream_id: String,
     pub namespace: String,
     pub seq: String,
     pub envelope_hash: String,
+}
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum Payload {
+    Inline(String),
+    Reference(Reference),
+}
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct Reference {
+    pub object_id: String,
 }
 // Repeat common fields in each typed variant: flatten/Value would lose duplicate-field rejection.
 macro_rules! frames {
@@ -43,7 +54,8 @@ macro_rules! frames {
 frames! {
     Hello { device: String, cursors: List<SyncCursor, 256> },
     Subscribe { cursors: List<SyncCursor, 256> },
-    Append { stream_id: String, seq: String, envelope_hash: String, envelope: String },
+    Append { stream_id: String, seq: String, envelope_hash: String, envelope: Payload },
+    Chunk { object_id: String, envelope_hash: String, index: usize, count: usize, bytes: String },
     Ack { cursors: List<SyncCursor, 256> },
     Awareness { device: String, data: String },
 }

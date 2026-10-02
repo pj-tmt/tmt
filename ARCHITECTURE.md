@@ -4221,13 +4221,25 @@ clients must resync after any abnormal close. Pending subscription data is remov
 on admission failure. Bytes already written to the transport cannot be recalled.
 No cookie or unsigned frame establishes the caller's principal.
 
-This is the bounded #1156 transport slice, not a browser-ready sync service.
-`hello` and nonempty catchup cursors return `RESYNC_REQUIRED`; live subscription
-with empty cursors starts at the current arrival point and provides no history
-proof. Catchup/baseline/membership paging, cursor resolution and large-object
-chunks belong to #1166. Registration belongs to #1162 and socket wiring to #1119.
-Unsupported chunks, object references and inbound server-only frames are refused.
-The foreground executable still denies every WebSocket upgrade.
+The #1166 extension remains in this same transport owner. Store owns scoped
+transactional namespace/cursor reads and refuses unknown or pruned cursors;
+receipts survive pruning. Admission supplies the verified retained owner head
+through `Store::owner_head` and an optional scoped baseline descriptor. Baseline
+production/persistence/object retrieval remain #1157. Catchup emits metadata once,
+then one checkpoint/tail object per lazy page and a final empty page. Each page
+rescans namespace positions; the final page and live subscription commit under
+the server lock so appends during paging are not missed. Inventory is bounded
+to 256 stream/namespace pairs; excess returns capacity without eviction.
+
+References and consecutive chunks extend the existing strict wire DTOs. One
+incomplete inbound update per connection has an absolute acquisition deadline
+and serialized operation cap; only complete, model-verified exact bytes reach
+the existing append transaction. Outbound objects reserve queue entries and emit
+one frame per turn from immutable shared bytes. Revocation/drop clears partial
+state and pending transfer bytes; clients verify reassembled data before applying.
+The exact grammar/budgets live in colab-v1, with timers and socket workers still
+caller-owned. Registration belongs to #1162 and socket wiring to #1119.
+The foreground executable is not yet wired to this library.
 
 ### Isolated Colab decoder
 
