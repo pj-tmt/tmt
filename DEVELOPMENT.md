@@ -1296,6 +1296,57 @@ no-op, core and cross-owner claims, force backup, Office adoption, removal by
 owner (all skills or a named subset) and drift. Runtime/linkage proof shared by archive
 and raw verification lives in `typescript/scripts/native-runtime-proof.mjs`.
 
+## Project tracking
+
+Progress is read from one place: the `TMT Roadmap` project
+(<https://github.com/users/wkh237/projects/4>), filtered to `label:feature`.
+Each product feature has one tracker issue titled `Feature: <name>` with the
+`feature` label. The project's Sub-issues progress counts only direct
+sub-issues, so the tracker is the only parent that matters for progress.
+
+Every issue carries these Project fields:
+
+- `Feature`: the tracker it serves. The issue is also a direct sub-issue of
+  that tracker. Do not hang slices under an umbrella issue that is itself a
+  tracker child; umbrella or findings-log issues stay outside the tracker.
+- `Squad`: the squad whose lead owns the issue.
+- `Status`, which moves forward only:
+  - `Todo`: not started.
+  - `In Progress`: implementation started, including draft or stacked PRs.
+  - `In Review`: a PR is ready for review or queued. In a stacked chain, the
+    issue stays here while any of its PRs is still queued.
+  - `Merged`: the last required PR is on `main` and a release is pending. A
+    `Fixes #N` merge moves the issue here through the Project workflow.
+  - `Released`: shipped in a published release. Release automation sets it and
+    fills `Released in`.
+- `Agents`: comma-separated names of agents actively building or coordinating
+  it now, including assigned members waiting on a named dependency. List the
+  lead first. Reviewers who build nothing are not listed. Removing a member
+  from `Agents` is part of its retirement checklist.
+
+Tracker rules:
+
+- Each tracker has one owning lead, recorded in `Squad`. On a tracker shared by
+  squads, the owner writes the tracker's Status and body, and each child keeps
+  the Status and Agents of the lead whose member works on it.
+- The tracker body keeps a short `Now / Next / Blocked` section of three to six
+  plain lines. Describe the outcome first, with issue numbers in parentheses.
+  When something is runnable, add one `Try it` line with the command. Update
+  the section when a PR merges, a member starts or retires, or something
+  blocks. Keep logs and evidence in the child issues and PRs.
+- Tracker Status is `In Progress` while any child is active, `Todo` when
+  nothing has started or the feature is parked (say "parked" in `Now`),
+  `Merged` when all required delivery is on `main`, and `Released` only after
+  publication and any feature acceptance or dogfood gate. Keep pending gates
+  visible under `Blocked`. Optional future children must not reopen a
+  delivered milestone; state the delivered scope in `Now` and label deferred
+  scope.
+- New trackers are proposed to tmt-lead. A new product topic needs the
+  maintainer's approval; agents never create a tracker on their own.
+- Use one batched daily audit plus event-driven updates. Batch Project edits,
+  never poll, and treat about 200 GraphQL calls per lead per day as a ceiling.
+  The GraphQL limit is shared by every agent on the maintainer's account.
+
 ## Review and evidence
 
 Before handoff, report the changed owner and run the smallest relevant focused
