@@ -67,7 +67,7 @@ which merge through the normal required checks, and updates the ones that fell b
 (`strict` requires an up-to-date branch; a busy `main` can keep a release pull request behind
 until a quiet moment). release-please runs with `always-update`, so every run also rebuilds each
 open release pull request from `main`'s current files and force-pushes its branch, subject to the
-[queued-PR no-op](../DEVELOPMENT.md#queued-release-pull-requests); that, not
+[queued-PR pre-check](../DEVELOPMENT.md#queued-release-pull-requests); that, not
 `gh pr update-branch`, is what clears a conflict (every release pull request edits the shared
 manifest, and adjacent lines conflict). A `dispatch` job then starts the per-product run above for every
 product that has a draft without a bundle. The job runs in the `release` Environment and the

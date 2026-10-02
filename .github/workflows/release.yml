@@ -86,6 +86,10 @@ jobs:
           dry=" (dry run)"
           if [ "$LIVE" = true ]; then dry=; fi
           for command in release-pr github-release; do
+            if [ "$command" = release-pr ]; then
+              decision=$(node ../../typescript/scripts/release-please-queue.mjs)
+              if [ "$decision" = skip ]; then continue; fi
+            fi
             printf '### release-please %s%s\n\n```\n' "$command" "$dry" >> "$GITHUB_STEP_SUMMARY"
             # The wrapper uses the pinned API; config, manifest and component map come from main.
             node ../../typescript/scripts/release-please-run.mjs "$command" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"

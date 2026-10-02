@@ -1377,12 +1377,19 @@ and raw verification lives in `typescript/scripts/native-runtime-proof.mjs`.
 
 ## Queued release pull requests
 
-On each main push, `Release` refreshes release pull requests. For `release-pr`
-only, the exact HTTP 422 rejection of a queued release PR branch-ref update is
-logged as a no-op: the branch stays unchanged and refreshes on the first main
-push after the PR merges. Other 422 responses, server errors, failed log writes
-and all `github-release` errors still fail the job. This does not dequeue a PR,
-relax a merge check or change publication authorization.
+Before `release-pr`, `Release` runs `typescript/scripts/release-please-queue.mjs`.
+One GraphQL query checks open PRs whose head starts with
+`release-please--branches--main--` for a `mergeQueueEntry`. If any is queued,
+`release-pr` is skipped with a summary notice, and `github-release` still runs.
+Otherwise the release-please command runs unchanged. Query failures, malformed
+or incomplete results, and all release-please command errors fail the job.
+
+The query uses the release App token in live runs (the workflow token in dry
+runs), never an agent's token, so it does not consume the agents' shared user
+GraphQL quota. A PR queued between the check and the update still fails once,
+and the next main push recovers. Other component
+release PR creation waits until the first main push after the queued PR merges.
+No PR is dequeued and merge checks and publication authorization are unchanged.
 
 ## Project tracking
 
