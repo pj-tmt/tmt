@@ -186,7 +186,9 @@ export function checkUpgrade({ result, outcome, reason = '', url = '' }) {
     return pass('the first release of the product: nothing to upgrade from');
   }
   if (result === 'success' && outcome === 'proved') return pass('the upgrade proof passed');
-  return fail(`the upgrade proof ${result}${url ? `: ${url}` : ''}`);
+  // `reason` is the cause the failed hosts' logs name, when there is one; the run is always cited.
+  const detail = [reason, url && (reason ? `(${url})` : url)].filter(Boolean).join(' ');
+  return fail(`the upgrade proof ${result}${detail ? `: ${detail}` : ''}`);
 }
 
 /**
