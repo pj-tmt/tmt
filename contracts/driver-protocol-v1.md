@@ -6,13 +6,13 @@ not build in, for example Herdr. This document owns the wire format. The
 repeating it.
 
 **Status:** the format, the crate, the approval registry and the client that
-runs one driver call exist. Core uses an approved driver for bindings stored
-on its host: it lists them through `snapshot`, keeps markers with `publish`
-and `clear`, and records the server through `server`. Still to come:
+runs one driver call exist. Core uses an approved driver for its host: it
+finds the caller's pane through `caller` and explicit targets through
+`resolve-target`, lists bindings through `snapshot`, keeps markers with
+`publish` and `clear`, and records the server through `server`. Still to come:
 
-- choosing an external host for a new binding (the caller's environment,
-  `resolve-target`), and `input`, `focus` and `capture`, in slice 3b-2b (until
-  then a message to such a binding goes to the inbox);
+- `input`, `prompt`, `focus` and `capture`, in slice 3b-2b-2 (until then a
+  send to such a binding is unsupported and the request is kept);
 - Herdr moves out as the first driver in slice 4;
 - `tmt driver install|ls|rm` arrives in slice 6.
 

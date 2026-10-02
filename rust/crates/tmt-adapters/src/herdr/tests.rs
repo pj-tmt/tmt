@@ -452,6 +452,7 @@ fn environment(pane: Option<&str>) -> CallerEnvironment {
         herdr_pane: pane.map(Into::into),
         herdr_socket: Some(SOCKET.into()),
         process_id: 4000,
+        driver_env: Default::default(),
     }
 }
 

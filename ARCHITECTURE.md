@@ -2294,14 +2294,24 @@ guard allows exactly those edges.
   is Live, anything else is Unknown. The driver's optional `probe` operation is
   not called. One batched `ps` (`process::runtime::observe_starts`) covers the
   server and the scoped pane shells.
+- **Caller and targets:** `CallerEnvironment` carries only the variables
+  approved drivers declare for `caller` (`driver_env`). A driver's `caller`
+  names a pane; core counts it only when that pane's shell is an ancestor of
+  the caller (`process::ancestry`), and the nearest verified pane wins across
+  tmux, Herdr and external hosts. Without a verified external pane the choice
+  is exactly the built-in one. The handle then keeps that pane and its socket
+  for `caller_pane`, server resolution and `resolve-target`. `Host::for_target`
+  picks the host whose registered grammar reads the text as a target (tmux, the
+  broadest, is the default), and an external target resolves through the
+  driver on the caller's server or the driver's default one.
 
 The atomic owner-only replacement of such settings files is `private_file`,
 shared with the extension hook consents. The approved drivers' syntax is
-registered with core at start (see the host section above). Stored bindings
-on an external host are read, published and cleared through its driver;
-selecting an external host for `tmt add`, its caller environment, capture and
-input are still to come in slice 3b-2b. Until then, talk by name reaches such
-a binding only with `--inbox`.
+registered with core at start (see the host section above). Bindings on an
+external host are made from its caller or an explicit target, and read,
+published and cleared through its driver. Input, capture and focus arrive in
+slice 3b-2b-2; until then a send to such a binding is `Unsupported`, the
+request is kept, and `--inbox` queues.
 
 ## Managed skills and native installation
 
