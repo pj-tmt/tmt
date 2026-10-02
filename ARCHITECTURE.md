@@ -1180,10 +1180,12 @@ layout, opening both databases read-only and never through
 reconciles or creates files.
 
 Provider `UserPromptSubmit` hooks use the same generic callback and aggregate
-budget, returning only the attributed extension lines as event-specific
-`additionalContext`. A consent-file capability check returns immediately when no
-extension has consented to context, before host probes or storage reads. Otherwise,
-they require an already running, verified binding whose
+budget, returning attributed extension lines and, only when nonzero, one incoming
+unacknowledged-attention count with an explicit-identity inbox pull command as
+event-specific `additionalContext`. The count reuses the existing read-only
+context snapshot; it is not a count of unsent or unanswered requests. No worker,
+new counter or automatic delivery is created. Zero attention with no extension
+contributions emits nothing. Hooks require an already running, verified binding whose
 provider session and runtime incarnation match the caller, and recheck the
 binding/preferences after callbacks before handing context to the provider.
 They neither admit a session nor replay the SessionStart identity preamble.
@@ -1807,8 +1809,8 @@ uses the existing no-follow path traversal without opening the notebook content
 or creating a notebook. CLI presentation bounds the complete human/JSON output
 to 4 KiB, preserves counts and inspect commands when shortening role/path content,
 and marks truncation. No request IDs, bodies, receipts or notebook contents enter context.
-The extension contribution slot is currently empty; this path neither discovers
-nor executes extensions. Session-only interfaces remain unimplemented as above.
+Consented extension contributions share this bounded context owner as defined
+above. Session-only interfaces remain unimplemented as above.
 Binding SQLite reads and writes reuse `endpoint::valid_process_id` with checked
 signed/unsigned conversion. Invalid stored PIDs fail decoding
 without repair or retirement, and invalid inputs fail before insertion.
@@ -2009,6 +2011,11 @@ the resolved active recipient UUID and settle as `queued`, never `sent`.
 `RequestService::enqueue` prepares the attempt, stores its exact prompt and
 publishes recipient attention in one repository transaction. CLI inbox sends use
 this path; pane effects retain the separate prepare/send/settle lifecycle.
+`talk_command` preserves explicit inbox selection separately from its offline or
+live-wake projection. Pending explicit-inbox output says no notification was
+attempted and recipient pull is required; this presentation never changes the
+route, claims, attention or queue acceptance. The public output contract is in
+[REQUEST-RESPONSE.md](REQUEST-RESPONSE.md).
 Both paths reuse the same preparation and queue-transition policy. Database
 errors roll back all enqueue writes. A recipient found inactive commits a failed,
 non-waiting attempt without recipient attention, matching the prepared queue path.

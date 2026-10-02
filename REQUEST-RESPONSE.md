@@ -255,6 +255,17 @@ remain retrievable. Interruption during `--delay`, before preparation, reports
 `INTERRUPTED` (exit 1) without request correlation: no message was sent, so running
 the command again is safe.
 
+Detached explicit `talk --inbox` accepts the queue with exit 0 and JSON
+`{status:"queued",requestId,target,identity,recipientIdentityId,notification:"not_attempted",waitingFor:"recipient_inbox_pull"}`.
+No live notification was attempted, even for an enrolled, ready recipient. The
+recipient must pull; enrollment does not automatically deliver these items.
+Human output states this and supplies `tmt inbox --identity '<recipient UUID>' --json`,
+a correlated `tmt x show <request-id> --incoming --identity '<recipient UUID>' --json`,
+and `tmt result <request-id>`. The recipient commands are for that recipient's
+own identity. A completed response does not carry the pending notification or
+waiting fields. Ordinary offline queueing retains `offline:true`; ordinary live
+and uncertain handoffs do not claim that notification was unattempted.
+
 Detached JSON is `{status:"sent",requestId,target,pane,identity?}`. Completed
 talk returns `status:"completed"`, the same correlation and exact `response`,
 `bodyBytes`, `submittedAtMs`. Timeout uses `status:"timeout"`, request/target/pane

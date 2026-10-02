@@ -169,3 +169,14 @@ fn public_help_preserves_required_subcommands_and_argument_groups() {
     );
     assert!(text.contains("<--body <body>|--file <file>>"), "{text}");
 }
+
+#[test]
+fn talk_help_distinguishes_recipient_pull_from_live_notification() {
+    let text = grammar::help_command(&["talk".into()])
+        .unwrap()
+        .render_long_help()
+        .to_string();
+    assert!(text.contains("Plain talk attempts live notification"));
+    assert!(text.contains("Use --inbox only for intentional queue-only delivery"));
+    assert!(text.contains("recipient must pull with tmt inbox"));
+}
