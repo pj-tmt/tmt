@@ -190,7 +190,12 @@ describe('squad extension', () => {
         { title: 'Leads', rows: [{ name: 'Sol', squad: 'product' }] },
         { title: null, rows: [{ name: 'worker', squad: 'product' }] },
       ]);
-      expect(members.body.columns).toEqual(leads.body.columns);
+      expect(members.body.columns).toEqual(
+        leads.body.columns.map((column: { field: string; title: string }) =>
+          column.field === 'member' ? { ...column, title: 'MEMBER' } : column
+        )
+      );
+      expect(leads.body.columns[1].title).toBe('LEAD');
       const memberText = await runCli(sandbox, ['sq', 'ls', '--tab', 'members']);
       expect(memberText.status).toBe(0);
       expect(memberText.stdout).toContain('LEADS');

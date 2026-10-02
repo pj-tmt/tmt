@@ -1159,6 +1159,12 @@ filter = "pending or waiting_on_you"
 [[squad.product.section]]
 title = "Repeated"
 filter = "task"
+[[squad.quiet.section]]
+title = "First copy"
+filter = "pending"
+[[squad.quiet.section]]
+title = "Second copy"
+filter = "pending"
 [squad.product.rows]
 columns = [{ name = "member" }, { name = "ctx", from = "meta.usage.count", format = "tokens" }]
 "#,
@@ -1195,7 +1201,9 @@ columns = [{ name = "member" }, { name = "ctx", from = "meta.usage.count", forma
                 .document;
             listed.as_object_mut().unwrap().remove("you");
             assert_eq!(view.document, listed);
-            assert_eq!(view.rows.value(), crate::rows::Rows::leads().value());
+            let mut expected = crate::rows::Rows::leads().value();
+            expected["columns"][1]["title"] = json!("MEMBER");
+            assert_eq!(view.rows.value(), expected);
             assert_eq!(view.bindings["enter"].verb, crate::action::Verb::Jump);
             assert_eq!(view.section_bindings[0]["o"].verb, crate::action::Verb::Tab);
             if partial {

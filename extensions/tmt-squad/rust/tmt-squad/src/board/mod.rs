@@ -357,7 +357,7 @@ fn session(
                 }
             }
             Effect::PickTheme => {
-                let squad = app.current.clone().filter(|name| !tabs::builtin(name));
+                let squad = app.current.clone().filter(|name| !tabs::aggregate(name));
                 match load_config().and_then(|config| {
                     theme_picker::Picker::open(config, squad).map_err(|error| error.message)
                 }) {
@@ -700,6 +700,49 @@ mod tests {
             std::fs::read_to_string(&path).unwrap(),
             "# kept\n[board.theme]\nbase = \"tmt-light\"\n"
         );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn user_tab_theme_picker_cannot_save_a_squad_scope() {
+        let directory = std::env::temp_dir().join(format!("tmt-user-theme-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("squad.toml");
+        std::fs::write(&path, "[tabs.needs-me]\n").unwrap();
+        let (events, input) = channel();
+        let mut app = App::new(Some("@tab:needs-me".into()));
+        app.apply(app::tests::snapshot("@tab:needs-me", serde_json::json!([])));
+        for code in [
+            KeyCode::Char('T'),
+            KeyCode::Down,
+            KeyCode::Tab,
+            KeyCode::Enter,
+            KeyCode::Char('q'),
+        ] {
+            events.send(key(code)).unwrap();
+        }
+        let mut checked = false;
+        session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _, _| {},
+            |_, _| {},
+            no_actions,
+            || Config::read(path.clone()).map_err(|error| error.message),
+            |app| {
+                if let Some(picker) = &app.theme_picker {
+                    assert_eq!(picker.scope, crate::theme::ThemeScope::Board);
+                    checked = true;
+                }
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(checked);
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(written.contains("[board.theme]"));
+        assert!(!written.contains("[squad."));
         std::fs::remove_dir_all(directory).unwrap();
     }
 

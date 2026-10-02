@@ -3403,7 +3403,7 @@ source documents and the public member projection, retaining numeric sort values
 and source state ranks beside JSON. Configured field providers contribute their
 existing cache; aggregate reads never run them. User selection applies before the shared
 `status::sections` pipeline; section matches may repeat a row, while unmatched
-rows follow untitled. User views use `Rows::leads`, without per-tab row overrides.
+rows follow untitled. User views use `Rows::leads` with a MEMBER caption, without per-tab row overrides.
 Both callers receive the same projected rows, attention and row-grid metadata;
 `status::text` renders that document. Unreadable squads are omitted with located
 `failures`; a failed inbox read retains available roster fields. Both cases set

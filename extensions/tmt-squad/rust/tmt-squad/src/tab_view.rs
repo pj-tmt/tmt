@@ -126,10 +126,14 @@ pub fn load(
     let (mut document, rows) = match key {
         LEADS => (leads_document(tabs, documents), Rows::leads()),
         ALL => (all_document(tabs, documents, &attention), Rows::overview()),
-        _ => (
-            user_document(user.expect("validated user tab"), tabs, &acquired),
-            Rows::leads(),
-        ),
+        _ => {
+            let mut rows = Rows::leads();
+            rows.columns[1].title = "MEMBER".into();
+            (
+                user_document(user.expect("validated user tab"), tabs, &acquired),
+                rows,
+            )
+        }
     };
     document["tab"] = json!(tabs::label(key));
     if !acquired.failures.is_empty() {
