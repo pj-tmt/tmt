@@ -10,7 +10,12 @@ use std::{
 
 const PROBE: &str = "__tmt_fixture_ready";
 const WINDOW: Duration = Duration::from_millis(500);
-const COMPLETION_WINDOW: Duration = Duration::from_secs(2);
+/// Bound on the probe's completion, not an expected wait: the probe returns as
+/// soon as the fixture runs. macOS assesses each newly written executable on
+/// its first exec through one system-wide queue (about 0.1 s per file, 1.5 s
+/// behind 16 concurrent first execs here), so parallel suites or other builds
+/// on the machine can push one probe past seconds.
+pub const COMPLETION_WINDOW: Duration = Duration::from_secs(30);
 const INTERVAL: Duration = Duration::from_millis(10);
 
 pub fn write_executable(path: &Path, payload: &str) -> io::Result<()> {
