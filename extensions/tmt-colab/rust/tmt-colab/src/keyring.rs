@@ -112,6 +112,18 @@ impl Layout {
         validate_file(&file)?;
         Ok(file)
     }
+    /// Admit existing private state without creating or changing it.
+    pub fn existing_file(&self, name: &str) -> Result<File> {
+        if !["owner.key", "serve.lock", "keyring.lock", "space.db"].contains(&name) {
+            return Err(StateFault::InvalidFileName.into());
+        }
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK).bits())
+            .open(self.directory.join(name))?;
+        validate_file(&file)?;
+        Ok(file)
+    }
     pub fn serve_lock(&self) -> Result<Flock<File>> {
         Flock::lock(self.file("serve.lock")?, FlockArg::LockExclusiveNonblock).map_err(|(_, e)| {
             if e == nix::errno::Errno::EWOULDBLOCK {

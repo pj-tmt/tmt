@@ -52,6 +52,14 @@ pub(super) fn check_version(connection: &Connection) -> StoreResult<u32> {
     Ok(version)
 }
 
+pub(super) fn check_read_version(connection: &Connection) -> StoreResult<()> {
+    let version = check_version(connection)?;
+    if version as usize != MIGRATIONS.len() {
+        return Err(Fault::UnsupportedSchema(version));
+    }
+    Ok(())
+}
+
 pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
     connection.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;")?;
     let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;

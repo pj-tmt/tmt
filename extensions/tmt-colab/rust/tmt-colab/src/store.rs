@@ -101,6 +101,17 @@ impl Store {
         schema::migrate(&mut connection)?;
         Ok(Self { connection })
     }
+    /// Inspection never creates state, changes journal mode or runs migrations.
+    pub fn read(layout: &Layout) -> Result<Self> {
+        let _file = layout.existing_file("space.db")?;
+        let connection = Connection::open_with_flags(
+            layout.directory.join("space.db"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        )?;
+        connection.busy_timeout(Duration::from_secs(2))?;
+        schema::check_read_version(&connection)?;
+        Ok(Self { connection })
+    }
     pub fn create_page(&self, page: &str) -> StoreResult<()> {
         bounded_id(page)?;
         self.connection

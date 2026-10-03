@@ -3023,6 +3023,34 @@ this slice adds their transport, not installed CLI usage. Request/response DTOs 
 link-seed relay restrictions are owned by
 [colab-v1](extensions/tmt-colab/contracts/colab-v1.md#local-management-admission-1306).
 
+### Colab management CLI verification
+
+The local-build CLI adds `ls`, `show`, `share mode/history`, `share members
+ls/add/remove/role`, `share link ls/add/reset/remove`, `retention`, `archive` and
+`delete`. All subcommands precede operands: `tmt colab share members ls <page>`,
+`tmt colab share mode <page> link --yes`, `tmt colab delete <page> --yes`.
+The contract's [CLI section](extensions/tmt-colab/contracts/colab-v1.md#local-management-cli-1307)
+owns flags, disclosure, JSON and error shapes. Existing `serve`/`spaces` remain.
+
+Read-only commands create no missing state and never migrate a schema. Titles
+come from the isolated authenticated fold; archived titles are explicitly
+unavailable. Expiry times remain unavailable pending #1350; retention never
+causes automatic local deletion. Discussions await verified own folding.
+
+Run the focused subprocess cases from `rust/`:
+
+```sh
+CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/tmt-colab-cli-target cargo test --offline --locked -p tmt-colab --bin tmt-colab --test cli
+```
+
+Real temporary SQLite/keyring/encrypted-source fixtures cover verified titles,
+state-preserving inspection, unsafe/old-schema refusal, help/JSON/human output,
+no-effect confirmation/input denials, foreground/offline member changes, frozen
+retry after reopen, conflict/stale heads, seed-file custody and interrupted IPC
+without an offline fallback. No real user state, browser or Docker is involved.
+The policy stack must land before final share/history/retention/archive/delete
+behavior acceptance; this IPC base reports their explicit UNAVAILABLE result.
+
 ### Colab stream sync verification
 
 Run `(cd rust && cargo test --offline --locked -p tmt-colab --test sync)` for

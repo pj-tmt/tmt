@@ -2,6 +2,7 @@
 pub mod core;
 pub mod decoder;
 pub mod fold;
+pub mod inspection;
 pub mod keyring;
 pub mod limits;
 pub mod management;
