@@ -5,7 +5,7 @@ import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createGzip } from 'node:zlib';
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import * as tar from 'tar';
 import { runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 
@@ -127,6 +127,9 @@ async function createArchiveFixture(
     file: archiveFile,
     gzip: true,
     portable: options.specialPermissions !== true,
+    // tar's asynchronous hard-link queue can strand a pending entry when
+    // filesystem callbacks complete out of order. These fixtures are tiny.
+    sync: options.link === 'hard',
   };
   if (options.traversal) {
     fs.writeFileSync(path.join(fixtureRoot, 'escape'), 'traversal fixture\n');
@@ -629,6 +632,55 @@ await withNativeArtifact(process.argv[1], JSON.parse(process.argv[2]), () => con
       });
     }
   );
+
+  it('constructs a real hard-link fixture without asynchronous filesystem scheduling', async () => {
+    await withSandbox(async (sandbox) => {
+      const lstat = vi.spyOn(fs, 'lstat').mockImplementation(() => {
+        throw new Error('Hard-link fixture entered the asynchronous tar queue');
+      });
+      let fixture: ArchiveFixture;
+      try {
+        fixture = await createArchiveFixture(sandbox, { link: 'hard' });
+      } finally {
+        lstat.mockRestore();
+      }
+      const entries: Array<{
+        path: string;
+        type: string;
+        linkpath: string | undefined;
+        size: number;
+      }> = [];
+      tar.t({
+        file: fixture.archiveFile,
+        sync: true,
+        strict: true,
+        onReadEntry(entry) {
+          entries.push({
+            path: entry.path,
+            type: entry.type,
+            linkpath: entry.linkpath,
+            size: entry.size,
+          });
+        },
+      });
+      const rootName = archiveName().slice(0, -'.tar.gz'.length);
+      expect(entries.filter((entry) => entry.type === 'Link')).toEqual([
+        { path: `${rootName}/tmt`, type: 'Link', linkpath: `${rootName}/LICENSE`, size: 0 },
+      ]);
+      expect(entries.filter((entry) => entry.type === 'File').map((entry) => entry.path)).toEqual(
+        ['LICENSE', 'NATIVE-INSTALL.md', 'THIRD-PARTY-NOTICES.txt', ...COMPANIONS.cli].map(
+          (file) => `${rootName}/${file}`
+        )
+      );
+      let called = false;
+      await expect(
+        withNativeArtifact(fixture.archiveFile, fixture.metadata, () => {
+          called = true;
+        })
+      ).rejects.toThrow(`Native archive entry must be regular: ${rootName}/tmt`);
+      expect(called).toBe(false);
+    });
+  });
 
   it('cleans staging after callback failure without removing an unrelated sentinel', async () => {
     await withSandbox(async (sandbox) => {

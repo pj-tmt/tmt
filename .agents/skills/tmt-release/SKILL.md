@@ -100,6 +100,8 @@ procedures referenced below; DEVELOPMENT owns ordinary native checks.
   Raw PR runtime checks do not establish release archive correctness. Do not enable a
   generated installer or publication workflow merely to obtain local archives.
 - Follow DEVELOPMENT's native runtime checks and the guide's archive verification for artifact changes.
+  For fixture-only archive-policy fixes, follow DEVELOPMENT's negative archive checks
+  for hard-link construction and rejection controls.
   Reuse the shared runtime proof for linkage, exact embedded skills and SQLite
   reopen behavior. Keep the independent archive inventory/checksum/notices and
   installer failure/cleanup evidence; raw binaries are not release artifacts.
