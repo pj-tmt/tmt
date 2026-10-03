@@ -226,7 +226,7 @@ export function smokeFailureOutcome(results) {
 }
 
 /** The title and body of the issue a failed check opens. */
-export function renderFailureIssue({ tag, results, runUrl }) {
+export function renderFailureIssue({ tag, results, runUrl, originalRunUrl }) {
   const failed = results.filter(({ ok }) => !ok);
   const infrastructureOnly = smokeFailureOutcome(results) === 'infrastructure';
   const titles = postPublicationIssueTitles(tag);
@@ -244,6 +244,7 @@ export function renderFailureIssue({ tag, results, runUrl }) {
       ...failed.map(({ check, reason }) => `- \`${check}\`: ${reason}`),
       '',
       ...(runUrl ? [`Run: ${runUrl}`, ''] : []),
+      ...(originalRunUrl ? [`Original run: ${originalRunUrl}`, ''] : []),
       infrastructureOnly
         ? 'Nothing was rolled back or repaired. Publication succeeded; the public install still needs verification after the rate limit resets.'
         : 'Nothing was rolled back: a published release cannot be undone and, with immutability on, its assets and tag cannot be changed. The owner decides whether it stays as it is or a new reviewed version repairs it. Later drafts of the product publish only while their own gates pass, and the immutability gate stops them if the repository setting is off.',
@@ -254,8 +255,8 @@ export function renderFailureIssue({ tag, results, runUrl }) {
 }
 
 /** Opens the failure issue, or comments on the one already open for this release. */
-export function reportFailure({ api, tag, results, runUrl }) {
-  const { title, body } = renderFailureIssue({ tag, results, runUrl });
+export function reportFailure({ api, tag, results, runUrl, originalRunUrl }) {
+  const { title, body } = renderFailureIssue({ tag, results, runUrl, originalRunUrl });
   const open = api.openIssue(title);
   if (open) {
     api.commentIssue(open, body);
@@ -264,13 +265,44 @@ export function reportFailure({ api, tag, results, runUrl }) {
   return { issue: api.createIssue(title, body), created: true };
 }
 
+/** Close only the infrastructure issue after all originally failing hosts were re-proven. */
+export function reportSmokeRecovery({ api, tag, originalRunUrl, retryRunUrl }) {
+  const issue = api.openIssue(postPublicationIssueTitles(tag).rateLimit);
+  if (!issue) return null;
+  const latestFailureRun = api.latestFailureRun(issue);
+  const current = latestFailureRun === originalRunUrl || latestFailureRun === retryRunUrl;
+  api.commentIssue(
+    issue,
+    [
+      `The anonymous public install of \`${tag}\` passed after the classified GitHub reset.`,
+      '',
+      `Original run: ${originalRunUrl}`,
+      `Retry run: ${retryRunUrl}`,
+      '',
+      "All four original host conclusions and the affected targets' single retry results were checked. The original failed jobs remain failed; publication was not rerun.",
+      ...(current
+        ? []
+        : [
+            '',
+            'The issue remains open: its latest reported failure belongs to another run or could not be identified. This recovery proves only the original run above.',
+          ]),
+    ].join('\n')
+  );
+  if (!current) return null;
+  api.closeIssue(issue);
+  return issue;
+}
+
 /**
  * The failed checks the smoke legs left in `directory`, one result each, named with its host. The
  * legs wrote them, from what the installed release printed, so they are data: bounded strings
  * on one line, never trusted beyond the issue text. No file at all (the download of the
  * artifacts failed) still reports a failure, since the run says a leg failed.
  */
-export function readSmokeFailures(directory, { expectedResults = 0 } = {}) {
+export function readSmokeFailures(
+  directory,
+  { expectedResults = 0, artifactPrefix = 'smoke-failures-' } = {}
+) {
   let observed = 0;
   const line = (text) =>
     String(text)
@@ -279,9 +311,9 @@ export function readSmokeFailures(directory, { expectedResults = 0 } = {}) {
       .slice(0, 500);
   const results = [];
   for (const name of existsSync(directory) ? readdirSync(directory).sort() : []) {
-    if (!name.startsWith('smoke-failures-')) continue;
+    if (!name.startsWith(artifactPrefix)) continue;
     observed += 1;
-    const target = name.slice('smoke-failures-'.length);
+    const target = name.slice(artifactPrefix.length);
     try {
       const { failed } = JSON.parse(
         readFileSync(path.join(directory, name, 'smoke-result.json'), 'utf8')
@@ -376,44 +408,73 @@ export function ghPublishApi({ repository, env = process.env, spawn = spawnSync 
     verifyRelease: (tag) => outcome(run(['release', 'verify', tag, '--repo', repository])),
     verifyAsset: (tag, file) =>
       outcome(run(['release', 'verify-asset', tag, file, '--repo', repository])),
-    openIssue: (title) =>
-      json([
-        'issue',
-        'list',
-        '--repo',
-        repository,
-        '--state',
-        'open',
-        '--search',
-        `"${title}" in:title`,
-        '--json',
-        'number,title',
-      ]).find((issue) => issue.title === title)?.number ?? null,
-    createIssue: (title, body) => {
-      const result = run([
-        'issue',
-        'create',
-        '--repo',
-        repository,
-        '--title',
-        title,
-        '--body',
-        body,
-      ]);
-      if (result.status !== 0) throw new Error(`gh issue create failed: ${text(result)}`);
-      return Number(result.stdout.trim().split('/').pop());
+    openIssue: (title) => {
+      const matches = [];
+      for (let page = 1; page <= 10; page += 1) {
+        const issues = json([
+          'api',
+          `repos/${repository}/issues?state=open&per_page=100&page=${page}`,
+        ]);
+        matches.push(...issues.filter((issue) => !issue.pull_request && issue.title === title));
+        if (issues.length < 100) {
+          if (matches.length > 1) throw new Error(`Multiple open issues have title ${title}.`);
+          return matches[0]?.number ?? null;
+        }
+      }
+      throw new Error('Open-issue discovery exceeded 10 pages.');
     },
-    commentIssue: (number, body) => {
-      const result = run([
-        'issue',
-        'comment',
-        String(number),
-        '--repo',
-        repository,
-        '--body',
-        body,
+    createIssue: (title, body) =>
+      json([
+        'api',
+        `repos/${repository}/issues`,
+        '--method',
+        'POST',
+        '-f',
+        `title=${title}`,
+        '-f',
+        `body=${body}`,
+      ]).number,
+    commentIssue: (number, body) =>
+      json([
+        'api',
+        `repos/${repository}/issues/${number}/comments`,
+        '--method',
+        'POST',
+        '-f',
+        `body=${body}`,
+      ]),
+    latestFailureRun: (number) => {
+      const issue = json(['api', `repos/${repository}/issues/${number}`]);
+      const failureRun = (body) =>
+        typeof body === 'string' &&
+        body.includes('Opened by `typescript/scripts/release-publish.mjs`')
+          ? (/^Run: (https:\/\/[^\s]+)$/m.exec(body)?.[1] ?? null)
+          : null;
+      let latest = failureRun(issue.body);
+      for (let page = 1; page <= 10; page += 1) {
+        const comments = json([
+          'api',
+          `repos/${repository}/issues/${number}/comments?per_page=100&page=${page}`,
+        ]);
+        for (const comment of comments) latest = failureRun(comment.body) ?? latest;
+        if (comments.length < 100) return latest;
+      }
+      throw new Error('Issue failure-history discovery exceeded 10 pages.');
+    },
+    closeIssue: (number) => {
+      const issue = json([
+        'api',
+        `repos/${repository}/issues/${number}`,
+        '--method',
+        'PATCH',
+        '-f',
+        'state=closed',
+        '-f',
+        'state_reason=completed',
       ]);
-      if (result.status !== 0) throw new Error(`gh issue comment failed: ${text(result)}`);
+      if (issue.number !== number || issue.state !== 'closed') {
+        throw new Error(`Issue #${number} closure was not confirmed.`);
+      }
     },
   };
 }
@@ -501,7 +562,10 @@ function main(argv, environment) {
     const expectedResults = Number(values['expected-results']);
     if (!Number.isSafeInteger(expectedResults) || expectedResults < 0 || expectedResults > 10)
       throw new Error('--expected-results must be a whole number from 0 to 10.');
-    const results = readSmokeFailures(values.directory, { expectedResults });
+    const results = readSmokeFailures(values.directory, {
+      expectedResults,
+      artifactPrefix: `smoke-failures-${values.product}-${values.tag}-`,
+    });
     output(environment, { outcome: smokeFailureOutcome(results) });
     report(environment, renderVerifySummary({ tag: values.tag, results }));
     try {

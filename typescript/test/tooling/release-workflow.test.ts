@@ -679,6 +679,7 @@ describe('publication (native-release-bundle.yml)', () => {
 describe('public install smoke (native-release-smoke.yml)', () => {
   const smoke = job(smokeWorkflow, 'smoke');
   const report = job(smokeWorkflow, 'report');
+  const host = read('.github/actions/public-install-smoke/action.yml');
   const upgrade = read('.github/workflows/native-release-upgrade.yml');
   const targets = (workflow: string) =>
     [...workflow.matchAll(/- target: (\S+)\n\s+runner: (\S+)/g)].map(([, target, runner]) => [
@@ -691,7 +692,9 @@ describe('public install smoke (native-release-smoke.yml)', () => {
     expect(caller).toContain('needs: published');
     expect(caller).toContain("if: ${{ !cancelled() && needs.published.result == 'success' }}");
     expect(caller).toContain('uses: ./.github/workflows/native-release-smoke.yml');
-    expect(caller).toMatch(/^ {4}permissions:\n {6}contents: read\n {6}issues: write\n/m);
+    expect(caller).toMatch(
+      /^ {4}permissions:\n {6}contents: read\n {6}issues: write\n {6}actions: write\n/m
+    );
     expect(smokeWorkflow).toMatch(
       /^on:\n {2}workflow_call:\n {4}inputs:\n(?: {4,}[^\n]*\n)+ {2}workflow_dispatch:\n {4}inputs:\n/m
     );
@@ -713,25 +716,36 @@ describe('public install smoke (native-release-smoke.yml)', () => {
     expect(smoke).toMatch(/^ {4}permissions:\n {6}contents: read\n/m);
     expect(smoke).not.toMatch(/issues: write|contents: write|GH_TOKEN|GITHUB_TOKEN|secrets\./);
     expect(smokeWorkflow).not.toMatch(
-      /gh release (create|edit|upload|delete)|draft=false|--method|gh workflow run|actions: write/
+      /gh release (create|edit|upload|delete)|draft=false|--method|gh workflow run/
     );
+    expect(smoke).not.toContain('actions: write');
+    expect(report).not.toContain('actions: write');
+    expect(smokeWorkflow.match(/^ {6}actions: write$/gm)).toHaveLength(1);
+    expect(job(smokeWorkflow, 'retry-dispatch')).toContain('actions: write');
     // The tag is checked out as data beside this repository's own code, and nothing of it runs.
-    expect(smoke.match(/uses: actions\/checkout@v4/g)).toHaveLength(2);
-    expect(smoke).toContain('ref: ${{ inputs.tag }}\n          path: release-source');
-    expect(smoke.match(/persist-credentials: false/g)).toHaveLength(2);
-    expect(smoke).toContain('node typescript/scripts/verify-public-install.mjs');
-    expect(smoke).toContain('--source release-source');
-    expect(smoke).not.toMatch(/release-source\/(typescript|scripts)/);
+    expect(smoke.match(/uses: actions\/checkout@v4/g)).toHaveLength(1);
+    expect(smoke).toContain('uses: ./.github/actions/public-install-smoke');
+    expect(smoke).toContain('tag: ${{ inputs.tag }}');
+    expect(smoke).toContain('target: ${{ matrix.target }}');
+    expect(smoke.match(/persist-credentials: false/g)).toHaveLength(1);
+    expect(host.match(/uses: actions\/checkout@v4/g)).toHaveLength(1);
+    expect(host).toContain('ref: ${{ inputs.tag }}\n        path: release-source');
+    expect(host.match(/persist-credentials: false/g)).toHaveLength(1);
+    expect(host).toContain('node typescript/scripts/verify-public-install.mjs');
+    expect(host).toContain('--source release-source');
+    expect(host).not.toMatch(
+      /GH_TOKEN|GITHUB_TOKEN|continue-on-error|release-source\/(typescript|scripts)/
+    );
   });
 
-  it('keeps what failed as data and reports it with the only write access, in a job of its own', () => {
+  it('keeps what failed as data and reports it with the only issue write access, in a job of its own', () => {
     expect(smoke).toMatch(
-      /if: always\(\)\n {8}uses: actions\/upload-artifact@v4\n {8}with:\n {10}name: smoke-failures-\$\{\{ matrix\.target \}\}/
+      /if: always\(\)\n {8}uses: actions\/upload-artifact@v4\n {8}with:\n {10}name: smoke-failures-\$\{\{ inputs\.product \}\}-\$\{\{ inputs\.tag \}\}-\$\{\{ matrix\.target \}\}/
     );
     expect(report).toContain('needs: smoke');
     expect(report).toContain("if: ${{ !cancelled() && needs.smoke.result == 'failure' }}");
     expect(report).toMatch(/^ {4}permissions:\n {6}contents: read\n {6}issues: write\n/m);
-    expect(report).toContain('pattern: smoke-failures-*');
+    expect(report).toContain('pattern: smoke-failures-${{ inputs.product }}-${{ inputs.tag }}-*');
     expect(report).toContain('--expected-results 4');
     expect(smoke).toContain('timeout-minutes: 25');
     expect(report).toContain(
@@ -833,6 +847,11 @@ describe('post-publication Project reconciliation', () => {
       [...jobs(bundle)]
         .filter(([, text]) => /^ {6}actions: write$/m.test(text))
         .map(([name]) => name)
-    ).toEqual(['project-release']);
+    ).toEqual(['smoke', 'project-release']);
+    // The reusable caller propagates capability; only its dedicated retry-dispatch job uses it.
+    expect(job(bundle, 'smoke')).toContain('uses: ./.github/workflows/native-release-smoke.yml');
+    expect(job(smokeWorkflow, 'smoke')).not.toContain('actions: write');
+    expect(job(smokeWorkflow, 'report')).not.toContain('actions: write');
+    expect(job(smokeWorkflow, 'retry-dispatch')).toContain('actions: write');
   });
 });

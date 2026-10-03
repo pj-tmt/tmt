@@ -3964,6 +3964,16 @@ to the failed step; status codes, unrelated diagnostics and validation failures 
 signals. A separate bounded read retry recognizes only an older-alpha latest-installer
 lag after publication. Tooling tests pin the consumed Rust diagnostic text and timing
 representation. Exhaustion remains a failed job with typed infrastructure evidence.
+That evidence also retains the exact classified diagnostic and parsed reset epoch for
+`public-install-retry.mjs`. This tooling owner admits complete, product/tag-qualified
+four-host artifacts, validates dispatched inputs against same-repository main source
+run/job evidence through REST, plans affected targets only, waits outside the publication run,
+and reconciles one anonymous re-proof with the original host conclusions. It shares
+the smoke owner's diagnostic parser and `release-publish.mjs`'s issue lifecycle;
+it owns neither acquisition classification nor publication.
+The source and retry host jobs use `.github/actions/public-install-smoke` for tag data
+checkout, Node setup and verifier execution. Host architecture wrappers belong to this
+shared entry; tooling tests require the source target/runner matrix to match the retry planner.
 
 Docker E2E `harness.ts` retains scenario imports; `harness/fixture.ts` owns
 fixture resources and process registries.
@@ -4212,6 +4222,17 @@ on the four hosts in an isolated environment: the public installer and `tmt upgr
 the CLI, the newest published CLI's extension install for an extension. Its real failures
 are reported on the same issue by a separate job, while exhausted classified rate limits
 use a distinct infrastructure issue. Both fail the smoke job. CLI, Office and Squad runs
+are eligible for one deferred affected-target re-proof through
+`native-release-smoke-retry.yml`. A separate smoke job with `actions: write` explicitly
+dispatches it only for the report owner's infrastructure outcome; this avoids suppressed
+`workflow_run` events for automatically dispatched native runs. The retry planner admits
+only REST-verified main source run/attempt and matching tag/host conclusions.
+Its Linux reset wait (at most 60 minutes) holds only a source-run/attempt/product/tag retry group,
+never `release-<product>`. Install legs retain read-only credentials and token-free
+acquisition; a separate issues writer comments with both runs and closes only a fully
+recovered infrastructure issue. Real, repeated, incomplete or distant-reset failures
+remain visible, and neither original failures nor retry failures are made green.
+CLI, Office and Squad runs
 share the four-target cargo-dist build and
 archive verifier, while keeping product-qualified bundles, independent versions and separate
 immutable tags.
