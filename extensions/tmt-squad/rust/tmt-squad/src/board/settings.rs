@@ -411,13 +411,13 @@ fn template(
     picker_surface::compile(FILE, &markup, schema)
 }
 fn notice_role(notice: Option<&SettingNotice>) -> &'static str {
-    match notice.map(|notice| notice.mark) {
-        Some(Mark::Failed) => "blocked",
-        Some(Mark::Warning) => "waiting",
-        Some(Mark::Done) => "ok",
-        _ => "dim",
-    }
+    notice
+        .map_or(Role::Dim, |notice| {
+            notice.mark.token().role().expect("notice mark has a role")
+        })
+        .name()
 }
+
 pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rect) {
     if let Some((name, text)) = &overlay.editing {
         // Raw edit text stays in the existing Config controller. Markup owns
@@ -859,6 +859,32 @@ mod tests {
             }
         }
         assert_eq!(std::fs::read_to_string(&f.path).unwrap(), f.original);
+    }
+    #[test]
+    fn saved_error_and_warning_notices_use_admitted_existing_roles() {
+        let mut f = fixture("notice-roles", "");
+        for mark in [Mark::Done, Mark::Failed, Mark::Warning] {
+            let overlay = f.app.settings.as_mut().unwrap();
+            overlay.notice = Some(SettingNotice {
+                mark,
+                message: "Retained result".into(),
+            });
+            let role = mark.token().role().unwrap();
+            assert_eq!(notice_role(overlay.notice.as_ref()), role.name());
+            let look = Look::new(tmt_cli_style::Theme::default());
+            let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+            terminal
+                .draw(|frame| render(frame, overlay, look, frame.area()))
+                .unwrap();
+            let state = overlay.surface.borrow();
+            let status = state.frame.as_ref().unwrap().areas.status;
+            let buffer = terminal.backend().buffer();
+            assert_eq!(buffer[(status.x, status.y)].symbol(), mark.symbol());
+            assert_eq!(
+                buffer[(status.x, status.y)].fg,
+                look.role(role).fg.unwrap_or_default()
+            );
+        }
     }
     #[test]
     fn each_supported_area_previews_without_writing_and_cancel_restores_it() {
