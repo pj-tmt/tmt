@@ -282,6 +282,7 @@ describe('release notes coverage', () => {
       );
       let body = notes(base);
       const queued = {
+        id: 'PR_100',
         number: 100,
         headRefOid: 'a'.repeat(40),
         headRefName: 'release-please--branches--main--components--tmt-cli',
@@ -307,6 +308,7 @@ describe('release notes coverage', () => {
         if (args[1] === `repos/${repository}/pulls/100`)
           return JSON.stringify({
             ...pr(body),
+            node_id: queued.id,
             number: 100,
             state: 'open',
             head: {

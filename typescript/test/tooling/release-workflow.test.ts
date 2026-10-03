@@ -323,7 +323,9 @@ describe('release workflow (release.yml)', () => {
 
   it('merges release pull requests through the required checks and never around them', () => {
     const step = releasePleasePart(job(release, 'release-please'), 'Enable auto-merge');
-    expect(step).toContain("if: steps.mode.outputs.live == 'true'");
+    expect(step).toContain(
+      "if: steps.mode.outputs.live == 'true' && steps.release.outputs.queue_blocked != 'true'"
+    );
     expect(step).toContain('RELEASE_TOKEN: ${{ steps.app.outputs.token }}');
     expect(step).toContain('LIVE: ${{ steps.mode.outputs.live }}');
     expect(step).toContain('node typescript/scripts/release-please-queue.mjs enable');

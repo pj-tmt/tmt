@@ -3812,8 +3812,12 @@ single-active auto-merge selection under the workflow's existing concurrency gro
 The pre-check completes discovery and skips `release-pr` only when the queued
 candidates' head-matched REST notes pass `checkReleaseNotes` against fetched
 `origin/main`, preserving the candidate and continuing `github-release`. Proven invalid or incomplete
-notes instead permit immediate regeneration; acquisition and metadata failures
-remain visible. Full checkout history and tags support the
+notes require the queue owner to recheck the observed PR identity, head and queue entry,
+then dequeue it once with the release App token before regeneration. A failed or
+unverified dequeue skips generation and auto-merge enabling with a visible recovery
+summary, while `github-release` and downstream draft processing continue. Dry runs
+only report the planned dequeue. Acquisition and metadata failures during initial
+coverage discovery remain visible failures. Full checkout history and tags support the
 shared safety owner; the queue owner has no second coverage policy. Complete discovery precedes
 auto-merge enabling; an existing enabled or queued release blocks another. Otherwise
 the oldest eligible same-repository main release PR is enabled with its observed head

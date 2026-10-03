@@ -9,6 +9,12 @@ export function queuedReleaseNotesCover(
   checkNotes?: typeof import('./release-pr-safety.mjs').checkReleaseNotes
 ): Promise<boolean>;
 
+export function prepareReleaseRefresh(
+  options: Parameters<typeof queuedReleaseNotesCover>[0] & { live?: boolean; heldPaths?: string[] },
+  execute?: Parameters<typeof queuedReleaseNotesCover>[1],
+  checkNotes?: Parameters<typeof queuedReleaseNotesCover>[2]
+): Promise<{ decision: 'run' | 'skip' | 'blocked'; notice?: string }>;
+
 export function enableReleaseAutoMerge(
   options: Parameters<typeof queuedReleaseNotesCover>[0],
   execute?: Parameters<typeof queuedReleaseNotesCover>[1]

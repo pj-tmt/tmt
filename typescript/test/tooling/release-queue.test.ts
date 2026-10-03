@@ -7,9 +7,12 @@ import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   QUEUED_NOTICE,
+  prepareReleaseRefresh,
   queuedReleaseNotesCover,
   enableReleaseAutoMerge,
 } from '../../scripts/release-please-queue.mjs';
+
+import { ReleaseNotesRefreshRequiredError } from '../../scripts/release-pr-safety.mjs';
 
 const workflow = readFileSync(
   new URL('../../../.github/workflows/release.yml', import.meta.url),
@@ -35,6 +38,7 @@ const release = (
   queued: boolean,
   headRefName = 'release-please--branches--main--components--tmt-cli'
 ) => ({
+  id: `PR_${nextNumber}`,
   number: nextNumber++,
   headRefOid: 'a'.repeat(40),
   baseRefName: 'main',
@@ -55,6 +59,7 @@ function queryExecute(response: unknown) {
       (node) => (node as ReturnType<typeof release>).number === Number(args[1].split('/').at(-1))
     ) as ReturnType<typeof release>;
     return JSON.stringify({
+      node_id: candidate.id,
       number: candidate.number,
       state: 'open',
       head: {
@@ -82,6 +87,9 @@ function execute(
     teeFails = false,
     unknownMergeability = false,
     staleNotes = false,
+    dequeueFails = false,
+    dequeueUnlocks = true,
+    heldPaths = [] as string[],
   } = {}
 ) {
   const directory = mkdtempSync(path.join(tmpdir(), 'tmt-release-queue-'));
@@ -99,9 +107,11 @@ function execute(
     const tag = candidate?.headRefName.endsWith('tmt-squad')
       ? 'tmt-squad-v0.1.0-alpha.8'
       : 'v5.0.0-alpha.34';
+    writeFileSync(path.join(directory, 'queued'), String(candidate !== undefined));
     writeFileSync(
       path.join(directory, 'pr.json'),
       JSON.stringify({
+        node_id: candidate?.id,
         number: candidate?.number,
         state: 'open',
         head: {
@@ -111,6 +121,31 @@ function execute(
         },
         base: { ref: 'main', repo: { full_name: 'pj-tmt/tmt' } },
         body: `## [next](https://github.com/pj-tmt/tmt/compare/${tag}...next)`,
+      })
+    );
+    writeFileSync(
+      path.join(directory, 'recheck.json'),
+      JSON.stringify({
+        data: {
+          node: {
+            ...candidate,
+            state: 'OPEN',
+            repository: { nameWithOwner: 'pj-tmt/tmt' },
+          },
+        },
+      })
+    );
+    writeFileSync(
+      path.join(directory, 'dequeue.json'),
+      JSON.stringify({
+        data: {
+          dequeuePullRequest: {
+            mergeQueueEntry: {
+              id: candidate?.mergeQueueEntry?.id,
+              pullRequest: { id: candidate?.id },
+            },
+          },
+        },
       })
     );
     writeFileSync(
@@ -142,7 +177,16 @@ printf '%s\\n' "$1 $2" >> "$RUNNER_TEMP/queries"
 if [ "$GH_TOKEN" != 'fixture-app' ]; then exit 22; fi
 if [ "$QUERY_FAILS" = true ]; then echo 'query unavailable' >&2; exit 21; fi
 case "$2" in
-  graphql) cat "$RUNNER_TEMP/query.json" ;;
+  graphql)
+    case "$4" in
+      *dequeuePullRequest*)
+        printf 'dequeue\\n' >> "$RUNNER_TEMP/commands"
+        if [ "$DEQUEUE_FAILS" = true ]; then echo 'dequeue denied' >&2; exit 26; fi
+        if [ "$DEQUEUE_UNLOCKS" = true ]; then printf false > "$RUNNER_TEMP/queued"; fi
+        cat "$RUNNER_TEMP/dequeue.json" ;;
+      *'node(id:'*) cat "$RUNNER_TEMP/recheck.json" ;;
+      *) cat "$RUNNER_TEMP/query.json" ;;
+    esac ;;
   */pulls/*) cat "$RUNNER_TEMP/pr.json" ;;
   */releases*) cat "$RUNNER_TEMP/releases.json" ;;
   *) exit 24 ;;
@@ -161,6 +205,12 @@ if (process.argv[2].endsWith('/release-please-run.mjs')) {
   fs.appendFileSync(process.env.RUNNER_TEMP + '/commands', command + String.fromCharCode(10));
   if (command === process.env.FAIL_COMMAND) {
     console.error('release-please failure');
+    process.exit(19);
+  }
+  if (command === 'release-pr' && process.env.LIVE === 'true' && process.env.STALE_NOTES === 'true' &&
+      fs.readFileSync(process.env.RUNNER_TEMP + '/queued', 'utf8') === 'true' &&
+      process.env.HELD_CLI_CANDIDATE !== 'true') {
+    console.error('Error updating ref: queued release branch is locked');
     process.exit(19);
   }
   if (command === 'release-pr' && process.env.UNKNOWN_MERGEABILITY === 'true') {
@@ -213,6 +263,12 @@ if (process.argv[2].endsWith('/release-please-run.mjs')) {
         FAIL_COMMAND: failCommand,
         UNKNOWN_MERGEABILITY: String(unknownMergeability),
         STALE_NOTES: String(staleNotes),
+        DEQUEUE_FAILS: String(dequeueFails),
+        DEQUEUE_UNLOCKS: String(dequeueUnlocks),
+        TAGLESS_DRAFT_PATHS: JSON.stringify(heldPaths),
+        HELD_CLI_CANDIDATE: String(
+          heldPaths.includes('.') && candidate?.headRefName.endsWith('tmt-cli')
+        ),
         RELEASE_WRAPPER: new URL('../../scripts/release-please-run.mjs', import.meta.url).href,
         QUERY_FAILS: String(queryFails),
       },
@@ -226,6 +282,7 @@ if (process.argv[2].endsWith('/release-please-run.mjs')) {
       summary: readFileSync(summary, 'utf8'),
       commands: readFileSync(path.join(directory, 'commands'), 'utf8'),
       queries: readFileSync(path.join(directory, 'queries'), 'utf8'),
+      outputs: readFileSync(path.join(directory, 'output'), 'utf8'),
     };
   } finally {
     rmSync(directory, { recursive: true, force: true });
@@ -274,8 +331,59 @@ describe('release PR queue pre-check', () => {
   it('refreshes stale queued notes in the same run and keeps github-release', () => {
     const result = execute(connection([release(true)]), { staleNotes: true });
     expect(result.status).toBe(0);
-    expect(result.commands).toBe('release-pr\ngithub-release\n');
+    expect(result.commands).toBe('dequeue\nrelease-pr\ngithub-release\n');
+    expect(result.summary).toContain('Dequeued stale release PR');
+    expect(result.outputs).not.toContain('queue_blocked=true');
     expect(result.summary).not.toContain(QUEUED_NOTICE);
+  });
+
+  it('models the original locked-branch failure if dequeue does not unlock the queued head', () => {
+    const result = execute(connection([release(true)]), {
+      staleNotes: true,
+      dequeueUnlocks: false,
+    });
+    expect(result.status).toBe(19);
+    expect(result.commands).toBe('dequeue\nrelease-pr\n');
+    expect(result.output).toContain('Error updating ref: queued release branch is locked');
+  });
+
+  it('skips refresh and queue enabling on dequeue failure but keeps github-release', () => {
+    const result = execute(connection([release(true)]), { staleNotes: true, dequeueFails: true });
+    expect(result.status).toBe(0);
+    expect(result.commands).toBe('dequeue\ngithub-release\n');
+    expect(result.summary).toContain('Could not safely dequeue stale release PR');
+    expect(result.summary).toContain(
+      'skipping release-pr and auto-merge enabling. github-release continues'
+    );
+    expect(result.outputs).toContain('queue_blocked=true');
+    expect(workflow).toContain(
+      "if: steps.mode.outputs.live == 'true' && steps.release.outputs.queue_blocked != 'true'"
+    );
+  });
+
+  it('does not suppress github-release failure after dequeue failure', () => {
+    const result = execute(connection([release(true)]), {
+      staleNotes: true,
+      dequeueFails: true,
+      failCommand: 'github-release',
+    });
+    expect(result.status).toBe(19);
+    expect(result.commands).toBe('dequeue\ngithub-release\n');
+  });
+
+  it('plans stale queued refresh without mutating in a dry run', () => {
+    const result = execute(connection([release(true)]), { staleNotes: true, live: 'false' });
+    expect(result.status).toBe(0);
+    expect(result.commands).toBe('release-pr\ngithub-release\n');
+    expect(result.summary).toContain('Dry run: stale queued release PR would be dequeued');
+  });
+
+  it('preserves a queued draft-held candidate while allowing unheld refresh and github-release', () => {
+    const result = execute(connection([release(true)]), { staleNotes: true, heldPaths: ['.'] });
+    expect(result.status).toBe(0);
+    expect(result.commands).toBe('release-pr\ngithub-release\n');
+    expect(result.summary).toContain('held by a tagless draft');
+    expect(result.queries.split('api graphql')).toHaveLength(2);
   });
 
   it('fails visibly when notes acquisition fails rather than treating the candidate as covered', async () => {
@@ -404,6 +512,174 @@ describe('release PR queue pre-check', () => {
     await expect(
       queuedReleaseNotesCover({ repository: 'pj-tmt/tmt/extra', token: 'app' }, unexpected)
     ).rejects.toThrow('GITHUB_REPOSITORY');
+  });
+});
+
+describe('stale queued release dequeue', () => {
+  const options = {
+    repository: 'pj-tmt/tmt',
+    token: 'app-token',
+    live: true,
+    env: { GH_TOKEN: 'wrong-user' },
+  };
+  const staleNotes = async () => {
+    throw new ReleaseNotesRefreshRequiredError('stale');
+  };
+  function fixture({ change = {}, result = undefined as unknown, failRecheck = false } = {}) {
+    const pr = release(true);
+    const response = connection([pr]);
+    const mutations: string[][] = [];
+    const calls: string[] = [];
+    return {
+      pr,
+      mutations,
+      calls,
+      execute: (
+        command: string,
+        args: string[],
+        config: { env: NodeJS.ProcessEnv; timeoutMs: number }
+      ) => {
+        expect(config.env.GH_TOKEN).toBe(command === 'gh' ? 'app-token' : 'wrong-user');
+        expect(config.timeoutMs).toBe(30_000);
+        if (args[3]?.includes('dequeuePullRequest')) {
+          calls.push('dequeue');
+          mutations.push(args);
+          expect(args).toContain(`id=${pr.id}`);
+          return JSON.stringify(
+            result ?? {
+              data: {
+                dequeuePullRequest: {
+                  mergeQueueEntry: {
+                    id: pr.mergeQueueEntry?.id,
+                    pullRequest: { id: pr.id },
+                  },
+                },
+              },
+            }
+          );
+        }
+        if (args[3]?.includes('node(id:')) {
+          calls.push('recheck');
+          if (failRecheck) throw new Error('recheck unavailable');
+          return JSON.stringify({
+            data: {
+              node: {
+                ...pr,
+                state: 'OPEN',
+                repository: { nameWithOwner: 'pj-tmt/tmt' },
+                ...change,
+              },
+            },
+          });
+        }
+        calls.push(command === 'git' ? 'history' : args[1] === 'graphql' ? 'discover' : 'notes');
+        return queryExecute(response)(command, args);
+      },
+    };
+  }
+  it('rechecks identity and dequeues the observed PR once with the App token before allowing refresh', async () => {
+    const f = fixture();
+    expect(await prepareReleaseRefresh(options, f.execute, staleNotes)).toMatchObject({
+      decision: 'run',
+    });
+    expect(f.calls.slice(-2)).toEqual(['recheck', 'dequeue']);
+    expect(f.mutations).toHaveLength(1);
+  });
+  it.each([
+    { id: 'other' },
+    { number: 999999 },
+    { headRefOid: 'b'.repeat(40) },
+    { state: 'CLOSED' },
+    { headRefName: 'feature' },
+    { baseRefName: 'v4' },
+    { repository: { nameWithOwner: 'other/repo' } },
+    { headRepository: { nameWithOwner: 'other/repo' } },
+    { mergeQueueEntry: null },
+    { mergeQueueEntry: { id: 'new-entry' } },
+    { isDraft: true },
+  ])('blocks refresh without mutation when the PR recheck changes %#', async (change) => {
+    const f = fixture({ change });
+    expect(await prepareReleaseRefresh(options, f.execute, staleNotes)).toMatchObject({
+      decision: 'blocked',
+    });
+    expect(f.mutations).toHaveLength(0);
+  });
+  it('blocks refresh without mutation when recheck acquisition fails', async () => {
+    const f = fixture({ failRecheck: true });
+    expect(await prepareReleaseRefresh(options, f.execute, staleNotes)).toMatchObject({
+      decision: 'blocked',
+    });
+    expect(f.mutations).toHaveLength(0);
+  });
+  it.each([
+    {},
+    { errors: [{ message: 'denied' }] },
+    { data: { dequeuePullRequest: { mergeQueueEntry: null } } },
+    {
+      data: {
+        dequeuePullRequest: {
+          mergeQueueEntry: { id: 'queue-entry', pullRequest: { id: 'other' } },
+        },
+      },
+    },
+    {
+      data: {
+        dequeuePullRequest: {
+          mergeQueueEntry: { id: 'other-entry', pullRequest: { id: 'other' } },
+        },
+      },
+    },
+  ])('blocks refresh after an uncertain dequeue response without retrying %#', async (result) => {
+    const f = fixture({ result });
+    expect(await prepareReleaseRefresh(options, f.execute, staleNotes)).toMatchObject({
+      decision: 'blocked',
+    });
+    expect(f.mutations).toHaveLength(1);
+  });
+  it.each(['errors', 'entry'])(
+    'blocks a %s-only mutation defect with otherwise valid dequeue evidence',
+    async (defect) => {
+      const f = fixture();
+      const execute = (...args: Parameters<typeof f.execute>) => {
+        const value = f.execute(...args);
+        if (!args[1][3]?.includes('dequeuePullRequest')) return value;
+        const response = JSON.parse(value);
+        if (defect === 'errors') response.errors = [{ message: 'partial response' }];
+        else response.data.dequeuePullRequest.mergeQueueEntry.id = 'other-entry';
+        return JSON.stringify(response);
+      };
+      expect(await prepareReleaseRefresh(options, execute, staleNotes)).toMatchObject({
+        decision: 'blocked',
+      });
+      expect(f.mutations).toHaveLength(1);
+    }
+  );
+  it('does not mutate covered or nonqueued candidates', async () => {
+    const f = fixture();
+    expect(await prepareReleaseRefresh(options, f.execute, coveredNotes)).toEqual({
+      decision: 'skip',
+      notice: QUEUED_NOTICE,
+    });
+    expect(f.mutations).toHaveLength(0);
+    expect(f.calls).not.toContain('recheck');
+    expect(
+      await prepareReleaseRefresh(options, queryExecute(connection([release(false)])), staleNotes)
+    ).toEqual({ decision: 'run' });
+  });
+  it('never dequeues a draft-held candidate before the wrapper filters it from generation', async () => {
+    const f = fixture();
+    expect(
+      await prepareReleaseRefresh({ ...options, heldPaths: ['.'] }, f.execute, staleNotes)
+    ).toMatchObject({ decision: 'run' });
+    expect(f.mutations).toHaveLength(0);
+    expect(f.calls).not.toContain('recheck');
+  });
+  it('blocks multiple queued releases before any dequeue', async () => {
+    const response = connection([release(true), release(true)]);
+    expect(await prepareReleaseRefresh(options, queryExecute(response), staleNotes)).toMatchObject({
+      decision: 'blocked',
+      notice: expect.stringContaining('Multiple queued'),
+    });
   });
 });
 

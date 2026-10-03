@@ -2492,16 +2492,32 @@ actionlint .github/workflows/ci.yml
 ## Queued release pull requests
 
 Before `release-pr`, `Release` runs `typescript/scripts/release-please-queue.mjs`.
-Workflow-token GraphQL discovery follows up to 20 cursor pages of 100 open PRs, ordered
+Explicit-token GraphQL discovery follows up to 20 cursor pages of 100 open PRs, ordered
 by creation time, and considers only same-repository heads starting with
 `release-please--branches--main--` targeting `main`. Complete discovery is required
 before deciding. A queued PR skips `release-pr` only when the shared
 `checkReleaseNotes` gate accepts its current notes against fetched `origin/main`, even when the push-event
 checkout lags that main HEAD.
 The release job uses the same `fetch-depth: 0` checkout as Code quality, including tags.
-Invalid compare anchors, out-of-range links or missing COVERAGE links run
-`release-pr` in this invocation so release-please refreshes the stale candidate; changed content gets a new head and the existing auto-merge step
-can re-enqueue it. Covered queued notes retain their head and a summary notice;
+A queued candidate held by a tagless draft keeps its queue entry; release-please's
+existing manifest-path filter preserves that candidate while unheld components regenerate.
+Invalid compare anchors, out-of-range links or missing COVERAGE links require a
+live dequeue before `release-pr`: GitHub locks a queued PR's head branch against
+updates. The pre-check re-reads the selected PR's node ID, number, open state,
+repository, head SHA/ref, base, draft state and queue entry; they must match the
+observed same-repository main release PR. It then makes one `dequeuePullRequest`
+mutation with the same release App token used for auto-merge enabling and verifies
+the returned PR and queue entry IDs. Each request has the existing 30-second bound;
+there are no retries or polling. Multiple queued release PRs with stale notes
+require reconciliation before any mutation. Successful dequeue permits refresh in
+this invocation; the existing enable step can re-enqueue the refreshed candidate.
+A failed recheck or failed/unverified dequeue emits `blocked`, writes a clear
+recovery notice in the step summary, and skips both `release-pr` and auto-merge
+enabling. `github-release` still runs, allowing downstream draft processing to
+continue; its own failures still fail the job. Verify the PR and queue state before
+retrying the Release run through the normal authorized workflow. Dry runs only
+report the planned dequeue and run release-please in dry-run mode. Covered queued
+notes retain their head and a summary notice;
 `github-release` runs in either case. REST notes must match the discovered PR head.
 Acquisition failures, malformed PR metadata and incomplete history fail the run
 visibly rather than silently skipping. Malformed responses, repeated
@@ -2523,12 +2539,27 @@ squad; if the release PR is to be abandoned, the lead asks tmt-lead or Ben to cl
 The next main push can then select the remaining component. Automation does not bypass
 failed checks or abandon an active release on its own.
 
-Both commands use the release App token in live runs (the pre-check uses the workflow
-token in dry runs), never an agent's token. The existing workflow concurrency group
+Discovery, dequeue and enabling use the release App token in live runs (dry-run
+discovery uses the workflow token), never an agent's token. The existing workflow concurrency group
 serializes automatic enabling; external/manual enabling and enqueues are not atomic
 with discovery. A PR queued between the pre-check and a branch update can still fail
-once and recover on the next main push. The pre-check does not dequeue a PR; a
-release-please content update can remove its stale head from the queue. Required checks and publication authorization are unchanged.
+once and recover on the next main push. The recheck and dequeue are not atomic with
+external enqueues or head updates; a changed or unverified entry blocks refresh
+rather than authorizing another mutation. Required checks and publication
+authorization are unchanged.
+
+Fixture-only verification (no dispatch or Docker):
+
+```bash
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/release-queue.test.ts test/tooling/release-pr-safety.test.ts test/tooling/release-please-config.test.ts test/tooling/release-workflow.test.ts)
+(cd typescript && corepack pnpm check:tooling)
+actionlint .github/workflows/release.yml
+```
+
+Fixtures cover stale queued notes → recheck/dequeue/refresh, failed dequeue → skip
+with summary and continued `github-release`, covered queued notes → skip, and
+non-queued PRs → refresh. Identity/head/queue races, dry runs and failure responses
+must prove no retry or unintended mutation; unchanged generated heads remain preserved.
 
 ## Project tracking
 
