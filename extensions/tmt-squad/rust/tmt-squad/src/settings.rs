@@ -1,4 +1,4 @@
-//! Read-only settings shared by the CLI and board; Config owns all resolution.
+//! Settings shared by the CLI and board; Config owns resolution, validation and writes.
 use crate::{config::Config, core::SquadError, effects, tab_view};
 use clap::{Arg, ArgMatches, Command};
 use serde_json::{Value, json};
@@ -35,6 +35,12 @@ pub fn grammar() -> Command {
     tmt_cli_style::command(crate::specs::CONFIG)
         .subcommand_required(true)
         .subcommand(
+            tmt_cli_style::command(crate::specs::CONFIG_SET)
+                .arg(Arg::new("key").required(true).value_name("KEY"))
+                .arg(Arg::new("value").required(true).value_name("VALUE"))
+                .arg(Arg::new("squad").long("squad").value_name("NAME")),
+        )
+        .subcommand(
             tmt_cli_style::command(crate::specs::CONFIG_SHOW)
                 .arg(
                     Arg::new("squad")
@@ -46,22 +52,40 @@ pub fn grammar() -> Command {
         )
 }
 
-pub fn run(config: &Config, matches: &ArgMatches) -> Result<Value, SquadError> {
-    let (_, flags) = matches.subcommand().expect("required config subcommand");
+pub fn run(config: &mut Config, matches: &ArgMatches) -> Result<Value, SquadError> {
+    let (command, flags) = matches.subcommand().expect("required config subcommand");
     let squad = flags.get_one::<String>("squad");
     if let Some(name) = squad
         && !crate::squad::valid_name(name)
     {
         return Err(crate::squad::name_invalid(name));
     }
-    let tab = flags
-        .get_one::<String>("tab")
-        .map(|name| tab_view::key(config, name))
-        .transpose()?;
+    let changed = if command == "set" {
+        Some(config.set_setting(
+            squad.map(String::as_str),
+            flags.get_one::<String>("key").unwrap(),
+            flags.get_one::<String>("value").unwrap(),
+        )?)
+    } else {
+        None
+    };
+    let tab = (command == "show")
+        .then(|| {
+            flags
+                .get_one::<String>("tab")
+                .map(|name| tab_view::key(config, name))
+                .transpose()
+        })
+        .transpose()?
+        .flatten();
     let context = tab.as_deref().or(squad.map(String::as_str));
-    Ok(config
+    let mut result = config
         .settings(context, effects::tmux_socket().is_some(), None)?
-        .value())
+        .value();
+    if let Some(changed) = changed {
+        result["changed"] = json!(changed);
+    }
+    Ok(result)
 }
 
 pub fn display(value: &Value) -> String {
@@ -86,9 +110,14 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
         fields.push((
             display(&entry["key"]),
             format!(
-                "{}  [from {}; read-only]",
+                "{}  [from {}; {}]",
                 display(&entry["value"]),
-                display(&entry["source"])
+                display(&entry["source"]),
+                if entry["editable"] == true {
+                    "editable"
+                } else {
+                    "read-only"
+                }
             ),
         ));
     }

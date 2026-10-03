@@ -228,7 +228,28 @@ shown without executing them. Close and reopen to read later config edits.
 `tmt sq config show` inspects board defaults. Use `--squad product` for one
 squad or `--tab all` (also `leads` or a configured tab name) for an aggregate
 view, and `--json` for full values and source paths. These scope flags are
-exclusive. All entries are read-only; no configuration or member state changes.
+exclusive. Inspection changes no configuration or member state. JSON marks the
+settings supported by `config set`; the board overlay remains read-only.
+
+Use `tmt sq config set KEY VALUE [--squad NAME]` for validated edits. Squad scope
+is required for `layout`, `board.panes`, `board.direction`, `board.sizes`,
+`board.hidden_columns`, `notes.render`, and `states.STATE.color`. `board.refresh`
+uses the squad layer with `--squad`, otherwise the global Squad board layer.
+`tabs.order` and `tabs.hide` always edit global Squad tab policy. Arrays use JSON;
+other values are unquoted scalar arguments. Examples:
+
+```sh
+tmt sq config set notes.render plain --squad product
+tmt sq config set board.refresh 10s --squad product
+tmt sq config set board.hidden_columns '["pr_link"]' --squad product
+tmt sq config set tabs.hide '["leads"]'
+```
+
+Simple split edits retain their workflow preset; nested split trees are read-only
+and must be edited in `squad.toml`. Existing validators reject invalid values
+before writing. The writer preserves unrelated keys and comments and refuses a
+file changed since reading it. Provider/run commands, patterns, reminders and
+core/provider configuration cannot be edited through this command.
 
 ## Choose a board view
 
@@ -492,6 +513,14 @@ colors and legacy color aliases are refused. Missing/empty values and failed
 providers without projected colors stay dim; stale-row inheritance and reverse
 selection still apply. Spanned cells use the first track's fitting settings. The legacy
 `[squad.<name>.columns]` form remains supported; do not set both forms.
+
+`[squad.<name>.board] hidden_columns = ["pr_link"]` hides named original tracks
+for the board and `ls` text without deleting columns, field values or authored
+lines/spans. Only covered tracks can be hidden and at least one must remain.
+A spanning cell shrinks to the surviving tracks in its original range; hiding
+one track can shrink a different field's cell rather than remove that field.
+Set the mask to `[]` to restore the original grid. JSON retains all field values
+and lists the mask when nonempty.
 
 | Setting                 | Current behavior                                                                                                                                       |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |

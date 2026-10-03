@@ -71,6 +71,10 @@ impl Config {
         for (key, action, source) in self.binding_settings(key, tmux, &board.panes, section)? {
             out.push(key, json!(action.text), source);
         }
+        let scope = context.filter(|key| !tabs::aggregate(key));
+        for entry in &mut out.entries {
+            entry.editable = self.setting_editable(&entry.key, scope);
+        }
         Ok(out)
     }
     fn arrangement_settings(&self, key: &str, out: &mut BoardSettings) -> Result<(), SquadError> {
@@ -100,7 +104,48 @@ impl Config {
                 &sources["view"],
             );
         }
-        for (name, value) in [("mode", json!(if board.mode == BoardMode::Split { "split" } else { "tabs" })), ("layout", split_value(&board.split)), ("panes", json!(board.panes.iter().map(|p| p.title()).collect::<Vec<_>>())), ("collapsed", json!(board.collapsed.iter().map(|p| p.title()).collect::<Vec<_>>())), ("fold_below", json!(board.fold_below.as_ref().map(|f| json!({"width":f.width,"panes":f.panes.iter().map(|p| p.title()).collect::<Vec<_>>()}))))] { out.push(format!("board.{name}"), value, &sources[name]); }
+        for (name, value) in [
+            ("mode", json!(if board.mode == BoardMode::Split { "split" } else { "tabs" })),
+            ("layout", split_value(&board.split)),
+            ("panes", json!(board.panes.iter().map(|pane| pane.title()).collect::<Vec<_>>())),
+            ("collapsed", json!(board.collapsed.iter().map(|pane| pane.title()).collect::<Vec<_>>())),
+            ("fold_below", json!(board.fold_below.as_ref().map(|fold| json!({"width": fold.width, "panes": fold.panes.iter().map(|pane| pane.title()).collect::<Vec<_>>()})))),
+        ] {
+            out.push(format!("board.{name}"), value, &sources[name]);
+        }
+        if !aggregate
+            && let Split::Group {
+                direction,
+                children,
+            } = &board.split
+        {
+            if children.iter().all(|(size, child)| {
+                matches!(size, Size::Percent(_)) && matches!(child, Split::Pane(_))
+            }) {
+                out.push(
+                    "board.direction",
+                    json!(if *direction == Direction::LeftRight {
+                        "left-right"
+                    } else {
+                        "top-bottom"
+                    }),
+                    &sources["direction"],
+                );
+                out.push(
+                    "board.sizes",
+                    json!(
+                        children
+                            .iter()
+                            .map(|(size, _)| match size {
+                                Size::Percent(n) => *n,
+                                _ => unreachable!(),
+                            })
+                            .collect::<Vec<_>>()
+                    ),
+                    &sources["sizes"],
+                );
+            }
+        }
         let (refresh, source) = self.refresh_setting(key)?;
         out.push(
             "board.refresh",
@@ -113,7 +158,12 @@ impl Config {
         if tabs::aggregate(key) {
             out.push("rows", crate::tab_view::rows(key).value(), "aggregate tab");
         } else {
-            let (rows, source, _) = self.rows_setting(key)?;
+            let (rows, source, hidden_source) = self.rows_setting(key)?;
+            out.push(
+                "board.hidden_columns",
+                json!(rows.hidden_columns),
+                hidden_source,
+            );
             out.push("rows", rows.value(), source);
         }
         Ok(())
@@ -253,13 +303,20 @@ mod tests {
         assert_eq!(entry(&shown, "theme.working").value, "blue");
         assert_eq!(entry(&shown, "board.token_rate.window").value, "1m");
         assert_eq!(entry(&shown, "fields.pr").value["run"][3], "{pr_link}");
-        assert!(shown.entries.iter().all(|entry| !entry.editable));
+        assert!(entry(&shown, "board.refresh").editable);
+        assert!(!entry(&shown, "bind.o").editable);
+        assert!(!entry(&shown, "fields.pr").editable);
         assert_eq!(entry(&shown, "rows").value, cfg.rows("x").unwrap().value());
         let custom = config("[squad.x.board]\npanes=['rows','notes']\n")
             .settings(Some("x"), false, None)
             .unwrap();
         assert_eq!(entry(&custom, "board.mode").source, "preset:crew");
         assert_eq!(entry(&custom, "board.collapsed").source, "default:[]");
+        assert_eq!(entry(&custom, "board.direction").source, "preset:crew");
+        assert_eq!(
+            entry(&custom, "board.sizes").source,
+            "squad.x.board.panes (equal shares)"
+        );
         assert!(
             entry(&custom, "board.layout")
                 .source

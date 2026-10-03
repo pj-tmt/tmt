@@ -215,6 +215,8 @@ pub struct Cell {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Rows {
     pub columns: Vec<Column>,
+    /// Explicitly hidden original tracks; field values and spans remain intact.
+    pub hidden_columns: Vec<String>,
     /// At least one line; each line's spans cover at most every column.
     pub lines: Vec<Vec<Cell>>,
 }
@@ -265,7 +267,11 @@ impl Rows {
                 })
                 .collect(),
         ];
-        Self { columns, lines }
+        Self {
+            columns,
+            lines,
+            hidden_columns: Vec::new(),
+        }
     }
 
     /// Cells cover consecutive tracks from zero, including empty cells.
@@ -331,7 +337,7 @@ impl Rows {
             Truncate::End => "end",
             Truncate::Middle => "middle",
         };
-        json!({
+        let mut value = json!({
             "columns": self.columns.iter().enumerate().map(|(index, column)| {
                 let mut value = json!({
                 "field": column.field, "title": column.title, "width": width_value(column.width),
@@ -357,7 +363,11 @@ impl Rows {
                 }
                 value
             }).collect::<Vec<_>>()).collect::<Vec<_>>(),
-        })
+        });
+        if !self.hidden_columns.is_empty() {
+            value["hidden_columns"] = json!(self.hidden_columns);
+        }
+        value
     }
 }
 
@@ -508,7 +518,7 @@ fn width_value(width: Option<Basis>) -> Value {
 pub fn read(squad: Option<&dyn TableLike>, name: &str) -> Result<Rows, SquadError> {
     let rows = squad.and_then(|table| table.get("rows"));
     let columns = squad.and_then(|table| table.get("columns"));
-    let result = match (rows, columns) {
+    let mut result = match (rows, columns) {
         (Some(_), Some(_)) => Err(invalid(format!(
             "`squad.{name}` sets both `rows` and `columns`; keep `rows`."
         ))),
@@ -538,6 +548,36 @@ pub fn read(squad: Option<&dyn TableLike>, name: &str) -> Result<Rows, SquadErro
         return Err(invalid(format!(
             "`squad.{name}` configured column percentages must total at most 100%."
         )));
+    }
+    if let Some(item) = squad
+        .and_then(|s| s.get("board"))
+        .and_then(|b| b.get("hidden_columns"))
+    {
+        let place = format!("squad.{name}.board.hidden_columns");
+        let list = item
+            .as_array()
+            .ok_or_else(|| invalid(format!("`{place}` must list column names.")))?;
+        for (index, item) in list.iter().enumerate() {
+            let field = item
+                .as_str()
+                .filter(|field| {
+                    result.columns[..result.covered_tracks()]
+                        .iter()
+                        .any(|c| c.field == *field)
+                })
+                .ok_or_else(|| {
+                    invalid(format!("`{place}[{index}]` must name a covered column."))
+                })?;
+            if result.hidden_columns.iter().any(|known| known == field) {
+                return Err(invalid(format!("`{place}[{index}]` repeats `{field}`.")));
+            }
+            result.hidden_columns.push(field.into());
+        }
+        if result.hidden_columns.len() == result.covered_tracks() {
+            return Err(invalid(format!(
+                "`{place}` must leave at least one covered track visible."
+            )));
+        }
     }
     Ok(result)
 }
@@ -595,7 +635,11 @@ fn read_rows(
         None => Rows::with_one_line(columns.clone()).lines,
         Some(lines) => read_lines(lines, &format!("{place}.lines"), columns.len())?,
     };
-    Ok(Rows { columns, lines })
+    Ok(Rows {
+        columns,
+        lines,
+        hidden_columns: Vec::new(),
+    })
 }
 
 fn read_column(

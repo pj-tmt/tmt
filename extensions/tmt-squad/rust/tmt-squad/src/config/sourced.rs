@@ -17,16 +17,35 @@ impl Config {
         }
     }
     pub(super) fn layout_setting(&self, squad: &str) -> Result<(Layout, String), SquadError> {
-        let layout = self.resolve_layout(squad)?;
-        let fallback = if layout == Layout::Crew {
-            "simple-board compatibility default".into()
+        let table = self.squad_table(squad)?;
+        if let Some(item) = table.and_then(|table| table.get("layout")) {
+            return item
+                .as_str()
+                .and_then(Layout::parse)
+                .map(|layout| (layout, format!("squad.{squad}.layout")))
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "`squad.{squad}.layout` must be crew, pr-queue, minimal or team."
+                    ))
+                });
+        }
+        let simple = table
+            .and_then(|table| table.get("board"))
+            .and_then(Item::as_table_like)
+            .is_some_and(|board| {
+                ["direction", "panes", "sizes"]
+                    .iter()
+                    .any(|key| board.get(key).is_some())
+            });
+        Ok(if simple {
+            (Layout::Crew, "simple-board compatibility default".into())
         } else {
-            format!("preset:{}", layout.as_str())
-        };
-        Ok((layout, self.source(&["squad", squad, "layout"], &fallback)))
+            (Layout::Team, "preset:team".into())
+        })
     }
+
     pub(super) fn board_setting(&self, squad: &str) -> Result<(Board, Sources), SquadError> {
-        let board = self.board(squad)?;
+        let board = self.read_board(squad)?;
         let preset = format!("preset:{}", self.resolve_layout(squad)?.as_str());
         let (_, source) = self.view_source(squad)?;
         let arrangement = match source {
@@ -46,7 +65,7 @@ impl Config {
             "sizes",
         ] {
             let fallback = match (name, source) {
-                ("mode", "custom") => &preset,
+                ("mode" | "direction", "custom") => &preset,
                 ("collapsed", "custom") => "default:[]",
                 ("fold_below", "custom") => "default:none",
                 _ => &arrangement,
@@ -63,6 +82,21 @@ impl Config {
                     .is_some()
             {
                 format!("squad.{squad}.board.layout")
+            } else if matches!(name, "direction" | "sizes")
+                && self
+                    .source_item(&["squad", squad, "board", "layout"])
+                    .is_some()
+            {
+                format!("squad.{squad}.board.layout")
+            } else if name == "sizes"
+                && self
+                    .source_item(&["squad", squad, "board", "sizes"])
+                    .is_none()
+                && self
+                    .source_item(&["squad", squad, "board", "panes"])
+                    .is_some()
+            {
+                format!("squad.{squad}.board.panes (equal shares)")
             } else {
                 self.source(&["squad", squad, "board", name], fallback)
             };
@@ -74,7 +108,7 @@ impl Config {
         &self,
         squad: &str,
     ) -> Result<(crate::rows::Rows, String, String), SquadError> {
-        let rows = self.rows(squad)?;
+        let rows = self.read_rows(squad)?;
         let preset = format!("preset:{}", self.resolve_layout(squad)?.as_str());
         Ok((
             rows,
@@ -89,20 +123,59 @@ impl Config {
         &self,
         squad: &str,
     ) -> Result<(Option<Duration>, String), SquadError> {
-        Ok((
-            self.refresh(squad)?,
-            self.source(
-                &["squad", squad, "board", "refresh"],
-                &self.source(&["board", "refresh"], "default:5s"),
-            ),
-        ))
+        let global = match self.document.get("board") {
+            None => None,
+            Some(item) => {
+                let table = item
+                    .as_table_like()
+                    .ok_or_else(|| invalid("`board` must be a table."))?;
+                if let Some((key, _)) = table
+                    .iter()
+                    .find(|(key, _)| !matches!(*key, "refresh" | "theme" | "token_rate" | "view"))
+                {
+                    return Err(invalid(format!("`board.{key}` is not a board setting.")));
+                }
+                table
+                    .get("refresh")
+                    .map(|item| (item, "board.refresh".to_owned()))
+            }
+        };
+        let own = self
+            .squad_table(squad)?
+            .and_then(|table| table.get("board"))
+            .and_then(Item::as_table_like)
+            .and_then(|table| table.get("refresh"))
+            .map(|item| (item, format!("squad.{squad}.board.refresh")));
+        match own.or(global) {
+            None => Ok((Some(DEFAULT_REFRESH), "default:5s".into())),
+            Some((item, place)) => refresh(item, &place).map(|value| (value, place)),
+        }
     }
+
     pub(super) fn notes_setting(&self, squad: &str) -> Result<(NotesRender, String), SquadError> {
-        Ok((
-            self.notes_render(squad)?,
-            self.source(&["squad", squad, "notes", "render"], "default:markdown"),
-        ))
+        let place = format!("squad.{squad}.notes");
+        let Some(item) = self
+            .squad_table(squad)?
+            .and_then(|table| table.get("notes"))
+        else {
+            return Ok((NotesRender::Markdown, "default:markdown".into()));
+        };
+        let table = item
+            .as_table_like()
+            .ok_or_else(|| invalid(format!("`{place}` must be a table.")))?;
+        if let Some((key, _)) = table.iter().find(|(key, _)| *key != "render") {
+            return Err(invalid(format!("`{place}.{key}` is not a notes setting.")));
+        }
+        match table.get("render").map(|value| value.as_str()) {
+            None => Ok((NotesRender::Markdown, "default:markdown".into())),
+            Some(Some("markdown")) => Ok((NotesRender::Markdown, format!("{place}.render"))),
+            Some(Some("plain")) => Ok((NotesRender::Plain, format!("{place}.render"))),
+            Some(_) => Err(invalid(format!(
+                "`{place}.render` must be markdown or plain."
+            ))),
+        }
     }
+
     pub(super) fn state_settings(
         &self,
         squad: &str,
