@@ -3,7 +3,6 @@
 //! stable across restarts; neither is a credential.
 use crate::{error::RemoteError, state::Serving};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
-use std::time::Duration;
 
 pub(crate) fn database(error: impl std::fmt::Display) -> RemoteError {
     RemoteError::new(
@@ -35,7 +34,7 @@ impl Store {
         )
         .map_err(database)?;
         connection
-            .busy_timeout(Duration::from_millis(5000))
+            .busy_timeout(crate::limits::AUTHORITY_WAIT)
             .map_err(database)?;
         // Serve is the only opener (pairing and management go through it under
         // the serve lock), so DELETE journaling adds no reader contention, and

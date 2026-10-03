@@ -3270,7 +3270,11 @@ message, reads one `{"op":"confirm"}` or `{"op":"refuse"}` stdin line, then emit
 `event:ended` with the original operation ID and state. EOF/refusal cancels; local
 `tmt remote cancel <operationId> --json` reports the cancelled state. Stop/restart cancel
 unconfirmed holds. Grant scope, recipient allowlist and expiry are rechecked before
-core invocation. Recovery reads never send; an explicit retry retains the same ID
+core invocation. SQLite authority writes wait beyond both bounded core calls, so a
+revocation ordered after an in-flight send succeeds once that call releases its fence.
+The dispatching audit row commits after the core call; crash recovery uses the adopted
+frozen bytes and idempotent core operation ID rather than missing audit evidence.
+Recovery reads never send; an explicit retry retains the same ID
 and exact intent, and never repeats an accepted core dispatch or its advisory wake.
 An old invocation retains the serve lease after a Remote crash, so restart refuses
 until that child has stopped. Unconfirmed cleanup keeps writes closed until restart.

@@ -43,6 +43,9 @@ if wire['operation']=='dispatch.show':
     else:
         print(json.dumps({'error':{'code':'DISPATCH_NOT_FOUND','message':'absent'}}));sys.exit(1)
 elif wire['operation']=='dispatch.create':
+    if (root/'gate').exists():
+        (root/'entered').write_text('blocked')
+        with (root/'gate').open() as gate: gate.readline()
     if (root/'fault').exists():
         print('broken');sys.exit(0)
     if (root/'receipt').exists():
@@ -644,4 +647,114 @@ fn named_reads_project_authority_and_preserve_empty_final_without_dispatch() {
         "REMOTE_SCOPE_DENIED"
     );
     assert_eq!(core.calls().len(), before);
+}
+
+#[test]
+fn another_store_revoke_waits_for_a_blocked_core_effect_beyond_the_old_timeout() {
+    use std::time::{Duration, Instant};
+    use tmt_remote::store::Store;
+    let owner = OwnerDoor::new();
+    let core = Core::new();
+    let operations = core.operations();
+    let session = owner.open();
+    let id = uuid_v4().unwrap();
+    let recipient = uuid_v4().unwrap();
+    let sent = wire(
+        &owner,
+        &session,
+        1,
+        &id,
+        &recipient,
+        "ordered before revoke",
+    );
+    // Independent SQLite connection, as an owner authority writer in another process.
+    let mut revoker = Store::open(&owner._serving).unwrap();
+    nix::unistd::mkfifo(
+        &core.root.join("gate"),
+        nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
+    )
+    .unwrap();
+    let mut gate = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(core.root.join("gate"))
+        .unwrap();
+    std::thread::scope(|scope| {
+        let sending = scope.spawn(|| append(&owner, Arc::clone(&operations), &sent));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !core.root.join("entered").exists() {
+            assert!(
+                Instant::now() < deadline,
+                "core fixture did not reach the effect barrier"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(!core.root.join("receipt").exists());
+        let (attempted_tx, attempted_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let client = owner.grant.client_id.clone();
+        let revoking = scope.spawn(move || {
+            attempted_tx.send(()).unwrap();
+            done_tx.send(revoker.revoke(&client)).unwrap();
+        });
+        attempted_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        // Wait on the revocation outcome, not a fixed sleep: the old five-second
+        // timeout returns an error here while the effect barrier remains held.
+        let early = done_rx.recv_timeout(Duration::from_millis(5200));
+        let waited_for_effect = matches!(&early, Err(std::sync::mpsc::RecvTimeoutError::Timeout));
+        gate.write_all(b"release\n").unwrap();
+        let revoked = match early {
+            Ok(result) => result,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                done_rx.recv_timeout(Duration::from_secs(5)).unwrap()
+            }
+            Err(error) => panic!("revoker disconnected: {error}"),
+        }
+        .unwrap()
+        .unwrap();
+        revoking.join().unwrap();
+        let observed = sending.join().unwrap();
+        assert!(
+            waited_for_effect,
+            "revocation must wait past five seconds until the earlier effect releases its fence"
+        );
+        assert!(
+            revoked.disabled,
+            "revoke must commit after the earlier effect"
+        );
+        assert!(matches!(
+            observed["state"].as_str(),
+            Some("accepted" | "uncertain")
+        ));
+        assert_eq!(core.sends(), 1);
+        let receipt: Value =
+            serde_json::from_slice(&fs::read(core.root.join("receipt")).unwrap()).unwrap();
+        assert_eq!(receipt["operationId"], id);
+        assert!(
+            owner
+                .store
+                .lock()
+                .unwrap()
+                .grant(&owner.grant.client_id)
+                .unwrap()
+                .unwrap()
+                .disabled
+        );
+        let refused = owner.wire(
+            &session,
+            "2",
+            "dispatch.create",
+            input(&uuid_v4().unwrap(), &recipient, "after revoke")
+                .to_string()
+                .as_bytes(),
+        );
+        let transport = LoopbackTransport::new(Arc::clone(&owner.sessions), 65536)
+            .with_operations(Arc::clone(&operations));
+        assert!(
+            transport
+                .append(None, &serde_json::to_vec(&refused).unwrap())
+                .is_err()
+        );
+        assert_eq!(core.sends(), 1);
+    });
 }

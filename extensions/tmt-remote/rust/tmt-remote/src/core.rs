@@ -37,7 +37,7 @@ impl CoreClient {
                 .to_string()
                 .as_bytes(),
             stop,
-            Duration::from_secs(15),
+            crate::limits::CORE_CALL,
             OUTPUT_LIMIT,
         )
     }
@@ -49,7 +49,7 @@ impl CoreClient {
                 .to_string()
                 .as_bytes(),
             stop,
-            Duration::from_secs(15),
+            crate::limits::CORE_CALL,
             64 * 1024,
         )?;
         reply["dataRoot"]
@@ -63,7 +63,7 @@ impl CoreClient {
             &["list", "--json"],
             &[],
             stop,
-            Duration::from_secs(15),
+            crate::limits::CORE_CALL,
             OUTPUT_LIMIT,
         )
     }
@@ -78,10 +78,16 @@ impl CoreClient {
         if let Some(count) = count.as_deref() {
             argv.extend(["--lines", count]);
         }
-        self.call(&argv, &[], stop, Duration::from_secs(15), OUTPUT_LIMIT)
+        self.call(&argv, &[], stop, crate::limits::CORE_CALL, OUTPUT_LIMIT)
     }
     pub(crate) fn api(&self, input: &[u8], stop: &AtomicBool) -> Result<Value, RemoteError> {
-        self.call(&["api"], input, stop, Duration::from_secs(15), OUTPUT_LIMIT)
+        self.call(
+            &["api"],
+            input,
+            stop,
+            crate::limits::CORE_CALL,
+            OUTPUT_LIMIT,
+        )
     }
     fn call(
         &self,

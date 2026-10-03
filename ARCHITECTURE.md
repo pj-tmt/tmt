@@ -4498,7 +4498,9 @@ accepted request IDs and never infers readiness from terminal output.
 control socket. `tmt remote approve <operationId>` shows frozen source/recipient/message
 and requires one explicit confirmation; `cancel` and refusal create no core request.
 The IMMEDIATE held claim has one winner. Grant revision/liveness, talk scope and recipient
-policy are checked again at the transaction-held core invocation fence. Stop/restart
+policy are checked again at the transaction-held core invocation fence. SQLite authority
+writers wait 40 seconds, beyond both 15-second core calls and their cleanup margin, so
+revocation can wait for an in-flight effect to release its fence. Stop/restart
 cancel unconfirmed holds. After a possible effect, failure preserves the original ID
 and frozen intent as uncertain; accepted/cancelled operations release their prompt copy.
 Transitions retain bounded signed metadata without copying prompt/final text into audit.
@@ -4508,6 +4510,9 @@ Foreground serve explicitly makes its private lock inheritable by the existing
 restart cannot acquire it while an original invocation survives owner death. Confirmed
 child termination plus definitive core absence permits only an explicit retry of the
 same ID and bytes. Unconfirmed cleanup disables writes until a fresh lease-owning run.
+The effect's `dispatching` audit row is uncommitted during the core call; a crash
+mid-call leaves no such row. Recovery uses the already committed adoption/frozen intent
+and core's idempotent operation ID, never assumes an absent audit row means no effect.
 The runner and core are unchanged. Native tests exercise real signatures/private SQLite
 with deterministic public-process fixtures and a SIGKILL lease probe; they do not claim
 isolated real-core/private-tmux/mock-agent acceptance.
