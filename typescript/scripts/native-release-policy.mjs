@@ -55,7 +55,7 @@ export function releaseFlags(product) {
 
 /**
  * `gh release edit` flags that publish a draft under the policy. The prerelease flag is always
- * set explicitly: release-please makes every draft a prerelease, and the CLI must not stay one.
+ * set explicitly: publication must retain the product policy regardless of a draft's flags.
  */
 export function publishFlags(product) {
   const policy = releasePolicy(product);

@@ -13,7 +13,6 @@ export interface CutMetadata {
   capturedAt?: string;
   evidenceError?: string;
   releases?: { tag_name: string; draft: boolean; body?: string; target_commitish?: string }[];
-  runs?: { id: number; status: string; display_title: string }[];
 }
 export interface CutRow {
   product: string;
@@ -32,7 +31,7 @@ export interface CutRow {
 export interface CutPlan {
   cut: string;
   repository: string;
-  mode: 'shadow';
+  mode: 'plan';
   mapDigest?: string;
   unavailable?: string;
   components: CutRow[];
@@ -65,12 +64,25 @@ export function readCutRange(
   previous: string,
   cut: string
 ): CutCommit[];
+export function releaseCutHistory(input: {
+  releases: NonNullable<CutMetadata['releases']>;
+  product: string;
+  cut: string;
+  git: (args: string[]) => string;
+  excludeTag?: string;
+}): {
+  highestVersion: string | undefined;
+  previous: { tag: string; sha: string } | null;
+  previousAllocated: { tag: string; sha: string } | null;
+};
 export function planReleaseCuts(input: {
   metadata: CutMetadata;
   map: ComponentMap;
+  workspace?: CargoWorkspace;
   git: (args: string[]) => string;
   date?: string;
-  workspace?: CargoWorkspace;
   initialVersions?: Record<string, string>;
+  /** Owner-dispatched product versions; native publication authorization remains independent. */
+  versions?: Record<string, string>;
 }): Promise<CutPlan>;
 export function renderCutSummary(plan: CutPlan): string;

@@ -1,6 +1,7 @@
 //! Versioned local process protocol. Resource owners retain admission and encoding.
 
 mod changes;
+mod consumption;
 mod dispatch;
 mod identities;
 mod identity_hooks;
@@ -13,7 +14,7 @@ mod skills;
 use crate::{
     config::{ConfigFiles, ConfigPaths},
     skill_installation,
-    storage::Storage,
+    storage::{Storage, StorageError},
 };
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
@@ -45,18 +46,21 @@ const OPS: &[&str] = &[
     "skills.remove",
     "references.resolve",
     "identities.status",
+    "consumption.history",
 ];
 
 #[derive(Debug)]
 pub struct Fault {
     code: &'static str,
     message: std::borrow::Cow<'static, str>,
+    storage_open: Option<StorageError>,
 }
 impl Fault {
     pub fn new(code: &'static str, message: &'static str) -> Self {
         Self {
             code,
             message: message.into(),
+            storage_open: None,
         }
     }
     /// A fault whose message names the specific skill, path or owner.
@@ -64,6 +68,7 @@ impl Fault {
         Self {
             code,
             message: message.into(),
+            storage_open: None,
         }
     }
     pub fn unavailable() -> Self {
@@ -72,6 +77,24 @@ impl Fault {
             "Operation could not be confirmed. For a write, inspect its operation receipt or current revision before retrying.",
         )
     }
+    pub(super) fn with_storage_open(mut self, error: StorageError) -> Self {
+        self.storage_open = Some(error);
+        self
+    }
+
+    /// Public CLI presentation consumes the typed cause; other API consumers
+    /// retain the existing resource-specific fault envelope.
+    pub fn take_storage_open(&mut self) -> Option<StorageError> {
+        self.storage_open.take()
+    }
+
+    pub fn code(&self) -> &'static str {
+        self.code
+    }
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
     pub fn encode(&self) -> Vec<u8> {
         let mut error = json!({"code":self.code,"message":self.message});
         if self.code == "API_VERSION_UNSUPPORTED" {
@@ -107,6 +130,11 @@ pub enum DispatchIdentity {
 
 pub enum Request {
     Capabilities,
+    ConsumptionHistory {
+        identities: Vec<String>,
+        windows: Vec<u64>,
+        max_buckets: u64,
+    },
     /// Read-only: the selected data directory, without opening storage.
     StorageRoot,
     /// Read-only: the durable change cursor.
@@ -235,6 +263,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "identityHooks.ack" => Request::HookAck(identity_hooks::hook(input)?),
         "references.resolve" => references::decode(input)?,
         "identities.status" => identities::decode(input)?,
+        "consumption.history" => consumption::decode(input)?,
         "identityHooks.pending" => identity_hooks::decode_pending(input)?,
         "skills.install" => skills::decode_install(input)?,
         "skills.remove" => skills::decode_remove(input)?,
@@ -297,13 +326,19 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
     } else {
         None
     };
-    let mut storage = Storage::open(&paths.database).map_err(|_| Fault::unavailable())?;
+    let mut storage = Storage::open(&paths.database)
+        .map_err(|error| Fault::unavailable().with_storage_open(error))?;
     let pending = match request {
         Request::Capabilities
         | Request::StorageRoot
         | Request::Notes(_)
         | Request::SkillsInstall { .. }
         | Request::SkillsRemove { .. } => unreachable!("handled before storage"),
+        Request::ConsumptionHistory {
+            identities,
+            windows,
+            max_buckets,
+        } => consumption::history(&mut storage, identities, windows, max_buckets),
         Request::ChangeCursor => changes::cursor(&storage),
         Request::Roster { room, prefix } => rooms::roster(&storage, room, prefix),
         Request::References { identities, rooms } => {

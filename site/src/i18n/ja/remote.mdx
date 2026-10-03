@@ -1,0 +1,46 @@
+---
+source: site/src/chapters/remote.mdx
+sourceRevision: fb2be5df056de1865d6335a235649da068570931
+title: 別のマシンの agent と話す
+---
+
+import { Cmd } from "../../components/Cmd";
+import { Caption } from "../../components/marks";
+import { components as Mdx } from "../../components/mdx";
+
+ここまでの操作は1台のマシンで行います。remote 拡張機能では、別のノートパソコン、サーバー、クラウド VM の agent に `talk` を届ける設計です。返事も同じ方法で戻って保存され、画面から推測したり、配信が uncertain なときに再送したりしません。あるマシンの Codex から別のマシンの Claude Code に依頼でき、その Claude が待機中でも届けられるようにします。
+
+<Cmd>{`
+$ tmt extension install remote
+$ tmt remote pair                  # 別のマシンで入力するコードを表示
+$ tmt talk reviewer@studio "Review the patch"   # 同じ talk で別のマシンへ
+`}</Cmd>
+
+<Caption>提案段階です。コマンド名は未確定です。</Caption>
+
+<Mdx.h3 id="you-own-the-backend">backend は自分で管理する</Mdx.h3>
+
+tmt は中央サービスを運営しません。メッセージはユーザーが選んで管理する backend を通り、エンドツーエンドで暗号化されるため、backend には暗号文だけが保存される設計です。
+
+| Backend           | 実行する場所                                              | 向いている用途                     |
+| ----------------- | --------------------------------------------------------- | ---------------------------------- |
+| SSH               | デプロイ不要。すでに接続できるマシンを使います            | 自分のノートパソコンやサーバー     |
+| Self-hosted relay | 自分のマシンや VPS 上の小さなサーバーまたはコンテナーです | クラウドアカウントなしで自分で管理 |
+| Cloudflare        | 自分のアカウントの Workers と Durable Objects です        | 常時接続と低コスト                 |
+| Firestore         | 自分の Firebase プロジェクトです                          | すでに Firebase を使うチーム       |
+
+どの backend も基本は同じで、前回の続きから購読できる永続ログです。切り替えるときに変えるのは設定で、作業の進め方は変わりません。
+
+<Mdx.h3 id="nothing-runs-unless-you-connect">接続するまで動かない</Mdx.h3>
+
+tmt 本体はバックグラウンドでは動きません。remote 拡張機能は、ユーザーが有効にしたマシンだけに小さな listener を追加する設計です。これがリモートのリクエストで待機中の agent を起こします。listener がなければ、リクエストは agent の次の起動や操作まで待ちます。拡張機能がなければ、tmt は今と同じローカルのままです。
+
+<Mdx.h3 id="who-may-reach-your-agents">agent にアクセスできる相手</Mdx.h3>
+
+agent のペインに届くものは指示として働くため、リモートアクセスは既定で閉じ、開く場合も範囲を限定します。
+
+- **マシンは名前ではなく鍵で身元を証明します。** ペアリングは明示的に行い、マシンの登録を取り消すとすぐに反映されます。
+- **リモートの送信者には許可が必要です。** 許可した identity だけが agent にアクセスできます。それ以外は明確に拒否され、メッセージもキューに入りません。
+- **メッセージはテキストであり、権限ではありません。** それだけで承認への回答、設定変更、コマンド実行はできません。ほかのリクエストと同様に、agent が対応を判断します。
+- **agent ごとに選びます。** 受け入れる、ユーザーの了承まで保留する、拒否する、のいずれかです。送信者には頻度制限を設け、すべてのリモート配信を記録します。
+- **ユーザーの入力に割り込みません。** ペインで入力中、または agent がダイアログを表示中なら、メッセージは待機します。

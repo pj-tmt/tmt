@@ -158,6 +158,7 @@ describe('native grammar process contract', () => {
     });
   });
   it('prints version and grammar-backed help without bootstrapping storage', async () => {
+    expect(cliVersion).toBe('5.0.0-dev');
     await withSandbox(async (sandbox) => {
       const before = fileSnapshot(sandbox.root);
       const version = await runCli(sandbox, ['--version']);

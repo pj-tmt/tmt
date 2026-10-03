@@ -62,13 +62,23 @@ fn grammar() -> Command {
     };
     const PAGE: CommandSpec = CommandSpec {
         name: "page",
-        summary: "Read and write admitted page source",
+        summary: "Create, read and write local pages",
         examples: &[Example {
             command: "tmt colab page read 10000000-0000-4000-8000-000000000001 --json",
             note: "Read source and its verified editing base",
         }],
         outputs: OutputModes::Human,
         details: "Root-local page access using existing encrypted state.",
+    };
+    const CREATE: CommandSpec = CommandSpec {
+        name: "create",
+        summary: "Create a private local page",
+        examples: &[Example {
+            command: "tmt colab page create --title Notes --file page.html --json",
+            note: "Create a page editable by your registered owner browsers",
+        }],
+        outputs: OutputModes::HumanAndJson,
+        details: "Initializes a fresh local space when needed. Without --file the source is empty; use --file - for bounded UTF-8 stdin. Commits a private page, epoch key, owner-device wraps and encrypted initial content through the same owner service whether serve is running or stopped. The returned path is relative to the Remote door address printed by tmt remote pair.",
     };
     const READ: CommandSpec = CommandSpec {
         name: "read",
@@ -118,6 +128,12 @@ fn grammar() -> Command {
             .subcommand(
                 tmt_cli_style::command(&PAGE)
                     .subcommand_required(true)
+                    .subcommand(
+                        tmt_cli_style::command(&CREATE)
+                            .arg(Arg::new("title").long("title").required(true).value_name("TITLE"))
+                            .arg(Arg::new("file").long("file").value_name("path|-")
+                                .value_parser(clap::value_parser!(std::path::PathBuf))),
+                    )
                     .subcommand(tmt_cli_style::command(&READ).arg(page_id()))
                     .subcommand(
                         tmt_cli_style::command(&WRITE)
@@ -303,6 +319,14 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
         page::{self, Fault},
     };
     let (command, args) = args.subcommand().expect("required page command");
+    if command == "create" {
+        let source = args
+            .get_one::<std::path::PathBuf>("file")
+            .map(|path| page_source(path))
+            .transpose()?
+            .unwrap_or_default();
+        return cli_management::create_page(root, args, source);
+    }
     let source = if command == "write" {
         Some(page_source(
             args.get_one::<std::path::PathBuf>("file")

@@ -10,6 +10,7 @@ COPY extensions/tmt-squad/ ../extensions/tmt-squad/
 COPY extensions/tmt-remote/rust/ ../extensions/tmt-remote/rust/
 COPY extensions/tmt-colab/rust/ ../extensions/tmt-colab/rust/
 COPY extensions/tmt-colab/contracts/ ../extensions/tmt-colab/contracts/
+COPY contracts/ ../contracts/
 ARG TMT_NATIVE_PROFILE=dev
 # Every cargo command below reads this; `pnpm test:e2e` forwards a host value.
 ARG CARGO_BUILD_JOBS=default
@@ -56,6 +57,8 @@ COPY --from=native-tests /native-artifacts/tmt /workspace/rust/target/debug/tmt
 COPY --from=native-tests /native-artifacts/tmt-office /workspace/rust/target/debug/tmt-office
 COPY --from=native-tests /native-artifacts/tmt-squad /workspace/rust/target/debug/tmt-squad
 COPY --from=native-tests /native-artifacts/tmt-remote /workspace/rust/target/debug/tmt-remote
+# test/support/cli-process launches native scenarios through this neutral caller fixture.
+COPY --from=native-tests /native-artifacts/codex /workspace/rust/target/debug/examples/runtime-caller-fixture
 ENV TMT_TEST_TMUX_PROBE='{"executable":"/opt/tmt-tests/tmux-probe","args":[]}'
 # Run process lifecycle tests under the wrapper's --init, not a build-stage
 # shell that may retain orphan zombies. Both suites share network isolation.

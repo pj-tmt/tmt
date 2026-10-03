@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import Database from 'better-sqlite3';
+import { spawnRealTmuxCli, releaseRealTmuxCli, readRealTmuxCli } from './real-tmux-caller.js';
 import { describe, expect, it } from 'vite-plus/test';
 import { resolveCliExecutables } from '../support/cli-executable.mjs';
 import { expectJsonResult } from './cli-assertions.js';
@@ -64,6 +66,112 @@ async function squadWithMember(fixture: E2EFixture): Promise<string> {
 }
 
 describe('squad on a private tmux server', { concurrent: false }, () => {
+  it('queues cron announcements for the right owners and reconciles retirement in isolated storage', async () => {
+    await withE2EFixture(async (fixture) => {
+      installSquad(fixture);
+      const home = path.join(fixture.root, 'cron-home');
+      fs.mkdirSync(home);
+      fixture.tmux(['set-environment', '-g', 'HOME', home]);
+      fixture.tmux(['set-environment', '-g', 'XDG_CACHE_HOME', path.join(home, 'cache')]);
+      fixture.tmux(['set-environment', '-g', 'TMUX_TEAM_HOME', fixture.globalDir]);
+      expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
+      const ownerPane = fixture.createShellPane('cron-owner');
+      const leadPane = fixture.createShellPane('cron-lead');
+      expectJsonResult(await fixture.runJsonCli(['add', '--save', ownerPane.pane, 'worker']));
+      expectJsonResult(await fixture.runJsonCli(['add', '--save', leadPane.pane, 'Sol']));
+      const owner = durableIdentity(fixture, 'worker').id;
+      const lead = durableIdentity(fixture, 'Sol').id;
+      expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
+      expectJsonResult(await squadCli(fixture, ['lead', 'Sol']));
+      expectJsonResult(await squadCli(fixture, ['add', 'worker']));
+      let commandNumber = 0;
+      const cron = async (args: string[]) => {
+        const process = await spawnRealTmuxCli(fixture, ['squad', 'cron', ...args, '--json'], {
+          name: `cron-${commandNumber++}`,
+          json: false,
+        });
+        await releaseRealTmuxCli(fixture, process);
+        const result = readRealTmuxCli<Record<string, unknown>>(process);
+        return {
+          code: result.code,
+          stdout: JSON.stringify(result.stdout),
+          stderr: result.stderr,
+          json: result.stdout,
+        };
+      };
+      const observeNotices = () => {
+        const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+        try {
+          return db
+            .prepare(
+              'SELECT recipient_identity_id AS recipient, request_kind AS kind, message_text AS message FROM request_attempts ORDER BY rowid'
+            )
+            .all() as { recipient: string; kind: string; message: string }[];
+        } finally {
+          db.close();
+        }
+      };
+      expectJsonResult(
+        await cron([
+          'add',
+          'product',
+          'worker',
+          '--identity',
+          'Ben',
+          '--every',
+          '1h',
+          'literal {time} reminder',
+        ])
+      );
+      expect(observeNotices()).toHaveLength(1);
+      expectJsonResult(await cron(['pause', 'product', 'c1', '--identity', 'Ben']));
+      expect(observeNotices().at(-1)).toMatchObject({
+        recipient: owner,
+        message: expect.stringContaining('paused by Ben'),
+      });
+      expectJsonResult(await cron(['resume', 'product', 'c1', '--identity', 'Ben']));
+      expect(observeNotices().at(-1)).toMatchObject({
+        recipient: owner,
+        message: expect.stringContaining('resumed by Ben'),
+      });
+      expectJsonResult(await cron(['reassign', 'product', 'c1', 'Sol', '--identity', 'Ben']));
+      expect(observeNotices().slice(-2)).toMatchObject([
+        { recipient: owner },
+        { recipient: lead, message: expect.stringContaining('literal {time} reminder') },
+      ]);
+      const count = observeNotices().length;
+      expectJsonResult(await cron(['pause', 'product', 'c1', '--identity', 'Sol']));
+      expect(observeNotices()).toHaveLength(count);
+      expectJsonResult(await cron(['reassign', 'product', 'c1', 'worker', '--identity', 'Ben']));
+      expectJsonResult(await fixture.runJsonCli(['rm', 'worker', '--force']));
+      const retired = expectJsonResult(await cron(['show', 'product', 'c1']));
+      expect(retired.job).toMatchObject({ state: 'no owner', ownerId: null });
+      expect(observeNotices().at(-1)).toMatchObject({
+        recipient: lead,
+        message: expect.stringContaining('worker retired'),
+      });
+      const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+      try {
+        expect(
+          db
+            .prepare(
+              "SELECT state FROM identity_hooks WHERE consumer='squad-cron' AND identity_id=?"
+            )
+            .get(owner)
+        ).toEqual({ state: 'delivered' });
+      } finally {
+        db.close();
+      }
+      const after = observeNotices().length;
+      expectJsonResult(await cron(['ls']));
+      expect(observeNotices()).toHaveLength(after);
+      for (const notice of observeNotices()) {
+        expect(notice.kind).toBe('announcement');
+        expect(notice.message.startsWith('▚ ⏱')).toBe(true);
+      }
+    });
+  });
+
   it('drops a lost temporary member on the first read and retains a saved member offline', async () => {
     await withE2EFixture(async (fixture) => {
       const temporaryPane = await squadWithMember(fixture);

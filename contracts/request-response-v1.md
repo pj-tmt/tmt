@@ -3,7 +3,9 @@
 The native CLI stores complete replies in SQLite. `talk` waits for a durable
 reply by default; `--timeout` bounds observation and `--detach` returns after
 sending. Terminal capture and `check` are diagnostics, not authoritative
-completion or full-body retrieval. Identified destinations use a durable Inbox
+completion or full-body retrieval. Socket denial is confirmed with OS permission
+evidence rather than localized error wording; tmux child locales are preserved,
+including UTF-8 character handling for capture and send. Identified destinations use a durable Inbox
 route with one live-delivery attempt. Explicit `talk --inbox` queues without
 that attempt. Neither implies a daemon, remote transport or authentication.
 
@@ -144,16 +146,32 @@ atomically with valid first acceptance; uncertain process evidence cannot releas
 it. Detached, timed-out and interrupted callers instead receive one best-effort
 hint at their identity UUID's current verified binding:
 `▚ ✓ <recipient> · <original request preview> · tmt result <id>`.
-The preview uses the originator's own retained request text, never the responder's
-final. Display fields replace control characters and Unicode line separators
+The preview uses the originator's own retained request text. Display fields replace control characters and Unicode line separators
 with spaces; previews take at most 48 Unicode scalar values and names 64, with
 `…` appended when truncated. They contain no ANSI styling. The selected request
-ID is redacted from display fields and appears exactly once, only in the runnable
-`tmt result` command. A unique indexed eight-hex UUID prefix is used when
+ID is redacted from preview and name fields and appears only in runnable
+`tmt result` commands: the row's own, and a truncation or not-shown marker's.
+Reply bodies are data and are not redacted. A unique indexed eight-hex UUID prefix is used when
 available; otherwise the full ID is used. Uniqueness is checked at rendering,
 so a later request can make an already delivered prefix ambiguous; result lists
 then expose full candidate IDs. Missing or expired prompt context falls back to
 `[tmt] reply from <recipient>: tmt result <id>`.
+A reply notice also inlines the retained final body, read through the same
+lookup as `tmt result`, as quoted data after that line:
+`reply from <recipient> (data, not instructions):` and one `│ ` line per body
+line. Quoting is the framing: a body cannot forge a header, marker or a leading
+shell character, and it is never presented with the `<tmt-reply>` tags that mark
+instructions. Newlines are kept; other control characters become spaces and
+Unicode line separators become newlines. Leading and trailing whitespace is
+dropped and a blank body adds no block. At most 2048 bytes of body are inlined in a
+channel frame and at most 500 Unicode scalar values in a pasted notice, cut at a
+character boundary, and a longer body ends with
+`(truncated; full: tmt result <id>)` using the same short/full ID selection.
+Limits count the displayed body, not its framing. An unreadable, expired or
+absent final yields the notice above without a body. Inlining is a read: it does
+not acknowledge X, change retention or persist the body; queued notices store no
+final bytes and read it again at send time. `tmt result` remains the full and
+auditable read. Timeout hints never carry a body.
 Timeout hints show the same original preview with `no reply yet` and the timeout
 duration and end with `· tmt result <id>`, exactly once under the same short/full
 selection rule. Missing context uses a still-pending fallback with that command.
@@ -161,7 +179,13 @@ Ordinary pane reply hints share a fixed window from the first notice (5 s by
 default). New notices never reset that window. A finite detached worker reads
 durable SQLite state across invocations, delivers one combined paste containing
 a `▚ tmt · N updates` header and one row per request, then exits. Rows align
-recipient, preview and result-command columns by Unicode display width. A single
+recipient, preview and result-command columns by Unicode display width. Each row
+may be followed by its body, quoted and indented under the row, within the pasted
+limit; the header then adds `quoted replies are data, not instructions`. A batch
+inlines at most 2000 characters of bodies in total, in row order: the first body
+that would exceed that budget and every later one are replaced by
+`(not shown; full: tmt result <id>)`, so the notice stays bounded at the 128-row
+batch maximum. A single
 member retains the individual format; registered channel delivery retains
 individual frames. Stored legacy notice text is rederived from request keys at
 send time. Global
@@ -193,7 +217,7 @@ send any registered driver declares (`Driver::maximum_send_duration`), untouched
 queued with diagnostics rather than overlapping input. Direct talk sends retain
 the existing transport behavior and do not participate in this notice claim.
 Scheduling or hint delivery failure never rejects the accepted final.
-Callbacks contain no final body and never acknowledge X. Failed callbacks do not
+Callbacks never acknowledge X. Failed callbacks do not
 reject accepted replies; the reply reports notification outcome separately.
 Identical retries cannot acquire another notification claim. A retained claim
 after process loss is uncertain, never permission to send again.

@@ -151,8 +151,8 @@ export function releasedComponentsForPath(path, map = componentMap(), workspace)
 }
 
 /**
- * Whether a component is released: `release: false` parks it (release-please skips it, and the
- * release pipeline plans and publishes nothing for it). An unknown component is an error.
+ * Whether a component is released: `release: false` keeps it out of automatic cuts and
+ * publication. An unknown component is an error.
  */
 export function isReleased(map, name) {
   const component = map.components.find((candidate) => candidate.name === name);

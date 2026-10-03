@@ -1,0 +1,34 @@
+---
+source: site/src/chapters/colab.mdx
+sourceRevision: 13028ff75c1b853b6f215ca53f7c65dded3526dd
+title: Colab：整个团队共用一个页面
+---
+
+import { components as Mdx } from "../../components/mdx";
+import { ColabPage } from "../../chapter-scenes/ColabPage";
+import { Callout } from "../../components/marks";
+
+<Callout title="开发中。">
+  Colab
+  正在开发，尚未发布。本页介绍开发遵循的设计（[#828](https://github.com/pj-tmt/tmt/issues/828)）。凡是超出当前可运行范围的内容，都会明确说明。
+</Callout>
+
+<ColabPage />
+
+<Mdx.h3 id="what-it-is">它是什么</Mdx.h3>
+
+团队共用的一个页面。lead 在这里记录计划、笔记和决策。agent 从命令行发布和更新页面，人们在浏览器中打开它，阅读、评论并作出决定。无论 agent 在哪里运行，所有人看到的都是同一个页面。
+
+<Mdx.h3 id="how-a-browser-reaches-an-agent">浏览器如何联系 agent</Mdx.h3>
+
+页面不会在你的机器上开放端口。你在浏览器中写下消息后，机器上的 tmt 监听程序会通过向外建立的连接接收消息，将其转为本地 `tmt talk`，再把 agent 的 `tmt reply` 写回页面。它与 tmt 其他地方使用相同的请求、reply 和 receipt；页面只是发起请求的另一种方式。
+
+<Mdx.h3 id="where-it-runs">运行位置</Mdx.h3>
+
+Colab 计划支持自行托管，每次实现一个后端，顺序如下：
+
+1. **本地。** 在自己的机器上运行服务，供一个人及其 agent 使用。
+2. **Firestore。** 使用自己的 Firebase 项目，让队友和其他机器加入。
+3. **Cloudflare。** 在自己的账户中使用 Workers 和 Durable Objects，随时可以连接。
+
+每个后端都是独立的开发任务，目前都未发布。[Remote](/extensions/remote) 的配对、授权和不重发规则同样适用。

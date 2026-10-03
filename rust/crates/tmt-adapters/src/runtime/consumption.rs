@@ -95,7 +95,7 @@ impl Consumption {
         Some(())
     }
 
-    fn valid(&self) -> bool {
+    pub(crate) fn valid(&self) -> bool {
         self.counts().valid()
             && uuid::Uuid::parse_str(&self.epoch).is_ok()
             && self.sequence > 0
@@ -279,6 +279,9 @@ fn claude_until(
         }),
     };
     let Some(previous) = previous else {
+        if end == 0 {
+            return Some(baseline(false));
+        }
         // Absorb the last historical group if later content-block records
         // for it are appended. IDs absent from legacy fixtures mean no counter.
         let message =
@@ -295,7 +298,11 @@ fn claude_until(
         return None;
     }
     let cursor = previous.cursor.as_ref()?;
-    if cursor.dev != metadata.dev() || cursor.ino != metadata.ino() || end < cursor.offset {
+    if cursor.dev != metadata.dev()
+        || cursor.ino != metadata.ino()
+        || end < cursor.offset
+        || end - cursor.offset > transcript::TAIL_LIMIT
+    {
         return Some(baseline(true));
     }
     if end == cursor.offset {
@@ -303,8 +310,8 @@ fn claude_until(
     }
     file.seek(SeekFrom::Start(cursor.offset)).ok()?;
     let mut reader = BufReader::with_capacity(8192, file.take(end - cursor.offset));
-    // A record (including its newline) retains the old one-MiB bound, but
-    // the appended range can contain arbitrarily many records until deadline.
+    // Only the bounded appended tail is eligible. Backlog outside that tail
+    // establishes a gap above, without replaying the old prefix.
     let mut raw = Vec::with_capacity(transcript::TAIL_LIMIT as usize);
     let mut next = previous.clone();
     let mut consumed = 0u64;

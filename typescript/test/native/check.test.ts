@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import Database from 'better-sqlite3';
 import path from 'node:path';
@@ -32,21 +32,32 @@ describe('native check process preflight', () => {
       mkdirSync(directory);
       const executable = path.join(directory, 'tmux');
       sandbox.env.PATH = `${directory}${path.delimiter}${sandbox.env.PATH ?? ''}`;
-      for (const reason of ['Permission denied', 'Operation not permitted']) {
-        writeExecutable(
-          executable,
-          `#!/bin/sh\nprintf "error connecting to /tmp/private.sock (${reason})\\n" >&2\nexit 1\n`,
-          0o755
-        );
-        for (const args of [
-          ['check', '%14', '--json'],
-          ['talk', '%14', 'must not send', '--detach', '--json'],
+      const blocked = path.join(sandbox.root, 'blocked-socket-directory');
+      mkdirSync(blocked);
+      chmodSync(blocked, 0o600);
+      try {
+        for (const reason of [
+          'Permission denied',
+          'Operation not permitted',
+          'Permission refusée',
         ]) {
-          const failed = await runCli(sandbox, args);
-          expect(failed.status).toBe(1);
-          expectError(failed, 'TMUX_PERMISSION_DENIED');
-          expect(failed.stderr).toBe('');
+          writeExecutable(
+            executable,
+            `#!/bin/sh\nprintf "error connecting to ${blocked}/private.sock (${reason})\\n" >&2\nexit 1\n`,
+            0o755
+          );
+          for (const args of [
+            ['check', '%14', '--json'],
+            ['talk', '%14', 'must not send', '--detach', '--json'],
+          ]) {
+            const failed = await runCli(sandbox, args);
+            expect(failed.status).toBe(1);
+            expectError(failed, 'TMUX_PERMISSION_DENIED');
+            expect(failed.stderr).toBe('');
+          }
         }
+      } finally {
+        chmodSync(blocked, 0o700);
       }
       const database = new Database(sandbox.database, { readonly: true });
       try {

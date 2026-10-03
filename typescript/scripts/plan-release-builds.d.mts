@@ -32,6 +32,7 @@ export interface ReleasePlan {
 export function planReleaseBuilds(input: {
   releases: readonly ReleaseObject[];
   product: string;
+  tag?: string;
   retry?: string;
   hold?: string;
   rerun?: string;

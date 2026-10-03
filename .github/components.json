@@ -1,6 +1,6 @@
 {
   "$comment": [
-    "The one component map. typescript/scripts/ci-scope.mjs reads it to decide which CI consumers a changed path selects; release-cut.mjs reads it directly for shadow release attribution; release-please-config.mjs still generates the active release-please-config.json until the migration removes it.",
+    "The one component map. typescript/scripts/ci-scope.mjs reads it to decide which CI consumers a changed path selects; release-cut.mjs reads it for released-root membership at the exact main cut.",
     "components: who owns which paths. `owns` roots minus `excludes` decide ownership, a `selectedBy` glob wins over the root, and `package` is the Cargo package.",
     "rules: ordered, the first rule whose `paths` match a changed path decides native verification (Rust, tooling and E2E jobs). No match retains full native verification. Component ownership and Office-specific machinery decide frozen Office verification in ci-scope.mjs; rules do not select Office.",
     "Office SPA, browser and local-service/companion verification share the ownership-only Office selector in ci-scope.mjs; weekly/manual runs cover shared inputs, while merge groups and main pushes never select Office work.",
@@ -24,7 +24,8 @@
         "rust/crates/tmt-tui",
         "rust/crates/tmt-extension-state",
         "rust/crates/tmt-test-support",
-        "rust/crates/tmt-driver-herdr"
+        "rust/crates/tmt-driver-herdr",
+        "rust/crates/tmt-release-tool"
       ],
       "migrations": ["rust/crates/tmt-adapters/src/storage/migrations.rs"]
     },
@@ -83,17 +84,14 @@
     },
     "tmt-tui": {
       "owns": ["rust/crates/tmt-tui"],
-      "releaseConsumers": ["squad"],
       "release": false
     },
     "tmt-cli-style": {
       "owns": ["rust/crates/tmt-cli-style"],
-      "releaseConsumers": ["squad"],
       "release": false
     },
     "tmt-invoke": {
       "owns": ["rust/crates/tmt-invoke"],
-      "releaseConsumers": ["squad"],
       "release": false
     },
     "tmt-colab": {
@@ -117,6 +115,11 @@
       "owns": ["rust/crates/tmt-driver-herdr"],
       "release": false,
       "bootstrapSha": "6ed7f3f9f0070076d4ca78e9fcc2f4de4457fbbd"
+    },
+    "tmt-release-tool": {
+      "releaseStatus": "never",
+      "owns": ["rust/crates/tmt-release-tool"],
+      "release": false
     }
   },
   "rules": [

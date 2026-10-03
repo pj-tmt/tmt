@@ -33,7 +33,15 @@ fn run(explicit: Option<String>) -> Result<Report, Failure> {
     // database discovery. Explicit selectors still resolve through storage.
     let selector = identity_context::required(explicit.as_deref())?;
     let paths = ConfigPaths::discover().map_err(notes_failure)?;
-    let mut storage = Storage::open(paths.database.clone()).map_err(notes_failure)?;
+    let mut storage = Storage::open(&paths.database).map_err(|error| {
+        Failure::storage_access(
+            error,
+            &paths.global_dir,
+            "No notes file was initialized.",
+            "NOTES_IO_ERROR",
+            "Could not initialize the saved identity notes file.",
+        )
+    })?;
     let pending = (|| {
         let identity = identity_context::resolve(&mut storage, selector)?;
         let identity_id = NotesIdentityId::try_from(&identity).map_err(|error| match error {

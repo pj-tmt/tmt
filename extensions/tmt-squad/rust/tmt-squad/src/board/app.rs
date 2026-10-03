@@ -11,7 +11,7 @@ use crate::{
     effects,
 };
 use ratatui::crossterm::event::{
-    KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use serde_json::Value;
 use std::{
@@ -219,11 +219,48 @@ const INPUT_LIMIT: usize = 4000;
 
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
+/// Shared routing identifies the active surface; its controller owns effects.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Overlay {
+    Help,
+    Settings,
+    View,
+    Theme,
+    Switcher,
+}
+impl Overlay {
+    fn id(self) -> tmt_tui::app::ComponentId {
+        vec![
+            match self {
+                Self::Help => "help",
+                Self::Settings => "settings",
+                Self::View => "view-picker",
+                Self::Theme => "theme-picker",
+                Self::Switcher => "switcher",
+            }
+            .into(),
+        ]
+    }
+}
+
 /// The quick switcher: a filter over every tab, hidden ones included.
-#[derive(Debug, Default)]
 pub struct Switcher {
-    pub query: String,
-    pub selected: usize,
+    pub(super) surface: RefCell<super::picker_surface::State>,
+}
+impl Default for Switcher {
+    fn default() -> Self {
+        Self::new(String::new())
+    }
+}
+impl Switcher {
+    pub fn new(query: String) -> Self {
+        Self {
+            surface: RefCell::new(super::picker_surface::State::new(Some(query), vec![], None)),
+        }
+    }
+    pub fn query(&self) -> String {
+        self.surface.borrow().picker.query().unwrap_or("").into()
+    }
 }
 
 /// Where one tab was drawn on the tab line, for clicks and drags.
@@ -286,6 +323,7 @@ pub struct App {
     pub notice: Option<String>,
     pub help: bool,
     pub(super) help_state: RefCell<super::help::Help>,
+    overlay_focus: tmt_tui::app::FocusStack,
     pub menu: Option<Menu>,
     pub(super) view_picker: Option<super::view_picker::Picker>,
     pub(super) theme_picker: Option<super::theme_picker::Picker>,
@@ -484,9 +522,12 @@ impl App {
             overlay.squad_keys = snapshot.squad_keys.clone();
         }
         self.squad_keys = snapshot.squad_keys;
+
+        self.invalidate_overlay_frames();
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
         self.pinned = snapshot.pinned;
+        self.reconcile_switcher(false);
         self.note_cursors
             .borrow_mut()
             .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
@@ -1649,36 +1690,105 @@ impl App {
         effect
     }
 
-    pub fn key(&mut self, key: KeyEvent) -> Effect {
-        if self.help {
-            return self.help_event(ratatui::crossterm::event::Event::Key(key));
-        }
-        self.notice = None;
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-            return Effect::Quit;
-        }
-        if let Some(overlay) = &mut self.settings {
-            let editing = overlay.editing();
-            let input = overlay.key(key);
-            if !editing && overlay.editing() {
-                overlay.opening_focus = self.focus;
-            }
-            return match input {
-                super::settings::Input::None => Effect::None,
-                super::settings::Input::Save => Effect::SaveSetting,
-                super::settings::Input::Preview => {
-                    self.settings_preview();
-                    Effect::None
-                }
-                super::settings::Input::Close => {
-                    self.settings_preview();
-                    self.settings = None;
-                    Effect::CancelSettings
-                }
+    /// A modal event is consumed before base dispatch. New surfaces add their
+    /// identity and controller arm here; rendering and worker effects stay outside.
+    pub(super) fn overlay_event(&mut self, event: &Event) -> Option<Effect> {
+        use tmt_tui::app::{Routed, route};
+        let Some(overlay) = self.overlay() else {
+            self.overlay_focus.close();
+            return None;
+        };
+        let id = overlay.id();
+        let mut focus = std::mem::take(&mut self.overlay_focus);
+        if focus.overlay() != Some(&id) {
+            focus.reconcile_base(vec![vec![self.focused().title().into()]]);
+            let fields = match overlay {
+                Overlay::Switcher => vec![
+                    vec!["switcher".into(), "query".into()],
+                    vec!["switcher".into(), "choices".into()],
+                ],
+                Overlay::Theme => vec![vec!["theme-picker".into(), "choices".into()]],
+                Overlay::View => vec![vec!["view-picker".into(), "choices".into()]],
+                Overlay::Settings => vec![vec!["settings".into(), "content".into()]],
+                _ => vec![],
             };
+            focus.open(id, fields);
         }
-        if let Some(picker) = &mut self.view_picker {
-            return match picker.key(key) {
+        let routed = route(&mut focus, event, |field, event| {
+            self.overlay_input(overlay, field, event)
+        });
+        // Applying a close must never replay this event into the restored base.
+        if self.overlay() != Some(overlay) {
+            focus.close();
+        }
+        self.overlay_focus = focus;
+        Some(match routed {
+            Routed::Handled(effect) => effect,
+            Routed::Quit => Effect::Quit,
+            Routed::Captured | Routed::Unhandled => Effect::None,
+        })
+    }
+
+    fn overlay(&self) -> Option<Overlay> {
+        if self.help {
+            Some(Overlay::Help)
+        } else if self.settings.is_some() {
+            Some(Overlay::Settings)
+        } else if self.view_picker.is_some() {
+            Some(Overlay::View)
+        } else if self.theme_picker.is_some() {
+            Some(Overlay::Theme)
+        } else if self.switcher.is_some() {
+            Some(Overlay::Switcher)
+        } else {
+            None
+        }
+    }
+
+    fn overlay_input(
+        &mut self,
+        overlay: Overlay,
+        field: &tmt_tui::app::ComponentId,
+        event: &Event,
+    ) -> Option<Effect> {
+        match overlay {
+            Overlay::Help => {
+                let input = self.help_state.borrow_mut().input(event);
+                match input? {
+                    super::help::Input::Close => self.help = false,
+                    super::help::Input::Scroll => {}
+                }
+                Some(Effect::None)
+            }
+            Overlay::Settings => match event {
+                Event::Key(key) => {
+                    let overlay = self.settings.as_mut()?;
+                    let editing = overlay.editing();
+                    let input = overlay.key(*key);
+                    if !editing && overlay.editing() {
+                        overlay.opening_focus = self.focus;
+                    }
+                    Some(match input {
+                        super::settings::Input::None => Effect::None,
+                        super::settings::Input::Save => Effect::SaveSetting,
+                        super::settings::Input::Preview => {
+                            self.settings_preview();
+                            Effect::None
+                        }
+                        super::settings::Input::Close => {
+                            self.settings_preview();
+                            self.settings = None;
+                            Effect::CancelSettings
+                        }
+                    })
+                }
+                Event::Mouse(mouse) => {
+                    self.settings.as_ref()?.mouse(*mouse);
+                    Some(Effect::None)
+                }
+                _ => None,
+            },
+            Overlay::View => Some(match self.view_picker.as_mut()?.input(event)? {
                 super::view_picker::Input::Preview => {
                     self.restore_focus();
                     Effect::None
@@ -1688,17 +1798,26 @@ impl App {
                     self.close_view_picker(false);
                     Effect::CancelView
                 }
-            };
-        }
-        if let Some(picker) = &mut self.theme_picker {
-            return match picker.key(key) {
+            }),
+            Overlay::Theme => Some(match self.theme_picker.as_mut()?.input(event)? {
                 super::theme_picker::Input::Preview => Effect::None,
                 super::theme_picker::Input::Save => Effect::SaveTheme,
                 super::theme_picker::Input::Cancel => {
                     self.theme_picker = None;
                     Effect::None
                 }
-            };
+            }),
+            Overlay::Switcher => self.switcher_event(event, field),
+        }
+    }
+
+    pub fn key(&mut self, key: KeyEvent) -> Effect {
+        if let Some(effect) = self.overlay_event(&Event::Key(key)) {
+            return effect;
+        }
+        self.notice = None;
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            return Effect::Quit;
         }
         // Refresh keeps text inputs intact and uses the same override owner
         // as ordinary keys; rebinding ctrl-r does not force a refresh.
@@ -1713,9 +1832,6 @@ impl App {
         }
         if self.menu.is_some() {
             return self.menu_key(key);
-        }
-        if self.switcher.is_some() {
-            return self.switcher_key(key);
         }
         if self.searching {
             match key.code {
@@ -1836,7 +1952,7 @@ impl App {
             // The switcher's key, unless the user bound `s` to something.
             KeyCode::Char('s') if !self.bound(key) => self.switcher = Some(Switcher::default()),
             KeyCode::Char('?') => {
-                self.help_state.borrow_mut().open(self.focused().title());
+                self.help_state.borrow_mut().open();
                 self.help = true;
             }
             _ => {
@@ -1855,43 +1971,84 @@ impl App {
         self.tabs.iter().chain(&self.hidden).cloned().collect()
     }
 
-    fn switcher_key(&mut self, key: KeyEvent) -> Effect {
+    fn reconcile_switcher(&self, reset: bool) {
         let keys = self.switchable();
-        let Some(switcher) = &mut self.switcher else {
-            return Effect::None;
+        let Some(switcher) = &self.switcher else {
+            return;
         };
-        match key.code {
-            KeyCode::Esc => {
-                self.switcher = None;
-                return Effect::None;
-            }
-            KeyCode::Up => switcher.selected = switcher.selected.saturating_sub(1),
-            KeyCode::Down => switcher.selected += 1,
-            KeyCode::Backspace => {
-                switcher.query.pop();
-                switcher.selected = 0;
-            }
-            KeyCode::Char(character)
-                if !character.is_control() && !key.modifiers.contains(KeyModifiers::CONTROL) =>
-            {
-                switcher.query.push(character);
-                switcher.selected = 0;
-            }
-            KeyCode::Enter => {
-                let chosen = super::tabs::matching(&keys, &switcher.query)
-                    .get(switcher.selected)
-                    .map(|key| (*key).clone());
-                self.switcher = None;
-                return match chosen {
-                    Some(key) => self.go(key),
-                    None => Effect::None,
-                };
-            }
-            _ => {}
+        let mut surface = switcher.surface.borrow_mut();
+        let query = surface.picker.query().unwrap_or("");
+        let rows: Vec<_> = super::tabs::matching(&keys, query)
+            .into_iter()
+            .map(|key| tmt_tui::components::ListRow {
+                id: key.clone(),
+                disabled: false,
+            })
+            .collect();
+        let first = rows.first().map(|row| row.id.clone());
+        surface.reconcile(rows);
+        if reset && let Some(id) = first {
+            surface.select(&id);
         }
-        let count = super::tabs::matching(&keys, &switcher.query).len();
-        switcher.selected = switcher.selected.min(count.saturating_sub(1));
-        Effect::None
+    }
+
+    fn switcher_event(
+        &mut self,
+        event: &Event,
+        field: &tmt_tui::app::ComponentId,
+    ) -> Option<Effect> {
+        use tmt_tui::components::{PickerEvent, PickerField, PickerInput};
+        let field = match field.last().map(String::as_str) {
+            Some("query") => PickerField::Query,
+            Some("choices") => PickerField::List,
+            _ => return None,
+        };
+        self.reconcile_switcher(false);
+        let input = self
+            .switcher
+            .as_ref()?
+            .surface
+            .borrow_mut()
+            .input(event, field);
+        match input {
+            Some(PickerInput::Event(PickerEvent::Cancel)) => self.switcher = None,
+            Some(PickerInput::Event(PickerEvent::Confirm(key))) => {
+                self.switcher = None;
+                return Some(self.go(key));
+            }
+            Some(PickerInput::Event(PickerEvent::QueryChanged(_))) => self.reconcile_switcher(true),
+            Some(_) => {}
+            None if matches!(event, Event::Key(key) if key.code == KeyCode::Enter)
+                && self
+                    .switcher
+                    .as_ref()?
+                    .surface
+                    .borrow()
+                    .picker
+                    .list
+                    .selected()
+                    .is_none() =>
+            {
+                self.switcher = None
+            }
+            None => return None,
+        }
+        Some(Effect::None)
+    }
+
+    pub(super) fn invalidate_overlay_frames(&self) {
+        if let Some(settings) = &self.settings {
+            settings.surface.borrow_mut().invalidate();
+        }
+        if let Some(picker) = &self.theme_picker {
+            picker.surface.borrow_mut().invalidate();
+        }
+        if let Some(picker) = &self.view_picker {
+            picker.surface.borrow_mut().invalidate();
+        }
+        if let Some(switcher) = &self.switcher {
+            switcher.surface.borrow_mut().invalidate();
+        }
     }
 
     fn bound(&self, key: KeyEvent) -> bool {
@@ -1934,40 +2091,14 @@ impl App {
         }
     }
 
-    fn help_event(&mut self, event: ratatui::crossterm::event::Event) -> Effect {
-        use tmt_tui::app::Routed;
-        let routed = self
-            .help_state
-            .borrow_mut()
-            .input(&event, self.focused().title());
-        match routed {
-            Routed::Quit => Effect::Quit,
-            Routed::Handled(super::help::Input::Close) => {
-                self.help = false;
-                Effect::None
-            }
-            _ => Effect::None,
-        }
-    }
-
     /// The wheel scrolls the pane under the pointer, whichever is focused.
     /// A left click focuses the pane under it and selects the row under it, then runs its `click` binding;
     /// a second click on the same row soon after runs `double-click`.
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
-        if self.help {
-            return self.help_event(ratatui::crossterm::event::Event::Mouse(event));
+        if let Some(effect) = self.overlay_event(&Event::Mouse(event)) {
+            return effect;
         }
-        if let Some(overlay) = &self.settings {
-            overlay.mouse(event);
-            return Effect::None;
-        }
-        if self.view_picker.is_some()
-            || self.theme_picker.is_some()
-            || self.menu.is_some()
-            || self.input.is_some()
-            || self.help
-            || self.switcher.is_some()
-        {
+        if self.menu.is_some() || self.input.is_some() {
             return Effect::None;
         }
         let lines = match event.kind {
@@ -2160,6 +2291,108 @@ pub(crate) mod tests {
             me: None,
             replies: Vec::new(),
         }
+    }
+
+    #[test]
+    fn switcher_fields_keep_query_text_and_refresh_selection_by_identity() {
+        let mut app = App::new(Some("product".into()));
+        app.apply(snapshot("product", json!([])));
+        press(&mut app, KeyCode::Char('s'));
+        press(&mut app, KeyCode::Down);
+        let chosen = app
+            .switcher
+            .as_ref()
+            .unwrap()
+            .surface
+            .borrow()
+            .picker
+            .list
+            .selected()
+            .unwrap()
+            .to_owned();
+        let mut updated = snapshot("product", json!([]));
+        updated.tabs.reverse();
+        app.apply(updated);
+        assert_eq!(
+            app.switcher
+                .as_ref()
+                .unwrap()
+                .surface
+                .borrow()
+                .picker
+                .list
+                .selected(),
+            Some(chosen.as_str())
+        );
+        let current = app.current.clone();
+        let focus = app.focus;
+        press(&mut app, KeyCode::Char('q'));
+        assert_eq!(app.switcher.as_ref().unwrap().query(), "q");
+        press(&mut app, KeyCode::Char('?'));
+        assert_eq!(app.switcher.as_ref().unwrap().query(), "q?");
+        press(&mut app, KeyCode::Backspace);
+        press(&mut app, KeyCode::Backspace);
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(
+            app.overlay_focus.focused().unwrap().last().unwrap(),
+            "choices"
+        );
+        press(&mut app, KeyCode::Char('q'));
+        assert!(
+            app.switcher.is_none(),
+            "q closes the list field and stays text in the query"
+        );
+        assert_eq!(app.current, current);
+        assert_eq!(app.focus, focus);
+    }
+
+    #[test]
+    fn common_overlay_route_consumes_close_release_and_unknown_mouse() {
+        use ratatui::crossterm::event::KeyEventKind;
+        let mut app = App::new(Some("product".into()));
+        app.apply(snapshot("product", json!([])));
+        let current = app.current.clone();
+        let focus = app.focus;
+        app.switcher = Some(Switcher::default());
+        let mut released = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+        released.kind = KeyEventKind::Release;
+        assert_eq!(app.key(released), Effect::None);
+        assert!(app.switcher.is_some(), "release cannot close a modal");
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL)),
+            Effect::None
+        );
+        assert_eq!(
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: 0,
+                    row: 0,
+                    modifiers: KeyModifiers::NONE,
+                },
+                Instant::now()
+            ),
+            Effect::None
+        );
+        assert_eq!(app.current, current);
+        assert_eq!(app.focus, focus);
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            Effect::None
+        );
+        assert!(app.switcher.is_none());
+        assert!(app.overlay_focus.overlay().is_none());
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL)),
+            Effect::Refresh
+        );
+        app.help_state.borrow_mut().open();
+        app.help = true;
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            Effect::Quit
+        );
+        assert!(app.help, "quit is an effect, not a replayed close");
     }
 
     #[test]

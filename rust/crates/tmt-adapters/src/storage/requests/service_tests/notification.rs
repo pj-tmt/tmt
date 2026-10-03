@@ -700,26 +700,43 @@ fn proven_dead_sender_releases_the_pane_without_replaying_attempted_input() {
 }
 
 #[test]
-fn notice_context_preserves_final_attention_and_notification_claims() {
+fn notice_context_reads_the_final_without_changing_attention_retention_or_claims() {
     let mut fixture = fixture(false, true);
     service(&mut fixture)
         .submit_response_with_hint(reply(), None)
         .unwrap();
     let before = request_snapshot(&fixture.database);
     let notification = service(&mut fixture).notification("notify").unwrap();
-    let context = service(&mut fixture)
-        .notice_context("notify")
+    let without = service(&mut fixture)
+        .notice_context("notify", false)
         .unwrap()
         .unwrap();
-    assert_eq!(context.prompt.as_deref(), Some("prompt for notify"));
+    assert_eq!(without.prompt.as_deref(), Some("prompt for notify"));
     assert_eq!(
-        context.recipient_id.as_deref(),
+        without.recipient_id.as_deref(),
         Some(fixture.identity_id.as_str())
     );
-    assert_eq!(context.result_id, "notify");
+    assert_eq!(without.result_id, "notify");
+    assert_eq!(without.reply, None, "a body is loaded only when requested");
+    let with = service(&mut fixture)
+        .notice_context("notify", true)
+        .unwrap()
+        .unwrap();
+    assert_eq!(with.reply.as_deref(), Some("durable final"));
     assert_eq!(request_snapshot(&fixture.database), before);
     assert_eq!(
         service(&mut fixture).notification("notify").unwrap(),
         notification
     );
+}
+
+#[test]
+fn notice_context_without_a_final_has_no_reply() {
+    let mut fixture = fixture(false, true);
+    let context = service(&mut fixture)
+        .notice_context("notify", true)
+        .unwrap()
+        .unwrap();
+    assert_eq!(context.prompt.as_deref(), Some("prompt for notify"));
+    assert_eq!(context.reply, None);
 }

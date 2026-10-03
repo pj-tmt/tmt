@@ -214,7 +214,13 @@ fn preflight(
 
 fn open_storage(paths: &ConfigPaths) -> Result<Storage, Failure> {
     Storage::open(&paths.database).map_err(|error| {
-        Failure::new("IDENTITY_ERROR", "Could not open identity storage.", 1).caused_by(error)
+        Failure::storage_access(
+            error,
+            &paths.global_dir,
+            "No identity was changed.",
+            "IDENTITY_ERROR",
+            "Could not open identity storage.",
+        )
     })
 }
 

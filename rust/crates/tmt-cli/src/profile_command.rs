@@ -141,7 +141,15 @@ fn run(request: Invocation) -> Result<Report, Failure> {
     let paths = ConfigPaths::discover().map_err(|error| {
         Failure::new(error_code(kind), "Could not discover profile storage.", 1).caused_by(error)
     })?;
-    let mut storage = Storage::open(paths.database).map_err(unavailable)?;
+    let mut storage = Storage::open(&paths.database).map_err(|error| {
+        Failure::storage_access(
+            error,
+            &paths.global_dir,
+            "No profile was changed.",
+            error_code(kind),
+            "Could not access profile storage.",
+        )
+    })?;
     let pending = (|| {
         let Some(action) = action else {
             return storage

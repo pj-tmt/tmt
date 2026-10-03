@@ -18,6 +18,8 @@ import { planReleaseBuilds } from '../../scripts/plan-release-builds.mjs';
 import type { DraftRelease } from '../../scripts/release-draft-assets.mjs';
 import { REQUIRED_CONTEXTS } from '../../scripts/publication-gates.mjs';
 
+import { writeReleaseWorkspace } from '../support/release-workspace-fixture.js';
+
 const script = fileURLToPath(new URL('../../scripts/publication-gates.mjs', import.meta.url));
 const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const MIGRATIONS = 'rust/crates/tmt-adapters/src/storage/migrations.rs';
@@ -73,6 +75,7 @@ const green = REQUIRED_CONTEXTS.map((name) => ({
 
 interface Scenario {
   migrations?: number;
+  failedCut?: 'breaking' | 'migration';
   subject?: string;
   body?: string;
   checkRuns?: typeof green;
@@ -101,6 +104,7 @@ function scenario(options: Scenario = {}) {
     path.join(repositoryRoot, '.github/components.json'),
     path.join(repo, '.github/components.json')
   );
+  writeReleaseWorkspace(repo);
   writeFileSync(path.join(repo, MIGRATIONS), list(2));
   writeFileSync(path.join(repo, 'rust/lib.rs'), 'fn a() {}\n');
   git('add', '-A');
@@ -108,8 +112,20 @@ function scenario(options: Scenario = {}) {
   git('tag', 'v5.0.0-alpha.8');
   const previous = git('rev-parse', 'HEAD');
   writeFileSync(path.join(repo, 'rust/lib.rs'), 'fn a() { 1; }\n');
-  git('commit', '-q', '-am', 'fix: a bug');
-  writeFileSync(path.join(repo, MIGRATIONS), list(options.migrations ?? 2));
+  if (options.failedCut === 'migration') writeFileSync(path.join(repo, MIGRATIONS), list(3));
+  git(
+    'commit',
+    '-q',
+    '-am',
+    options.failedCut === 'breaking' ? 'feat!: remove the old API' : 'fix: a bug',
+    '-m',
+    'Co-authored-by: Codex <codex@openai.com>'
+  );
+  const failed = git('rev-parse', 'HEAD');
+  writeFileSync(
+    path.join(repo, MIGRATIONS),
+    list(options.migrations ?? (options.failedCut === 'migration' ? 3 : 2))
+  );
   writeFileSync(path.join(repo, 'rust/lib.rs'), 'fn a() { 2; }\n');
   git(
     'commit',
@@ -166,6 +182,17 @@ function scenario(options: Scenario = {}) {
       },
     ],
   };
+  if (options.failedCut)
+    state.releases.push({
+      id: 3,
+      draft: true,
+      tag_name: 'v5.0.0-alpha.9',
+      target_commitish: failed,
+      created_at: '2026-09-30T00:35:00Z',
+      published_at: null,
+      immutable: false,
+      assets: assets(['verification-failed.json']),
+    });
   mkdirSync(state.uploads);
   writeFileSync(state.calls, '');
   const stateFile = path.join(directory, 'state.json');
@@ -182,6 +209,7 @@ function scenario(options: Scenario = {}) {
       cwd: repo,
       encoding: 'utf8',
       env: {
+        ...process.env,
         PATH: `${bin}${path.delimiter}${process.env.PATH}`,
         FAKE_GH_STATE: stateFile,
         GITHUB_REPOSITORY: 'wkh237/tmt',
@@ -223,6 +251,10 @@ function scenario(options: Scenario = {}) {
           throw new Error('Unexpected publication delete');
         },
         listReleases: () => readState().releases,
+        latestRelease: () => ({ tag_name: 'v5.0.0-alpha.9' }),
+        setLatest: () => {
+          throw new Error('Unexpected latest correction in the gate fixture');
+        },
         publish: (tag) => {
           const current = readState();
           current.releases = current.releases.map((release) =>
@@ -320,6 +352,28 @@ describe('publication-gates.mjs early', () => {
     expect(result.output).toBe('held=\nskip=\n');
     expect(result.summary).toContain(`${MIGRATIONS} has 3 migrations, 2 in v5.0.0-alpha.8`);
     expect(migration.uploaded('publication-held.json')).toBeNull();
+  });
+
+  it('keeps an unpublished failed draft out of the breaking-change boundary', () => {
+    const fixture = scenario({ failedCut: 'breaking', draftTag: 'v5.0.0-alpha.10', hold: null });
+    const result = fixture.run(['early', '--product', 'cli', '--tag', 'v5.0.0-alpha.10']);
+    expect(result.status).toBe(0);
+    expect(result.output).toBe('held=migration\nskip=\n');
+    expect(fixture.uploaded('publication-held.json')?.reason).toContain(
+      'feat!: remove the old API'
+    );
+    expect(
+      fixture.readState().releases.find((release) => release.tag_name === 'v5.0.0-alpha.9')?.draft
+    ).toBe(true);
+  });
+
+  it('counts migrations from the published ancestor despite a newer failed draft', () => {
+    const fixture = scenario({ failedCut: 'migration', draftTag: 'v5.0.0-alpha.10', hold: null });
+    const result = fixture.run(['early', '--product', 'cli', '--tag', 'v5.0.0-alpha.10']);
+    expect(result.status).toBe(0);
+    expect(result.output).toBe('held=\nskip=\n');
+    expect(result.summary).toContain(`${MIGRATIONS} has 3 migrations, 2 in v5.0.0-alpha.8`);
+    expect(fixture.uploaded('publication-held.json')).toBeNull();
   });
 
   it('holds a draft that carries a breaking commit, with or without a new migration', () => {
@@ -469,7 +523,7 @@ describe('held-draft rerun publication decisions', () => {
     expect(result.status).toBe(0);
     expect(result.summary).toContain('Every gate passed. The next job publishes the release.');
     expect(calls().filter((call) => call.includes('DELETE'))).toHaveLength(1);
-    expect(publication().flags).toContain('--latest=true');
+    expect(publication().flags).toContain('--latest=false');
     expect(
       readState().releases.find((release) => release.tag_name === 'v5.0.0-alpha.9')?.draft
     ).toBe(false);

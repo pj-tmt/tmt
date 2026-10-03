@@ -2,6 +2,9 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import childProcess from 'node:child_process';
+import http from 'node:http';
+import { syncBuiltinESMExports } from 'node:module';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import { verifyColabApp } from '../../scripts/colab-runtime-proof.mjs';
 import { colabFixtureBinary } from '../support/colab-runtime-fixture.js';
@@ -38,6 +41,88 @@ const proof = (variant = 'valid', combined = notices) =>
   });
 
 describe('relocated native Colab app proof', () => {
+  it('serves headers sent only after the native fixture accepts the connection', async () => {
+    const spawn = childProcess.spawn;
+    const requestAsset = http.request;
+    let accepted = false;
+    let released = false;
+    let diagnostic = '';
+    let releaseRequest: (() => void) | undefined;
+    const launch = vi.spyOn(childProcess, 'spawn').mockImplementation((...args) => {
+      const child = spawn(...args);
+      child.stderr?.on('data', (chunk) => {
+        diagnostic += chunk;
+        if (!diagnostic.includes('COLAB_FIXTURE_REQUEST_ACCEPTED')) return;
+        accepted = true;
+        releaseRequest?.();
+      });
+      return child;
+    });
+    let held = false;
+    const request = vi.spyOn(http, 'request').mockImplementation((...args) => {
+      const client = requestAsset(...args);
+      if (held) return client;
+      held = true;
+      const end = client.end.bind(client);
+      vi.spyOn(client, 'end').mockImplementation(() => {
+        releaseRequest = () => {
+          if (released) return;
+          released = true;
+          end();
+        };
+        if (accepted) releaseRequest();
+        return client;
+      });
+      return client;
+    });
+    syncBuiltinESMExports();
+    try {
+      await proof('REQUEST_BARRIER');
+      expect(accepted).toBe(true);
+      expect(released).toBe(true);
+    } finally {
+      launch.mockRestore();
+      request.mockRestore();
+      syncBuiltinESMExports();
+    }
+  });
+
+  it('classifies an immediate startup failure only after stderr drains past exit', async () => {
+    const spawn = childProcess.spawn;
+    const directories = vi.spyOn(fs, 'mkdtempSync');
+    let diagnostic = '';
+    let diagnosticAtExit: string | undefined;
+    const launch = vi.spyOn(childProcess, 'spawn').mockImplementation((...args) => {
+      const child = spawn(...args);
+      const stderr = child.stderr;
+      if (!stderr) throw new Error('Startup regression requires piped stderr');
+      const on = stderr.on.bind(stderr);
+      // Hold the real diagnostic until exit. Node resumes stdio after emitting
+      // exit and emits close only after it drains; no sleeps or invented events.
+      vi.spyOn(stderr, 'on').mockImplementation((event, listener) => {
+        const stream = on(event, listener);
+        if (event === 'data') stderr.pause();
+        return stream;
+      });
+      stderr.on('data', (chunk) => (diagnostic += chunk));
+      child.once('exit', () => (diagnosticAtExit = diagnostic));
+      return child;
+    });
+    syncBuiltinESMExports();
+    try {
+      await expect(proof('STARTUP_FAILURE')).rejects.toThrow(
+        'Colab exited before readiness: 1/null: COLAB_APP_UNAVAILABLE\n'
+      );
+      expect(diagnosticAtExit).toBe('');
+      expect(diagnostic).toBe('COLAB_APP_UNAVAILABLE\n');
+      expect(fs.existsSync(directories.mock.results[0].value)).toBe(false);
+    } finally {
+      launch.mockRestore();
+      directories.mockRestore();
+      syncBuiltinESMExports();
+    }
+  });
+
   it('excuses an exiting-group denial only after confirming group absence', async () => {
     const kill = process.kill.bind(process);
     let group = 0;

@@ -5,7 +5,7 @@ export interface SmokeResult {
   /** Bounded multiline diagnostics, when the short reason omits command output. */
   readonly detail?: string;
 }
-export function installerUrl(repository: string): string;
+export function installerUrl(repository: string, tag?: string): string;
 export function smokeRelease(input: {
   product: string;
   tag: string;

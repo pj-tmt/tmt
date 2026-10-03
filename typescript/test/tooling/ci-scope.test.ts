@@ -480,9 +480,10 @@ describe('component map', () => {
     // them: they check inputs that Squad-only changes can also change.
     const alwaysRun = [
       'typescript/test/tooling/ci-scope.test.ts',
-      'typescript/test/tooling/release-please-config.test.ts',
-      'typescript/test/tooling/release-stall.test.ts',
-      'typescript/test/tooling/release-pr-safety.test.ts',
+      'typescript/test/tooling/release-cut.test.ts',
+      'typescript/test/tooling/release-cut-live.test.ts',
+      'typescript/test/tooling/release-version-injection.test.ts',
+      'typescript/test/tooling/release-workflow.test.ts',
     ];
     const qualityCommand = /vp test run ([^\n]+)/.exec(
       readFileSync(path.join(repository, '.github/workflows/ci.yml'), 'utf8')
@@ -554,13 +555,26 @@ describe('component map', () => {
         'a fixture file name, not the repository README',
       'site/src/chapters/dev-extension.mdx': 'the handbook site links to the contract on GitHub',
     };
+    const layout = JSON.parse(
+      readFileSync(path.join(repository, '.github/repository-layout.json'), 'utf8')
+    ) as { languageExceptions: Record<string, string> };
+    // The handbook site links to the contract on GitHub in each listed translation too.
+    const translatedDevExtensionMentions = new Set(
+      Object.keys(layout.languageExceptions).map((directory) => `${directory}/dev-extension.mdx`)
+    );
     // Only files that contain ".md" at all can name prose.
     const candidates = runPackedCommand('git', ['grep', '-l', '-z', '-I', '-F', '.md', '--', '.'], {
       cwd: repository,
       env: process.env,
     })
       .split('\0')
-      .filter((file: string) => file && !file.endsWith('.md') && !(file in mentions));
+      .filter(
+        (file: string) =>
+          file &&
+          !file.endsWith('.md') &&
+          !(file in mentions) &&
+          !translatedDevExtensionMentions.has(file)
+      );
     expect(candidates.length).toBeGreaterThan(20);
     const readers: string[] = [];
     for (const file of candidates) {
@@ -1182,7 +1196,7 @@ describe('CI diff and command integration', () => {
         expect(fallback.outputs).toEqual(full);
         expect(fallback.evidence).toContain('diff unreadable; using full verification');
       }
-      // The earlier queued release selects native, even when HEADGREEN's last tip is site-only.
+      // The earlier queued workspace change selects native, even when HEADGREEN's last tip is site-only.
       git(['checkout', '--quiet', '--detach', base]);
       mkdirSync(path.join(root, 'rust'), { recursive: true });
       writeFileSync(
@@ -1193,14 +1207,17 @@ describe('CI diff and command integration', () => {
         path.join(root, 'rust/Cargo.lock'),
         '[[package]]\nname = "tmt-cli"\nversion = "5.0.0-alpha.35"\n'
       );
-      const release = commit('.release-please-manifest.json', '{".":"5.0.0-alpha.35"}\n');
+      const workspace = commit(
+        'rust/Cargo.toml',
+        '[workspace.package]\nversion = "5.0.0-alpha.35"\n'
+      );
       const siteTip = commit('site/src/chapters/start.mdx', 'site-only tip');
       // The old event-base range contains no native files: this is the causal negative control.
-      expect(select([release, siteTip]).outputs.native_scope).toBe('none');
+      expect(select([workspace, siteTip]).outputs.native_scope).toBe('none');
       const pending = select(['merge-group', siteTip]);
       expect(pending.outputs).toEqual(full);
       expect(pending.evidence).toContain(`${base.slice(0, 12)}..${siteTip.slice(0, 12)}`);
-      for (const file of ['rust/Cargo.toml', 'rust/Cargo.lock', '.release-please-manifest.json']) {
+      for (const file of ['rust/Cargo.toml', 'rust/Cargo.lock']) {
         expect(pending.evidence).toContain(file);
       }
       git(['update-ref', '-d', 'refs/remotes/origin/main']);
@@ -2064,6 +2081,12 @@ describe('required CI gate', () => {
       expect(
         debugBuilds.some((args) => /(?:^|\s)--example\s+runtime-caller-fixture(?=\s|$)/.test(args)),
         `${scope} native process fixtures must build the shared ancestry launcher`
+      ).toBe(true);
+      expect(
+        debugBuilds.some((args) =>
+          /(?:^|\s)-p\s+tmt-test-support\s+--example\s+recording-cli-fixture(?=\s|$)/.test(args)
+        ),
+        `${scope} native process fixtures must build the native recording driver`
       ).toBe(true);
     }
     // The producer verifies the feature build; native tests consume exactly those bytes.

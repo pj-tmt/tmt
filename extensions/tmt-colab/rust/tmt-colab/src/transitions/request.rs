@@ -42,6 +42,11 @@ pub struct RequestScope {
     pub affected_pages: Vec<String>,
 }
 pub enum OwnerAction<'a> {
+    Create {
+        page: &'a str,
+        title: &'a str,
+        source: &'a str,
+    },
     EpochAdvance {
         page: &'a str,
     },
@@ -173,6 +178,21 @@ impl Engine {
             scope: request.scope.as_ref(),
         };
         let (outcome, changed) = match request.action {
+            OwnerAction::Create {
+                page,
+                title,
+                source,
+            } => self.create_page(
+                store,
+                key,
+                context,
+                super::create::Selection {
+                    page,
+                    title,
+                    source,
+                },
+                now,
+            )?,
             OwnerAction::EpochAdvance { page } => self.advance(
                 store,
                 key,

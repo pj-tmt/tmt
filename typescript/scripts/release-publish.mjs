@@ -32,7 +32,7 @@ import {
 import { parseComponentMap } from './ci-scope.mjs';
 import { BUNDLE_ASSET, FAILURE_ASSET, HOLD_ASSET } from './plan-release-builds.mjs';
 import { ghApi } from './release-draft-assets.mjs';
-import { isAlphaVersion, versionOfTag } from './release-versions.mjs';
+import { isAlphaVersion, publishedReleases, versionOfTag } from './release-versions.mjs';
 
 const COMMIT = /^[0-9a-f]{40}$/;
 /** The component map of this repository, which decides what is released. */
@@ -65,13 +65,35 @@ export function publishBlocker({ release, product, tag, released = true }) {
   return '';
 }
 
+/** Bounded convergence after publication: never leave a stale max-version decision unchecked. */
+export function convergeCliLatest({ api, tag, attempts = 3, wait = () => {} }) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const published = publishedReleases(api.listReleases(), 'cli');
+    if (!published.some((release) => release.tag_name === tag)) {
+      wait();
+      continue;
+    }
+    const highest = published[0].tag_name;
+    if (api.latestRelease()?.tag_name !== highest) api.setLatest(highest);
+    // Another tag may publish between discovery and promotion. Recompute after our write.
+    const readbackHighest = publishedReleases(api.listReleases(), 'cli')[0]?.tag_name;
+    if (readbackHighest === highest && api.latestRelease()?.tag_name === readbackHighest)
+      return highest;
+    wait();
+  }
+  throw new Error('Published CLI latest did not converge to the highest visible version.');
+}
+
 /** Publishes the draft with the product's flags. Returns the flags it applied. */
-export function publishDraft({ api, product, tag, released = true }) {
+export function publishDraft({ api, product, tag, released = true, wait = () => {} }) {
   const release = api.listReleases().find(({ tag_name: name }) => name === tag);
   const blocker = publishBlocker({ release, product, tag, released });
   if (blocker) throw new Error(`Not publishing: ${blocker}.`);
-  const flags = publishFlags(product);
+  const flags = publishFlags(product).map((flag) =>
+    product === 'cli' && flag === '--latest=true' ? '--latest=false' : flag
+  );
   api.publish(tag, flags);
+  if (product === 'cli') convergeCliLatest({ api, tag, wait });
   return { flags };
 }
 
@@ -82,7 +104,14 @@ const fail = (check, reason) => ({ check, ok: false, reason });
  * The checks of the release object itself. `latest` is the repository's latest release (or
  * null) and `tagCommit` the commit the published tag points at.
  */
-export function checkPublishedRelease({ release, latest, tagCommit, product, tag }) {
+export function checkPublishedRelease({
+  release,
+  latest,
+  tagCommit,
+  product,
+  tag,
+  highestCliTag = tag,
+}) {
   const policy = releasePolicy(product);
   const results = [];
   results.push(
@@ -98,7 +127,7 @@ export function checkPublishedRelease({ release, latest, tagCommit, product, tag
   if (release.prerelease !== policy.prerelease) {
     flags.push(`prerelease is ${release.prerelease}, the policy says ${policy.prerelease}`);
   }
-  if (policy.latest) {
+  if (policy.latest && highestCliTag === tag) {
     if (latest?.tag_name !== tag) {
       flags.push(`the latest release is ${latest?.tag_name ?? 'missing'}, not ${tag}`);
     }
@@ -107,6 +136,10 @@ export function checkPublishedRelease({ release, latest, tagCommit, product, tag
   } else if (!latest) {
     flags.push('the repository has no latest release, so install.sh would not resolve');
   } else {
+    if (product === 'cli' && latest.tag_name !== highestCliTag)
+      flags.push(
+        `the latest release is ${latest.tag_name}, not highest published ${highestCliTag}`
+      );
     try {
       checkLatestTag(latest.tag_name);
     } catch (error) {
@@ -115,7 +148,10 @@ export function checkPublishedRelease({ release, latest, tagCommit, product, tag
   }
   results.push(
     flags.length === 0
-      ? pass('flags', `${policy.prerelease ? 'prerelease' : 'release'}, latest ${policy.latest}`)
+      ? pass(
+          'flags',
+          `${policy.prerelease ? 'prerelease' : 'release'}, latest ${policy.latest && highestCliTag === tag}`
+        )
       : fail('flags', flags.join('; '))
   );
 
@@ -159,7 +195,6 @@ export function verifyPublication({
   attempts = VERIFY_ATTEMPTS,
   sleep = () => {},
 }) {
-  const policy = releasePolicy(product);
   const wait = () => sleep(VERIFY_WAIT_MS);
   const retry = { attempts, wait };
   const release = settle(() => {
@@ -172,11 +207,21 @@ export function verifyPublication({
   // expects before judging it.
   const latest = settle(() => {
     const current = api.latestRelease();
-    return { ok: (current?.tag_name === tag) === policy.latest, current };
+    const highest =
+      product === 'cli' ? publishedReleases(api.listReleases(), 'cli')[0]?.tag_name : null;
+    return {
+      ok: product === 'cli' ? current?.tag_name === highest : current?.tag_name !== tag,
+      current,
+      highest,
+    };
   }, retry).current;
   const results = checkPublishedRelease({
     release,
     latest,
+    highestCliTag:
+      product === 'cli'
+        ? (publishedReleases(api.listReleases(), 'cli')[0]?.tag_name ?? null)
+        : undefined,
     tagCommit: api.tagCommit(tag),
     product,
     tag,
@@ -340,6 +385,19 @@ export function ghPublishApi({ repository, env = process.env, spawn = spawnSync 
   const outcome = (result) => ({ ok: result.status === 0, output: text(result) });
   return {
     ...ghApi({ repository, env, spawn }),
+    setLatest: (tag) => {
+      const release = json(['api', `repos/${repository}/releases/tags/${tag}`]);
+      if (!Number.isSafeInteger(release.id) || release.draft || productOfTag(tag) !== 'cli')
+        throw new Error('Latest correction needs an exact published CLI release.');
+      json([
+        'api',
+        `repos/${repository}/releases/${release.id}`,
+        '--method',
+        'PATCH',
+        '-f',
+        'make_latest=true',
+      ]);
+    },
     publish: (tag, flags) => {
       const result = run(['release', 'edit', tag, '--repo', repository, ...flags]);
       if (result.status !== 0) throw new Error(`gh release edit failed: ${text(result)}`);
@@ -440,6 +498,7 @@ function main(argv, environment) {
       product: values.product,
       tag: values.tag,
       released: isProductReleased(map, values.product),
+      wait: () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, VERIFY_WAIT_MS),
     });
     report(
       environment,

@@ -1,11 +1,7 @@
 #!/usr/bin/env node
-// Decides whether a release run changes anything: opens and merges release pull requests,
-// creates draft releases and starts the per-product builds. Until the owner has added the
-// release App secrets every push run is a dry run, so adding the workflow changes nothing by
-// itself; a dispatch chooses explicitly and never falls back silently. A live run only ever
-// happens on main. The script sees whether the secrets exist, never their values: the key is
-// only handed to the step that creates the App token.
-//   EVENT=push|workflow_dispatch REF=refs/heads/main DRY_RUN=true|false HAS_APP_SECRETS=true|false
+// Hourly cuts and recovery are live; manual runs choose dry/live explicitly.
+// Publication authorization remains in the native gates and the release skill.
+//   EVENT=schedule|workflow_dispatch REF=refs/heads/main DRY_RUN=true|false
 //   node release-mode.mjs
 import { appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -20,30 +16,19 @@ function requireMain(ref) {
   }
 }
 
-/** `dryRun` is the dispatch input; it is unset on a push. */
-export function releaseMode({ event, ref, dryRun, hasSecrets }) {
+/** `dryRun` is the dispatch input; it is unset on a schedule. */
+export function releaseMode({ event, ref, dryRun }) {
   if (event === 'workflow_dispatch') {
     if (dryRun !== 'true' && dryRun !== 'false') {
       throw new Error('A manual release run needs dry_run to be true or false.');
     }
     if (dryRun === 'true') return { live: false, reason: 'a dry run was requested' };
     requireMain(ref);
-    if (!hasSecrets) {
-      throw new Error(
-        'A live release run needs the RELEASE_APP_ID and RELEASE_APP_PRIVATE_KEY secrets, and they are not both set.'
-      );
-    }
     return { live: true, reason: 'a live run was requested' };
   }
-  if (event === 'push') {
-    if (!hasSecrets) {
-      return {
-        live: false,
-        reason: 'the release App secrets are not configured, so this is a dry run',
-      };
-    }
+  if (event === 'schedule') {
     requireMain(ref);
-    return { live: true, reason: 'the release App secrets are configured' };
+    return { live: true, reason: 'hourly cuts and recovery' };
   }
   throw new Error(`A release run does not start on the ${event} event.`);
 }
@@ -53,7 +38,6 @@ function main(environment) {
     event: environment.EVENT,
     ref: environment.REF,
     dryRun: environment.DRY_RUN,
-    hasSecrets: environment.HAS_APP_SECRETS === 'true',
   });
   const line = `${live ? 'Live' : 'Dry'} release run: ${reason}.`;
   process.stderr.write(`${line}\n`);

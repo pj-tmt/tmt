@@ -13,6 +13,14 @@ function parseVersion(text) {
   };
 }
 
+/** Non-publishing preparation and installation fixtures share one synthetic alpha version. */
+export function syntheticAlphaVersion(committedVersion) {
+  const { core } = parseVersion(committedVersion);
+  if (core.some((part) => !Number.isSafeInteger(part)))
+    throw new Error('Synthetic preparation needs a bounded committed version.');
+  return `${core.join('.')}-alpha.999999`;
+}
+
 /** Semantic Versioning precedence: -1, 0 or 1. A pre-release is lower than its release. */
 export function compareVersions(left, right) {
   const a = parseVersion(left);

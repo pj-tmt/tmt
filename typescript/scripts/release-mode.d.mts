@@ -1,9 +1,4 @@
-export function releaseMode(input: {
-  event: string;
-  ref?: string;
-  dryRun?: string;
-  hasSecrets: boolean;
-}): {
+export function releaseMode(input: { event: string; ref?: string; dryRun?: string }): {
   live: boolean;
   reason: string;
 };

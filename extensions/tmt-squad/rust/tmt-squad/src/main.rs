@@ -10,6 +10,8 @@ mod cache;
 mod config;
 mod consent;
 mod core;
+mod cron_command;
+pub mod cron_service;
 mod effects;
 mod filter;
 mod hook_protocol;
@@ -267,6 +269,7 @@ fn grammar() -> Command {
         .subcommand(theme::grammar())
         .subcommand(view::grammar())
         .subcommand(playbook::grammar())
+        .subcommand(cron_command::grammar())
         .subcommand(
             build(specs::SKILL)
                 .subcommand_required(true)
@@ -496,6 +499,7 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
         "config" => settings::text(document, terminal),
         "theme" => theme::text(document, terminal),
         "view" => view::text(document, terminal),
+        "cron" => cron_command::text(document, terminal),
         "jump" => {
             let mut output = done(
                 terminal,
@@ -790,6 +794,9 @@ fn run(
         return member_actions::back(&core);
     }
     let mut config = Config::load(&core)?;
+    if command == "cron" {
+        return cron_command::run(&core, &config, matches).map(Outcome::from);
+    }
     if command == "config" {
         return settings::run(&mut config, matches).map(Outcome::from);
     }
@@ -1089,6 +1096,22 @@ fn main() -> ExitCode {
                 .and_then(|()| stdout.flush());
             let mut stderr = tmt_cli_style::stream::stderr();
             let terminal = stderr.terminal();
+            if command == "cron" {
+                for warning in outcome.document["warnings"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                {
+                    let _ = message::warning(
+                        &mut stderr,
+                        terminal,
+                        warning["error"]["message"]
+                            .as_str()
+                            .unwrap_or("Cron follow-up failed"),
+                        None,
+                    );
+                }
+            }
             for (what, hint) in human_failures(command, &outcome.document) {
                 let _ = message::error(&mut stderr, terminal, &what, hint.as_deref());
             }
@@ -1274,9 +1297,9 @@ mod tests {
         assert_eq!(
             complete(&words("-- ")),
             [
-                "add", "annotate", "back", "board", "config", "copy", "help", "hotkeys", "init",
-                "jump", "lead", "ls", "me", "open", "playbook", "rm", "set", "skill", "theme",
-                "view"
+                "add", "annotate", "back", "board", "config", "copy", "cron", "help", "hotkeys",
+                "init", "jump", "lead", "ls", "me", "open", "playbook", "rm", "set", "skill",
+                "theme", "view"
             ]
         );
         assert_eq!(complete(&words("-- view ")), ["ls", "rm", "set"]);

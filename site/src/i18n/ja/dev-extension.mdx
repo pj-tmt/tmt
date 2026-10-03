@@ -1,0 +1,107 @@
+---
+source: site/src/chapters/dev-extension.mdx
+sourceRevision: 4bc2a059aed3b33fd0c2eb90c1ed543de73b0103
+title: 拡張機能を作る
+---
+
+import { Cmd, Code } from "../../components/Cmd";
+import { Aside, Terms } from "../../components/marks";
+import { components as Mdx } from "../../components/mdx";
+
+拡張機能は、PATH 上の `tmt-<name>` という実行ファイルです。manifest、registry、インストール手順は不要で、PATH にファイルを置けば `tmt <name>` で動きます。Squad もまったく同じ仕組みで、特別なアクセス権はありません。
+
+<Mdx.h3 id="1-name-it">1. 名前を付ける</Mdx.h3>
+
+名前には小文字、数字、ハイフン（`[a-z0-9][a-z0-9-]*`）を使います。組み込みコマンドとその別名が常に優先されるので、tmt がまだ使っていない名前を選んでください。`tmt help` は見つかった拡張機能を表示し、組み込みと重なるものには印を付けます。
+
+<Cmd>{`
+$ install -m 755 tmt-hello ~/.local/bin/
+$ tmt hello --loud        # 実行：tmt-hello --loud
+$ tmt help hello          # 実行：tmt-hello --help
+`}</Cmd>
+
+<Mdx.h3 id="2-what-your-program-receives">2. プログラムが受け取るもの</Mdx.h3>
+
+<Terms>
+  <dt>引数</dt>
+  <dd>
+    名前より後のすべてを、そのまま渡します。tmt
+    は拡張機能のオプションを解析しません。拡張機能の名前より前に tmt
+    自身のオプションを置くこともできません。
+  </dd>
+  <dt>端末</dt>
+  <dd>
+    tmt
+    自身を拡張機能のプログラムで置き換えるため、標準入力、標準出力、標準エラー、TTY、シグナルを直接受け取ります。プログラムの終了コードが
+    tmt の終了コードになります。
+  </dd>
+  <dt>TMT_EXECUTABLE</dt>
+  <dd>
+    起動元の tmt の絶対パスです。同じインストールとデータを使うため、PATH 上の <code>tmt</code>{" "}
+    ではなく、必ずこのパスを通して呼び戻してください。
+  </dd>
+</Terms>
+
+<Mdx.h3 id="3-tab-completion-optional">3. Tab 補完（任意）</Mdx.h3>
+
+補完に対応するには、追加の呼び出しを1つ処理します。tmt は `tmt-<name> __complete -- <words>` を実行します。words は名前より後のすべての語で、入力途中の語も含みます。候補をそのまま1行に1つ出力してください。上限は1秒と64 KiB です。出力が空、エラー、タイムアウトの場合は通常のファイル補完に戻ります。候補が shell で評価されることはありません。
+
+<Mdx.h3 id="4-talk-to-tmt">4. tmt とやり取りする</Mdx.h3>
+
+tmt のデータベースを直接開かないでください。ほかのプログラムと同じ入口を使います。
+
+- **通常のコマンドに `--json` を付けます。** `whoami`、`identity show`、`list`、`room show`、`x`、`reply`、`result` など、人も実行する操作に使います。
+- **プログラム向けの操作には `tmt api` を使います。** バージョン付きの JSON リクエストを標準入力に1つ渡し、JSON 応答を標準出力から1つ受け取ります。完全な契約は [contracts/extension-api.md](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md) にあります。
+
+<Cmd>{`
+$ printf '%s' '{"version":1,"operation":"capabilities","input":{}}' | "$TMT_EXECUTABLE" api
+{"version":1,"supported":{"min":1,"max":1},"operations":["capabilities","storage.root",
+ "changes.cursor","requests.list","requests.show","dispatch.show","dispatch.create", ...],...}
+`}</Cmd>
+
+| 操作                 | 用途                                                                                                                                      |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| storage.root         | tmt のデータディレクトリを調べます。自分のファイルは `<dataRoot>/<your-name>/` 以下に置き、tmt のデータベースや設定は開かないでください。 |
+| requests.list / show | agent や room のリクエスト履歴をページ単位で取得し、1件のリクエストと返事を読みます。読むだけでは既読になりません。                       |
+| dispatch.create      | 1つ以上の agent に仕事を送ります。先に `operationId` を決めます。同じ ID で再送すると元の receipt を返し、二重に送ることはありません。    |
+| dispatch.show        | クラッシュやタイムアウトの後、`operationId` に対応する receipt を取り出します。                                                           |
+| rooms.write          | 現在の revision を使って room を作成・変更し、同時編集による上書きを防ぎます。                                                            |
+| notes.read           | 保存済みの agent の notes を ID で読みます。                                                                                              |
+
+これらは主な操作です。インストールされている tmt が対応するすべての操作は、`capabilities` で確認できます。
+
+<Aside title="書き込みでは実行者を指定します。">
+  書き込み（<code>dispatch.create</code>、<code>rooms.write</code>、<code>rooms.retire</code>
+  ）では、実行者を1つ指定します。<code>identity</code> を指定するか、
+  <code>"originator":"anonymous"</code> で実行者を記録しないようにします。後者は CLI で{" "}
+  <code>--identity</code>{" "}
+  を付けない場合と同じです。両方の指定も、どちらも指定しないことも拒否されます。これは同じユーザー向けのローカルインターフェースで、セキュリティの境界ではありません。誰が操作したかを記録するだけで、追加の権限は与えません。
+</Aside>
+
+<Mdx.h3 id="a-complete-example">完全な例</Mdx.h3>
+
+<Code>{`
+#!/bin/sh
+# tmt-hello: say hello as the agent in this pane.
+set -e
+if [ "$1" = "__complete" ]; then printf '%s\\n' --loud; exit 0; fi
+if [ "$1" = "--help" ]; then echo "usage: tmt hello [--loud]"; exit 0; fi
+me=$("$TMT_EXECUTABLE" whoami --json) # fails clearly outside a named pane
+greeting="hello from $(printf '%s' "$me" | sed -n 's/.*"name":"\\([^"]*\\)".*/\\1/p')"
+[ "$1" = "--loud" ] && greeting=$(printf '%s' "$greeting" | tr a-z A-Z)
+echo "$greeting"
+`}</Code>
+
+<Mdx.h3 id="5-react-to-changes-optional">5. 変更に反応する（任意）</Mdx.h3>
+
+PATH 上の拡張機能は、呼び出されたときだけ動きます。identity や room の変更に反応するには、ユーザーの明示的な同意が必要です。
+
+<Cmd>{`
+$ tmt extension hooks enable hello    # PATH 上の tmt-hello を信頼
+$ tmt extension hooks ls
+$ tmt extension hooks disable hello
+`}</Cmd>
+
+有効にするには、ユーザーが所有し、ファイルにもそのディレクトリにも他人の書き込み権限がない実行ファイルが必要です。そのファイル自体を登録するため、更新や変更の後はユーザーが再び有効にします。コマンドの変更が確定した後、tmt は `tmt-<name> __tmt-hooks 1 observe` を実行し、identity や room の作成、名前変更、廃止のイベントを JSON で標準入力に渡します。hook が受け取るのは ID と状態だけで、名前やメッセージは渡しません。コマンドを妨げたり変更したりすることもできません。イベントは取りこぼしや重複があるため、再確認のきっかけとして扱ってください。
+
+hook を有効にした拡張機能は、最大240文字の情報提供用の1行を、`tmt whoami --context` とセッション開始時のコンテキストに追加できます。`tmt setup` で prompt hook を入れた後は、各プロンプトのコンテキストにも追加できます。tmt は拡張機能名と `(informational)` を添えるので、指示の形で書かないでください。イベントとフィールドの契約は [contracts/extension-api.md](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md) にあります。

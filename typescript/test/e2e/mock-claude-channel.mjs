@@ -106,7 +106,8 @@ if (configIndex >= 0) {
           database.close();
         }
       }
-      const hint = /\btmt result (\S+)$/.exec(content);
+      // The result command ends the notice's first line; an inlined reply body follows it.
+      const hint = /\btmt result (\S+)$/.exec(content.split('\n')[0]);
       if (process.env.MOCK_RESULT_ON_HINT === '1' && hint) {
         // The response is committed before the hint is sent, so the row exists by
         // the time the hint first reaches the provider. Read-only, no side effects.

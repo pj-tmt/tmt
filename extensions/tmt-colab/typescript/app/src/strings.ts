@@ -105,7 +105,8 @@ export const text = {
   home: 'Space home',
   intro: 'A place for pages you share.',
   open: 'Open page',
-  empty: 'No pages in this space yet.',
+  empty:
+    'No pages in this space yet. Create one on your machine with tmt colab page create --title "Notes".',
   private: 'Private',
   link: 'Link',
   public: 'Public',

@@ -1,21 +1,9 @@
 name: Native release artifacts
-run-name: 'Native release: ${{ inputs.product }}'
+run-name: 'Native release: ${{ inputs.tag || inputs.retry || inputs.hold || inputs.rerun || inputs.product }}'
 
-# The per-product release run. It builds and verifies the draft releases of one product
-# that lack a verified bundle, attaches the bundle to each draft, evaluates its publication
-# gates and publishes a draft that passes them, then checks the published release. A run that
-# stopped before publishing resumes with the complete drafts that carry no hold. A dispatch with
-# `hold` runs the gates again for a held draft without the gate its marker names, and publishes
-# it when the rest pass. `rerun` instead re-proves every gate with current main tooling,
-# preserving the hold on failure and following normal publication only after all pass.
-# A dispatch that prepares one bundle from a main commit (`prepare`)
-# has no draft and publishes nothing. Ordinary pull requests do not run this costly matrix.
-#
-# The group holds the whole run and queues rather than cancels. GitHub keeps one pending run
-# per group and replaces it when another arrives, which loses nothing: a run plans from the
-# markers on the drafts when it starts, after it holds the group, so the run that replaced it
-# plans the same drafts. A group on the jobs of a matrix would not work: while the group is
-# busy each pending leg is replaced by the next leg, and the oldest draft would be dropped.
+# Each allocated tag owns one independent pipeline. Failed or held drafts remain unpublished
+# without preventing later cuts. Owner retry/hold/rerun selects exactly one existing tag.
+# Preparation has no draft and no publishing identity; its run ID isolates its concurrency.
 on:
   workflow_dispatch:
     inputs:
@@ -29,6 +17,11 @@ on:
           - squad
           - driver-herdr
           - colab
+      tag:
+        description: Exact allocated draft tag to build and publish (turn prepare off)
+        required: false
+        default: ''
+        type: string
       prepare:
         description: Build and verify one bundle from this main commit, without a draft release; nothing is attached
         required: true
@@ -55,7 +48,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ inputs.product }}
+  group: release-${{ inputs.tag || inputs.retry || inputs.hold || inputs.rerun || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -83,6 +76,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PRODUCT: ${{ inputs.product }}
           PREPARE: ${{ inputs.prepare }}
+          RELEASE_TAG: ${{ inputs.tag }}
           RETRY: ${{ inputs.retry }}
           HOLD: ${{ inputs.hold }}
           RERUN: ${{ inputs.rerun }}
@@ -90,15 +84,19 @@ jobs:
           # Only released products may enter either preparation or draft publication.
           node typescript/scripts/native-release-policy.mjs require-released "$PRODUCT"
           if [ "$PREPARE" = true ]; then
-            if [ -n "$RETRY" ] || [ -n "$HOLD" ] || [ -n "$RERUN" ]; then
-              echo 'retry, hold and rerun need prepare turned off.' >&2
+            if [ -n "$RELEASE_TAG" ] || [ -n "$RETRY" ] || [ -n "$HOLD" ] || [ -n "$RERUN" ]; then
+              echo 'tag, retry, hold and rerun need prepare turned off.' >&2
               exit 1
             fi
             # One pipeline for this main commit, no draft release.
             printf '%s\n' 'matrix={"include":[{"tag":"","sha":""}]}' 'any=true' >> "$GITHUB_OUTPUT"
           else
+            if [ -z "$RELEASE_TAG$RETRY$HOLD$RERUN" ]; then
+              echo 'Publication requires an exact allocated tag, retry, hold or rerun.' >&2
+              exit 1
+            fi
             gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" | node typescript/scripts/plan-release-builds.mjs \
-              --product "$PRODUCT" --retry "$RETRY" --hold "$HOLD" --rerun "$RERUN"
+              --product "$PRODUCT" --tag "$RELEASE_TAG" --retry "$RETRY" --hold "$HOLD" --rerun "$RERUN"
           fi
 
   bundle:
@@ -106,8 +104,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.any == 'true'
     strategy:
-      # Oldest first, one at a time; a failed draft does not stop the next.
-      max-parallel: 1
+      # The plan names exactly one tag; other tag pipelines run independently.
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     permissions:

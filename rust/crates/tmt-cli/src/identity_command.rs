@@ -109,7 +109,15 @@ fn run(request: IdentityRequest) -> Result<Report, Failure> {
         _ => None,
     };
     let paths = ConfigPaths::discover().map_err(unavailable)?;
-    let mut storage = Storage::open(paths.database).map_err(unavailable)?;
+    let mut storage = Storage::open(&paths.database).map_err(|error| {
+        Failure::storage_access(
+            error,
+            &paths.global_dir,
+            "No identity was changed.",
+            "IDENTITY_ERROR",
+            "Could not complete the identity operation.",
+        )
+    })?;
     let pending = operation(&mut storage, request, selector);
     after_cleanup(pending, || storage.close())
 }

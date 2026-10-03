@@ -1,4 +1,5 @@
 //! Root-local owner transitions; request/socket composition remains separate.
+mod create;
 mod epoch;
 mod links;
 mod membership;
@@ -85,6 +86,13 @@ impl TransitionError {
                 crate::decoder::DecodeFault::Denied => Code::Denied,
                 _ => Code::Unavailable,
             }
+        } else if let Some(f) = cause.downcast_ref::<crate::page::Fault>() {
+            match f {
+                crate::page::Fault::Denied => Code::Denied,
+                crate::page::Fault::Capacity => Code::Capacity,
+                crate::page::Fault::Invalid => Code::Invalid,
+                _ => Code::Unavailable,
+            }
         } else if cause.is::<tmt_colab_model::Invalid>() {
             Code::Invalid
         } else {
@@ -92,6 +100,38 @@ impl TransitionError {
         };
         Self { code, cause }
     }
+}
+/// Revision-one initialization shared by registration and atomic page creation.
+pub(crate) fn initialize_owner(
+    tx: &mut OwnerTransaction<'_>,
+    key: &Keyring,
+) -> Result<Option<tmt_colab_model::statement::Envelope>> {
+    if tx.head().is_some() {
+        return Ok(None);
+    }
+    let (recipient, payload) = owner_genesis(key)?;
+    let initial = key.sign_statement(None, "member.add", &payload)?;
+    tx.append_statement(&initial)?;
+    tx.put_recipient(&recipient)?;
+    Ok(Some(initial))
+}
+pub(crate) fn owner_genesis(key: &Keyring) -> Result<(crate::store::owner::Recipient, Vec<u8>)> {
+    let member = key.management_member()?;
+    let recipient = crate::store::owner::Recipient {
+        kind: "member".into(),
+        id: member.id,
+        role: Some("editor".into()),
+        signing_key: member.signing_key,
+        encryption_key: member.encryption_key,
+        pages: vec![],
+        revoked: false,
+    };
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "memberId":recipient.id,"role":"editor",
+        "signKey":values::encode_binary(&recipient.signing_key),
+        "encKey":values::encode_binary(&recipient.encryption_key),"pages":[]
+    }))?;
+    Ok((recipient, payload))
 }
 /// Root-authorized local request, never an unsigned browser transport DTO.
 pub struct EpochAdvance<'a> {

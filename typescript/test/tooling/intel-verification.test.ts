@@ -1,4 +1,12 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -135,6 +143,8 @@ describe('Intel workflow coverage', () => {
           path.join(root, 'node'),
           '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$RECORD_FILE"\n'
         );
+        mkdirSync(path.join(root, 'scripts'));
+        writeExecutable(path.join(root, 'scripts/run-native-verification.sh'), wrapper);
         for (const [name, mode] of [
           ['Upgrade from the last published release', 'prove'],
           ['Prove the real-archive CLI upgrade adapter', 'acceptance'],
@@ -160,7 +170,9 @@ describe('Intel workflow coverage', () => {
             timeoutMs: 5000,
           });
           expect(readFileSync(record, 'utf8').trim().split('\n')).toEqual([
-            'typescript/scripts/release-upgrade.mjs',
+            current === 'true'
+              ? path.join(root, 'typescript/scripts/release-upgrade.mjs')
+              : './typescript/scripts/release-upgrade.mjs',
             mode,
             '--product',
             'cli',
@@ -245,8 +257,12 @@ describe('Intel workflow coverage', () => {
     }
     const upgrade = read('.github/workflows/native-release-upgrade.yml');
     const acceptance = upgrade.split('      - name: Prove the real-archive CLI upgrade adapter')[1];
-    expect(acceptance).toContain('scripts/run-native-verification.sh "$TARGET"');
-    expect(acceptance).toContain('release-upgrade.mjs acceptance');
+    expect(acceptance).toContain('verification="$PWD/scripts/run-native-verification.sh"');
+    expect(acceptance).toContain(
+      'verification="$GITHUB_WORKSPACE/scripts/run-native-verification.sh"'
+    );
+    expect(acceptance).toContain('"$verification" "$TARGET"');
+    expect(acceptance).toContain('release-upgrade.mjs" acceptance');
   });
 
   it('fails closed for candidate checkouts without Rosetta tooling and names the owner remedy', () => {
@@ -255,7 +271,11 @@ describe('Intel workflow coverage', () => {
       const guard = workflow.indexOf('      - name: Require candidate Rosetta tooling');
       expect(guard).toBeGreaterThan(0);
       expect(guard).toBeLessThan(workflow.indexOf('      - name: Set up Node.js and pnpm', guard));
-      expect(workflow).toContain("if: matrix.target == 'x86_64-apple-darwin'");
+      expect(workflow).toContain(
+        name === 'native-release-upgrade.yml'
+          ? "if: ${{ matrix.target == 'x86_64-apple-darwin' && !inputs.current-tooling }}"
+          : "if: matrix.target == 'x86_64-apple-darwin'"
+      );
       expect(workflow).toContain('if [ ! -x scripts/run-native-verification.sh ]; then');
       expect(workflow).toContain(
         "::error::candidate predates #547 Rosetta tooling; the owner reruns with native-release rerun=<tag>'\n            exit 1"

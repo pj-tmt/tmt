@@ -239,7 +239,16 @@ pub fn send(
     message: &str,
     delay: Duration,
 ) -> Result<Attempt, StorageError> {
-    send_messages(storage, identity, None, Messages::Single(message), delay)
+    send_messages(
+        storage,
+        identity,
+        None,
+        Messages::Single {
+            registered: message,
+            host: message,
+        },
+        delay,
+    )
 }
 
 fn send_messages(
@@ -376,14 +385,19 @@ struct NoticeAttempt<'a> {
 }
 
 enum Messages<'a> {
-    Single(&'a str),
+    /// One request or hint. A hint may render differently per transport; an
+    /// ordinary send uses the same text for both.
+    Single {
+        registered: &'a str,
+        host: &'a str,
+    },
     Notices(&'a NoticeAttempt<'a>),
 }
 
 impl Messages<'_> {
     fn rendered(&self) -> std::borrow::Cow<'_, str> {
         match self {
-            Self::Single(text) => std::borrow::Cow::Borrowed(text),
+            Self::Single { host, .. } => std::borrow::Cow::Borrowed(host),
             Self::Notices(attempt) => std::borrow::Cow::Borrowed(&attempt.host_text),
         }
     }
@@ -402,8 +416,9 @@ impl Messages<'_> {
             ActionResult::Completed(value) => ActionResult::Completed(value),
             ActionResult::Failed(error) => ActionResult::Failed(runtime_failure(error)),
         };
-        let Self::Notices(attempt) = self else {
-            return send(registry, &self.rendered());
+        let attempt = match self {
+            Self::Single { registered, .. } => return send(registry, registered),
+            Self::Notices(attempt) => attempt,
         };
         let mut unacknowledged = false;
         let mut awaiting_approval = false;
@@ -496,7 +511,7 @@ impl Messages<'_> {
 
     fn claim_fallback(&self, storage: &std::cell::RefCell<&mut Storage>) -> bool {
         match self {
-            Self::Single(_) => true,
+            Self::Single { .. } => true,
             Self::Notices(attempt) => {
                 let claimed = match storage
                     .borrow_mut()
@@ -693,11 +708,15 @@ pub fn hint_text(storage: &mut Storage, hint: &OriginatorHint) -> String {
 }
 
 pub fn notify(storage: &mut Storage, hint: &OriginatorHint) -> WakeState {
-    let text = hint_text(storage, hint);
-    let outcome = match send(
+    let (registered, host) = notices::immediate(storage, hint);
+    let outcome = match send_messages(
         storage,
         &hint.originator_id,
-        &text,
+        None,
+        Messages::Single {
+            registered: &registered,
+            host: &host,
+        },
         Duration::from_millis(500),
     ) {
         Ok(attempt) => attempt.delivery.wake_state(),

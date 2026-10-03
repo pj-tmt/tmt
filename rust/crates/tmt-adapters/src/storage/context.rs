@@ -29,6 +29,18 @@ pub struct IdentityContextSnapshot {
 }
 
 impl Storage {
+    /// Foreground sampling selects its already captured durable identity, then
+    /// independently verifies the exact binding, session, owner and process.
+    pub fn context_by_identity(
+        path: &Path,
+        identity: &str,
+        now_ms: u64,
+    ) -> Result<Option<IdentityContextSnapshot>, StorageError> {
+        read_context(path, now_ms, |connection| {
+            BindingRows(connection).entry_by_id(identity)
+        })
+    }
+
     /// Read-only selection by a driver's private enrollment locator. This is
     /// stored evidence only; the hook caller must still prove host, process,
     /// session and binding authority before context or persistence is permitted.

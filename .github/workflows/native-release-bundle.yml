@@ -3,7 +3,7 @@ name: Native release bundle
 # One pipeline for one product: build and verify the four targets, assemble the
 # authoritative manifest, verify the final bundle on matching hosts and, for a draft
 # release, attach it, evaluate the publication gates, publish it and check the published
-# release. Called once per draft by `native-release.yml`, which owns the per-product concurrency
+# release. Called once per draft by `native-release.yml`, which owns the per-tag concurrency
 # group; a group here would cancel the legs of its own caller. A draft that passes the gates is
 # published under the owner's standing alpha authorization (the release skill); one that fails
 # is held and stays a draft until the owner acts.
@@ -47,8 +47,8 @@ permissions:
 jobs:
   check:
     name: Check ${{ inputs.tag || 'main commit' }}
-    # A draft is only built while it has no bundle and no recorded failure. The run planned
-    # before it held the product's group, so this is the check that counts.
+    # Re-read this tag's draft before building: no verified bundle or recorded failure
+    # may appear between planning and this final build decision.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -96,17 +96,29 @@ jobs:
             runner: ubuntu-24.04
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
+    env:
+      RUSTUP_TOOLCHAIN: 1.97.0
+      CARGO_TARGET_DIR: ${{ github.workspace }}/release-source/rust/target
+    defaults:
+      run:
+        working-directory: release-source
     steps:
+      # Reviewed main tooling owns injection; source and ordinary archive proof stay at cut X.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || github.sha }}
+          path: release-source
       - name: Set up Node.js and pnpm for embedded app assets
         if: inputs.product == 'office' || inputs.product == 'colab'
         uses: ./.github/actions/setup-tooling
       - name: Install embedded Office build dependencies
         if: inputs.product == 'office'
-        working-directory: typescript
+        working-directory: release-source/typescript
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Install native build dependencies
         if: runner.os == 'Linux'
@@ -118,11 +130,18 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          workspaces: rust
+          workspaces: release-source/rust
           # Per product: each product compiles a different set of dependencies, and a cache
           # that another product saved first would stay incomplete. Only main writes it.
           shared-key: release-${{ inputs.product }}-${{ matrix.target }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Inject the reviewed draft version and verify its source/lock contract
+        id: version
+        uses: ./.github/actions/inject-release-version
+        with:
+          product: ${{ inputs.product }}
+          tag: ${{ inputs.tag }}
+          source-root: release-source
       - name: Cache packaging tools
         id: tools
         uses: actions/cache@v4
@@ -138,23 +157,47 @@ jobs:
         env:
           PRODUCT: ${{ inputs.product }}
           TARGET: ${{ matrix.target }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
           MACOSX_DEPLOYMENT_TARGET: '11.0'
         run: |
+          set -euo pipefail
           export PATH="$HOME/.tmt-packaging/bin:$PATH"
           started=$SECONDS
           cargo +1.97.0 fetch --manifest-path rust/Cargo.toml --locked
+          TMT_NATIVE_REAL_CARGO=$(command -v cargo)
+          export TMT_NATIVE_REAL_CARGO CARGO="$PWD/scripts/native-cargo.sh"
+          dist plan --tag "$RELEASE_TAG" --target "$TARGET" --output-format=json --no-local-paths > "$RUNNER_TEMP/plan.json"
           scripts/build-native-artifact.sh "$TARGET" "$PRODUCT" > "$RUNNER_TEMP/$TARGET-dist-manifest.json"
           cp "$RUNNER_TEMP/$TARGET-dist-manifest.json" target/distrib/
           cp rust/target/native-notices/THIRD-PARTY-NOTICES.txt "target/distrib/$TARGET-notices.txt"
           echo "Built the $PRODUCT archive for $TARGET in $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Verify plan, archive and binary versions against the injected tag
+        env:
+          PRODUCT: ${{ inputs.product }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/injected-archive"
+          tar -xzf "target/distrib/tmt-$PRODUCT-$TARGET.tar.gz" -C "$RUNNER_TEMP/injected-archive"
+          binary="tmt-$PRODUCT"
+          if [ "$PRODUCT" = cli ]; then binary=tmt; fi
+          node "$GITHUB_WORKSPACE/typescript/scripts/release-version-injection.mjs" artifact "$PWD" "$RUNNER_TEMP/release-version-state.json" \
+            "$RUNNER_TEMP/plan.json" "$RUNNER_TEMP/$TARGET-dist-manifest.json" "$RUNNER_TEMP/injected-archive/tmt-$PRODUCT-$TARGET/$binary"
+      - name: Recheck version-only source after this stage
+        uses: ./.github/actions/inject-release-version
+        with:
+          product: ${{ inputs.product }}
+          tag: ${{ inputs.tag }}
+          source-root: release-source
+          phase: verify
       - uses: actions/upload-artifact@v4
         with:
           name: native-${{ inputs.product }}-${{ matrix.target }}-${{ inputs.tag || 'main' }}
           path: |
-            target/distrib/*.tar.gz
-            target/distrib/*.sha256
-            target/distrib/*-dist-manifest.json
-            target/distrib/*-notices.txt
+            release-source/target/distrib/*.tar.gz
+            release-source/target/distrib/*.sha256
+            release-source/target/distrib/*-dist-manifest.json
+            release-source/target/distrib/*-notices.txt
           if-no-files-found: error
           retention-days: 7
 
@@ -163,50 +206,72 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      RUSTUP_TOOLCHAIN: 1.97.0
+      CARGO_TARGET_DIR: ${{ github.workspace }}/release-source/rust/target
+    defaults:
+      run:
+        working-directory: release-source
     steps:
+      # Reviewed main tooling owns injection; source and ordinary archive proof stay at cut X.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || github.sha }}
+          path: release-source
       - name: Set up Node.js and pnpm
         uses: ./.github/actions/setup-tooling
       - name: Install pinned Rust
         run: rustup toolchain install 1.97.0 --profile minimal
+      - name: Inject the reviewed draft version and verify its source/lock contract
+        id: version
+        uses: ./.github/actions/inject-release-version
+        with:
+          product: ${{ inputs.product }}
+          tag: ${{ inputs.tag }}
+          source-root: release-source
       - uses: actions/cache/restore@v4
         with:
           path: ~/.tmt-packaging
           key: native-tools-${{ runner.os }}-${{ runner.arch }}-rust1.97-dist0.32.0-about0.9.2
           fail-on-cache-miss: true
       - name: Install verification dependencies
-        working-directory: typescript
+        working-directory: release-source/typescript
         run: pnpm install --frozen-lockfile --ignore-scripts
       - uses: actions/download-artifact@v4
         with:
           pattern: native-${{ inputs.product }}-*-${{ inputs.tag || 'main' }}
           merge-multiple: true
-          path: target/distrib
+          path: release-source/target/distrib
       - name: Merge with cargo-dist and verify bootstrap inputs
         env:
           PRODUCT: ${{ inputs.product }}
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
+          set -euo pipefail
           export PATH="$HOME/.tmt-packaging/bin:$PATH"
           export RUSTUP_TOOLCHAIN=1.97.0
           TMT_NATIVE_REAL_CARGO=$(command -v cargo)
           export TMT_NATIVE_REAL_CARGO
-          export CARGO="$GITHUB_WORKSPACE/scripts/native-cargo.sh"
+          export CARGO="$PWD/scripts/native-cargo.sh"
           package="tmt-$PRODUCT"
           export PACKAGE="$package"
           version=$(cargo metadata --manifest-path rust/Cargo.toml --locked --no-deps --format-version 1 | node -pe 'const p=process.env.PACKAGE; JSON.parse(require("fs").readFileSync(0,"utf8")).packages.find(x => x.name === p).version')
           tag="v$version"
           if [ "$PRODUCT" != cli ]; then tag="tmt-$PRODUCT-v$version"; fi
-          # A draft release must be for the version its commit declares.
+          # The draft tag must agree with the injected source version.
           if [ -n "$RELEASE_TAG" ] && [ "$RELEASE_TAG" != "$tag" ]; then
-            echo "Draft release $RELEASE_TAG is not the $tag that this commit declares." >&2
+            echo "Draft release $RELEASE_TAG is not the $tag that the injected checkout declares." >&2
             exit 1
           fi
           dist plan --tag "$tag" --output-format=json --no-local-paths > "$RUNNER_TEMP/plan.json"
           dist build --tag "$tag" --artifacts global --output-format=json --no-local-paths > "$RUNNER_TEMP/dist-manifest.json"
+          node "$GITHUB_WORKSPACE/typescript/scripts/release-version-injection.mjs" manifests "$PWD" "$RUNNER_TEMP/release-version-state.json" \
+            "$RUNNER_TEMP/plan.json" "$RUNNER_TEMP/dist-manifest.json"
           cp "$RUNNER_TEMP/dist-manifest.json" target/distrib/dist-manifest.json
           # How this product's GitHub release must be published (#333): only the
           # CLI becomes the repository's latest release.
@@ -218,18 +283,25 @@ jobs:
             # The same verified bootstrap under the name the one-line install uses.
             cp target/distrib/tmt-installer.sh target/distrib/install.sh
           fi
+      - name: Recheck version-only source after this stage
+        uses: ./.github/actions/inject-release-version
+        with:
+          product: ${{ inputs.product }}
+          tag: ${{ inputs.tag }}
+          source-root: release-source
+          phase: verify
       - uses: actions/upload-artifact@v4
         with:
           name: native-release-${{ inputs.product }}-bundle-${{ inputs.tag || 'main' }}
           path: |
-            target/distrib/*.tar.gz
-            target/distrib/*.sha256
-            target/distrib/sha256.sum
-            target/distrib/dist-manifest.json
-            target/distrib/release-publication.json
-            target/distrib/tmt-installer.sh
-            target/distrib/install.sh
-            target/distrib/*-notices.txt
+            release-source/target/distrib/*.tar.gz
+            release-source/target/distrib/*.sha256
+            release-source/target/distrib/sha256.sum
+            release-source/target/distrib/dist-manifest.json
+            release-source/target/distrib/release-publication.json
+            release-source/target/distrib/tmt-installer.sh
+            release-source/target/distrib/install.sh
+            release-source/target/distrib/*-notices.txt
           if-no-files-found: error
           retention-days: 7
 
@@ -241,11 +313,23 @@ jobs:
       matrix: *native-targets
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
+    env:
+      RUSTUP_TOOLCHAIN: 1.97.0
+      CARGO_TARGET_DIR: ${{ github.workspace }}/release-source/rust/target
+    defaults:
+      run:
+        working-directory: release-source
     steps:
+      # Reviewed main tooling owns injection; source and ordinary archive proof stay at cut X.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || github.sha }}
+          path: release-source
       - name: Require candidate Rosetta tooling
         if: matrix.target == 'x86_64-apple-darwin'
         run: |
@@ -258,12 +342,21 @@ jobs:
         with:
           architecture: ${{ matrix.target == 'x86_64-apple-darwin' && 'x64' || '' }}
       - name: Install verification dependencies
-        working-directory: typescript
+        working-directory: release-source/typescript
         run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Install pinned Rust for version-only resolution
+        run: rustup toolchain install 1.97.0 --profile minimal
+      - name: Inject the reviewed draft version and verify its source/lock contract
+        id: version
+        uses: ./.github/actions/inject-release-version
+        with:
+          product: ${{ inputs.product }}
+          tag: ${{ inputs.tag }}
+          source-root: release-source
       - uses: actions/download-artifact@v4
         with:
           name: native-release-${{ inputs.product }}-bundle-${{ inputs.tag || 'main' }}
-          path: target/distrib
+          path: release-source/target/distrib
       - name: Warm the macOS toolchain lookup
         if: runner.os == 'macOS'
         uses: ./.github/actions/warm-xcrun
@@ -325,6 +418,14 @@ jobs:
           fi
           echo "Verified $TARGET in $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
           VERIFY
+
+      - name: Recheck version-only source after this stage
+        uses: ./.github/actions/inject-release-version
+        with:
+          product: ${{ inputs.product }}
+          tag: ${{ inputs.tag }}
+          source-root: release-source
+          phase: verify
 
   attach:
     name: Attach the verified ${{ inputs.product }} bundle to ${{ inputs.tag }}
@@ -412,9 +513,18 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/setup-tooling
+      - name: Install reviewed publication-gate dependencies
+        working-directory: typescript
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Install the pinned metadata toolchain
+        run: rustup toolchain install 1.97.0 --profile minimal
+      - name: Restore dependency cache for locked source acquisition
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          node-version: 22.23.2
+          workspaces: rust
+          shared-key: native-rust
+          save-if: false
       - name: Evaluate the commit, immutability, monotonic and migration gates
         id: gates
         env:
@@ -460,9 +570,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.23.2
+      - uses: ./.github/actions/setup-tooling
+      - name: Install reviewed publication-gate dependencies
+        working-directory: typescript
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Hold the draft, or report that every gate passed
         id: finish
         env:

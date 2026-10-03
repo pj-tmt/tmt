@@ -285,7 +285,11 @@ it.each([false, true])(
           ? `${dirname(selectedGit.stdout.trim())}:${process.env.PATH}`
           : process.env.PATH,
       };
-      if (missingCache) Object.assign(env, { CARGO_HOME: join(directory, 'empty-cargo-home') });
+      if (missingCache)
+        Object.assign(env, {
+          CARGO_HOME: join(directory, 'empty-cargo-home'),
+          CARGO_NET_OFFLINE: 'true',
+        });
       const result = spawnSync(
         process.execPath,
         [join(checkout, 'typescript/scripts/release-cut.mjs'), snapshot],

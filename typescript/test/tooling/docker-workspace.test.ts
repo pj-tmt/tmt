@@ -2,11 +2,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vite-plus/test';
-import { readWorkspace } from '../../scripts/release-please-config.mjs';
+import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
 import { imports } from '../support/source-imports.js';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
-const { crates } = readWorkspace(root);
+const { packages: crates } = readCargoWorkspace(root);
 it.each([
   ['typescript/test/e2e/Dockerfile', 'native-tests', '/native'],
   ['typescript/test/native/artifact.Dockerfile', 'build', '/workspace'],
@@ -93,5 +93,16 @@ it('places the native caller fixture in the Office browser test image', () => {
   );
   expect(readFileSync(path.join(root, 'typescript/test/support/cli-process.ts'), 'utf8')).toContain(
     "'../../../rust/target/debug/examples/runtime-caller-fixture'"
+  );
+});
+
+it('places the native caller fixture in the Docker E2E image', () => {
+  const dockerfile = readFileSync(path.join(root, 'typescript/test/e2e/Dockerfile'), 'utf8');
+  // native-tests copies the runtime-caller-fixture build to /native-artifacts/codex.
+  expect(dockerfile).toContain(
+    'cp target/debug/examples/runtime-caller-fixture /native-artifacts/codex'
+  );
+  expect(dockerfile).toContain(
+    'COPY --from=native-tests /native-artifacts/codex /workspace/rust/target/debug/examples/runtime-caller-fixture'
   );
 });

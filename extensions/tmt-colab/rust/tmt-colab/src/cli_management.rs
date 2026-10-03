@@ -344,31 +344,122 @@ fn management_error(code: &str) -> Box<dyn std::error::Error + Send + Sync> {
     };
     fail(code, message)
 }
+fn offline(store: Store, key: Keyring, space: &str, body: &[u8]) -> Result<Vec<u8>> {
+    let mut service = Registration::new(store, key, std::env::current_exe()?)?;
+    let now = u64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis())?;
+    let result =
+        management::local(&mut service, space, body, now).map_err(|c| management_error(c.text()));
+    let closed = service.close();
+    // The service call may have committed before close failed.
+    let bytes = result?;
+    closed.map_err(|_| {
+        fail(
+            "COLAB_OUTCOME_UNKNOWN",
+            "State close failed after management; inspect state before retrying.",
+        )
+    })?;
+    Ok(bytes)
+}
 fn mutate(layout: &Layout, space: &str, body: &[u8]) -> Result<Vec<u8>> {
     match layout.serve_lock() {
         Ok(_lock) => {
             let key = Keyring::read(layout)?;
             let store = Store::open(layout)?;
-            let mut service = Registration::new(store, key, std::env::current_exe()?)?;
-            let now = u64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis())?;
-            let result = management::local(&mut service, space, body, now)
-                .map_err(|c| management_error(c.text()));
-            let closed = service.close();
-            // The service call may have committed before close failed.
-            let bytes = result?;
-            closed.map_err(|_| {
-                fail(
-                    "COLAB_OUTCOME_UNKNOWN",
-                    "State close failed after management; inspect state before retrying.",
-                )
-            })?;
-            Ok(bytes)
+            offline(store, key, space, body)
         }
         Err(e) if e.downcast_ref::<StateFault>() == Some(&StateFault::AlreadyServing) => {
             ipc(layout, body)
         }
         Err(e) => Err(e),
     }
+}
+/// Creation is the only CLI command that initializes missing local state.
+pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()> {
+    let title = text(args, "title");
+    if title.is_empty() {
+        return Err(input("Page title cannot be empty."));
+    }
+    if title.len() > tmt_colab::decoder::BASELINE_TITLE_BYTES {
+        return Err(management_error("CAPACITY"));
+    }
+    let operation_id = fresh_id()?;
+    let page_id = fresh_id()?;
+    let layout = Layout::open(root)?;
+    let correlation = json!({"operationId":operation_id,"pageId":page_id});
+    let request = |key: &Keyring, store: &Store| -> Result<Vec<u8>> {
+        let revision = store
+            .owner_head(&key.space_id, &key.owner_public())?
+            .map_or(0, |h| h.revision)
+            .to_string();
+        Ok(serde_json::to_vec(
+            &json!({"space":key.space_id,"page":page_id,
+            "expectedRevision":revision,"operationId":operation_id,"operation":"page.create",
+            "payload":values::encode_binary(&serde_json::to_vec(&json!({
+                "pageId":page_id,"title":title,"source":source
+            }))?)}),
+        )?)
+    };
+    let result = (|| -> Result<Value> {
+        let (space, bytes) = match layout.serve_lock() {
+            Ok(_lock) => {
+                let key = Keyring::open(&layout)?;
+                let store = Store::open(&layout)?;
+                let body = request(&key, &store)?;
+                let space = key.space_id.clone();
+                let bytes = offline(store, key, &space, &body)?;
+                (space, bytes)
+            }
+            Err(error) if error.downcast_ref::<StateFault>() == Some(&StateFault::AlreadyServing) => {
+                let key = Keyring::read(&layout)?;
+                let store = Store::read(&layout)?;
+                store.require_current_schema()?;
+                let body = request(&key, &store)?;
+                store.close()?;
+                (key.space_id.clone(), ipc(&layout, &body)?)
+            }
+            Err(error) => return Err(error),
+        };
+        let ack: Acknowledgment = serde_json::from_slice(&bytes)
+            .map_err(|_| fail("COLAB_OUTCOME_UNKNOWN", "Invalid creation acknowledgment; inspect pages before retrying."))?;
+        if ack.operation_id != operation_id
+            || values::decimal(&ack.membership_head.revision, false).is_err()
+            || values::binary(&ack.membership_head.statement_hash, 32).map_or(true, |hash| hash.len() != 32) {
+            return Err(fail("COLAB_OUTCOME_UNKNOWN", "Mismatched creation acknowledgment; inspect pages before retrying."));
+        }
+        Ok(json!({"spaceId":space,"pageId":page_id,"title":title,
+            "path":format!("x/colab/#space={space}&path=%2Fpages%2F{page_id}"),
+            "operationId":operation_id,"membershipHead":{
+                "revision":ack.membership_head.revision,"statementHash":ack.membership_head.statement_hash
+            }}))
+    })().map_err(|error| {
+        Box::new(ManagementFault {
+            code:crate::error_code(error.as_ref()),message:error.to_string(),correlation:correlation.clone(),
+        }) as Box<dyn std::error::Error + Send + Sync>
+    })?;
+    if args.get_flag("json") {
+        return output(&result, true);
+    }
+    let mut out = tmt_cli_style::stream::stdout(false);
+    let terminal = out.terminal();
+    tmt_cli_style::detail::write(
+        &mut out,
+        terminal,
+        "PAGE CREATED",
+        &[
+            ("page", page_id),
+            ("title", title.to_owned()),
+            (
+                "open",
+                format!(
+                    "Open {} under your Remote door address (the one tmt remote pair printed).",
+                    result["path"]
+                        .as_str()
+                        .ok_or_else(|| input("Missing created page path."))?
+                ),
+            ),
+        ],
+    )?;
+    Ok(())
 }
 pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> Result<()> {
     let layout = Layout::existing(root)?;

@@ -243,6 +243,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "remember runtime channel preference for exact resume",
         sql: include_str!("schema/045.sql"),
     },
+    Migration {
+        name: "retain bounded consumption sources and timestamped history",
+        sql: include_str!("schema/046.sql"),
+    },
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

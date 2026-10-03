@@ -34,7 +34,12 @@ exactly like the CLI without `--identity`. Anonymous is not an authenticated own
 grants nothing beyond what same-user CLI calls without an identity can already do; both
 or neither is `API_INPUT_INVALID`. Reads name neither. Unknown request fields
 are rejected. Responses reuse existing resource shapes, without a second wrapper.
-Clients must tolerate additive response fields.
+Clients must tolerate additive response fields. Public `tmt api` storage opens,
+including `notes.read`, return `STORAGE_NOT_WRITABLE` (exit 1) only for a confirmed
+OS-denied or read-only data directory. The message names that directory; no API
+operation was performed. Other storage-open failures retain `API_UNAVAILABLE`
+or the resource's existing code. `capabilities` and `storage.root` remain
+independent of storage access.
 
 | Operation                | Input                                                                     | Result                                                                                                                                                            |
 | ------------------------ | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -56,6 +61,7 @@ Clients must tolerate additive response fields.
 | `skills.install`         | `owner`, `consent: true`, `skills`, optional `force`                      | `owner`, `published` targets                                                                                                                                      |
 | `skills.remove`          | `owner`, `consent: true`, optional `skills` (names)                       | `owner`, `removed` and `kept` targets                                                                                                                             |
 | `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total) | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                |
+| `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`      | Closed timestamped deltas, coverage and included cumulative seed watermark (see below)                                                                            |
 | `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                              | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`                                                                  |
 
 `storage.root` reports the data directory selected by the invoking core, including
@@ -65,6 +71,115 @@ rather than infer configuration paths, and keep their files under
 subtree, with 0700 directories and 0600 secret/state files; it MUST NOT open or
 modify core's database/configuration or provider settings. Discovery does not
 create the root or read its files. `capabilities` remains a constant document.
+
+## Consumption history
+
+`consumption.history` v1 is a storage-only batch read. It accepts 1–32 distinct
+canonical `identityIds`, 1–3 distinct `windowsMs` (multiples of 5,000 from 5,000
+through 3,600,000), and `maxBuckets` (1–120, default 120). Other values or fields
+return `API_INPUT_INVALID`. Batch larger rosters. The normative shared vector is
+[consumption-history-v1.json](consumption-history-v1.json); it includes an open
+sample beyond the returned seed, so clients can verify the first live delta.
+
+```json
+{
+  "version": 1,
+  "operation": "consumption.history",
+  "input": {
+    "identityIds": ["11111111-1111-4111-8111-111111111111"],
+    "windowsMs": [60000, 300000, 3600000],
+    "maxBuckets": 120
+  }
+}
+```
+
+The result is one SQLite read snapshot. `asOfMs` is core's UTC Unix millisecond
+clock at admission; `throughMs` is that time rounded down to 5 seconds.
+`resolutionMs` is 5,000 and `retainedFromMs` is `throughMs - 7,200,000`, clamped
+to zero. Only closed buckets in `[retainedFromMs, throughMs)` are included.
+The open bucket is excluded. Counter `observedAtMs` records acceptance of new
+provider evidence and does not advance on a reread; `lastSampleAtMs` records an
+accepted source read, including an unchanged counter. Neither grants a heartbeat
+or permission to send input. Clock rollback fails closed rather than inventing
+an interval.
+
+`identities` preserves request order. Unknown or retired UUIDs return
+`{id,found:false}`. A found identity additionally returns `reporting`,
+`availableFromMs`, `lastSampleAtMs`, `latest` and `windows`:
+
+- `reporting` means retained closed history contains a successful normalized
+  counter observation. False is unavailable evidence, not a measured zero.
+- `availableFromMs` is the earliest successful observation time in retained
+  closed history, or null. It is not a promise of continuous coverage.
+- `latest` is `{driver,session,consumption}` from the last accepted source read
+  represented in retained closed history. `consumption` has the public
+  `resume.consumption` shape: cumulative `inputTokens`, `outputTokens`,
+  `cachedInputTokens`, `epoch`, `sequence`, `observedAtMs`, `complete`, `gap`.
+  A failed last read makes `latest` and `lastSampleAtMs` null. This watermark
+  excludes newer observations in the open bucket, even when ordinary `ls`
+  already exposes them. It is never substituted with a newer live counter.
+- Each window is `{windowMs,fromMs,toMs,bucketMs,buckets}` with
+  `toMs=throughMs` and `fromMs=max(0,throughMs-windowMs)`. `bucketMs` is
+  `ceil((windowMs/5000)/maxBuckets)*5000`; aggregation starts at `fromMs` and
+  the final bucket may be shorter. Each window returns at most `maxBuckets`
+  buckets, including uncovered intervals.
+- Each bucket is `{fromMs,toMs,inputTokens,outputTokens,cachedInputTokens,
+coveredMs,complete,gap,discontinuous}`. Token fields are normalized **deltas**,
+  attributed to the accepted observation's base bucket, never counters or
+  prorated estimates. Cached input is already part of input; total is input
+  plus output. `coveredMs` is the union of verified contiguous successful read
+  intervals in that bucket, bounded by its duration. Reads more than two sampling
+  cadences apart do not establish coverage between them. An incomplete source
+  may contribute a known lower-bound delta without establishing coverage.
+  `complete` requires full duration coverage and complete evidence without a
+  gap; `gap` marks missing evidence/coverage, and `discontinuous` marks an
+  observed driver, session or epoch boundary. An unavailable read, decreasing
+  counter or boundary never bridges unknown counters. A gap observation sets
+  the new baseline; a later same-epoch gap-free read may contribute a known
+  delta from it without claiming coverage across the gap. Zero tokens with full
+  coverage is a measured zero; zero tokens without coverage is unknown.
+
+Core retains 5-second buckets for two hours: at most 1,440 closed buckets plus
+one open bucket per identity. Expired history is excluded immediately on reads;
+accepted writes prune the identity and opportunistically prune expired inactive
+rows. Reads never renew history. Migration does not backfill history and core
+never replays old transcript prefixes. Provider formats are unofficial; missing
+records, bounded reads and source loss can leave partial history. Counter
+arithmetic is checked against JavaScript's safe integer bound.
+
+Closed buckets can gain coverage when a later accepted read verifies an interval;
+responses are snapshots, not an append-only delta feed. Use the included
+`latest` driver/session/epoch/sequence and cumulative counters as the live seed
+watermark. `throughMs` alone cannot identify which counters were included. The
+shared fixture demonstrates an open read completing a closed bucket's coverage
+without changing that bucket's included cumulative counter.
+
+A meter seeds its existing Rate owner from the **longest returned window once**;
+shorter windows overlap and must not be added again. It uses the included
+`latest` snapshot as its live `ls` baseline. For example, the shared fixture's
+closed seed includes 14 input and 7 output tokens and `latest` is 114/57;
+the newer live 120/60 counter adds exactly 6/3, not the full cumulative total.
+An epoch/session/driver change, null seed, gap or decreasing counter requires a
+new baseline. On reentry, rebuild the covered recent range and preserve older
+observed intervals in that same owner. Do not add core deltas and live deltas
+for overlapping intervals. If overlap or evidence cannot be resolved exactly,
+retain the known total as partial; do not prorate or double count. A configured
+window longer than the query/coverage cap can use older observations in that
+owner and otherwise remains partial (`~`); it is unavailable only with no
+coverage. Core does not promise 24-hour history.
+
+Collection runs every five seconds in the `tmt run`/`resume` foreground child
+wait, using a bounded supervised worker and the existing consented usage hooks.
+There are no listing-time provider reads or detached sampling services. Old
+wrappers and hook-only launches remain Stop-only until relaunched through the
+new foreground owner. `--no-usage` suppresses sampling and Stop collection;
+legacy lifecycle-only installations remain disabled until explicitly enabled.
+Exactly-once accounting covers sampling/Stop races and supported contiguous
+provider groups; Claude's existing noncontiguous repeated-message limitation
+remains. No new per-request deduplication store is introduced. A cursor outside
+the latest 1 MiB is rebaselined at EOF with a gap rather than scanning the old
+prefix. Extensions never access private source locators, provider files or
+opaque driver state.
 
 ## Dispatch readiness and input safety
 
@@ -323,7 +438,10 @@ Public `ls --json` also exposes the remembered driver's optional
 a subset, epoch/sequence, observation time and explicit completeness/gap.
 It is separate from `resume.usage` (context size). Consumers baseline on first,
 epoch-change, gap or decreasing-counter observations; absent evidence is
-unavailable. Counter times are not heartbeats and no in-flight usage is exposed.
+unavailable. Counter times are not heartbeats. Foreground sampling can expose accepted
+completed-request evidence before the main turn ends; it does not estimate
+unreported in-flight usage. See [consumption history](#consumption-history) for
+the bounded public seed and coverage contract.
 See [the runtime contract](../ARCHITECTURE.md#identity-names-and-bindings) for exact fields, provider
 normalization and bounded-source limitations. Extensions read these public
 projections, never provider transcripts or private driver state.

@@ -1,0 +1,39 @@
+---
+source: site/src/chapters/meet.mdx
+sourceRevision: c2f5628db5baaaf69d4b055feef494cee7184d97
+title: ユーザーと agent の会議
+---
+
+import { MeetRoom } from "../../chapter-scenes/MeetRoom";
+import { Callout } from "../../components/marks";
+import { components as Mdx } from "../../components/mdx";
+
+<Callout title="計画中です。">
+  Meet
+  の設計はあります（[#842](https://github.com/pj-tmt/tmt/issues/842)）が、着手時期は未定で、開発も始まっていません。このページは合意済みの設計を説明するもので、今使える機能ではありません。
+</Callout>
+
+<MeetRoom />
+
+<Mdx.h3 id="what-it-is">どんなものか</Mdx.h3>
+
+端末で開く、ユーザーと複数の agent の会議です。独立した拡張機能ではなく、[Squad](/extensions/squad) の一部です。議題と招待する agent を指定して始め、誰が話すかをユーザーが決めます。
+
+<Mdx.h3 id="who-has-the-floor">発言権</Mdx.h3>
+
+- **会議を始められるのはユーザーだけです。** agent が開始したり、互いを招待したりすることはできません。
+- **ユーザーが発言権を渡します。** 既定では `g` または `@name` で agent を指定します。話したい agent は1行で意図を伝えて挙手し、待機します。agent による `@mention` は挙手をキューに追加するだけです。
+- **先着順にもできます。** 会議中に `m` でモードを切り替えます。このモードでは、同じ参加者が2回続けて話すことはありません。
+- **発言権は自動で戻ります。** 発言のターンが終わると戻り、話さないままの参加者からは次に挙手した参加者へ移ります。
+
+<Mdx.h3 id="what-it-builds-on">基になる仕組み</Mdx.h3>
+
+会議は、メンバーと記録を持つ `tmt room` です。発言権を渡す操作はその agent への `talk` リクエストで、`reply` が発言になります。発言権のない agent は起こされず、利用枠も消費しません。
+
+<Mdx.h3 id="when-it-ends">会議が終わると</Mdx.h3>
+
+会議の記録と、自分で記録した決定の一覧が残ります。決定は issue や agent への `tmt talk` にできますが、必ずユーザーが確認してからです。会議の内容が勝手に実行されることはありません。
+
+<Mdx.h3 id="what-comes-later">その後の予定</Mdx.h3>
+
+最初のバージョンは端末上のテキストです。[Colab](/extensions/colab) を使った Web 表示や音声対応は、その後に予定しています。

@@ -1,0 +1,91 @@
+name: Inject and verify a release version
+description: Edit only the selected version and implied offline Cargo lock entries at the exact cut
+inputs:
+  product:
+    description: Released component
+    required: true
+  tag:
+    description: Exact draft tag; empty for a synthetic, non-publishing preparation
+    required: false
+    default: ''
+  source-root:
+    description: Release-source checkout whose version and lock entries are injected
+    required: false
+    default: '.'
+  tooling-root:
+    description: Reviewed tooling checkout; current main for an owner-authorized historical rerun
+    required: false
+    default: '.'
+  phase:
+    description: prepare injects once; verify rechecks the unchanged version-only contract after a stage
+    required: false
+    default: prepare
+outputs:
+  tag:
+    description: Draft tag or synthetic proof tag for preparation
+    value: ${{ steps.inject.outputs.tag }}
+  snapshot:
+    description: Version-only source/lock contract outside the source checkout
+    value: ${{ steps.inject.outputs.snapshot }}
+runs:
+  using: composite
+  steps:
+    - name: Validate injection phase
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        PHASE: ${{ inputs.phase }}
+      run: |
+        case "$PHASE" in prepare|verify) ;; *) echo 'Unknown version-injection phase.' >&2; exit 1 ;; esac
+    - uses: actions/setup-node@v4
+      if: inputs.phase == 'prepare'
+      with:
+        node-version: 22.23.2
+    - name: Build the reviewed TOML helper and inject the draft version
+      id: inject
+      if: inputs.phase == 'prepare'
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        RUSTUP_TOOLCHAIN: 1.97.0
+        PRODUCT: ${{ inputs.product }}
+        RELEASE_TAG: ${{ inputs.tag }}
+        SOURCE_ROOT: ${{ inputs.source-root }}
+        TOOLING_ROOT: ${{ inputs.tooling-root }}
+      run: |
+        set -euo pipefail
+        source_checkout=$(cd "$SOURCE_ROOT" && pwd)
+        tooling_checkout=$(cd "$TOOLING_ROOT" && pwd)
+        # Helper and release builds share this job's Cargo target; the helper is tooling only.
+        export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$tooling_checkout/rust/target}"
+        cargo +1.97.0 fetch --locked --manifest-path "$tooling_checkout/rust/Cargo.toml"
+        cargo +1.97.0 build --offline --locked -p tmt-release-tool --bin release-version --manifest-path "$tooling_checkout/rust/Cargo.toml"
+        cargo +1.97.0 fetch --locked --manifest-path "$source_checkout/rust/Cargo.toml"
+        snapshot="$RUNNER_TEMP/release-version-state.json"
+        node "$tooling_checkout/typescript/scripts/release-version-injection.mjs" prepare "$source_checkout" "$snapshot" "$PRODUCT" "$RELEASE_TAG"
+        if node -e 'const s=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); process.exit(s.oldVersion === s.version ? 1 : 0)' "$snapshot"; then
+          # The changed source must reject the stale lock before its implied update.
+          if cargo +1.97.0 metadata --offline --locked --manifest-path "$source_checkout/rust/Cargo.toml" --format-version 1 > "$RUNNER_TEMP/stale-lock.json" 2> "$RUNNER_TEMP/stale-lock.log"; then
+            echo 'Injected version incorrectly accepted a stale lockfile.' >&2
+            exit 1
+          fi
+          grep -Eq 'cannot update the lock file.*because --locked was passed|lock file.*needs to be updated' "$RUNNER_TEMP/stale-lock.log"
+          cargo +1.97.0 update --offline --workspace --manifest-path "$source_checkout/rust/Cargo.toml"
+        fi
+        node "$tooling_checkout/typescript/scripts/release-version-injection.mjs" verify "$source_checkout" "$snapshot" | tee "$RUNNER_TEMP/version-gate-prepare.json"
+        printf 'snapshot=%s\n' "$snapshot" >> "$GITHUB_OUTPUT"
+        node -e 'const s=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); console.log("tag="+s.tag)' "$snapshot" >> "$GITHUB_OUTPUT"
+    - name: Recheck version-only source and resolved lock after the stage
+      if: inputs.phase == 'verify'
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        RUSTUP_TOOLCHAIN: 1.97.0
+        SOURCE_ROOT: ${{ inputs.source-root }}
+        TOOLING_ROOT: ${{ inputs.tooling-root }}
+      run: |
+        set -euo pipefail
+        source_checkout=$(cd "$SOURCE_ROOT" && pwd)
+        tooling_checkout=$(cd "$TOOLING_ROOT" && pwd)
+        export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$tooling_checkout/rust/target}"
+        node "$tooling_checkout/typescript/scripts/release-version-injection.mjs" verify "$source_checkout" "$RUNNER_TEMP/release-version-state.json" | tee "$RUNNER_TEMP/version-gate-verify.json"

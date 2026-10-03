@@ -475,11 +475,25 @@ pub(super) fn run_bound(
             .as_ref()
             .is_some_and(|(_, state)| *state == tmt_core::binding::session::RuntimeState::Ended),
     );
-    let waited = child.wait(|_| {
+    let on_degraded = |_: &std::io::Error| {
         diagnostic(
             "signal observation degraded; waiting for the original command without restarting it.",
         )
-    });
+    };
+    let waited = if storage_closed
+        && admitted.is_some()
+        && !already_exited
+        && let Some(owner) = owner.as_ref()
+        && claim.is_some()
+    {
+        child.wait_with_ticks(
+            Duration::from_millis(tmt_adapters::runtime::sampling::CADENCE_MS),
+            || crate::consumption_sample_command::tick(&binding.identity_id, &binding.id, owner),
+            on_degraded,
+        )
+    } else {
+        child.wait(on_degraded)
+    };
     // The enrollment ends with the foreground, and only when its end is confirmed:
     // a wait that failed proves nothing, so that path leaves the enrollment as it is.
     let status = lease.settle_wait(waited).map_err(|error| {

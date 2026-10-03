@@ -115,15 +115,33 @@ fn socket_permission_denied(cause: &CommandError) -> bool {
     let Some(output) = &cause.output else {
         return false;
     };
-    let Ok(stderr) = std::str::from_utf8(&output.stderr) else {
+    // tmux's fixed connect prefix identifies the path, but libc's strerror
+    // suffix follows the child locale. Confirm denial with OS evidence rather
+    // than changing LC_ALL/LC_CTYPE and degrading UTF-8 pane handling.
+    use std::os::unix::{ffi::OsStrExt, fs::FileTypeExt};
+    let Some(diagnostic) = output.stderr.strip_prefix(b"error connecting to ") else {
         return false;
     };
-    // tmux reports a denied connect through its own exit status, not the OS
-    // errno of this parent process. Only its socket-connect diagnostic counts.
-    stderr.starts_with("error connecting to ")
-        && ["(Permission denied)", "(Operation not permitted)"]
-            .iter()
-            .any(|ending| stderr.trim_end().ends_with(ending))
+    let Some(separator) = diagnostic.windows(2).rposition(|pair| pair == b" (") else {
+        return false;
+    };
+    let path = std::path::Path::new(OsStr::from_bytes(&diagnostic[..separator]));
+    match std::fs::metadata(path) {
+        Err(error) => matches!(
+            error.raw_os_error(),
+            Some(nix::libc::EACCES | nix::libc::EPERM)
+        ),
+        Ok(metadata) if metadata.file_type().is_socket() => matches!(
+            nix::unistd::faccessat(
+                nix::fcntl::AT_FDCWD,
+                path,
+                nix::unistd::AccessFlags::W_OK,
+                nix::fcntl::AtFlags::AT_EACCESS
+            ),
+            Err(Errno::EACCES | Errno::EPERM)
+        ),
+        _ => false,
+    }
 }
 
 impl fmt::Display for TmuxError {

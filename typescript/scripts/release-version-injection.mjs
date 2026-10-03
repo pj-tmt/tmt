@@ -1,4 +1,4 @@
-// Mechanical checkout edits for the shadow native spike; nothing is committed or tagged.
+// Mechanical release-checkout edits; nothing is committed or tagged.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -7,7 +7,7 @@ import { relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseComponentMap } from './ci-scope.mjs';
 import { releasePolicy } from './native-release-policy.mjs';
-import { versionOfTag } from './release-versions.mjs';
+import { syntheticAlphaVersion, versionOfTag } from './release-versions.mjs';
 
 const LOCK = 'rust/Cargo.lock';
 const WORKSPACE = 'rust/Cargo.toml';
@@ -22,9 +22,9 @@ const hash = (root, file) =>
 const read = (root, file) => readFileSync(resolve(root, file), 'utf8');
 const TOOL = resolve(
   process.env.CARGO_TARGET_DIR ?? fileURLToPath(new URL('../../rust/target', import.meta.url)),
-  'debug/examples/release-version'
+  'debug/release-version'
 );
-// The developer-only Rust helper owns TOML parsing and formatting-preserving edits.
+// The private Rust release tool owns TOML parsing and formatting-preserving edits.
 function tomlCommand(args, source) {
   const result = spawnSync(TOOL, args, {
     input: source,
@@ -49,6 +49,14 @@ const normalizeLock = (lock) => ({
 
 /** Builds a version-only edit contract from the source, not a release manifest/config. */
 export function captureVersionState({ root, files, metadata, product, tag, cut, map }) {
+  const component = map.components.find((c) => c.name === product);
+  if (!component?.package || component.release === false)
+    throw new Error('Injection requires a released component package.');
+  const crates = metadata.packages.filter((p) => metadata.workspace_members.includes(p.id));
+  const selected = crates.filter((p) => p.name === component.package);
+  if (selected.length !== 1) throw new Error('Missing or ambiguous product Cargo package.');
+  // Tagless preparation uses the shared synthetic proof version; it creates no release tag.
+  tag ||= `${releasePolicy(product).tagPrefix}${syntheticAlphaVersion(selected[0].version)}`;
   const version = versionOfTag(tag, product);
   if (
     !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(
@@ -56,12 +64,6 @@ export function captureVersionState({ root, files, metadata, product, tag, cut, 
     )
   )
     throw new Error('Invalid injection tag version.');
-  const component = map.components.find((c) => c.name === product);
-  if (!component?.package || component.release === false)
-    throw new Error('Injection requires a released component package.');
-  const crates = metadata.packages.filter((p) => metadata.workspace_members.includes(p.id));
-  const selected = crates.filter((p) => p.name === component.package);
-  if (selected.length !== 1) throw new Error('Missing or ambiguous product Cargo package.');
   const packageManifest = relative(root, selected[0].manifest_path);
   if (!files.includes(packageManifest)) throw new Error('Product manifest is not tracked source.');
   const inherited = parse(read(root, packageManifest)).package.version?.workspace === true;
@@ -70,8 +72,8 @@ export function captureVersionState({ root, files, metadata, product, tag, cut, 
   const source = read(root, manifest);
   const original = parse(source);
   const oldVersion = inherited ? original.workspace.package.version : original.package.version;
-  if (oldVersion !== selected[0].version || oldVersion === version)
-    throw new Error('Product version must match metadata and differ from the injected tag.');
+  if (oldVersion !== selected[0].version)
+    throw new Error('Product version must match captured Cargo metadata.');
   const packages = inherited
     ? crates
         .filter(
@@ -99,6 +101,7 @@ export function captureVersionState({ root, files, metadata, product, tag, cut, 
 
 /** toml_edit preserves surrounding formatting and rejects invalid/ambiguous TOML. */
 function versionEditedSource(snapshot) {
+  if (snapshot.oldVersion === snapshot.version) return snapshot.source;
   return tomlCommand(
     ['edit', snapshot.section, snapshot.oldVersion, snapshot.version],
     snapshot.source
@@ -111,7 +114,8 @@ export function injectVersion(root, snapshot) {
     snapshot.source,
     'Version source changed before injection.'
   );
-  writeFileSync(resolve(root, snapshot.manifest), versionEditedSource(snapshot));
+  if (snapshot.oldVersion !== snapshot.version)
+    writeFileSync(resolve(root, snapshot.manifest), versionEditedSource(snapshot));
 }
 
 /** Strict semantic Cargo.lock equality, allowing only the selected local version changes. */
@@ -123,7 +127,7 @@ export function verifyVersionState(root, snapshot, metadata) {
     .sort();
   assert.deepEqual(
     changed,
-    [LOCK, snapshot.manifest].sort(),
+    snapshot.oldVersion === snapshot.version ? [] : [LOCK, snapshot.manifest].sort(),
     'Source differs beyond version manifest and implied lock entries.'
   );
   assert.equal(
@@ -181,7 +185,7 @@ export function verifyVersionState(root, snapshot, metadata) {
   };
 }
 
-export function verifyDistVersions(snapshot, plan, build, reportedVersion) {
+export function verifyDistManifests(snapshot, plan, build) {
   for (const manifest of [plan, build]) {
     assert.equal(manifest.announcement_tag, snapshot.tag, 'dist tag differs from injected tag.');
     assert.equal(manifest.releases.length, 1, 'dist selected unexpected products.');
@@ -192,6 +196,10 @@ export function verifyDistVersions(snapshot, plan, build, reportedVersion) {
     );
     assert.equal(release.app_version, snapshot.version, 'dist version differs from tag.');
   }
+}
+
+export function verifyDistVersions(snapshot, plan, build, reportedVersion) {
+  verifyDistManifests(snapshot, plan, build);
   const expected =
     snapshot.product === 'cli' ? snapshot.version : `${snapshot.product} ${snapshot.version}`;
   assert.equal(reportedVersion.trim(), expected, 'Built binary version differs from tag.');
@@ -270,6 +278,14 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         ])
       );
       console.log(JSON.stringify(verifyVersionState(root, snapshot, metadata), null, 2));
+    } else if (action === 'manifests' && args.length === 2) {
+      const snapshot = JSON.parse(readFileSync(snapshotFile, 'utf8'));
+      verifyDistManifests(
+        snapshot,
+        JSON.parse(readFileSync(args[0], 'utf8')),
+        JSON.parse(readFileSync(args[1], 'utf8'))
+      );
+      console.log(`Verified ${snapshot.tag}: plan and build agree.`);
     } else if (action === 'artifact' && args.length === 3) {
       const snapshot = JSON.parse(readFileSync(snapshotFile, 'utf8'));
       verifyDistVersions(
@@ -281,7 +297,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       console.log(`Verified ${snapshot.tag}: plan, build and binary agree.`);
     } else
       throw new Error(
-        'Usage: release-version-injection.mjs prepare <root> <snapshot> <product> <tag> | verify <root> <snapshot> | artifact <root> <snapshot> <plan> <build> <binary>'
+        'Usage: release-version-injection.mjs prepare <root> <snapshot> <product> <tag> | verify <root> <snapshot> | manifests <root> <snapshot> <plan> <build> | artifact <root> <snapshot> <plan> <build> <binary>'
       );
   } catch (error) {
     console.error(error.message);

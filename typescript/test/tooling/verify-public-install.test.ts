@@ -359,12 +359,12 @@ describe('the public installer smoke of a CLI release', () => {
     expect(attempt.waits).toEqual([20_000, 20_000]);
   });
 
-  it('recovers when latest catches up, without retrying a newer or malformed installer', async () => {
+  it('recovers when latest catches up, without retrying malformed installer data', async () => {
     const attempt = run({}, { installerVersions: ['5.0.0-alpha.11', '5.0.0-alpha.12'] });
     expect(failed(await attempt.results)).toEqual([]);
     expect(attempt.fetched).toHaveLength(2);
     expect(attempt.waits).toEqual([20_000]);
-    for (const version of ['5.0.0-alpha.13', 'invalid']) {
+    for (const version of ['invalid']) {
       const other = run({ version });
       expect(failed(await other.results)).toHaveLength(1);
       expect(other.fetched).toHaveLength(1);
@@ -372,6 +372,15 @@ describe('the public installer smoke of a CLI release', () => {
     }
   });
 
+  it('proves an older independent CLI cut through its versioned installer while latest stays higher', async () => {
+    const attempt = run({}, { installerVersions: ['5.0.0-alpha.13', '5.0.0-alpha.12'] });
+    expect(failed(await attempt.results)).toEqual([]);
+    expect(attempt.fetched).toEqual([
+      installerUrl('wkh237/tmt'),
+      installerUrl('wkh237/tmt', 'v5.0.0-alpha.12'),
+    ]);
+    expect(attempt.waits).toEqual([]);
+  });
   it('does not retry an installer download error merely because latest reads allow lag recovery', async () => {
     const attempt = run({}, { fetchError: 'HTTP 403' });
     expect(failed(await attempt.results)).toEqual([

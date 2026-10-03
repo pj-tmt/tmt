@@ -1,0 +1,68 @@
+---
+source: site/src/chapters/drv-codex.mdx
+sourceRevision: fc0f8b7b6a08b2b55775302b0aa147fb1c986ec6
+title: Codex：スレッドを識別する
+---
+
+import { Cmd } from "../../components/Cmd";
+import { DriverCard } from "../../components/samples";
+import { components as Mdx } from "../../components/mdx";
+
+<DriverCard
+  name="Codex"
+  kind="runtime driver"
+  spec={[
+    [
+      "識別する情報",
+      "Codex の hook から各スレッドの ID を取得します。Codex が1つのペインで単独で動く場合も、複数のペインが1つの Codex app server を共有する場合も対応します。",
+    ],
+    [
+      "共有サーバー",
+      <>
+        tmt はスレッドの完全な一致だけを信頼するため、同じサーバーの2つの agent
+        を混同しません。判断できない場合はその旨を伝え、<code>--identity</code> の指定を求めます。
+      </>,
+    ],
+    [
+      "再開",
+      <>
+        <code>tmt resume &lt;name&gt;</code> は、この identity
+        のスレッドを同じモデルで開き直します。
+      </>,
+    ],
+    ["設定", <code>tmt setup codex</code>],
+  ]}
+/>
+
+<Mdx.h3 id="connect-it">接続する</Mdx.h3>
+
+<Cmd>{`
+$ tmt setup codex           # 設定の変更内容を表示して確認
+$ tmt run builder codex     # builder として Codex を起動
+$ tmt resume builder        # builder 自身のスレッドを開き直す
+`}</Cmd>
+
+setup は tmt 用の lifecycle hook を Codex に追加します。初回は Codex が新しい hook を信頼するか尋ねます。これは正常な動作です。`tmt setup codex --remove` で取り除けます。
+
+<Mdx.h3 id="message-delivery">メッセージの配信</Mdx.h3>
+
+`tmt run <name> codex` と `tmt resume <name>` は、既定で通常の貼り付けを使います。Codex のネイティブなメッセージ channel を使うには `--channel` を指定します。channel では `talk` が専用の app-server を通して入力をキューに入れるため、ペインに貼り付けず、ユーザーの入力も中断しません。channel の各セッションには、tmt が管理する追加の app-server プロセスと supervisor が1つずつ付きます。Ctrl-C を含め、フォアグラウンドの処理が終了したときに tmt が片付けます。
+
+[run と resume のオプション](/working#tmt-run)で、通常の貼り付けを選ぶか、channel を必須にするか指定できます。
+
+<Cmd>{`
+$ tmt run --channel builder codex    # channel を有効にする
+$ tmt resume --channel builder       # このスレッドの再開に channel を必須とする
+`}</Cmd>
+
+使っている Codex のバージョンが未検証の場合や、起動前に channel を安全に準備できない場合、`--channel` は失敗します。現在、Codex 0.160.0 の新規 channel 起動は接続処理で失敗します。この不具合が直るまでは、既定の通常起動を使ってください。ペインがすでに channel に接続している可能性があれば、tmt は貼り付けへの切り替えを拒否します。登録後に channel の準備が整わない場合や配信できない場合もエラーのままとし、代わりにペインへ貼り付けることはありません。
+
+Codex が起動フォルダーを信頼するか尋ねることがあります。その TUI で自分で回答してください。tmt は回答や信頼設定の変更をしません。キューに受け付けられた入力も、接続が完了するまで待つ場合があります。通常の `codex` の実行は変わりません。channel 登録のために、tmt が Codex のグローバル設定、認証、hook を変更することもありません。
+
+<Mdx.h3 id="codex-s-sandbox">Codex の sandbox</Mdx.h3>
+
+Codex の workspace-write sandbox では、既定で tmt のデータディレクトリに書き込めません。tmt はクラッシュではなく、ディレクトリのパスを添えた `STORAGE_NOT_WRITABLE` として明確に報告します。たとえば Codex の `writable_roots` に追加してそのディレクトリを許可するか、Codex 自身の権限昇格機能でコマンドを実行してください。tmt は Codex の sandbox 設定を変更しません。agent もユーザーの了承なしに変更すべきではありません。
+
+<Mdx.h3 id="usage-counters">使用量カウンター</Mdx.h3>
+
+`tmt setup codex --usage` はターン終了時の hook を追加し、Codex のコンテキストサイズと、完了したリクエストが使ったトークン数を記録します。フィールドは[使用量カウンター](/drivers#usage-counters)を参照してください。Codex はコンテキストウィンドウを報告するため、`windowTokens` が入ります。カウンターは provider 自身の累計値に従います。最初の読み取りを基準に、その後のターンで加算します。

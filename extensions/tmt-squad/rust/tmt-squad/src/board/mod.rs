@@ -10,6 +10,7 @@ mod home;
 mod markdown;
 mod meter;
 pub(crate) mod notes;
+mod picker_surface;
 mod rate;
 mod refresh;
 mod scroll;
@@ -325,6 +326,7 @@ fn session(
                 app.mouse(mouse, Instant::now())
             }
             Ok(BoardEvent::Input(Event::Resize(_, _))) => {
+                app.invalidate_overlay_frames();
                 dirty = true;
                 Effect::None
             }

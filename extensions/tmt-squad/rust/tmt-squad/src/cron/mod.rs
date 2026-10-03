@@ -8,14 +8,14 @@ pub use store::{Job, Jobs, Pause, Store};
 /// Expected input/persistence failures, mapped to CLI output by the caller.
 #[derive(Debug)]
 pub struct Error {
-    pub code: &'static str,
+    pub code: String,
     pub message: String,
 }
 
 impl Error {
     fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self {
-            code,
+            code: code.into(),
             message: message.into(),
         }
     }

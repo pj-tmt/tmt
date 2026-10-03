@@ -31,6 +31,29 @@ pub const CONFIG: &CommandSpec = spec!(
     "config", "Inspect effective Squad board settings",
     ["Inspect board defaults and their sources" => "tmt squad config show"]
 );
+pub const CRON: &CommandSpec = spec!(
+    "cron", "Manage time-based Squad jobs",
+    details = "Writes require the recorded user or the squad's lead. Change announcements are best effort. Jobs are stored separately from squad.toml; no run results or catch-up.",
+    ["List jobs across every squad" => "tmt squad cron ls"]
+);
+pub const CRON_LS: &CommandSpec = spec!("ls", "List jobs, owners and future slots",
+    ["List one squad's jobs" => "tmt squad cron ls --squad product"]);
+pub const CRON_SHOW: &CommandSpec = spec!("show", "Show a job's full message and next three slots",
+    ["Inspect one job" => "tmt squad cron show product c1"]);
+pub const CRON_ADD: &CommandSpec = spec!("add", "Create a time-based job for a squad member",
+    ["Send a reminder every thirty minutes" => "tmt squad cron add product worker --every 30m 'Review the queue'",
+     "Schedule a weekday reminder" => "tmt squad cron add product worker --at 09:00 --on weekdays 'Review the queue'",
+     "Use five-field cron syntax" => "tmt squad cron add product worker --cron '0 */3 * * *' 'Review the queue'"]);
+pub const CRON_EDIT: &CommandSpec = spec!("edit", "Change a job's message or schedule",
+    ["Change the interval" => "tmt squad cron edit product c1 --every 2h"]);
+pub const CRON_RM: &CommandSpec = spec!("rm", "Remove a job; retain its id counter and exchange history",
+    ["Remove one job" => "tmt squad cron rm product c1"]);
+pub const CRON_PAUSE: &CommandSpec = spec!("pause", "Pause a job and record who paused it",
+    ["Pause one job" => "tmt squad cron pause product c1"]);
+pub const CRON_RESUME: &CommandSpec = spec!("resume", "Resume a job with a current owner",
+    ["Resume one job" => "tmt squad cron resume product c1"]);
+pub const CRON_REASSIGN: &CommandSpec = spec!("reassign", "Assign a job to another member, retaining its pause",
+    ["Choose a new owner" => "tmt squad cron reassign product c1 reviewer"]);
 pub const CONFIG_SHOW: &CommandSpec = spec!(
     "show", "Show effective board settings and where they come from",
     details = "Read-only. Configured commands are displayed, never executed.",
