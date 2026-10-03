@@ -265,6 +265,9 @@ to toggle it alone.
 A folded title reads `▸ detail` and stays in place. Stacked panes reserve one
 line; side-by-side panes reserve a compact title-width column. Expanded neighbours
 share the freed space, and expanding restores the configured proportions.
+Nested percentages use the raw fractional parent, then round cumulative boundaries
+to terminal cells. For example, Team at body height 21 gives detail/replies 6/7
+cells rather than halving an already rounded parent into 7/6.
 Tab skips folded panes. Folding a focused pane moves focus to rows when visible,
 otherwise the next expanded pane; unfolding keeps an existing focus. With all
 panes folded, only titles and bindings act;

@@ -376,9 +376,11 @@ mod tests {
                         ViewName::Wide => Default::default(),
                     };
                     assert_eq!(folds, expected, "{} at {width}", name.name());
-                    let solved = board
-                        .split
-                        .solve(ratatui::layout::Rect::new(0, 0, width, 30), &folds);
+                    let solved = crate::board::pane_rectangles(
+                        &board,
+                        &folds,
+                        ratatui::layout::Rect::new(0, 0, width, 30),
+                    );
                     assert_eq!(solved.len(), 4);
                     assert!(
                         solved

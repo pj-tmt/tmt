@@ -3513,23 +3513,29 @@ whole table, additional provider names retain `pr`, and reminder keys override
 individually. The nested board requires a full `layout` or `panes` override;
 partial `direction`/`sizes` overrides are rejected. Model reads the existing
 session projection, and providers remain on the existing fetcher path.
-`split` owns how panes sit: a tree of row and column
-splits whose children have a percentage or a grow share (ratatui `Percentage`
-and `Fill`), nested up to three levels; `layout` is its full form and the
-`direction`/`panes`/`sizes` keys its one-level form, and split solves either
-by one recursive walk before the board draws the resulting panes. The tree's reading order is the focus order, skipping folded panes. `split::Split::solve` receives
-an explicit runtime fold set: vertical folded children reserve one title line,
-horizontal folded children reserve a compact title-width column, and a fully
-folded subtree propagates its title footprint. Expanded siblings divide the
-remaining space by their configured percentage/grow shares. An empty fold set
-uses the original constraints. The configured Board/Split never changes during
+`split` owns validated row/column trees up to three levels and reading/focus order,
+not geometry. `board::composition` admits an embedded version-1 XML scaffold before
+raw mode, then instantiates its named prototypes from the validated Board/Split
+and runtime folds. Folded panes reserve one stacked title line or compact side-by-side
+title width; fully folded groups propagate that footprint. Expanded siblings share
+the remainder through typed percent/grow styles and one Taffy flex computation. Named
+rectangles dispatch to the existing rich pane painters; notes/replies retain
+Markdown, wrapping and interaction owners. Tabs reserve a shrinkable one-line
+bar above a focused pane with a one-line minimum. No runtime file loader or
+alternate composition solver exists. The immutable-view cache keys viewport,
+effective Board, folds and tabs focus; row selection does not rebuild geometry.
+Nested percentages use raw fractional parents, then cumulative edge rounding:
+a 60% Team parent split in half at body height 21 gives Detail/Replies 6/7,
+rather than 7/6 from halving an already rounded parent. Rows/Notes and widths
+remain unchanged. The tree's reading order remains focus order, skipping folds.
+The configured Board/Split never changes during
 a toggle. `Config::board` strictly validates the initial `collapsed` pane list
 for split mode, plus `fold_below = { width, panes }` with width 1–1000 and
 panes present in the resolved layout. Team sets width 100 for detail and replies.
 `App` resolves the effective fold set from board body width and immutable defaults;
 per-pane user overrides win at either width. The terminal draw owner supplies the
 full-width body measurement before rendering; the view only passes the resulting
-set to `Split::solve`. `App` owns bounded per-tab session overrides, preserving them
+set to `board::composition`. `App` owns bounded per-tab session overrides, preserving them
 through unchanged refreshes and cached switches, resetting them on changed board
 configuration, and dropping removed tabs. Restarting uses config again. The
 existing `action` parser/dispatcher owns `toggle <pane>...`, accepting one or
