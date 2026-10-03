@@ -203,7 +203,7 @@ jobs:
         with:
           name: upgrade-assets-${{ inputs.tag }}
           path: ${{ runner.temp }}/upgrade
-      - name: Upgrade from the last published release
+      - name: Prove last-published and declared-floor installation and bootstrap recovery
         env:
           PRODUCT: ${{ inputs.product }}
           RELEASE_TAG: ${{ inputs.tag }}
@@ -227,6 +227,8 @@ jobs:
           node "$tooling/typescript/scripts/release-upgrade.mjs" prove --product "$PRODUCT" --tag "$RELEASE_TAG" \
             --target "$TARGET" --directory "$RUNNER_TEMP/upgrade" --skill "$skill" "$@" \
             2>&1 | tee "$RUNNER_TEMP/upgrade-proof.log"
+          # Handoff-capable candidate source requires its exact protocol-1 probe before either source runs.
+          # Source/bootstrap durations and the separately injected adapter proof stay in this log.
           echo "Verified $TARGET in $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
           VERIFY
       - name: Prove the real-archive CLI upgrade adapter

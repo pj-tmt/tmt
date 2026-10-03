@@ -13,7 +13,9 @@ import { isReleased, parseComponentMap } from './ci-scope.mjs';
 // and in the Rust native_install/release_tests.rs; change all three together.
 
 const PRODUCTS = {
-  cli: { tagPrefix: 'v', prerelease: false, latest: true },
+  // Covers the reported pre-companion installation in #1454. Older receipt
+  // readability is not a claim that every older release has an upgrade proof.
+  cli: { tagPrefix: 'v', prerelease: false, latest: true, upgradeFloor: 'v5.0.0-alpha.36' },
   office: { tagPrefix: 'tmt-office-v', prerelease: true, latest: false },
   squad: { tagPrefix: 'tmt-squad-v', prerelease: true, latest: false },
   'driver-herdr': { tagPrefix: 'tmt-driver-herdr-v', prerelease: true, latest: false },

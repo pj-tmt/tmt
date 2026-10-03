@@ -4577,7 +4577,9 @@ separate enforcement cutover. Title reporting neither restarts ordinary PR CI no
 owns release attribution.
 
 `release.yml` never publishes. `native-release-upgrade.yml` proves, for a draft or
-published release, its upgrade from the last published release of the same product on the
+published release, its upgrade from the last published release of the same product and,
+for CLI candidates above the support floor declared in `native-release-policy.mjs`, that
+exact published floor on the
 four matching hosts. It only reads releases: a write-token job on `main`'s code fetches the
 assets, and read-only jobs normally run the release commit's scripts on them. A held-draft
 `rerun` instead uses the dispatch's current main commit for Node scripts and their locked dependencies,
@@ -4586,10 +4588,20 @@ adapter acceptance code. Draft archives, manifest, version and recorded digests
 remain unchanged. The existing planner
 shares held-draft validation with `hold`, but rerun skips no gate; failed reruns preserve
 the marker and finish validates its tag, SHA and gate before clearing it after all gates pass.
+CLI candidates whose source contains the adapter-owned handoff protocol must answer
+the protocol-1 installer probe exactly before publication. Historical sources without
+the handoff retain their prior proof; failed or malformed probes never identify applicability.
+Each distinct source creates its own receipt and state. Its offline inventory rejection,
+when applicable, preserves the previous installation; the candidate's actual bootstrap
+recovers it using injected staged acquisition. This control retains the source installer's
+offline inventory contract and does not claim self-upgrade delegation.
 Each CLI `prove` host additionally selects the adapter-owned real-archive upgrade
 acceptance test over the same digest-checked archives after its installer/migration
-proof. Release tooling compiles the adapter lib-test binary and rejects empty
-discovery or execution. Acquisition is injected; real old/new executables supply
+proof for each distinct source. Release tooling compiles the adapter lib-test binary once and rejects empty
+discovery or execution. Acquisition is injected; handoff-capable release sources
+exercise production candidate delegation and real candidate execution through the
+existing actual-archive acceptance test, with no production endpoint override.
+Real old/new executables supply
 managed skills and conflict/repair behavior. Identical skill text skips only
 differential content-transition evidence. On an owner-authorized rerun, the
 release-source checkout owns historical applicability and adapter execution:

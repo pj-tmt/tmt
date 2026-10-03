@@ -19,7 +19,11 @@ const {
   productOfTag: (tag: string) => string | undefined;
   publishFlags: (product: string) => string[];
   releaseFlags: (product: string) => string[];
-  releasePolicy: (product: string) => { latest: boolean; prerelease: boolean };
+  releasePolicy: (product: string) => {
+    latest: boolean;
+    prerelease: boolean;
+    upgradeFloor?: string;
+  };
   isProductReleased: (
     map: { components: { name: string; release?: boolean }[] },
     product: string
@@ -69,6 +73,12 @@ describe('native release publication policy', () => {
       );
     }
   );
+
+  it('declares a single CLI upgrade support floor while extensions retain last-published proof', () => {
+    expect(releasePolicy('cli').upgradeFloor).toBe('v5.0.0-alpha.36');
+    for (const product of ['office', 'squad', 'driver-herdr'])
+      expect(releasePolicy(product).upgradeFloor).toBeUndefined();
+  });
 
   it('makes only the CLI the latest release', () => {
     expect(releaseFlags('cli')).toEqual(['--latest=true']);

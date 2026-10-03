@@ -32,7 +32,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { runPackedCommand } from './packed-command.mjs';
-import { archivePrefix } from './native-release-policy.mjs';
+import { archivePrefix, releasePolicy } from './native-release-policy.mjs';
 import { ghApi } from './release-draft-assets.mjs';
 import { compareVersions, publishedReleases, versionOfTag } from './release-versions.mjs';
 
@@ -57,6 +57,22 @@ export function selectPrevious({ releases, product, candidateTag }) {
       (release) => compareVersions(versionOfTag(release.tag_name, product), candidate) < 0
     ) ?? null
   );
+}
+
+/** Historical candidates at/below the floor retain their original single-source proof. */
+export function selectSupportFloor({ releases, product, candidateTag }) {
+  const floor = releasePolicy(product).upgradeFloor;
+  if (
+    !floor ||
+    compareVersions(versionOfTag(candidateTag, product), versionOfTag(floor, product)) <= 0
+  )
+    return null;
+  const matches = publishedReleases(releases, product).filter(
+    (release) => release.tag_name === floor
+  );
+  if (matches.length !== 1)
+    throw new Error(`Require exactly one published support floor ${floor}.`);
+  return matches[0];
 }
 
 /** The targets a release carries an archive for, from its asset names. */
@@ -115,7 +131,15 @@ export function fetchUpgrade({ releases, download, product, tag, directory }) {
   const candidate = releases.find((release) => release.tag_name === tag);
   if (!candidate) throw new Error(`There is no release ${tag}.`);
   const previous = selectPrevious({ releases, product, candidateTag: tag });
-  const plan = { product, tag, previous: previous?.tag_name ?? null, driver: null, files: {} };
+  const floor = selectSupportFloor({ releases, product, candidateTag: tag });
+  const plan = {
+    product,
+    tag,
+    previous: previous?.tag_name ?? null,
+    floor: floor?.tag_name ?? null,
+    driver: null,
+    files: {},
+  };
   mkdirSync(directory, { recursive: true });
   if (previous) {
     const targets = archiveTargets({ release: candidate, product });
@@ -142,6 +166,19 @@ export function fetchUpgrade({ releases, download, product, tag, directory }) {
       };
       stage(candidate, 'candidate', product);
       stage(previous, 'previous', product);
+      if (floor && floor.tag_name !== previous.tag_name) stage(floor, 'floor', product);
+      if (floor) {
+        const bootstraps = candidate.assets.filter(({ name }) => name === 'install.sh');
+        const asset = bootstraps[0];
+        if (bootstraps.length !== 1 || !DIGEST.test(asset.digest ?? ''))
+          throw new Error(`Release ${tag} must have exactly one digest-checked install.sh.`);
+        const name = path.posix.join(target, 'candidate', 'install.sh');
+        const file = path.join(directory, name);
+        download(asset, file);
+        if (sha256(file) !== asset.digest)
+          throw new Error(`install.sh of ${tag} does not match its recorded digest.`);
+        plan.files[name] = asset.digest;
+      }
       if (driverRelease) stage(driverRelease, 'driver', 'cli');
     }
   }
@@ -155,6 +192,14 @@ function stagedUpgrade({ directory, product, tag, target }) {
   if (plan.product !== product || plan.tag !== tag) {
     throw new Error(`The staged assets are for ${plan.tag}, not for ${tag}.`);
   }
+  const floorTag = releasePolicy(product).upgradeFloor;
+  if (
+    floorTag &&
+    compareVersions(versionOfTag(tag, product), versionOfTag(floorTag, product)) > 0
+  ) {
+    if (plan.floor !== floorTag || !plan.previous)
+      throw new Error('Staged plan is missing the declared support floor.');
+  }
   if (!plan.previous) return { previous: null };
   const prefix = `${target}/`;
   const files = Object.entries(plan.files).filter(([name]) => name.startsWith(prefix));
@@ -167,6 +212,10 @@ function stagedUpgrade({ directory, product, tag, target }) {
   }
   const staged = (kind, kindProduct) => {
     const base = path.join(directory, target, kind);
+    for (const name of [`${archivePrefix(kindProduct)}-${target}.tar.gz`, MANIFEST]) {
+      if (!Object.hasOwn(plan.files, path.posix.join(target, kind, name)))
+        throw new Error(`Staged ${kind}/${name} has no recorded digest.`);
+    }
     return {
       archive: path.join(base, `${archivePrefix(kindProduct)}-${target}.tar.gz`),
       manifest: path.join(base, MANIFEST),
@@ -174,17 +223,26 @@ function stagedUpgrade({ directory, product, tag, target }) {
   };
   const now = staged('candidate', product);
   const before = staged('previous', product);
+  if (plan.floor && !Object.hasOwn(plan.files, path.posix.join(target, 'candidate', 'install.sh')))
+    throw new Error('Staged candidate install.sh has no recorded digest.');
   return {
     previous: plan.previous,
     now,
     before,
     driver: product === 'cli' ? null : staged('driver', 'cli'),
+    floor: plan.floor && plan.floor !== plan.previous ? staged('floor', product) : null,
+    bootstrap: plan.floor ? path.join(directory, target, 'candidate', 'install.sh') : null,
   };
 }
 
 /** Run the existing installer/migration verifier; return null for the first product release. */
 export function proveStaged({ directory, product, tag, target, run, skill, sourceRoot }) {
-  const { previous, now, before, driver } = stagedUpgrade({ directory, product, tag, target });
+  const { previous, now, before, driver, floor, bootstrap } = stagedUpgrade({
+    directory,
+    product,
+    tag,
+    target,
+  });
   if (!previous) return { previous: null };
   const common = [
     '--archive',
@@ -205,7 +263,27 @@ export function proveStaged({ directory, product, tag, target, run, skill, sourc
       '--skill',
       skill,
       ...(sourceRoot ? ['--source-root', sourceRoot] : []),
+      ...(bootstrap ? ['--bootstrap', bootstrap] : []),
     ]);
+    if (floor) {
+      run('verify-native-installation.mjs', [
+        '--archive',
+        now.archive,
+        '--manifest',
+        now.manifest,
+        '--previous-archive',
+        floor.archive,
+        '--previous-manifest',
+        floor.manifest,
+        '--target',
+        target,
+        '--skill',
+        skill,
+        '--bootstrap',
+        bootstrap,
+        ...(sourceRoot ? ['--source-root', sourceRoot] : []),
+      ]);
+    }
   } else {
     run(
       product === 'driver-herdr'
@@ -254,7 +332,7 @@ export function proveArchiveAcceptance({
   report = () => {},
 }) {
   if (product !== 'cli') throw new Error('The adapter archive acceptance proof is CLI-only.');
-  const { previous, now, before } = stagedUpgrade({ directory, product, tag, target });
+  const { previous, now, before, floor } = stagedUpgrade({ directory, product, tag, target });
   if (!previous) {
     report('Real-archive adapter acceptance: not applicable (no previous published CLI release).');
     return { outcome: 'nothing' };
@@ -318,20 +396,29 @@ export function proveArchiveAcceptance({
   if (tests.length !== 1 || tests[0] !== `${ACCEPTANCE_TEST}: test`) {
     throw new Error('Expected exactly one discovered real-archive upgrade acceptance test.');
   }
-  const output = execute(
-    binaries[0],
-    [ACCEPTANCE_TEST, '--exact', '--ignored', '--nocapture'],
-    options
-  );
-  report(output.trim());
-  if (
-    !/^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured; \d+ filtered out;/m.test(output)
-  ) {
-    throw new Error('Expected exactly one passing executed real-archive upgrade acceptance test.');
+  for (const source of [before, ...(floor ? [floor] : [])]) {
+    const started = performance.now();
+    const output = execute(binaries[0], [ACCEPTANCE_TEST, '--exact', '--ignored', '--nocapture'], {
+      ...options,
+      env: {
+        ...env,
+        TMT_UPGRADE_OLD_ARCHIVE: source.archive,
+        TMT_UPGRADE_OLD_MANIFEST: source.manifest,
+      },
+    });
+    report(output.trim());
+    if (
+      !/^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured; \d+ filtered out;/m.test(
+        output
+      )
+    )
+      throw new Error(
+        'Expected exactly one passing executed real-archive upgrade acceptance test.'
+      );
+    report(
+      `Real-archive adapter acceptance: passed (${source === before ? previous : releasePolicy(product).upgradeFloor} -> ${tag}, ${target}); acquisition injected, real old/new binaries executed; ${Math.ceil((performance.now() - started) / 1000)} seconds.`
+    );
   }
-  report(
-    `Real-archive adapter acceptance: passed (${previous} -> ${tag}, ${target}); acquisition injected, real old/new binaries executed.`
-  );
   return { outcome: 'proved' };
 }
 

@@ -251,6 +251,13 @@ gates, the markers and the procedures; this section owns who may publish what.
   with `prepare` off publishes every draft of the product that passes its gates, and so does
   its `hold` input for the released draft; `prepare` on (one bundle, no draft), `release.yml`
   with `dry_run` on and the upgrade proof are not publication.
+- The CLI upgrade gate covers the last published source and the exact support floor declared
+  in `native-release-policy.mjs`, deduplicating identical sources. Keep its pre-publication
+  protocol-1 candidate probe for handoff-capable candidate sources, source-owned receipt, actual legacy inventory rejection and
+  bootstrap recovery checks, and injected-acquisition real-archive adapter acceptance
+  exercising production candidate delegation and real candidate execution for handoff-capable sources.
+  Offline installation is not a delegation proof; public source upgrade remains the
+  post-publication smoke. DEVELOPMENT owns the proof's checks and ten-minute host budget.
 - A held draft carries `publication-held.json` with the gate, the reason and the run. Read it,
   then follow the guide: the owner publishes by hand, or releases the hold by dispatch, which
   skips only the gate the marker names. An owner-authorized `rerun` instead re-proves
