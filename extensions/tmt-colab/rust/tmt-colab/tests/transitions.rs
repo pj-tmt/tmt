@@ -671,3 +671,500 @@ fn reduction_cut_rejects_signed_forks_and_uncommitted_checkpoint_replacements() 
         }
     }
 }
+
+const JOINER: &str = "20000000-0000-4000-8000-000000000002";
+fn operation(n: u64) -> String {
+    format!("40000000-0000-4000-8000-{n:012}")
+}
+fn joiner(pages: Vec<String>) -> Recipient {
+    Recipient {
+        kind: "member".into(),
+        id: JOINER.into(),
+        role: Some("editor".into()),
+        signing_key: signer(21).verifying_key().to_bytes(),
+        encryption_key: wrap::RecipientKey::from_seed(&[22; 32])
+            .unwrap()
+            .public_key(),
+        pages,
+        revoked: false,
+    }
+}
+fn change(
+    f: &mut Fixture,
+    n: u64,
+    revision: u64,
+    action: tmt_colab::transitions::MemberAction,
+) -> Result<Vec<u8>, tmt_colab::transitions::TransitionError> {
+    f.engine.member(
+        &mut f.store,
+        &f.key,
+        tmt_colab::transitions::MemberRequest {
+            operation_id: &operation(n),
+            expected_revision: revision,
+            action,
+        },
+        50,
+    )
+}
+fn response_wraps(outcome: &[u8]) -> Vec<wrap::Envelope> {
+    let v: Value = serde_json::from_slice(outcome).unwrap();
+    v["wrapLists"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|l| l.as_array().unwrap())
+        .map(|w| wrap::Envelope::from_json(&serde_json::to_vec(w).unwrap()).unwrap())
+        .collect()
+}
+fn wire_statement(outcome: &[u8], index: usize) -> statement::Envelope {
+    let v: Value = serde_json::from_slice(outcome).unwrap();
+    statement::Envelope::from_json(&serde_json::to_vec(&v["statements"][index]).unwrap()).unwrap()
+}
+fn history(f: &mut Fixture, mode: &str) {
+    f.store
+        .owner_transaction(
+            &f.key.space_id,
+            &f.key.owner_public(),
+            Mutation {
+                operation_id: &operation(40),
+                digest: [40; 32],
+                expected_revision: 2,
+            },
+            |tx| {
+                tx.append_statement(&f.key.sign_statement(
+                    tx.head(),
+                    "page.history",
+                    &serde_json::to_vec(&json!({"pageId":PAGE,"mode":mode}))?,
+                )?)?;
+                Ok(b"history".to_vec())
+            },
+        )
+        .unwrap();
+}
+#[test]
+fn shared_join_wraps_current_key_and_replays_exactly_after_reopen() {
+    use tmt_colab::transitions::MemberAction;
+    let mut f = Fixture::new();
+    let result = change(&mut f, 50, 2, MemberAction::Add(joiner(vec![PAGE.into()]))).unwrap();
+    let wraps = response_wraps(&result);
+    assert_eq!(wraps.len(), 1);
+    let h = wraps[0].header().unwrap();
+    assert_eq!(h.epoch, "1");
+    assert_eq!(h.membership_revision, "3");
+    assert_eq!(open_join_wrap(&wraps[0], &f.key), [11; 32]);
+    let counts = f.counts();
+    let reopened = Store::open(&f.layout).unwrap();
+    std::mem::replace(&mut f.store, reopened).close().unwrap();
+    assert_eq!(
+        change(&mut f, 50, 2, MemberAction::Add(joiner(vec![PAGE.into()]))).unwrap(),
+        result
+    );
+    assert_eq!(f.counts(), counts);
+    let mut altered = joiner(vec![PAGE.into()]);
+    altered.role = Some("viewer".into());
+    assert_eq!(
+        change(&mut f, 50, 2, MemberAction::Add(altered))
+            .unwrap_err()
+            .code,
+        Code::Conflict
+    );
+}
+#[test]
+fn current_join_rotates_with_exact_baseline_and_never_wraps_earlier_keys() {
+    use tmt_colab::transitions::MemberAction;
+    let mut f = Fixture::new();
+    let object = f.object(1, [0; 32], "update", "content", &source("current source"));
+    f.append(&object);
+    history(&mut f, "current");
+    let result = change(&mut f, 51, 3, MemberAction::Add(joiner(vec![PAGE.into()]))).unwrap();
+    assert_eq!(baseline_source(&f, 2), "current source");
+    let wraps = response_wraps(&result);
+    assert!(wraps.iter().all(|w| w.header().unwrap().epoch == "2"));
+    let new = wraps
+        .iter()
+        .find(|w| w.header().unwrap().recipient_id == JOINER)
+        .unwrap();
+    assert_ne!(open_join_wrap(new, &f.key), [11; 32]);
+    let v: Value = serde_json::from_slice(&result).unwrap();
+    assert_eq!(v["statements"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        f.db()
+            .query_row(
+                "SELECT count(*) FROM wraps WHERE recipient=? AND epoch=?",
+                params![JOINER, format!("{:020}", 1)],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+}
+#[test]
+fn member_removal_rotates_excludes_member_and_devices_and_rolls_back_on_failure() {
+    use tmt_colab::transitions::MemberAction;
+    for fail in [true, false] {
+        let mut f = Fixture::new();
+        let update = f.object(1, [0; 32], "update", "content", &source("kept source"));
+        f.append(&update);
+        let before = f.counts();
+        if fail {
+            f.db().execute_batch("CREATE TRIGGER deny_wrap BEFORE INSERT ON wraps BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
+        }
+        let result = change(
+            &mut f,
+            52,
+            2,
+            MemberAction::Remove {
+                member_id: MEMBER.into(),
+            },
+        );
+        if fail {
+            assert_eq!(result.unwrap_err().code, Code::Unavailable);
+            assert_eq!(f.counts(), before);
+            let d: Vec<u8> = f
+                .db()
+                .query_row("SELECT record FROM devices WHERE id=?", [DEVICE], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            assert!(!serde_json::from_slice::<Device>(&d).unwrap().revoked);
+            continue;
+        }
+        let result = result.unwrap();
+        assert_eq!(baseline_source(&f, 2), "kept source");
+        let wraps = response_wraps(&result);
+        assert!(!wraps.is_empty());
+        assert!(wraps.iter().all(|w| {
+            let h = w.header().unwrap();
+            h.recipient_id != MEMBER && h.recipient_id != DEVICE
+        }));
+        let first = wire_statement(&result, 0);
+        let payload = statement_payload(&first);
+        assert_eq!(payload["cuts"].as_array().unwrap().len(), 2);
+        let record: Vec<u8> = f
+            .db()
+            .query_row(
+                "SELECT record FROM recipients WHERE kind='member' AND id=?",
+                [MEMBER],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            serde_json::from_slice::<Recipient>(&record)
+                .unwrap()
+                .revoked
+        );
+    }
+}
+#[test]
+fn role_reduction_commits_both_namespaces_without_rotation_and_promotion_has_no_cuts() {
+    use tmt_colab::transitions::MemberAction;
+    let mut f = Fixture::new();
+    let content = f.object(1, [0; 32], "update", "content", &source("cut source"));
+    f.append(&content);
+    let own = f.object(2, content.hash().unwrap(), "update", "own", &[0, 0]);
+    f.append(&own);
+    let cp = f.object(
+        2,
+        own.hash().unwrap(),
+        "checkpoint",
+        "content",
+        &source("cut source"),
+    );
+    f.append(&cp);
+    let own_cp = f.object(2, own.hash().unwrap(), "checkpoint", "own", &[0, 0]);
+    f.append(&own_cp);
+    let result = change(
+        &mut f,
+        53,
+        2,
+        MemberAction::Role {
+            member_id: MEMBER.into(),
+            role: "viewer".into(),
+        },
+    )
+    .unwrap();
+    let statement = wire_statement(&result, 0);
+    let p = statement_payload(&statement);
+    assert_eq!(p["cuts"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        f.db()
+            .query_row("SELECT count(*) FROM checkpoints WHERE pinned=1", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        f.db()
+            .query_row("SELECT epoch FROM pages WHERE page=?", [PAGE], |r| r
+                .get::<_, String>(0))
+            .unwrap(),
+        "1"
+    );
+    let promoted = change(
+        &mut f,
+        54,
+        3,
+        MemberAction::Role {
+            member_id: MEMBER.into(),
+            role: "editor".into(),
+        },
+    )
+    .unwrap();
+    let s = wire_statement(&promoted, 0);
+    let p = statement_payload(&s);
+    assert!(p["cuts"].as_array().unwrap().is_empty());
+    f.advance(&operation(55), 4).unwrap();
+    assert_eq!(baseline_source(&f, 2), "cut source");
+}
+#[test]
+fn pinned_owner_is_denied_for_every_member_role_and_removal() {
+    use tmt_colab::transitions::MemberAction;
+    let mut f = Fixture::new();
+    let owner = f.key.management_member().unwrap().id;
+    let before = f.counts();
+    for role in ["editor", "commenter", "viewer"] {
+        assert_eq!(
+            change(
+                &mut f,
+                56,
+                2,
+                MemberAction::Role {
+                    member_id: owner.clone(),
+                    role: role.into()
+                }
+            )
+            .unwrap_err()
+            .code,
+            Code::Denied
+        );
+    }
+    assert_eq!(
+        change(&mut f, 57, 2, MemberAction::Remove { member_id: owner })
+            .unwrap_err()
+            .code,
+        Code::Denied
+    );
+    assert_eq!(f.counts(), before);
+}
+#[test]
+fn known_device_revoke_is_atomic_and_fresh_operation_replay_never_rotates_twice() {
+    use tmt_colab::transitions::DeviceRevoke;
+    for fail in [true, false] {
+        let mut f = Fixture::new();
+        let update = f.object(1, [0; 32], "update", "content", &source("survives revoke"));
+        f.append(&update);
+        if fail {
+            f.db().execute_batch("CREATE TRIGGER deny_tombstone BEFORE INSERT ON device_registrations BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
+        }
+        let before = f.counts();
+        let result = f.engine.revoke_device(
+            &mut f.store,
+            &f.key,
+            DeviceRevoke {
+                operation_id: &operation(58),
+                expected_revision: 2,
+                device_id: DEVICE,
+                grant_revision: 7,
+            },
+            50,
+        );
+        if fail {
+            assert_eq!(result.unwrap_err().code, Code::Unavailable);
+            assert_eq!(f.counts(), before);
+            assert_eq!(
+                f.db()
+                    .query_row("SELECT count(*) FROM device_registrations", [], |r| r
+                        .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+            continue;
+        }
+        let result = result.unwrap();
+        assert_eq!(baseline_source(&f, 2), "survives revoke");
+        let wraps = response_wraps(&result);
+        assert!(
+            wraps
+                .iter()
+                .any(|w| w.header().unwrap().recipient_id == MEMBER)
+        );
+        assert!(
+            wraps
+                .iter()
+                .all(|w| w.header().unwrap().recipient_id != DEVICE)
+        );
+        let p = statement_payload(&wire_statement(&result, 0));
+        assert_eq!(p["cuts"].as_array().unwrap().len(), 2);
+        let before = f.counts();
+        f.db().execute_batch("CREATE TRIGGER deny_replay BEFORE INSERT ON membership_log BEGIN SELECT RAISE(ABORT,'replay signed'); END;").unwrap();
+        for (n, grant) in [(59, 7), (60, 6), (61, 8)] {
+            let out = f
+                .engine
+                .revoke_device(
+                    &mut f.store,
+                    &f.key,
+                    DeviceRevoke {
+                        operation_id: &operation(n),
+                        expected_revision: 2,
+                        device_id: DEVICE,
+                        grant_revision: grant,
+                    },
+                    50,
+                )
+                .unwrap();
+            let v: Value = serde_json::from_slice(&out).unwrap();
+            assert!(v["statements"].as_array().unwrap().is_empty());
+            assert_eq!(f.counts(), before);
+        }
+    }
+}
+// Seed real signed/encrypted baseline history without invoking hundreds of child
+// processes: each retained epoch has a fresh Y.Doc identity and matching descriptor.
+fn retained_history(f: &mut Fixture, pages: &[String], through: u64) {
+    use tmt_colab_model::framing;
+    for page in pages {
+        if page != PAGE {
+            f.store.create_page(page).unwrap();
+        }
+    }
+    let mut root: [u8; 32] = fs::read(f.layout.directory.join("owner.key"))
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let info = framing::frame(&[
+        b"tmt-colab-management-signing-seed-v1",
+        f.key.space_id.as_bytes(),
+    ])
+    .unwrap();
+    let mut seed = crypto::derive_key(&root, &[], &info);
+    root.fill(0);
+    let management = SigningKey::from_bytes(&seed);
+    seed.fill(0);
+    assert_eq!(
+        management.verifying_key().to_bytes(),
+        f.key.management_member().unwrap().signing_key
+    );
+    let mut baselines = Vec::new();
+    f.store.owner_transaction(&f.key.space_id,&f.key.owner_public(),Mutation{operation_id:&operation(70),digest:[70;32],expected_revision:2},|tx| {
+        for (index,page) in pages.iter().enumerate() {
+            if page!=PAGE {tx.put_epoch_secret(page,1,&[1;32])?;}
+            for epoch in 2..=through {
+                let revision=tx.head().unwrap().revision+1;let secret=[epoch as u8;32];
+                let doc=Doc::with_client_id(1000+index as u64*100+epoch);doc.get_or_insert_text("html").insert(&mut doc.transact_mut(),0,"retained source");
+                doc.get_or_insert_map("meta").insert(&mut doc.transact_mut(),"title","retained title");
+                let update=doc.transact().encode_state_as_update_v1(&StateVector::default());
+                let body=serde_json::to_vec(&json!({"source":"retained source","update":values::encode_binary(&update)}))?;
+                let object=object::seal(&object::Context{space:f.key.space_id.clone(),page:page.clone(),epoch:epoch.to_string(),kind:"html".into(),namespace:"content".into(),
+                    author_device:f.key.management_member()?.id,membership_revision:revision.to_string(),stream_seq:"0".into(),prev_hash:[0;32]},&secret,&management,&body)?;
+                let descriptor=json!({"pageId":page,"epoch":epoch.to_string(),"sourceDigest":values::encode_binary(&crypto::digest(b"retained source")),
+                    "baselineCommitment":values::encode_binary(&crypto::digest(&framing::frame(&[b"tmt-colab-baseline-v1",b"1",b"retained source",&update])?)),
+                    "title":"retained title","objectEnvelopeHash":values::encode_binary(&object.hash()?),"membershipRevision":revision.to_string()});
+                tx.append_statement(&f.key.sign_statement(tx.head(),"epoch.advance",&serde_json::to_vec(&json!({"pageId":page,"epoch":epoch.to_string(),"cuts":[],"baseline":descriptor,"wraps":[]}))?)?)?;
+                tx.put_epoch_secret(page,epoch,&secret)?;tx.advance_epoch(page,epoch-1)?;
+                baselines.push((page.clone(),epoch,serde_json::to_vec(&descriptor)?,object.to_json()?));
+            }
+        }
+        Ok(b"retained history".to_vec())
+    }).unwrap();
+    let mut db = f.db();
+    let tx = db.transaction().unwrap();
+    for (page, epoch, descriptor, envelope) in baselines {
+        tx.execute(
+            "INSERT INTO baselines VALUES (?,?,?,?)",
+            params![page, format!("{epoch:020}"), descriptor, envelope],
+        )
+        .unwrap();
+    }
+    tx.commit().unwrap();
+}
+#[test]
+fn shared_join_delivers_576_ordered_wraps_at_epoch_cap_or_none() {
+    use tmt_colab::transitions::MemberAction;
+    let mut f = Fixture::new();
+    let pages = (1..=9)
+        .map(|n| format!("10000000-0000-4000-8000-{n:012}"))
+        .collect::<Vec<_>>();
+    retained_history(&mut f, &pages, 65);
+    let revision = f
+        .store
+        .owner_head(&f.key.space_id, &f.key.owner_public())
+        .unwrap()
+        .unwrap()
+        .revision;
+    let before = f.counts();
+    f.db().execute_batch("CREATE TRIGGER deny_last_wrap BEFORE INSERT ON wraps WHEN NEW.page='10000000-0000-4000-8000-000000000009' BEGIN SELECT RAISE(ABORT,'last page'); END;").unwrap();
+    assert_eq!(
+        change(
+            &mut f,
+            71,
+            revision,
+            MemberAction::Add(joiner(pages.clone()))
+        )
+        .unwrap_err()
+        .code,
+        Code::Unavailable
+    );
+    assert_eq!(f.counts(), before);
+    f.db()
+        .execute_batch("DROP TRIGGER deny_last_wrap;")
+        .unwrap();
+    let result = change(
+        &mut f,
+        71,
+        revision,
+        MemberAction::Add(joiner(pages.clone())),
+    )
+    .unwrap();
+    let v: Value = serde_json::from_slice(&result).unwrap();
+    assert_eq!(v["wrapLists"][0].as_array().unwrap().len(), 512);
+    assert_eq!(v["wrapLists"][1].as_array().unwrap().len(), 64);
+    let wraps = response_wraps(&result);
+    assert_eq!(wraps.len(), 576);
+    let mut previous = None;
+    for wrapped in wraps {
+        let h = wrapped.header().unwrap();
+        let epoch = h.epoch.parse::<u64>().unwrap();
+        assert!((2..=65).contains(&epoch));
+        let order = (
+            h.page.clone(),
+            epoch,
+            h.recipient_kind.clone(),
+            h.recipient_id.clone(),
+        );
+        assert!(previous.as_ref().is_none_or(|p| p < &order));
+        previous = Some(order);
+        assert_eq!(open_join_wrap(&wrapped, &f.key), [epoch as u8; 32]);
+    }
+    assert_eq!(
+        f.db()
+            .query_row(
+                "SELECT count(*) FROM wraps WHERE recipient=? AND epoch=?",
+                params![JOINER, format!("{:020}", 1)],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+}
+
+fn statement_payload(s: &statement::Envelope) -> Value {
+    let wire: Value = serde_json::from_slice(&s.to_json().unwrap()).unwrap();
+    serde_json::from_slice(
+        &values::binary(
+            wire["payload"].as_str().unwrap(),
+            tmt_colab_model::payload::MAX_BYTES,
+        )
+        .unwrap(),
+    )
+    .unwrap()
+}
+
+fn open_join_wrap(w: &wrap::Envelope, key: &Keyring) -> [u8; 32] {
+    wrap::open(
+        w,
+        &w.header().unwrap(),
+        &wrap::RecipientKey::from_seed(&[22; 32]).unwrap(),
+        &key.owner_public(),
+    )
+    .unwrap()
+}

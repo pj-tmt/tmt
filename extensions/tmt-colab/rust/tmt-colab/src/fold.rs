@@ -32,6 +32,7 @@ pub(crate) struct Authority {
     pub revoked_devices: Arc<BTreeSet<String>>,
     pub epoch: u64,
     pub link_mode: bool,
+    pub history_current: bool,
     pub active: bool,
 }
 #[derive(Deserialize, Serialize)]
@@ -333,7 +334,7 @@ impl Snapshot {
         })
     }
 }
-fn verify_log(
+pub(crate) fn verify_log(
     log: &[statement::Envelope],
     key: &Keyring,
     page: &str,
@@ -344,6 +345,7 @@ fn verify_log(
     let mut revoked_devices = Arc::new(BTreeSet::new());
     let mut epoch: u64 = 1;
     let mut link_mode = false;
+    let mut history_current = false;
     let mut active = true;
     for item in log {
         let verified = item.verify_next(
@@ -417,6 +419,9 @@ fn verify_log(
             Payload::PageShare(p) if p.page_id == page => {
                 link_mode = matches!(p.mode, payload::ShareMode::Link)
             }
+            Payload::PageHistory(p) if p.page_id == page => {
+                history_current = matches!(p.mode, payload::HistoryMode::Current);
+            }
             Payload::Archive(p) | Payload::Delete(p) if p.page_id == page => active = false,
             _ => {}
         }
@@ -442,6 +447,7 @@ fn verify_log(
             revoked_devices: revoked_devices.clone(),
             epoch,
             link_mode,
+            history_current,
             active,
         });
         payloads.push(verified.payload);

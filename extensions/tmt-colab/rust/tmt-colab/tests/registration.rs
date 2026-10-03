@@ -42,7 +42,9 @@ impl Fixture {
         Self {
             root,
             layout,
-            service: Some(Registration::new(store, key)),
+            service: Some(
+                Registration::new(store, key, env!("CARGO_BIN_EXE_tmt-colab").into()).unwrap(),
+            ),
         }
     }
     fn service(&mut self) -> &mut Registration {
@@ -53,10 +55,14 @@ impl Fixture {
     }
     fn reopen(&mut self) {
         self.service.take().unwrap().close().unwrap();
-        self.service = Some(Registration::new(
-            Store::open(&self.layout).unwrap(),
-            Keyring::read(&self.layout).unwrap(),
-        ));
+        self.service = Some(
+            Registration::new(
+                Store::open(&self.layout).unwrap(),
+                Keyring::read(&self.layout).unwrap(),
+                env!("CARGO_BIN_EXE_tmt-colab").into(),
+            )
+            .unwrap(),
+        );
     }
     fn rows(&self, table: &str) -> i64 {
         self.oracle()
@@ -316,12 +322,14 @@ fn changed_binding_conflicts_and_ordered_revocation_survives_restart() {
     f.service()
         .active_device(Some(&context(DEVICE, 7)), NOW)
         .unwrap();
-    f.service().revoke(DEVICE, 8).unwrap();
+    assert!(f.service().revoke(DEVICE, 8).unwrap());
+    assert_eq!(f.rows("membership_log"), 2);
     let db = f.oracle();
     db.execute_batch("CREATE TRIGGER no_replay_insert BEFORE INSERT ON device_registrations BEGIN SELECT RAISE(ABORT,'replay writes registration'); END;
         CREATE TRIGGER no_replay_update BEFORE UPDATE ON devices BEGIN SELECT RAISE(ABORT,'replay writes device'); END;").unwrap();
     let before = fs::read(f.layout.directory.join("space.db")).unwrap();
-    f.service().revoke(DEVICE, 8).unwrap();
+    assert!(!f.service().revoke(DEVICE, 8).unwrap());
+    assert!(!f.service().revoke(DEVICE, 9).unwrap());
     assert_eq!(
         fs::read(f.layout.directory.join("space.db")).unwrap(),
         before,
@@ -470,4 +478,23 @@ fn schema_two_authority_rows_survive_registration_migration() {
         4
     );
     store.close().unwrap();
+}
+
+#[test]
+fn unknown_revoke_before_genesis_is_tombstone_only_and_never_signs_on_replay() {
+    let mut f = Fixture::new();
+    assert!(f.service().revoke(OTHER, 2).unwrap());
+    assert_eq!(f.rows("device_registrations"), 1);
+    assert_eq!(f.rows("devices"), 0);
+    assert_eq!(f.rows("membership_log"), 0);
+    f.oracle().execute_batch("CREATE TRIGGER deny_replay BEFORE INSERT ON device_registrations BEGIN SELECT RAISE(ABORT,'replay wrote'); END;").unwrap();
+    for revision in [1, 2, 3] {
+        assert!(!f.service().revoke(OTHER, revision).unwrap());
+    }
+    assert_eq!(f.rows("membership_log"), 0);
+    f.reopen();
+    assert_eq!(
+        register(&mut f, Some(&context(OTHER, 4)), &request(OTHER, NOW), NOW).unwrap_err(),
+        Code::Denied
+    );
 }

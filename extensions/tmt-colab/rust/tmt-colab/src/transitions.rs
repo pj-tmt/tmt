@@ -1,16 +1,19 @@
-//! Owner-local epoch advancement; request/socket composition remains separate.
+//! Root-local owner transitions; request/socket composition remains separate.
+mod epoch;
+mod membership;
 use crate::{
     Result,
-    decoder::{BaselineInput, Decoder},
-    fold::{self, BaselineBody, Snapshot},
+    decoder::Decoder,
+    fold::Snapshot,
     keyring::Keyring,
     store::{
         Store,
         owner::{Mutation, OwnerFault},
     },
 };
+pub use membership::{DeviceRevoke, MemberAction, MemberRequest};
 use std::{collections::BTreeMap, path::PathBuf};
-use tmt_colab_model::{certificate, crypto, framing, values, wrap};
+use tmt_colab_model::{crypto, framing, values};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Code {
@@ -151,82 +154,24 @@ impl Engine {
             if snapshot.authority.head.revision != request.expected_revision {
                 return Err(OwnerFault::StaleHead.into());
             }
-            let view = snapshot.materialize(key, request.page, decoder)?;
-            let baseline = decoder.produce_baseline(
-                BaselineInput {
-                    source: view.source.as_bytes(),
-                    title: &view.title,
-                    source_digest: crypto::digest(view.source.as_bytes()),
-                },
-                None,
+            let prepared = epoch::Prepared::new(
+                snapshot,
+                key,
+                request.page,
+                request
+                    .expected_revision
+                    .checked_add(1)
+                    .ok_or(OwnerFault::Capacity)?,
+                decoder,
             )?;
-            let epoch = snapshot.epoch.checked_add(1).ok_or(OwnerFault::Capacity)?;
-            let revision = request
-                .expected_revision
-                .checked_add(1)
-                .ok_or(OwnerFault::Capacity)?;
-            let mut secret = [0; 32];
-            getrandom::fill(&mut secret)?;
-            let body = serde_json::to_vec(&BaselineBody {
-                source: view.source,
-                update: values::encode_binary(&baseline.update),
-            })?;
-            let object = key.seal_baseline(
-                &fold::baseline_context(key, request.page, epoch, revision)?,
-                &secret,
-                &body,
-            )?;
-            let descriptor = serde_json::json!({"pageId":request.page,"epoch":epoch.to_string(),
-                "sourceDigest":values::encode_binary(&baseline.source_digest),"baselineCommitment":values::encode_binary(&baseline.commitment),
-                "title":view.title,"objectEnvelopeHash":values::encode_binary(&object.hash()?),"membershipRevision":revision.to_string()});
             let committed = store.owner_transaction(&key.space_id,&key.owner_public(),Mutation {
                 operation_id:request.operation_id,digest,expected_revision:request.expected_revision,
             },|tx| {
-                if tx.head() != Some(&snapshot.authority.head) || tx.current_epoch(request.page)? != snapshot.epoch
-                    || tx.cuts(request.page,snapshot.epoch)? != snapshot.cuts
-                    || serde_json::to_vec(&tx.devices()?)? != serde_json::to_vec(&snapshot.devices)? {
-                    return Err(OwnerFault::StaleHead.into());
-                }
-                tx.pin_cuts(&snapshot.cuts)?;
-                let mut targets = BTreeMap::new();
-                for issuer in snapshot.authority.recipients.values().filter(|i| fold::eligible(&i.recipient,&snapshot.authority,request.page)) {
-                    let r = &issuer.recipient;
-                    targets.insert((r.kind.clone(),r.id.clone()),r.encryption_key);
-                }
-                for device in &snapshot.devices {
-                    if device.revoked {continue;}
-                    let chain = certificate::Chain::from_json(&device.chain)?;
-                    let cert = chain.certificate()?;
-                    if snapshot.authority.revoked_devices.contains(cert.device_id) {continue;}
-                    let Some(issuer) = snapshot.authority.recipients.get(&(cert.issuer_kind.into(),cert.issuer_id.into())) else {continue;};
-                    if !fold::eligible(&issuer.recipient,&snapshot.authority,request.page)
-                        || now < cert.issued_at || now >= cert.expires_at {continue;}
-                    fold::verify_chain(&chain,issuer,key,request.expected_revision)?;
-                    if tx.registration(cert.device_id)?.is_some_and(|r| r.revoked) {continue;}
-                    targets.insert(("device".into(),cert.device_id.into()),*cert.encryption_key);
-                }
-                if targets.len() > 512 {return Err(OwnerFault::Capacity.into());}
-                let mut wraps = Vec::new();
-                for ((kind,id),recipient_key) in targets {
-                    wraps.push(key.seal_wrap(&wrap::Header {space:key.space_id.clone(),page:request.page.into(),epoch:epoch.to_string(),
-                        recipient_kind:kind,recipient_id:id,recipient_key,signer_key:key.owner_public(),membership_revision:revision.to_string()},&secret)?);
-                }
-                let cuts = snapshot.cuts.iter().map(|c| c.payload()).collect::<Result<Vec<_>>>()?;
-                let payload = serde_json::to_vec(&serde_json::json!({"pageId":request.page,"epoch":epoch.to_string(),
-                    "cuts":cuts,"baseline":descriptor,"wraps":wraps}))?;
-                if payload.len() > tmt_colab_model::payload::MAX_BYTES {return Err(OwnerFault::Capacity.into());}
-                let statement = key.sign_statement(tx.head(),"epoch.advance",&payload)?;
-                tx.append_statement(&statement)?;
-                tx.put_epoch_secret(request.page,epoch,&secret)?;
-                tx.put_baseline(&serde_json::to_vec(&descriptor)?,&object)?;
-                for wrapped in &wraps {tx.put_wrap(wrapped)?;}
-                tx.advance_epoch(request.page,snapshot.epoch)?;
-                // Large baseline ciphertext is fetched separately by scoped hash;
-                // the exact statement/wrap bytes are the durable mutation outcome.
+                prepared.recheck(tx)?;
+                let (statement, wraps) = prepared.commit(tx, key, &prepared.snapshot.authority, now)?;
                 Ok(serde_json::to_vec(&serde_json::json!({"statements":[serde_json::from_slice::<serde_json::Value>(&statement.to_json()?)?],
                     "wrapLists":[wraps]}))?)
             });
-            secret.fill(0);
             match committed {
                 Err(error)
                     if error.downcast_ref::<OwnerFault>() == Some(&OwnerFault::StaleHead) =>

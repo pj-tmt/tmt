@@ -70,7 +70,11 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         let mut output = tmt_cli_style::stream::stdout(json_output);
         let store = Store::open(&layout)?;
         let space_id = keyring.space_id.clone();
-        let registration = Arc::new(Mutex::new(Registration::new(store, keyring)));
+        let registration = Arc::new(Mutex::new(Registration::new(
+            store,
+            keyring,
+            std::env::current_exe()?,
+        )?));
         let socket = MountSocket::bind(&layout, &space_id, Tunnels::PRODUCT)?
             .with_registration(&layout, Arc::clone(&registration))?;
         if json_output {

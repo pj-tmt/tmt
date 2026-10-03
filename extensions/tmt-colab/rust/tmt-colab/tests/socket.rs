@@ -87,7 +87,8 @@ impl Running {
         let space = key.space_id.clone();
         let store = Store::open(&layout).unwrap();
         store.create_page(PAGE).unwrap();
-        let mut registration = Registration::new(store, key);
+        let mut registration =
+            Registration::new(store, key, env!("CARGO_BIN_EXE_tmt-colab").into()).unwrap();
         for id in [DEVICE, OTHER] {
             registration
                 .register(Some(&context(id)), &registration_body(id), now())
@@ -377,6 +378,15 @@ impl Running {
         frame
     }
     fn append(&self, id: &str, seq: u64, previous: [u8; 32]) -> (Value, Vec<u8>, [u8; 32]) {
+        self.append_payload(id, seq, previous, b"opaque update")
+    }
+    fn append_payload(
+        &self,
+        id: &str,
+        seq: u64,
+        previous: [u8; 32],
+        payload: &[u8],
+    ) -> (Value, Vec<u8>, [u8; 32]) {
         let context = object::Context {
             space: self.space.clone(),
             page: PAGE.into(),
@@ -388,7 +398,7 @@ impl Running {
             stream_seq: seq.to_string(),
             prev_hash: previous,
         };
-        let envelope = object::seal(&context, &[8; 32], &signing(id), b"opaque update").unwrap();
+        let envelope = object::seal(&context, &[8; 32], &signing(id), payload).unwrap();
         let hash = envelope.hash().unwrap();
         let bytes = envelope.to_json().unwrap();
         (self.frame("append",json!({"streamId":id,"seq":seq.to_string(),"envelopeHash":values::encode_binary(&hash),"envelope":values::encode_binary(&bytes)})),bytes,hash)
@@ -502,13 +512,35 @@ fn two_owner_tabs_append_broadcast_retry_and_catch_up_over_mounted_socket_twice(
 #[test]
 fn strict_device_events_close_live_and_prehello_tunnels_only_after_durable_revoke() {
     let server = Running::start(Tunnels::PRODUCT);
+    let db = server.oracle();
+    // Page creation's initial epoch key, seeded only for the real rotation case.
+    db.execute(
+        "INSERT INTO epoch_secrets VALUES (?,?,?)",
+        rusqlite::params![PAGE, format!("{:020}", 1), [8u8; 32].as_slice()],
+    )
+    .unwrap();
     let mut live = server.peer(DEVICE);
     hello(&server, &mut live, DEVICE);
     let (mut prehello, _) = server.tunnel();
     let mut survivor = server.peer(OTHER);
     hello(&server, &mut survivor, OTHER);
     let revoke = json!({"type":"device.revoked","deviceId":DEVICE,"grantRevision":2}).to_string();
-    let db = server.oracle();
+    use yrs::{Doc, Map, ReadTxn, StateVector, Text, Transact};
+    let doc = Doc::with_client_id(77);
+    doc.get_or_insert_text("html")
+        .insert(&mut doc.transact_mut(), 0, "source survives revoke");
+    doc.get_or_insert_map("meta")
+        .insert(&mut doc.transact_mut(), "title", "revoke title");
+    let update = doc
+        .transact()
+        .encode_state_as_update_v1(&StateVector::default());
+    let (append, _, hash) = server.append_payload(DEVICE, 1, [0; 32], &update);
+    send(&mut live, append);
+    assert_eq!(receive(&mut live)["type"], "receipt");
+    assert_eq!(receive(&mut live)["type"], "broadcast");
+    assert_eq!(receive(&mut survivor)["type"], "broadcast");
+    let before = rotation_rows(&db);
+
     db.execute_batch("CREATE TRIGGER reject_revoke BEFORE UPDATE ON device_registrations BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
     assert!(
         server
@@ -529,6 +561,7 @@ fn strict_device_events_close_live_and_prehello_tunnels_only_after_durable_revok
         )
         .unwrap();
     assert!(!revoked);
+    assert_eq!(rotation_rows(&db), before);
     db.execute_batch("DROP TRIGGER reject_revoke;").unwrap();
     assert!(
         server
@@ -551,6 +584,87 @@ fn strict_device_events_close_live_and_prehello_tunnels_only_after_durable_revok
     assert!(revoked);
     assert!(binding.is_none());
     assert_eq!(revision, "00000000000000000002");
+    let layout = Layout::open(&server.root).unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    let store = Store::open(&layout).unwrap();
+    let saved = store.baseline(PAGE, 2).unwrap().unwrap();
+    let descriptor: Value = serde_json::from_slice(&saved.descriptor).unwrap();
+    let baseline = object::Envelope::from_json(&saved.envelope).unwrap();
+    let context = object::Header::decode(baseline.header()).unwrap().context;
+    let secret: Vec<u8> = db
+        .query_row(
+            "SELECT secret FROM epoch_secrets WHERE page=? AND epoch=?",
+            rusqlite::params![PAGE, format!("{:020}", 2)],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let secret: [u8; 32] = secret.try_into().unwrap();
+    assert_ne!(secret, [8; 32]);
+    let body: Value = serde_json::from_slice(
+        &object::open(
+            &baseline,
+            &context,
+            &secret,
+            &key.management_member().unwrap().signing_key,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(body["source"], "source survives revoke");
+    assert_eq!(descriptor["title"], "revoke title");
+    assert_eq!(
+        descriptor["objectEnvelopeHash"],
+        values::encode_binary(&baseline.hash().unwrap())
+    );
+    let mut head = None;
+    let mut query = db
+        .prepare("SELECT envelope FROM membership_log ORDER BY revision")
+        .unwrap();
+    let log = query
+        .query_map([], |r| r.get::<_, Vec<u8>>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(log.len(), 3);
+    for bytes in log {
+        let statement = tmt_colab_model::statement::Envelope::from_json(&bytes).unwrap();
+        let verified = statement
+            .verify_next(&server.space, &key.owner_public(), head.as_ref())
+            .unwrap();
+        match verified.payload {
+            tmt_colab_model::payload::Payload::DeviceRevoke(p) => {
+                assert_eq!(p.device_id, DEVICE);
+                assert_eq!(p.cuts.as_slice().len(), 2);
+            }
+            tmt_colab_model::payload::Payload::EpochAdvance(p) => {
+                assert_eq!(p.epoch, "2");
+                assert_eq!(p.cuts.as_slice().len(), 2);
+                for cut in p.cuts.as_slice() {
+                    let framed = values::binary(&cut.cut, 2048).unwrap();
+                    let c = tmt_colab_model::stream_cut::decode(&framed).unwrap();
+                    assert_eq!(c.stream_id, DEVICE);
+                    if cut.namespace == "content" {
+                        assert_eq!(c.tail_head_seq, "1");
+                        assert_eq!(*c.tail_head_hash, hash);
+                    }
+                }
+                assert_eq!(p.wraps.as_slice().len(), 2);
+                for wrapped in p.wraps.as_slice() {
+                    wrapped.verify_owner(&key.owner_public()).unwrap();
+                    let h = wrapped.header().unwrap();
+                    assert_eq!(h.epoch, "2");
+                    assert_ne!(h.recipient_id, DEVICE);
+                    assert!(
+                        h.recipient_id == OTHER
+                            || h.recipient_id == key.management_member().unwrap().id
+                    );
+                }
+            }
+            _ => {}
+        }
+        head = Some(verified.head);
+    }
+    let after = rotation_rows(&db);
     // A trigger proves equal/older event delivery does not write again.
     db.execute_batch("CREATE TRIGGER reject_replay BEFORE UPDATE ON device_registrations BEGIN SELECT RAISE(ABORT,'replay wrote'); END;").unwrap();
     for revision in [2, 1] {
@@ -566,13 +680,22 @@ fn strict_device_events_close_live_and_prehello_tunnels_only_after_durable_revok
                 .starts_with("HTTP/1.1 200")
         );
     }
+    assert_eq!(rotation_rows(&db), after);
     let denied = server.request(&Running::get(
         "/sync",
         &format!("{}\r\n{UPGRADE}", owner(DEVICE)),
     ));
     assert!(denied.starts_with("HTTP/1.1 403"));
-    survivor.send(Message::Ping(vec![3].into())).unwrap();
-    assert!(matches!(survivor.read().unwrap(), Message::Pong(_)));
+    // Epoch-1 subscriptions lose admission; the surviving identity can reopen.
+    let mut reopened = server.peer(OTHER);
+    let hello = server.frame("hello", json!({"device":OTHER,"cursors":[],"epoch":"2"}));
+    send(&mut reopened, hello);
+    let first = receive(&mut reopened);
+    assert_eq!(first["membershipHead"]["revision"], "3");
+    assert_eq!(first["baseline"], values::encode_binary(&saved.descriptor));
+    assert_eq!(receive(&mut reopened)["more"], false);
+    reopened.send(Message::Ping(vec![3].into())).unwrap();
+    assert!(matches!(reopened.read().unwrap(), Message::Pong(_)));
 }
 
 #[test]
@@ -794,4 +917,20 @@ fn upgrade_read_ahead_reaches_sync_and_equal_revoke_has_no_tunnel_effect() {
     );
     peer.send(Message::Ping(vec![5].into())).unwrap();
     assert!(matches!(peer.read().unwrap(), Message::Pong(_)));
+}
+
+fn rotation_rows(db: &rusqlite::Connection) -> Vec<i64> {
+    [
+        "membership_log",
+        "epoch_secrets",
+        "baselines",
+        "wraps",
+        "owner_operations",
+    ]
+    .iter()
+    .map(|table| {
+        db.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap()
+    })
+    .collect()
 }
