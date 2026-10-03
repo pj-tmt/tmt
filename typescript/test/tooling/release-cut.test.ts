@@ -47,7 +47,8 @@ describe('direct component-map cut attribution', () => {
       commit('fix: selected test', ['tests/squad.test'], 3),
       commit('feat: parked only', ['extensions/parked/a'], 4),
     ];
-    expect(attributeCutCommits(commits, map, 'cli').map((c) => c.sha)).toEqual([sha(1)]);
+    // CI's selectedBy owner adds Squad without replacing the matching CLI root.
+    expect(attributeCutCommits(commits, map, 'cli').map((c) => c.sha)).toEqual([sha(1), sha(3)]);
     expect(attributeCutCommits(commits, map, 'squad').map((c) => c.sha)).toEqual([sha(2), sha(3)]);
   });
   it('rejects unknown, parked or non-private consumption instead of a second attribution list', () => {

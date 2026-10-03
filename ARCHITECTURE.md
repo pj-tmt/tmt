@@ -4183,7 +4183,9 @@ reads the component map at X through `parseComponentMap`/`ownerOf`, and attribut
 paths by ownership, exclusions, selected globs and declared `releaseConsumers`.
 Private-leaf consumers add attribution without replacing matching released-root
 membership: style/invoke remain CLI plus Squad, while explicitly CLI-excluded
-TUI is Squad only. Both views reuse `ownerOf` on the same parsed map.
+TUI is Squad only. `releasedComponentsForPath` in `ci-scope.mjs` owns released-root
+membership for both this planner and the Project release sweep; `ownerOf` supplies
+the selected owner and its declared consumers from the same parsed map.
 There is no generated release-config path expansion. Direct pinned conventional
 parser/renderer dependencies produce notes from first-parent commits in
 (previous product tag, X]; their linked SHA set must equal the releasable set.

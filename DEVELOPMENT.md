@@ -1986,6 +1986,8 @@ This is not a production release ancestry helper. Explain any ownership change
 against the direct component map instead of adding generated-config exclusions.
 Private style/invoke controls retain byte-identical CLI notes while adding Squad;
 the explicitly CLI-excluded TUI control remains Squad only.
+Release-cut and the Project sweep reuse `ci-scope.mjs` released-root membership;
+CI selected globs add attribution without replacing a matching released root.
 The switch additionally requires one successful shadow run on a main push; live
 old-path publications can add evidence but do not gate it. Herdr's independent
 private version boundary is a fixture until the switch enables it for release-cut.
