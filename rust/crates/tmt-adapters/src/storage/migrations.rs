@@ -239,6 +239,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "persist pane reply notice batches and one-shot worker claims",
         sql: include_str!("schema/044.sql"),
     },
+    Migration {
+        name: "remember runtime channel preference for exact resume",
+        sql: include_str!("schema/045.sql"),
+    },
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

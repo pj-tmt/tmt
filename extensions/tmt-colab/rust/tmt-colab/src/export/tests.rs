@@ -195,3 +195,40 @@ fn renamed_destination_reports_failure_without_publishing_into_its_replacement()
     assert!(!moved.join(ID).join("manifest.json").exists());
     assert!(!moved.join(format!(".tmt-colab-export-{ID}")).exists());
 }
+
+#[test]
+fn shared_browser_fixture_matches_native_manifest_bytes_and_field_order() {
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../contracts/vectors/export-v1.json")).unwrap();
+    let input = &fixture["input"];
+    let files = [FileInfo::new(
+        "page.html",
+        input["source"].as_str().unwrap().as_bytes(),
+    )];
+    // Exercise the production native serializer, not a Value's map ordering.
+    let manifest = serde_json::to_vec(&Manifest {
+        format: "tmt-colab-page-export",
+        version: 1,
+        space_id: input["spaceId"].as_str().unwrap(),
+        page_id: input["pageId"].as_str().unwrap(),
+        title: input["title"].as_str().unwrap(),
+        exported_at_ms: input["exportedAtMs"].as_u64().unwrap(),
+        membership_head: MembershipHead {
+            revision: input["membershipHead"]["revision"].as_str().unwrap().into(),
+            statement_hash: input["membershipHead"]["statementHash"]
+                .as_str()
+                .unwrap()
+                .into(),
+        },
+        epoch: input["epoch"].as_str().unwrap().into(),
+        plaintext: true,
+        discussions: "not-included",
+        files: &files,
+    })
+    .unwrap();
+    assert_eq!(
+        manifest,
+        fixture["manifestUtf8"].as_str().unwrap().as_bytes()
+    );
+    assert_eq!(hex(&crypto::digest(&manifest)), fixture["manifestSha256"]);
+}

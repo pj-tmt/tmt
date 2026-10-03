@@ -71,17 +71,29 @@ pub(crate) fn parse_document(bytes: &[u8]) -> Option<Value> {
     Some(value)
 }
 
-pub fn execute(mode: OutputMode) -> io::Result<u8> {
+pub fn execute(managed: bool, mode: OutputMode) -> io::Result<u8> {
     let (report, failure) = match ConfigPaths::discover() {
         Err(error) => (RefreshReport::default(), Some(Failure::from(error))),
-        Ok(paths) => match skill_installation::refresh(&paths.global_dir) {
-            Ok(report) => (report, None),
-            Err(mut error) => {
+        Ok(paths) => match if managed {
+            std::env::current_exe().and_then(|executable| {
+                tmt_adapters::native_install::with_active_release(&executable, || {
+                    skill_installation::refresh(&paths.global_dir)
+                })
+            })
+        } else {
+            Ok(skill_installation::refresh(&paths.global_dir))
+        } {
+            Ok(Ok(report)) => (report, None),
+            Ok(Err(mut error)) => {
                 let report = std::mem::take(&mut error.report);
                 let failure =
                     Failure::new("SKILL_REFRESH_FAILED", error.to_string(), 1).caused_by(error);
                 (report, Some(failure))
             }
+            Err(error) => (
+                RefreshReport::default(),
+                Some(Failure::new("SKILL_REFRESH_FAILED", error.to_string(), 1).caused_by(error)),
+            ),
         },
     };
     let mut output = tmt_cli_style::stream::stdout(mode.json);

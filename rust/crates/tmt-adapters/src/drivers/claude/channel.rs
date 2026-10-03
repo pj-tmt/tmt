@@ -253,11 +253,9 @@ impl RuntimeChannel for ClaudeChannel {
     }
 
     fn enroll(&self, plan: &ChannelPlan<'_>) -> Result<Box<dyn ChannelEnrollment>, ChannelError> {
-        if plan.resume_session.is_some() {
-            return Err(ChannelError::Unsupported(
-                "Claude channel enrollment on resume is not supported yet; resume without --channel",
-            ));
-        }
+        // Exact resume already selected the provider session/model through
+        // the runtime driver. It needs a new launch-scoped enrollment just
+        // like a fresh foreground; never reuse an earlier lease.
         // A command line that already names a development channel cannot be
         // planned around: ours would be ambiguous with it.
         if plan

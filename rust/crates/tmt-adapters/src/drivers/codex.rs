@@ -654,6 +654,7 @@ mod tests {
         let server = ProcessIncarnation::new(30, "server-start").unwrap();
         let session = ProviderSessionId::new("exact-thread").unwrap();
         let preferences = SessionPreferences {
+            channel: None,
             preferred_harness: Some(HarnessId::new("codex").unwrap()),
             remembered: Some(RememberedSession {
                 harness: HarnessId::new("codex").unwrap(),

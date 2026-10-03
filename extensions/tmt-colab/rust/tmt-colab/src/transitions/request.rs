@@ -1,6 +1,8 @@
 //! Stable root-local dispatch seam for admitted device management requests.
 use super::{
-    Engine, EpochAdvance, LinkAction, MemberAction, TransitionError, links, membership::Action,
+    Engine, EpochAdvance, LinkAction, MemberAction, TransitionError, links,
+    membership::Action,
+    sharing::{PageAction, PageRequest},
 };
 use crate::{
     Result,
@@ -201,13 +203,31 @@ impl Engine {
                 },
                 now,
             )?,
-            // The stable DTO reserves page actions for the following #1160
-            // policy slice. This prerequisite never signs a partial transition.
-            _ => {
-                return Err(std::io::Error::other(
-                    "Page policy transitions are not implemented in the runner prerequisite",
-                )
-                .into());
+            action => {
+                let (page, action) = match action {
+                    OwnerAction::Share {
+                        page,
+                        mode,
+                        publication,
+                    } => (page, PageAction::Share { mode, publication }),
+                    OwnerAction::History { page, mode } => (page, PageAction::History(mode)),
+                    OwnerAction::Retention { page, days } => (page, PageAction::Retention(days)),
+                    OwnerAction::Archive { page } => (page, PageAction::Archive),
+                    OwnerAction::Delete { page } => (page, PageAction::Delete),
+                    _ => unreachable!(),
+                };
+                self.page_change(
+                    store,
+                    key,
+                    PageRequest {
+                        operation_id: context.id,
+                        expected_revision: context.expected,
+                        page,
+                        action,
+                    },
+                    now,
+                    context,
+                )?
             }
         };
         let wire: Value = serde_json::from_slice(&outcome)?;

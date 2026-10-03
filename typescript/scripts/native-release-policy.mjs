@@ -17,7 +17,22 @@ const PRODUCTS = {
   office: { tagPrefix: 'tmt-office-v', prerelease: true, latest: false },
   squad: { tagPrefix: 'tmt-squad-v', prerelease: true, latest: false },
   'driver-herdr': { tagPrefix: 'tmt-driver-herdr-v', prerelease: true, latest: false },
+  colab: { tagPrefix: 'tmt-colab-v', prerelease: true, latest: false },
 };
+
+/** Resolve product selection to the component map, including prefixed private components. */
+export function componentOfProduct(map, product) {
+  releasePolicy(product);
+  const components = map.components.filter(
+    ({ name }) => name === product || name === `tmt-${product}`
+  );
+  if (components.length !== 1) throw new Error(`Ambiguous or missing component for ${product}.`);
+  return components[0];
+}
+
+export function isProductReleased(map, product) {
+  return isReleased(map, componentOfProduct(map, product).name);
+}
 
 /** The publication settings for one product; unknown products are refused. */
 export function releasePolicy(product) {
@@ -78,7 +93,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const map = parseComponentMap(
       readFileSync(new URL('../../.github/components.json', import.meta.url), 'utf8')
     );
-    if (!isReleased(map, product)) {
+    if (!isProductReleased(map, product)) {
       throw new Error(`${product} is not released (release: false in .github/components.json).`);
     }
   } catch (error) {

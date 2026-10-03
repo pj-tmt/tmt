@@ -6,3 +6,14 @@ accepted = ["MIT", "Apache-2.0", "Unicode-3.0", "ISC", "BSD-3-Clause", "CDLA-Per
 ignore-dev-dependencies = true
 ignore-build-dependencies = true
 private = { ignore = true }
+
+# taffy 0.7.7 omits LICENSE.md from its crate archive. This is the exact file
+# at its .cargo_vcs_info.json revision, 38c99d9452109f739a5ecebeeba423cacd3a703d:
+# https://github.com/DioxusLabs/taffy/blob/38c99d9452109f739a5ecebeeba423cacd3a703d/LICENSE.md
+# build-native-artifact.sh verifies the version and checksum, then resolves
+# this token to an absolute vendored path for cargo-about's crate-relative files.
+[taffy.clarify]
+license = "MIT"
+[[taffy.clarify.files]]
+path = "__TMT_TAFFY_LICENSE__"
+checksum = "a7083ef3dd41a65eeb2162c2c091b0082e2724fb4c6ed029b363c7840d244ecd"

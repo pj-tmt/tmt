@@ -36,6 +36,7 @@ impl Admission for Policy {
         store: &Store,
     ) -> Result<CatchupContext, Code> {
         Ok(CatchupContext {
+            recipients: tmt_colab::sync::WrapRecipients::Owner,
             membership_head: store
                 .owner_head(&scope.space, &self.owner)
                 .map_err(|_| Code::Invalid)?
@@ -264,6 +265,44 @@ fn closed(peer: &mut Peer, code: &str) {
     assert_eq!(close.reason, code);
     assert_eq!(peer.1.poll(), Progress::Closed);
 }
+#[test]
+fn membership_transfer_refuses_sql_oversize_before_loading_bytes() {
+    let f = Fixture::new();
+    let hello = || {
+        f.frame(
+            "hello",
+            json!({"device":ALICE,"membershipRevision":"0","cursors":[]}),
+        )
+    };
+    let mut control = f.peer(ALICE);
+    send(&mut control, hello());
+    assert_eq!(receive(&mut control)["type"], "catchup");
+    drop(control);
+
+    // The injected admission policy isolates transport's SQL size boundary.
+    // Malformed bytes would report INVALID if loaded and parsed before the cap.
+    let layout = Layout::open(&f.root).unwrap();
+    let oracle = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
+    let oversized = (tmt_colab::limits::STATEMENT_BYTES + 1) as i64;
+    oracle
+        .execute(
+            "UPDATE membership_log SET envelope=zeroblob(?) WHERE revision=?",
+            rusqlite::params![oversized, format!("{:020}", 1)],
+        )
+        .unwrap();
+    let mut peer = f.peer(ALICE);
+    send(&mut peer, hello());
+    error(&mut peer, "CAPACITY");
+    let size: i64 = oracle
+        .query_row(
+            "SELECT length(envelope) FROM membership_log WHERE revision=?",
+            [format!("{:020}", 1)],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(size, oversized);
+}
+
 #[test]
 fn two_clients_broadcast_exact_retry_and_durable_bytes() {
     let f = Fixture::new();

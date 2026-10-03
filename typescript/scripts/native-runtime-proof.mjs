@@ -23,16 +23,32 @@ export function assertNativeTarget(target, message) {
   assert.equal(target, nativeHostTarget(), message);
 }
 
+function macOsTool(name, cwd, inspect = runPackedCommand) {
+  // Resolve outside the product's isolated HOME to avoid Xcode shim diagnostics.
+  const tool = inspect('/usr/bin/xcrun', ['--find', name], {
+    cwd,
+    env: process.env,
+  }).trim();
+  assert(tool, `macOS ${name} path is empty`);
+  return tool;
+}
+
+/** Inspect bytes, not process.arch: Rosetta can execute an accidental arm64 binary. */
+export function assertMacOsArchitecture(executable, target, options, inspect = runPackedCommand) {
+  if (!target.endsWith('-apple-darwin')) return;
+  const expected = {
+    'x86_64-apple-darwin': 'x86_64',
+    'aarch64-apple-darwin': 'arm64',
+  }[target];
+  assert(expected, 'Unsupported macOS verification target');
+  const lipo = macOsTool('lipo', options.cwd, inspect);
+  const actual = inspect(lipo, ['-archs', executable], options).trim();
+  assert.equal(actual, expected, `Executable must contain exactly ${expected}: ${executable}`);
+}
+
 function verifyLinkage(executable, cwd, env, subject) {
   if (process.platform === 'darwin') {
-    // Resolve the selected system toolchain once with xcrun. Invoking the
-    // resolved inspection tool directly avoids xcrun's cache diagnostics under
-    // the product's isolated HOME without guessing an Xcode install path.
-    const otool = runPackedCommand('/usr/bin/xcrun', ['--find', 'otool'], {
-      cwd,
-      env: process.env,
-    }).trim();
-    assert(otool, 'macOS otool path is empty');
+    const otool = macOsTool('otool', cwd);
     let libraries;
     try {
       libraries = runPackedCommand(otool, ['-L', executable], {
@@ -196,6 +212,8 @@ export async function verifyNativeRuntime({
   product = 'cli',
   herdrDriver,
   herdrVersion,
+  colabApp,
+  notices,
   matchingHostMessage = `${subject} requires a matching native host`,
 }) {
   assert(fs.statSync(executable).isFile(), `${subject} must be a regular file`);
@@ -212,11 +230,12 @@ export async function verifyNativeRuntime({
     for (const directory of [home, cwd, emptyPath]) fs.mkdirSync(directory);
     // An allowlist avoids ambient provider, tmux, loader and runtime overrides.
     const env = { HOME: home, XDG_CONFIG_HOME: xdg, PATH: emptyPath, LANG: 'C', TMPDIR: root };
+    assertMacOsArchitecture(executable, target, { cwd, env });
     verifyLinkage(executable, cwd, env, subject);
 
     const run = (args) => runPackedCommand(executable, args, { cwd, env });
     assert(
-      ['cli', 'office', 'squad', 'driver-herdr'].includes(product),
+      ['cli', 'office', 'squad', 'driver-herdr', 'colab'].includes(product),
       'Unknown native runtime product'
     );
     const proveHerdr = (driver, expectedVersion) => {
@@ -238,6 +257,13 @@ export async function verifyNativeRuntime({
       assert(!fs.existsSync(xdg), 'Driver probe must not initialize config state');
       assert.deepEqual(fs.readdirSync(home), [], 'Driver probe must not create home state');
       assert.deepEqual(fs.readdirSync(cwd), [], 'Driver probe must not create workspace state');
+      return;
+    }
+    if (product === 'colab') {
+      assert(colabApp, 'Colab archive proof requires independent expected app bytes');
+      // Other products retain the minimal verifier image's existing dependency closure.
+      const { verifyColabApp } = await import('./colab-runtime-proof.mjs');
+      await verifyColabApp({ executable, version, expectedApp: colabApp, notices });
       return;
     }
     if (product === 'squad') {
@@ -294,6 +320,7 @@ export async function verifyNativeRuntime({
     }
     if (herdrDriver !== undefined) {
       // The companion remains independently versioned while #1084 keeps it in CLI archives.
+      assertMacOsArchitecture(herdrDriver, target, { cwd, env });
       verifyLinkage(herdrDriver, cwd, env, `${subject} Herdr driver`);
       proveHerdr(herdrDriver, herdrVersion);
     }

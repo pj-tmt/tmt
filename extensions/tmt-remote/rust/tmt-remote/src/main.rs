@@ -10,12 +10,14 @@ use std::{
 };
 use tmt_cli_style::{CommandSpec, Example, Interaction, Mode, OutputModes, Route};
 use tmt_remote::{
+    approval::Approval,
     control::{self, Control},
     core::CoreClient,
     devices::{Devices, device_json},
     error::RemoteError,
     http::{Door, Handler},
     mount::Mounts,
+    operations::Operations,
     pages::Pages,
     pairing::{Pairing, Timing},
     routes::Routes,
@@ -29,10 +31,10 @@ const ROOT: CommandSpec = CommandSpec {
     summary: "Optional local remote door (pilot)",
     examples: &[Example {
         command: "tmt remote serve",
-        note: "Open a loopback door; all requests are refused",
+        note: "Open the owner-device loopback door",
     }],
     outputs: OutputModes::Human,
-    details: "Sends are not implemented. Core never listens.",
+    details: "Paired devices dispatch through the public core API. Held sends require local approval. Core never listens.",
 };
 const PAIR: CommandSpec = CommandSpec {
     name: "pair",
@@ -86,13 +88,33 @@ const RENAME: CommandSpec = CommandSpec {
 };
 const SERVE: CommandSpec = CommandSpec {
     name: "serve",
-    summary: "Run a foreground IPv4-loopback deny-all door",
+    summary: "Run a foreground IPv4-loopback owner-device door",
     examples: &[Example {
         command: "tmt remote serve --json",
         note: "Print the bound descriptor for local testing",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Runs in the foreground until Ctrl-C or SIGTERM; there is no default deadline.\nOnly pairing is admitted; no core operation is forwarded.\nMounts colab under <prefix>/x/colab/ while its owner-only socket exists.",
+    details: "Runs in the foreground until Ctrl-C or SIGTERM; there is no default deadline.\nSigned direct sends reach core; held sends wait for local approval.\nMounts colab under <prefix>/x/colab/ while its owner-only socket exists.",
+};
+const APPROVE: CommandSpec = CommandSpec {
+    name: "approve",
+    summary: "Confirm one frozen held operation locally",
+    examples: &[Example {
+        command: "tmt remote approve <operation-id>",
+        note: "Inspect the exact frozen message, then confirm once",
+    }],
+    outputs: OutputModes::HumanAndJson,
+    details: "Only the local owner can approve. --json emits held/ended events and reads one confirm/refuse JSON line from stdin.",
+};
+const CANCEL: CommandSpec = CommandSpec {
+    name: "cancel",
+    summary: "Cancel one held operation locally",
+    examples: &[Example {
+        command: "tmt remote cancel <operation-id>",
+        note: "Cancel without creating a core request",
+    }],
+    outputs: OutputModes::HumanAndJson,
+    details: "Cancellation cannot undo a dispatch that already started.",
 };
 fn grammar() -> Command {
     tmt_cli_style::command(&ROOT)
@@ -110,6 +132,8 @@ fn grammar() -> Command {
             ),
         )
         .subcommand(tmt_cli_style::command(&PAIR))
+        .subcommand(tmt_cli_style::command(&APPROVE).arg(Arg::new("operation-id").required(true)))
+        .subcommand(tmt_cli_style::command(&CANCEL).arg(Arg::new("operation-id").required(true)))
         .subcommand(
             tmt_cli_style::command(&DEVICES)
                 .subcommand(
@@ -136,6 +160,9 @@ fn grammar() -> Command {
 }
 fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     let (name, arguments) = matches.subcommand().expect("required subcommand");
+    if matches!(name, "approve" | "cancel") {
+        return approval_command(name, arguments);
+    }
     if name == "pair" {
         return pair(arguments.get_flag("json"));
     }
@@ -177,6 +204,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         let root = core.storage_root(&stop)?;
         let layout = Layout::open(&root)?;
         let serving = layout.serve_lock()?;
+        serving.retain_for_invocations()?;
         let machine_key = MachineKey::open(&layout)?;
         let mut store = Store::open(&serving)?;
         let machine = store.machine()?;
@@ -201,10 +229,18 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
             Arc::clone(&store),
             session::IDLE,
         ));
+        let operations = Arc::new(Operations::new(core, Arc::clone(&stop), input_limit));
         let routes = Routes::new(input_limit, machine.route_prefix.clone())?
             .with_pairing(Arc::clone(&pairing))
-            .with_sessions(Arc::clone(&sessions));
+            .with_sessions(Arc::clone(&sessions))
+            .with_operations(Arc::clone(&operations));
         let address = format!("{}{}", door.origin, routes.prefix());
+        let approval = Arc::new(Approval::new(
+            Arc::clone(&store),
+            Arc::clone(&sessions),
+            operations,
+        ));
+        approval.cancel_pending()?;
         let devices = Arc::new(Devices::new(store, Some(Arc::clone(&sessions))));
         let control = Control::start(
             &serving,
@@ -214,6 +250,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
                 origin: door.origin.clone(),
                 prefix: machine.route_prefix.clone(),
             },
+            Some(Arc::clone(&approval)),
         )?;
         let site = Arc::new(Site {
             routes,
@@ -237,7 +274,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
             writeln!(
                 output,
                 "{}",
-                json!({"profile":"local-v1","binding":"loopback-http","state":"closed","address":address,"machineId":machine.id,"startupCoreCalls":2})
+                json!({"profile":"local-v1","binding":"loopback-http","state":"ready","address":address,"machineId":machine.id,"windowId":window_id,"startupCoreCalls":2})
             )?;
         } else {
             let terminal = output.terminal();
@@ -253,6 +290,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         let result = door.run(&stop, site as Arc<dyn Handler>);
         // Stopping cancels any pending pairing before state is released.
         control.stop();
+        approval.cancel_pending()?;
         drop(events);
         result
     })();
@@ -260,6 +298,102 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         signal_hook::low_level::unregister(id);
     }
     result
+}
+fn approval_command(action: &str, arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
+    let json_output = arguments.get_flag("json");
+    if action == "approve"
+        && !json_output
+        && Interaction::detect(false).prompt() != Mode::Interactive
+    {
+        return Err(RemoteError::new(
+            "REMOTE_CONFIRMATION_REQUIRED",
+            "Approval needs a terminal, or --json confirmation.",
+        ));
+    }
+    let id = arguments.get_one::<String>("operation-id").unwrap();
+    if !tmt_remote::canonical::is_core_id(id) {
+        return Err(RemoteError::new(
+            "REMOTE_INPUT_INVALID",
+            "Invalid operation ID.",
+        ));
+    }
+    let core = CoreClient::discover()?;
+    let root = core.storage_root(&AtomicBool::new(false))?;
+    let mut stream = control::connect(&root.join("remote"))?;
+    writeln!(stream, "{}", json!({"op":action,"operationId":id}))?;
+    let mut events = BufReader::new(stream.try_clone()?);
+    let mut output = tmt_cli_style::stream::stdout(json_output);
+    loop {
+        let mut line = String::new();
+        if events.read_line(&mut line)? == 0 {
+            return Err(RemoteError::new("REMOTE_IO", "Approval connection ended."));
+        }
+        let event: serde_json::Value = serde_json::from_str(&line)
+            .map_err(|_| RemoteError::new("REMOTE_IO", "Invalid approval response."))?;
+        if let Some(error) = event.get("error") {
+            return Err(RemoteError::new(
+                error["code"].as_str().unwrap_or("REMOTE_IO"),
+                error["message"].as_str().unwrap_or("Approval refused."),
+            ));
+        }
+        if json_output {
+            writeln!(output, "{event}")?;
+            output.flush()?;
+        }
+        if event["event"] != "held" {
+            if !json_output {
+                let terminal = output.terminal();
+                tmt_cli_style::detail::write(
+                    &mut output,
+                    terminal,
+                    "OPERATION",
+                    &[
+                        (
+                            "state",
+                            event["state"].as_str().unwrap_or("uncertain").into(),
+                        ),
+                        ("operation", id.clone()),
+                    ],
+                )?;
+            }
+            return Ok(());
+        }
+        if !json_output {
+            let terminal = output.terminal();
+            tmt_cli_style::detail::write(
+                &mut output,
+                terminal,
+                "HELD MESSAGE",
+                &[
+                    ("device", event["deviceName"].as_str().unwrap_or("").into()),
+                    ("source", event["clientId"].as_str().unwrap_or("").into()),
+                    (
+                        "recipient",
+                        event["recipientId"].as_str().unwrap_or("").into(),
+                    ),
+                    ("message", event["message"].as_str().unwrap_or("").into()),
+                ],
+            )?;
+            output.flush()?;
+            let mut prompt = tmt_cli_style::stream::stderr();
+            write!(prompt, "Send this frozen message? [y/N] ")?;
+            prompt.flush()?;
+        }
+        let mut answer = String::new();
+        let read = std::io::stdin().read_line(&mut answer)?;
+        let confirmed = read > 0
+            && if json_output {
+                tmt_remote::wire::strict_json(answer.as_bytes())
+                    .is_some_and(|v| v == json!({"op":"confirm"}))
+            } else {
+                matches!(answer.trim(), "y" | "yes")
+            };
+        writeln!(
+            stream,
+            "{}",
+            json!({"op":if confirmed {"confirm"}else{"refuse"}})
+        )?;
+    }
 }
 /// `tmt remote pair`: open the single offer on the running serve and relay
 /// the owner's one confirmation. State is reached only through serve.

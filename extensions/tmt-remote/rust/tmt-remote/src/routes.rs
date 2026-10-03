@@ -1,6 +1,6 @@
 //! Remote binding routes on the door: `/pair` enrollment and the `session.open`
-//! control on `/append`. Authenticated normal messages receive signed refusals;
-//! application adoption is not enabled.
+//! control on `/append`, plus signed subscribe/ack.
+//! Application effects belong to the explicitly composed operation owner.
 use crate::{
     canonical,
     error::RemoteError,
@@ -69,9 +69,18 @@ impl Routes {
         self.sessions = Some(sessions);
         self
     }
+    pub fn with_operations(mut self, operations: Arc<crate::operations::Operations>) -> Self {
+        self.transport = self.transport.with_operations(operations);
+        self
+    }
     /// Route prefix; not a credential.
     pub fn prefix(&self) -> &str {
         &self.prefix
+    }
+    pub fn shutdown(&self) {
+        if let Some(sessions) = &self.sessions {
+            sessions.shutdown();
+        }
     }
     fn suffix<'a>(&self, path: &'a str) -> Option<&'a str> {
         path.strip_prefix(&self.prefix)
@@ -91,6 +100,9 @@ impl Routes {
     }
 }
 impl Handler for Routes {
+    fn shutdown(&self) {
+        Routes::shutdown(self);
+    }
     fn admit(&self, head: &Head<'_>) -> Result<usize, Reply> {
         let Some(suffix) = self.suffix(head.path) else {
             return Err(Reply::empty(404));
@@ -106,7 +118,7 @@ impl Handler for Routes {
         {
             return Err(Reply::empty(400));
         }
-        if !self.attempt() {
+        if suffix == "/pair" && !self.attempt() {
             return Err(Reply::empty(429));
         }
         Ok(if suffix == "/pair" {
@@ -171,7 +183,7 @@ impl Handler for Routes {
                 reply.body = body;
                 reply
             }
-            Err(_) => Reply::empty(404),
+            Err(_) => Reply::empty(if self.attempt() { 404 } else { 429 }),
         })
     }
 }

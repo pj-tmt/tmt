@@ -2,6 +2,7 @@ import { writeExecutable } from '../support/executable-fixture.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import net from 'node:net';
 import { syncBuiltinESMExports } from 'node:module';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { createSandbox, runCli, withSandbox } from '../support/cli-process.js';
@@ -15,7 +16,7 @@ function fixture(mode = 'exit', output = 'ignore') {
   writeExecutable(
     script,
     `
-    import { spawn } from 'node:child_process';
+    import { execFileSync, spawn } from 'node:child_process';
     import fs from 'node:fs';
     if (process.argv[2] === 'child') {
       process.send('ready');
@@ -25,7 +26,11 @@ function fixture(mode = 'exit', output = 'ignore') {
         stdio: ['ignore', '${output}', '${output}', 'ipc'],
       });
       child.once('message', () => {
-        fs.writeFileSync(process.argv[2], JSON.stringify({ child: child.pid, group: process.pid }));
+        const group = Number(execFileSync('/bin/ps', ['-o', 'pgid=', '-p', String(process.pid)], { encoding: 'utf8' }).trim());
+        const launcherGroup = Number(execFileSync('/bin/ps', ['-o', 'pgid=', '-p', String(process.ppid)], { encoding: 'utf8' }).trim());
+        const pendingMarker = process.argv[2] + '.pending';
+        fs.writeFileSync(pendingMarker, JSON.stringify({ child: child.pid, group, launcherGroup }));
+        fs.renameSync(pendingMarker, process.argv[2]);
         if (process.argv[3] === 'exit') process.exit(0);
         if (process.argv[3] === 'overflow') process.stdout.write('over the limit');
       });
@@ -254,6 +259,161 @@ it('asynchronous spawn failure preserves the error and disposes the sandbox', as
     await expect(runCli({ ...sandbox, cli }, [])).rejects.toMatchObject({ code: 'ENOENT' });
   });
   expect(fs.existsSync(root)).toBe(false);
+});
+
+it('runs beneath a PID-1-owned supervisor and preserves argv, stdin and both streams', async () => {
+  await withSandbox(async (sandbox) => {
+    const script = path.join(sandbox.root, 'observe-parent.mjs');
+    writeExecutable(
+      script,
+      `import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+const grandparent = Number(execFileSync('/bin/ps', ['-o', 'ppid=', '-p', String(process.ppid)], { encoding: 'utf8' }).trim());
+const group = Number(execFileSync('/bin/ps', ['-o', 'pgid=', '-p', String(process.pid)], { encoding: 'utf8' }).trim());
+process.stdout.write(JSON.stringify({ grandparent, groupLeader: group === process.pid, args: process.argv.slice(2), stdin: fs.readFileSync(0, 'utf8') }));
+process.stderr.write('diagnostic 雪');
+process.exit(17);
+`,
+      0o644
+    );
+    const result = await runCli(
+      { ...sandbox, cli: { executable: process.execPath, args: [script, 'prefix with spaces'] } },
+      ['quote\"; $HOME', '雪'],
+      { stdin: 'input\0雪\n' }
+    );
+    expect(result).toMatchObject({ status: 17, signal: null, stderr: 'diagnostic 雪' });
+    expect(JSON.parse(result.stdout)).toEqual({
+      grandparent: 1,
+      groupLeader: true,
+      args: ['prefix with spaces', 'quote\"; $HOME', '雪'],
+      stdin: 'input\0雪\n',
+    });
+  });
+});
+
+it('keeps buffered and open stdin alive after setup exits', async () => {
+  await withSandbox(async (sandbox) => {
+    const script = path.join(sandbox.root, 'read-input.mjs');
+    const marker = path.join(sandbox.root, 'input-ready');
+    writeExecutable(
+      script,
+      `import fs from 'node:fs';
+fs.writeFileSync(process.argv[2], 'ready');
+process.stdout.write(String(fs.readFileSync(0).length));
+`,
+      0o644
+    );
+    const selected = { ...sandbox, cli: { executable: process.execPath, args: [script, marker] } };
+    expect(await runCli(selected, [], { stdin: Buffer.alloc(1024 * 1024, 97) })).toEqual({
+      status: 0,
+      signal: null,
+      stdout: String(1024 * 1024),
+      stderr: '',
+    });
+    fs.unlinkSync(marker);
+    const pending = runCli(selected, [], {
+      stdin: 'partial',
+      closeStdin: false,
+      deadlineMs: 1000,
+    });
+    await until(() => fs.existsSync(marker));
+    await expect(pending).rejects.toThrow('exceeded the 1000 millisecond test bound');
+  });
+});
+
+it('cancellation before setup starts closes and removes the private control socket', async () => {
+  const prefix = `tmt-cli-parent-${process.pid}-`;
+  const makeDirectory = fs.mkdtempSync.bind(fs);
+  const directories = vi.spyOn(fs, 'mkdtempSync');
+  const servers = vi.spyOn(net, 'createServer');
+  syncBuiltinESMExports();
+  const failure = new Error('callback failed before setup');
+  let root = '';
+  let peerRoot = '';
+  try {
+    await expect(
+      withSandbox((sandbox) => {
+        root = sandbox.root;
+        void runCli(sandbox, []);
+        // Threaded workers share a PID. Another worker's live socket directory
+        // is not evidence that this run leaked its own transport.
+        peerRoot = makeDirectory(`/tmp/${prefix}`);
+        roots.push(peerRoot);
+        fs.writeFileSync(path.join(peerRoot, 'marker'), 'foreign control');
+        throw failure;
+      })
+    ).rejects.toBe(failure);
+    const controlRoots = directories.mock.calls.flatMap(([template], index) =>
+      String(template) === `/tmp/${prefix}` ? [directories.mock.results[index].value] : []
+    );
+    expect(controlRoots).toHaveLength(1);
+    expect(typeof controlRoots[0]).toBe('string');
+    expect(fs.existsSync(controlRoots[0])).toBe(false);
+    expect(servers).toHaveBeenCalledOnce();
+    expect(servers.mock.results[0].value.listening).toBe(false);
+    expect(fs.existsSync(root)).toBe(false);
+    expect(fs.readFileSync(path.join(peerRoot, 'marker'), 'utf8')).toBe('foreign control');
+  } finally {
+    directories.mockRestore();
+    servers.mockRestore();
+    syncBuiltinESMExports();
+  }
+});
+
+it('resolves a scenario executable on its declared PATH and preserves access errors', async () => {
+  await withSandbox(async (sandbox) => {
+    const bin = path.join(sandbox.root, 'bin');
+    fs.mkdirSync(bin);
+    const command = path.join(bin, 'scenario-command');
+    writeExecutable(command, '#!/bin/sh\nprintf "%s" "$1"\n', 0o755);
+    const selected = {
+      ...sandbox,
+      cli: { executable: 'scenario-command', args: [] },
+      env: { ...sandbox.env, PATH: `${bin}${path.delimiter}${sandbox.env.PATH}` },
+    };
+    expect(await runCli(selected, ['argument with spaces'])).toEqual({
+      status: 0,
+      signal: null,
+      stdout: 'argument with spaces',
+      stderr: '',
+    });
+    fs.chmodSync(command, 0o644);
+    await expect(runCli(selected, [])).rejects.toMatchObject({ code: 'EACCES' });
+    fs.unlinkSync(command);
+    await expect(runCli(selected, [])).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});
+
+it('relays a selected CLI signal rather than converting it to an exit code', async () => {
+  await withSandbox(async (sandbox) => {
+    const result = await runCli(
+      { ...sandbox, cli: { executable: '/bin/sh', args: ['-c', 'kill -TERM $$'] } },
+      []
+    );
+    expect(result).toEqual({ status: null, signal: 'SIGTERM', stdout: '', stderr: '' });
+  });
+});
+
+it('deadline termination stops the supervisor, CLI and descendants before disposal', async () => {
+  const f = fixture('hold');
+  let root = '';
+  try {
+    await withSandbox(async (sandbox) => {
+      root = sandbox.root;
+      // Observe a live CLI and descendant before timeout, so startup failure
+      // cannot satisfy the deadline-cleanup assertions.
+      const pending = runCli({ ...sandbox, cli: f.cli }, [], { deadlineMs: 1000 });
+      await until(() => fs.existsSync(f.marker));
+      await expect(pending).rejects.toThrow('exceeded the 1000 millisecond test bound');
+      const { child, group, launcherGroup } = JSON.parse(fs.readFileSync(f.marker, 'utf8'));
+      expect(alive(child)).toBe(false);
+      expect(alive(-group)).toBe(false);
+      expect(alive(-launcherGroup)).toBe(false);
+    });
+    expect(fs.existsSync(root)).toBe(false);
+  } finally {
+    await cleanup(f.marker);
+  }
 });
 
 it('output overflow stops the complete group and preserves its bound error', async () => {

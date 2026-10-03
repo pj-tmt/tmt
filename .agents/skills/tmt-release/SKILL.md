@@ -18,11 +18,25 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
 - The CLI version is owned by `rust/Cargo.toml` and exposed through Cargo's package version; there is no TypeScript fallback. Keep any retained developer package version and public release instructions consistent when changing versions. The native skill ships with the CLI; there is no separately versioned plugin or marketplace.
 - Follow `AGENTS.md` for GitHub issue state, branch and pull-request links, verification evidence, and safe worktree cleanup.
 
+## Release-cut shadow migration
+
+Follow the [architecture's shadow contract](../../../ARCHITECTURE.md#release-cut-shadow)
+and [verification procedure](../../../DEVELOPMENT.md#release-cut-shadow-verification)
+for #1399. Shadow computation and the read-only native injection check confer no
+publication, release/tag mutation, owner-hold override or workflow-dispatch
+authorization. Preserve the active release path and its gates until the separately
+reviewed switch; authorization below continues to apply.
+
 ## Private-leaf attribution
 
-The component map's `releaseConsumers` currently attributes private TUI changes to Squad.
+The component map's `releaseConsumers` attributes private TUI, CLI style and invoke changes to Squad.
 The release workflow's small `release-please-run.mjs` wrapper adds only in-memory consumer paths
 before release-please's splitter and cutoffs; 17.11.2 has no `additional-paths` config option.
+Style and invoke retain CLI attribution; TUI retains its CLI exclusion. Project release evidence
+uses `ci-scope.releasedComponentsForPath` to retain released-root membership alongside leaf consumers.
+The generator requires
+reviewed consumption declarations for all external production workspace links of a declared consumer,
+using its existing Cargo metadata graph, including transitive dependencies.
 Keep its pinned API shape verified by tooling tests loading the release job's isolated install.
 Follow DEVELOPMENT's generator and real-candidate checks before changing this consumption rule
 or upgrading release-please. This does not change publication authorization or private-leaf version ownership.
@@ -83,7 +97,7 @@ manifest remains the releasability owner; a monitor must not close its issue on
 incomplete evidence or mutate held release PRs. Keep `issues: write` for monitoring
 in its separate job; its REST uses `github.token`. Only the existing
 release-job App reader sees drafts, passing metadata rather than credentials.
-Distinguish current published-release smoke infrastructure issues from real check failures;
+Distinguish historical anonymous-smoke infrastructure issues from current check failures;
 a rate-limit issue recommends retrying smoke, never publication. Preserve zero-failure behavior,
 visible summary warnings and fixture-only REST tests. [DEVELOPMENT’s monitor
 section](../../../DEVELOPMENT.md#release-stall-monitoring) owns thresholds,
@@ -109,7 +123,7 @@ component map and release policy/version helpers, never notes or a recency windo
 Every sweep is authoritative for eligible issues, including recovery from built-in
 status workflow writes. Exclude epic trackers from both fields; their owning lead
 retains the acceptance/dogfood gate, and the summary lists them as skipped. The post-publication dispatch waits for read-back and smoke completion;
-classified infrastructure failures still reconcile without weakening smoke.
+authenticated acquisition errors remain failures, with the daily sweep retaining publication reconciliation.
 Retain the daily safety net. Follow [DEVELOPMENT's Project release tracking
 procedure](../../../DEVELOPMENT.md#project-release-tracking) for full dry-run table
 review, request and GraphQL point-cost reporting, exact verification commands and
@@ -128,6 +142,9 @@ Preserve its real absence and surviving-group controls; synthetic fixture succes
 does not authorize publication or replace artifact acceptance.
 
 - For Rust archives, follow the guide's native Rust release archive procedure.
+  Generate the offline clarification config before calling cargo-about directly,
+  as documented there; keep its vendored-license checksum and version checks,
+  `--fail` and the archive verifier's placeholder rejection intact.
   Keep cargo-dist's manifest as the artifact metadata owner; independently verify
   bounded extraction, notices, linkage, skill installation and persisted state.
   Raw PR runtime checks do not establish release archive correctness. Do not enable a
@@ -183,6 +200,14 @@ does not authorize publication or replace artifact acceptance.
 
 ## Archive contents and install facts
 
+Colab's single-executable packaging route is prepared, with its app embedded by
+the Colab-owned `TMT_COLAB_APP_DIR` build boundary and frontend notices appended
+to Rust notices. Embedding (#1421) and core registration (#1423) are implemented.
+It remains parked: a published supporting CLI alpha and actual-archive acceptance
+precede separately authorized activation. Follow [Colab packaging verification](../../../DEVELOPMENT.md#colab-packaging-wiring-parked)
+for fixture-only proof versus real archive/public-install evidence; do not treat
+a tiny embedded-app fixture as delivery of the Colab product.
+
 - Every product archive (CLI, Office, Squad) carries its executable, `LICENSE`,
   `NATIVE-INSTALL.md` and `THIRD-PARTY-NOTICES.txt`. The installer enforces this
   inventory (`tmt-core`'s `native_install/product.rs`), so adding, renaming or
@@ -193,7 +218,11 @@ does not authorize publication or replace artifact acceptance.
   product-neutral offline note without version numbers: user guidance belongs to the
   handbook, and the onboarding test runs the note's PATH block in Bash and Zsh.
 - Release targets are macOS x64/arm64 (build deployment target 11.0) and Linux
-  x64/arm64 with a static musl runtime. A deployment target is not testing on every
+  x64/arm64 with a static musl runtime. macOS x64 follows DEVELOPMENT's
+  [runtime acceptance policy](../../../DEVELOPMENT.md#runtime-smoke-matrix):
+  cross-build on arm64, complete Rosetta verifier process trees with exact
+  installed-byte architecture checks, plus weekly native Intel public
+  installation and upgrade coverage. A deployment target is not testing on every
   macOS version; cite the release's verification evidence for tested hosts.
 - The manifest's SHA-256 checksums detect corruption, not a compromised download
   origin. Locally generated checksums are not signatures, and no local test artifact
@@ -252,19 +281,13 @@ gates, the markers and the procedures; this section owns who may publish what.
   A failed check opens an issue and fails the run; nothing is rolled back, and a repair is a new
   reviewed version. A read-only smoke then installs the published release through the public
   installer (and `tmt upgrade` for the CLI) in an isolated environment on the four hosts, and a
-  real failure there is reported on the same issue. Smoke remains unauthenticated. Retry only
-  the native classified rate-limit diagnostic, within DEVELOPMENT's attempt/reset-wait
-  bounds; exhausted rate limits keep a failed job with a separate infrastructure issue,
-  while any real or mixed failure keeps the release-failure conclusion. Keep the separate
-  deferred affected-target re-proof outside the native run's `release-<product>` group:
-  consume the report owner's infrastructure outcome and explicitly dispatch the smoke-retry
-  workflow (completion events from token-dispatched native runs are suppressed). Its planner
-  verifies the main source run, attempt and matching tag/target evidence through REST.
-  Keep both host jobs on the shared `public-install-smoke` action, including architecture
-  wrappers, and pin source/retry target and runner parity in fixtures.
-  Keep its 60-minute reset bound and one acquisition attempt. Complete original and retry evidence is required before the issue owner
-  comments with both runs and closes an infrastructure issue. Neither a failed original
-  job nor a failed retry becomes green, and real failure issues stay open. Keep the
-  bounded latest-installer lag retry for an older alpha, and pin the consumed native
-  diagnostic format in fixture tests. Never dispatch
-  publication to recover a public smoke rate limit.
+  real failure there is reported on the same issue. The shared public-install-smoke
+  action uses the workflow's `contents: read` `GITHUB_TOKEN` for native API acquisition.
+  Pass it through env only, never argv or disk; redact output and verify isolated
+  installed state contains no credential. Asset downloads remain public and token-free.
+  Preserve the native bounded HTTPS retry and the bounded older-alpha latest-installer
+  lag retry. Exhausted rate limits are ordinary failed smoke checks; there is no
+  deferred rate-limit retry workflow. Use the PR-only four-host proof against existing
+  published releases for tooling changes, never a publishing dispatch. Keep the
+  post-publication Project dispatch gated on successful smoke and historical failure issues
+  visible to the release monitor. Never dispatch publication to recover a smoke failure.

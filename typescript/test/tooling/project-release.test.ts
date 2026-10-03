@@ -381,6 +381,58 @@ describe('full repository-state release sweep', () => {
       expect(affectedProducts(evidence.paths(rename), map).products).toEqual(['cli', 'squad']);
     }));
 
+  it.each(['tmt-cli-style', 'tmt-invoke'])(
+    'preserves CLI membership while adding Squad for %s',
+    (leaf) => {
+      const file = `rust/crates/${leaf}/src/lib.rs`;
+      const before = {
+        ...map,
+        components: map.components.filter((component) => component.name !== leaf),
+      };
+      expect(affectedProducts([file], before)).toEqual({ products: ['cli'], unpublished: [] });
+      expect(affectedProducts([file], map)).toEqual({
+        products: ['cli', 'squad'],
+        unpublished: [],
+      });
+      expect(affectedProducts([`rust/crates/${leaf}-other/src/lib.rs`], map)).toEqual({
+        products: ['cli'],
+        unpublished: [],
+      });
+    }
+  );
+
+  it('keeps the explicitly excluded TUI leaf attributed only to Squad', () => {
+    expect(affectedProducts(['rust/crates/tmt-tui/src/lib.rs'], map)).toEqual({
+      products: ['squad'],
+      unpublished: [],
+    });
+  });
+
+  it.each(['tmt-cli-style', 'tmt-invoke'])(
+    'requires both published products for a %s change',
+    (leaf) =>
+      history(({ directory, git, commit }) => {
+        const sha = commit([`rust/crates/${leaf}/src/lib.rs`]);
+        git(['tag', 'v5.0.0-alpha.2']);
+        git(['tag', 'tmt-squad-v0.1.0-alpha.1']);
+        const releases = [release('tmt-squad-v0.1.0-alpha.1')];
+        const api = stateApi(project(), releases, new Map([['issue-1', [closingPr(1, sha)]]]));
+        const input = { api, repository, dryRun: true, git: gitEvidence({ cwd: directory }), map };
+        expect(reconcile(input).rows[0]).toMatchObject({
+          status: 'Merged',
+          text: 'tmt-squad 0.1.0-alpha.1',
+          waiting: ['Awaiting cli'],
+        });
+        releases.push(release('v5.0.0-alpha.2', 1));
+        const row = reconcile(input).rows[0];
+        expect(row.status).toBe('Released');
+        expect(row.text).toContain('tmt-cli 5.0.0-alpha.2');
+        expect(row.text).toContain('tmt-squad 0.1.0-alpha.1');
+        expect(row.waiting).toEqual([]);
+        expect(writes(api)).toHaveLength(0);
+      })
+  );
+
   it('uses the owner map, selected paths and private consumers without silently releasing private components', () => {
     expect(
       affectedProducts(

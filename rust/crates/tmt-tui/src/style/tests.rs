@@ -41,6 +41,7 @@ fn literal_cell_styles_and_defaults() {
             shrink: 1,
             text_flow: TextFlow::Clip,
             token: None,
+            bold: false,
         }
     );
     assert_eq!(
@@ -61,6 +62,7 @@ fn literal_cell_styles_and_defaults() {
             shrink: 0,
             text_flow: TextFlow::Clip,
             token: Some(Role::Working),
+            bold: false,
         }
     );
     assert_eq!(

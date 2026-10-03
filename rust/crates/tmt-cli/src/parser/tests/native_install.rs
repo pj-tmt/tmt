@@ -79,15 +79,18 @@ fn internal_native_install_requires_explicit_inputs_and_typed_pin_policy() {
             if actual == if pin == "--pin" { PinAction::PinCandidate } else { PinAction::Clear })
         );
     }
-    let mut office = input.to_vec();
-    office.extend(["--product", "office"]);
-    assert!(matches!(
-        super::parse(&self::args(&office)).unwrap().invocation,
-        Invocation::NativeInstall {
-            product: tmt_core::native_install::Product::Office,
-            ..
-        }
-    ));
+    for product in [
+        tmt_core::native_install::Product::Office,
+        tmt_core::native_install::Product::Remote,
+        tmt_core::native_install::Product::Colab,
+    ] {
+        let mut selected = input.to_vec();
+        selected.extend(["--product", product.as_str()]);
+        assert!(
+            matches!(super::parse(&self::args(&selected)).unwrap().invocation,
+            Invocation::NativeInstall { product: actual, .. } if actual == product)
+        );
+    }
     let mut invalid_product = input.to_vec();
     invalid_product.extend(["--product", "third-party"]);
     assert_eq!(parse_error(&invalid_product).code, "USAGE_ERROR");
@@ -126,4 +129,58 @@ fn internal_extension_upgrade_is_hidden_and_rejects_ambiguous_modes() {
         help.find_subcommand("__native-upgrade-extensions")
             .is_none()
     );
+}
+
+#[test]
+fn versioned_installer_handoff_is_disjoint_from_offline_arguments() {
+    for probe in [false, true] {
+        let mut args = vec!["__native-install", "--handoff-version", "1", "--json"];
+        if probe {
+            args.push("--probe");
+        }
+        assert_eq!(
+            parsed(&args).invocation,
+            Invocation::NativeInstallHandoff { probe }
+        );
+    }
+    for args in [
+        vec![
+            "__native-install",
+            "--handoff-version",
+            "2",
+            "--probe",
+            "--json",
+        ],
+        vec!["__native-install", "--probe", "--json"],
+        vec![
+            "__native-install",
+            "--handoff-version",
+            "1",
+            "--archive",
+            "archive.tar.gz",
+        ],
+        vec!["__native-install", "--handoff-version", "1", "--pin"],
+        vec![
+            "__native-install",
+            "--handoff-version",
+            "1",
+            "--product",
+            "office",
+        ],
+    ] {
+        assert_eq!(parse_error(&args).code, "USAGE_ERROR");
+    }
+}
+
+#[test]
+fn managed_skill_refresh_is_explicit() {
+    for (args, managed) in [
+        (vec!["__native-refresh-skills", "--json"], false),
+        (vec!["__native-refresh-skills", "--managed", "--json"], true),
+    ] {
+        assert_eq!(
+            parsed(&args).invocation,
+            Invocation::NativeRefreshSkills { managed }
+        );
+    }
 }

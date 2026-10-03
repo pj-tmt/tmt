@@ -109,6 +109,7 @@ impl Harness {
                 origin: origin.clone(),
                 prefix: machine.route_prefix.clone(),
             },
+            None,
         )
         .unwrap();
         let site = Arc::new(Site {

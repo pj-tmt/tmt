@@ -10,6 +10,12 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, 
 use serde::{Deserialize, Serialize};
 use tmt_colab_model::{certificate, crypto, payload, statement, values, wrap};
 
+/// Caller-admitted recipients for scoped bootstrap; never inferred from a frame.
+pub enum WrapRecipients {
+    Owner,
+    Link(String),
+    None,
+}
 pub const MAX_OUTCOME_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -238,6 +244,28 @@ impl OwnerTransaction<'_> {
             .query_row("SELECT epoch FROM pages WHERE page=?", [page], |r| r.get(0))
             .optional()?)
     }
+    pub(crate) fn append_content(
+        &mut self,
+        envelope: &super::Envelope<'_>,
+    ) -> Result<super::Accepted> {
+        Ok(super::append_in(self.tx, envelope)?.ok_or(super::Fault::Conflict)?)
+    }
+    pub(crate) fn save_operation(
+        &mut self,
+        id: &str,
+        digest: &[u8; 32],
+        outcome: &[u8],
+    ) -> Result<()> {
+        values::generated_id(id)?;
+        if outcome.len() > MAX_OUTCOME_BYTES {
+            return Err(OwnerFault::Capacity.into());
+        }
+        self.tx.execute(
+            "INSERT INTO owner_operations VALUES (?,?,?)",
+            params![id, digest.as_slice(), outcome],
+        )?;
+        Ok(())
+    }
     pub fn head(&self) -> Option<&statement::Head> {
         self.head.as_ref()
     }
@@ -403,6 +431,17 @@ impl OwnerTransaction<'_> {
         let h = envelope.header()?;
         let revision = values::decimal(&h.membership_revision, false)?;
         if h.space != self.space || self.head.as_ref().is_none_or(|v| revision > v.revision) {
+            return Err(OwnerFault::Invalid.into());
+        }
+        // Forward joins carry their join revision, not a caller-selected policy.
+        // Historical wraps remain valid for recipients who already held them.
+        let policy = self.page_policy_at(&h.page, revision)?;
+        let epoch = values::decimal(&h.epoch, false)?;
+        if policy.deleted
+            || epoch > policy.epoch
+            || epoch < policy.epoch.saturating_sub(63).max(1)
+            || (policy.history_current && epoch != policy.epoch)
+        {
             return Err(OwnerFault::Invalid.into());
         }
         if let Some(old) = self.wrap(&h)? {

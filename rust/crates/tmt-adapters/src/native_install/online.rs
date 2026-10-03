@@ -124,6 +124,51 @@ mod tests {
     }
 
     #[test]
+    fn unpublished_extensions_never_download_another_products_binary_or_creates_a_prefix() {
+        for product in [Product::Remote, Product::Colab] {
+            let tagged = format!(
+                r#"[{{"ref":"refs/tags/{}0.1.0-alpha.1"}}]"#,
+                product.tag_prefix()
+            );
+            for refs in [b"[]".as_slice(), tagged.as_bytes()] {
+                let directory = TestDirectory::new();
+                let prefix = directory.path.join("prefix");
+                let mut calls = Vec::new();
+                let error = install_release_with(
+                    product,
+                    &prefix,
+                    "aarch64-apple-darwin",
+                    Channel::Alpha,
+                    None,
+                    || Ok(()),
+                    |url, _, _, _| {
+                        calls.push(url.to_owned());
+                        if url.ends_with(&format!(
+                            "/git/matching-refs/tags/{}?per_page=100&page=1",
+                            product.tag_prefix()
+                        )) {
+                            return Ok(refs.to_vec().into());
+                        }
+                        assert!(url.ends_with(&format!(
+                            "/releases/tags/{}0.1.0-alpha.1",
+                            product.tag_prefix()
+                        )));
+                        Err(io::Error::new(
+                            io::ErrorKind::NotFound,
+                            "No published product release",
+                        ))
+                    },
+                )
+                .unwrap_err();
+                assert_eq!(error.kind(), io::ErrorKind::NotFound);
+                assert!(error.get_ref().unwrap().is::<release::ReleaseUnavailable>());
+                assert_eq!(calls.len(), if refs == b"[]" { 1 } else { 2 });
+                assert!(!prefix.exists());
+            }
+        }
+    }
+
+    #[test]
     fn interruption_before_acquisition_has_no_network_or_filesystem_effect() {
         let directory = TestDirectory::new();
         let prefix = directory.path.join("prefix");

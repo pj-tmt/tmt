@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { expect, test, type BrowserContext, type WebSocketRoute } from '@playwright/test';
 import * as c from '@tmt/colab-client';
 import type { PageView } from '../src/transport.js';
@@ -707,6 +708,7 @@ async function wire(
     });
   });
   return {
+    head: head.head,
     entries,
     statement: largeStatement ? c.encodeBinary(largeStatement.toJson()) : null,
     get statementChunks() {
@@ -877,6 +879,7 @@ for (const invalid of ['commitment', 'source', 'descriptor', 'oldEpoch'] as cons
     await page.getByRole('link', { name: new RegExp(v.page) }).click();
     await expect(page.getByRole('alert')).toBeVisible();
     await expect(page.locator('iframe')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Export page' })).toHaveCount(0);
     await expect
       .poll(() =>
         page.evaluate(
@@ -1043,4 +1046,176 @@ test('signed catchup publishes detached own maps for two authors while source st
   expect(result.subscriptionIsDetached).toBe(true);
   expect(result.source).toBe('<p>after tail</p>' + 'x'.repeat(300000));
   await expect.poll(() => f.connections).toBe(0);
+});
+
+test('parent export downloads exact frozen baseline files, ignores drafts and renderer messages, and cleans URLs', async ({
+  page,
+  context,
+}) => {
+  const source =
+    '<h1>Exact export</h1>\r\n<p>λ 😀\0</p><script>parent.postMessage({type:"export"},"*");</script>';
+  const f = await wire(context, { source });
+  await page.addInitScript(() => {
+    if (window !== window.top) return;
+    const active = new Set<string>();
+    Object.defineProperty(window, 'exportUrls', { value: active });
+    const create = URL.createObjectURL.bind(URL),
+      revoke = URL.revokeObjectURL.bind(URL);
+    URL.createObjectURL = (blob) => {
+      const url = create(blob);
+      active.add(url);
+      return url;
+    };
+    URL.revokeObjectURL = (url) => {
+      active.delete(url);
+      revoke(url);
+    };
+  });
+  let requested = 0;
+  page.on('download', () => requested++);
+  await page.goto(mount);
+  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Exact export' }),
+  ).toBeVisible();
+  const exportButton = page.getByRole('button', { name: 'Export page', exact: true });
+  await exportButton.evaluate((button: HTMLButtonElement) => button.click());
+  await expect(page.getByRole('region', { name: 'Export page' })).toHaveCount(0);
+  expect(requested).toBe(0);
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await page.getByRole('textbox').fill('<p>Unsaved draft</p>');
+  const before = Date.now();
+  await exportButton.click();
+  const panel = page.getByRole('region', { name: 'Export page' });
+  await expect(panel).toContainText(
+    'This creates an unencrypted copy of the page. Anyone with these files can read it.',
+  );
+  await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeEnabled();
+  await panel
+    .getByRole('button', { name: 'Download page.html' })
+    .evaluate((button: HTMLButtonElement) => button.click());
+  expect(requested).toBe(0);
+  await page.screenshot({ path: '/private/tmp/1309-export-light.png', fullPage: true });
+  await page.getByRole('button', { name: 'Change color theme' }).click();
+  await page.screenshot({ path: '/private/tmp/1309-export-dark.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: '/private/tmp/1309-export-mobile.png', fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  async function download(name: string) {
+    const pending = page.waitForEvent('download');
+    await panel.getByRole('button', { name: new RegExp(`Download ${name}`) }).click();
+    const received = await pending;
+    expect(received.suggestedFilename()).toBe(name);
+    expect(await received.failure()).toBeNull();
+    const path = await received.path();
+    expect(path).not.toBeNull();
+    return readFileSync(path!);
+  }
+  const html = await download('page.html');
+  expect(html).toEqual(Buffer.from(source, 'utf8'));
+  await expect(panel.getByRole('status')).toContainText('One file requested');
+  const other = await context.newPage();
+  await other.goto(mount);
+  await other.getByRole('link', { name: new RegExp(v.page) }).click();
+  await other.getByRole('button', { name: 'Source', exact: true }).click();
+  await other.getByRole('textbox').fill('<h1>New live page</h1>');
+  await other.getByRole('button', { name: 'Save source' }).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'New live page' }),
+  ).toBeVisible();
+  const manifestBytes = await download('manifest.json');
+  const manifest = JSON.parse(manifestBytes.toString('utf8'));
+  expect(manifest.exportedAtMs).toBeGreaterThanOrEqual(before);
+  expect(manifest.exportedAtMs).toBeLessThanOrEqual(Date.now());
+  expect(manifestBytes.toString('utf8')).toBe(
+    JSON.stringify({
+      format: 'tmt-colab-page-export',
+      version: 1,
+      spaceId: v.space,
+      pageId: v.page,
+      title: 'Live fixture',
+      exportedAtMs: manifest.exportedAtMs,
+      membershipHead: { revision: '3', statementHash: Buffer.from(f.head.hash).toString('hex') },
+      epoch: '2',
+      plaintext: true,
+      discussions: 'not-included',
+      files: [
+        {
+          name: 'page.html',
+          sizeBytes: html.length,
+          sha256: createHash('sha256').update(html).digest('hex'),
+        },
+      ],
+    }),
+  );
+  await expect(panel.getByRole('status')).toContainText('Both downloads requested');
+  expect(await download('page.html')).toEqual(html);
+  expect(await download('manifest.json')).toEqual(manifestBytes);
+  const urlCount = () =>
+    page.evaluate(() => (window as unknown as { exportUrls: Set<string> }).exportUrls.size);
+  await expect.poll(urlCount).toBe(0);
+  await download('page.html');
+  await panel.getByRole('button', { name: 'Close export' }).click();
+  await expect.poll(urlCount).toBe(0);
+  await exportButton.click();
+  await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeEnabled();
+  await download('page.html');
+  await page.getByRole('link', { name: 'Space home' }).click();
+  await expect.poll(urlCount).toBe(0);
+  await other.close();
+  await expect.poll(() => f.connections).toBe(0);
+});
+
+test('failed export preparation requests no files and closing clears pending preparation', async ({
+  page,
+  context,
+}) => {
+  await wire(context);
+  await page.goto(mount);
+  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await expect(page.getByRole('heading', { name: 'Live fixture', exact: true })).toBeVisible();
+  let downloads = 0;
+  page.on('download', () => downloads++);
+  await page.evaluate(() => {
+    const original = crypto.subtle.digest.bind(crypto.subtle);
+    crypto.subtle.digest = () => {
+      crypto.subtle.digest = original;
+      return Promise.reject(new Error('Hash failed'));
+    };
+  });
+  await page.getByRole('button', { name: 'Export page', exact: true }).click();
+  const panel = page.getByRole('region', { name: 'Export page' });
+  await expect(panel.getByRole('status')).toContainText('Could not prepare');
+  await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeDisabled();
+  expect(downloads).toBe(0);
+  await panel.getByRole('button', { name: 'Close export' }).click();
+  await page.evaluate(() => {
+    const original = crypto.subtle.digest.bind(crypto.subtle);
+    crypto.subtle.digest = async (...args) => {
+      crypto.subtle.digest = original;
+      await new Promise<void>((resolve) => {
+        Object.defineProperty(window, 'releaseExportHash', { value: resolve });
+      });
+      return original(...args);
+    };
+  });
+  await page.getByRole('button', { name: 'Export page', exact: true }).click();
+  await expect(panel.getByRole('status')).toContainText('Preparing an exact copy');
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => typeof (window as unknown as { releaseExportHash?: unknown }).releaseExportHash,
+      ),
+    )
+    .toBe('function');
+  await panel.getByRole('button', { name: 'Close export' }).click();
+  await page.evaluate(() =>
+    (window as unknown as { releaseExportHash(): void }).releaseExportHash(),
+  );
+  await expect(panel).toHaveCount(0);
+  expect(downloads).toBe(0);
+  await page.getByRole('button', { name: 'Export page', exact: true }).click();
+  await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeEnabled();
+  await panel.getByRole('button', { name: 'Close export' }).click();
+  await page.getByRole('link', { name: 'Space home' }).click();
 });

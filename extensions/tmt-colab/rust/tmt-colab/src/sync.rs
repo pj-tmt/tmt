@@ -61,17 +61,23 @@ impl From<store::Fault> for Code {
 /// Append receives the exact model-decoded header, never unsigned routing claims.
 pub enum Access<'a> {
     Read,
+    Publish,
     Append(&'a object::Context),
 }
+pub use crate::store::owner::WrapRecipients;
 /// Caller-verified bootstrap metadata. The head comes from owner_head through
 /// the admission implementation. None means this epoch has no reset baseline.
 pub struct CatchupContext {
     pub membership_head: statement::Head,
     pub owner_key: [u8; 32],
+    pub recipients: WrapRecipients,
     /// Exact model baseline descriptor JSON, not reconstructed signing bytes.
     pub baseline: Option<Vec<u8>>,
 }
 pub trait Admission: Send {
+    fn alive(&self, _: &str) -> Result<(), Code> {
+        Ok(())
+    }
     fn catchup_context(
         &self,
         principal: &str,
@@ -100,6 +106,7 @@ struct Peer {
     terminal: Option<Code>,
 }
 struct Catchup {
+    recipients: WrapRecipients,
     positions: HashMap<(String, String), store::NamespaceCursor>,
     head: statement::Head,
     owner: [u8; 32],
@@ -277,6 +284,46 @@ impl<A> Clone for Server<A> {
         Self(Arc::clone(&self.0))
     }
 }
+impl Server<crate::registration::OwnerAdmission> {
+    /// Prepare transport before committing. The opaque server never opens source.
+    pub(crate) fn page_write(
+        &self,
+        prepared: &crate::page::Prepared,
+        now: u64,
+    ) -> crate::Result<crate::page::Receipt> {
+        let bytes = values::binary(&prepared.envelope, limits::UPDATE_BYTES)?;
+        let decoded = object::Envelope::from_json(&bytes)?;
+        let header = object::Header::decode(decoded.header())?;
+        let c = &header.context;
+        let scope = SyncScope {
+            space: c.space.clone(),
+            page: c.page.clone(),
+            epoch: c.epoch.clone(),
+        };
+        let hash = decoded.hash()?;
+        let (envelope, transfer) = delivery(&scope, hash, bytes)?;
+        let broadcast = wire::output(
+            &scope,
+            "broadcast",
+            serde_json::json!({
+                "streamId": c.author_device, "seq": c.stream_seq,
+                "envelopeHash": values::encode_binary(&hash), "envelope": envelope,
+                "chains": [{"deviceId": c.author_device, "chain": prepared.chain}]
+            }),
+        )?;
+        let mut state = self.0.lock().map_err(|_| crate::page::Fault::Unavailable)?;
+        let committed = state
+            .admission
+            .0
+            .lock()
+            .map_err(|_| crate::page::Fault::Unavailable)?
+            .page_write(prepared, now)?;
+        if committed.accepted == Accepted::New {
+            state.fanout(&scope, broadcast, transfer);
+        }
+        Ok(committed.receipt)
+    }
+}
 impl<A: Admission> Server<A> {
     pub fn new(store: Store, admission: A) -> Self {
         Self(Arc::new(Mutex::new(State {
@@ -347,11 +394,17 @@ impl<A: Admission> Server<A> {
 impl<A: Admission> State<A> {
     fn recheck(&mut self) {
         for peer in self.peers.values_mut() {
-            if let Some(scope) = &peer.scope
-                && let Err(code) = self
-                    .admission
-                    .authorize(&peer.principal, scope, Access::Read)
-            {
+            let result = self
+                .admission
+                .alive(&peer.principal)
+                .and_then(|()| match &peer.scope {
+                    Some(scope) => self
+                        .admission
+                        .authorize(&peer.principal, scope, Access::Read)
+                        .map(|_| ()),
+                    None => Ok(()),
+                });
+            if let Err(code) = result {
                 peer.end(code);
             }
         }
@@ -377,6 +430,13 @@ impl<A: Admission> State<A> {
         }
         let principal = peer.principal.clone();
         self.admission.authorize(&principal, &scope, Access::Read)?;
+        if matches!(
+            &frame,
+            Frame::Append { .. } | Frame::Chunk { .. } | Frame::Awareness { .. }
+        ) {
+            self.admission
+                .authorize(&principal, &scope, Access::Publish)?;
+        }
         self.peers.get_mut(&id).ok_or(Code::Denied)?.scope = Some(scope.clone());
         let subscribing = matches!(&frame, Frame::Subscribe { .. });
         match frame {
@@ -647,6 +707,7 @@ impl<A: Admission> State<A> {
         peer.subscribed = false;
         peer.catchup = Some(Catchup {
             positions,
+            recipients: context.recipients,
             head: context.membership_head,
             owner: context.owner_key,
             revision: membership.revision,
@@ -703,6 +764,7 @@ impl<A: Admission> State<A> {
                         &peer.principal,
                         &catchup.head,
                         catchup.wrap_offset,
+                        &catchup.recipients,
                     )
                 })
                 .map_err(bootstrap_error)?;

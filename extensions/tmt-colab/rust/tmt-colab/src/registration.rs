@@ -25,6 +25,7 @@ pub enum Code {
     Expired,
     Conflict,
     Unavailable,
+    Capacity,
 }
 impl Code {
     pub fn status(self) -> u16 {
@@ -32,7 +33,7 @@ impl Code {
             Self::Invalid => 400,
             Self::Denied | Self::Expired => 403,
             Self::Conflict => 409,
-            Self::Unavailable => 503,
+            Self::Unavailable | Self::Capacity => 503,
         }
     }
     pub fn text(self) -> &'static str {
@@ -42,6 +43,7 @@ impl Code {
             Self::Expired => "EXPIRED",
             Self::Conflict => "CONFLICT",
             Self::Unavailable => "UNAVAILABLE",
+            Self::Capacity => "CAPACITY",
         }
     }
 }
@@ -155,6 +157,8 @@ pub struct Registration {
     store: Store,
     keyring: Keyring,
     engine: Engine,
+    readers: crate::readers::Sessions,
+    reader_clock: std::sync::Arc<dyn Fn() -> std::result::Result<u64, Code> + Send + Sync>,
 }
 impl Registration {
     pub fn new(
@@ -173,7 +177,41 @@ impl Registration {
             store,
             keyring,
             engine: Engine::with_decoder_config(decoder_config)?,
+            readers: Default::default(),
+            reader_clock: std::sync::Arc::new(now_ms),
         })
+    }
+    /// Server-owned reader clock, injected for deterministic expiry verification.
+    pub fn with_reader_clock(
+        mut self,
+        clock: impl Fn() -> std::result::Result<u64, Code> + Send + Sync + 'static,
+    ) -> Self {
+        self.reader_clock = std::sync::Arc::new(clock);
+        self
+    }
+    pub(crate) fn reader_request(
+        &mut self,
+        path: &str,
+        body: &[u8],
+    ) -> std::result::Result<Vec<u8>, Code> {
+        let now = (self.reader_clock)()?;
+        if path == crate::readers::CHALLENGE_PATH {
+            self.readers
+                .challenge(&self.store, &self.keyring, body, now)
+        } else {
+            self.readers
+                .exchange(&mut self.store, &self.keyring, body, now)
+        }
+    }
+    pub(crate) fn reader_upgrade(
+        &mut self,
+        token: &[u8; 32],
+    ) -> std::result::Result<(String, String), Code> {
+        self.readers
+            .upgrade(&self.store, &self.keyring, token, (self.reader_clock)()?)
+    }
+    pub(crate) fn release_reader(&mut self, id: &str) {
+        self.readers.release(id);
     }
     pub fn close(self) -> Result<()> {
         self.store.close()
@@ -195,6 +233,33 @@ impl Registration {
             })
             .map_err(map_error)
     }
+    /// The caller serializes management with sync before taking this mutex.
+    pub fn apply_owner(
+        &mut self,
+        request: crate::transitions::OwnerRequest<'_>,
+        now: u64,
+    ) -> std::result::Result<crate::transitions::Applied, crate::transitions::TransitionError> {
+        self.engine
+            .apply(&mut self.store, &self.keyring, request, now)
+    }
+    /// Root-local ciphertext write; caller holds the sync mutex before this service.
+    pub(crate) fn page_write(
+        &mut self,
+        prepared: &crate::page::Prepared,
+        now: u64,
+    ) -> crate::Result<crate::page::Committed> {
+        crate::page::commit(&mut self.store, &self.keyring, prepared, now)
+    }
+    pub(crate) fn management_device(
+        &mut self,
+        context: Option<&str>,
+        now: u64,
+    ) -> std::result::Result<(String, [u8; 32]), Code> {
+        let device = Context::parse(context)?.device_id;
+        let signing = self.active_device(context, now)?;
+        Ok((device, signing))
+    }
+
     /// The caller supplies server time, never a request-selected clock.
     pub fn register(
         &mut self,
@@ -468,18 +533,45 @@ impl Registration {
         bytes.try_into().map_err(|_| Code::Unavailable)
     }
 }
-/// Mounted owner admission. Signature/remote binding verification happens at
-/// upgrade through active_device; each sync turn reads current durable authority.
+/// Mounted owner and read-only reader admission. Upgrade verifies owner binding
+/// through active_device or consumes a reader ticket; sync reads live authority.
 /// The pinned local management member represents the owner across local pages.
 pub struct OwnerAdmission(pub std::sync::Arc<std::sync::Mutex<Registration>>);
 impl crate::sync::Admission for OwnerAdmission {
+    fn alive(&self, principal: &str) -> std::result::Result<(), crate::sync::Code> {
+        let service = self.0.lock().map_err(|_| crate::sync::Code::Denied)?;
+        if service.readers.contains(principal) {
+            service
+                .readers
+                .check(
+                    principal,
+                    None,
+                    &service.store,
+                    &service.keyring,
+                    (service.reader_clock)().map_err(|_| crate::sync::Code::Denied)?,
+                )
+                .map_err(reader_sync_error)?;
+        }
+        Ok(())
+    }
+
     fn catchup_context(
         &self,
-        _: &str,
+        principal: &str,
         scope: &crate::sync::SyncScope,
         store: &Store,
     ) -> std::result::Result<crate::sync::CatchupContext, crate::sync::Code> {
         let service = self.0.lock().map_err(|_| crate::sync::Code::Denied)?;
+        service
+            .store
+            .owner_read(&scope.space, &service.keyring.owner_public(), |tx| {
+                let head = tx.head().ok_or(crate::sync::Code::Denied)?;
+                if tx.page_policy_at(&scope.page, head.revision)?.deleted {
+                    return Err(crate::sync::Code::Denied.into());
+                }
+                Ok(())
+            })
+            .map_err(|_| crate::sync::Code::Denied)?;
         Ok(crate::sync::CatchupContext {
             membership_head: store
                 .owner_head(&scope.space, &service.keyring.owner_public())
@@ -493,6 +585,24 @@ impl crate::sync::Admission for OwnerAdmission {
                 .map_err(|_| crate::sync::Code::Denied)?
                 .map(|baseline| baseline.descriptor),
             owner_key: service.keyring.owner_public(),
+            recipients: if service.readers.contains(principal) {
+                service
+                    .readers
+                    .check(
+                        principal,
+                        Some(scope),
+                        &service.store,
+                        &service.keyring,
+                        (service.reader_clock)().map_err(|_| crate::sync::Code::Denied)?,
+                    )
+                    .map_err(reader_sync_error)?;
+                service
+                    .readers
+                    .recipients(principal)
+                    .map_err(reader_sync_error)?
+            } else {
+                crate::sync::WrapRecipients::Owner
+            },
         })
     }
 
@@ -508,6 +618,23 @@ impl crate::sync::Admission for OwnerAdmission {
             return Err(SyncCode::Denied);
         }
         let now = now_ms().map_err(|_| SyncCode::Denied)?;
+        if service.readers.contains(principal) {
+            service
+                .readers
+                .check(
+                    principal,
+                    Some(scope),
+                    &service.store,
+                    &service.keyring,
+                    (service.reader_clock)().map_err(|_| SyncCode::Denied)?,
+                )
+                .map_err(reader_sync_error)?;
+            return if matches!(access, crate::sync::Access::Read) {
+                Ok([0; 32])
+            } else {
+                Err(SyncCode::Denied)
+            };
+        }
         service
             .store
             .owner_read(&scope.space, &service.keyring.owner_public(), |tx| {
@@ -544,6 +671,16 @@ impl crate::sync::Admission for OwnerAdmission {
                 }
                 if now < cert.issued_at || now >= cert.expires_at {
                     return Err(SyncCode::Expired.into());
+                }
+                let policy = tx.page_policy_at(&scope.page, head.revision)?;
+                if policy.deleted
+                    || (policy.archived
+                        && matches!(
+                            access,
+                            crate::sync::Access::Append(_) | crate::sync::Access::Publish
+                        ))
+                {
+                    return Err(SyncCode::Denied.into());
                 }
                 if tx.page_epoch(&scope.page)?.as_deref() != Some(scope.epoch.as_str()) {
                     return Err(SyncCode::StaleEpoch.into());
@@ -629,4 +766,11 @@ pub(crate) fn now_ms() -> std::result::Result<u64, Code> {
         .as_millis()
         .try_into()
         .map_err(|_| Code::Unavailable)
+}
+
+fn reader_sync_error(code: Code) -> crate::sync::Code {
+    match code {
+        Code::Expired => crate::sync::Code::Expired,
+        _ => crate::sync::Code::Denied,
+    }
 }

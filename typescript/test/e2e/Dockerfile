@@ -18,6 +18,7 @@ RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture -
   && cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-cli \
   && CARGO_PROFILE_DEV_DEBUG=0 cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-office \
   && cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-squad \
+  && cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-remote \
   && cargo test --locked --no-run -p tmt-adapters \
   && mkdir /native-artifacts \
   && cp target/debug/examples/tmux-probe /native-artifacts/tmux-probe \
@@ -26,6 +27,7 @@ RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture -
   && cp "target/$native_output/tmt" /native-artifacts/tmt \
   && cp "target/$native_output/tmt-office" /native-artifacts/tmt-office \
   && cp "target/$native_output/tmt-squad" /native-artifacts/tmt-squad \
+  && cp "target/$native_output/tmt-remote" /native-artifacts/tmt-remote \
   && find target/debug/deps -maxdepth 1 -type f -name 'tmt_adapters-*' -executable \
     -exec cp {} /native-artifacts/adapter-tests \;
 
@@ -53,6 +55,7 @@ COPY --from=native-tests /native-artifacts/adapter-tests /opt/tmt-tests/adapter-
 COPY --from=native-tests /native-artifacts/tmt /workspace/rust/target/debug/tmt
 COPY --from=native-tests /native-artifacts/tmt-office /workspace/rust/target/debug/tmt-office
 COPY --from=native-tests /native-artifacts/tmt-squad /workspace/rust/target/debug/tmt-squad
+COPY --from=native-tests /native-artifacts/tmt-remote /workspace/rust/target/debug/tmt-remote
 ENV TMT_TEST_TMUX_PROBE='{"executable":"/opt/tmt-tests/tmux-probe","args":[]}'
 # Run process lifecycle tests under the wrapper's --init, not a build-stage
 # shell that may retain orphan zombies. Both suites share network isolation.

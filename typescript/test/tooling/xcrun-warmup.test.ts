@@ -35,7 +35,7 @@ function runsOnMacOs(workflow: string, job: string): boolean {
     const start = workflow.indexOf(`&${alias}\n`);
     return workflow.slice(start, workflow.indexOf('runs-on:', start));
   });
-  return [job, ...anchored].some((text) => /runner: macos-/.test(text));
+  return [job, ...anchored].some((text) => /(?:runner|runs-on): macos-/.test(text));
 }
 
 /** Shared step anchors must be inspected at their definition, not skipped. */
@@ -45,43 +45,59 @@ function steps(workflow: string, job: string): string[] {
     ? [...jobs(workflow).values()].find((block) => block.includes(`steps: &${alias}\n`))
     : job;
   if (!source) throw new Error(`Missing shared steps anchor: ${alias}`);
-  return source.split(/\n(?=      - )/).slice(1);
+  return source
+    .split(/\n(?=      - )/)
+    .slice(1)
+    .flatMap((step) =>
+      step.includes('uses: ./.github/actions/public-install-smoke')
+        ? read('.github/actions/public-install-smoke/action.yml')
+            .split(/\n(?=    - )/)
+            .slice(1)
+        : [step]
+    );
 }
 
 describe('macOS toolchain warm-up before the native runtime proof', () => {
   it('finds the proof consumers the workflows run', () => {
     expect(proofConsumers()).toEqual([
       'verify-native-artifact.mjs',
+      'verify-native-bootstrap.mjs',
       'verify-native-driver-upgrade.mjs',
+      'verify-native-extension-upgrade.mjs',
+      'verify-native-installation.mjs',
       'verify-native-runtime.mjs',
+      'verify-public-install.mjs',
     ]);
   });
 
-  it.each(['.github/workflows/ci.yml', '.github/workflows/native-release-bundle.yml'])(
-    'warms xcrun before every macOS verifier in %s',
-    (workflow) => {
-      const text = read(workflow);
-      const consumers = [...jobs(text)].filter(
-        ([, job]) =>
-          runsOnMacOs(text, job) &&
-          steps(text, job).some((step) =>
-            proofConsumers().some((script) => step.includes(`${scripts}/${script}`))
-          )
-      );
-      expect(consumers.length, `${workflow} has no macOS proof jobs`).toBeGreaterThan(0);
-      for (const [name, job] of consumers) {
-        const list = steps(text, job);
-        const warm = list.findIndex((step) => step.includes(warmUp));
-        const verifier = list.findIndex((step) =>
+  it.each([
+    '.github/workflows/ci.yml',
+    '.github/workflows/native-release-bundle.yml',
+    '.github/workflows/native-release-smoke.yml',
+    '.github/workflows/public-install-smoke-pr.yml',
+    '.github/workflows/native-intel.yml',
+  ])('warms xcrun before every macOS verifier in %s', (workflow) => {
+    const text = read(workflow);
+    const consumers = [...jobs(text)].filter(
+      ([, job]) =>
+        runsOnMacOs(text, job) &&
+        steps(text, job).some((step) =>
           proofConsumers().some((script) => step.includes(`${scripts}/${script}`))
-        );
-        expect(warm, `${name}: the warm-up step is missing`).toBeGreaterThanOrEqual(0);
-        expect(verifier, `${name}: the verifier step is missing`).toBeGreaterThanOrEqual(0);
-        expect(warm, name).toBeLessThan(verifier);
-        expect(list[warm], name).toContain("if: runner.os == 'macOS'");
-      }
+        )
+    );
+    expect(consumers.length, `${workflow} has no macOS proof jobs`).toBeGreaterThan(0);
+    for (const [name, job] of consumers) {
+      const list = steps(text, job);
+      const warm = list.findIndex((step) => step.includes(warmUp));
+      const verifier = list.findIndex((step) =>
+        proofConsumers().some((script) => step.includes(`${scripts}/${script}`))
+      );
+      expect(warm, `${name}: the warm-up step is missing`).toBeGreaterThanOrEqual(0);
+      expect(verifier, `${name}: the verifier step is missing`).toBeGreaterThanOrEqual(0);
+      expect(warm, name).toBeLessThan(verifier);
+      expect(list[warm], name).toContain("if: runner.os == 'macOS'");
     }
-  );
+  });
 
   it('warms the matching-host driver proof before its release-upgrade orchestrator', () => {
     const workflow = read('.github/workflows/native-release-upgrade.yml');
@@ -110,12 +126,15 @@ describe('macOS toolchain warm-up before the native runtime proof', () => {
     const action = read('.github/actions/warm-xcrun/action.yml');
     expect(action).toContain("if: runner.os == 'macOS'");
     expect(action).toContain('scripts/retry-command.sh" 3 5 /usr/bin/xcrun --find otool');
+    expect(action).toContain('scripts/retry-command.sh" 3 5 /usr/bin/xcrun --find lipo');
   });
 
   it('keeps xcrun out of every other file, so a new caller has to add its own warm-up', () => {
     const allowed = new Set([
       '.github/actions/warm-xcrun/action.yml',
       `${scripts}/native-runtime-proof.mjs`,
+      // Fixture-only assertions of the shared tool lookup, not a new runtime caller.
+      'typescript/test/tooling/native-runtime-proof.test.ts',
       'typescript/test/tooling/xcrun-warmup.test.ts',
     ]);
     // The tool itself, not the name of the warm-up action.

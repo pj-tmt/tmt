@@ -1,0 +1,62 @@
+---
+source: site/src/chapters/drv-tmux.mdx
+sourceRevision: bce18dac6f51c59c018cbae56d5003216618c559
+title: tmux：agent 运行的地方
+---
+
+import { components as Mdx } from "../../components/mdx";
+import { Cmd, Code } from "../../components/Cmd";
+import { Badge, BadgeBorders, DriverCard } from "../../components/samples";
+
+<DriverCard
+  name="tmux"
+  kind="host driver"
+  spec={[
+    [
+      "了解",
+      "服务器、窗格及各窗格中运行的进程。binding 存储在窗格元数据中，每次投递前都会与正在运行的服务器核对。",
+    ],
+    [
+      "投递",
+      <>
+        粘贴缓冲区内容，等待，然后按下 Enter。<code>!</code> 会变成 <code>！</code>，防止触发 agent
+        的 shell 模式。
+      </>,
+    ],
+    [
+      "显示",
+      <>
+        在你自己的 <code>pane-border-format</code> 中显示可选的{" "}
+        <Badge name="name" state="running" /> 徽标。不会修改标题、布局或主题。
+      </>,
+    ],
+    [
+      "设置",
+      <>
+        无需设置。运行 <code>tmt config set ui.paneBadge on --global</code> 可开启徽标。
+      </>,
+    ],
+  ]}
+/>
+
+<Mdx.h3 id="delivery-you-can-trust">可靠的投递</Mdx.h3>
+
+向窗格输入之前，tmt 会检查该窗格在同一个 tmux 服务器上是否仍属于你指定的名称。如果发送可能只完成了一部分（例如已粘贴文本，但未确认按下 Enter），tmt 会报告**不确定**，绝不会自行重发。先用 `tmt check <name>` 查看，再作决定。
+
+<Mdx.h3 id="the-pane-badge">窗格徽标</Mdx.h3>
+
+开启一次后，每个已命名的窗格都会获得一个小标签，你可以将它放在自己的窗格边框中：
+
+<BadgeBorders />
+
+<Cmd>{`$ tmt config set ui.paneBadge on --global`}</Cmd>
+
+然后在自己的 `pane-border-format` 中，将以下片段添加到你想显示它的位置：
+
+<Code>{`#{?@tmux-team.badge, [#{@tmux-team.badge}],}`}</Code>
+
+该选项保留了 tmt 的旧名称 tmux-team，以便现有配置继续可用。tmt 只通过一个窗格选项提供标签，不会修改窗格标题、边框格式、布局或主题；徽标的位置由你决定。圆点显示的是记录下来的会话状态，不表示 agent 是否忙碌。
+
+<Mdx.h3 id="when-tmux-says-no">tmux 拒绝访问时</Mdx.h3>
+
+有些 agent 沙箱会阻止访问 tmux socket。此时 tmt 会明确说明：无法访问 socket，可能是沙箱阻止了访问，且没有向任何窗格输入内容。它不会将窗格报告为不存在。需要在 agent 一侧解决：通过 agent 自身的权限提升机制重新运行同一条命令，或者允许访问 socket。

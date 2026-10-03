@@ -322,8 +322,9 @@ The replay digest purpose-separates normalized action, scope and transport bytes
 an exact replay returns the original outcome and signed head, and conflicting
 bytes/scope return `CONFLICT`. A fresh scope mismatch returns `STALE_HEAD`.
 With neither transport nor scope, existing root-local digests remain unchanged.
-The runner prerequisite implements member/link/device/epoch dispatch; its reserved
-page-policy actions return `UNAVAILABLE` until the #1160 policy slice lands.
+The runner implements member/link/device/epoch and page-policy actions. Public
+publication requires trusted loopback composition; request bytes cannot assert
+the backend's identity.
 This API is not transport admission. The caller serializes through sync first,
 then Registration; no request-carried field grants signing authority.
 
@@ -473,25 +474,36 @@ subtree beneath browser mounts. There is no browser revocation route.
 
 ### Implemented mounted browser assets (#1253)
 
-The local-build foreground executable loads the app's Vite output at startup.
-Its default path is the compile-time crate directory plus
-`../../typescript/app/dist`, canonicalized at startup. Optional
-`serve --app-dir <absolute directory>` replaces that selection. An invalid
-explicit directory MUST fail with `COLAB_APP_UNAVAILABLE` before Colab state is
-created. A missing, unsafe or incomplete default MUST still start the service,
-with an owner placeholder carrying the one-line instruction
-`build the app: corepack pnpm --dir typescript --filter @tmt/colab-app build`.
-The binary remains excluded from release; there is no installer or data-root copy.
+The foreground executable selects optional `serve --app-dir <absolute directory>`
+first, then its embedded build, then the compile-time crate directory plus
+`../../typescript/app/dist`, canonicalized at startup. An invalid explicit
+selection or embedded inventory MUST fail with `COLAB_APP_UNAVAILABLE` before
+Colab state is created. A missing, unsafe or incomplete checkout default MUST
+still start the service with the owner build-hint placeholder.
 
-The immutable startup inventory MUST admit only nonempty regular files through
-no-follow directory-anchored opens, at most 128 files and 16 MiB total. It contains
-`index.html`, optional `THIRD-PARTY-NOTICES.txt` and flat generated `assets/` files;
+When supplied, build-time `TMT_COLAB_APP_DIR` MUST name an absolute complete Vite
+output directory. The build script requires `index.html`, `renderer.html` and
+`THIRD-PARTY-NOTICES.txt`, and validates them with flat `assets/` files using
+the same names, media types, entry references and 128-file/16-MiB bounds as runtime
+admission. Directories and files MUST be real, and files nonempty and regular.
+Invalid supplied input MUST fail compilation. The generated embedded table uses
+snapshots in Cargo's output directory; source mutation after generation cannot
+change those bytes. Absent input generates no embedded assets and preserves local
+checkout fallback. Startup passes embedded bytes through the same inventory
+validation. Moving a binary with embedded assets requires no app directory, checkout, Node
+or pnpm at runtime. There is no sibling app directory or data-root copy. Native release
+activation and its archive/install proofs remain owned by infra's #1418.
+
+Disk loading MUST admit only nonempty regular files through no-follow directory-
+anchored opens. Both disk and embedded inventories MUST have at most 128 files
+and 16 MiB total. The inventory requires
+`index.html` and `renderer.html`, and admits optional `THIRD-PARTY-NOTICES.txt`, and flat generated `assets/` files;
 unknown output, symlinks and missing HTML entry references reject the inventory.
 JavaScript and CSS are required. Supported asset suffixes are `html`, `js`, `css`,
 `woff2`, `woff`, `ttf`, `otf`, `png`, `jpg`, `jpeg`, `svg`, `webp`, `ico` and `txt`.
 Fonts use their `font/<suffix>` media type; JS/CSS/HTML/notices use UTF-8 text
 media types. Assets MUST be exact startup bytes, including after files change or
-are removed; adopting a rebuilt app requires restarting serve.
+are removed; adopting a rebuilt disk app requires restarting serve; adopting a rebuilt embedded app requires rebuilding the binary.
 
 After existing API/event/upgrade dispatch, owner-context GET `/` and `/index.html`
 MUST return the built HTML; GET of an inventory key MUST return its bytes and
@@ -509,18 +521,88 @@ third-party requests. The current app declares installed/system font fallbacks;
 no external font service is used. The app response CSP is exactly:
 
 ```text
-default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'
+default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'
 ```
 
-Inline script/style permissions preserve the existing opaque srcdoc renderer's
-inherited policy. Its own stricter renderer CSP and unconditional sandbox remain
-required; parent permission does not grant renderer network or app-storage access.
-This `unsafe-inline` allowance also loosens the trusted app policy; #1334 tracks
-moving the renderer into its own document so that policy can drop the allowance
-before relayed or cloud access.
+The exact owner-only `/renderer.html` route uses its own response policy instead
+of the app policy, whether served from the embedded table or `--app-dir`:
+
+```text
+default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; font-src 'none'; media-src 'none'; worker-src 'none'; manifest-src 'none'; sandbox allow-scripts
+```
+
+The response `sandbox allow-scripts` MUST also make a directly opened renderer
+opaque; it MUST NOT depend only on the embedding iframe attribute. A missing
+renderer makes the app inventory incomplete, following the default/explicit
+startup behavior above. Renderer bytes remain build-owned, not author content.
 App/static responses retain `Cache-Control: no-store`, `Referrer-Policy:
 no-referrer` and `X-Content-Type-Options: nosniff`. Non-app responses retain the
 existing restrictive placeholder/API policy.
+
+### Mounted read-only reader sessions (#1310)
+
+The local socket admits explicitly read-only link and anonymous public sessions.
+They use the [Remote route-mounting contract](../../../contracts/remote-channel-v1.md#extension-channel-api)
+without Remote enrollment. Remote's Route mounting section owns subprotocol
+forwarding, reserved-header stripping and logging policy; Colab owns these
+capabilities and their before-delivery admission. Browser reader UI remains a
+separate integration. These routes never confer owner identity or agent access.
+
+`POST /api/readers/challenge` accepts strict JSON, exactly
+`{kind:"public",space,page}` or `{kind:"link",space,page,chain}`. The chain is
+canonical base64url of the model's exact link-device chain JSON (at most 16 KiB).
+The server resolves the current local page/epoch, public or live assigned-link
+policy, pinned `link.add` keys and statement, certificate lifetime and device
+revocation. A private or deleted page denies readers; archive retains reads.
+The response is exactly `{challengeId,nonce,space,page,epoch,chainDigest,expiresAt}`:
+UUIDv4 challenge ID, nonce32, canonical scope, digest32, and safe-integer UTC
+milliseconds. Public uses zero32 chainDigest. Challenge lifetime is 60 seconds.
+
+`POST /api/readers/session` accepts exactly `{kind:"public",challengeId}` or
+`{kind:"link",challengeId,signature}`. The link device signs exact LP
+(`tmt-colab-reader-session-v1`, `1`, challengeId, nonce32, space, page, epoch,
+chainDigest32, decimal expiresAt). Signature is canonical base64url signature64;
+no bearer seed reaches the server. A proof attempt consumes its challenge;
+expired/replayed challenges cannot issue capabilities. Recheck policy before
+issuance. The existing device transaction persists a verified link-device
+projection without replacing a different binding or tombstone, signing any
+certificate/log statement, or giving the device a write path. Public issues no
+certificate or device projection.
+
+Success returns exactly `{principal,token,space,page,epoch,ownerKey,expiresAt}`.
+The principal is a fresh server UUID distinct from certified writer identities;
+token32 is a random single-upgrade capability, with only its hash retained.
+Lifetime is ten minutes. At most 64 combined challenge/ticket/active entries
+exist; expired unused entries are reclaimed without evicting active readers.
+Malformed requests return 400 `INVALID`; failed authority/proof/replay returns
+403 `DENIED`; expired challenges/tickets/sessions return 403 `EXPIRED`;
+exhaustion returns 503 `CAPACITY`; state faults return 503 `UNAVAILABLE`.
+Errors are JSON `{code}`. HTTP body and header bounds remain unchanged.
+Known availability limitation: unauthenticated challenge requests can occupy all
+64 entries for 60 seconds and deny new readers with `CAPACITY`. The mounted door's
+abuse budgets bound exposure; this seam adds no per-client challenge quota.
+
+Offer `colab-sync-v1` and `colab-reader-v1.<token>` to `/sync`. The server compares
+fixed-size token-hash confirmations through the existing constant-time HMAC
+verifier, consumes the ticket once, and selects only `colab-sync-v1`; it MUST
+NOT echo the reader subprotocol. Tokens MUST NOT enter URLs, logs, renderer
+messages, cookies or owner device context. Disconnection releases the capability;
+reconnect and restart require a fresh challenge/exchange. An owner context does
+not upgrade a supplied reader ticket into owner authority.
+
+Only hello, catchup, subscribe and scoped ack are allowed, on the admitted
+page/epoch. Deny content and own appends, referenced-upload acquisition/chunks
+and awareness publication even for an editor link. Link catchup selects only
+link-addressed wraps; public catchup selects none and obtains published keys
+from signed statements. Owner catchup retains its existing exact bytes.
+All operations, deliveries and pre-hello tunnels recheck session expiry, live
+link/device/page policy and epoch under the sync owner. Revocation, narrowing or
+rotation discards pending delivery and closes access; a surviving link seed
+can still certify a fresh device after individual device revocation. Exclusion
+requires link removal/narrowing plus rotation, never merely deleting a ticket.
+Previously written bytes, keys and plaintext cannot be recalled. Mounted native
+lifecycle tests and deterministic duplex blocked-transfer tests exercise these
+fences; browser reader UI remains a separate integration.
 
 ## Page state, roles and epochs
 
@@ -650,7 +732,9 @@ recent epochs (the current epoch plus 63 earlier, the same bound as public
 UI says that history before that point is not shared. One join is delivered as
 one or more wrap lists of at most 512 entries each, all committed in the same
 owner transition (one local SQLite, Firestore or DO storage transaction), so a
-join either receives every bounded wrap or none. Acceptance includes a page at
+join either receives every bounded wrap or none. Store admission evaluates
+history at the wrap's join revision; a current-history join rejects earlier
+epochs, while existing holders keep their previously admitted history. Acceptance includes a page at
 the epoch cap and a multi-page join that needs several wrap lists.
 
 Existing anchors remap through quote/context at the epoch reset and detach on
@@ -702,8 +786,10 @@ joins and replacements use the same bounded history wrap lists as members.
 Private pages admit named members only. Link pages additionally admit
 link-certified devices at the link role. Public mode is loopback-only in v1;
 Firestore and Cloudflare MUST reject public mode and key publication. Going
-public first advances the epoch with a baseline, then publishes only the new
-epoch key in an owner-signed statement. This discloses current live source and
+public first advances the epoch with a baseline, then publishes the new current
+epoch key in an owner-signed statement, with bounded earlier keys under shared
+history. Every later public-page rotation publishes its new key in that same
+owner transaction. This discloses current live source and
 everything protected by that key thereafter: own streams, comments, intents,
 agent-reply copies and attachments. Earlier epochs are published too unless the
 page history mode is `current`: trusted confirmation MUST state plainly that
@@ -719,7 +805,10 @@ link with `link.remove`. Private recipients are the implicit root owner, named
 members, their certified devices and bridges only; neither link principals nor
 link-certified devices receive a private-epoch wrap. Link-device edge admission
 ends and all their subscriptions terminate in the same transition. Links are
-revoked, not merely hidden by an index/edge projection. Re-enabling link sharing
+revoked, not merely hidden by an index/edge projection. Removing a link that
+covers several pages revokes it globally and rotates every other writable page
+it covers in the same transition. Trusted UI MUST warn about that scope before
+narrowing a page. Re-enabling link sharing
 requires an explicit owner action creating a NEW link identity; selecting link
 mode never reactivates a removed identity or its old bearer seed.
 
@@ -1101,7 +1190,9 @@ space; there is no separate relay.
 
 ## Renderer and live anchors
 
-HTML runs in an opaque-origin iframe behind trusted prepended strict CSP.
+HTML runs in an opaque-origin iframe whose `src` is the same-mount
+`renderer.html` document, behind the separate response CSP defined above.
+It MUST NOT use `srcdoc` or inherit inline permissions from trusted chrome.
 Scripts run on every page: the frame uses `sandbox="allow-scripts"`, without
 same-origin, top navigation, popups, forms or modals. There is no static mode.
 The renderer MUST deny app storage,
@@ -1128,6 +1219,19 @@ each renderId to SHA256 of the exact captured source UTF-8 bytes; a Yjs state
 vector is only sync metadata and MUST NOT identify the rendered bytes alone.
 Interactive JavaScript state is lost on each replacement. Paused preview and
 Send retain the captured source/quote/final bytes.
+
+After the bootstrap document loads, the parent sends exactly one source-init
+message containing `type:"colab.render.bind"`, `renderId`, `sourceDigest` and
+`source`, plus one MessagePort. The renderer accepts only these exact fields,
+valid UUIDv4/digest metadata and source at most 2 MiB UTF-8, from
+`event.source === window.parent`; origin is not an admission predicate for this
+opaque channel. Direct top-level opening cannot initialize source. Invalid or
+non-parent messages do not initialize it; after one valid init all later init
+messages are ignored. No source enters a URL or request body. The bootstrap
+replaces its own document using `document.open/write/close`, retaining the
+response policy and prepending a trusted acknowledgement before author source.
+Bootstrap load and initial source-document load are the only permitted loads;
+further document loads/navigation tear down the frame.
 
 The initial window handshake carries renderId and transfers a MessagePort;
 accept its reply only with `event.source === frame.contentWindow` and matching
@@ -1295,7 +1399,8 @@ and dependent chain/wrap/content admission. Invalid/oversized/interrupted transf
 discard partial bytes without truncating durable statements; payload admission
 remains 768 KiB.
 
-After membership, pages carry `wraps` addressed to this device or its member,
+After membership, pages carry `wraps` addressed to the caller-admitted recipient:
+owner devices/the management member, only the reader's link, or none for public,
 ordered by numeric epoch, kind, recipient and revision. They include retained
 epoch-advance and history-join wraps for the 64 latest retained epochs through
 the requested epoch, and are bounded by 512 entries and 60 KiB encoded bytes per
@@ -1439,10 +1544,9 @@ remote mounts at `/r/<prefix>/x/colab/` (#1039): remote's door owns Host, Origin
 DNS-rebinding and cookie admission, and colab trusts the forwarded
 `tmt-device-context` because only the owner can reach the socket. Its HTTP
 handling uses bounded std-thread workers, workspace tungstenite and strict
-framing. Upgrades need an owner device context today; a link-device proof or an
-explicitly read-only public session is later work. Public does not make
-write/agent upgrades unauthenticated. Unauthenticated upgrades MUST reject
-before effects.
+framing. Upgrades require an active registered owner context or the page-scoped
+[read-only reader ticket](#mounted-read-only-reader-sessions-1310). Public grants
+no write/agent authority; a bare unauthenticated upgrade rejects before effects.
 
 The local space is loopback-only: there is no `--bind`, LAN or other
 non-loopback mode. Other people's machines reach a page only through a cloud
@@ -1486,23 +1590,235 @@ Spark compaction and expiry share the daily per-page delete budget; exhaustion
 backs off and keeps data longer, never loses live data. DO alarms delete page
 storage and R2 objects; R2 lifecycle cleans orphan staging only. Archive hides
 and freezes; delete ceases access and removes ciphertext. Neither promises
-secure erasure or recalls offline copies.
+secure erasure or recalls offline copies. The local owner engine signs retention
+changes without scheduling expiry. Archive allows reads/catchup but denies writes;
+delete denies reads, writes, catchup and queued delivery and removes the page's
+ciphertext, checkpoints, baselines, wraps and epoch secrets in the owner
+transaction. Signed policy, operation receipts and the reserved page ID remain;
+exact replay returns the saved outcome without restoring deleted data.
 
-The planned CLI surface is `serve`, `spaces`, `ls [--archived]`, `show [--json]`,
+The local-build management surface is defined in [Local management CLI](#local-management-cli-1307);
+`serve` and `spaces` remain available. The remaining proposed surface is
 `create <file|->`, `cat`, `edit (--file|--patch)`, `snapshot`, `restore`, `comment`,
-`share mode/link/members/remove`, `retention`, `archive`, `delete`, `pair`,
-`devices [revoke]`, `approve`, `refuse`, `retry`, `abandon`. These are proposed
-commands, not installed usage guidance. Edit computes minimal text diffs as Yjs
+`pair`, `devices [revoke]`, `approve`, `refuse`, `retry`, `abandon`.
+Those commands are proposals, not installed usage guidance. Edit computes minimal text diffs as Yjs
 operations so concurrent browser/CLI edits merge. Comment never dispatches.
 Space home/CLI management expose sharing, threads, anchors, conversations,
 members, snapshots, activity/expiry and held/uncertain sends. Enrollment, member
 management and local-agent grants remain distinct controls.
 
+### Local management admission (#1306)
+
+The owner socket accepts `POST /api/management` with strict JSON containing exactly
+`request`, `payload`, and `signature`: canonical base64url of the existing framed
+management input (at most 1 KiB), exact payload JSON (at most 16 KiB), and signature64.
+The HTTP body remains bounded to 64 KiB. The registered Colab signing key verifies
+possession; no request-selected key is authoritative. The forwarded Remote context
+must be live, owner-bound, registered, unrevoked and match `senderDevice`. The request
+must match this space, use an admitted page context, and satisfy
+`issuedAt <= now < expiresAt`, with the existing ten-minute maximum window.
+
+Request payloads contain user selections only, separate from owner statement DTOs:
+
+| Operation                                      | Exact request fields                                                         |
+| ---------------------------------------------- | ---------------------------------------------------------------------------- |
+| `epoch.advance`, `page.archive`, `page.delete` | `pageId`                                                                     |
+| `page.share`, `page.history`                   | `pageId, mode`                                                               |
+| `retention.set`                                | `pageId, days` (positive safe integer or null)                               |
+| `member.add`                                   | `memberId, role, signKey, encKey, pages`                                     |
+| `member.remove`                                | `memberId, pages`                                                            |
+| `member.role`                                  | `memberId, role, pages`                                                      |
+| `link.add`                                     | `linkId, role, pages, seed`                                                  |
+| `link.remove`                                  | `linkId, pages, replacement` (required null, or a complete link-add request) |
+
+Page IDs match the framed initiating context. Page sets are sorted, unique and
+bounded to 256 generated IDs. The engine fences the affected assignment in its
+plan and writer transaction; remove/re-role scope includes the complete stored
+assignment. A non-null replacement requests atomic Reset through the link engine,
+not a new signing operation. Requests cannot supply cuts, baselines, epoch numbers,
+wraps, publishedKeys, grant revisions or signing instructions. Public publication
+is selected by trusted local composition, never a browser-supplied backend flag.
+
+Seeds are caller-held, transient inputs in the local stage: canonical base64url
+seed32. They are never persisted in statements, projections, receipts or logs.
+Before any relayed transport, the seed MUST be encrypted to the owner; plaintext
+seed payloads through a relay are forbidden. A lost caller seed requires explicit
+Reset, not regeneration during retry. Revocation of Remote devices/grants remains
+separate from these management requests.
+
+Browser replay binding is SHA256(LP(`tmt-colab-management-transport-v1`, requestBytes,
+payloadBytes, signature64)). The engine binds that digest plus normalized action and
+request scope in the existing owner-operation transaction. An exact eligible retry
+returns its stored outcome/head without fresh signing, wraps or baselines; changed
+signed bytes with the same operation ID conflict. Expired or revoked callers cannot
+recover authority by retrying. New operations fence the expected owner revision.
+
+The owner-only `POST /.tmt/colab/management` route takes exactly
+`space, page, expectedRevision, operationId, operation, payload`; revision is canonical
+positive decimal text and payload is canonical base64url of the same typed JSON.
+It is authorized solely by the owned private Unix socket. Any `tmt-device-context`
+or `tmt-device-event` header, including an empty or malformed value, is DENIED
+with 403 before payload parsing; forwarded headers never grant root authority.
+Remote refuses browser forwarding into `/.tmt/`. Its digest is
+SHA256(LP(`tmt-colab-local-management-transport-v1`, exactBodyBytes)). The root-local
+caller supplies no fabricated browser device. Offline CLI composition can call the
+same library service under the owner lifecycle lock; public CLI commands remain #1307.
+
+Routes serialize through the sync lock before Registration, matching append/event
+admission. The existing engine owns all transitions, atomic receipts and root signing.
+Sync rechecks live subscriptions after the callback before sending queued data.
+Success is JSON `{operationId, membershipHead:{revision, statementHash}}`, using the
+operation's committed head even after later mutations. Clients refresh and verify
+the owner log/wraps through bounded catchup; this reply is not authority. Errors are
+400 INVALID, 403 DENIED/EXPIRED, 409 CONFLICT/STALE_HEAD and 503 CAPACITY/UNAVAILABLE.
+The runner implements member/link/epoch and sharing/history/retention/archive/delete
+actions. This socket composition selects loopback publication; the page-policy
+engine owns rotation, published keys and deletion. Methods other
+than POST and upgrade attempts are INVALID. Unknown reserved routes
+remain unavailable. No schema, dependency or separate replay store is added.
+
+### Local management CLI (#1307)
+
+The root-local CLI is a client of the reserved management IPC while serving and
+calls the same library service under the lifecycle lock offline. It MUST NOT
+fall back to an offline writer after an IPC send. The owner runner alone signs,
+mutates and records replay outcomes. Read commands MUST NOT initialize missing
+state, change journal mode or migrate schemas.
+
+Command names precede operands, following the shared CLI style audit (the lead's
+#1307 decision replaces the positional-first #1111 sketch):
+
+```text
+ls [--archived]
+show <page>
+share mode <page> <private|link|public>
+share link list <page>
+share link add <page> --seed-file <file|-> [--link-id <uuid>]
+share link reset <page> <link> --seed-file <file|-> [--link-id <uuid>]
+share link remove <page> <link>
+```
+
+All commands support human output and one `--json` document. Top-level `ls`
+and `share link ls` have hidden `list` aliases, following the shared CLI style.
+Audience widening and link addition/Reset MUST require explicit `--yes`; absent
+confirmation sends and writes nothing. Seeds are canonical base64url seed32
+from an owned regular 0600 file or bounded stdin, never argv or output.
+Links created or reset by this v1 CLI always have the viewer role. Removal/Reset
+capture complete verified assignments. Member, history, retention, archive and
+delete commands are deferred beyond v1.
+
+Mutations accept `--operation-id` and `--expected-revision`; generated/default
+values are captured once. Success is `{operationId, expectedRevision,
+membershipHead:{revision, statementHash}}`; link creation/Reset also returns the
+nonsecret replacement `linkId`. An explicit retry MUST retain the same IDs,
+revision, selections and caller-held seed. Unknown IPC outcomes MUST retain this
+nonsecret correlation, never regenerate a request or claim no effect.
+
+Link listings return `{membershipHead, links}`.
+Page lists return `{spaceId, membershipHead, pages}`; an uninitialized list has null
+space/head and empty pages. Show returns `{spaceId, membershipHead, page, members,
+links, discussions:"not-available"}`. Page fields are `pageId, title, epoch,
+sharing, history, archived, retentionDays, lastUpdateAtMs, expiresAtMs, warnings`.
+IDs, epochs and revisions retain canonical full values; times would be UTC
+milliseconds. Policy derives from verified owner statements; titles require the
+authenticated fold and isolated decoder. Archived titles are null with
+`title-unavailable` because the fold refuses archived pages. Members/links expose
+ID, role, page assignments and revocation, never secret material.
+
+Until durable last-update evidence is available, both timestamp fields are null
+and warnings contain `expiry-unavailable`; human output states this plainly.
+No file time, read time or fabricated zero establishes expiry. Retention defaults
+to 30 days; forever is null. Local policy never automatically deletes or denies
+access. Discussion summaries await verified own folding (#1264/#1110).
+
+Failures exit 1. JSON is `{error:{code,message}}` with operation/revision/link
+correlation when captured; human failures use styled stderr. Management codes
+map explicitly to `COLAB_INVALID`, `COLAB_DENIED`, `COLAB_EXPIRED`,
+`COLAB_CONFLICT`, `COLAB_STALE_HEAD`, `COLAB_CAPACITY`, `COLAB_UNAVAILABLE`.
+CLI failures add `COLAB_INPUT_INVALID`, `COLAB_CONFIRMATION_REQUIRED`,
+`COLAB_PAGE_NOT_FOUND`, `COLAB_OUTCOME_UNKNOWN`; existing state/schema failures
+keep their codes. Success exits 0. Neither acknowledgments nor unsigned output
+create browser authority; browser refresh still uses verified catchup.
+
+## Root-local page source CLI (#1438)
+
+`tmt colab page read <page> [--json]` captures existing state through the
+owner-authenticated fold and isolated decoder. Raw stdout is exact admitted UTF-8
+source, without an added newline; stderr carries the verified head, epoch and
+page revision. JSON is `{spaceId,pageId,source,title,epoch,membershipHead,
+revision,memoryLimit}`. `membershipHead` is `{revision,statementHash}` with decimal
+revision and lowercase hex hash. Reads never initialize or migrate state.
+Archive/delete reads retain the fold's current inactive-page restriction.
+
+`tmt colab page write <page> --file <path|-> [--expected-revision <token>] [--json]`
+retains the title and prepares a minimal text delta in the isolated child against
+admitted Yjs structs. It does not recreate the shared document, execute HTML,
+advance membership or restore discussion/authority state. Source is bounded to
+2 MiB, updates to 256 KiB, and composed decoder input/output to 4 MiB; existing
+fold/count/deadline/cleanup limits still apply. Stdin has a five-second EOF deadline.
+Invalid UTF-8, capacity and inactive-page writes reject without mutation.
+
+The opaque `revision` is `v1:` plus lowercase hex SHA-256 of framed domain
+`tmt-colab-page-revision-v1`, space, page, decimal membership revision, head hash,
+decimal epoch and serialized ordered namespace-cut payloads. It fences content
+appends as well as membership/epoch/checkpoint changes; it is not the membership
+revision alone. With an expected token, a mismatch returns `COLAB_STALE_BASE`.
+Without one, the write captures its base when it starts. Commit rechecks that
+same base in a writer transaction, never silently rebasing a replacement.
+All failures exit 1. JSON errors use the extension's `{error:{code,message}}` shape.
+
+Keyring derives a root-local device using independent labels
+`tmt-colab-cli-device-id-v1`, `tmt-colab-cli-signing-seed-v1` and
+`tmt-colab-cli-encryption-seed-v1`, under the existing management HKDF framing.
+The ID uses the first 16 bytes with UUIDv4 version/variant bits. The revision-1
+management member certifies its keys for 365 days. Existing keys/certificates
+must match. An expired, verified non-revoked chain is renewed for the same derived
+device; replacement commits atomically with the append and receipt. Revoked devices
+fail closed, including receipt replay; a frozen expired request must be prepared again.
+This device is not a Remote registration and grants no browser session or agent
+operation authority. Private material stays in Keyring.
+
+After preparation releases the read snapshot, the caller tries the serve lifecycle
+lock. Holding it selects the offline existing-state writer; a held lock selects the
+running serve through the existing owned 0600 Unix socket. One device transaction
+checks the pinned chain,
+base/head/epoch/positions, then commits the device chain, signed encrypted content
+append and exact operation receipt together. Existing create-only append/quota/
+conflict semantics are reused. Exact frozen retries return the original receipt,
+without re-signing or overwriting later content. Changed bytes conflict. JSON
+success is `{spaceId,pageId,epoch,membershipHead,revision,streamId,seq,envelopeHash,
+sourceSha256,memoryLimit}`; hashes use lowercase hex except the model envelope hash,
+which is canonical base64url.
+
+Serving writes use POST `/.tmt/colab/local/page-write`. Its strict prepared DTO is
+`{version,operationId,spaceId,pageId,epoch,membershipHead,baseRevision,sourceSha256,
+memoryLimit,chain,envelope}`; version is 1, operationId is a frozen UUIDv4, and
+chain/envelope are canonical base64url. The request contains no plaintext source,
+private key or epoch key. Forwarded device-context or event headers are DENIED;
+wrong methods/upgrades and unknown/duplicate fields reject. The reserved router
+shares management's local-header denial. One body-cap rule gives this route
+512 KiB and retains 64 KiB for other HTTP routes. Acquisition, frame, queue and
+response bounds remain in force; the client bounds its response and absolute read
+deadline. An IPC failure or uncertain response never falls back to an offline
+writer, changes the operation identity or automatically resends.
+
+Serving locks sync before Registration and prepares bounded transport before the
+transaction. A new committed append queues a `broadcast` with the normal scoped
+position/envelope fields and `chains:[{deviceId,chain}]`; the chain identifies the
+local author and is repeated to permit certificate renewal. The browser admits
+chains on its serialized executor before envelope authentication and Worker
+application. Larger envelopes use the existing reference and lazy chunk transfer,
+with the chain retained on the completed broadcast. Exact replay returns the
+original receipt without another broadcast. Slow or revoked peers use existing
+resync/admission failure behavior; queue failure does not undo a durable receipt.
+The service never receives or decodes plaintext source.
+
 ## Plaintext page export (#1309)
 
-The native export v1 emits exactly `page.html` and `manifest.json` from one
-owner-authenticated read snapshot and the existing isolated decoder. HTML is the
-exact admitted UTF-8 source, including CR/LF, Unicode and NUL; export MUST NOT
+Export v1 emits exactly `page.html` and `manifest.json`. Native captures one
+owner-authenticated read snapshot through its isolated decoder; the mounted
+browser captures one admitted committed projection through its connection executor.
+HTML is the exact admitted UTF-8 source, including CR/LF, Unicode and NUL; export MUST NOT
 inject renderer CSP/bootstrap, normalize source or execute it. The title, epoch
 and verified membership head MUST belong to that same snapshot. A later write
 cannot change an already captured bundle. This head is locally verified, not a
@@ -1559,10 +1875,27 @@ this is not a crash-recovery guarantee.
 
 The CLI human disclosure and successful JSON `disclosure` say exactly:
 "This creates an unencrypted copy of the page. Anyone with these files can read it."
-The browser download surface is the subsequent #1309 slice. Its two downloads
-MUST freeze one admitted bundle, live only in trusted parent chrome, use and
-revoke parent-owned Blob URLs, show partial-download state and the same
-disclosure, and expose no download capability to the renderer.
+The mounted browser uses a trusted-parent Export panel and the same disclosure.
+Capture MUST copy committed source/title, pinned space/page, current epoch and
+verified owner head together through the existing connection executor. Await a
+ready connection and refuse closed/blocked bindings, missing admitted keys/heads
+and inactive pages. A source textarea draft, sample adapter or renderer message
+MUST NOT supply this bundle. Source changes after capture cannot alter either file.
+Browser serialization MUST match native field for field and byte for byte for
+identical inputs, including field order, lowercase hex hashes and decimal strings.
+The shared `vectors/export-v1.json` fixture injects `exportedAtMs` and pins those
+exact bytes, with intentional Unicode/control-byte source and title data.
+
+Preparing exposes no download. A ready panel offers one explicit trusted-click
+request per file; it identifies partial requests and allows repeated requests
+of the same frozen bytes. A requested download is not confirmation that a file
+was saved; the user checks browser downloads. Failure exposes no new download
+request. Native create-only filesystem and permission guarantees do not apply
+to browser-managed downloads. Parent-owned Blob URLs use attachment filenames
+`page.html` and `manifest.json`, never source/title paths. Revoke each URL after
+bounded download handoff and all outstanding URLs on close/navigation or blocked
+binding cleanup. The renderer receives no export handler, URL or capability.
+Archived browser export remains deferred until #1348; deletion stays denied.
 
 ## Conformance and acceptance gates
 

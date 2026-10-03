@@ -67,6 +67,8 @@ pub struct CellStyle {
     pub shrink: u16,
     pub text_flow: TextFlow,
     pub token: Option<Role>,
+    /// Local emphasis set by component lowering; does not change the theme role.
+    pub bold: bool,
 }
 
 fn cells(value: &str) -> Result<u16, String> {
@@ -140,7 +142,10 @@ pub(crate) fn admit(kind: Kind, attrs: &BTreeMap<String, String>) -> Result<Cell
         max_width: None,
         columns: Default::default(),
         col_span: 1,
-        direction: if matches!(kind, Kind::View | Kind::Col) {
+        direction: if matches!(
+            kind,
+            Kind::View | Kind::Col | Kind::Modal | Kind::Scroll | Kind::KeyHelp
+        ) {
             Direction::Column
         } else {
             Direction::Row
@@ -153,6 +158,7 @@ pub(crate) fn admit(kind: Kind, attrs: &BTreeMap<String, String>) -> Result<Cell
         shrink: 1,
         text_flow: TextFlow::Clip,
         token: None,
+        bold: false,
     };
     let mut seen = BTreeMap::new();
     let mut claim = |properties: &[&str], value: &str| -> Result<(), String> {

@@ -53,6 +53,11 @@ impl From<io::Error> for UpgradeFailure {
     }
 }
 impl UpgradeFailure {
+    pub fn needs_new_installer(&self) -> bool {
+        self.cause
+            .get_ref()
+            .is_some_and(|error| error.is::<super::handoff::Unsupported>())
+    }
     pub fn kind(&self) -> io::ErrorKind {
         self.cause.kind()
     }
@@ -79,6 +84,7 @@ pub fn upgrade_product(
         None,
         checkpoint,
         |url, accept, limit, deadline| client.get(url, accept, limit, deadline),
+        install_cli,
     )
 }
 
@@ -88,7 +94,15 @@ fn upgrade_with(
     checkpoint: impl FnMut() -> io::Result<()>,
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
 ) -> Result<UpgradeReport, UpgradeFailure> {
-    upgrade_product_with(super::Product::Cli, request, None, None, checkpoint, get)
+    upgrade_product_with(
+        super::Product::Cli,
+        request,
+        None,
+        None,
+        checkpoint,
+        get,
+        super::test_support::install_downloaded,
+    )
 }
 
 /// Upgrade the version shown in a consent prompt without changing the recorded pin policy.
@@ -110,6 +124,7 @@ pub fn upgrade_product_selected(
         Some(&version),
         checkpoint,
         |url, accept, limit, deadline| client.get(url, accept, limit, deadline),
+        install_cli,
     )
 }
 
@@ -120,6 +135,13 @@ fn upgrade_product_with(
     selected: Option<&semver::Version>,
     mut checkpoint: impl FnMut() -> io::Result<()>,
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
+    install_cli: impl FnOnce(
+        &super::ManagedInstallation,
+        &release::DownloadedRelease,
+        Channel,
+        tmt_core::native_install::PinAction,
+        &mut dyn FnMut() -> io::Result<()>,
+    ) -> io::Result<InstallReport>,
 ) -> Result<UpgradeReport, UpgradeFailure> {
     checkpoint()?;
     let current = super::inspect_product(product, request.executable)?;
@@ -158,26 +180,30 @@ fn upgrade_product_with(
     let plan = plan_version(Some(&current.state), &downloaded.version, channel, pin)
         .map_err(io::Error::other)?;
     checkpoint()?;
-    let artifact = artifact::acquire_bytes(
-        product,
-        &downloaded.manifest,
-        &downloaded.archive_name,
-        &downloaded.archive,
-        &current.target,
-    )?;
-    let result = activate(
-        ActivationRequest {
+    let result = if product == super::Product::Cli {
+        install_cli(&current, &downloaded, channel, pin, &mut checkpoint)
+    } else {
+        let artifact = artifact::acquire_bytes(
             product,
-            prefix: &current.prefix,
-            channel,
-            pin,
-            expected: Some(current.id),
-            provenance: Some(downloaded.provenance),
-            verifier,
-        },
-        &artifact,
-        &mut checkpoint,
-    );
+            &downloaded.manifest,
+            &downloaded.archive_name,
+            &downloaded.archive,
+            &current.target,
+        )?;
+        activate(
+            ActivationRequest {
+                product,
+                prefix: &current.prefix,
+                channel,
+                pin,
+                expected: Some(current.id),
+                provenance: Some(downloaded.provenance),
+                verifier,
+            },
+            &artifact,
+            &mut checkpoint,
+        )
+    };
     result
         .map(|installation| UpgradeReport {
             installation,
@@ -197,6 +223,23 @@ fn upgrade_product_with(
                 });
             UpgradeFailure { activated, cause }
         })
+}
+
+fn install_cli(
+    current: &super::ManagedInstallation,
+    downloaded: &release::DownloadedRelease,
+    channel: Channel,
+    pin: tmt_core::native_install::PinAction,
+    checkpoint: &mut dyn FnMut() -> io::Result<()>,
+) -> io::Result<InstallReport> {
+    super::handoff::upgrade(
+        current,
+        downloaded,
+        channel,
+        pin,
+        checkpoint,
+        &crate::process::UnixCommandRunner,
+    )
 }
 
 #[cfg(test)]

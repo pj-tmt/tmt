@@ -181,3 +181,21 @@ pub(crate) fn request_document(
     )
     .map(|report| presentation::document(&report))
 }
+
+pub(crate) fn ack_document(
+    paths: &ConfigPaths,
+    identity: &str,
+    request_id: String,
+    revision: u64,
+) -> Result<serde_json::Value, Failure> {
+    run_selected(
+        paths,
+        identity_context::Selector::SavedId(identity.into()),
+        ExchangeOperation::Ack {
+            request_id,
+            revision,
+            incoming: true,
+        },
+    )
+    .map(|report| presentation::document(&report))
+}

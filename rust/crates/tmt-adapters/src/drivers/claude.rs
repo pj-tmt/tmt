@@ -67,6 +67,16 @@ impl ClaudeObservation {
                 if current.state == RuntimeState::Ended {
                     return None;
                 }
+                // A launch admits its process before the provider identifies
+                // the conversation. Its first resumed start is not a switch
+                // away from an already-known conversation.
+                if previous.provider_session.is_none()
+                    && current.launch_owner.is_some()
+                    && current.state == RuntimeState::Running
+                    && self.transition == SessionTransition::Resumed
+                {
+                    return current.admit(key, self.transition, RuntimeLiveness::Alive);
+                }
                 match self.transition {
                     SessionTransition::Compacted => {
                         return current.transition(&key, self.transition, None);

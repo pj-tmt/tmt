@@ -99,6 +99,12 @@ struct Envelope {
     originator: Option<String>,
     input: Box<RawValue>,
 }
+/// Local originator selection. Saved IDs never fall back to display names.
+pub enum DispatchIdentity {
+    Explicit(String),
+    SavedId(String),
+}
+
 pub enum Request {
     Capabilities,
     /// Read-only: the selected data directory, without opening storage.
@@ -110,7 +116,7 @@ pub enum Request {
     Receipt(String),
     Dispatch {
         /// `None` is the anonymous originator.
-        identity: Option<String>,
+        identity: Option<DispatchIdentity>,
         input: DispatchInput,
     },
     Room {
@@ -218,7 +224,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "requests.show" => Request::Detail(requests::decode_show(input)?),
         "dispatch.show" => Request::Receipt(dispatch::decode_show(input)?),
         "dispatch.create" => Request::Dispatch {
-            identity: wire.identity,
+            identity: wire.identity.map(DispatchIdentity::Explicit),
             input: dispatch::decode_create(input)?,
         },
         "rooms.write" => rooms::decode_write(wire)?,

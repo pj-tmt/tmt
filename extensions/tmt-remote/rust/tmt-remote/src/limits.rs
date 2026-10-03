@@ -26,3 +26,9 @@ pub const RESPONSE: Duration = Duration::from_secs(1);
 pub const MOUNT_RESPONSE: Duration = Duration::from_secs(15);
 /// No-progress bound for pending bytes inside an upgraded tunnel.
 pub const SPLICE_WRITE: Duration = Duration::from_secs(5);
+
+/// Deadline for one fixed public core subprocess, followed by the runner's bounded cleanup.
+pub const CORE_CALL: Duration = Duration::from_secs(15);
+/// A dispatch fence can perform receipt lookup and creation, each with a one-second
+/// cleanup budget. Authority writes wait beyond both calls with eight seconds' margin.
+pub const AUTHORITY_WAIT: Duration = Duration::from_secs(40);

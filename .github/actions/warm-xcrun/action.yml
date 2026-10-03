@@ -1,6 +1,6 @@
 name: Warm the macOS toolchain lookup
 description: >-
-  Resolves `otool` through `xcrun` once on a macOS runner, under a bounded
+  Resolves `otool` and `lipo` through `xcrun` on a macOS runner, under a bounded
   retry, and logs how long that took. The first `xcrun` call on a fresh hosted
   runner can take longer than the 10 s bound the native runtime proof gives its
   own call, which then failed with `spawnSync /usr/bin/xcrun ETIMEDOUT` without
@@ -9,10 +9,11 @@ description: >-
 runs:
   using: composite
   steps:
-    - name: Resolve otool once
+    - name: Resolve inspection tools once
       if: runner.os == 'macOS'
       shell: bash
       run: |
         start=$SECONDS
         "$GITHUB_WORKSPACE/scripts/retry-command.sh" 3 5 /usr/bin/xcrun --find otool
-        echo "xcrun resolved otool in $((SECONDS - start)) s"
+        "$GITHUB_WORKSPACE/scripts/retry-command.sh" 3 5 /usr/bin/xcrun --find lipo
+        echo "xcrun resolved inspection tools in $((SECONDS - start)) s"

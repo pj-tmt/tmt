@@ -16,6 +16,15 @@ do not grant an input-readiness lease or prove request completion.
 
 ## Default launch policy
 
+Exact resume reuses the matching harness's remembered channel/plain choice from
+its last admitted fresh launch or explicit resume choice. Explicit `--channel`
+and `--no-channel` overwrite it after successful admission. Required enrollment
+must succeed before true is recorded; a failed Required resume leaves the
+preference unchanged. A flagless resume preserves it, including legacy absent
+preferences, which retain the driver default. A remembered channel is Required and keeps all readiness, exact-thread
+and no-paste refusal rules; it is never a fallback-to-plain suggestion. Each
+resume establishes a fresh enrollment for the selected thread.
+
 The [shared launcher policy](claude-channel-v1.md#opt-in-and-the-launch-lease)
 selects one mode for both `tmt run` (including `--resume`) and
 `tmt resume`: Default when neither flag is present, Disabled for `--no-channel`,
@@ -374,6 +383,13 @@ undoes admission, pastes or silently downgrades. Claude and plain launches take
 the no-op path. Cleaning an endpoint never proves an Unknown foreground ended.
 Known foreground, owner and any recorded endpoint must all be conclusively gone
 before an ended record is pruned; read-only delivery never prunes.
+Enrollment pruning observes immutable record snapshots outside their publication
+locks. Snapshots without conclusive ended evidence do not take that lock for
+pruning, so their liveness probes cannot exclude concurrent foreground/thread/Ready
+publication. Only an ended candidate acquires the lock; its complete snapshot
+must still match and every ended proof is checked again under the same deadline
+before removal. Replacements and uncertain evidence remain intact. No provider
+action is retried and no startup timer is extended.
 
 `drivers/codex/supervisor` owns the original app-server child and its process
 group. A private, close-on-exec launcher socket controls its lifetime; neither

@@ -77,10 +77,48 @@ fn execute() -> Result<(), DecodeFault> {
             .apply_update(update)
             .map_err(|_| DecodeFault::Rejected)?;
     }
+    let before = project(&doc, wire.namespace)?;
+    // Edit only the admitted structs. The delta never reattributes foreign content.
+    let merged = if let Some(source) = &wire.source {
+        if wire.namespace != Namespace::Content || source.len() > BASELINE_BYTES {
+            return Err(DecodeFault::InvalidInput);
+        }
+        let old = before["html"].as_str().ok_or(DecodeFault::Rejected)?;
+        let start = old
+            .chars()
+            .zip(source.chars())
+            .take_while(|(a, b)| a == b)
+            .map(|(c, _)| c.len_utf8())
+            .sum::<usize>();
+        let end = old[start..]
+            .chars()
+            .rev()
+            .zip(source[start..].chars().rev())
+            .take_while(|(a, b)| a == b)
+            .map(|(c, _)| c.len_utf8())
+            .sum::<usize>();
+        let vector = doc.transact().state_vector();
+        let text = doc.get_or_insert_text("html");
+        let mut tx = doc.transact_mut();
+        text.remove_range(
+            &mut tx,
+            start.try_into().map_err(|_| DecodeFault::Rejected)?,
+            (old.len() - start - end)
+                .try_into()
+                .map_err(|_| DecodeFault::Rejected)?,
+        );
+        text.insert(
+            &mut tx,
+            start.try_into().map_err(|_| DecodeFault::Rejected)?,
+            &source[start..source.len() - end],
+        );
+        tx.encode_state_as_update_v1(&vector)
+    } else {
+        // Merge the author's updates, never encode the shared document.
+        yrs::merge_updates_v1(updates.iter().map(Vec::as_slice))
+            .map_err(|_| DecodeFault::Rejected)?
+    };
     let projection = project(&doc, wire.namespace)?;
-    // Merge the author update set, never encode the materialized shared document.
-    let merged = yrs::merge_updates_v1(updates.iter().map(Vec::as_slice))
-        .map_err(|_| DecodeFault::Rejected)?;
     if merged.len() > UPDATE_BYTES {
         return Err(DecodeFault::Rejected);
     }

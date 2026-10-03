@@ -42,7 +42,7 @@ describe('consented provider setup and bounded hook boundary', () => {
         expect(installed).toContain(`${launcher}' __hook ${name}`);
         expect(installed).not.toContain(fs.realpathSync(launcher));
         const record = path.join(sandbox.globalDir, 'setup-record.json');
-        const recorded = { driver: name, settings, launcher };
+        const recorded = { driver: name, settings, launcher, usage: true };
         expect(JSON.parse(fs.readFileSync(record, 'utf8'))).toEqual({
           version: 1,
           hooks: [recorded],
@@ -74,7 +74,7 @@ describe('consented provider setup and bounded hook boundary', () => {
   );
 
   it.each(['claude', 'codex'])(
-    '%s adds the usage hook only on request, keeps it on rerun and removes it exactly',
+    '%s installs usage by default, preserves opt-out and explicitly re-enables it',
     async (name) => {
       await withSandbox(async (sandbox) => {
         const bin = path.join(sandbox.root, 'bin');
@@ -93,18 +93,17 @@ describe('consented provider setup and bounded hook boundary', () => {
           return JSON.parse(result.stdout);
         };
 
-        // Off by default; the report says nothing about usage.
-        expect(await setup()).not.toHaveProperty('usage');
-        expect(events()).toEqual(['SessionStart', 'SessionEnd', 'UserPromptSubmit']);
-        const lifecycle = fs.readFileSync(settings, 'utf8');
-        const preview = await runCli(sandbox, ['setup', name, '--usage']);
+        // The same consent names default-on collection before writing anything.
+        expect(await setup()).toMatchObject({ changed: true, usage: true });
+        const installedBeforePreview = fs.readFileSync(settings, 'utf8');
+        const preview = await runCli(sandbox, ['setup', name]);
         expect(preview.stdout).toContain(
-          'SessionStart, SessionEnd, UserPromptSubmit and Stop (context usage and activity) hooks'
+          'SessionStart, SessionEnd, UserPromptSubmit and Stop (context usage, consumption and activity) hooks'
         );
         expect(preview.stdout).toContain('no transcript content is stored');
-        expect(fs.readFileSync(settings, 'utf8')).toBe(lifecycle);
+        expect(fs.readFileSync(settings, 'utf8')).toBe(installedBeforePreview);
 
-        expect(await setup('--usage')).toMatchObject({ changed: true, usage: true });
+        expect(await setup()).toMatchObject({ changed: false, usage: true });
         expect(events()).toEqual(['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop']);
         expect(fs.readFileSync(settings, 'utf8')).toContain(`__hook ${name}`);
         const withUsage = fs.readFileSync(settings, 'utf8');
@@ -114,13 +113,28 @@ describe('consented provider setup and bounded hook boundary', () => {
 
         const opted = await runCli(sandbox, ['setup', name, '--no-usage']);
         expect(opted.stdout).toContain(
-          `Remove TMT-owned ${name} Stop (context usage and activity) hook`
+          `Remove TMT-owned ${name} Stop (context usage, consumption and activity) hook`
         );
-        expect(await setup('--no-usage')).not.toHaveProperty('usage');
-        expect(fs.readFileSync(settings, 'utf8')).toBe(lifecycle);
+        expect(await setup('--no-usage')).toMatchObject({
+          usage: false,
+          diagnostic: `${name}: consumption collection is off; enable it with: tmt setup ${name} --usage`,
+        });
+        expect(events()).toEqual(['SessionStart', 'SessionEnd', 'UserPromptSubmit']);
+        const disabled = fs.readFileSync(settings, 'utf8');
+        expect(await setup()).toMatchObject({ changed: false, usage: false });
+        expect(fs.readFileSync(settings, 'utf8')).toBe(disabled);
+        const status = await runCli(sandbox, ['setup', name, '--status', '--json']);
+        expect(status.status).toBe(0);
+        expect(JSON.parse(status.stdout).integrations).toEqual([
+          expect.objectContaining({
+            provider: name,
+            usage: false,
+            diagnostic: `${name}: consumption collection is off; enable it with: tmt setup ${name} --usage`,
+          }),
+        ]);
 
         await setup('--usage');
-        expect(await setup('--remove')).not.toHaveProperty('usage');
+        expect(await setup('--remove')).toMatchObject({ usage: false });
         expect(fs.readFileSync(settings, 'utf8')).toBe(original);
         for (const conflict of [
           ['--usage', '--no-usage'],
@@ -130,6 +144,56 @@ describe('consented provider setup and bounded hook boundary', () => {
           expect(refused.status).not.toBe(0);
           expect(JSON.parse(refused.stdout).error.code).toBe('USAGE_ERROR');
         }
+      });
+    }
+  );
+
+  it.each(['claude', 'codex'])(
+    '%s diagnoses lifecycle-only settings without mutation',
+    async (name) => {
+      await withSandbox(async (sandbox) => {
+        const provider = path.join(sandbox.home, `.${name}`);
+        fs.mkdirSync(provider);
+        const settings = path.join(provider, name === 'claude' ? 'settings.json' : 'hooks.json');
+        const hook = {
+          hooks: [{ type: 'command', command: `'/stable/tmt' __hook ${name}`, timeout: 3 }],
+        };
+        fs.writeFileSync(
+          settings,
+          JSON.stringify({ hooks: { SessionStart: [hook], SessionEnd: [hook] } })
+        );
+        const before = fileSnapshot(sandbox.root);
+        const result = await runCli(sandbox, ['setup', name, '--status']);
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain(
+          `${name}: consumption collection is off; enable it with: tmt setup ${name} --usage`
+        );
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+      });
+    }
+  );
+
+  it.each(['claude', 'codex'])(
+    '%s preserves ambiguous legacy opt-outs until explicit usage consent',
+    async (name) => {
+      await withSandbox(async (sandbox) => {
+        const bin = path.join(sandbox.root, 'bin');
+        fs.mkdirSync(bin);
+        fs.symlinkSync(sandbox.cli.executable, path.join(bin, 'tmt'));
+        sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
+        const setup = async (...flags: string[]) => {
+          const result = await runCli(sandbox, ['setup', name, ...flags, '--yes', '--json']);
+          expect(result.status, result.stderr).toBe(0);
+          return JSON.parse(result.stdout);
+        };
+        await setup('--no-usage');
+        const record = path.join(sandbox.globalDir, 'setup-record.json');
+        const legacy = JSON.parse(fs.readFileSync(record, 'utf8'));
+        delete legacy.hooks[0].usage;
+        fs.writeFileSync(record, JSON.stringify(legacy));
+        expect(await setup()).toMatchObject({ changed: false, usage: false });
+        expect(await setup('--usage')).toMatchObject({ changed: true, usage: true });
+        expect(await setup()).toMatchObject({ changed: false, usage: true });
       });
     }
   );

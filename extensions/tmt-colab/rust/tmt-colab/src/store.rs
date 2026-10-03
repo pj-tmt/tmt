@@ -103,6 +103,13 @@ impl Store {
     }
     /// Existing-state reads never create files, change pragmas or run migrations.
     pub fn read(layout: &Layout) -> Result<Self> {
+        Self::existing(layout, false)
+    }
+    /// Root-local caller holds the lifecycle lock. Never creates or migrates state.
+    pub fn write_existing(layout: &Layout) -> Result<Self> {
+        Self::existing(layout, true)
+    }
+    fn existing(layout: &Layout, writable: bool) -> Result<Self> {
         use nix::fcntl::OFlag;
         use std::{
             fs::OpenOptions,
@@ -122,11 +129,22 @@ impl Store {
         }
         let connection = Connection::open_with_flags(
             &path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
+            (if writable {
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
+            } else {
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+            }) | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
         )?;
         connection.busy_timeout(Duration::from_secs(2))?;
-        schema::check_version(&connection)?;
+        let version = schema::check_version(&connection)?;
+        if writable && version != 4 {
+            return Err(Fault::UnsupportedSchema(version).into());
+        }
         Ok(Self { connection })
+    }
+    /// Management inspection requires current tables, without migrating legacy state.
+    pub fn require_current_schema(&self) -> StoreResult<()> {
+        schema::check_read_version(&self.connection)
     }
     pub fn create_page(&self, page: &str) -> StoreResult<()> {
         bounded_id(page)?;
@@ -144,75 +162,14 @@ impl Store {
         Ok(())
     }
     pub fn append(&mut self, envelope: &Envelope<'_>) -> StoreResult<Accepted> {
-        validate(envelope)?;
-        let s = envelope.scope;
-        let epoch = s.epoch.to_string();
-        let seq = sequence(envelope.seq);
-        let digest = Sha256::digest(envelope.bytes).to_vec();
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        current(&tx, s)?;
-        tx.execute(
-            "INSERT OR IGNORE INTO streams(page,epoch,stream) VALUES (?,?,?)",
-            params![s.page, epoch, s.stream],
-        )?;
-        let old: Option<(Vec<u8>, Vec<u8>, String)> = tx
-            .query_row(
-                "SELECT hash,digest,namespace FROM receipts WHERE page=? AND epoch=? AND stream=? AND seq=?",
-                params![s.page, epoch, s.stream, seq],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )
-            .optional()?;
-        if let Some((hash, stored_digest, namespace)) = old {
-            if hash == envelope.hash
-                && stored_digest == digest
-                && namespace == envelope.namespace.name()
-            {
-                return Ok(Accepted::Replay);
-            }
-            tx.execute(
-                "UPDATE streams SET frozen=1 WHERE page=? AND epoch=? AND stream=?",
-                params![s.page, epoch, s.stream],
-            )?;
+        let result = append_in(&tx, envelope);
+        if result.is_ok() {
             tx.commit()?;
-            return Err(Fault::Conflict);
         }
-        unfrozen(&tx, s)?;
-        let head: Option<(String,Vec<u8>)> = tx.query_row("SELECT seq,hash FROM receipts WHERE page=? AND epoch=? AND stream=? ORDER BY seq DESC LIMIT 1",
-            params![s.page,epoch,s.stream], |r| Ok((r.get(0)?,r.get(1)?))).optional()?;
-        let (expected, previous) = match head {
-            Some((seq, hash)) => (
-                seq.parse::<u64>()
-                    .map_err(|_| Fault::Invalid)?
-                    .checked_add(1)
-                    .ok_or(Fault::Capacity)?,
-                hash,
-            ),
-            None => (1, vec![0; 32]),
-        };
-        if envelope.seq != expected {
-            return Err(Fault::Gap);
-        }
-        if previous != envelope.previous {
-            return Err(Fault::Conflict);
-        }
-        capacity(&tx, s.page, envelope.bytes.len(), true)?;
-        tx.execute(
-            "INSERT INTO receipts VALUES (?,?,?,?,?,?,?,?)",
-            params![
-                s.page,
-                epoch,
-                s.stream,
-                seq,
-                envelope.namespace.name(),
-                envelope.hash.as_slice(),
-                digest,
-                envelope.bytes
-            ],
-        )?;
-        tx.commit()?;
-        Ok(Accepted::New)
+        result?.ok_or(Fault::Conflict)
     }
     /// Publish an admitted checkpoint; prune only a prefix covered by every namespace.
     pub fn checkpoint(&mut self, envelope: &Envelope<'_>) -> StoreResult<Accepted> {
@@ -553,4 +510,72 @@ fn resolve_cursor(
     } else {
         Err(Fault::ResyncRequired)
     }
+}
+
+/// Shared create-only append; its caller owns commit/rollback and authority fencing.
+fn append_in(tx: &Connection, envelope: &Envelope<'_>) -> StoreResult<Option<Accepted>> {
+    validate(envelope)?;
+    let s = envelope.scope;
+    let epoch = s.epoch.to_string();
+    let seq = sequence(envelope.seq);
+    let digest = Sha256::digest(envelope.bytes).to_vec();
+    current(tx, s)?;
+    tx.execute(
+        "INSERT OR IGNORE INTO streams(page,epoch,stream) VALUES (?,?,?)",
+        params![s.page, epoch, s.stream],
+    )?;
+    let old: Option<(Vec<u8>, Vec<u8>, String)> = tx
+            .query_row(
+                "SELECT hash,digest,namespace FROM receipts WHERE page=? AND epoch=? AND stream=? AND seq=?",
+                params![s.page, epoch, s.stream, seq],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?;
+    if let Some((hash, stored_digest, namespace)) = old {
+        if hash == envelope.hash
+            && stored_digest == digest
+            && namespace == envelope.namespace.name()
+        {
+            return Ok(Some(Accepted::Replay));
+        }
+        tx.execute(
+            "UPDATE streams SET frozen=1 WHERE page=? AND epoch=? AND stream=?",
+            params![s.page, epoch, s.stream],
+        )?;
+        return Ok(None);
+    }
+    unfrozen(tx, s)?;
+    let head: Option<(String,Vec<u8>)> = tx.query_row("SELECT seq,hash FROM receipts WHERE page=? AND epoch=? AND stream=? ORDER BY seq DESC LIMIT 1",
+            params![s.page,epoch,s.stream], |r| Ok((r.get(0)?,r.get(1)?))).optional()?;
+    let (expected, previous) = match head {
+        Some((seq, hash)) => (
+            seq.parse::<u64>()
+                .map_err(|_| Fault::Invalid)?
+                .checked_add(1)
+                .ok_or(Fault::Capacity)?,
+            hash,
+        ),
+        None => (1, vec![0; 32]),
+    };
+    if envelope.seq != expected {
+        return Err(Fault::Gap);
+    }
+    if previous != envelope.previous {
+        return Err(Fault::Conflict);
+    }
+    capacity(tx, s.page, envelope.bytes.len(), true)?;
+    tx.execute(
+        "INSERT INTO receipts VALUES (?,?,?,?,?,?,?,?)",
+        params![
+            s.page,
+            epoch,
+            s.stream,
+            seq,
+            envelope.namespace.name(),
+            envelope.hash.as_slice(),
+            digest,
+            envelope.bytes
+        ],
+    )?;
+    Ok(Some(Accepted::New))
 }

@@ -6,8 +6,9 @@ fn setup_has_one_provider_consent_surface_and_hook_dispatch_is_hidden() {
         parsed(&["setup"]).invocation,
         Invocation::Setup {
             provider: None,
+            status: false,
             remove: false,
-            usage: UsageHook::Keep,
+            usage: UsageHook::Default,
             yes: false,
         }
     );
@@ -15,8 +16,9 @@ fn setup_has_one_provider_consent_surface_and_hook_dispatch_is_hidden() {
         parsed(&["setup", "claude", "--remove", "--yes", "--json"]).invocation,
         Invocation::Setup {
             provider: Some("claude".into()),
+            status: false,
             remove: true,
-            usage: UsageHook::Keep,
+            usage: UsageHook::Default,
             yes: true,
         }
     );
@@ -25,8 +27,9 @@ fn setup_has_one_provider_consent_surface_and_hook_dispatch_is_hidden() {
         parsed(&["setup", "--yes"]).invocation,
         Invocation::Setup {
             provider: None,
+            status: false,
             remove: false,
-            usage: UsageHook::Keep,
+            usage: UsageHook::Default,
             yes: true,
         }
     );
@@ -74,8 +77,9 @@ fn setup_has_one_provider_consent_surface_and_hook_dispatch_is_hidden() {
         parsed(&["setup", "codex", "--yes"]).invocation,
         Invocation::Setup {
             provider: Some("codex".into()),
+            status: false,
             remove: false,
-            usage: UsageHook::Keep,
+            usage: UsageHook::Default,
             yes: true
         }
     );
@@ -84,6 +88,17 @@ fn setup_has_one_provider_consent_surface_and_hook_dispatch_is_hidden() {
     ])));
     let grammar = crate::grammar::grammar();
     assert!(grammar.find_subcommand("__hook").unwrap().is_hide_set());
+}
+
+#[test]
+fn setup_status_is_read_only_and_conflicts_with_mutations() {
+    assert!(matches!(
+        parsed(&["setup", "codex", "--status", "--json"]).invocation,
+        Invocation::Setup { status: true, .. }
+    ));
+    for flag in ["--yes", "--usage", "--no-usage", "--remove"] {
+        assert!(parse(&args(&["setup", "claude", "--status", flag])).is_err());
+    }
 }
 
 #[test]

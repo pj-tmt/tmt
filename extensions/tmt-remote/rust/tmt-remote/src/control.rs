@@ -53,6 +53,7 @@ impl Control {
         pairing: Arc<Pairing>,
         devices: Arc<Devices>,
         door: Door,
+        approval: Option<Arc<crate::approval::Approval>>,
     ) -> Result<Self, RemoteError> {
         let path = serving.layout().directory.join(SOCKET);
         match fs::symlink_metadata(&path) {
@@ -84,7 +85,16 @@ impl Control {
         let door = Arc::new(door);
         let accept = thread::Builder::new()
             .name("remote-control".into())
-            .spawn(move || accept_loop(listener, &flag, &pairing, &devices, &door))
+            .spawn(move || {
+                accept_loop(
+                    listener,
+                    &flag,
+                    &pairing,
+                    &devices,
+                    &door,
+                    approval.as_deref(),
+                )
+            })
             .map_err(io_error)?;
         Ok(Self {
             path,
@@ -118,13 +128,14 @@ fn accept_loop(
     pairing: &Arc<Pairing>,
     devices: &Arc<Devices>,
     door: &Arc<Door>,
+    approval: Option<&crate::approval::Approval>,
 ) {
     thread::scope(|scope| {
         while !stop.load(Ordering::Acquire) {
             pairing.expire();
             match listener.accept() {
                 Ok((stream, _)) => {
-                    scope.spawn(|| session(stream, stop, pairing, devices, door));
+                    scope.spawn(|| session(stream, stop, pairing, devices, door, approval));
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                     thread::sleep(Duration::from_millis(50))
@@ -144,6 +155,7 @@ fn session(
     pairing: &Pairing,
     devices: &Devices,
     door: &Door,
+    approval: Option<&crate::approval::Approval>,
 ) {
     let _ = stream.set_nonblocking(true);
     let mut buffer = Vec::new();
@@ -155,6 +167,38 @@ fn session(
     ) else {
         return;
     };
+    if matches!(request["op"].as_str(), Some("approve" | "cancel")) {
+        let result = (|| {
+            let approval = approval.ok_or_else(crate::operations::invalid)?;
+            let id = request["operationId"]
+                .as_str()
+                .ok_or_else(crate::operations::invalid)?;
+            if request["op"] == "cancel" {
+                return approval.cancel(id);
+            }
+            let (grant, preview) = approval.preview(id)?;
+            write_line(&mut stream, &preview).map_err(io_error)?;
+            let answer = read_line(
+                &mut stream,
+                &mut buffer,
+                stop,
+                Instant::now() + Duration::from_secs(600),
+            );
+            let confirmed = answer.is_some_and(|value| value == json!({"op":"confirm"}));
+            let mut result = if confirmed {
+                approval.confirm(id, &grant)?
+            } else {
+                approval.cancel(id)?
+            };
+            result["event"] = json!("ended");
+            Ok(result)
+        })();
+        let result = result.unwrap_or_else(
+            |error: RemoteError| json!({"error":{"code":error.code,"message":error.message}}),
+        );
+        let _ = write_line(&mut stream, &result);
+        return;
+    }
     let answer =
         match request.get("op").and_then(Value::as_str) {
             Some("pair") => None,
@@ -305,9 +349,9 @@ fn poll_line(stream: &mut UnixStream, buffer: &mut Vec<u8>) -> io::Result<Option
     }
     if let Some(end) = buffer.iter().position(|b| *b == b'\n') {
         let line: Vec<u8> = buffer.drain(..=end).collect();
-        return serde_json::from_slice(&line[..end])
+        return crate::wire::strict_json(&line[..end])
             .map(Some)
-            .map_err(|_| io::ErrorKind::InvalidData.into());
+            .ok_or_else(|| io::ErrorKind::InvalidData.into());
     }
     if buffer.len() > LINE_BYTES {
         return Err(io::ErrorKind::InvalidData.into());

@@ -29,6 +29,23 @@ use tmt_core::{
 #[cfg(test)]
 mod tests;
 
+/// A remembered channel is a requirement, never permission to fall back to paste.
+/// Explicit flags override memory; admitted launches persist explicit choices.
+pub(super) fn resume_mode(
+    requested: ChannelMode,
+    resuming: bool,
+    remembered: Option<bool>,
+) -> ChannelMode {
+    if requested != ChannelMode::Default || !resuming {
+        return requested;
+    }
+    match remembered {
+        Some(true) => ChannelMode::Required,
+        Some(false) => ChannelMode::Disabled,
+        None => ChannelMode::Default,
+    }
+}
+
 /// A preflight result retains the reason until the plain foreground can start,
 /// so one launch prints at most one fallback notice.
 pub(super) struct Prepared<'a> {
@@ -195,6 +212,10 @@ pub(super) fn verify_claim(storage: &mut Storage, claimed: &Binding) -> Result<(
 pub(super) struct HeldLease(Option<Box<dyn ChannelEnrollment>>);
 
 impl HeldLease {
+    pub(super) fn enrolled(&self) -> bool {
+        self.0.is_some()
+    }
+
     pub(super) fn hold(&mut self, lease: Box<dyn ChannelEnrollment>) {
         self.0 = Some(lease);
     }

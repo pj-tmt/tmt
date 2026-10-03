@@ -106,7 +106,7 @@ fn reply_batches_upgrade_schema_43_atomically_and_preserve_automatic_identity_pr
         .execute_batch("DROP TRIGGER reject_reply_batches")
         .unwrap();
     let mut upgraded = Storage::open(&path).unwrap();
-    assert_eq!(upgraded.health().unwrap().schema_version, 44);
+    assert_eq!(upgraded.health().unwrap().schema_version, 45);
     assert_eq!(retained(), expected);
     assert_eq!(
         oracle
@@ -134,7 +134,7 @@ fn reply_batches_upgrade_schema_43_atomically_and_preserve_automatic_identity_pr
     );
     upgraded.close().unwrap();
     let mut reopened = Storage::open(&path).unwrap();
-    assert_eq!(reopened.health().unwrap().schema_version, 44);
+    assert_eq!(reopened.health().unwrap().schema_version, 45);
     assert_eq!(retained(), expected);
     reopened.close().unwrap();
 }

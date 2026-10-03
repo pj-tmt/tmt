@@ -27,23 +27,8 @@ use tmt_cli_style::{
 };
 use unicode_width::UnicodeWidthStr;
 
-const KEYS: &[&str] = &[
-    "↑ ↓ / j k   select a row or notebook line; scroll detail or replies",
-    "g G         first/last notebook line; a annotates that line for the lead",
-    "PgUp PgDn   page the focused pane; Home End go to its top and bottom",
-    "wheel       scroll the pane under the pointer",
-    "title click fold or expand a split pane (▸ means folded)",
-    "Shift-drag  select text to copy (Option-drag in some terminals)",
-    "← →         switch tab; Shift+← → or drag a tab to move it",
-    "/           search; Esc clears",
-    "s           switch to any tab, hidden ones too (type to filter)",
-    "?           this help",
-    "q, Esc      close the board",
-    "",
-];
-
 /// One state label for the effective toggle in footer and help.
-fn toggle_label(app: &App, action: &crate::action::Action) -> Option<String> {
+pub(super) fn toggle_label(app: &App, action: &crate::action::Action) -> Option<String> {
     let board = app.effective_board()?;
     if board.mode != BoardMode::Split {
         return None;
@@ -75,6 +60,9 @@ fn toggle_label(app: &App, action: &crate::action::Action) -> Option<String> {
 
 /// The footer names what the most used keys do for the selected row.
 fn hints(app: &App, width: usize) -> String {
+    if app.view.as_ref().is_some_and(|view| view.home.is_some()) {
+        return super::home::hints(width);
+    }
     let bindings = app.bindings();
     let mut hints: Vec<String> = [
         ("enter", "⏎"),
@@ -134,65 +122,14 @@ fn hints(app: &App, width: usize) -> String {
     shown
 }
 
-/// Fixed keys, then every binding for the selected row.
+#[cfg(test)]
 fn help_lines(app: &App) -> Vec<String> {
-    let mut lines: Vec<String> = KEYS.iter().map(|line| (*line).to_owned()).collect();
-    if let Some(view) = &app.view {
-        lines.insert(
-            KEYS.len() - 1,
-            match view.refresh {
-                Some(every) => format!("reload      automatically every {}s", every.as_secs()),
-                None => "reload      automatic reload is off".to_owned(),
-            },
-        );
-    }
-    if let Some(rate) = app.view.as_ref().and_then(|view| view.token_rate.as_ref()) {
-        lines.push(format!("tok/s      completed requests observed every {} s; sampled batches, not live throughput", rate.settings.every.as_secs()));
-        lines.push("windows    5s (only with 5 s sampling), 1m, 30m, 1h; labels show covered span until full".into());
-        lines.push(
-            "trend      eight bars: 5s window -> 40s trend, 1m -> 80s, 30m -> 30m, 1h -> 1h".into(),
-        );
-        lines.push("coverage   no data hides; measured zero is 0; ≥ means a reporting member/interval is missing".into());
-        {
-            for id in &app.excluded_counters {
-                let name = app
-                    .view
-                    .as_ref()
-                    .and_then(|view| view.document["sections"].as_array())
-                    .into_iter()
-                    .flatten()
-                    .flat_map(|section| section["rows"].as_array().into_iter().flatten())
-                    .find(|row| row["id"].as_str() == Some(id.as_str()))
-                    .and_then(|row| row["name"].as_str())
-                    .unwrap_or(id);
-                lines.push(format!(
-                    "excluded   {name}: no usage counters at last board refresh"
-                ));
-            }
-        }
-    }
-    let bindings = app.bindings();
-    let key_width = bindings.keys().map(String::len).max().unwrap_or(0) + 2;
-    for event in ["l", "L", "T"] {
-        if let Some(action) = bindings.get(event) {
-            lines.push(format!("{event:<key_width$}{}", action.text));
-        }
-    }
-    for (event, action) in bindings {
-        if matches!(event.as_str(), "l" | "L" | "T") {
-            continue;
-        }
-        if event == "d" && action.verb == crate::action::Verb::Toggle {
-            if let Some(label) = toggle_label(app, &action) {
-                lines.push(format!(
-                    "{event:<key_width$}{label}    fold or unfold (▾ open, ▸ folded)"
-                ));
-            }
-        } else {
-            lines.push(format!("{event:<key_width$}{}", action.text));
-        }
-    }
-    lines
+    super::help::model(app)
+        .sections
+        .into_iter()
+        .flat_map(|section| section.entries)
+        .map(|entry| format!("{}  {}", entry.keys, entry.description))
+        .collect()
 }
 
 /// Exactly `width` display cells: truncated with an ellipsis, or padded.
@@ -356,6 +293,15 @@ pub(super) fn time_marks(app: &App, now: u64) -> Vec<String> {
     let Some(view) = &app.view else {
         return Vec::new();
     };
+    if let Some(home) = &view.home {
+        return home
+            .sections
+            .iter()
+            .flat_map(|section| &section.rows)
+            .filter_map(|row| row.age.as_ref())
+            .map(|age| super::home::age_label(age, now))
+            .collect();
+    }
     let board = app.effective_board().expect("loaded view has a board");
     let visible = match board.mode {
         BoardMode::Split => {
@@ -799,7 +745,16 @@ pub fn render(frame: &mut Frame, app: &App) {
     ])
     .areas(frame.area());
     frame.render_widget(Paragraph::new(tab_line(app, tabs)), tabs);
-    frame.render_widget(Paragraph::new(summary_line(app)), summary);
+    let summary_text = app
+        .view
+        .as_ref()
+        .filter(|_| !app.loading())
+        .and_then(|view| view.home.as_ref())
+        .map_or_else(
+            || summary_line(app),
+            |home| super::home::summary(home, summary.width, look),
+        );
+    frame.render_widget(Paragraph::new(summary_text), summary);
     render_meter(frame, app, summary);
     render_body(frame, app, body);
     let mut footer_line = if let Some(input) = &app.input {
@@ -835,14 +790,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     }
     frame.render_widget(Paragraph::new(footer_line), footer);
     if app.help {
-        let lines = help_lines(app);
-        let height = (lines.len() as u16).min(body.height);
-        let area = Rect { height, ..body };
-        frame.render_widget(Clear, area);
-        frame.render_widget(
-            Paragraph::new(lines.into_iter().map(Line::from).collect::<Vec<_>>()),
-            area,
-        );
+        super::help::render(frame, app, body);
     }
     if let Some(menu) = &app.menu {
         let height = (menu.entries.len() as u16 + 2).min(body.height);
@@ -957,6 +905,10 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
         render_rows(frame, app, area);
         return;
     };
+    if view.home.is_some() {
+        super::home::render(frame, app, area);
+        return;
+    }
     let board = app.effective_board().expect("loaded view has a board");
     let focused = app.focused_pane();
     let pane_block = |pane: Pane| {
@@ -1752,6 +1704,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
 
 #[cfg(test)]
 mod tests {
+    mod help;
     mod meter;
     mod parity;
     use super::*;
@@ -2373,23 +2326,24 @@ columns = [{ name = "member", width = "30%" },
         app.view.as_mut().unwrap().bindings = crate::action::preset(false, &[]);
         app.help = true;
         // Notes cursor guidance and the settings binding need one more help row.
-        let help = draw(&app, 60, 30);
+        let help = help_lines(&app);
         assert!(help.iter().any(|line| line.starts_with("g G")));
-        assert!(help.iter().any(|line| line == ",             settings"));
+        assert!(help.iter().any(|line| line == ",  show settings"));
         assert!(
-            help.iter().any(|line| line == "y             copy"),
+            help.iter()
+                .any(|line| line == "y  copy from the selected row"),
             "{help:#?}"
         );
         assert!(
             help.iter()
-                .any(|line| line == "reload      automatically every 5s"),
+                .any(|line| line == "reload  automatically every 5s"),
             "{help:#?}"
         );
         app.view.as_mut().unwrap().refresh = None;
-        let help = draw(&app, 60, 30);
+        let help = help_lines(&app);
         assert!(
             help.iter()
-                .any(|line| line == "reload      automatic reload is off"),
+                .any(|line| line == "reload  automatic reload is off"),
             "{help:#?}"
         );
         app.help = false;
@@ -2409,17 +2363,20 @@ columns = [{ name = "member", width = "30%" },
         let mut app = board(json!([]));
         app.view.as_mut().unwrap().bindings = crate::action::preset(true, &[]);
         let help = help_lines(&app);
-        assert!(help.iter().any(|line| line == "double-click  jump"));
+        assert!(
+            help.iter()
+                .any(|line| line == "double-click  go to the member's pane")
+        );
         let at = help
             .iter()
-            .position(|line| line == "l             view")
+            .position(|line| line == "l  pick a pane layout")
             .unwrap();
         assert_eq!(
             &help[at..at + 3],
             [
-                "l             view",
-                "L             jump lead",
-                "T             theme"
+                "l  pick a pane layout",
+                "L  go to the lead's pane",
+                "T  pick a theme"
             ]
         );
     }
@@ -2446,9 +2403,11 @@ columns = [{ name = "member", width = "30%" },
         assert!(screen[11].contains("ctrl-r refresh"), "{:?}", screen[11]);
         assert!(!screen[11].contains("f5") && !screen[11].contains("F5"));
         app.help = true;
-        let screen = draw(&app, 160, 40);
+        let screen = help_lines(&app);
         assert!(
-            screen.iter().any(|line| line == "ctrl-r        refresh"),
+            screen
+                .iter()
+                .any(|line| line == "ctrl-r  refresh the board now"),
             "{screen:?}"
         );
         assert!(
@@ -2476,7 +2435,7 @@ columns = [{ name = "member", width = "30%" },
         assert!(
             draw(&app, 60, 12)
                 .iter()
-                .any(|line| line.contains("switch tab"))
+                .any(|line| line.contains("↑↓ scroll"))
         );
         let mut failed = App::new(Some("product".into()));
         failed.error = Some("tmt did not finish in time".into());
@@ -5191,9 +5150,8 @@ columns = [{ name = "member", width = "30%" },
                 let hint = format!("d {label} {state}");
                 let full = hints(&app, usize::MAX);
                 assert!(full.contains(&hint), "{full}");
-                assert!(help_lines(&app).contains(&format!(
-                    "d             {label} {state}    fold or unfold (▾ open, ▸ folded)"
-                )));
+                let description = app.bindings()["d"].description();
+                assert!(help_lines(&app).contains(&format!("d  {description} (▾ open, ▸ folded)")));
                 for width in 0..160 {
                     let shown = hints(&app, width);
                     if shown.contains(&format!("d {label}")) {
@@ -5240,7 +5198,7 @@ columns = [{ name = "member", width = "30%" },
         assert!(
             help_lines(&app)
                 .iter()
-                .any(|line| line.trim_end() == "d             refresh")
+                .any(|line| line.trim_end() == "d  refresh the board now")
         );
     }
     #[test]

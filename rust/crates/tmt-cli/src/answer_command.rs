@@ -357,3 +357,23 @@ pub(crate) fn inbox_document(
     )
     .map(|(me, report)| document(&me, &report))
 }
+
+/// An explicit incoming request, with the same proof/final/notification owner as CLI.
+pub(crate) fn answer_document(
+    paths: &ConfigPaths,
+    identity: &str,
+    request_id: String,
+    message: String,
+) -> Result<Value, Failure> {
+    run_selected(
+        Some(paths),
+        identity_context::Selector::SavedId(identity.into()),
+        Invocation::Answer {
+            identity: Some(identity.into()),
+            from: None,
+            request: Some(request_id),
+            input: crate::invocation::ContentInput::Inline(message),
+        },
+    )
+    .map(|(me, report)| document(&me, &report))
+}

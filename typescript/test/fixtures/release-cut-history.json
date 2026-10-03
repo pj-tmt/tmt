@@ -1,0 +1,1742 @@
+{
+  "provenance": {
+    "repository": "pj-tmt/tmt",
+    "issue": 1403,
+    "captured": "2026-10-03",
+    "releaseEndpoint": "repos/pj-tmt/tmt/releases/tags/<tag>",
+    "prEndpoint": "repos/pj-tmt/tmt/pulls/<releasePr>",
+    "cutDefinition": "Historical comparison fixture only: release PR merge parent. Production release-cut uses ordinary main commits, never this mapping."
+  },
+  "cases": [
+    {
+      "product": "cli",
+      "previousTag": "v5.0.0-alpha.44",
+      "tag": "v5.0.0-alpha.45",
+      "previousReleasePr": 1271,
+      "releasePr": 1302,
+      "previousTagSha": "6cb4e9dbe3e92eb85789ba05b7ee94d5490ce9ac",
+      "tagSha": "b81859e1bec6ab1cc99db92ed109efc9c422ade5",
+      "previousCut": "fd76ebc535155b26c1cd138877757fdae5bbe37c",
+      "cut": "38f6985e5e82bb8a54a92dea451bbb970efde5f4",
+      "map": {
+        "$comment": [
+          "The one component map. typescript/scripts/ci-scope.mjs reads it to decide which CI consumers a changed path selects, and typescript/scripts/release-please-config.mjs reads the same ownership to generate release-please-config.json.",
+          "components: who owns which paths. `owns` roots minus `excludes` decide ownership, a `selectedBy` glob wins over the root, and `package` is the Cargo package.",
+          "rules: ordered, the first rule whose `paths` match a changed path decides native verification (Rust, tooling and E2E jobs). No match retains full native verification. Component ownership and Office-specific machinery decide frozen Office verification in ci-scope.mjs; rules do not select Office.",
+          "Office SPA, browser and local-service/companion verification share the ownership-only Office selector in ci-scope.mjs; weekly/manual runs cover shared inputs, while merge groups and main pushes never select Office work.",
+          "migrations: the source files that list a component's SQLite migrations; outside the alpha channel a release that has more entries in one than the last published release of that component is held for the owner, while an alpha only reports them (typescript/scripts/publication-gates.mjs).",
+          "scopedChecks: a component that cannot affect the others (only Squad) lists the native test files and E2E files its own scope runs; ci-scope.mjs turns that into the native_scope outputs.",
+          "Globs: `**` matches any path, `*` and `?` stay inside one directory. A rule may only narrow selection for a path that provably no job of the dropped consumer reads; ci-scope.test.ts guards each narrowed class.",
+          "releaseConsumers: a private leaf may name released components whose release-please commit attribution includes changes under the leaf root; ownership, CI scope and version updates remain independent.",
+          "A private component may declare release:false, with or without a Cargo package; it owns files but gets no release. Binary targets require explicit package.metadata.dist.dist=false; library-only crates need no opt-out. A crate that inherits the workspace version keeps its Cargo.lock entry in the release of the component that owns rust/Cargo.toml, whoever owns the crate."
+        ],
+        "components": {
+          "cli": {
+            "package": "tmt-cli",
+            "owns": ["."],
+            "excludes": [
+              "extensions/tmt-office",
+              "extensions/tmt-squad",
+              "extensions/tmt-remote",
+              "extensions/tmt-colab",
+              "rust/crates/tmt-tui"
+            ],
+            "migrations": ["rust/crates/tmt-adapters/src/storage/migrations.rs"]
+          },
+          "office": {
+            "package": "tmt-office",
+            "owns": ["extensions/tmt-office"],
+            "release": false,
+            "migrations": ["extensions/tmt-office/rust/tmt-office-storage/src/schema.rs"],
+            "selectedBy": [
+              "typescript/test/native/office-*",
+              "typescript/test/stress/office-*",
+              "typescript/test/e2e/office-*",
+              "typescript/test/tooling/office-*",
+              "typescript/test/support/office-*"
+            ]
+          },
+          "squad": {
+            "package": "tmt-squad",
+            "owns": ["extensions/tmt-squad"],
+            "selectedBy": [
+              "typescript/test/e2e/squad.e2e.test.ts",
+              "typescript/test/e2e/squad-reminder.e2e.test.ts",
+              "typescript/test/native/squad.test.ts"
+            ],
+            "scopedChecks": {
+              "nativeTests": [
+                "squad.test.ts",
+                "extension-install.test.ts",
+                "extension-upgrade-proof.test.ts"
+              ],
+              "e2eFiles": ["squad.e2e.test.ts", "squad-reminder.e2e.test.ts"]
+            }
+          },
+          "browser-addon": {
+            "owns": ["extensions/tmt-remote/typescript/browser-addon"],
+            "release": false
+          },
+          "colab-app": {
+            "owns": ["extensions/tmt-colab/typescript/app"],
+            "release": false
+          },
+          "colab-client": {
+            "owns": ["extensions/tmt-colab/typescript/colab-client"],
+            "release": false
+          },
+          "remote-client": {
+            "owns": ["extensions/tmt-remote/typescript/remote-client"],
+            "release": false
+          },
+          "tmt-tui": {
+            "owns": ["rust/crates/tmt-tui"],
+            "releaseConsumers": ["squad"],
+            "release": false
+          },
+          "tmt-colab": {
+            "owns": ["extensions/tmt-colab"],
+            "release": false
+          },
+          "tmt-remote": {
+            "owns": ["extensions/tmt-remote/rust"],
+            "release": false
+          }
+        },
+        "rules": [
+          {
+            "id": "design-tokens",
+            "consumers": ["native"],
+            "why": "Shared tokens are read by Rust CLI palette and contrast tests; Site has its own workflow watching this path. Office web checks read none of these files.",
+            "paths": ["design/tokens/**"]
+          },
+          {
+            "id": "consumed-docs",
+            "consumers": ["native"],
+            "why": "Read by build and test inputs: design/cli-style.md by the CLI and Squad style tests, rust/archive/NATIVE-INSTALL.md by the release archive and onboarding checks.",
+            "paths": ["design/cli-style.md", "rust/archive/NATIVE-INSTALL.md"]
+          },
+          {
+            "id": "prose",
+            "consumers": [],
+            "why": "Prose read only by prettier in Code quality, which always runs; no test or build input reads it (guarded by ci-scope.test.ts).",
+            "paths": [
+              "AGENTS.md",
+              "ARCHITECTURE.md",
+              "CONVENTIONS.md",
+              "DEVELOPMENT.md",
+              "README.md",
+              "contracts/request-response-v1.md",
+              "contracts/extension-api.md",
+              ".agents/**",
+              ".github/pull_request_template.md"
+            ]
+          },
+          {
+            "id": "site",
+            "consumers": [],
+            "why": "The handbook website has its own workflow (.github/workflows/site.yml); no native or Office job reads it.",
+            "paths": ["site/**", ".github/workflows/site.yml"]
+          },
+          {
+            "id": "browser-addon",
+            "consumers": [],
+            "why": "Private MV3 shell has its own browser-addon.yml workflow filtered to shell and consumed tooling inputs; native and Office jobs read none of its files. Positive and prefix-negative fixtures guard this boundary.",
+            "paths": [
+              "extensions/tmt-remote/typescript/browser-addon/**",
+              ".github/workflows/browser-addon.yml"
+            ]
+          },
+          {
+            "id": "colab-rust",
+            "consumers": ["native"],
+            "why": "Colab Rust retains full workspace checks; frozen Office selection follows its own ownership rather than private release ownership.",
+            "paths": ["extensions/tmt-colab/rust/**"]
+          },
+          {
+            "id": "remote-rust",
+            "consumers": ["native"],
+            "why": "Remote Rust retains full workspace checks; frozen Office selection follows its own ownership rather than private release ownership.",
+            "paths": ["extensions/tmt-remote/rust/**"]
+          },
+          {
+            "id": "office-web",
+            "consumers": [],
+            "why": "The Office application and its documentation: checked by the Office web jobs only.",
+            "paths": [
+              "extensions/tmt-office/typescript/apps/office/**",
+              "extensions/tmt-office/docs/**"
+            ]
+          },
+          {
+            "id": "native-source",
+            "consumers": ["native"],
+            "why": "Rust workspace, embedded skills and the Squad extension: checked by the native jobs; the Office web checks read none of it.",
+            "paths": ["rust/**", "skills/**", "extensions/tmt-squad/**"]
+          },
+          {
+            "id": "office-rust",
+            "consumers": ["native"],
+            "why": "Office's Rust crates remain in workspace Cargo checks and select the frozen Office web, local-service and companion suites through Office ownership.",
+            "paths": ["extensions/tmt-office/rust/**"]
+          },
+          {
+            "id": "native-tests",
+            "consumers": ["native"],
+            "why": "Test suites and E2E scenarios retain native coverage. Office-owned native suites additionally select Office verification; shared support changes rely on weekly/manual Office runs.",
+            "paths": [
+              "typescript/test/native/**",
+              "typescript/test/tooling/**",
+              "typescript/test/e2e/*.e2e.test.ts"
+            ]
+          }
+        ]
+      },
+      "commits": [
+        {
+          "sha": "38f6985e5e82bb8a54a92dea451bbb970efde5f4",
+          "message": "feat(colab): apply membership and device owner transitions (#1274)\n\n* feat(colab): apply membership and device owner transitions\n\nCo-authored-by: Codex <codex@openai.com>\n\n* docs(colab): clarify revoke and role-cut validation\n\nCo-authored-by: Codex <codex@openai.com>\n\n* test(colab): integrate durable revoke rotation with socket catchup\n\nSeed the route fixture with a real initial key, verify atomic baseline/cuts/wraps and replay, and serve the stored baseline descriptor to a surviving device after epoch rotation.\n\nCo-authored-by: Codex <codex@openai.com>\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "extensions/tmt-colab/contracts/colab-v1.md",
+            "extensions/tmt-colab/rust/tmt-colab/src/fold.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/main.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/registration.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/store/owner.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/store/owner/epoch.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/transitions.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/transitions/epoch.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/transitions/membership.rs",
+            "extensions/tmt-colab/rust/tmt-colab/tests/registration.rs",
+            "extensions/tmt-colab/rust/tmt-colab/tests/socket.rs",
+            "extensions/tmt-colab/rust/tmt-colab/tests/transitions.rs"
+          ]
+        },
+        {
+          "sha": "6cb4e9dbe3e92eb85789ba05b7ee94d5490ce9ac",
+          "message": "chore(main): release 5.0.0-alpha.44 (#1271)\n\nCo-authored-by: tmt-ci-bot[bot] <335817320+tmt-ci-bot[bot]@users.noreply.github.com>",
+          "files": [".release-please-manifest.json", "rust/Cargo.lock", "rust/Cargo.toml"]
+        }
+      ],
+      "publishedNotes": "## [5.0.0-alpha.45](https://github.com/pj-tmt/tmt/compare/v5.0.0-alpha.44...v5.0.0-alpha.45) (2026-10-03)\n\n\n### Features\n\n* **colab:** apply membership and device owner transitions ([#1274](https://github.com/pj-tmt/tmt/issues/1274)) ([38f6985](https://github.com/pj-tmt/tmt/commit/38f6985e5e82bb8a54a92dea451bbb970efde5f4))",
+      "date": "2026-10-03"
+    },
+    {
+      "product": "cli",
+      "previousTag": "v5.0.0-alpha.45",
+      "tag": "v5.0.0-alpha.46",
+      "previousReleasePr": 1302,
+      "releasePr": 1343,
+      "previousTagSha": "b81859e1bec6ab1cc99db92ed109efc9c422ade5",
+      "tagSha": "b7fdc745f374d8427d1436587ac3b80b454b12f1",
+      "previousCut": "38f6985e5e82bb8a54a92dea451bbb970efde5f4",
+      "cut": "40ad78c8eb9877c8a0748fdb1b5df02645748d0d",
+      "map": {
+        "$comment": [
+          "The one component map. typescript/scripts/ci-scope.mjs reads it to decide which CI consumers a changed path selects, and typescript/scripts/release-please-config.mjs reads the same ownership to generate release-please-config.json.",
+          "components: who owns which paths. `owns` roots minus `excludes` decide ownership, a `selectedBy` glob wins over the root, and `package` is the Cargo package.",
+          "rules: ordered, the first rule whose `paths` match a changed path decides native verification (Rust, tooling and E2E jobs). No match retains full native verification. Component ownership and Office-specific machinery decide frozen Office verification in ci-scope.mjs; rules do not select Office.",
+          "Office SPA, browser and local-service/companion verification share the ownership-only Office selector in ci-scope.mjs; weekly/manual runs cover shared inputs, while merge groups and main pushes never select Office work.",
+          "migrations: the source files that list a component's SQLite migrations; outside the alpha channel a release that has more entries in one than the last published release of that component is held for the owner, while an alpha only reports them (typescript/scripts/publication-gates.mjs).",
+          "scopedChecks: a component that cannot affect the others (only Squad) lists the native test files and E2E files its own scope runs; ci-scope.mjs turns that into the native_scope outputs.",
+          "Globs: `**` matches any path, `*` and `?` stay inside one directory. A rule may only narrow selection for a path that provably no job of the dropped consumer reads; ci-scope.test.ts guards each narrowed class.",
+          "releaseConsumers: a private leaf may name released components whose release-please commit attribution includes changes under the leaf root; ownership, CI scope and version updates remain independent.",
+          "A private component may declare release:false, with or without a Cargo package; it owns files but gets no release. Binary targets require explicit package.metadata.dist.dist=false; library-only crates need no opt-out. A crate that inherits the workspace version keeps its Cargo.lock entry in the release of the component that owns rust/Cargo.toml, whoever owns the crate."
+        ],
+        "components": {
+          "cli": {
+            "package": "tmt-cli",
+            "owns": ["."],
+            "excludes": [
+              "extensions/tmt-office",
+              "extensions/tmt-squad",
+              "extensions/tmt-remote",
+              "extensions/tmt-colab",
+              "rust/crates/tmt-tui"
+            ],
+            "migrations": ["rust/crates/tmt-adapters/src/storage/migrations.rs"]
+          },
+          "office": {
+            "package": "tmt-office",
+            "owns": ["extensions/tmt-office"],
+            "release": false,
+            "migrations": ["extensions/tmt-office/rust/tmt-office-storage/src/schema.rs"],
+            "selectedBy": [
+              "typescript/test/native/office-*",
+              "typescript/test/stress/office-*",
+              "typescript/test/e2e/office-*",
+              "typescript/test/tooling/office-*",
+              "typescript/test/support/office-*"
+            ]
+          },
+          "squad": {
+            "package": "tmt-squad",
+            "owns": ["extensions/tmt-squad"],
+            "selectedBy": [
+              "typescript/test/e2e/squad.e2e.test.ts",
+              "typescript/test/e2e/squad-reminder.e2e.test.ts",
+              "typescript/test/native/squad.test.ts"
+            ],
+            "scopedChecks": {
+              "nativeTests": [
+                "squad.test.ts",
+                "extension-install.test.ts",
+                "extension-upgrade-proof.test.ts"
+              ],
+              "e2eFiles": ["squad.e2e.test.ts", "squad-reminder.e2e.test.ts"]
+            }
+          },
+          "browser-addon": {
+            "owns": ["extensions/tmt-remote/typescript/browser-addon"],
+            "release": false
+          },
+          "colab-app": {
+            "owns": ["extensions/tmt-colab/typescript/app"],
+            "release": false
+          },
+          "colab-client": {
+            "owns": ["extensions/tmt-colab/typescript/colab-client"],
+            "release": false
+          },
+          "remote-client": {
+            "owns": ["extensions/tmt-remote/typescript/remote-client"],
+            "release": false
+          },
+          "tmt-tui": {
+            "owns": ["rust/crates/tmt-tui"],
+            "releaseConsumers": ["squad"],
+            "release": false
+          },
+          "tmt-colab": {
+            "owns": ["extensions/tmt-colab"],
+            "release": false
+          },
+          "tmt-remote": {
+            "owns": ["extensions/tmt-remote/rust"],
+            "release": false
+          }
+        },
+        "rules": [
+          {
+            "id": "design-tokens",
+            "consumers": ["native"],
+            "why": "Shared tokens are read by Rust CLI palette and contrast tests; Site has its own workflow watching this path. Office web checks read none of these files.",
+            "paths": ["design/tokens/**"]
+          },
+          {
+            "id": "consumed-docs",
+            "consumers": ["native"],
+            "why": "Read by build and test inputs: design/cli-style.md by the CLI and Squad style tests, rust/archive/NATIVE-INSTALL.md by the release archive and onboarding checks.",
+            "paths": ["design/cli-style.md", "rust/archive/NATIVE-INSTALL.md"]
+          },
+          {
+            "id": "prose",
+            "consumers": [],
+            "why": "Prose read only by prettier in Code quality, which always runs; no test or build input reads it (guarded by ci-scope.test.ts).",
+            "paths": [
+              "AGENTS.md",
+              "ARCHITECTURE.md",
+              "CONVENTIONS.md",
+              "DEVELOPMENT.md",
+              "README.md",
+              "contracts/request-response-v1.md",
+              "contracts/extension-api.md",
+              ".agents/**",
+              ".github/pull_request_template.md"
+            ]
+          },
+          {
+            "id": "site",
+            "consumers": [],
+            "why": "The handbook website has its own workflow (.github/workflows/site.yml); no native or Office job reads it.",
+            "paths": ["site/**", ".github/workflows/site.yml"]
+          },
+          {
+            "id": "browser-addon",
+            "consumers": [],
+            "why": "Private MV3 shell has its own browser-addon.yml workflow filtered to shell and consumed tooling inputs; native and Office jobs read none of its files. Positive and prefix-negative fixtures guard this boundary.",
+            "paths": [
+              "extensions/tmt-remote/typescript/browser-addon/**",
+              ".github/workflows/browser-addon.yml"
+            ]
+          },
+          {
+            "id": "colab-rust",
+            "consumers": ["native"],
+            "why": "Colab Rust retains full workspace checks; frozen Office selection follows its own ownership rather than private release ownership.",
+            "paths": ["extensions/tmt-colab/rust/**"]
+          },
+          {
+            "id": "remote-rust",
+            "consumers": ["native"],
+            "why": "Remote Rust retains full workspace checks; frozen Office selection follows its own ownership rather than private release ownership.",
+            "paths": ["extensions/tmt-remote/rust/**"]
+          },
+          {
+            "id": "office-web",
+            "consumers": [],
+            "why": "The Office application and its documentation: checked by the Office web jobs only.",
+            "paths": [
+              "extensions/tmt-office/typescript/apps/office/**",
+              "extensions/tmt-office/docs/**"
+            ]
+          },
+          {
+            "id": "native-source",
+            "consumers": ["native"],
+            "why": "Rust workspace, embedded skills and the Squad extension: checked by the native jobs; the Office web checks read none of it.",
+            "paths": ["rust/**", "skills/**", "extensions/tmt-squad/**"]
+          },
+          {
+            "id": "office-rust",
+            "consumers": ["native"],
+            "why": "Office's Rust crates remain in workspace Cargo checks and select the frozen Office web, local-service and companion suites through Office ownership.",
+            "paths": ["extensions/tmt-office/rust/**"]
+          },
+          {
+            "id": "native-tests",
+            "consumers": ["native"],
+            "why": "Test suites and E2E scenarios retain native coverage. Office-owned native suites additionally select Office verification; shared support changes rely on weekly/manual Office runs.",
+            "paths": [
+              "typescript/test/native/**",
+              "typescript/test/tooling/**",
+              "typescript/test/e2e/*.e2e.test.ts"
+            ]
+          }
+        ]
+      },
+      "commits": [
+        {
+          "sha": "40ad78c8eb9877c8a0748fdb1b5df02645748d0d",
+          "message": "docs: define public dispatch readiness and input safety (#1322)\n\nPart of #600. Describe shipped acceptance, wake and native-channel limits without introducing a readiness gate or duplicating contract ownership.\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "contracts/claude-channel-v1.md",
+            "contracts/codex-channel-v1.md",
+            "contracts/extension-api.md",
+            "contracts/remote-channel-v1.md"
+          ]
+        },
+        {
+          "sha": "4bace626bd71cdbd7bbe79bc1881ceb73b7f0cec",
+          "message": "feat(squad): compile board rows into admitted markup cells (#1251)\n\n* feat(squad): compile board row tracks through admitted TUI cells\n\nTaffy owns board track sizing after the Squad priority pre-step; the board consumes projected admitted values and the shared grapheme fitter. CLI list policy remains unchanged.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* docs(squad): describe production row geometry and surface fitting owners\n\nDocument the default growing minimum, whole-track priority pre-step, CSS percentage base, and grow-with-max rule. Keep the frozen capture gate and its ownership explicit.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* fix(squad): scope admitted rows to the retained view while loading\n\nExpose the agreed pure shown_tab getter after #1231 and test uncached loading with resize/search, accepted snapshots, and cached switches. Preserve the upstream parity fixture exactly.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* test(squad): capture Ben-accepted #774 A parity delta\n\n#774 A: folded team frames at width 120, Member 22\u219223 and Task 27\u219226,\n180 cells (90 per frame), Ben-accepted via tmt-lead on 2026-10-03.\n\nRecord: https://github.com/pj-tmt/tmt/issues/774#issuecomment-5963445765\n\nRegenerate only parity.json. The decoded diff matches exactly the approved\ncell/style pairs; all other frames, hits, tabs, row starts, list text/JSON\nand fixture provenance remain unchanged.\n\nVerification: focused parity passed; full Squad suite 389 passed, 2 ignored.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* docs: fix architecture table formatting\n\nNormalize the handbook-owner table row padding flagged by the full\npnpm docs:format:check gate. No text or behavior changes.\n\nCo-authored-by: Codex <codex@openai.com>\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "extensions/tmt-squad/rust/tmt-squad/Cargo.toml",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/app.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/derived.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/view.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/view/tests/parity.json",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/view/tests/parity.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/main.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/markup.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/markup/tests.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/rows.rs",
+            "extensions/tmt-squad/skills/tmt-squad/SKILL.md",
+            "rust/crates/tmt-cli-style/src/grid.rs",
+            "rust/crates/tmt-cli/tests/architecture/cases.rs",
+            "rust/crates/tmt-cli/tests/architecture/policy.rs",
+            "rust/crates/tmt-tui/src/paint/tests.rs",
+            "rust/crates/tmt-tui/src/style.rs",
+            "rust/crates/tmt-tui/src/style/tests.rs",
+            "rust/crates/tmt-tui/src/text.rs"
+          ]
+        },
+        {
+          "sha": "a0493f830638399f07d0bf1d2e6ca5d9f5fa2d24",
+          "message": "feat(colab): bootstrap owner browsers with ack-paced sync (#1287)\n\nPart of #1248. Return owner discovery, bounded exact membership pages, retained author chains and device/member wraps. Pace post-hello outbound frames with eight credits released by scoped acks.\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "extensions/tmt-colab/contracts/colab-v1.md",
+            "extensions/tmt-colab/rust/tmt-colab/src/registration.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/socket.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/store/owner.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/store/owner/bootstrap.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/sync.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/sync/wire.rs",
+            "extensions/tmt-colab/rust/tmt-colab/tests/socket.rs",
+            "extensions/tmt-colab/rust/tmt-colab/tests/sync.rs"
+          ]
+        },
+        {
+          "sha": "c4ed68f50d6bbcd107e75d5162fa005d11e0a19d",
+          "message": "feat(request): accept unique result ID prefixes (#1313)\n\nResolve retained request UUID prefixes using indexed half-open ranges and a\nbounded ambiguity sample. Keep full IDs, result bytes and retention reads\nunchanged; document and test the CLI selection contract.\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "contracts/request-response-v1.md",
+            "rust/crates/tmt-adapters/src/storage/requests.rs",
+            "rust/crates/tmt-adapters/src/storage/requests/service_tests/response.rs",
+            "rust/crates/tmt-adapters/src/storage/requests/tests.rs",
+            "rust/crates/tmt-cli/src/grammar/requests.rs",
+            "rust/crates/tmt-cli/src/response_command.rs",
+            "rust/crates/tmt-cli/tests/result_prefix.rs",
+            "rust/crates/tmt-core/src/request.rs",
+            "rust/crates/tmt-core/src/request/service/responses.rs"
+          ]
+        },
+        {
+          "sha": "6475cb470604f742aa55477e98d492b8e6c740cf",
+          "message": "docs(site): align squad chapter with audited board behavior (#1304)\n\nsq board prints the list without a terminal, unmatched members follow in\nan untitled section, --squad wording for multiple squads, and the board\nsketch labels the waiting line as pending.\n\n\nClaude-Session: https://claude.ai/code/session_01T7qh4V1iF4MNNYPgJa22TY\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "files": ["site/src/chapters/squad.mdx", "site/src/demos/board.tsx"]
+        },
+        {
+          "sha": "c6e2eb351279ba09679b0c495692325332761d9c",
+          "message": "fix(runtime): stream Claude consumption within the hook budget (#1301)\n\nReplace the appended-range tail cap with a bounded-record stream using the hook deadline. Preserve consumption state and malformed-record semantics; add streaming, escaped-key, deadline and record-cap coverage.\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "rust/crates/tmt-adapters/src/drivers/claude.rs",
+            "rust/crates/tmt-adapters/src/drivers/codex.rs",
+            "rust/crates/tmt-adapters/src/runtime/consumption.rs",
+            "rust/crates/tmt-adapters/src/runtime/consumption/tests.rs",
+            "rust/crates/tmt-adapters/src/runtime/lifecycle.rs",
+            "rust/crates/tmt-adapters/src/runtime/transcript.rs",
+            "rust/crates/tmt-adapters/src/runtime/usage_tests.rs",
+            "rust/crates/tmt-cli/src/provider_hook_command.rs"
+          ]
+        },
+        {
+          "sha": "c7622d2c9edac38c2e01c505bdcd6b1a27eaa4f8",
+          "message": "docs(contracts): reply-notice grace follows declared driver send budgets (#1298)\n\nThe contract still stated the fixed 3 s grace that #1261 replaced with the\nregistry maximum of Driver::maximum_send_duration.\n\n\nClaude-Session: https://claude.ai/code/session_01JviZRXEiWdTAc6MiyzFPv3\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "files": ["contracts/request-response-v1.md"]
+        },
+        {
+          "sha": "b81859e1bec6ab1cc99db92ed109efc9c422ade5",
+          "message": "chore(main): release 5.0.0-alpha.45 (#1302)\n\nCo-authored-by: tmt-ci-bot[bot] <335817320+tmt-ci-bot[bot]@users.noreply.github.com>",
+          "files": [".release-please-manifest.json", "rust/Cargo.lock", "rust/Cargo.toml"]
+        }
+      ],
+      "publishedNotes": "## [5.0.0-alpha.46](https://github.com/pj-tmt/tmt/compare/v5.0.0-alpha.45...v5.0.0-alpha.46) (2026-10-03)\n\n\n### Features\n\n* **colab:** bootstrap owner browsers with ack-paced sync ([#1287](https://github.com/pj-tmt/tmt/issues/1287)) ([a0493f8](https://github.com/pj-tmt/tmt/commit/a0493f830638399f07d0bf1d2e6ca5d9f5fa2d24))\n* **request:** accept unique result ID prefixes ([#1313](https://github.com/pj-tmt/tmt/issues/1313)) ([c4ed68f](https://github.com/pj-tmt/tmt/commit/c4ed68f50d6bbcd107e75d5162fa005d11e0a19d))\n* **squad:** compile board rows into admitted markup cells ([#1251](https://github.com/pj-tmt/tmt/issues/1251)) ([4bace62](https://github.com/pj-tmt/tmt/commit/4bace626bd71cdbd7bbe79bc1881ceb73b7f0cec))\n\n\n### Bug Fixes\n\n* **runtime:** stream Claude consumption within the hook budget ([#1301](https://github.com/pj-tmt/tmt/issues/1301)) ([c6e2eb3](https://github.com/pj-tmt/tmt/commit/c6e2eb351279ba09679b0c495692325332761d9c))",
+      "date": "2026-10-03"
+    },
+    {
+      "product": "squad",
+      "previousTag": "tmt-squad-v0.1.0-alpha.12",
+      "tag": "tmt-squad-v0.1.0-alpha.13",
+      "previousReleasePr": 1168,
+      "releasePr": 1270,
+      "previousTagSha": "c900601c046c361a5734af23551b054345ea4374",
+      "tagSha": "aca6283ab4009063cce1b47fc56ee8fb0f8f4c06",
+      "previousCut": "68f2094981735afbfca13e9a41b0d7aceeddcf8f",
+      "cut": "c779682693c5f032be42adbd7761a7efd1efc654",
+      "map": {
+        "$comment": [
+          "The one component map. typescript/scripts/ci-scope.mjs reads it to decide which CI consumers a changed path selects, and typescript/scripts/release-please-config.mjs reads the same ownership to generate release-please-config.json.",
+          "components: who owns which paths. `owns` roots minus `excludes` decide ownership, a `selectedBy` glob wins over the root, and `package` is the Cargo package.",
+          "rules: ordered, the first rule whose `paths` match a changed path decides native verification (Rust, tooling and E2E jobs). No match retains full native verification. Component ownership and Office-specific machinery decide frozen Office verification in ci-scope.mjs; rules do not select Office.",
+          "Office SPA, browser and local-service/companion verification share the ownership-only Office selector in ci-scope.mjs; weekly/manual runs cover shared inputs, while merge groups and main pushes never select Office work.",
+          "migrations: the source files that list a component's SQLite migrations; outside the alpha channel a release that has more entries in one than the last published release of that component is held for the owner, while an alpha only reports them (typescript/scripts/publication-gates.mjs).",
+          "scopedChecks: a component that cannot affect the others (only Squad) lists the native test files and E2E files its own scope runs; ci-scope.mjs turns that into the native_scope outputs.",
+          "Globs: `**` matches any path, `*` and `?` stay inside one directory. A rule may only narrow selection for a path that provably no job of the dropped consumer reads; ci-scope.test.ts guards each narrowed class.",
+          "releaseConsumers: a private leaf may name released components whose release-please commit attribution includes changes under the leaf root; ownership, CI scope and version updates remain independent.",
+          "A private component may declare release:false, with or without a Cargo package; it owns files but gets no release. Binary targets require explicit package.metadata.dist.dist=false; library-only crates need no opt-out. A crate that inherits the workspace version keeps its Cargo.lock entry in the release of the component that owns rust/Cargo.toml, whoever owns the crate."
+        ],
+        "components": {
+          "cli": {
+            "package": "tmt-cli",
+            "owns": ["."],
+            "excludes": [
+              "extensions/tmt-office",
+              "extensions/tmt-squad",
+              "extensions/tmt-remote",
+              "extensions/tmt-colab",
+              "rust/crates/tmt-tui"
+            ],
+            "migrations": ["rust/crates/tmt-adapters/src/storage/migrations.rs"]
+          },
+          "office": {
+            "package": "tmt-office",
+            "owns": ["extensions/tmt-office"],
+            "release": false,
+            "migrations": ["extensions/tmt-office/rust/tmt-office-storage/src/schema.rs"],
+            "selectedBy": [
+              "typescript/test/native/office-*",
+              "typescript/test/stress/office-*",
+              "typescript/test/e2e/office-*",
+              "typescript/test/tooling/office-*",
+              "typescript/test/support/office-*"
+            ]
+          },
+          "squad": {
+            "package": "tmt-squad",
+            "owns": ["extensions/tmt-squad"],
+            "selectedBy": [
+              "typescript/test/e2e/squad.e2e.test.ts",
+              "typescript/test/e2e/squad-reminder.e2e.test.ts",
+              "typescript/test/native/squad.test.ts"
+            ],
+            "scopedChecks": {
+              "nativeTests": [
+                "squad.test.ts",
+                "extension-install.test.ts",
+                "extension-upgrade-proof.test.ts"
+              ],
+              "e2eFiles": ["squad.e2e.test.ts", "squad-reminder.e2e.test.ts"]
+            }
+          },
+          "browser-addon": {
+            "owns": ["extensions/tmt-remote/typescript/browser-addon"],
+            "release": false
+          },
+          "colab-app": {
+            "owns": ["extensions/tmt-colab/typescript/app"],
+            "release": false
+          },
+          "colab-client": {
+            "owns": ["extensions/tmt-colab/typescript/colab-client"],
+            "release": false
+          },
+          "remote-client": {
+            "owns": ["extensions/tmt-remote/typescript/remote-client"],
+            "release": false
+          },
+          "tmt-tui": {
+            "owns": ["rust/crates/tmt-tui"],
+            "releaseConsumers": ["squad"],
+            "release": false
+          },
+          "tmt-colab": {
+            "owns": ["extensions/tmt-colab"],
+            "release": false
+          },
+          "tmt-remote": {
+            "owns": ["extensions/tmt-remote/rust"],
+            "release": false
+          }
+        },
+        "rules": [
+          {
+            "id": "design-tokens",
+            "consumers": ["native"],
+            "why": "Shared tokens are read by Rust CLI palette and contrast tests; Site has its own workflow watching this path. Office web checks read none of these files.",
+            "paths": ["design/tokens/**"]
+          },
+          {
+            "id": "consumed-docs",
+            "consumers": ["native"],
+            "why": "Read by build and test inputs: design/cli-style.md by the CLI and Squad style tests, rust/archive/NATIVE-INSTALL.md by the release archive and onboarding checks.",
+            "paths": ["design/cli-style.md", "rust/archive/NATIVE-INSTALL.md"]
+          },
+          {
+            "id": "prose",
+            "consumers": [],
+            "why": "Prose read only by prettier in Code quality, which always runs; no test or build input reads it (guarded by ci-scope.test.ts).",
+            "paths": [
+              "AGENTS.md",
+              "ARCHITECTURE.md",
+              "CONVENTIONS.md",
+              "DEVELOPMENT.md",
+              "README.md",
+              "contracts/request-response-v1.md",
+              "contracts/extension-api.md",
+              ".agents/**",
+              ".github/pull_request_template.md"
+            ]
+          },
+          {
+            "id": "site",
+            "consumers": [],
+            "why": "The handbook website has its own workflow (.github/workflows/site.yml); no native or Office job reads it.",
+            "paths": ["site/**", ".github/workflows/site.yml"]
+          },
+          {
+            "id": "browser-addon",
+            "consumers": [],
+            "why": "Private MV3 shell has its own browser-addon.yml workflow filtered to shell and consumed tooling inputs; native and Office jobs read none of its files. Positive and prefix-negative fixtures guard this boundary.",
+            "paths": [
+              "extensions/tmt-remote/typescript/browser-addon/**",
+              ".github/workflows/browser-addon.yml"
+            ]
+          },
+          {
+            "id": "colab-rust",
+            "consumers": ["native"],
+            "why": "Colab Rust retains full workspace checks; frozen Office selection follows its own ownership rather than private release ownership.",
+            "paths": ["extensions/tmt-colab/rust/**"]
+          },
+          {
+            "id": "remote-rust",
+            "consumers": ["native"],
+            "why": "Remote Rust retains full workspace checks; frozen Office selection follows its own ownership rather than private release ownership.",
+            "paths": ["extensions/tmt-remote/rust/**"]
+          },
+          {
+            "id": "office-web",
+            "consumers": [],
+            "why": "The Office application and its documentation: checked by the Office web jobs only.",
+            "paths": [
+              "extensions/tmt-office/typescript/apps/office/**",
+              "extensions/tmt-office/docs/**"
+            ]
+          },
+          {
+            "id": "native-source",
+            "consumers": ["native"],
+            "why": "Rust workspace, embedded skills and the Squad extension: checked by the native jobs; the Office web checks read none of it.",
+            "paths": ["rust/**", "skills/**", "extensions/tmt-squad/**"]
+          },
+          {
+            "id": "office-rust",
+            "consumers": ["native"],
+            "why": "Office's Rust crates remain in workspace Cargo checks and select the frozen Office web, local-service and companion suites through Office ownership.",
+            "paths": ["extensions/tmt-office/rust/**"]
+          },
+          {
+            "id": "native-tests",
+            "consumers": ["native"],
+            "why": "Test suites and E2E scenarios retain native coverage. Office-owned native suites additionally select Office verification; shared support changes rely on weekly/manual Office runs.",
+            "paths": [
+              "typescript/test/native/**",
+              "typescript/test/tooling/**",
+              "typescript/test/e2e/*.e2e.test.ts"
+            ]
+          }
+        ]
+      },
+      "commits": [
+        {
+          "sha": "c779682693c5f032be42adbd7761a7efd1efc654",
+          "message": "fix(reply): derive competing waiter grace from driver send budgets (#1261)\n\n* fix(reply): derive waiter grace from declared driver send budgets\n\nCo-authored-by: Codex <codex@openai.com>\n\n* test(architecture): allow pure Duration budgets while rejecting clocks\n\nCo-authored-by: Codex <codex@openai.com>\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "rust/crates/tmt-adapters/src/drivers/claude.rs",
+            "rust/crates/tmt-adapters/src/drivers/claude/channel.rs",
+            "rust/crates/tmt-adapters/src/drivers/codex.rs",
+            "rust/crates/tmt-adapters/src/drivers/codex/delivery.rs",
+            "rust/crates/tmt-adapters/src/reply_notice.rs",
+            "rust/crates/tmt-adapters/src/runtime.rs",
+            "rust/crates/tmt-cli/src/reply_notice_command.rs",
+            "rust/crates/tmt-cli/tests/architecture/cases.rs",
+            "rust/crates/tmt-cli/tests/architecture/policy.rs",
+            "rust/crates/tmt-core/src/driver.rs"
+          ]
+        },
+        {
+          "sha": "6ed7f3f9f0070076d4ca78e9fcc2f4de4457fbbd",
+          "message": "feat(colab): authenticate owner folds and advance epochs (#1259)\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "extensions/tmt-colab/contracts/colab-v1.md",
+            "extensions/tmt-colab/rust/tmt-colab/src/fold.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/keyring.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/lib.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/store.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/store/owner.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/store/owner/epoch.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/store/schema.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/transitions.rs",
+            "extensions/tmt-colab/rust/tmt-colab/tests/owner_state.rs",
+            "extensions/tmt-colab/rust/tmt-colab/tests/registration.rs",
+            "extensions/tmt-colab/rust/tmt-colab/tests/transitions.rs"
+          ]
+        },
+        {
+          "sha": "34784e0331c3eec6aad206219db692df536b8f6d",
+          "message": "feat(colab): add mounted browser bootstrap and isolated Worker fold (#1258)\n\nPersist opaque device keys, verify paired registration and owner metadata, and keep unadmitted pages blocked. Live co-editing and native assets remain separate reviewed slices.\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "extensions/tmt-colab/typescript/app/e2e/fold.spec.ts",
+            "extensions/tmt-colab/typescript/app/e2e/mounted.spec.ts",
+            "extensions/tmt-colab/typescript/app/package.json",
+            "extensions/tmt-colab/typescript/app/src/admission.ts",
+            "extensions/tmt-colab/typescript/app/src/bootstrap.ts",
+            "extensions/tmt-colab/typescript/app/src/catchup.ts",
+            "extensions/tmt-colab/typescript/app/src/fold-protocol.ts",
+            "extensions/tmt-colab/typescript/app/src/fold.ts",
+            "extensions/tmt-colab/typescript/app/src/fold.worker.ts",
+            "extensions/tmt-colab/typescript/app/src/keyring.ts",
+            "extensions/tmt-colab/typescript/app/src/main.tsx",
+            "extensions/tmt-colab/typescript/app/src/mounted.ts",
+            "extensions/tmt-colab/typescript/app/src/registration.ts",
+            "extensions/tmt-colab/typescript/app/src/router.tsx",
+            "extensions/tmt-colab/typescript/app/src/storage.ts",
+            "extensions/tmt-colab/typescript/app/src/strings.ts",
+            "extensions/tmt-colab/typescript/app/src/transport.ts",
+            "extensions/tmt-colab/typescript/app/test/admission.test.ts",
+            "extensions/tmt-colab/typescript/app/test/fold.test.ts",
+            "extensions/tmt-colab/typescript/app/test/update-fixtures.ts",
+            "typescript/pnpm-lock.yaml"
+          ]
+        },
+        {
+          "sha": "e4ef21cc6d9712716307d0f731bf99a5a70b7dc2",
+          "message": "fix(remote): sign fresh extension certificates on every call (#1256)\n\nRemove redundant browser certificate persistence, clarify per-request principal authority, and rebuild the embedded SDK.\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "contracts/remote-channel-v1.md",
+            "extensions/tmt-remote/rust/tmt-remote/assets/remote-v1.js",
+            "extensions/tmt-remote/typescript/remote-client/e2e/pairing.spec.ts",
+            "extensions/tmt-remote/typescript/remote-client/src/browser.ts"
+          ]
+        },
+        {
+          "sha": "a33f0e823a4af72c905fd9d78f39d4c7fd019871",
+          "message": "chore(main): release 5.0.0-alpha.43 (#1254)\n\nCo-authored-by: tmt-ci-bot[bot] <335817320+tmt-ci-bot[bot]@users.noreply.github.com>",
+          "files": [".release-please-manifest.json", "rust/Cargo.lock", "rust/Cargo.toml"]
+        },
+        {
+          "sha": "c60347a6f282d188f126a2702fe1edaea6e4705c",
+          "message": "fix(release): dequeue stale queued PRs before refresh (#1247)\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            ".agents/skills/tmt-release/SKILL.md",
+            ".github/workflows/release.yml",
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "typescript/scripts/release-please-queue.d.mts",
+            "typescript/scripts/release-please-queue.mjs",
+            "typescript/test/tooling/release-pr-safety.test.ts",
+            "typescript/test/tooling/release-queue.test.ts",
+            "typescript/test/tooling/release-workflow.test.ts"
+          ]
+        },
+        {
+          "sha": "9d44521abafd9361fa31c68717c2ea50f20f010d",
+          "message": "docs(site): your own tabs on the Squad board (Part of #599) (#1245)\n\nFrom tmt-squad-lead's diff for the merged #1231, kept at user level.\n\n\nClaude-Session: https://claude.ai/code/session_01T7qh4V1iF4MNNYPgJa22TY\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "files": ["site/src/chapters/squad.mdx"]
+        },
+        {
+          "sha": "74b5f4622ec758141d8b2643b8c7105a43d87a0b",
+          "message": "fix(ci): retry public smoke only on classified GitHub rate limits (#1242)\n\n* fix(ci): retry public smoke only on classified GitHub rate limits\n\nCo-authored-by: Codex <codex@openai.com>\n\n* fix(ci): preserve bounded latest installer lag recovery\n\nPin the native rate-limit format consumed by public smoke tooling.\n\nCo-authored-by: Codex <codex@openai.com>\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            ".agents/skills/tmt-release/SKILL.md",
+            ".github/workflows/native-release-smoke.yml",
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "typescript/scripts/packed-command.mjs",
+            "typescript/scripts/release-publish.d.mts",
+            "typescript/scripts/release-publish.mjs",
+            "typescript/scripts/release-stall.d.mts",
+            "typescript/scripts/release-stall.mjs",
+            "typescript/scripts/verify-public-install.d.mts",
+            "typescript/scripts/verify-public-install.mjs",
+            "typescript/test/tooling/release-publish.test.ts",
+            "typescript/test/tooling/release-stall.test.ts",
+            "typescript/test/tooling/release-workflow.test.ts",
+            "typescript/test/tooling/verify-public-install.test.ts"
+          ]
+        },
+        {
+          "sha": "9422ad90490d3a04235e44b613274c6a19436d6b",
+          "message": "fix(codex): separate preparation and delivery deadlines (#1237)\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "contracts/codex-channel-v1.md",
+            "rust/crates/tmt-adapters/src/drivers/codex/delivery.rs",
+            "rust/crates/tmt-adapters/src/drivers/codex/delivery/tests.rs",
+            "rust/crates/tmt-adapters/src/drivers/codex/transport.rs",
+            "rust/crates/tmt-adapters/src/drivers/codex/transport/deadline.rs",
+            "rust/crates/tmt-adapters/src/drivers/codex/transport/tests.rs"
+          ]
+        },
+        {
+          "sha": "f7b96aae7b3e6ad348cbd08a8b28588b84daee38",
+          "message": "chore(main): release 5.0.0-alpha.42 (#1239)\n\nCo-authored-by: tmt-ci-bot[bot] <335817320+tmt-ci-bot[bot]@users.noreply.github.com>",
+          "files": [".release-please-manifest.json", "rust/Cargo.lock", "rust/Cargo.toml"]
+        },
+        {
+          "sha": "35975965d447a27506b996b4e9d68f4fc7220a23",
+          "message": "feat(squad): user-defined cross-squad board tabs (#1231)\n\n* feat(squad): add configured cross-squad member tabs\n\nShare member projection, numeric sorting and section shaping between board tabs and ls. Report partial aggregate reads and validate hidden tab definitions while reading config.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* fix(squad): keep user tab settings in board scope\n\nAddress lead review: prevent user-tab theme saves under pseudo-squad keys, label member rows correctly, and verify source section deduplication. Built-in captions and frozen parity remain unchanged.\n\nCo-authored-by: Codex <codex@openai.com>\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/app.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/mod.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/refresh.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/view.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/config.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/filter.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/main.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/squad.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/status.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/tab_view.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/tabs.rs",
+            "extensions/tmt-squad/skills/tmt-squad/SKILL.md",
+            "typescript/test/native/squad.test.ts"
+          ]
+        },
+        {
+          "sha": "ee00c1bd12e69b5da87780cc4a34971398976a56",
+          "message": "feat(colab): produce verified epoch baselines in decoder child (#1201)\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "extensions/tmt-colab/contracts/colab-v1.md",
+            "extensions/tmt-colab/contracts/vectors/baseline-reference.py",
+            "extensions/tmt-colab/contracts/vectors/baseline-v1.json",
+            "extensions/tmt-colab/rust/tmt-colab/src/decoder.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/decoder/child.rs",
+            "extensions/tmt-colab/rust/tmt-colab/tests/decoder.rs"
+          ]
+        },
+        {
+          "sha": "fdb6d430b51ac61b2570519fda03fe1bfb74d0d2",
+          "message": "feat(colab): add local page app and isolated renderer (#1192)\n\n* feat(colab): add local page app and isolated renderer\n\nFixes #1187\n\nCo-authored-by: Codex <codex@openai.com>\n\n* fix(colab): align preview cap and chrome design\n\nMatch the colab-v1 2 MiB source bound and the approved square-corner, hard-shadow chrome. Cover the UTF-8 boundary and wait for child-frame paint in review screenshots.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* chore(colab): adopt workspace Vite+ entry points\n\nUse the merged Vite+ 1.0.0 runner and aliased core while preserving unit discovery, TypeScript checks and standalone lint behavior. Pin existing Oxlint 1.35.0 to prevent generator deduplication from upgrading lint rules.\n\nCo-authored-by: Codex <codex@openai.com>\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            ".github/components.json",
+            ".github/workflows/ci.yml",
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "extensions/tmt-colab/typescript/app/.gitignore",
+            "extensions/tmt-colab/typescript/app/.prettierrc",
+            "extensions/tmt-colab/typescript/app/README.md",
+            "extensions/tmt-colab/typescript/app/e2e/renderer.spec.ts",
+            "extensions/tmt-colab/typescript/app/index.html",
+            "extensions/tmt-colab/typescript/app/package.json",
+            "extensions/tmt-colab/typescript/app/playwright.config.ts",
+            "extensions/tmt-colab/typescript/app/src/local-pages.ts",
+            "extensions/tmt-colab/typescript/app/src/main.tsx",
+            "extensions/tmt-colab/typescript/app/src/renderer.ts",
+            "extensions/tmt-colab/typescript/app/src/router.tsx",
+            "extensions/tmt-colab/typescript/app/src/strings.ts",
+            "extensions/tmt-colab/typescript/app/src/style.css",
+            "extensions/tmt-colab/typescript/app/src/transport.ts",
+            "extensions/tmt-colab/typescript/app/test/transport.test.ts",
+            "extensions/tmt-colab/typescript/app/tsconfig.json",
+            "extensions/tmt-colab/typescript/app/vite.config.ts",
+            "extensions/tmt-colab/typescript/app/vitest.config.ts",
+            "typescript/pnpm-lock.yaml",
+            "typescript/pnpm-workspace.yaml",
+            "typescript/test/tooling/ci-scope.test.ts"
+          ]
+        },
+        {
+          "sha": "9a808d03afc7f3ea2e81008556632847605de9ad",
+          "message": "docs(site): the selected member's notebook in detail (Part of #1087) (#1240)\n\nClaude-Session: https://claude.ai/code/session_01T7qh4V1iF4MNNYPgJa22TY\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "files": ["site/src/chapters/squad.mdx"]
+        },
+        {
+          "sha": "0764ecd584382e6a368378b631e1a88a0cf70029",
+          "message": "fix(tooling): use REST for worktree cleanup PR state (#1232)\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            ".agents/skills/tmt-dev/SKILL.md",
+            "DEVELOPMENT.md",
+            "scripts/dev-worktree-remove.sh",
+            "typescript/test/tooling/dev-worktree-remove.test.ts"
+          ]
+        },
+        {
+          "sha": "b2678dbc4f9ed094578bb3817a9b4f9d6966523f",
+          "message": "feat(squad): show selected member notebooks in detail (#1229)\n\n* feat(squad): show the selected member notebook in detail\n\nRead only the visible saved identity through the existing deferred worker and generation fence. Keep eight identity notebooks with content and rendering reuse, and reject late selection or refresh results.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* test(squad): attribute parity to selected notebook detail\n\nPin the fixture to implementation f8c73805. Notebook detail adds three scrollable lines: pr-queue gains the dim overflow indicator and expanded team detail changes its count from 4 to 7. Cell styles elsewhere, hits, starts, tabs and list bytes remain equal.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* fix(squad): separate notebook content with a dim divider\n\nUse a full-width dim notebook rule instead of a bold section heading, keeping the boundary distinct from Markdown headings in NO_COLOR. Preserve one blank line before it and none after; default parity output remains equal.\n\nCo-authored-by: Codex <codex@openai.com>\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/app.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/mod.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/notes.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/refresh.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/scroll.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/view.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/view/tests/parity.json",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/view/tests/parity.rs",
+            "extensions/tmt-squad/skills/tmt-squad/SKILL.md"
+          ]
+        },
+        {
+          "sha": "928a00868217435c8a33c31e32418fac69045199",
+          "message": "fix(tooling): construct hard-link archive fixtures synchronously (#1228)\n\nFixes #1226\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            ".agents/skills/tmt-release/SKILL.md",
+            "DEVELOPMENT.md",
+            "typescript/test/tooling/native-artifact-policy.test.ts"
+          ]
+        },
+        {
+          "sha": "d4fc3107aede48e8e27166902dc8de061e29c694",
+          "message": "test(core): detect and clean up sandbox process leaks (#1225)\n\n* test(core): detect and clean up native sandbox process leaks\n\nEnclose Office storage service startup and assertions in the existing stop\nfinally. Fail sandbox disposal when a same-user process still has its cwd\ninside the fixture, verifying residency before terminating leaked processes.\nAdd a detached Office service regression and document the sandbox contract.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* test(core): keep sandbox cwd inspection within Linux permissions\n\nRemove the macOS lsof scan and skip the cwd guard outside Linux. During\nglobal discovery, skip unreadable process entries without weakening the\nfail-closed recheck of an already verified sandbox resident. Cover both\npermission boundaries and document the inspection limits.\n\nCo-authored-by: Codex <codex@openai.com>\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "typescript/test/native/office-storage.test.ts",
+            "typescript/test/native/office-uninstall.test.ts",
+            "typescript/test/support/cli-process.ts",
+            "typescript/test/tooling/cli-process.test.ts"
+          ]
+        },
+        {
+          "sha": "106a1623c3fc21c296fa6e6a6f721e6dd98882aa",
+          "message": "test(tooling): keep the disk check's absent Docker absent on hosts with Docker (#1224)\n\nThe fixture put /usr/bin:/bin after its fake tools, so on a host that has\nDocker (GitHub runners) the \"absent\" case ran the real `docker system df`\nand could exceed the 10 s spawn timeout. The fake PATH now holds only the\nfakes plus links to the two host tools the script runs (awk, dirname).\n\nFixes #1223\n\n\nClaude-Session: https://claude.ai/code/session_01Jj5NPYCW2sJrxUoNFYEgTh\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "files": ["typescript/test/tooling/dev-disk-check.test.ts"]
+        },
+        {
+          "sha": "b8fcce05bc951f2a556bef916ec9e91f77ca019e",
+          "message": "fix(claude): enable ingress before publishing readiness (#1216)\n\nMake record visibility imply admission and stop the server conversation on a publication error. Cover the visibility boundary, error cleanup and stale ownership without changing deadlines or the original server test.\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "contracts/claude-channel-v1.md",
+            "rust/crates/tmt-adapters/src/drivers/claude/channel/server.rs",
+            "rust/crates/tmt-adapters/src/drivers/claude/channel/tests.rs"
+          ]
+        },
+        {
+          "sha": "ea233f238e623d2928acce49513872ee5c779da7",
+          "message": "feat(colab): register owner browser device keys (#1213)\n\n* feat(colab): register owner browser device keys\n\nCo-authored-by: Codex <codex@openai.com>\n\n* docs(colab): point sync tunnel wiring to current issue\n\nCo-authored-by: Codex <codex@openai.com>\n\n* fix(colab): avoid writes on revocation replay\n\nCo-authored-by: Codex <codex@openai.com>\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "extensions/tmt-colab/contracts/colab-v1.md",
+            "extensions/tmt-colab/contracts/vectors/README.md",
+            "extensions/tmt-colab/contracts/vectors/authority-reference.py",
+            "extensions/tmt-colab/contracts/vectors/management-key-v1.json",
+            "extensions/tmt-colab/rust/tmt-colab/src/keyring.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/lib.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/main.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/registration.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/socket.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/store/owner.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/store/schema.rs",
+            "extensions/tmt-colab/rust/tmt-colab/tests/owner_state.rs",
+            "extensions/tmt-colab/rust/tmt-colab/tests/registration.rs"
+          ]
+        },
+        {
+          "sha": "5e62c26a07f6efd3c6a00bc07331f6cf84d4d41e",
+          "message": "fix(release): refresh queued PRs with stale notes (#1234)\n\n* fix(release): refresh queued PRs with stale notes\n\nCo-authored-by: Codex <codex@openai.com>\n\n* refactor(release): name queued notes coverage explicitly\n\nCo-authored-by: Codex <codex@openai.com>\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            ".agents/skills/tmt-release/SKILL.md",
+            ".github/workflows/release.yml",
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "typescript/scripts/release-please-queue.d.mts",
+            "typescript/scripts/release-please-queue.mjs",
+            "typescript/scripts/release-pr-safety.d.mts",
+            "typescript/scripts/release-pr-safety.mjs",
+            "typescript/test/tooling/release-pr-safety.test.ts",
+            "typescript/test/tooling/release-queue.test.ts"
+          ]
+        },
+        {
+          "sha": "b0b1f56fd748aaf03aa35113e19a0b3625c05cee",
+          "message": "test(codex): synchronize real-socket delivery fixture readiness (#1235)\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": ["rust/crates/tmt-adapters/src/drivers/codex/delivery/tests.rs"]
+        },
+        {
+          "sha": "ba59935991d6829a0d6577d75eb5fd296b8ccde1",
+          "message": "chore(main): release 5.0.0-alpha.41 (#1217)\n\nCo-authored-by: tmt-ci-bot[bot] <335817320+tmt-ci-bot[bot]@users.noreply.github.com>",
+          "files": [".release-please-manifest.json", "rust/Cargo.lock", "rust/Cargo.toml"]
+        },
+        {
+          "sha": "25df0d10f444816fde2fa9383fca9e9661bd4448",
+          "message": "test(colab): serialize decoder fixture spawns and tolerate a missing pid (#1219)\n\n* test(colab): serialize decoder fixture spawns and tolerate a missing pid\n\nTests in this binary write fixture executables while other threads fork;\nan inherited write descriptor can make exec fail with ETXTBSY on Linux.\nRun them serially. Under heavy load the one-second deadline can kill the\nwrapper before it records its pid; accept that only with a Deadline and\nConfirmed cleanup.\n\nFixes #1218\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01Xzbkp17raTpLyznLGDVwb3\n\n* test(colab): write decoder fixtures through a short-lived sh\n\nFollow the DEVELOPMENT ETXTBSY rule (case 2) instead of serializing the\nbinary: a short-lived sh writes each stand-in, so no test thread holds\nits descriptor. A missing pid is accepted only with a Deadline and\nConfirmed cleanup, in the deadline test as well.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01Xzbkp17raTpLyznLGDVwb3\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "files": ["extensions/tmt-colab/rust/tmt-colab/tests/decoder.rs"]
+        },
+        {
+          "sha": "2543f4f115feb45555413e31f2caaaed9ef2a983",
+          "message": "fix(codex): restore opt-in channel launches (#1199)\n\n* fix(codex): restore opt-in channel launches\n\nCo-authored-by: Codex <codex@openai.com>\n\n* test(codex): preserve retained enrollment delivery coverage\n\nCo-authored-by: Codex <codex@openai.com>\n\n* test(codex): reuse the retained-pane tmux trace\n\nCo-authored-by: Codex <codex@openai.com>\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "contracts/claude-channel-v1.md",
+            "contracts/codex-channel-v1.md",
+            "rust/crates/tmt-adapters/src/drivers/codex/channel.rs",
+            "rust/crates/tmt-adapters/src/drivers/codex/channel/tests.rs",
+            "site/src/chapters/drv-codex.mdx",
+            "site/src/chapters/working.mdx",
+            "skills/tmux-team/SKILL.md",
+            "typescript/test/e2e/codex-channel.e2e.test.ts"
+          ]
+        },
+        {
+          "sha": "51df1d1ee919afa0d8b6b333b354a0a99872e727",
+          "message": "Handbook: the l view picker (#1222)\n\n* docs(site): the l view picker (Part of #1088)\n\nFrom tmt-squad-lead's diff for the merged #1143, kept at user level.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01T7qh4V1iF4MNNYPgJa22TY\n\n* docs(site): L jumps to the lead in tmux only (Part of #1088)\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01T7qh4V1iF4MNNYPgJa22TY\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "files": ["site/src/chapters/squad.mdx"]
+        },
+        {
+          "sha": "b7d025cec0ae3f0a332decfe5dbfafab5d17cc71",
+          "message": "docs(site): tmt sq ls --tab for the leads and all tabs (Part of #599) (#1220)\n\nClaude-Session: https://claude.ai/code/session_01T7qh4V1iF4MNNYPgJa22TY\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "files": ["site/src/chapters/squad.mdx"]
+        },
+        {
+          "sha": "1b68d3f55bc0c76cf3fd334df42f05c8f11dab33",
+          "message": "fix(release): require notes coverage at the candidate base (#1212)\n\nReuse pinned release-please commit visibility and component attribution to reject omitted commit links, including stale notes in cumulative merge groups.\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            ".agents/skills/tmt-release/SKILL.md",
+            ".github/workflows/ci.yml",
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "typescript/scripts/release-please-commits.d.mts",
+            "typescript/scripts/release-please-commits.mjs",
+            "typescript/scripts/release-pr-safety.d.mts",
+            "typescript/scripts/release-pr-safety.mjs",
+            "typescript/test/tooling/ci-scope.test.ts",
+            "typescript/test/tooling/release-pr-safety.test.ts"
+          ]
+        },
+        {
+          "sha": "c805b6d323e100e5d10fe38730f746621c522d6f",
+          "message": "feat(remote): deliver device revoke and rename events (#1209)\n\n* feat(remote): deliver device revoke and rename events\n\nCo-authored-by: Codex <codex@openai.com>\n\n* fix(remote): reserve revocation revision and normalize event paths\n\nCo-authored-by: Codex <codex@openai.com>\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "contracts/remote-channel-v1.md",
+            "extensions/tmt-remote/rust/tmt-remote/Cargo.toml",
+            "extensions/tmt-remote/rust/tmt-remote/src/canonical.rs",
+            "extensions/tmt-remote/rust/tmt-remote/src/control.rs",
+            "extensions/tmt-remote/rust/tmt-remote/src/devices.rs",
+            "extensions/tmt-remote/rust/tmt-remote/src/main.rs",
+            "extensions/tmt-remote/rust/tmt-remote/src/mount.rs",
+            "extensions/tmt-remote/rust/tmt-remote/src/site.rs",
+            "extensions/tmt-remote/rust/tmt-remote/src/store.rs",
+            "extensions/tmt-remote/rust/tmt-remote/tests/cli.rs",
+            "extensions/tmt-remote/rust/tmt-remote/tests/mount.rs",
+            "extensions/tmt-remote/rust/tmt-remote/tests/sessions.rs",
+            "extensions/tmt-remote/rust/tmt-remote/tests/support/door.rs"
+          ]
+        },
+        {
+          "sha": "c0a642ecc9d70072bdb5d4a774a7979ffa1362b4",
+          "message": "fix(release): rerun held gates with current main tooling (#1205)\n\n* fix(release): rerun held publication gates with main tooling\n\nCo-authored-by: Codex <codex@openai.com>\n\n* docs(release): consolidate rerun authorization rule\n\nCo-authored-by: Codex <codex@openai.com>\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            ".agents/skills/tmt-release/SKILL.md",
+            ".github/workflows/native-release-bundle.yml",
+            ".github/workflows/native-release-upgrade.yml",
+            ".github/workflows/native-release.yml",
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "typescript/scripts/plan-release-builds.d.mts",
+            "typescript/scripts/plan-release-builds.mjs",
+            "typescript/scripts/publication-gates.mjs",
+            "typescript/scripts/release-upgrade.d.mts",
+            "typescript/scripts/release-upgrade.mjs",
+            "typescript/scripts/verify-native-installation.mjs",
+            "typescript/test/tooling/plan-release-builds.test.ts",
+            "typescript/test/tooling/publication-gates-script.test.ts",
+            "typescript/test/tooling/release-upgrade.test.ts",
+            "typescript/test/tooling/release-workflow.test.ts"
+          ]
+        },
+        {
+          "sha": "81e0b93284361f808130f3d98b4fd64433e6cfcf",
+          "message": "fix(colab): page catchup and reassemble bounded chunk transfers (#1208)\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "extensions/tmt-colab/contracts/colab-v1.md",
+            "extensions/tmt-colab/rust/tmt-colab/src/limits.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/store.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/sync.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/sync/wire.rs",
+            "extensions/tmt-colab/rust/tmt-colab/tests/state.rs",
+            "extensions/tmt-colab/rust/tmt-colab/tests/sync.rs"
+          ]
+        },
+        {
+          "sha": "ba7b6d232223a9d63bab9794be3d40bd049aabaa",
+          "message": "fix(core): wait for concurrent mock reply submissions (#1206)\n\nWait for both correlated submitted events before reading the mock log. Exercise the commit-before-child-close schedule with a scenario-local gated peer and preserve exact result and cleanup assertions.\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": ["typescript/test/e2e/durable-talk.e2e.test.ts"]
+        },
+        {
+          "sha": "14f2ea1e9bad0c107f5265abc6f6364a70b2a796",
+          "message": "feat(squad): share built-in tab documents with ls --tab (#1203)\n\n* refactor(squad): share tab keys outside the board\n\nMove the existing tab-key module byte-for-byte so board and list consumers can share arrangement policy.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* feat(squad): list built-in board tabs through a shared document owner\n\nPart of #599. Extract cross-squad acquisition and projection from the refresh worker, and use it for ls --tab leads/all. Preserve default board and list parity while testing exact board-versus-list documents and native dispatch.\n\nCo-authored-by: Codex <codex@openai.com>\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/mod.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/refresh.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/tabs.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/main.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/specs.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/tab_view.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/tabs.rs",
+            "extensions/tmt-squad/skills/tmt-squad/SKILL.md",
+            "typescript/test/native/squad.test.ts"
+          ]
+        },
+        {
+          "sha": "e1c835dfadf3613e75f7667ceef43a50f28793e4",
+          "message": "fix(core): honor GitHub rate-limit reset during native acquisition (#1202)\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "rust/crates/tmt-adapters/src/native_install/upgrade_tests.rs",
+            "rust/crates/tmt-adapters/src/release_http.rs",
+            "rust/crates/tmt-adapters/src/release_http_tests.rs",
+            "rust/crates/tmt-cli/src/native_upgrade_command_tests.rs"
+          ]
+        },
+        {
+          "sha": "96862fa9a643189a5b73e6cfec86cbce2bab264c",
+          "message": "test(squad): prewarm remaining deadline-bound fixtures (#1200)\n\nUse the existing payload-free readiness helper before provider and Core fixture runs, preserving execution budgets and failure assertions.\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "extensions/tmt-squad/rust/tmt-squad/src/board/changes.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/mod.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/board/refresh.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/me.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/member_actions.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/membership/tests.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/observe.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/provider/tests.rs",
+            "extensions/tmt-squad/rust/tmt-squad/src/squad.rs"
+          ]
+        },
+        {
+          "sha": "e53804ce1b77d9bfecba62b92662283289d891d4",
+          "message": "chore(tooling): adopt Vite+ workspace test and build entry points (#1135)\n\n* chore(tooling): adopt Vite+ workspace test entry points\n\nPart of #758. Preserve separate discovery, compiler steps, Python precheck, and lint/format ownership.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* chore(deps): lock Vite+ 1.0.0 in the tooling workspace\n\nPart of #758. Keep independently owned site and release tooling locks unchanged.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* chore(tooling): use Vite+ for aliased-core CLI consumers\n\nPart of #758. The aliased core has no vite executable. Switch all thirteen Office/addon build, dev and preview calls while preserving compiler steps and flags. Approved by tmt-infra-lead; lint and formatting remain separate.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* docs(tooling): update remaining test command references\n\nPart of #758. Keep layout, performance and Office conformance instructions executable with the workspace runner.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* style(office): format the Vite+ preview server commands\n\nFormat-only with the retained Oxfmt 0.67.0. Part of #758.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* fix(tooling): share Vite overrides with isolated installs\n\nKeep one override owner in the root manifest so both workspace and isolated frozen installs read the same Vite core and Vitest pins.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* chore(tooling): migrate new main tests to Vite+ imports\n\nCo-authored-by: Codex <codex@openai.com>\n\n* chore(tooling): include Colab and new main tests in Vite+ adoption\n\nPart of #758. Preserve test assertions and independent browser conformance.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* chore(deps): lock Colab Vite+ runner without a lint upgrade\n\nPart of #758. Preserve standalone Oxlint 1.35.0 using the existing workspace resolution; frozen installs and matched eight-case Colab parity pass.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* chore(tooling): include merged Colab authority and native test imports\n\nPart of #758. Preserve all assertions and updated main contracts.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* chore(tooling): migrate new release safety test and moved commands\n\nCo-authored-by: Codex <codex@openai.com>\n\n* chore(tooling): migrate merged PR title test to Vite+\n\nCo-authored-by: Codex <codex@openai.com>\n\n* chore(tooling): adopt Vite+ for the merged Remote browser build\n\nPart of #758. Preserve the library build configuration, embedded asset drift gate and pairing workflow; migrate new main test imports.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* chore(tooling): migrate merged release stall test to Vite+\n\nPart of #758. Preserve current main CI selection, fixture-only REST tests and Herdr carry-over verification.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* chore(tooling): migrate executable fixture tests to Vite+\n\nPart of #758. Preserve all merged writeExecutable imports, fixture bytes, modes and assertions.\n\nCo-authored-by: Codex <codex@openai.com>\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            ".agents/skills/tmt-layout/SKILL.md",
+            ".github/workflows/ci.yml",
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "extensions/tmt-colab/typescript/colab-client/README.md",
+            "extensions/tmt-colab/typescript/colab-client/package.json",
+            "extensions/tmt-colab/typescript/colab-client/test/authority.test.ts",
+            "extensions/tmt-colab/typescript/colab-client/test/client.test.ts",
+            "extensions/tmt-colab/typescript/colab-client/test/gate.test.ts",
+            "extensions/tmt-colab/typescript/colab-client/vitest.config.ts",
+            "extensions/tmt-office/contracts/README.md",
+            "extensions/tmt-office/docs/architecture.md",
+            "extensions/tmt-office/typescript/apps/office/package.json",
+            "extensions/tmt-office/typescript/apps/office/playwright.config.ts",
+            "extensions/tmt-office/typescript/apps/office/playwright.visual.config.ts",
+            "extensions/tmt-office/typescript/apps/office/src/auth/firebase-config.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/auth/firebase-session.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/auth/session.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/avatars/avatar-catalog.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/avatars/avatar-contract.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/blocks/block-contract.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/blocks/block-state.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/blocks/block-view.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/blocks/commons-preset.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/blocks/workshop-starter.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/extensions/extension-contract.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/extensions/extension-entry.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/extensions/external-link.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/extensions/world-binding.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/extensions/world-extension-groups.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/identities/identity-status.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/identities/use-status-clock.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/local/agent-conversation.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/local/board-contract.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/local/board-page.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/local/board-share.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/local/conversation-cue.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/local/conversation-state.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/local/dispatch-composer-state.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/local/dispatch-journal.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/local/local-dispatch.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/local/local-notebook.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/local/local-page.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/local/local-prop-catalog.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/local/local-room.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/local/local-runtime.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/local/local-whiteboard-snapshot.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/local/local-whiteboard.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/local/local-world.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/local/office-canvas.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/local/office-directory.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/local/office-population.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/local/request-history-contract.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/local/request-history-runtime.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/local/room-message.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/local/room-picker.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/local/use-agent-conversation.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/local/use-preview.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/notebooks/notebook-attachment.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/notebooks/notebook-contract.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/notebooks/notebook-view.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/office-app.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/pairing/pairing-contract.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/pairing/pairing-state.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/pairing/pairing-transport.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/pairing/pairing-view.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/profiles/avatar-art.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/profiles/avatar-layout.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/profiles/identity-checklist.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/profiles/profile-contract.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/profiles/profile-view.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/props/directional-prop.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/props/furniture-upgrades.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/props/indexed-prop.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/props/pixel-canvas.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/props/pixel-draft.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/props/pixel-workshop.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/props/prop-catalog-contract.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/props/prop-contract.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/props/prop-customization.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/props/prop-thumbnail.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/props/use-pixel-catalog.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/actor-slots.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/architecture-art.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/architecture-material.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/bridge-pulse.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/furniture-picking.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/indexed-art.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/office-geometry.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/office-scene-selection.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/platform-art.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/platform-projection.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/scene-application.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/scene-component-geometry.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/scene-components.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/scene-floor.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/scene-frames.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/scene-materials.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/scene-nameplate.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/scene-platform.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/scene-skybridge.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/scene-textures.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/scene-wall.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/selection-anchor.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/world-geometry.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/rendering/world-projection.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/spaces/firebase-spaces.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/spaces/space-state.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/spaces/space-view.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/test-setup.ts",
+            "extensions/tmt-office/typescript/apps/office/src/transport/response-body.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/whiteboard/document-contract.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/whiteboard/editor-canvas.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/whiteboard/editor-state.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/whiteboard/geometry.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/whiteboard/history.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/whiteboard/scene-contract.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/whiteboard/snapshot-contract.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/whiteboard/snapshot-reference-view.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/whiteboard/snapshot-reference.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/whiteboard/snapshot-send-state.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/whiteboard/snapshot-send.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/whiteboard/snapshot-state.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/whiteboard/use-whiteboard-panel.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/area-removal-preview.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/compact-circulation.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/compact-layout.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/floor-index.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/free-floor.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/furniture-base.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/map-contract.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/map-draft.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/meeting-creation-form.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/meeting-islands.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/meeting-module.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/meeting-preset.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/module-authoring.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/module-central-grid.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/module-map.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/module-skybridge.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/module-upgrade.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/object-base.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/object-rotation.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/office-expansion-form.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/platform-upgrade.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/unified-areas.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/use-catalog-drag.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/use-world-editor.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/world-art-library.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/world-contract.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/world-object-picker.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/world-object-placement.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/world-object-tools.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/world-yjs-document.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/world-map/world-yjs.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/worlds/create-world.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/src/worlds/world-contract.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/worlds/world-state.test.ts",
+            "extensions/tmt-office/typescript/apps/office/src/worlds/world-view.test.tsx",
+            "extensions/tmt-office/typescript/apps/office/vite.config.ts",
+            "extensions/tmt-office/typescript/services/office/Dockerfile",
+            "extensions/tmt-office/typescript/services/office/functions/package.json",
+            "extensions/tmt-office/typescript/services/office/functions/test/pairing-conformance.test.ts",
+            "extensions/tmt-office/typescript/services/office/functions/test/pairing-contract.test.ts",
+            "extensions/tmt-office/typescript/services/office/functions/test/pairing-reassignment.test.ts",
+            "extensions/tmt-office/typescript/services/office/functions/test/pairing-renewal.test.ts",
+            "extensions/tmt-office/typescript/services/office/functions/test/pairing-revocation.test.ts",
+            "extensions/tmt-office/typescript/services/office/functions/vitest.config.ts",
+            "extensions/tmt-remote/typescript/browser-addon/package.json",
+            "extensions/tmt-remote/typescript/browser-addon/src/background.test.ts",
+            "extensions/tmt-remote/typescript/browser-addon/src/intent.test.ts",
+            "extensions/tmt-remote/typescript/browser-addon/src/message.test.ts",
+            "extensions/tmt-remote/typescript/browser-addon/vite.config.ts",
+            "extensions/tmt-remote/typescript/remote-client/README.md",
+            "extensions/tmt-remote/typescript/remote-client/package.json",
+            "extensions/tmt-remote/typescript/remote-client/test/canonical-bytes.test.ts",
+            "extensions/tmt-remote/typescript/remote-client/test/device.test.ts",
+            "extensions/tmt-remote/typescript/remote-client/vitest.config.ts",
+            "typescript/package.json",
+            "typescript/pnpm-lock.yaml",
+            "typescript/test/e2e/Dockerfile",
+            "typescript/test/e2e/activity-hooks.e2e.test.ts",
+            "typescript/test/e2e/binding-reconciliation.e2e.test.ts",
+            "typescript/test/e2e/caller-context.e2e.test.ts",
+            "typescript/test/e2e/capture-limits.e2e.test.ts",
+            "typescript/test/e2e/change-cursor.e2e.test.ts",
+            "typescript/test/e2e/check-routing.e2e.test.ts",
+            "typescript/test/e2e/claude-channel.e2e.test.ts",
+            "typescript/test/e2e/claude-hooks.e2e.test.ts",
+            "typescript/test/e2e/cli-assertions.ts",
+            "typescript/test/e2e/cli-errors.e2e.test.ts",
+            "typescript/test/e2e/codex-channel.e2e.test.ts",
+            "typescript/test/e2e/codex-hooks.e2e.test.ts",
+            "typescript/test/e2e/command-options.e2e.test.ts",
+            "typescript/test/e2e/completion.e2e.test.ts",
+            "typescript/test/e2e/discovery.e2e.test.ts",
+            "typescript/test/e2e/driver-consent.e2e.test.ts",
+            "typescript/test/e2e/durable-identity.e2e.test.ts",
+            "typescript/test/e2e/durable-talk.e2e.test.ts",
+            "typescript/test/e2e/exchange-attention.e2e.test.ts",
+            "typescript/test/e2e/exchange-retention.e2e.test.ts",
+            "typescript/test/e2e/exchange-watermarks.e2e.test.ts",
+            "typescript/test/e2e/executable-selection.e2e.test.ts",
+            "typescript/test/e2e/extension-api.e2e.test.ts",
+            "typescript/test/e2e/extension-context.e2e.test.ts",
+            "typescript/test/e2e/focus.e2e.test.ts",
+            "typescript/test/e2e/grouped-session.e2e.test.ts",
+            "typescript/test/e2e/identity-context-requests.e2e.test.ts",
+            "typescript/test/e2e/identity-context.e2e.test.ts",
+            "typescript/test/e2e/identity-lifecycle.e2e.test.ts",
+            "typescript/test/e2e/identity-rename.e2e.test.ts",
+            "typescript/test/e2e/identity-retention.e2e.test.ts",
+            "typescript/test/e2e/identity-status.e2e.test.ts",
+            "typescript/test/e2e/large-session.e2e.test.ts",
+            "typescript/test/e2e/marked-binding.e2e.test.ts",
+            "typescript/test/e2e/multi-server.e2e.test.ts",
+            "typescript/test/e2e/notes-path.e2e.test.ts",
+            "typescript/test/e2e/office-command.e2e.test.ts",
+            "typescript/test/e2e/office-consent.e2e.test.ts",
+            "typescript/test/e2e/pane-badge.e2e.test.ts",
+            "typescript/test/e2e/performance-baseline.e2e.test.ts",
+            "typescript/test/e2e/preamble-lifecycle.e2e.test.ts",
+            "typescript/test/e2e/profile-binding.e2e.test.ts",
+            "typescript/test/e2e/publication-race.e2e.test.ts",
+            "typescript/test/e2e/reply-batching.e2e.test.ts",
+            "typescript/test/e2e/reply-child-lifecycle.e2e.test.ts",
+            "typescript/test/e2e/request-context.e2e.test.ts",
+            "typescript/test/e2e/request-state.e2e.test.ts",
+            "typescript/test/e2e/response-integrity.e2e.test.ts",
+            "typescript/test/e2e/retired-commands.e2e.test.ts",
+            "typescript/test/e2e/role-lifecycle.e2e.test.ts",
+            "typescript/test/e2e/rooms.e2e.test.ts",
+            "typescript/test/e2e/routing.e2e.test.ts",
+            "typescript/test/e2e/run-harness.e2e.test.ts",
+            "typescript/test/e2e/runtime-caller.e2e.test.ts",
+            "typescript/test/e2e/session-routing.e2e.test.ts",
+            "typescript/test/e2e/skill-reminder.e2e.test.ts",
+            "typescript/test/e2e/smoke.e2e.test.ts",
+            "typescript/test/e2e/squad-reminder.e2e.test.ts",
+            "typescript/test/e2e/squad.e2e.test.ts",
+            "typescript/test/e2e/talk-completion.e2e.test.ts",
+            "typescript/test/e2e/tmux-adapter.e2e.test.ts",
+            "typescript/test/e2e/tmux-trace.e2e.test.ts",
+            "typescript/test/e2e/transport-adapter.e2e.test.ts",
+            "typescript/test/e2e/transport-safety.e2e.test.ts",
+            "typescript/test/e2e/usage-hooks.e2e.test.ts",
+            "typescript/test/e2e/vitest.config.ts",
+            "typescript/test/native/answer.test.ts",
+            "typescript/test/native/api.test.ts",
+            "typescript/test/native/binding.test.ts",
+            "typescript/test/native/check.test.ts",
+            "typescript/test/native/cli.test.ts",
+            "typescript/test/native/config.test.ts",
+            "typescript/test/native/context.test.ts",
+            "typescript/test/native/discovery.test.ts",
+            "typescript/test/native/exchange.test.ts",
+            "typescript/test/native/extension-command.test.ts",
+            "typescript/test/native/extension-hooks.test.ts",
+            "typescript/test/native/extension-install.test.ts",
+            "typescript/test/native/extension-upgrade-proof.test.ts",
+            "typescript/test/native/focus.test.ts",
+            "typescript/test/native/herdr.test.ts",
+            "typescript/test/native/identity-context.test.ts",
+            "typescript/test/native/identity-status.test.ts",
+            "typescript/test/native/identity.test.ts",
+            "typescript/test/native/inbox.test.ts",
+            "typescript/test/native/installation.test.ts",
+            "typescript/test/native/legacy-extension-skills.test.ts",
+            "typescript/test/native/native-installation.test.ts",
+            "typescript/test/native/notes.test.ts",
+            "typescript/test/native/office-board.test.ts",
+            "typescript/test/native/office-extension-hooks.test.ts",
+            "typescript/test/native/office-freeze.test.ts",
+            "typescript/test/native/office-legacy-skills.test.ts",
+            "typescript/test/native/office-native-installation.test.ts",
+            "typescript/test/native/office-storage.test.ts",
+            "typescript/test/native/office-uninstall.test.ts",
+            "typescript/test/native/office-world.test.ts",
+            "typescript/test/native/profile.test.ts",
+            "typescript/test/native/reply-batching.test.ts",
+            "typescript/test/native/response.test.ts",
+            "typescript/test/native/room.test.ts",
+            "typescript/test/native/setup-guided.test.ts",
+            "typescript/test/native/setup.test.ts",
+            "typescript/test/native/skill-refresh.test.ts",
+            "typescript/test/native/squad.test.ts",
+            "typescript/test/native/storage-fixture.test.ts",
+            "typescript/test/native/storage.test.ts",
+            "typescript/test/native/talk-interruption.test.ts",
+            "typescript/test/native/talk.test.ts",
+            "typescript/test/native/tmux-tripwire.ts",
+            "typescript/test/native/uninstall.test.ts",
+            "typescript/test/native/vitest.config.ts",
+            "typescript/test/stress/office-native-installation-capacity.test.ts",
+            "typescript/test/stress/vitest.config.ts",
+            "typescript/test/support/extension-hooks.ts",
+            "typescript/test/support/native-installation.ts",
+            "typescript/test/support/native-uninstall.ts",
+            "typescript/test/tooling/apt-install.test.ts",
+            "typescript/test/tooling/architecture.test.ts",
+            "typescript/test/tooling/ci-scope.test.ts",
+            "typescript/test/tooling/cli-assertions.test.ts",
+            "typescript/test/tooling/cli-executable.test.ts",
+            "typescript/test/tooling/cli-process.test.ts",
+            "typescript/test/tooling/dev-disk-check.test.ts",
+            "typescript/test/tooling/dev-worktree-remove.test.ts",
+            "typescript/test/tooling/docker-workspace.test.ts",
+            "typescript/test/tooling/e2e-cleanup.test.ts",
+            "typescript/test/tooling/e2e-runner.test.ts",
+            "typescript/test/tooling/e2e-selection.test.ts",
+            "typescript/test/tooling/e2e-shards.test.ts",
+            "typescript/test/tooling/executable-fixture.test.ts",
+            "typescript/test/tooling/firebase-environment.test.ts",
+            "typescript/test/tooling/merge-queue-metrics.test.ts",
+            "typescript/test/tooling/migrated-state.test.ts",
+            "typescript/test/tooling/native-artifact-policy.test.ts",
+            "typescript/test/tooling/native-artifact-stdout.test.ts",
+            "typescript/test/tooling/native-bootstrap.test.ts",
+            "typescript/test/tooling/native-cargo.test.ts",
+            "typescript/test/tooling/native-release-policy.test.ts",
+            "typescript/test/tooling/native-runtime-proof.test.ts",
+            "typescript/test/tooling/office-contracts.test.ts",
+            "typescript/test/tooling/onboarding.test.ts",
+            "typescript/test/tooling/packed-command.test.ts",
+            "typescript/test/tooling/performance-contract.test.ts",
+            "typescript/test/tooling/plan-release-builds.test.ts",
+            "typescript/test/tooling/pr-title-check.test.ts",
+            "typescript/test/tooling/project-release.test.ts",
+            "typescript/test/tooling/publication-gates-script.test.ts",
+            "typescript/test/tooling/publication-gates.test.ts",
+            "typescript/test/tooling/release-draft-assets.test.ts",
+            "typescript/test/tooling/release-mode.test.ts",
+            "typescript/test/tooling/release-please-config.test.ts",
+            "typescript/test/tooling/release-pr-safety.test.ts",
+            "typescript/test/tooling/release-publish-script.test.ts",
+            "typescript/test/tooling/release-publish.test.ts",
+            "typescript/test/tooling/release-queue.test.ts",
+            "typescript/test/tooling/release-stall.test.ts",
+            "typescript/test/tooling/release-upgrade.test.ts",
+            "typescript/test/tooling/release-versions.test.ts",
+            "typescript/test/tooling/release-workflow.test.ts",
+            "typescript/test/tooling/repository-layout.test.ts",
+            "typescript/test/tooling/retry-command.test.ts",
+            "typescript/test/tooling/tmux-trace.test.ts",
+            "typescript/test/tooling/verify-public-install.test.ts",
+            "typescript/test/tooling/wait-for-file.test.ts",
+            "typescript/test/tooling/workspace-launcher.test.ts",
+            "typescript/test/tooling/workspace-version.test.ts",
+            "typescript/test/tooling/xcrun-warmup.test.ts",
+            "typescript/vitest.config.ts"
+          ]
+        },
+        {
+          "sha": "de17d944d754ff9e3e26ddbc6c7b522cb639f432",
+          "message": "test: publish executable fixtures through one isolated writer (#1154)\n\n* test: publish executable fixtures from an isolated writer\n\nAdd atomic stage/fsync/close/chmod/rename publication and regressions for descriptor closure, replacement and failure cleanup.\n\nCo-authored-by: Codex <codex@openai.com>\n\n* test: route executable fixture publications through the shared writer\n\nMigrate native, Docker E2E and tooling publishers, including synthetic installers and copied binaries. Preserve fixture contents, modes and negative cases; document the shared owner.\n\nCo-authored-by: Codex <codex@openai.com>\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "typescript/test/e2e/change-cursor.e2e.test.ts",
+            "typescript/test/e2e/claude-channel.e2e.test.ts",
+            "typescript/test/e2e/codex-channel.e2e.test.ts",
+            "typescript/test/e2e/codex-hooks.e2e.test.ts",
+            "typescript/test/e2e/completion.e2e.test.ts",
+            "typescript/test/e2e/driver-consent.e2e.test.ts",
+            "typescript/test/e2e/extension-api.e2e.test.ts",
+            "typescript/test/e2e/extension-context.e2e.test.ts",
+            "typescript/test/e2e/harness/fixture.ts",
+            "typescript/test/e2e/office-command.e2e.test.ts",
+            "typescript/test/e2e/pane-badge.e2e.test.ts",
+            "typescript/test/e2e/run-harness.e2e.test.ts",
+            "typescript/test/e2e/squad-reminder.e2e.test.ts",
+            "typescript/test/e2e/tmux-trace.ts",
+            "typescript/test/native/api.test.ts",
+            "typescript/test/native/check.test.ts",
+            "typescript/test/native/cli.test.ts",
+            "typescript/test/native/extension-command.test.ts",
+            "typescript/test/native/extension-hooks.test.ts",
+            "typescript/test/native/extension-install.test.ts",
+            "typescript/test/native/extension-upgrade-proof.test.ts",
+            "typescript/test/native/herdr.test.ts",
+            "typescript/test/native/installation.test.ts",
+            "typescript/test/native/native-installation.test.ts",
+            "typescript/test/native/office-storage.test.ts",
+            "typescript/test/native/reply-batching.test.ts",
+            "typescript/test/native/setup-guided.test.ts",
+            "typescript/test/native/setup.test.ts",
+            "typescript/test/native/squad.test.ts",
+            "typescript/test/native/talk-interruption.test.ts",
+            "typescript/test/native/tmux-tripwire.ts",
+            "typescript/test/support/cli-probe.ts",
+            "typescript/test/support/executable-fixture.d.mts",
+            "typescript/test/support/executable-fixture.mjs",
+            "typescript/test/support/native-artifact.ts",
+            "typescript/test/tooling/apt-install.test.ts",
+            "typescript/test/tooling/ci-scope.test.ts",
+            "typescript/test/tooling/cli-executable.test.ts",
+            "typescript/test/tooling/cli-process.test.ts",
+            "typescript/test/tooling/dev-disk-check.test.ts",
+            "typescript/test/tooling/dev-worktree-remove.test.ts",
+            "typescript/test/tooling/e2e-runner.test.ts",
+            "typescript/test/tooling/e2e-selection.test.ts",
+            "typescript/test/tooling/executable-fixture.test.ts",
+            "typescript/test/tooling/native-artifact-stdout.test.ts",
+            "typescript/test/tooling/native-bootstrap.test.ts",
+            "typescript/test/tooling/native-cargo.test.ts",
+            "typescript/test/tooling/native-runtime-proof.test.ts",
+            "typescript/test/tooling/onboarding.test.ts",
+            "typescript/test/tooling/packed-command.test.ts",
+            "typescript/test/tooling/pr-title-check.test.ts",
+            "typescript/test/tooling/publication-gates-script.test.ts",
+            "typescript/test/tooling/release-draft-assets.test.ts",
+            "typescript/test/tooling/release-pr-safety.test.ts",
+            "typescript/test/tooling/release-publish-script.test.ts",
+            "typescript/test/tooling/release-queue.test.ts",
+            "typescript/test/tooling/release-upgrade.test.ts",
+            "typescript/test/tooling/release-workflow.test.ts",
+            "typescript/test/tooling/retry-command.test.ts",
+            "typescript/test/tooling/tmux-trace.test.ts",
+            "typescript/test/tooling/verify-public-install.test.ts",
+            "typescript/test/tooling/workspace-launcher.test.ts"
+          ]
+        },
+        {
+          "sha": "df1f52c3854943ab43da390355e295d24feba3d3",
+          "message": "chore(main): release 5.0.0-alpha.40 (#1179)\n\nCo-authored-by: tmt-ci-bot[bot] <335817320+tmt-ci-bot[bot]@users.noreply.github.com>",
+          "files": [".release-please-manifest.json", "rust/Cargo.lock", "rust/Cargo.toml"]
+        },
+        {
+          "sha": "02d4e54c77f445fb4be2cb68989493e370a347be",
+          "message": "fix(release): isolate advisory monitor credentials and permissions (#1189)\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            ".agents/skills/tmt-release/SKILL.md",
+            ".github/workflows/release.yml",
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "typescript/scripts/release-pr-safety.d.mts",
+            "typescript/scripts/release-pr-safety.mjs",
+            "typescript/scripts/release-stall.d.mts",
+            "typescript/scripts/release-stall.mjs",
+            "typescript/test/tooling/release-pr-safety.test.ts",
+            "typescript/test/tooling/release-queue.test.ts",
+            "typescript/test/tooling/release-stall.test.ts",
+            "typescript/test/tooling/release-workflow.test.ts"
+          ]
+        },
+        {
+          "sha": "3d0f8bb071793be8d259965bc27f2a270b3d7e3f",
+          "message": "fix(office): copy the archive inventory owner into the Office image (#1188)\n\nPart of #1184\n\n\nClaude-Session: https://claude.ai/code/session_01Jj5NPYCW2sJrxUoNFYEgTh\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "files": ["extensions/tmt-office/typescript/services/office/Dockerfile"]
+        },
+        {
+          "sha": "0ccd24b05e9cfafe51bf89cb1f1d07301983bf7b",
+          "message": "fix(release): read published archives against their own manifest (#1185)\n\n#1163 made every CLI archive require tmt-driver-herdr, including\npublished ones the upgrade proofs read, so Squad alpha.12's proof failed\non CLI alpha.39. The artifact policy now reads companions as the\ninstaller does: optional in the manifest, and archived and executable\nwhen declared. selectNativeArtifact's release mode, used for the\narchive under release by every verifier and the bootstrap generator,\nstill requires every companion. Fixtures build from runtimeFiles plus\ncompanionFiles, and can build an archive from before companions.\n\nFixes #1184. Part of #1082.\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "typescript/scripts/native-artifact-policy.mjs",
+            "typescript/scripts/native-bootstrap.mjs",
+            "typescript/scripts/verify-native-artifact.mjs",
+            "typescript/scripts/verify-native-bootstrap.mjs",
+            "typescript/scripts/verify-native-extension-upgrade.mjs",
+            "typescript/scripts/verify-native-installation.mjs",
+            "typescript/test/native/extension-upgrade-proof.test.ts",
+            "typescript/test/support/native-artifact.ts",
+            "typescript/test/tooling/native-artifact-policy.test.ts",
+            "typescript/test/tooling/native-bootstrap.test.ts"
+          ]
+        },
+        {
+          "sha": "92d063414f5d687c29d5ef10604bb05d497dfb18",
+          "message": "feat(colab): serve on the owner-only socket mounted by remote (#1039 PR-F1) (#1119)\n\n* feat(colab): serve on the owner-only socket mounted by remote\n\ntmt colab serve now listens only on <dataRoot>/colab/door.sock, which the\nremote door mounts at <prefix>/x/colab/. Remote owns Host, Origin and\ncookies; colab trusts tmt-device-context because only the owner can reach\nthe socket. The relocated door's bounds and drained replies are kept; the\nTCP door, its --port option and its tests are removed.\n\nThe placeholder page reflects owner and non-owner context. An owner's\ncolab-sync-v1 upgrade is accepted (tungstenite handshake) and held, capped\nat 16 tunnels with a 120 s idle close, until sync frames exist. Only a\nstale own socket is replaced, long socket paths refuse with the path named,\nand the socket is removed on exit.\n\nPart of #1039\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n\n* fix(colab): recheck the socket directory and admit only RFC 6455 upgrades\n\nBind rechecks that the colab directory is this user's and closed to\ngroup/other, since the bind-then-chmod window relies on it. An upgrade\nneeds Sec-WebSocket-Version 13 and a key that is exactly 16 base64 bytes.\nThe tunnel idle bound counts inbound bytes only.\n\nPart of #1039\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n\n* docs(remote): use the contract's <prefix> (32 hex, under /r/) in route paths\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n\n* docs(colab): L2 verifies socket admission; Host allowlisting is remote's\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "contracts/remote-channel-v1.md",
+            "extensions/tmt-colab/contracts/colab-v1.md",
+            "extensions/tmt-colab/rust/tmt-colab/src/http.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/http_tests.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/lib.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/limits.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/main.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/socket.rs",
+            "extensions/tmt-colab/rust/tmt-colab/src/socket_tests.rs",
+            "extensions/tmt-colab/rust/tmt-colab/tests/cli.rs",
+            "extensions/tmt-colab/rust/tmt-colab/tests/door.rs",
+            "extensions/tmt-colab/rust/tmt-colab/tests/socket.rs"
+          ]
+        },
+        {
+          "sha": "4974d4ad199771900f41a890ddb125555aba58e4",
+          "message": "feat(release): report and reconcile component release stalls (#1182)\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Codex <codex@openai.com>",
+          "files": [
+            ".agents/skills/tmt-release/SKILL.md",
+            ".github/workflows/ci.yml",
+            ".github/workflows/release.yml",
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "typescript/scripts/release-pr-safety.d.mts",
+            "typescript/scripts/release-pr-safety.mjs",
+            "typescript/scripts/release-stall.d.mts",
+            "typescript/scripts/release-stall.mjs",
+            "typescript/test/tooling/ci-scope.test.ts",
+            "typescript/test/tooling/release-please-config.test.ts",
+            "typescript/test/tooling/release-pr-safety.test.ts",
+            "typescript/test/tooling/release-queue.test.ts",
+            "typescript/test/tooling/release-stall.test.ts",
+            "typescript/test/tooling/release-workflow.test.ts"
+          ]
+        },
+        {
+          "sha": "026f70daf97594df22d059d478c8c376b16b8c2b",
+          "message": "Handbook: Squad jump hosts match shipped behavior (#1181)\n\n* docs(site): squad jump hosts match shipped behavior (Part of #1082)\n\nHerdr ships as an external driver without focus-by-ID, so jump does not\nwork there and Enter opens the row's actions; cmux has no host yet. Per\ntmt-squad-lead's facts on main.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01T7qh4V1iF4MNNYPgJa22TY\n\n* docs(site): only the tmux-squad playbook ships (Part of #1082)\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01T7qh4V1iF4MNNYPgJa22TY\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "files": ["site/src/chapters/squad.mdx"]
+        },
+        {
+          "sha": "49d6874f2176c6233e216a1583ce0d206461de6e",
+          "message": "Handbook: Herdr ships as a first-party driver (#1180)\n\n* docs(site): Herdr ships as a first-party driver (Part of #1082)\n\nApplies tmt-drivers' handbook diff for the merged #1163: drivers.mdx gains\n\"Herdr: ships with tmt, approve once\", the install example moves to a\nhypothetical screen driver, and Herdr leaves the planned list; dev-driver\nsays Herdr already runs this way. The home page's Herdr chip is no longer\nlabelled planned.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01T7qh4V1iF4MNNYPgJa22TY\n\n* style(site): format dev-driver callout (Part of #1082)\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01T7qh4V1iF4MNNYPgJa22TY\n\n---------\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "files": [
+            "site/src/chapters/dev-driver.mdx",
+            "site/src/chapters/drivers.mdx",
+            "site/src/home/Hero.tsx"
+          ]
+        },
+        {
+          "sha": "dca88da473e1800e00427551f7256afc40de4c97",
+          "message": "feat(remote): mount extensions under the machine route prefix (#1115)\n\nMounts move from /x/<extension>/ to <prefix>/x/<extension>/ and the door\ncookie is scoped to <prefix>/x/, so another loopback listener cannot\nreceive it at a guessable path. The root /x/ answers 404 with no redirect,\nthe four operation routes stay disjoint from the mount space and still\nrefuse a cookie, and mounted replies keep no-referrer (or same-origin) so\npage URLs do not leak the prefix. /sdk/mount answers the new mount from the\nsame mapping, so the SDK and colab need no change.\n\nFixes #1094\n\nCo-authored-by: Ben Hsieh <benhsieh@Bens-MacBook-Pro.local>\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "files": [
+            "ARCHITECTURE.md",
+            "DEVELOPMENT.md",
+            "contracts/remote-channel-v1.md",
+            "extensions/tmt-remote/rust/tmt-remote/src/canonical.rs",
+            "extensions/tmt-remote/rust/tmt-remote/src/http.rs",
+            "extensions/tmt-remote/rust/tmt-remote/src/main.rs",
+            "extensions/tmt-remote/rust/tmt-remote/src/mount.rs",
+            "extensions/tmt-remote/rust/tmt-remote/src/pages.rs",
+            "extensions/tmt-remote/rust/tmt-remote/src/routes.rs",
+            "extensions/tmt-remote/rust/tmt-remote/src/session.rs",
+            "extensions/tmt-remote/rust/tmt-remote/src/site.rs",
+            "extensions/tmt-remote/rust/tmt-remote/tests/cli.rs",
+            "extensions/tmt-remote/rust/tmt-remote/tests/mount.rs",
+            "extensions/tmt-remote/rust/tmt-remote/tests/pages.rs",
+            "extensions/tmt-remote/rust/tmt-remote/tests/sessions.rs",
+            "extensions/tmt-remote/rust/tmt-remote/tests/support/door.rs",
+            "extensions/tmt-remote/typescript/remote-client/e2e/pairing.spec.ts"
+          ]
+        },
+        {
+          "sha": "c900601c046c361a5734af23551b054345ea4374",
+          "message": "chore(main): release tmt-squad 0.1.0-alpha.12 (#1168)\n\nCo-authored-by: tmt-ci-bot[bot] <335817320+tmt-ci-bot[bot]@users.noreply.github.com>",
+          "files": [
+            ".release-please-manifest.json",
+            "extensions/tmt-squad/rust/tmt-squad/Cargo.toml",
+            "rust/Cargo.lock"
+          ]
+        }
+      ],
+      "publishedNotes": "## [0.1.0-alpha.13](https://github.com/pj-tmt/tmt/compare/tmt-squad-v0.1.0-alpha.12...tmt-squad-v0.1.0-alpha.13) (2026-10-03)\n\n\n### Features\n\n* **squad:** share built-in tab documents with ls --tab ([#1203](https://github.com/pj-tmt/tmt/issues/1203)) ([14f2ea1](https://github.com/pj-tmt/tmt/commit/14f2ea1e9bad0c107f5265abc6f6364a70b2a796))\n* **squad:** show selected member notebooks in detail ([#1229](https://github.com/pj-tmt/tmt/issues/1229)) ([b2678db](https://github.com/pj-tmt/tmt/commit/b2678dbc4f9ed094578bb3817a9b4f9d6966523f))\n* **squad:** user-defined cross-squad board tabs ([#1231](https://github.com/pj-tmt/tmt/issues/1231)) ([3597596](https://github.com/pj-tmt/tmt/commit/35975965d447a27506b996b4e9d68f4fc7220a23))",
+      "date": "2026-10-03"
+    }
+  ]
+}

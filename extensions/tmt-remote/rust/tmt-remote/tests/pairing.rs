@@ -375,6 +375,7 @@ fn stopping_serve_cancels_a_pending_offer() {
                 origin: h.origin.clone(),
                 prefix: h.prefix.clone(),
             },
+            None,
         )
         .unwrap(),
     );

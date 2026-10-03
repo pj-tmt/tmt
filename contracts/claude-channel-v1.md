@@ -40,12 +40,23 @@ processing.
   Claude advertises false and stays opt-in; the
   [Codex contract](codex-channel-v1.md#default-launch-policy)
   owns its opt-in enrollment and exact-thread attachment.
-- Claude channel enrollment on exact resume remains unsupported pending
-  [#783](https://github.com/pj-tmt/tmt/issues/783). Both `tmt resume --channel`
-  and `tmt run --resume --channel` fail with `CHANNEL_UNSUPPORTED` before
-  enrollment writes or foreground startup, with guidance to resume without
-  `--channel`. Default keeps Claude resume plain, subject to the unchanged
-  no-paste check for retained enrollment.
+- An admitted fresh launch remembers its effective channel/plain choice for
+  that harness. Exact resume reuses it unless `--channel` or `--no-channel`
+  overrides it. After successful admission, an explicit resume flag overwrites
+  the preference: `--channel` records true only after enrollment succeeds;
+  `--no-channel` records false. A failed Required resume leaves the channel
+  preference unchanged. A flagless resume does not rewrite it.
+  Legacy records without a choice use the driver default. A remembered channel
+  resolves to Required and never silently falls back to paste. If that inherited
+  requirement fails preflight, the error suggests an explicit
+  `tmt resume --no-channel -- <name>` override; explicit `--channel` failures
+  keep their original diagnostics.
+- Claude exact resume enrolls a new launch lease while retaining the driver's
+  selected session and model arguments. It never reuses a prior enrollment.
+  Failed launches do not record a new channel choice; successful fresh launches
+  and explicit resume choices replace it, changing harness clears it, and forgetting the session
+  clears it. Retained/unknown enrollment still refuses a new launch rather than
+  permitting paste. Hooks identify the provider session; argv is not evidence.
 - A driver's preflight classifies an outcome as unavailable or informational.
   Informational advisories are shown and enrollment proceeds, including Claude's
   accepted-but-untested 2.x builds; its handshake decides readiness. Codex's
