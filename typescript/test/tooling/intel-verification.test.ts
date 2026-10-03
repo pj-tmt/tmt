@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -33,70 +34,116 @@ const read = (name: string) => readFileSync(path.join(repository, name), 'utf8')
 const wrapper = read('scripts/run-native-verification.sh');
 
 describe('target-specific verification process tree', () => {
-  it('runs the complete script with the Intel preference and stops before it for an arm64 Node', () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'intel-verification-'));
-    try {
-      const arch = path.join(root, 'arch');
-      const uname = path.join(root, 'uname');
-      writeExecutable(
-        arch,
-        '#!/bin/sh\nset -eu\nprintf "%s\\n" "$*" > "$ROOT/arch-call"\ntest "$1" = -x86_64\nshift\nexport TMT_FIXTURE_PREFERENCE=x86_64\nexec "$@"\n',
-        0o700
-      );
-      writeExecutable(uname, '#!/bin/sh\ntest "$1" = -m\nprintf x86_64\n', 0o700);
-      writeExecutable(
-        path.join(root, 'node'),
-        '#!/bin/sh\ntest "$*" = "-p process.arch"\nprintf "%s" "$NODE_ARCH"\n',
-        0o700
-      );
-      const fixture = path.join(root, 'verification.sh');
-      writeFileSync(
-        fixture,
-        wrapper.replace('/usr/bin/arch', arch).replace('/usr/bin/uname', uname)
-      );
-      const input = ': > "$ROOT/executed"\n/bin/sh -c \'printf "%s" "$TMT_FIXTURE_PREFERENCE"\'\n';
-      const body = path.join(root, 'body.bash');
-      writeFileSync(body, input);
-      const run = (architecture: string, expectedStatus: number) =>
-        runPackedCommand(
-          '/bin/sh',
-          [
-            '-c',
-            'exec /bin/sh "$1" "$2" < "$3"',
-            'verification',
-            fixture,
-            'x86_64-apple-darwin',
-            body,
-          ],
-          {
+  it.each([
+    {
+      name: 'arm64 Node',
+      nodeArch: 'arm64',
+      hostArch: 'x86_64',
+      nodeExit: '0',
+      hostExit: '0',
+      diagnostic: 'Node process.arch expected x64, got arm64',
+    },
+    {
+      name: 'arm64 uname',
+      nodeArch: 'x64',
+      hostArch: 'arm64',
+      nodeExit: '0',
+      hostExit: '0',
+      diagnostic: 'uname -m expected x86_64, got arm64',
+    },
+    {
+      name: 'failed Node probe',
+      nodeArch: 'x64',
+      hostArch: 'x86_64',
+      nodeExit: '1',
+      hostExit: '0',
+      diagnostic: 'node -p process.arch could not run',
+    },
+    {
+      name: 'failed uname probe',
+      nodeArch: 'x64',
+      hostArch: 'x86_64',
+      nodeExit: '0',
+      hostExit: '1',
+      diagnostic: 'uname -m could not run',
+    },
+  ])(
+    'names the failed $name check, stops before input and cleans up; valid Intel executes',
+    (scenario) => {
+      const root = mkdtempSync(path.join(os.tmpdir(), 'intel-verification-'));
+      try {
+        const arch = path.join(root, 'arch');
+        const uname = path.join(root, 'uname');
+        writeExecutable(
+          arch,
+          '#!/bin/sh\nset -eu\nprintf "%s\\n" "$*" > "$ROOT/arch-call"\ntest "$1" = -x86_64\nshift\nexport TMT_FIXTURE_PREFERENCE=x86_64\nexec "$@"\n',
+          0o700
+        );
+        writeExecutable(
+          uname,
+          '#!/bin/sh\ntest "$1" = -m\nprintf \'%s\' "$HOST_ARCH"\nexit "$HOST_EXIT"\n',
+          0o700
+        );
+        writeExecutable(
+          path.join(root, 'node'),
+          '#!/bin/sh\ntest "$*" = "-p process.arch"\nprintf "%s" "$NODE_ARCH"\nexit "$NODE_EXIT"\n',
+          0o700
+        );
+        const fixture = path.join(root, 'verification.sh');
+        writeFileSync(
+          fixture,
+          wrapper.replace('/usr/bin/arch', arch).replace('/usr/bin/uname', uname)
+        );
+        const input =
+          ': > "$ROOT/executed"\n/bin/sh -c \'printf "%s" "$TMT_FIXTURE_PREFERENCE"\'\n';
+        const run = (valid: boolean) =>
+          spawnSync('/bin/sh', [fixture, 'x86_64-apple-darwin'], {
             cwd: root,
-            expectedStatus,
-            timeoutMs: 5000,
+            encoding: 'utf8',
+            input,
+            timeout: 5000,
             env: {
               ROOT: root,
-              NODE_ARCH: architecture,
+              NODE_ARCH: valid ? 'x64' : scenario.nodeArch,
+              HOST_ARCH: valid ? 'x86_64' : scenario.hostArch,
+              NODE_EXIT: valid ? '0' : scenario.nodeExit,
+              HOST_EXIT: valid ? '0' : scenario.hostExit,
               PATH: `${root}:/usr/bin:/bin`,
               TMPDIR: root,
             },
-          }
+          });
+        const rejected = run(false);
+        expect(rejected.error).toBeUndefined();
+        expect(rejected.signal).toBeNull();
+        expect(rejected.status).toBe(1);
+        expect(rejected.stdout).toBe('');
+        expect(rejected.stderr).toContain(
+          `Intel verification host check failed: ${scenario.diagnostic}`
         );
-      expect(run('arm64', 1)).toBe('');
-      expect(existsSync(path.join(root, 'executed'))).toBe(false);
-      expect(
-        readdirSync(root).filter((name) => name.startsWith('tmt-native-verification.'))
-      ).toEqual([]);
-      expect(run('x64', 0)).toBe('x86_64');
-      expect(existsSync(path.join(root, 'executed'))).toBe(true);
-      expect(
-        readdirSync(root).filter((name) => name.startsWith('tmt-native-verification.'))
-      ).toEqual([]);
-      expect(readFileSync(path.join(root, 'arch-call'), 'utf8')).toContain(
-        '-x86_64 /bin/bash --noprofile --norc -euo pipefail'
-      );
-    } finally {
-      rmSync(root, { recursive: true, force: true });
+        if (scenario.name === 'arm64 Node')
+          expect(rejected.stderr).toContain(`node: ${path.join(root, 'node')}`);
+        expect(existsSync(path.join(root, 'executed'))).toBe(false);
+        expect(
+          readdirSync(root).filter((name) => name.startsWith('tmt-native-verification.'))
+        ).toEqual([]);
+        const accepted = run(true);
+        expect(accepted.error).toBeUndefined();
+        expect(accepted.signal).toBeNull();
+        expect(accepted.status).toBe(0);
+        expect(accepted.stderr).toBe('');
+        expect(accepted.stdout).toBe('x86_64');
+        expect(existsSync(path.join(root, 'executed'))).toBe(true);
+        expect(
+          readdirSync(root).filter((name) => name.startsWith('tmt-native-verification.'))
+        ).toEqual([]);
+        expect(readFileSync(path.join(root, 'arch-call'), 'utf8')).toContain(
+          '-x86_64 /bin/bash --noprofile --norc -euo pipefail'
+        );
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
     }
-  });
+  );
 
   it('retains stdin and pipe failure for other targets, and rejects a missing target', () => {
     const root = mkdtempSync(path.join(os.tmpdir(), 'native-verification-'));

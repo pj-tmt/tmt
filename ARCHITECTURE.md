@@ -1927,7 +1927,8 @@ stay unpublished and do not hold later cuts or merges.
 The release version is injected at build through the private `tmt-release-tool`:
 only the selected version declaration and implied Cargo lock entries may differ
 from the captured source. Build metadata and executable versions must agree;
-nothing is committed back to main. Main retains development versions.
+nothing is committed back to main. Main retains development versions. Workflow jobs
+own Node architecture selection; version injection preserves it.
 
 Notes, migration comparison and breaking authorization share one boundary: the
 component's newest published ancestor. Drafts and failed/running pipelines never

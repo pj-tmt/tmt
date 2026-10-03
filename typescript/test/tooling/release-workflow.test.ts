@@ -80,6 +80,56 @@ describe('release version gate workflow boundaries', () => {
     expect(processTests).toContain('git diff --exit-code HEAD --');
     expect(processTests).toContain('Synthetic alpha installation fixture debug build:');
   });
+  it('keeps caller-selected x64 Node through Intel version injection and final verification', () => {
+    const verify = job(bundle, 'verify');
+    const setup = verify.indexOf('uses: ./.github/actions/setup-tooling');
+    const injection = verify.indexOf('uses: ./.github/actions/inject-release-version');
+    const finalVerification = verify.indexOf('name: Execute final archive and bootstrap');
+    expect(setup).toBeGreaterThan(0);
+    expect(injection).toBeGreaterThan(setup);
+    expect(finalVerification).toBeGreaterThan(injection);
+    expect(verify.slice(setup, injection)).toContain(
+      "architecture: ${{ matrix.target == 'x86_64-apple-darwin' && 'x64' || '' }}"
+    );
+    const action = read('.github/actions/inject-release-version/action.yml');
+    // Node selection belongs to the caller; another setup defaults back to runner arm64.
+    expect(action).not.toMatch(/uses:.*(?:setup-node|setup-tooling)|GITHUB_PATH|export PATH=/);
+    expect(verify.slice(injection, finalVerification)).not.toMatch(
+      /uses:.*(?:setup-node|setup-tooling)/
+    );
+    expect(read('.github/actions/setup-tooling/action.yml')).toContain(
+      'architecture: ${{ inputs.architecture }}'
+    );
+  });
+  it('makes every injection caller supply pinned Node before either phase', () => {
+    const callers: string[] = [];
+    for (const file of readdirSync(path.join(repository, '.github/workflows')).filter((file) =>
+      file.endsWith('.yml')
+    )) {
+      for (const [name, block] of jobs(read(`.github/workflows/${file}`))) {
+        const injection = block.indexOf('uses: ./.github/actions/inject-release-version');
+        if (injection === -1) continue;
+        callers.push(`${file}:${name}`);
+        const before = block.slice(0, injection);
+        const setup = before
+          .split(/\n      - /)
+          .find((step) => step.includes('uses: ./.github/actions/setup-tooling'));
+        expect(setup, `${file}:${name} needs caller Node setup`).toBeDefined();
+        expect(setup, `${file}:${name} must set up Node for every product`).not.toMatch(
+          /^        if:/m
+        );
+      }
+    }
+    expect(callers.sort()).toEqual([
+      'ci.yml:native-process-tests',
+      'native-release-bundle.yml:assemble',
+      'native-release-bundle.yml:build',
+      'native-release-bundle.yml:verify',
+      'native-release-upgrade.yml:prove',
+      'release-version-injection.yml:injection',
+    ]);
+    expect(read('.github/actions/setup-tooling/action.yml')).toContain('default: 22.23.2');
+  });
   it('keeps native injection on pinned PR heads and all four hosts, with no publishing privileges', () => {
     const injection = read('.github/workflows/release-version-injection.yml');
     expect(injection).toContain('github.event.pull_request.head.sha || github.sha');
@@ -243,8 +293,8 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
     expect(run).toMatch(
       /options:\n {10}- cli\n {10}- squad\n {10}- driver-herdr\n {10}- remote\n {10}- colab/
     );
-    expect(job(bundle, 'build')).toContain(
-      "if: inputs.product == 'office' || inputs.product == 'colab'"
+    expect(job(bundle, 'build')).toMatch(
+      /- name: Set up Node.js and pnpm\n {8}uses: \.\/\.github\/actions\/setup-tooling/
     );
     const verify = job(bundle, 'verify');
     expect(verify).toContain(

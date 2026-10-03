@@ -47,7 +47,10 @@ workflow token for draft visibility, creation and native dispatch; it requires n
 release-PR App token. Normal primary review, pinned-head checks and queue protection remain required.
 
 The persistent `release-version-injection.yml` PR check proves CLI, Squad, Remote and Colab on
-four native hosts. It reuses `.github/actions/inject-release-version`, fetches
+four native hosts. Callers provide pinned Node through `setup-tooling`, selecting
+x64 for Intel verification. `.github/actions/inject-release-version` consumes that
+Node without reinstalling it or changing its architecture. The proof reuses the
+action, fetches
 locked dependencies, captures the source/version contract, proves full locked
 metadata rejects a changed-version stale lock, updates only implied entries
 offline, then verifies the source, dist plan/build and extracted binary. Tagless
