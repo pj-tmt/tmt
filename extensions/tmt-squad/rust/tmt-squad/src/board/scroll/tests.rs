@@ -121,7 +121,7 @@ fn indicator_uses_the_resolved_token_without_extra_dimming() {
             Scrolls::default().show(frame, Pane::Notes, frame.area(), lines(10), dim);
         })
         .unwrap();
-    let marker = &terminal.backend().buffer()[(17, 3)];
+    let marker = &terminal.backend().buffer()[(19, 3)];
     assert_eq!(marker.symbol(), "↓");
     assert_eq!(Some(marker.fg), dim.fg);
     assert!(!marker.modifier.contains(ratatui::style::Modifier::DIM));

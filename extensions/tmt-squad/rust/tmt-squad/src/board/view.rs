@@ -3110,7 +3110,7 @@ lines = [
         assert_eq!(screen[2][..notes_at].chars().count(), 60, "{screen:#?}");
         assert!(screen[2].starts_with("┌ rows"));
         assert!(
-            screen.iter().any(|line| line.contains("│Now")),
+            screen.iter().any(|line| line.contains("│  Now")),
             "markdown heading"
         );
         assert!(screen.iter().any(|line| line.contains("◆ auth-fix")));
