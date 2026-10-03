@@ -43,7 +43,7 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
   invalid input, read-only command entries and stale-file refusal (native edits verify shared
   staleness after reload, including the disabled no-publication path); capture normal and
   narrow states from isolated HOME/`TMUX_TEAM_HOME` and a private tmux socket. The
-  [Squad architecture](../../../../ARCHITECTURE.md#squad-extension) owns the preview and writer
+  [settings editing reference](config-and-effects.md#settings-inspection-and-editing) owns the preview and writer
   contracts.
 - Board picker regressions cover shared query/list focus, identity retention on refresh,
   consumed close, scoped preview/save/cancel and stale-file refusal; check clipped mouse maps
