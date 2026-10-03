@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { fileSnapshot, runCli, withSandbox } from '../support/cli-process.js';
+import { tree } from '../support/native-uninstall.js';
 
 describe('consented provider setup and bounded hook boundary', () => {
   it.each(['claude', 'codex'])(
@@ -187,6 +188,137 @@ describe('consented provider setup and bounded hook boundary', () => {
       expect(fs.existsSync(sandbox.database)).toBe(false);
     });
   });
+
+  it.each(['default', 'empty', 'absolute', 'relative'])(
+    'Claude %s config location preserves consent and the unselected settings',
+    async (selection) => {
+      await withSandbox(async (sandbox) => {
+        const bin = path.join(sandbox.root, 'bin');
+        fs.mkdirSync(bin);
+        fs.symlinkSync(sandbox.cli.executable, path.join(bin, 'tmt'));
+        sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
+        const defaultRoot = path.join(sandbox.home, '.claude');
+        const customRoot =
+          selection === 'relative'
+            ? path.join(fs.realpathSync(sandbox.cwd), 'custom claude')
+            : path.join(sandbox.root, 'custom claude');
+        const root = ['default', 'empty'].includes(selection) ? defaultRoot : customRoot;
+        if (selection !== 'default') {
+          sandbox.env.CLAUDE_CONFIG_DIR =
+            selection === 'empty' ? '' : selection === 'relative' ? 'custom claude' : customRoot;
+        }
+        fs.mkdirSync(defaultRoot);
+        const defaultSettings = path.join(defaultRoot, 'settings.json');
+        const original = '{\r\n  "user": 1.000e+100\r\n}\r\n';
+        fs.writeFileSync(defaultSettings, original);
+        if (root !== defaultRoot) fs.mkdirSync(root);
+        const settings = path.join(root, 'settings.json');
+        fs.writeFileSync(settings, original);
+        const before = fileSnapshot(sandbox.root);
+        const refused = await runCli(sandbox, ['setup', 'claude', '--json']);
+        expect(JSON.parse(refused.stdout).error.code).toBe('SETUP_CONSENT_REQUIRED');
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+        const applied = await runCli(sandbox, ['setup', 'claude', '--yes', '--json']);
+        expect(applied.status, applied.stderr).toBe(0);
+        const report = JSON.parse(applied.stdout);
+        expect(report.settingsPath).toBe(settings);
+        expect(path.dirname(report.backup)).toBe(path.join(root, '.tmt-setup-backups'));
+        expect(fs.readFileSync(report.backup)).toEqual(Buffer.from(original));
+        expect(fs.statSync(path.dirname(report.backup)).mode & 0o777).toBe(0o700);
+        expect(fs.statSync(report.backup).mode & 0o777).toBe(0o600);
+        expect(fs.readFileSync(settings, 'utf8')).toContain('__hook claude');
+        if (root !== defaultRoot) expect(fs.readFileSync(defaultSettings, 'utf8')).toBe(original);
+        const removed = await runCli(sandbox, ['setup', 'claude', '--remove', '--yes', '--json']);
+        expect(removed.status, removed.stderr).toBe(0);
+        expect(fs.readFileSync(settings, 'utf8')).toBe(original);
+      });
+    }
+  );
+
+  it.each(['absolute', 'relative', 'dangling'])(
+    'refuses %s Claude settings symlinks with actionable human and JSON guidance',
+    async (selection) => {
+      await withSandbox(async (sandbox) => {
+        const bin = path.join(sandbox.root, 'bin');
+        fs.mkdirSync(bin);
+        fs.symlinkSync(sandbox.cli.executable, path.join(bin, 'tmt'));
+        sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
+        const root = path.join(sandbox.home, '.claude');
+        fs.mkdirSync(root);
+        const target = path.join(root, 'target.json');
+        if (selection !== 'dangling') fs.writeFileSync(target, '{"user":true}\n');
+        const settings = path.join(root, 'settings.json');
+        const link = selection === 'absolute' ? target : 'target.json';
+        fs.symlinkSync(link, settings);
+        const before = tree(sandbox.root);
+        for (const flags of [[], ['--json']]) {
+          const result = await runCli(sandbox, ['setup', 'claude', '--yes', ...flags]);
+          expect(result.status).toBe(1);
+          const message = flags.length
+            ? JSON.parse(result.stdout).error.message
+            : result.stdout + result.stderr;
+          expect(message).toContain('symlink');
+          expect(message).toContain(settings);
+          expect(message).toContain(link);
+          expect(message).toContain('Edit the target manually');
+          expect(fs.readlinkSync(settings)).toBe(link);
+          expect(tree(sandbox.root)).toEqual(before);
+        }
+      });
+    }
+  );
+
+  it.each(['targeted', 'guided'])(
+    '%s setup publishes beyond 32 backups and warns without deleting or migrating copies',
+    async (flow) => {
+      await withSandbox(async (sandbox) => {
+        const bin = path.join(sandbox.root, 'bin');
+        fs.mkdirSync(bin);
+        fs.symlinkSync(sandbox.cli.executable, path.join(bin, 'tmt'));
+        writeExecutable(path.join(bin, 'claude'), '#!/bin/sh\nexit 0\n', 0o755);
+        sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
+        const root = path.join(sandbox.home, '.claude');
+        fs.mkdirSync(root);
+        const settings = path.join(root, 'settings.json');
+        const original = '{"user":true}\n';
+        fs.writeFileSync(settings, original);
+        const legacy = path.join(root, 'settings.tmt-backup-legacy.json');
+        fs.writeFileSync(legacy, 'legacy bytes');
+        const backups = path.join(root, '.tmt-setup-backups');
+        fs.mkdirSync(backups, { mode: 0o700 });
+        for (let index = 0; index < 32; index++) {
+          fs.writeFileSync(
+            path.join(backups, `settings.tmt-backup-${index}.json`),
+            `retained ${index}`
+          );
+        }
+        const args = flow === 'guided' ? ['setup'] : ['setup', 'claude'];
+        const applied = await runCli(sandbox, [...args, '--yes', '--json']);
+        expect(applied.status, applied.stderr).toBe(0);
+        const report = JSON.parse(applied.stdout);
+        expect(report.warnings).toHaveLength(1);
+        expect(report.warnings[0]).toContain(backups);
+        expect(report.warnings[0]).toContain('manually remove only');
+        expect(fs.readFileSync(settings, 'utf8')).toContain('__hook claude');
+        const newBackup = fs
+          .readdirSync(backups)
+          .filter((name) => !/^settings\.tmt-backup-\d+\.json$/.test(name));
+        expect(newBackup).toHaveLength(1);
+        expect(fs.readFileSync(path.join(backups, newBackup[0]!))).toEqual(Buffer.from(original));
+        const rerun = await runCli(sandbox, [...args, '--yes']);
+        expect(rerun.status, rerun.stderr).toBe(0);
+        expect(rerun.stdout).toContain('More than 32 settings backups');
+        expect(rerun.stdout).toContain(backups);
+        expect(fs.readdirSync(backups)).toHaveLength(33);
+        expect(fs.readFileSync(legacy, 'utf8')).toBe('legacy bytes');
+        for (let index = 0; index < 32; index++) {
+          expect(
+            fs.readFileSync(path.join(backups, `settings.tmt-backup-${index}.json`), 'utf8')
+          ).toBe(`retained ${index}`);
+        }
+      });
+    }
+  );
 
   it('silently ignores a valid hook with no resolvable caller pane', async () => {
     await withSandbox(async (sandbox) => {

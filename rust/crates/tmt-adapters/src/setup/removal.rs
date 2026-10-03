@@ -59,8 +59,8 @@ pub fn plan_hook_removal(
         };
         let before = match read_settings(&settings) {
             Ok(before) => before,
-            Err(_) => {
-                steps.push(keep("the settings file could not be read"));
+            Err(error) => {
+                steps.push(keep(&error.to_string()));
                 continue;
             }
         };
