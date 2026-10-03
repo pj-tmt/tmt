@@ -200,6 +200,17 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
                     ),
                 ]));
             }
+            if let Some(description) = &entry.description {
+                for line in super::notes::wrap(
+                    &escape(description),
+                    row_width.saturating_sub(key_width + 2).max(1),
+                ) {
+                    lines.push(Line::from(vec![
+                        Span::raw(" ".repeat(key_width + 4)),
+                        Span::styled(line, look.role(Role::Muted)),
+                    ]));
+                }
+            }
         }
     }
     let count = lines.len();

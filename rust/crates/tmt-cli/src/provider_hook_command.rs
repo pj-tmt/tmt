@@ -414,7 +414,7 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
             }
             if event.starting() {
                 let mut preferences = records.session_preferences(&binding.identity_id)?;
-                preferences.preferred_harness = Some(harness.clone());
+                preferences.launched(&harness);
                 preferences.remember(harness.clone(), mode.clone(), event.session().clone());
                 // Only this starting event's reported fields update driver
                 // state; `remember` kept the same driver's previous state.

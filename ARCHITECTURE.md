@@ -940,7 +940,8 @@ clipped hits. No terminal acquisition, clock, settings persistence, markdown or
 provider acquisition lives in this leaf. Components implement the
 [full-screen interaction guideline](design/cli-style.md#full-screen-interaction);
 application-owned descriptions and effective bindings supply their text. List/table
-and picker components and Squad's overlay migrations remain subsequent #1465 work.
+and picker components and Squad's remaining overlay migrations remain subsequent
+#1465 work; Squad help uses the modal, scroll and key-help components.
 Squad is the sole reviewed product edge, through a normal dependency. Its row
 compiler binds already projected display values into bounded admitted cells,
 without acquiring or formatting sources. Occurrence IDs contain tab, authored
@@ -1417,7 +1418,7 @@ provider session and runtime incarnation match the caller, and recheck the
 binding/preferences after callbacks before handing context to the provider.
 They neither admit a session nor replay the SessionStart identity preamble.
 Setup includes one synchronous prompt-submit entry in its consented plan;
-existing SessionStart and opt-in Stop behavior retain their owners.
+existing SessionStart and Stop behavior retain their owners.
 
 With no consent file or no enabled observer, a command performs at most one read
 attempt of the consent file, on its first storage open, and spawns nothing;
@@ -1644,6 +1645,19 @@ from a host's or driver's text.
   matching what `ProcessIncarnation` accepts.
 - **Cursor:** the bindings cursor update trigger compares the column.
 
+Schema 45 adds nullable `identity_session_preferences.channel`, the effective
+channel/plain choice for the preferred harness, recorded by an admitted fresh
+launch or an explicit channel flag on an admitted resume.
+Legacy null keeps the driver's default. Exact resume reuses the matching
+harness preference, with true resolved as Required (never a paste fallback)
+and false as Disabled. Explicit resume flags overwrite the preference after
+successful admission: `--channel` records true only after enrollment succeeds,
+and `--no-channel` records false. A flagless resume does not rewrite the choice,
+including legacy null. Failed launches do not record a new channel choice; changing
+harness clears it, and forgetting the session clears it. Hook observations
+preserve it for the same harness. The existing preferences transaction and
+change-cursor trigger own persistence; no channel lease or endpoint is reused.
+
 Schema 43 adds `identities.auto_named`, a private boolean defaulting to false.
 Only an unnamed registered-runtime launch inserts true, independently of temporary
 or saved lifetime. No name pattern or user-editable metadata grants this provenance.
@@ -1674,6 +1688,12 @@ model (`claude --resume <id> --model <m>`, `codex resume -m <m> <id>`, following
 each CLI's recorded usage) only when the document is readable and the slug is a
 safe single argv value. Otherwise it resumes with the provider's default.
 
+A launched Claude process can be admitted before its first provider session is
+known. Its first resumed SessionStart may attach that session only when the
+same process is Running, has a launch owner and has no provider session yet.
+Known-session switches still require the preliminary continuation transition;
+ended or conflicting incarnations cannot use this first-session path.
+
 Main-turn activity (#656) comes from TMT's own UserPromptSubmit/Stop command
 hooks as installed by `tmt setup`. Claude runs these synchronously: admitted
 transitions commit inside the hook call, before it returns. Ordering relies on
@@ -1697,11 +1717,24 @@ main-turn event, not all background tasks. Runtime uncertainty is unknown;
 ended requires a conclusive core process observation. Timestamps are accepted
 observation times, never inferred from silence, usage, terminal text or probes.
 The state clock has no stalled threshold. Storage-only identity output does not
-assert activity liveness. The Stop entry remains opt-in through `setup --usage`;
-without it, no end event can be recorded.
+assert activity liveness. The Stop entry is included in consented setup by default; `--no-usage`
+disables it. Without it, no end event can be recorded.
 
-Context usage (#519) is opt-in: `tmt setup --usage` adds a TMT `Stop` hook next
-to the lifecycle hooks, and `--no-usage` removes only that entry. A turn end is not
+Context usage (#519) and consumption are included in the same consented
+`tmt setup` plan as lifecycle hooks. `--no-usage` removes the TMT `Stop` entry
+and records the disabled choice; `--usage` explicitly enables it again.
+The existing setup record owns the optional per-driver/settings-path `usage`
+boolean. New unrecorded installations default on. Legacy records without the
+field preserve the installed Stop state: absence could reflect an old explicit
+opt-out and cannot safely be distinguished from omission. Successful setup
+records the resolved choice; full hook removal forgets it. Invalid records stop
+setup before settings publication. Settings and record publication remain
+separate: a record failure reports the already-applied settings and a retry.
+`tmt setup [provider] --status` reads settings without consent, record adoption,
+provider execution or database access. Setup and status report disabled
+collection with the exact `tmt setup <provider> --usage` command. Consent names
+context usage, consumption and activity, and explains the transcript read.
+A turn end is not
 a session transition. The worker verifies the caller exactly as for a lifecycle
 event, and writes only when the binding's current conversation is the
 remembered one the event names. It replaces the remembered state in one
@@ -3045,8 +3078,7 @@ Native executable installation is a different owner under
 
 Core's fixed `native_install::Product` policy owns package identity, inventory,
 installation namespace and command links for the CLI and the official extensions
-(Office, and Squad with its two links `tmt-squad` and `tmt-sq`). It has no
-filesystem or network effects, and archive data never adds a product. The hidden
+(Office, Squad with its two links `tmt-squad` and `tmt-sq`, Remote with `tmt-remote`, and Colab with `tmt-colab`). It has no filesystem or network effects, and archive data never adds a product. The hidden
 offline installer accepts an explicit product (CLI by default), and every product
 uses the same acquisition, receipt and atomic publication path. Each extension's
 command links, lock and current release are independent of the CLI's; existing
@@ -3056,8 +3088,8 @@ path also serves public Office installation. `office_command` owns consent and
 typed composition, not a second downloader. Default Office prefix is the user's
 `.local`, independent of application configuration; `--prefix` selects another
 owned installation. Public distribution and pairing remain separate gates.
-GitHub selection discovers matching refs under CLI `v`, Office `tmt-office-v`
-and Squad `tmt-squad-v` independently, rather than scanning repository-wide
+GitHub selection discovers matching refs under CLI `v`, Office `tmt-office-v`,
+Squad `tmt-squad-v`, Remote `tmt-remote-v` and Colab `tmt-colab-v` independently, rather than scanning repository-wide
 release history. Complete bounded ref discovery precedes core channel filtering
 and semantic-version precedence selection. Exact-tag release lookups skip only
 confirmed missing releases or explicit drafts and stop at the highest published
@@ -3080,9 +3112,10 @@ hosts never receive it. Discovery and installation policy remain with their
 existing owners. The generated shell bootstrap downloads fixed-version assets
 without API discovery and retains its unauthenticated download policy.
 
-Downloaded bytes feed the same bounded artifact verifier directly; there is no
-extra download-to-disk/read-back stage. Publication runs the caller's release
-verifier on the written candidate before its receipt, so a rejection keeps the
+Downloaded bytes feed the shared bounded artifact verifier. CLI self-upgrade
+then stages verified bytes for the candidate-owned handoff described below;
+extension installation retains direct in-process verification and publication.
+Publication runs the caller's release verifier on the written candidate before its receipt, so a rejection keeps the
 previous release current. A product whose row requires a verifier (Office) is
 refused without one before anything is written. Office callers pass the bounded
 versioned probe from `tmt-office-command`; core's installers (`tmt extension`
@@ -3093,7 +3126,9 @@ of every command link, refuses a foreign same-named command, and deactivates the
 links without deleting releases or application data. It is recoverable, not a multi-file atomic deletion:
 a missing command link with a retained activation is reported by `extension ls`
 as `partiallyRemoved` with an exact removal command, and explicit uninstall
-can finish that state. Listing this state does not execute or mutate it.
+can finish that state. Listing this state does not execute or mutate it. Root `tmt uninstall` derives
+its product removal order from `Product::ALL`, keeping extensions before the
+running CLI; adding an official product cannot omit it from that cleanup.
 
 `tmt extension install|upgrade|rm|ls` (`tmt-cli::extension_install_command`)
 is the public surface for the official extensions over this path. Its facade
@@ -3101,8 +3136,15 @@ retains dispatch, consent, errors, interruption, rendering and uninstall; privat
 `extension_install_command/` modules own install, repair, list/upgrade and skills
 settlement through the existing native-installer and owned-skill adapters. The names
 come from the fixed product table, never from PATH or archive data. Installable
-eligibility is separate from historical product recognition: Office is frozen,
-so install and explicit extension upgrade refuse before consent or acquisition.
+eligibility is separate from historical product recognition and publication:
+Squad, Remote and Colab are installable; registering a product does not create a
+published archive. Without a published Remote or Colab release in the selected channel, install
+returns `EXTENSION_RELEASE_UNAVAILABLE`, names the unavailable channel and leaves
+the installation unchanged. Complete discovery marks that absence with
+`release::ReleaseUnavailable`; missing files, assets or finalization failures
+after selection remain installation errors. Invalid archive bytes remain
+verification failures.
+Office is frozen, so install and explicit extension upgrade refuse before consent or acquisition.
 Root upgrade skips Office without inspecting its installation. Listing omits an
 absent Office, marks an existing or partially removed Office as frozen, and never
 looks up an Office upgrade, even with `--check`. Historical receipts and Office
@@ -3118,7 +3160,7 @@ guard before entering the Office handler, retaining one frozen rule and message.
 The facade's status and removal operations keep their Office-specific flow.
 
 An extension's agent skills belong to one owner named after it (`squad`,
-`office`) in the owned-skill registry (`skill_installation::owned`). After
+`office`, `remote`, `colab`) in the owned-skill registry (`skill_installation::owned`). After
 activation, `native_install::release_skills` re-reads the release's skills tree
 under the installation lock and checks every byte against the receipt; a damaged
 tree publishes nothing. `install --skills` publishes the whole tree; a terminal
@@ -3149,8 +3191,35 @@ companion as optional, so a release from before it existed still verifies:
   inspection re-verifies it. A file without a recorded digest, a recorded
   digest without the file, a changed file or a lost execute bit fails closed.
 
-The running tmt verifies and publishes an upgrade, so readers learn a
-companion one published release before any archive carries it.
+CLI self-upgrade separates transport safety from installation policy. The running
+binary checks immutable release metadata, product/tag/target identity, manifest
+and archive digests, and bounded archive safety before executing any candidate.
+The shared decoder admits only canonical relative paths, regular files and their
+containing directories, rejects links, duplicate/conflicting paths and special
+permissions, and bounds compressed bytes, expanded bytes and entry count. It does
+not use the running binary's file or companion inventory for this handoff.
+The complete verified tree is materialized in a private invocation-owned directory.
+Executing this candidate before activation has the same trust as installing that
+verified release; SHA-256 does not protect against a compromised release origin.
+
+The candidate's `__native-install` entry point owns strict inventory, companion
+policy, receipt creation and the existing atomic publisher. The
+[versioned handoff contract](contracts/native-install-handoff-v1.md) owns
+probe, request, report, unsupported-candidate diagnostics and bounds. The candidate
+revalidates the staged bytes and checks the expected receipt under the existing
+installation lock. Acquisition and the parent process hold no installation lock
+across the child. The parent validates the selected release and paths without
+interpreting the candidate's receipt inventory. The process runner owns deadlines
+and reaping;
+the invocation owns staging cleanup. Pre-activation failures preserve the previous
+release. Reported post-activation failures retain the active-installation result;
+a missing completed report is uncertain and asks the user to inspect before retrying.
+
+Root upgrade updates the CLI first and lets that CLI judge extension inventories
+and run the existing consented extension phase. Extensions do not implement the
+CLI installer handoff. Core registers each product's files before that product
+publishes them; the supporting CLI release must reach users first.
+
 `native_install::active_companion` names a companion of the running, active
 CLI release and its receipt digest by reading only the receipt, cheap enough
 for every command; whoever runs the companion checks its bytes.
@@ -3198,6 +3267,8 @@ stays at 16 KiB.
 
 `native_upgrade_command` upgrades the CLI and refreshes its managed skills before
 asking the newly installed executable to upgrade installed official products.
+Managed-skill refresh acquires and validates the active installation in that new
+executable, so the old reader never revalidates a newer receipt inventory.
 The bounded hidden `__native-upgrade-extensions --json --plan` command supplies
 pending versions; the parent owns one terminal consent question and sends that
 exact plan on stdin to the new executable with `--yes`. It validates the bounded
@@ -3236,6 +3307,16 @@ execution candidate; no automatic retention cleanup is implemented. A healthy
 repair is a no-op. Local receipts remain installation evidence, not signatures;
 repair does not claim protection from a hostile same-UID writer. Provider skill
 refresh remains with the existing verified-tree/skill-owner composition.
+
+Remote and Colab use the same `dist-manifest.json` selection and `receipt.json`
+format under independent `lib/tmt-remote` and `lib/tmt-colab` namespaces. Neither
+carries a companion or agent-skills tree today or requires an Office handshake.
+Colab's settled package contract embeds its app in `tmt-colab`; #1421 owns that
+build-time embedding, so the installer admits no separate app directory.
+Installation, extension removal and upgrade never execute either `serve` command
+or open their private `<dataRoot>/remote/` or `<dataRoot>/colab/` state. Each
+extension owns its explicit foreground lifecycle. Cargo-dist packaging and
+release publication are separate extension/infra responsibilities.
 
 The active executable is the authority for a managed update. Installer receipts
 are anchored to the installation prefix/current executable, not to
@@ -3565,6 +3646,20 @@ board refresh; close/reopen reads later configuration. It remains read-only.
 Aggregate tabs expose fixed grids and global appearance without squad providers.
 CLI `config show` without scope inspects board defaults; `--squad` and `--tab`
 are exclusive.
+
+`board::help` projects navigation, effective bindings and meter explanations into
+shared `tmt-tui::components::KeyHelp` sections. `Action::description` owns binding
+wording for help and settings; settings retain their literal JSON value and source
+separately from presentation prose. Meter input retains observed roster names,
+including the lead and members omitted from displayed rows, for excluded labels.
+The admitted help surface uses body placement and shared opaque modal chrome,
+one all-section key column, wrapping and a fixed inside footer. Shared key-help
+heading and spacing properties let help select bold text and one blank line
+between sections without changing the theme palette. Its caller-owned
+scroll and focus state routes keys and mouse before board actions; close is
+consumed, Ctrl-C quits, and base cursors and scrolls remain with their existing
+owners. Refresh replaces help data and clamps the shared viewport without
+performing reads or actions in paint.
 
 `config::edit` owns the shared settings edit policy and disposable validated
 Config draft. `sq config set KEY VALUE` accepts only layout preset, flat split
@@ -4026,6 +4121,11 @@ publication metadata. Its only production dependency is the neutral `tmt-invoke`
 Its developer-only `release-version` example owns the release TOML tool described
 [below](#release-cut-shadow), with exact untargeted `serde_json`/`toml_edit` dev edges;
 these dependencies cannot enter the library or become production/build edges.
+Its separate `colab-runtime-fixture` example is the reviewed native stand-in
+for archive and public-install verifier sensitivity. Embedded tiny app bytes and
+argument-selected defects belong to this executable, with scenario assertions in
+tooling tests. Its `signal-hook` dev-dependency owns fixture SIGTERM cleanup; the
+library's production dependency boundary and publication helper are unchanged.
 Owner-local test modules retain readiness, scenario assertions and case-3 retries.
 
 The CLI's `tests/support` module owns the isolated environment and
@@ -4209,6 +4309,25 @@ release cut (#1399) activates both for its first standalone release. The retaine
 the component existed. No Herdr package or cutoff is added to release-please.
 CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
+
+Colab's native release wiring is prepared but parked (`release: false`, Cargo
+`dist = false`). The builder owns frozen Vite build orchestration and passes a
+stable absolute `TMT_COLAB_APP_DIR` to the Colab-owned build-time embedding
+boundary (#1421). The release-only Cargo wrapper refuses Colab compilation without
+its embedding input. One executable carries the app; its four-file archive has no
+sibling app tree. Vite notices follow target-filtered Rust notices. Core owns the
+product/archive registration (#1423), now implemented. Activation requires a
+published supporting CLI alpha and actual-archive acceptance.
+The shared `colab-runtime-proof.mjs` verifies relocated socket serving, exact
+independent app bytes for archives, representative app delivery for public smoke,
+combined notices and child/socket cleanup with no frontend runtime tooling.
+Cleanup requires direct process exit and confirmed process-group absence before
+removing isolated state; an exiting-group signal denial alone cannot establish cleanup.
+Only Colab verification loads this app proof; other products keep the existing
+minimal native-verifier image dependency closure.
+Its Rust example with a tiny embedded app proves guard sensitivity;
+it does not establish release-artifact acceptance. Expected Vite files are moved
+away from the checkout fallback before the final archive executes.
 
 The artifact builder resolves the taffy-only offline clarification before
 cargo-about runs. `rust/about.toml` owns the clarification's
@@ -4490,8 +4609,9 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 
 ## Remote extension pilot
 
-`extensions/tmt-remote/rust/tmt-remote` is a local-build-only executable reached
-as `tmt remote`. `main` owns style/foreground composition and two bounded
+`extensions/tmt-remote/rust/tmt-remote` is a separate executable reached as
+`tmt remote`. Core registers official installer support; the current binary
+remains source-only until packaging and publication pass their separate gates. `main` owns style/foreground composition and two bounded
 startup calls: capabilities and `storage.root`. `core::CoreClient` owns fixed public `api`/`ls`
 subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
 `rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf. Request-carried launch options preserve environment inheritance by default or explicitly clear it and copy only named allowlisted caller variables, preserving OS-string bytes and leaving the caller environment unchanged. This policy is configured through the existing invocation entry point; it supplies no memory sandbox or resource-limit guarantee. `LaunchOptions::process_group` defaults to `New`, preserving owned group creation/termination. Explicit `InheritCaller` omits group creation; a started failure detaches and returns `Cleanup::CallerOwned` without signalling or waiting for cleanup. Pre-start failures remain `NotStarted`. The caller must supervise that group. Squad's context wrapper retains its live group-leader check and whole-group abort on a started failure; capture/deadlines/caps remain invoke-owned. Ordinary Squad, Remote and Colab calls use `New`. The shared 20 ms `PULSE` bounds stop-flag observation latency; each wait is also bounded by the remaining request deadline.
@@ -4732,8 +4852,9 @@ pairing or backends. Pairing/authentication/log/SDK behavior remains proposed un
 its implementation slices land; the `canonical` and `remote-client` builders below
 follow the channel contract's device enrollment, receipt-proof and fingerprint rules.
 `firestore` and `cloudflare` are not permitted until their edge admission and
-encryption profile are specified. Core never owns a listener or remote state. Official
-product/release registration is deferred. Its private component owner excludes
+encryption profile are specified. Core never owns a listener or remote state. Core recognizes Remote as an
+official installation product; archive publication and cargo-dist activation
+remain separate gates. Its private component owner excludes
 remote versions from real-product releases; cargo-dist excludes this pilot binary.
 For shell ownership, see the [browser add-on shell](#browser-add-on-shell).
 
@@ -4767,32 +4888,33 @@ browser with a real `tmt remote serve` and checks the cookie, the forwarded
 device context, both certificate purposes and silent session reopening, then verifies that
 revocation removes owner context and refuses reopening while retained signatures remain valid.
 
-The separately owned #1055 E acceptance feature uses E2EFixture through `harness.ts`.
-Its proposed `remote-device` peer is test-only, pinned to independent Python/WebCrypto
+The #1055 acceptance suite uses E2EFixture through `harness.ts`.
+Its `remote-device` peer is test-only, pinned to independent Python/WebCrypto
 vectors and imports no SDK. `remote-owner` consumes fixture coordinates and owns selected
 real core/Remote binaries, isolated HOME/XDG/private tmux, HTTP and joined process teardown.
 Its transparent test-only `TMT_EXECUTABLE` wrapper forwards exact argv/stdin/actual output;
 grants may be seeded only in Remote's database after serve and owned core children stop,
 never in core storage. Integrated acceptance is limited to #1055's six bullets plus one
-permitted/refused read scenario, and remains pending the separate E PR and booked Docker
-verification.
+permitted/refused read scenario.
 
 ## Colab extension proposal
 
 **Status: persistence, foreground socket executable, isolated decoder and model foundation implemented;
-mounted owner stream sync and owner-browser registration are implemented;
+mounted owner stream sync, owner-browser registration and read-only reader sessions are implemented;
 the owner-local epoch engine is implemented; the browser page preview runs on a local adapter; backend work remains proposed.** The local-build-only pilot lives under
 `extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
 owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
 bridge policy and acceptance gates. The #828 design owns product/UI choices;
-#829/#830 are bounded spike evidence. The executable is local-build-only; no deployment or official release is registered.
+#829/#830 are bounded spike evidence. Core registers Colab with the shared native installer; the executable remains
+source-only until packaging and publication pass their separate
+gates. No deployment or official archive publication is claimed.
 The [channel boundary](extensions/tmt-colab/contracts/colab-v1.md#channel-boundary) marks which colab-v1 sections move to remote, stay or retire.
 
 Current executable dependencies are `tmt-invoke`, `tmt-cli-style`, the pure
 `tmt-colab-model` space-ID derivation and reviewed workspace pins. The model owns
 canonical bytes/codecs/crypto without I/O or core access. The
 executable owns CLI composition, foreground door, SQLite/files and keyring;
-the browser build is loaded at foreground startup; the bridge remains proposed. Core access is only through the absolute invoking
+the browser build is embedded when `TMT_COLAB_APP_DIR` selects validated build output; otherwise a local build may load checkout output at foreground startup. Published artifacts must embed the built app. The bridge remains proposed. Core access is only through the absolute invoking
 `$TMT_EXECUTABLE api` and documented JSON commands via the invoke leaf; no
 `tmt-core`, `tmt-adapters`, Office or Remote behavior dependencies, core SQLite
 or pane scraping. Shared crypto extraction requires actual consumers and review.
@@ -4970,8 +5092,9 @@ inventories. Embedded builds survive relocation without a checkout, Node, pnpm o
 sibling assets; adopting new embedded output requires rebuilding the binary.
 There is no installer payload or data-root change. Shared packaging/notices and
 release activation remain infra-owned under #1418. It accepts a `colab-sync-v1`
-WebSocket upgrade only with an active registered owner context, version 13 and a well-formed
-16-byte key, computing the accept value with the workspace `tungstenite`
+WebSocket upgrade with an active registered owner context or a single-use
+read-only reader ticket. Both require version 13 and a well-formed 16-byte key,
+computing the accept value with the workspace `tungstenite`
 handshake, then drives the shared sync server (16 tunnels at most, closed after
 120 s without inbound bytes). The worker preserves HTTP read-ahead and drives
 sync acquisition/write deadlines even without input. Shutdown closes
@@ -5125,7 +5248,7 @@ machine-readable CLI errors.
 shared mutex. The mounted registration endpoint verifies both remote-owned
 extension-key certificates against the full forwarded owner context before any
 signing. Remote alone owns Host/Origin, pairing, cookies and live grant admission;
-colab adds no cookie/session credential. The existing owner transaction owns
+owner registration adds no cookie/session credential. The existing owner transaction owns
 revision-1 management-member genesis. Purpose-separated local management keys
 stay in Keyring; a separate device transaction serializes pinned-member admission,
 certificate signing, binding and exact response persistence without advancing the
@@ -5165,8 +5288,8 @@ or generates caller-selected baselines, cuts, wraps or epoch keys. Caller-held l
 seeds are transient local inputs and require encryption to the owner before relay
 transport. Member/link/epoch and page-policy actions use the same owner runner;
 loopback publication is selected by this trusted socket composition.
-Exact DTOs, limits and failure codes live in colab-v1. Public CLI commands,
-browser controls and reader admission are separately tracked by #1307, #1308 and #1310.
+Exact DTOs, limits and failure codes live in colab-v1. Browser management controls
+remain separately tracked by #1308.
 
 `cli_grammar` and `cli_management` compose root-local management commands in the
 executable: v1 includes ls/show, audience mode and viewer-link management only.
@@ -5249,6 +5372,25 @@ Subsequent live edits never change an open bundle. Blocked bindings disable and
 close the panel; archived export remains deferred with the current admission
 policy. The renderer's handshake and source injection remain unchanged.
 
+### Reader admission
+
+`readers::Sessions` owns at most 64 ephemeral challenges/tickets/active readers
+inside Registration, using an injected server clock. Public readers are page-
+and epoch-scoped anonymous capabilities; link readers prove possession of a
+log-bound certified key and persist only their device projection in the existing
+transaction. No reader principal is an owner device or writer. The subprotocol
+carrier remains Colab-owned; Remote's Route mounting contract owns its forwarding.
+Token hashes use the existing constant-time model HMAC verifier for confirmation;
+only the public sync protocol is selected. Disconnect/restart releases capabilities.
+Admission rechecks policy and expiry even before hello, rejects every publication
+operation, and chooses only link wraps or no wraps for public readers. Archived
+owner pages also deny publication while preserving reads. The same
+sync lock fences owner transitions and pending reader delivery. Readers add no
+Remote pairing, management, agent grant, migration or dependency. Real mounted
+reader tests cover narrowing, Reset/removal, rotation, archive/delete, revocation
+and expiry; the generic duplex transport seam proves blocked delivery is discarded.
+Browser reader UI remains separate work.
+
 ### Stream sync transport
 
 `sync::Server` owns opaque append admission and bounded live subscriber queues
@@ -5279,7 +5421,7 @@ The #1166 extension remains in this same transport owner. Store owns scoped
 transactional namespace/cursor reads and refuses unknown or pruned cursors;
 receipts survive pruning. Admission supplies the verified retained owner head
 through `Store::owner_head` and an optional scoped baseline descriptor. Baseline production and scoped persistence/retrieval belong to the owner-local epoch engine; remote admission/composition remain caller-owned. Catchup pins its retained head and pages exact membership envelopes from the
-client's verified revision before device/member wraps and stream objects. Owner
+client's verified revision before caller-admitted wraps and stream objects. Owner
 root discovery, scoped author-chain reads and retained-epoch wrap reads stay in
 Store's existing owner snapshots; no new schema or secret export is introduced.
 Mounted read-only session/pages endpoints expose forwarded owner identity and
@@ -5308,9 +5450,10 @@ the existing append transaction. Outbound objects reserve queue entries and emit
 one frame per turn from immutable shared bytes. Revocation/drop clears partial
 state and pending transfer bytes; clients verify reassembled data before applying.
 The exact grammar/budgets live in colab-v1, with timers and socket workers still
-caller-owned. The foreground socket composes `registration::OwnerAdmission`
-with a Store connection and this shared Server. Upgrade verifies remote binding
-and the registered chain. Rechecks read a durable owner/device/issuer/epoch snapshot
+caller-owned. The foreground socket composes `registration::OwnerAdmission`, including the
+read-only session owner, with a Store connection and this shared Server. Upgrade verifies
+remote owner binding and the registered chain or consumes a scoped reader ticket.
+Rechecks read a durable owner/device/issuer/epoch snapshot
 without writer reservation or repeated signatures; Append additionally fences the
 membership revision and namespace and supplies the registered signing key. The
 pinned management member represents the owner across local pages. Catchup uses

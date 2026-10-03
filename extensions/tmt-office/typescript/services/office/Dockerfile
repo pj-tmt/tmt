@@ -72,11 +72,14 @@ COPY extensions/tmt-colab/contracts extensions/tmt-colab/contracts
 COPY --from=browser-tests-base /workspace/target/office-spa /workspace/target/office-spa
 ENV TMT_OFFICE_SPA_DIR=/workspace/target/office-spa
 RUN cd rust && cargo +1.97.0 build --locked --workspace --release --features tmt-office/local-service \
-  && target/release/tmt-office __tmt-office-service 1 asset-probe
+  && target/release/tmt-office __tmt-office-service 1 asset-probe \
+  && cargo +1.97.0 build --locked --release -p tmt-adapters --example runtime-caller-fixture
 
 FROM browser-tests-base AS browser-tests
 COPY --from=native-office --chown=node:node /workspace/rust/target/release/tmt /workspace/rust/target/debug/tmt
 COPY --from=native-office --chown=node:node /workspace/rust/target/release/tmt-office /workspace/rust/target/debug/tmt-office
+# test/support/cli-process launches native scenarios through this neutral caller fixture.
+COPY --from=native-office --chown=node:node /workspace/rust/target/release/examples/runtime-caller-fixture /workspace/rust/target/debug/examples/runtime-caller-fixture
 CMD ["sh", "/workspace/extensions/tmt-office/typescript/services/office/with-test-keyring.sh", "firebase", "emulators:exec", "--only", "auth,firestore,functions", "--project", "demo-tmt-office", "--config", "/workspace/extensions/tmt-office/typescript/services/office/firebase.json", "--non-interactive", "pnpm --filter @tmt/office test:browser"]
 
 # Keep the existing default build and compose behavior lightweight.

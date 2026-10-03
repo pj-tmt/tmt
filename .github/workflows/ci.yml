@@ -355,6 +355,9 @@ jobs:
         working-directory: rust
         run: |
           cargo build --locked -p tmt-squad
+          extension_started=$SECONDS
+          cargo build --locked -p tmt-remote -p tmt-colab --bins
+          echo "Built Remote/Colab process fixtures in $((SECONDS - extension_started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
           cargo build --locked --example storage-probe --example runtime-caller-fixture
           cargo build --locked --release -p tmt-cli -p tmt-driver-herdr --bins
       - name: Build Squad process fixtures
@@ -362,6 +365,10 @@ jobs:
         working-directory: rust
         run: |
           cargo build --locked -p tmt-squad
+          extension_started=$SECONDS
+          cargo build --locked -p tmt-remote -p tmt-colab --bins
+          echo "Built Remote/Colab process fixtures in $((SECONDS - extension_started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
+          cargo build --locked -p tmt-adapters --example runtime-caller-fixture
           cargo build --locked --release -p tmt-cli -p tmt-driver-herdr --bins
       - name: Download the verified Office companion
         if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_office == 'true'
@@ -507,7 +514,7 @@ jobs:
         # The deleted TypeScript source coverage denominator is not Rust coverage.
         # Rust unit/process contracts and Docker remain independent required gates.
         run: |
-          chmod +x ../rust/target/debug/tmt ../rust/target/debug/tmt-driver-herdr
+          chmod +x ../rust/target/debug/tmt ../rust/target/debug/tmt-driver-herdr ../rust/target/debug/examples/colab-runtime-fixture
           chmod +x ../rust/target/debug/examples/runtime-caller-fixture
           pnpm test:run
 
@@ -640,6 +647,11 @@ jobs:
         working-directory: rust
         run: |
           cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "tmt-cli"))' > target/${{ matrix.target }}/release/version.txt
+      - name: Build the native Colab verifier fixture
+        working-directory: rust
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '11.0'
+        run: cargo build --locked --release --target '${{ matrix.target }}' -p tmt-test-support --example colab-runtime-fixture
       - name: Share the same executable with matching runtime environments
         uses: actions/upload-artifact@v4
         with:
@@ -647,6 +659,7 @@ jobs:
           path: |
             rust/target/${{ matrix.target }}/release/tmt
             rust/target/${{ matrix.target }}/release/tmt-driver-herdr
+            rust/target/${{ matrix.target }}/release/examples/colab-runtime-fixture
             rust/target/${{ matrix.target }}/release/version.txt
           if-no-files-found: error
           retention-days: 1

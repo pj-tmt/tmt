@@ -202,7 +202,7 @@ pub(super) fn settings(
     };
     let turn_end = match usage {
         _ if removing => Action::Remove,
-        UsageHook::Install => Action::Ensure,
+        UsageHook::Default | UsageHook::Install => Action::Ensure,
         UsageHook::Remove => Action::Remove,
         UsageHook::Keep if has_owned_hook(provider, text, USAGE) => Action::Ensure,
         UsageHook::Keep => Action::Skip,

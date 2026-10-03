@@ -97,7 +97,13 @@
     },
     "tmt-remote": {
       "owns": ["extensions/tmt-remote/rust"],
-      "release": false
+      "release": false,
+      "selectedBy": [
+        "typescript/test/e2e/remote-operations.e2e.test.ts",
+        "typescript/test/e2e/remote-recovery.e2e.test.ts",
+        "typescript/test/support/remote-device.ts",
+        "typescript/test/support/remote-owner.ts"
+      ]
     },
     "driver-herdr": {
       "package": "tmt-driver-herdr",

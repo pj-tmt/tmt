@@ -16,6 +16,15 @@ do not grant an input-readiness lease or prove request completion.
 
 ## Default launch policy
 
+Exact resume reuses the matching harness's remembered channel/plain choice from
+its last admitted fresh launch or explicit resume choice. Explicit `--channel`
+and `--no-channel` overwrite it after successful admission. Required enrollment
+must succeed before true is recorded; a failed Required resume leaves the
+preference unchanged. A flagless resume preserves it, including legacy absent
+preferences, which retain the driver default. A remembered channel is Required and keeps all readiness, exact-thread
+and no-paste refusal rules; it is never a fallback-to-plain suggestion. Each
+resume establishes a fresh enrollment for the selected thread.
+
 The [shared launcher policy](claude-channel-v1.md#opt-in-and-the-launch-lease)
 selects one mode for both `tmt run` (including `--resume`) and
 `tmt resume`: Default when neither flag is present, Disabled for `--no-channel`,

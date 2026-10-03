@@ -69,6 +69,7 @@ fn plan(
     global: &std::path::Path,
     usage: UsageHook,
 ) -> Result<Plan, Failure> {
+    let recorded = record::read(global).map_err(failure)?;
     let detections = drivers.detect(env);
     let mut core: Vec<(&'static DriverDefinition, SkillTarget)> = Vec::new();
     let mut roots: Vec<PathBuf> = Vec::new();
@@ -96,6 +97,7 @@ fn plan(
             .map_err(failure)?
             .to_path_buf();
         let before = setup::read_settings(&path).map_err(failure)?;
+        let usage = record::usage_policy(&recorded, driver.name(), &path, usage);
         hooks.push(
             setup::plan(
                 driver,
@@ -221,6 +223,9 @@ fn present(output: &mut impl Write, terminal: Terminal, plan: &Plan) -> std::io:
         });
     }
     list::write(output, terminal, &sections)?;
+    for hooks in plan.hooks.iter().filter(|hooks| !hooks.usage) {
+        writeln!(output, "{}", super::collection_off(hooks.provider))?;
+    }
     if plan.hook_changes().any(|hooks| hooks.usage) {
         writeln!(output, "{USAGE_NOTE}")?;
     }
@@ -260,10 +265,7 @@ fn document(plan: &Plan, applied: bool, skipped: &[PathBuf]) -> serde_json::Valu
                 "provider": hooks.provider, "current": !hooks.change.changed(),
                 "settingsPath": hooks.change.path, "launcher": hooks.launcher
             });
-            // Additive: present only while the usage hook is installed.
-            if hooks.usage {
-                integration["usage"] = json!(true);
-            }
+            super::collection_document(&mut integration, hooks.provider, hooks.usage);
             integration
         }).collect::<Vec<_>>(),
         "agents": plan.detections.iter().map(|(driver, detection)| json!({"name": driver.name(), "state": state(detection)})).collect::<Vec<_>>(),
@@ -396,6 +398,7 @@ fn apply(
                 driver: hooks.provider.to_owned(),
                 settings: hooks.change.path.clone(),
                 launcher: hooks.launcher.clone(),
+                usage: Some(hooks.usage),
             },
         )
         .map_err(failure)?;
@@ -426,6 +429,7 @@ fn adopt(plan: &Plan, global: &std::path::Path) -> Result<(), Failure> {
                 driver: hooks.provider.to_owned(),
                 settings: hooks.change.path.clone(),
                 launcher: hooks.launcher.clone(),
+                usage: Some(hooks.usage),
             },
         )
         .map_err(failure)?;

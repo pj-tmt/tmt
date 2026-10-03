@@ -7,18 +7,30 @@ if [ "${1:-}" = --notices-only ]; then
   shift
 fi
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
-  printf '%s\n' 'Usage: scripts/build-native-artifact.sh [--notices-only] <cargo-dist target> [cli|office|squad|driver-herdr]' >&2
+  printf '%s\n' 'Usage: scripts/build-native-artifact.sh [--notices-only] <cargo-dist target> [cli|office|squad|driver-herdr|colab]' >&2
   exit 2
 fi
 target=$1
 product=${2:-cli}
-case "$product" in cli|office|squad|driver-herdr) ;; *) printf '%s\n' 'Unknown native product.' >&2; exit 2 ;; esac
+case "$product" in cli|office|squad|driver-herdr|colab) ;; *) printf '%s\n' 'Unknown native product.' >&2; exit 2 ;; esac
 repo=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 if [ "$product" = office ]; then
   cd "$repo/typescript"
   corepack pnpm office:build:local 1>&2
   TMT_OFFICE_SPA_DIR="$repo/target/office-spa"
   export TMT_OFFICE_SPA_DIR
+fi
+if [ "$product" = colab ]; then
+  cd "$repo/typescript"
+  corepack pnpm@10.33.0 install --frozen-lockfile --ignore-scripts 1>&2
+  corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build 1>&2
+  TMT_COLAB_APP_DIR="$repo/extensions/tmt-colab/typescript/app/dist"
+  export TMT_COLAB_APP_DIR
+  # The complete Vite output stays in place until native compilation finishes.
+  # build.rs validates the inventory; packaging never accepts the local fallback.
+  test -s "$TMT_COLAB_APP_DIR/index.html"
+  test -d "$TMT_COLAB_APP_DIR/assets"
+  test -s "$TMT_COLAB_APP_DIR/THIRD-PARTY-NOTICES.txt"
 fi
 cd "$repo/rust"
 # Resolve the repository toolchain before cargo-dist discovers the generic root
@@ -36,6 +48,8 @@ TMT_NATIVE_REAL_CARGO=${TMT_NATIVE_REAL_CARGO:-$(command -v cargo)}
 export TMT_NATIVE_REAL_CARGO
 CARGO="$repo/scripts/native-cargo.sh"
 export CARGO
+TMT_NATIVE_PRODUCT=$product
+export TMT_NATIVE_PRODUCT
 if [ "$notices_only" = false ]; then
   package_id=$(cargo pkgid --locked -p "tmt-$product")
   # Cargo emits either #version or #name@version for a resolved package ID.
@@ -99,6 +113,9 @@ if [ "$product" = office ]; then
   # Vite owns the inventory of dependencies actually included in the SPA bundle.
   test -s "$TMT_OFFICE_SPA_DIR/THIRD-PARTY-NOTICES.txt"
   cat "$TMT_OFFICE_SPA_DIR/THIRD-PARTY-NOTICES.txt" >> target/native-notices/THIRD-PARTY-NOTICES.txt
+fi
+if [ "$product" = colab ]; then
+  cat "$TMT_COLAB_APP_DIR/THIRD-PARTY-NOTICES.txt" >> target/native-notices/THIRD-PARTY-NOTICES.txt
 fi
 
 if [ "$notices_only" = true ]; then exit 0; fi

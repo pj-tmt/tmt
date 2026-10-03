@@ -7,6 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
+import { colabFixtureBinary } from '../support/colab-runtime-fixture.js';
+import { verifyColabApp } from '../../scripts/colab-runtime-proof.mjs';
 import {
   installerUrl,
   renderSmokeSummary,
@@ -62,7 +64,15 @@ interface Fake {
   installerStatus?: number;
   withoutBinary?: boolean;
   /** An extension: whether the CLI has `tmt extension`, what it installs and lists, and whether it links the CLI. */
-  extension?: { command?: boolean; installs?: string; reports?: string; link?: boolean };
+  extension?: {
+    command?: boolean;
+    installs?: string;
+    reports?: string;
+    link?: boolean;
+    product?: string;
+    binary?: string;
+    notices?: string;
+  };
 }
 
 /** The text of an installer that creates a fake `tmt` in the prefix, as the real one does. */
@@ -115,16 +125,25 @@ case "$*" in
     ${fake.upgradeCause ? `if [ "$count" -lt ${fake.upgradeFailures ?? 10} ]; then printf '%s' '${JSON.stringify({ error: { code: fake.upgradeCode ?? 'NATIVE_UPGRADE_FAILED', message: 'Native upgrade failed', cause: fake.upgradeCause } })}'; ${fake.upgradeStderr ? `echo '${fake.upgradeStderr}' >&2;` : ''} exit 1; fi` : ''}
     ${fake.upgradeAfterStderr ? `echo '${fake.upgradeAfterStderr}' >&2; exit 1` : ''}
     ${!fake.upgradeCause && fake.upgradeStderr ? `printf '%s' '${fake.upgradeStdout ?? ''}'; echo '${fake.upgradeStderr}' >&2; exit 1` : `printf '%s' '${JSON.stringify(upgrade)}' | sed "s#@EXE@#$exe#"`} ;;
-  "extension install squad "*)
+  api) printf '{"dataRoot":"%s"}' "$TMUX_TEAM_HOME" ;;
+  "extension install ${extension.product ?? 'squad'} "*)
     ${requireToken}
     count=$(cat "$HOME/extension-count" 2>/dev/null || echo 0); echo $((count + 1)) > "$HOME/extension-count"
     ${fake.extensionCause ? `if [ "$count" -lt ${fake.extensionFailures ?? 10} ]; then printf '%s' '${JSON.stringify({ error: { code: 'EXTENSION_INSTALL_FAILED', message: fake.extensionCause + ' Inspect with: tmt extension ls', cause: fake.extensionCause } })}'; exit 1; fi` : ''}
     ${extension.command === false ? 'echo "error: unrecognized subcommand \'extension\'" >&2; exit 2' : 'true'}
     prefix=$(echo "$*" | sed 's/.*--prefix //')
     mkdir -p "$prefix/lib" ${extension.link ? '"$prefix/bin" && : > "$prefix/bin/tmt"' : ''}
-    printf '{"extension":"squad","installed":true,"changed":true,"version":"%s"}' '${extension.installs ?? '0.1.0-alpha.4'}' ;;
+    ${
+      extension.binary
+        ? `mkdir -p "$prefix/lib/tmt-colab/releases/fixture" "$prefix/bin"
+    cp ${shellQuote(extension.binary)} "$prefix/lib/tmt-colab/releases/fixture/tmt-colab"
+    printf '%s' ${shellQuote(extension.notices ?? 'Rust attribution\nTiny app attribution\n')} > "$prefix/lib/tmt-colab/releases/fixture/THIRD-PARTY-NOTICES.txt"
+    ln -s ../lib/tmt-colab/releases/fixture/tmt-colab "$prefix/bin/tmt-colab"`
+        : ''
+    }
+    printf '{"extension":"${extension.product ?? 'squad'}","installed":true,"changed":true,"version":"%s"}' '${extension.installs ?? '0.1.0-alpha.4'}' ;;
   "extension list --json --prefix "*)
-    printf '{"extensions":[{"name":"office","installed":false},{"name":"squad","installed":true,"version":"%s"}]}' '${extension.reports ?? extension.installs ?? '0.1.0-alpha.4'}' ;;
+    printf '{"extensions":[{"name":"office","installed":false},{"name":"${extension.product ?? 'squad'}","installed":true,"version":"%s"}]}' '${extension.reports ?? extension.installs ?? '0.1.0-alpha.4'}' ;;
   "driver "*) ${fake.driverExecutable ? `exec ${shellQuote(fake.driverExecutable)} "$@"` : 'exit 9'} ;;
   *) echo "unexpected: $*" >&2; exit 9 ;;
 esac
@@ -149,6 +168,7 @@ function run(
     download?: (url: string, maximum: number) => Promise<Uint8Array>;
     target?: string;
     architectures?: string[];
+    colabVariant?: string;
   } = {}
 ) {
   const root = path.join(base, `run-${(counter += 1)}`);
@@ -188,6 +208,8 @@ function run(
         });
       },
       githubToken: options.githubToken,
+      verifyColab: (input) =>
+        verifyColabApp({ ...input, args: ['--fixture-variant', options.colabVariant ?? 'valid'] }),
       ...(options.download ? { download: options.download } : {}),
       ...(options.systemPath ? { systemPath: options.systemPath } : {}),
       fetch: async (url: string) => {
@@ -610,6 +632,69 @@ describe('the public installer smoke of an extension release', () => {
     const wrong = run({}, { ...options, architectures: ['x86_64', 'arm64'] });
     expect((await wrong.results).at(-1)).toMatchObject({ check: 'squad install', ok: false });
     expect((await wrong.results).at(-1)?.reason).toContain('exactly x86_64');
+  });
+});
+
+describe('public Colab embedded app smoke', () => {
+  it('keeps authenticated acquisition separate from the relocated app process', async () => {
+    const githubToken = 'fixture-colab-acquisition-secret';
+    const attempt = run(
+      {
+        tokenDigest: createHash('sha256').update(githubToken).digest('hex'),
+        extension: {
+          product: 'colab',
+          binary: colabFixtureBinary(base),
+          installs: '0.1.0-alpha.1',
+        },
+      },
+      { product: 'colab', tag: 'tmt-colab-v0.1.0-alpha.1', githubToken }
+    );
+    const results = await attempt.results;
+    // Acquisition requires the credential; the native app fixture refuses it at runtime.
+    expect(failed(results)).toEqual([]);
+    expect(results.at(-1)).toMatchObject({ check: 'colab embedded app', ok: true });
+    expect(JSON.stringify(results)).not.toContain(githubToken);
+  });
+
+  it.each([
+    ['valid', true],
+    ['PLACEHOLDER', false],
+    ['STARTUP_FAILURE', false],
+    ['LEAK_SOCKET', false],
+  ])('checks an installed native %s fixture after install/list', async (variant, ok) => {
+    const binary = colabFixtureBinary(base);
+    const attempt = run(
+      { extension: { product: 'colab', binary, installs: '0.1.0-alpha.1' } },
+      { product: 'colab', tag: 'tmt-colab-v0.1.0-alpha.1', colabVariant: variant }
+    );
+    const results = await attempt.results;
+    expect(results.slice(0, -1).every((result) => result.ok)).toBe(true);
+    expect(results.at(-1)).toMatchObject({ check: 'colab embedded app', ok });
+    if (!ok)
+      expect(results.at(-1)?.reason).toMatch(
+        /placeholder|COLAB_APP_UNAVAILABLE|clean up its socket/
+      );
+  });
+
+  it('rejects an installed artifact whose notices omit the frontend', async () => {
+    const attempt = run(
+      {
+        extension: {
+          product: 'colab',
+          binary: colabFixtureBinary(base),
+          installs: '0.1.0-alpha.1',
+          notices: 'Rust attribution\n',
+        },
+      },
+      { product: 'colab', tag: 'tmt-colab-v0.1.0-alpha.1' }
+    );
+    expect((await attempt.results).at(-1)).toMatchObject({
+      check: 'colab embedded app',
+      ok: false,
+    });
+    expect((await attempt.results).at(-1)?.reason).toContain(
+      'combined notices omit Rust or frontend'
+    );
   });
 });
 

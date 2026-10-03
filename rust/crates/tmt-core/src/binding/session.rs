@@ -106,6 +106,9 @@ impl RuntimeMode {
 /// Keeping them does not assert that the referenced runtime still exists.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SessionPreferences {
+    /// Effective channel policy of the last fresh launch or explicit resume choice.
+    /// Only admitted launches record a choice; legacy records have no preference.
+    pub channel: Option<bool>,
     pub preferred_harness: Option<HarnessId>,
     pub remembered: Option<RememberedSession>,
 }
@@ -180,6 +183,9 @@ impl SessionPreferences {
     /// A confirmed launch under a runtime driver becomes the preferred harness,
     /// and a session remembered by a different driver is dropped with its state.
     pub fn launched(&mut self, harness: &HarnessId) {
+        if self.preferred_harness.as_ref() != Some(harness) {
+            self.channel = None;
+        }
         self.preferred_harness = Some(harness.clone());
         if self
             .remembered
@@ -455,6 +461,7 @@ mod tests {
     #[test]
     fn provider_metadata_does_not_implicitly_claim_a_running_agent() {
         let preferences = SessionPreferences {
+            channel: None,
             preferred_harness: Some(HarnessId::new("codex").unwrap()),
             remembered: Some(RememberedSession {
                 harness: HarnessId::new("codex").unwrap(),

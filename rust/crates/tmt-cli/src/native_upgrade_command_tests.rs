@@ -14,6 +14,7 @@ impl CommandRunner for Runner {
             request.args,
             &[
                 std::ffi::OsString::from("__native-refresh-skills"),
+                "--managed".into(),
                 "--json".into()
             ]
         );

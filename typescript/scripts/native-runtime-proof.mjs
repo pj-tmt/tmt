@@ -212,6 +212,8 @@ export async function verifyNativeRuntime({
   product = 'cli',
   herdrDriver,
   herdrVersion,
+  colabApp,
+  notices,
   matchingHostMessage = `${subject} requires a matching native host`,
 }) {
   assert(fs.statSync(executable).isFile(), `${subject} must be a regular file`);
@@ -233,7 +235,7 @@ export async function verifyNativeRuntime({
 
     const run = (args) => runPackedCommand(executable, args, { cwd, env });
     assert(
-      ['cli', 'office', 'squad', 'driver-herdr'].includes(product),
+      ['cli', 'office', 'squad', 'driver-herdr', 'colab'].includes(product),
       'Unknown native runtime product'
     );
     const proveHerdr = (driver, expectedVersion) => {
@@ -255,6 +257,13 @@ export async function verifyNativeRuntime({
       assert(!fs.existsSync(xdg), 'Driver probe must not initialize config state');
       assert.deepEqual(fs.readdirSync(home), [], 'Driver probe must not create home state');
       assert.deepEqual(fs.readdirSync(cwd), [], 'Driver probe must not create workspace state');
+      return;
+    }
+    if (product === 'colab') {
+      assert(colabApp, 'Colab archive proof requires independent expected app bytes');
+      // Other products retain the minimal verifier image's existing dependency closure.
+      const { verifyColabApp } = await import('./colab-runtime-proof.mjs');
+      await verifyColabApp({ executable, version, expectedApp: colabApp, notices });
       return;
     }
     if (product === 'squad') {

@@ -10,8 +10,8 @@
 import { appendFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { isReleased, parseComponentMap } from './ci-scope.mjs';
-import { productOfTag } from './native-release-policy.mjs';
+import { parseComponentMap } from './ci-scope.mjs';
+import { isProductReleased, productOfTag } from './native-release-policy.mjs';
 
 /** Uploaded last, after every verify job passed: a draft that has it carries a complete bundle. */
 export const BUNDLE_ASSET = 'release-publication.json';
@@ -224,7 +224,7 @@ function main(argv, stdin) {
     retry: values.retry,
     hold: values.hold,
     rerun: values.rerun,
-    released: isReleased(map, values.product),
+    released: isProductReleased(map, values.product),
   });
   const summary = renderPlanSummary({
     product: values.product,

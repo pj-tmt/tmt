@@ -95,3 +95,42 @@ pub fn execute(
     }
     Ok(0)
 }
+
+/// The version is admitted by the typed grammar before reading input or writing.
+pub fn handoff(probe: bool, mode: OutputMode) -> io::Result<u8> {
+    if !mode.json {
+        return Failure::new(
+            "NATIVE_INSTALL_FAILED",
+            "Installer handoff requires --json.",
+            1,
+        )
+        .publish(mode);
+    }
+    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
+    if probe {
+        writeln!(stdout, "{}", native_install::handoff::probe())?;
+        return Ok(0);
+    }
+    let input = match tmt_adapters::response_input::read_stdin_bounded(
+        std::time::Duration::from_secs(5),
+        native_install::handoff::LIMIT,
+    ) {
+        Ok(input) => input,
+        Err(error) => {
+            return Failure::new("NATIVE_INSTALL_FAILED", error.to_string(), 1).publish(mode);
+        }
+    };
+    let interrupt = tmt_adapters::interrupt::Interrupt::install()?;
+    let (report, failed) = native_install::handoff::install(input.as_bytes(), || {
+        if interrupt.is_interrupted() {
+            Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "Native installation interrupted before activation.",
+            ))
+        } else {
+            Ok(())
+        }
+    });
+    writeln!(stdout, "{report}")?;
+    Ok(u8::from(failed))
+}

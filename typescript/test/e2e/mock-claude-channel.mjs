@@ -151,4 +151,47 @@ setInterval(() => {
     process.exit(0);
   }
 }, 50);
-log({ event: 'started' });
+log({ event: 'started', args });
+
+// Opt-in lifecycle scenario: the native parent is the real observed runtime.
+// Wait for its admission, then emit the provider's resumed-start payload.
+if (process.env.MOCK_SESSION_ID) {
+  const deadline = Date.now() + 10_000;
+  const attach = async () => {
+    for (;;) {
+      const database = new Database(process.env.MOCK_DB, { readonly: true });
+      const bound = database
+        .prepare('SELECT runtime_state FROM bindings WHERE runtime_pid = ?')
+        .get(process.ppid);
+      database.close();
+      if (bound?.runtime_state === 'running') break;
+      if (Date.now() >= deadline) throw new Error('native fixture runtime was not admitted');
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    const payload = {
+      hook_event_name: 'SessionStart',
+      source: 'resume',
+      session_id: process.env.MOCK_SESSION_ID,
+      model: 'model-a',
+    };
+    await new Promise((resolve, reject) => {
+      const child = execFile(
+        peer.executable,
+        [...peer.args, '__hook', 'claude'],
+        { env: process.env },
+        (error, stdout, stderr) => {
+          if (error || stderr) reject(error ?? new Error(stderr));
+          else {
+            log({ event: 'hook-recorded', stdout });
+            resolve();
+          }
+        }
+      );
+      child.stdin.end(JSON.stringify(payload));
+    });
+  };
+  attach().catch((error) => {
+    log({ event: 'hook-error', message: error.message });
+    process.exitCode = 1;
+  });
+}

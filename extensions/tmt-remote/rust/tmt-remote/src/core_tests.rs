@@ -308,3 +308,55 @@ fn existing_invoke_preserves_explicit_lease_after_owner_crash() {
         fs::remove_file(fixture.0.join("pid")).unwrap();
     }
 }
+
+#[test]
+fn check_resolves_permitted_uuid_by_public_inventory_and_preserves_capture() {
+    let id = "11111111-1111-4111-8111-111111111111";
+    let stop = AtomicBool::new(false);
+    for (name, lines) in [("Current", None), ("Renamed", Some(10))] {
+        let directory = json!({"identities":[{"id":id,"name":name,"canonicalName":name.to_lowercase(),"lifetime":"saved"}]});
+        let capture = json!({"target":name,"pane":"%9","lines":lines.unwrap_or(20),"output":"actual capture\n","identity":{"name":name,"canonicalName":name.to_lowercase()}});
+        let fixture = Fixture::new(&format!(
+            "printf '%s\\n' \"$*\" >> calls; cat > input; case \"$1\" in identity) printf '%s' '{directory}';; check) printf '%s' '{capture}';; *) exit 9;; esac"
+        ));
+        assert_eq!(fixture.client().check(id, lines, &stop).unwrap(), capture);
+        let suffix = if lines.is_some() { " --lines 10" } else { "" };
+        assert_eq!(
+            fs::read_to_string(fixture.0.join("calls")).unwrap(),
+            format!("identity list --json\ncheck {name} --json{suffix}\n")
+        );
+        assert!(fs::read(fixture.0.join("input")).unwrap().is_empty());
+    }
+}
+
+#[test]
+fn check_never_captures_absent_retired_or_ambiguous_identity() {
+    let id = "11111111-1111-4111-8111-111111111111";
+    let row = json!({"id":id,"name":"Current","canonicalName":"current"});
+    // Public inventory omits retired rows. A reused name has a different UUID.
+    let reused = json!({"id":"22222222-2222-4222-8222-222222222222","name":"Current","canonicalName":"current"});
+    for rows in [
+        json!([]),
+        json!([reused.clone()]),
+        json!([row.clone(), row.clone()]),
+        json!([row, reused]),
+    ] {
+        let directory = json!({"identities":rows});
+        let fixture = Fixture::new(&format!(
+            "printf '%s\\n' \"$*\" >> calls; cat > input; if [ \"$1\" != identity ]; then touch captured; fi; printf '%s' '{directory}'"
+        ));
+        assert_eq!(
+            fixture
+                .client()
+                .check(id, None, &AtomicBool::new(false))
+                .unwrap_err()
+                .code,
+            "REMOTE_CORE_UNAVAILABLE"
+        );
+        assert_eq!(
+            fs::read_to_string(fixture.0.join("calls")).unwrap(),
+            "identity list --json\n"
+        );
+        assert!(!fixture.0.join("captured").exists());
+    }
+}

@@ -36,6 +36,7 @@ impl Admission for Policy {
         store: &Store,
     ) -> Result<CatchupContext, Code> {
         Ok(CatchupContext {
+            recipients: tmt_colab::sync::WrapRecipients::Owner,
             membership_head: store
                 .owner_head(&scope.space, &self.owner)
                 .map_err(|_| Code::Invalid)?

@@ -39,7 +39,7 @@ fn v1_executes_after_migration_for_every_eligible_inflight_state() {
         .unwrap();
         old.close().unwrap();
         let mut native = Storage::open(&path).unwrap();
-        assert_eq!(native.health().unwrap().schema_version, 44);
+        assert_eq!(native.health().unwrap().schema_version, 45);
         let final_response = RequestService::new(&mut native, || (NOW + 2 * DAY) as u64)
             .submit_response(submission("\u{feff}late\0\r\n"))
             .unwrap();

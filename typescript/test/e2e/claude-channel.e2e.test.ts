@@ -269,7 +269,7 @@ function pauseBeforeAdmission(fixture: E2EFixture, name: string): void {
     expect(
       database
         .prepare(
-          `UPDATE identity_session_preferences SET preferred_harness = NULL, remembered_harness = NULL,
+          `UPDATE identity_session_preferences SET channel = NULL, preferred_harness = NULL, remembered_harness = NULL,
              runtime_mode = NULL, provider_session_id = NULL
            WHERE identity_id = ?`
         )
@@ -279,6 +279,111 @@ function pauseBeforeAdmission(fixture: E2EFixture, name: string): void {
 }
 
 describe('Claude channel delivery', { concurrent: false }, () => {
+  it.each([true, false])(
+    'resumes a saved bound Claude identity with remembered channel=%s and persists explicit overrides',
+    async (channel) => {
+      await withE2EFixture(
+        async (fixture) => {
+          const name = 'Restartable';
+          const pane = fixture.createShellPane('restart').pane;
+          expect((await fixture.runJsonCli(['add', pane, name, '-s'])).code).toBe(0);
+          const fake = path.join(fixture.wrapperDir, 'claude');
+          writeExecutable(fake, fs.readFileSync('/opt/tmt-tests/claude'), 0o755);
+          const home = path.join(fixture.root, 'resume-home');
+          fs.mkdirSync(home);
+          const sessionId = '55555555-5555-4555-8555-555555555555';
+          let remembered = channel;
+          const launch = (round: number, override?: boolean): Session => {
+            const log = path.join(fixture.root, `restart-${round}.log`);
+            const status = path.join(fixture.root, `restart-${round}.status`);
+            const env = {
+              HOME: home,
+              PATH: `${fixture.wrapperDir}:${process.env.PATH}`,
+              MOCK_CHANNEL_LOG: log,
+              MOCK_DB: path.join(fixture.globalDir, 'tmux-team.db'),
+              MOCK_SESSION_ID: sessionId,
+              TMT_TEST_CLAUDE_MOCK: mock,
+              TMT_TEST_CLAUDE_NODE: process.execPath,
+            };
+            const flags = override === undefined ? [] : [override ? '--channel' : '--no-channel'];
+            const args =
+              round === 0
+                ? ['run', channel ? '--channel' : '--no-channel', name, fake, '--resume', name]
+                : ['resume', ...flags, name];
+            const command = [
+              'env',
+              ...Object.entries(env).map(([key, value]) => `${key}=${value}`),
+              fixture.executables.cli.executable,
+              ...fixture.executables.cli.args,
+              ...args,
+            ]
+              .map(quote)
+              .join(' ');
+            fixture.tmux([
+              'send-keys',
+              '-t',
+              pane,
+              '-l',
+              `${command}; printf '%s' "$?" > ${quote(status)}`,
+            ]);
+            fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+            return { pane, log, status, channel: override ?? remembered };
+          };
+          let generation: unknown;
+          for (const [round, override] of [
+            [0, undefined],
+            [1, undefined],
+            [2, !channel],
+            [3, undefined],
+            [4, channel],
+            [5, undefined],
+          ] as const) {
+            const worker = launch(round, override);
+            remembered = override ?? remembered;
+            await ready(fixture, worker, name);
+            await waitForEvent(fixture, worker, 'hook-recorded');
+            const identity = await fixture.runJsonCli<{
+              resume?: { driver: string; session: string; model: string };
+            }>(['identity', 'show', name]);
+            expect(identity.code).toBe(0);
+            expect(identity.json?.resume).toMatchObject({
+              driver: 'claude',
+              session: sessionId,
+              model: 'model-a',
+            });
+            const stored = sql(fixture, (db) =>
+              db
+                .prepare('SELECT channel FROM identity_session_preferences WHERE identity_id = ?')
+                .get(identityId(fixture, name))
+            ) as { channel: number };
+            expect(stored.channel).toBe(Number(remembered));
+            if (round > 0)
+              expect(named(worker, 'started')[0].args).toEqual(
+                expect.arrayContaining(['--resume', sessionId, '--model', 'model-a'])
+              );
+            if (worker.channel) {
+              const record = enrollment(fixture).record;
+              expect(record.generation).not.toBe(generation);
+              generation = record.generation;
+            } else {
+              expect(named(worker, 'launch')).toMatchObject([{ channel: null }]);
+              expect(channelFiles(fixture)).toEqual([]);
+              expect(leakedServers(fixture)).toEqual([]);
+            }
+            expect(await quit(worker)).toBe('0');
+            await fixture.waitFor(
+              () => channelFiles(fixture).length === 0 && leakedServers(fixture).length === 0,
+              10_000,
+              'resume lease cleanup'
+            );
+          }
+        },
+        { mode: 'input-log' }
+      );
+    },
+    60_000
+  );
+
   it('names an automatic identity without changing the live channel enrollment', async () => {
     await withE2EFixture(async (fixture) => {
       const worker = start(fixture, 'auto-channel', { channel: true, unnamed: true });

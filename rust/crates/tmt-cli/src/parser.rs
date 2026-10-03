@@ -207,13 +207,14 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         }
         ["setup"] => Invocation::Setup {
             provider: text(m, "provider"),
+            status: flag(m, "status"),
             remove: flag(m, "remove"),
             usage: if flag(m, "usage") {
                 tmt_core::driver::descriptor::UsageHook::Install
             } else if flag(m, "no-usage") {
                 tmt_core::driver::descriptor::UsageHook::Remove
             } else {
-                tmt_core::driver::descriptor::UsageHook::Keep
+                tmt_core::driver::descriptor::UsageHook::Default
             },
             yes: flag(m, "yes"),
         },
@@ -308,7 +309,9 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             prefix: text(m, "prefix"),
             operation: crate::office_facade::parser::translate(path, m)?,
         },
-        ["__native-refresh-skills"] => Invocation::NativeRefreshSkills,
+        ["__native-refresh-skills"] => Invocation::NativeRefreshSkills {
+            managed: flag(m, "managed"),
+        },
         ["__native-upgrade-extensions"] => Invocation::NativeUpgradeExtensions {
             plan: flag(m, "plan"),
         },
@@ -317,6 +320,11 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             yes: flag(m, "yes"),
             prefix: text(m, "prefix"),
         },
+        ["__native-install"] if text(m, "handoff-version").is_some() => {
+            Invocation::NativeInstallHandoff {
+                probe: flag(m, "probe"),
+            }
+        }
         ["__native-install"] => Invocation::NativeInstall {
             product: tmt_core::native_install::Product::parse(&required(m, "product"))
                 .expect("product was validated by grammar"),

@@ -222,7 +222,51 @@ fn lower(
                 .attributes
                 .remove("bind")
                 .ok_or_else(|| fail(file, element, "tmt-key-help requires bind"))?;
+            let heading_token = element
+                .attributes
+                .remove("heading-token")
+                .map(|value| {
+                    tmt_cli_style::Role::parse(&value).ok_or_else(|| {
+                        fail(
+                            file,
+                            element,
+                            "heading-token requires an existing theme role",
+                        )
+                    })
+                })
+                .transpose()?
+                .unwrap_or(tmt_cli_style::Role::Muted);
+            let heading_bold = match element.attributes.remove("heading-bold").as_deref() {
+                None | Some("false") => false,
+                Some("true") => true,
+                _ => return Err(fail(file, element, "heading-bold must be true or false")),
+            };
+            let section_gap = element
+                .attributes
+                .remove("section-gap")
+                .map(|value| {
+                    value
+                        .parse::<u16>()
+                        .ok()
+                        .filter(|n| {
+                            *n <= crate::style::MAX_CELLS
+                                && value.bytes().all(|b| b.is_ascii_digit())
+                        })
+                        .ok_or_else(|| {
+                            fail(
+                                file,
+                                element,
+                                "section-gap requires an integer from 0 to 4096",
+                            )
+                        })
+                })
+                .transpose()?
+                .unwrap_or(element.style.gap[1]);
             let mut prototype = crate::parse(file, HELP_ROWS)?;
+            let heading = &mut prototype.children[0].children[0].children[0];
+            heading.style.token = Some(heading_token);
+            heading.style.bold = heading_bold;
+            element.style.gap[1] = section_gap;
             prototype.children[0]
                 .attributes
                 .insert("each".into(), format!("{path}.sections"));

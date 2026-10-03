@@ -1290,7 +1290,10 @@ one literal-ID scroll body and optional direct `tmt-text slot="footer"`/`"status
 children; components cannot occur in repeats yet. Primitive content can repeat.
 `tmt-key-help id="keys" bind="$.help"` uses `KeyHelp::schema()` and the typed
 section/entry model's `value()`; applications supply effective keys, descriptions
-and names. Use `placement="body"` for references, `"center"` for small overlays,
+and names. Optional `heading-token` (existing theme role, default `muted`),
+`heading-bold` (`true`/`false`, default `false`) and `section-gap` (0–4096 lines,
+default 0) style headings and add space only between sections.
+Use `placement="body"` for references, `"center"` for small overlays,
 or `"docked"` for prompts. `surface::render` accepts caller-owned ScrollState,
 body Rect/Buffer, RenderStyle (Theme/Depth) and selection styling. It returns
 visible scoped hits; route current input through `app::route` before base handlers.
@@ -1433,6 +1436,17 @@ narrowing Cargo package selection, build them together with
 build both packages; the shared raw-runtime artifact carries both executables,
 and tooling restores executable mode after download. Drivers are independent
 release components, outside the `tmt extension` inventory.
+Tooling's Colab verifier also needs `cargo build --locked -p tmt-test-support
+--example colab-runtime-fixture`. The same native-runtime job builds and transfers
+that example under `examples/`; it is test infrastructure, never a product archive.
+
+Shared extension archive scenarios also require the debug Squad, Remote and Colab
+executables. Both full and Squad-scoped process CI run those scenarios and build
+Squad followed by `cargo build --locked -p tmt-remote -p tmt-colab --bins`.
+Both scopes also build the shared `runtime-caller-fixture` ancestry launcher;
+full scope builds it beside the storage probe, while Squad scope builds it explicitly.
+Keep these fixture builds in the process job itself; another job's workspace build
+or a warm local target does not supply its executables.
 
 Squad context fixtures separate successful core-invocation evidence from deadline
 termination. Cold/fresh reads and a promptly returning stale-context sentinel
@@ -1613,6 +1627,9 @@ native positive control. Child processes are finite, are stopped and reaped
 before fixture deletion, and receive signals only when they are task-owned.
 Tests never use host tmux, global provider state, or process-wide environment
 mutation as setup.
+A settled or deleted batch is not process completion: retain each detached worker's
+exact process incarnation and confirm its exit in scenario cleanup before returning
+from the sandbox callback.
 
 Office companion scenarios are grouped under `test/native/office-*.test.ts`; retained-install
 fixtures use `__native-install` without acquiring or publishing a product release.
@@ -1716,6 +1733,13 @@ package-scoped release `tmt` (see Rust checks) to prove the CLI is unchanged. No
 hits, target previews, configured overrides, inert unknown schemes, argv isolation
 and sender/member/open-request revalidation. Parsing and paint must perform no actions.
 
+Help regression tests cover modal key/mouse capture, close-event consumption,
+base focus/selection/scroll preservation, opaque component chrome and End/Home
+scrolling at 160/100/80 columns. Verify real private-tmux captures in `tmt`,
+`tmt-light` and `NO_COLOR`, at the top and end, with isolated HOME,
+TMUX_TEAM_HOME and XDG cache. Settings tests retain raw binding JSON while
+checking shared description metadata.
+
 Native Squad tests verify leadership selection and clearing without membership
 or role loss, repeated additions without overwriting state, and explicit recovery
 from a squad without a lead. The Docker Squad lifecycle test kills temporary and
@@ -1771,6 +1795,10 @@ measurements are local evidence, not a flaky CI threshold.
 
 ### Provider setup and lifecycle verification
 
+Setup and guided-setup native tests cover default-on Stop installation, named
+consent, persisted opt-out, explicit re-enable, legacy record adoption and
+read-only `setup --status` diagnostics for both providers. Status needs no stable
+launcher on PATH and changes neither provider settings nor setup records.
 Setup planning/publication tests use disposable settings files and preserve user
 hook/permission bytes, exact reruns, recovery copies and changed-input refusal.
 Claude cases cover unset/empty, absolute and relative `CLAUDE_CONFIG_DIR` roots
@@ -2577,6 +2605,34 @@ The generated shell bootstrap fixes a manifest version and uses versioned downlo
 URLs; it does not perform channel discovery. CLI alpha publication flags make
 `releases/latest` unsuitable for stable-channel selection.
 
+CLI upgrade verifies release metadata and the complete bounded archive before
+running the candidate installer. Cover a candidate carrying a file unknown to the
+old policy: the old strict installer must reject that inventory as a negative
+control, while the handoff must reach the candidate and retain its resulting
+receipt without an old-policy reread. Synthetic candidate stand-ins prove this
+ownership boundary; the actual-archive acceptance below separately executes the
+real candidate. Ordinary offline `__native-install --archive` still enforces the
+invoked binary's inventory and does not recursively delegate.
+
+The [handoff contract](contracts/native-install-handoff-v1.md) owns the versioned
+probe, result shape, bounds and exact unsupported-installer diagnostic. Verify
+its successful probe before sending installation input. Unsupported/nonzero or
+malformed probes must preserve the active receipt and bytes and report the
+contract's actionable bootstrap command.
+This diagnostic belongs to post-fix updaters; immutable older binaries retain
+their original errors and need one bootstrap reinstall. The release-upgrade
+matrix owns source-floor selection and the distinction between legacy bootstrap
+recovery, injected-acquisition acceptance and real public upgrade smoke.
+
+Run `cargo test --locked -p tmt-adapters native_install` and
+`cargo test --locked -p tmt-cli native_install` for archive, handoff, publication
+and typed grammar checks. Before-execution failures include wrong release
+identity/digests, traversal, absolute and conflicting paths, links, special files
+and resource limits. Keep unsupported probe, candidate rejection, interruption,
+malformed/failed child reports and owned-staging cleanup controls. A timeout after
+starting installation is not proof of rollback: retain the explicit uncertain
+outcome instead of claiming the old release is necessarily current.
+
 Check pinned no-network behavior, explicit pin/unpin, unchanged release identity,
 preserved old bytes, missing/mutable release rejection, dual digest checks,
 same-version integrity and concurrent pin fencing. Cancellation and finalization
@@ -2797,6 +2853,113 @@ unpin advancement, a retained executable, no-op and downgrade rejection, exact
 embedded skill, unchanged SQLite bytes during installation and the migration of state the
 previous release wrote. Its temporary
 prefix/application state is always invocation-owned and removed afterward.
+
+#### Remote and Colab installer registration
+
+Core recognizes `remote` and `colab` separately from archive publication. Test their product
+policy, product-prefixed discovery, receipt and activation with the existing
+native fixtures (from `rust/`):
+
+```sh
+CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-core native_install
+CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters native_install
+CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli extension_install_command
+CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli parser::tests::native_install
+```
+
+For process fixtures, build CLI, Squad, Remote and Colab independently in the worktree's
+`rust/target`, then run `extension-install.test.ts` through the native test config.
+The fixture uses the built `tmt-remote` and `tmt-colab`, never a substitute CLI executable. It
+covers consent, repeat/forward install, retained releases and private Remote
+and Colab state, plus independent pinned participation in root upgrade and root
+uninstall cleanup. Frozen Office and legacy skill fixtures keep their assertions
+while listing both new registrations. Synthetic archives
+prove installer behavior, not published archive linkage or runtime versioning.
+
+A registered product may have no published archive yet. Inject empty Remote refs
+or a Remote tag without a published release for that case: assert no asset
+acquisition or prefix creation. The CLI must report `EXTENSION_RELEASE_UNAVAILABLE`
+with "No published remote release yet" rather than an installation-damage hint.
+Malformed published/local archives retain verification errors. Remote uses the
+same prerelease rule as Squad; keep cross-product and immutable-release refusals.
+The [installation architecture](ARCHITECTURE.md#managed-skills-and-native-installation)
+owns namespaces, receipts and the separation from private state. Remote/Colab owners and infra provide packaging and release gates; publish the
+supporting CLI alpha before testing either public install/upgrade with it.
+Colab's #1421 embeds the built app in its executable; these synthetic fixtures
+prove installer lifecycle, not that embedding or installed SPA serving.
+
+#### Colab packaging wiring (parked)
+
+Colab selection is prepared with tag `tmt-colab-v<version>`, prerelease publication
+and `latest=false`. It remains `release:false` / `dist=false`; neither preparation
+nor publication accepts it. App embedding (#1421) and core registration (#1423)
+are implemented. Activation belongs to the infra lead after a supporting CLI alpha
+is published and real archive acceptance passes. The wiring
+tests use a native tiny-app fixture, not a released Colab binary.
+
+`scripts/build-native-artifact.sh <target> colab` installs frozen dependencies with
+`corepack pnpm@10.33.0`, builds `@tmt/colab-app`, requires its index/assets and
+nonempty `THIRD-PARTY-NOTICES.txt`, exports the absolute dist path as
+`TMT_COLAB_APP_DIR`, and keeps that complete dist stable through Cargo compilation.
+Colab's build script owns inventory validation. Native notices append the exact
+Vite notices after cargo-about. No app directory is installed alongside the binary.
+The release Cargo wrapper receives `TMT_NATIVE_PRODUCT=colab` and rejects a build
+without an absolute existing `TMT_COLAB_APP_DIR` before invoking Cargo. Ordinary
+local Cargo builds retain the development fallback; invalid supplied inventories
+fail in Colab's build script.
+
+Run fixture checks without Docker or a release build:
+
+```sh
+(cd rust && cargo build --locked -p tmt-test-support --example colab-runtime-fixture)
+(cd typescript && corepack pnpm@10.33.0 exec vp test run --config vitest.config.ts test/tooling/colab-runtime-proof.test.ts test/tooling/native-runtime-proof.test.ts test/tooling/cli-process.test.ts test/tooling/native-artifact-stdout.test.ts test/tooling/native-cargo.test.ts test/tooling/native-release-policy.test.ts test/tooling/plan-release-builds.test.ts test/tooling/verify-public-install.test.ts test/tooling/release-workflow.test.ts)
+(cd typescript && corepack pnpm@10.33.0 check:tooling)
+sh -n scripts/build-native-artifact.sh
+sh -n scripts/native-cargo.sh
+actionlint .github/workflows/native-release.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-smoke.yml .github/workflows/native-release-upgrade.yml
+```
+
+The Rust example is selected from `rust/target/debug/examples/colab-runtime-fixture`
+or an explicit absolute `TMT_TEST_COLAB_FIXTURE` when using a separate Cargo target.
+Tests publish that built binary through the executable fixture owner and select
+defects by `--fixture-variant`; they never compile during execution. Positive
+and mutated binaries exercise exact embedded bytes, placeholder/startup rejection,
+combined-notice omissions and graceful process/socket cleanup. This is proof of
+the verifier, not Colab's app/crypto/browser acceptance.
+Cleanup-denial tests require a subsequent group-absence observation before
+excusing a macOS exit race; unconfirmed absence fails and retains isolated state.
+
+Only Colab verification loads its app proof. The raw CLI verifier's minimal musl
+image retains its existing copied inputs; `native-runtime-proof.test.ts` reproduces
+that image closure without Docker and checks that an eager Colab import fails.
+Planner subprocess tests select their own GitHub output/summary files or clear
+those variables when asserting stdout, so they cannot write into the CI step's
+files. Process fixtures publish complete readiness JSON by rename before observers
+read it; process and group absence remain required cleanup postconditions.
+
+After the prerequisites, reserve the shared host's heavy slot before an actual
+matching-host archive build. Keep `release:false` and `dist:false` until activation
+is authorized. For the independent verifier, build the expected Vite app from the
+same frozen source and move its dist outside the checkout before execution, as the
+final bundle job does. Pass its new absolute path only to the verifier:
+
+```sh
+node typescript/scripts/verify-native-artifact.mjs --product colab \
+  --manifest /absolute/colab-manifest.json \
+  --archive /absolute/tmt-colab-aarch64-apple-darwin.tar.gz \
+  --target aarch64-apple-darwin --app-dir /absolute/expected-colab-app \
+  --notices /absolute/combined-notices.txt --license LICENSE
+```
+
+The extracted binary is copied to a fresh directory and serves without `--app-dir`,
+checkout output or pnpm on PATH. Exact HTML, every expected asset and frontend
+notices must match; archived notices must contain both Rust and frontend texts.
+Archive proof injects only core storage-root discovery; public-install smoke uses
+its installed CLI and the same serving/cleanup proof after install/list. All state
+is disposable, and all child processes stop before its removal. Public smoke uses
+the shared [read-only acquisition credential boundary](#explicit-multi-platform-release-preparation);
+the relocated Colab process receives no credential. Subsequent releases retain
+the shared previous-release extension upgrade gate.
 
 ### Native curl bootstrap verification
 
@@ -3288,13 +3451,13 @@ capacity, and prove waits wake on authority events/shutdown, including notificat
 Native operation tests use signed requests, private real storage and deterministic
 public-process fixtures to verify dispatch/hold/recovery boundaries; the SIGKILL probe
 checks invocation lease inheritance and release. These are not real-core acceptance.
-The separate E feature's `remote-operations` and `remote-recovery` scenarios provide
+The `remote-operations` and `remote-recovery` scenarios provide
 #1055's six-bullet integrated acceptance and one permitted/refused read scenario through
 E2EFixture. Run them with
 `CARGO_BUILD_JOBS=2 corepack pnpm test:e2e` in the booked isolated Docker heavy slot,
-with lifecycle acceptance twice. E's transparent wrapper executes the selected actual
+with lifecycle acceptance twice. The transparent wrapper executes the selected actual
 core without fake output; its test-only grant seeding happens solely in Remote storage
-while serve and owned children are stopped. E and Docker evidence remain pending.
+while serve and owned children are stopped.
 The [channel contract](contracts/remote-channel-v1.md) is
 proposed; [the separately owned browser shell](#browser-add-on-shell)
 uses only a stub. No official remote installer/release exists.
@@ -3354,10 +3517,14 @@ socket/process lifecycle acceptance twice. No real model/account/DB is used.
 
 ## Colab pilot development
 
-The private local-build Colab executable serves an owner-only mounted socket,
-owner-browser registration and stream sync, and lists local-space metadata.
-Owner requests load the built browser app when its local output is available.
-No installer exists. Rust builds and tests do not require a browser build.
+The private local-build Colab executable serves a mounted socket with
+owner-browser registration, stream sync and read-only reader sessions, and lists local-space metadata.
+Owner requests use the embedded browser app when built with `TMT_COLAB_APP_DIR`,
+or load local checkout output when it is available. Without either, the local
+build shows a build-hint placeholder. Published `tmt-colab` artifacts must embed
+the app. Core registers Colab with the shared installer; packaging/publication
+remain separate gates. Rust builds and tests do not require a browser build.
+See [installer registration](#remote-and-colab-installer-registration).
 Build and verify it from the repository root:
 
 ```bash
@@ -3460,7 +3627,7 @@ response, and 16 WebSocket tunnels closed after 120 seconds without inbound
 bytes. Bounded HTTP bodies carry registration requests; page objects use the
 stream sync path. The stream sync library enforces 64 KiB frames and 8 queued frames with
 `RESYNC_REQUIRED` close for slow subscribers; serve drives the sync library
-over registered-owner upgrades. Real socket
+over registered-owner and read-only reader upgrades. Real socket
 and foreground process cleanup tests run lifecycle scenarios twice, with no core calls from
 socket traffic. Owner-key temporary cleanup is publication-locked; it preserves
 foreign file names and refuses unsafe matching files.
@@ -3761,6 +3928,45 @@ Docker or remote identities. Full two-browser application acceptance is later.
 The transport uses the existing workspace tungstenite 0.30.0 edge in `tmt-colab`
 (default features disabled, handshake enabled). Mounted composition adds no
 dependencies or lockfile resolutions.
+
+### Colab reader verification
+
+Run `CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-colab --lib readers::tests`
+and the focused `--lib mounted_` / `--test socket mounted_public_readers` filters
+from `rust/`. Owner archive publication has the `--test socket archived_owner_pages`
+filter. Fixtures use real private SQLite/keyring state and the built `tmt-colab`
+decoder sibling of the test executable. Build the executable first for a
+standalone library-only run; the complete package test builds it. Mounted tests
+use short isolated `/tmp` roots and unconditional socket shutdown/join/removal.
+No real Remote identity or Docker is involved.
+
+Mounted HTTP challenges, possession exchange, upgrades and subscriptions exercise
+all three narrowing pairs, Reset/removal, rotation, individual device revocation,
+archive/delete, session/certificate expiry and pre-hello cutoff twice. Cutoff
+accepts only close/reset/EOF, never a timeout or more application data. Failed
+narrowing retains reader authority; a successful retry cuts it off. Retained old
+seeds cannot revive removed links or obtain private-epoch wraps; new baselines
+open with the current page key and reject the retained old key. Surviving links
+can reauthenticate after ordinary rotation or certify a fresh device after
+individual revocation. Public keys resolve from signed publication statements;
+link wraps are decrypted against the durable current key. The nonempty owner
+oracle preserves exact wrap bytes. Reader publication denials cover both
+namespaces, referenced uploads/chunks and awareness; archived owner pages retain
+reads and deny publication too.
+
+Blocked-delivery tests issue capabilities through mounted HTTP, then consume
+them under the same sync lock and connect via the existing generic Read/Write
+transport seam on real duplex sockets. Explicit bounded turns and a byte gate
+prove that queued frames and chunk continuations are never flushed after
+narrowing, revocation or expiry; this proof does not depend on kernel buffer
+sizes. One verified chunk may be delivered before cutoff, and previously written
+bytes/keys/plaintext cannot be recalled. These native proofs do not supply browser
+reader UI. Exact request/session carrier rules belong to
+[colab-v1](extensions/tmt-colab/contracts/colab-v1.md#mounted-read-only-reader-sessions-1310).
+The owner discovery endpoints stay owner-only. Readers receive no writes,
+management or agent authority. Reader fixtures reuse the shared `tests/support`
+semantic decoder configuration through Engine and Registration; production keeps
+the default deadline.
 
 ### Colab decoder verification
 

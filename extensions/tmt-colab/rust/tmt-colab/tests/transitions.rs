@@ -1984,6 +1984,7 @@ fn rotated_epoch_bootstrap_delivers_the_real_stored_baseline_inline_and_chunked(
             store: &Store,
         ) -> Result<CatchupContext, tmt_colab::sync::Code> {
             Ok(CatchupContext {
+                recipients: tmt_colab::sync::WrapRecipients::Owner,
                 owner_key: self.owner,
                 membership_head: store
                     .owner_head(&scope.space, &self.owner)

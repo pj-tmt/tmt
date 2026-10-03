@@ -500,3 +500,24 @@ fn admitted_callback_passes_original_child_and_failure_keeps_enrollment() {
     assert!(lease.foreground_admitted(&child()).is_none());
     assert_eq!(*watch.admitted.borrow(), [child()]);
 }
+
+#[test]
+fn exact_resume_reuses_preference_unless_a_flag_overrides_it() {
+    for (remembered, expected) in [
+        (None, ChannelMode::Default),
+        (Some(true), ChannelMode::Required),
+        (Some(false), ChannelMode::Disabled),
+    ] {
+        assert_eq!(
+            resume_mode(ChannelMode::Default, true, remembered),
+            expected
+        );
+        assert_eq!(
+            resume_mode(ChannelMode::Default, false, remembered),
+            ChannelMode::Default
+        );
+        for explicit in [ChannelMode::Required, ChannelMode::Disabled] {
+            assert_eq!(resume_mode(explicit, true, remembered), explicit);
+        }
+    }
+}

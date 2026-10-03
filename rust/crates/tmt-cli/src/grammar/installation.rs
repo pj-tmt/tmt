@@ -11,7 +11,8 @@ pub(in crate::grammar) fn extension() -> Command {
         "Manage consented extension integrations",
         [
             "List official extensions" => "tmt extension ls",
-            "Install Squad" => "tmt extension install squad",
+            "Install Remote" => "tmt extension install remote",
+            "Install Colab" => "tmt extension install colab",
         ]
     ))
     .subcommand_required(true)
@@ -59,10 +60,11 @@ pub(in crate::grammar) fn extension() -> Command {
     .subcommand(
         extension_target(general(spec!(
             "install",
-            "Install an official extension (office, squad)",
+            "Install an official extension (squad, remote, colab)",
             [
                 "Install Squad" => "tmt extension install squad",
-                "Install without a prompt" => "tmt extension install squad --yes",
+                "Install Remote" => "tmt extension install remote",
+                "Install Colab" => "tmt extension install colab",
             ]
         )))
         .arg(channel_option())
@@ -160,11 +162,18 @@ pub(in crate::grammar) fn setup(hooked: Vec<&'static str>) -> Command {
         "Set up every detected agent: skills and session hooks, after one approval",
         [
             "Review and apply what is missing" => "tmt setup",
-            "Only Claude's session hooks" => "tmt setup claude --yes",
+            "Claude's session and usage hooks" => "tmt setup claude --yes",
             "Remove Claude's session hooks" => "tmt setup claude --remove",
         ]
     ))
     .arg(operand("provider", false).value_parser(hooked))
+    .arg(
+        Arg::new("status")
+            .long("status")
+            .action(ArgAction::SetTrue)
+            .help("Show installed consumption collection status without changing anything")
+            .conflicts_with_all(["usage", "no-usage", "remove", "yes"]),
+    )
     .arg(
         Arg::new("remove")
             .long("remove")
@@ -176,14 +185,14 @@ pub(in crate::grammar) fn setup(hooked: Vec<&'static str>) -> Command {
         Arg::new("usage")
             .long("usage")
             .action(ArgAction::SetTrue)
-            .help("Also install the turn-end hook that records context usage")
+            .help("Enable context and consumption collection (default for new installs)")
             .conflicts_with_all(["no-usage", "remove"]),
     )
     .arg(
         Arg::new("no-usage")
             .long("no-usage")
             .action(ArgAction::SetTrue)
-            .help("Remove only the turn-end usage hook")
+            .help("Disable context and consumption collection and remember this choice")
             .conflicts_with("remove"),
     )
     .arg(option("yes"))
@@ -260,7 +269,13 @@ pub(in crate::grammar) fn uninstall() -> Command {
 }
 
 pub(in crate::grammar) fn refresh_skills() -> Command {
-    internal("__native-refresh-skills", "Internal managed skill refresh").hide(true)
+    internal("__native-refresh-skills", "Internal managed skill refresh")
+        .hide(true)
+        .arg(
+            Arg::new("managed")
+                .long("managed")
+                .action(ArgAction::SetTrue),
+        )
 }
 
 pub(in crate::grammar) fn upgrade_extensions() -> Command {
@@ -288,6 +303,20 @@ pub(in crate::grammar) fn native_install() -> Command {
     internal("__native-install", "Internal offline native installation")
         .hide(true)
         .arg(
+            Arg::new("handoff-version")
+                .long("handoff-version")
+                .value_parser(["1"])
+                .conflicts_with_all([
+                    "archive", "manifest", "prefix", "channel", "pin", "unpin", "product",
+                ]),
+        )
+        .arg(
+            Arg::new("probe")
+                .long("probe")
+                .action(ArgAction::SetTrue)
+                .requires("handoff-version"),
+        )
+        .arg(
             Arg::new("product")
                 .long("product")
                 .default_value("cli")
@@ -295,13 +324,25 @@ pub(in crate::grammar) fn native_install() -> Command {
                     tmt_core::native_install::Product::ALL.map(|product| product.as_str()),
                 ),
         )
-        .arg(Arg::new("archive").long("archive").required(true))
-        .arg(Arg::new("manifest").long("manifest").required(true))
-        .arg(Arg::new("prefix").long("prefix").required(true))
+        .arg(
+            Arg::new("archive")
+                .long("archive")
+                .required_unless_present("handoff-version"),
+        )
+        .arg(
+            Arg::new("manifest")
+                .long("manifest")
+                .required_unless_present("handoff-version"),
+        )
+        .arg(
+            Arg::new("prefix")
+                .long("prefix")
+                .required_unless_present("handoff-version"),
+        )
         .arg(
             Arg::new("channel")
                 .long("channel")
-                .required(true)
+                .required_unless_present("handoff-version")
                 .value_parser(
                     tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str()),
                 ),

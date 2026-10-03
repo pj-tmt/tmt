@@ -101,8 +101,8 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || github.sha }}
-      - name: Set up Node.js and pnpm for embedded Office assets
-        if: inputs.product == 'office'
+      - name: Set up Node.js and pnpm for embedded app assets
+        if: inputs.product == 'office' || inputs.product == 'colab'
         uses: ./.github/actions/setup-tooling
       - name: Install embedded Office build dependencies
         if: inputs.product == 'office'
@@ -267,6 +267,12 @@ jobs:
       - name: Warm the macOS toolchain lookup
         if: runner.os == 'macOS'
         uses: ./.github/actions/warm-xcrun
+      - name: Build independent expected Colab app bytes
+        if: inputs.product == 'colab'
+        working-directory: typescript
+        run: |
+          corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build
+          mv ../extensions/tmt-colab/typescript/app/dist "$RUNNER_TEMP/colab-app"
       - name: Execute final archive and bootstrap with the matching target process
         env:
           PRODUCT: ${{ inputs.product }}
@@ -301,6 +307,13 @@ jobs:
               --manifest target/distrib/dist-manifest.json \
               --archive "target/distrib/tmt-driver-herdr-$TARGET.tar.gz" --target "$TARGET" \
               --license LICENSE \
+              --notices "target/distrib/$TARGET-notices.txt"
+          elif [ "$PRODUCT" = colab ]; then
+            node typescript/scripts/verify-native-artifact.mjs \
+              --product colab \
+              --manifest target/distrib/dist-manifest.json \
+              --archive "target/distrib/tmt-colab-$TARGET.tar.gz" --target "$TARGET" \
+              --app-dir "$RUNNER_TEMP/colab-app" --license LICENSE \
               --notices "target/distrib/$TARGET-notices.txt"
           else
             node typescript/scripts/verify-native-artifact.mjs \

@@ -280,6 +280,7 @@ pub struct App {
     pub(super) home_target: Option<super::home::Target>,
     pub notice: Option<String>,
     pub help: bool,
+    pub(super) help_state: RefCell<super::help::Help>,
     pub menu: Option<Menu>,
     pub(super) view_picker: Option<super::view_picker::Picker>,
     pub(super) theme_picker: Option<super::theme_picker::Picker>,
@@ -1536,6 +1537,9 @@ impl App {
     }
 
     pub fn key(&mut self, key: KeyEvent) -> Effect {
+        if self.help {
+            return self.help_event(ratatui::crossterm::event::Event::Key(key));
+        }
         self.notice = None;
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Effect::Quit;
@@ -1704,7 +1708,10 @@ impl App {
             KeyCode::Char('/') => self.searching = true,
             // The switcher's key, unless the user bound `s` to something.
             KeyCode::Char('s') if !self.bound(key) => self.switcher = Some(Switcher::default()),
-            KeyCode::Char('?') => self.help = !self.help,
+            KeyCode::Char('?') => {
+                self.help_state.borrow_mut().open(self.focused().title());
+                self.help = true;
+            }
             _ => {
                 if let Some(action) =
                     event_name(key).and_then(|event| self.bindings().remove(&event))
@@ -1800,10 +1807,29 @@ impl App {
         }
     }
 
+    fn help_event(&mut self, event: ratatui::crossterm::event::Event) -> Effect {
+        use tmt_tui::app::Routed;
+        let routed = self
+            .help_state
+            .borrow_mut()
+            .input(&event, self.focused().title());
+        match routed {
+            Routed::Quit => Effect::Quit,
+            Routed::Handled(super::help::Input::Close) => {
+                self.help = false;
+                Effect::None
+            }
+            _ => Effect::None,
+        }
+    }
+
     /// The wheel scrolls the pane under the pointer, whichever is focused.
     /// A left click focuses the pane under it and selects the row under it, then runs its `click` binding;
     /// a second click on the same row soon after runs `double-click`.
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
+        if self.help {
+            return self.help_event(ratatui::crossterm::event::Event::Mouse(event));
+        }
         if let Some(overlay) = &self.settings {
             overlay.mouse(event);
             return Effect::None;

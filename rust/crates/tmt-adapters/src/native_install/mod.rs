@@ -1,6 +1,7 @@
 //! Verified native release acquisition and managed publication, without app state.
 
 mod artifact;
+pub mod handoff;
 mod online;
 mod remove;
 pub use online::{default_install_prefix, install_release, latest_release_version};
@@ -23,6 +24,7 @@ mod receipt;
 mod repair;
 pub use repair::{RepairReport, RepairRequired, repair_product, repair_product_from_archive};
 mod release;
+pub use release::ReleaseUnavailable;
 mod skills_tree;
 mod upgrade;
 pub use upgrade::{
@@ -48,7 +50,8 @@ fn official_repository(recorded: &serde_json::Value) -> bool {
     recorded == OFFICIAL_REPOSITORY || LEGACY_REPOSITORIES.iter().any(|name| recorded == *name)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct InstallReport {
     pub executable: PathBuf,
     pub active_executable: PathBuf,

@@ -24,7 +24,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function artifactFixture(product: string) {
+function artifactFixture(product: string, omitted = '') {
   const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'tmt-native-stdout-&|"\\-')));
   roots.push(root);
   const bin = path.join(root, 'bin');
@@ -58,8 +58,18 @@ function artifactFixture(product: string) {
   tool(
     bin,
     'corepack',
-    `mkdir -p ../target/office-spa
-printf 'SPA license notice\\n' > ../target/office-spa/THIRD-PARTY-NOTICES.txt
+    `if [ '${product}' = colab ]; then
+ test "$1" = pnpm@10.33.0
+ if [ "$2" = install ]; then test "$3" = --frozen-lockfile; test "$4" = --ignore-scripts; exit 0; fi
+ test "$2" = --filter; test "$3" = @tmt/colab-app; test "$4" = --fail-if-no-match; test "$5" = build
+ app=../extensions/tmt-colab/typescript/app/dist
+else app=../target/office-spa; fi
+mkdir -p "$app/assets"
+printf 'index app\\n' > "$app/index.html"
+printf 'SPA license notice\\n' > "$app/THIRD-PARTY-NOTICES.txt"
+if [ '${omitted}' = index ]; then rm "$app/index.html"; fi
+if [ '${omitted}' = notices ]; then : > "$app/THIRD-PARTY-NOTICES.txt"; fi
+if [ '${omitted}' = build ]; then exit 9; fi
 printf 'vite diagnostics\\n'`
   );
   tool(bin, 'rustup', `printf '1.97.0-aarch64-apple-darwin (default)\\n'`);
@@ -85,7 +95,8 @@ fi`
   tool(
     bin,
     'cargo',
-    `if [ "$1" = pkgid ]; then printf 'path+file:///fixture#tmt-${product}@0.1.0-alpha.2\\n'; else
+    `if [ '${product}' = colab ]; then test "$TMT_NATIVE_PRODUCT" = colab; test "$TMT_COLAB_APP_DIR" = '${root}/extensions/tmt-colab/typescript/app/dist'; test -s "$TMT_COLAB_APP_DIR/index.html"; fi
+if [ "$1" = pkgid ]; then printf 'path+file:///fixture#tmt-${product}@0.1.0-alpha.2\\n'; else
 test "$1 $2 $3 $4 $5 $6" = 'build --locked -p tmt-driver-herdr --bin tmt-driver-herdr'
 mkdir -p target/aarch64-apple-darwin/dist
 printf 'driver package bytes\\n' > target/aarch64-apple-darwin/dist/tmt-driver-herdr
@@ -102,7 +113,7 @@ fi`
 }
 
 describe('native artifact stdout', () => {
-  it.each(['cli', 'office', 'squad', 'driver-herdr'])(
+  it.each(['cli', 'office', 'squad', 'driver-herdr', 'colab'])(
     'reserves stdout and selects the %s notice manifest',
     (product) => {
       const { root, bin, script } = artifactFixture(product);
@@ -112,7 +123,8 @@ describe('native artifact stdout', () => {
       });
       expect(result.status, result.stderr).toBe(0);
       expect(JSON.parse(result.stdout)).toEqual({ artifacts: {} });
-      if (product === 'office') expect(result.stderr).toContain('vite diagnostics');
+      if (['office', 'colab'].includes(product))
+        expect(result.stderr).toContain('vite diagnostics');
       else expect(result.stderr).not.toContain('vite diagnostics');
       expect(result.stderr).toContain('notice diagnostics');
       expect(result.stderr).toContain('dist diagnostics');
@@ -125,7 +137,7 @@ describe('native artifact stdout', () => {
       expect(
         readFileSync(path.join(root, 'rust/target/native-notices/THIRD-PARTY-NOTICES.txt'), 'utf8')
       ).toBe(
-        `Rust license notice\n${product === 'office' ? 'SPA license notice\n' : product === 'cli' ? 'Rust license notice\n' : ''}`
+        `Rust license notice\n${['office', 'colab'].includes(product) ? 'SPA license notice\n' : product === 'cli' ? 'Rust license notice\n' : ''}`
       );
       const config = readFileSync(path.join(root, 'rust/target/native-notices/about.toml'), 'utf8');
       expect(config).toBe(
@@ -136,7 +148,7 @@ describe('native artifact stdout', () => {
       );
     }
   );
-  it.each(['cli', 'office', 'squad', 'driver-herdr'])(
+  it.each(['cli', 'office', 'squad', 'driver-herdr', 'colab'])(
     'generates %s notices without building the companion or invoking cargo-dist',
     (product) => {
       const { bin, script } = artifactFixture(product);
@@ -151,7 +163,7 @@ describe('native artifact stdout', () => {
       expect(noticeOnly.stderr).not.toContain('companion build diagnostics');
     }
   );
-  it.each(['cli', 'office', 'squad', 'driver-herdr'])(
+  it.each(['cli', 'office', 'squad', 'driver-herdr', 'colab'])(
     'rejects a corrupted license before generating %s notices',
     (product) => {
       const { root, bin, script } = artifactFixture(product);
@@ -170,7 +182,7 @@ describe('native artifact stdout', () => {
       expect(corrupted.stderr).toContain('Vendored taffy license checksum mismatch');
     }
   );
-  it.each(['cli', 'office', 'squad', 'driver-herdr'])(
+  it.each(['cli', 'office', 'squad', 'driver-herdr', 'colab'])(
     'rejects taffy version drift before generating %s notices',
     (product) => {
       const { root, bin, script } = artifactFixture(product);
@@ -193,6 +205,20 @@ describe('native artifact stdout', () => {
       });
       expect(upgraded.status).toBe(1);
       expect(upgraded.stderr).toContain('Review taffy notice on version changes');
+    }
+  );
+  it.each(['index', 'notices', 'build'])(
+    'rejects Colab packaging with missing or failed %s frontend input',
+    (omitted) => {
+      const { bin, script } = artifactFixture('colab', omitted);
+      const result = spawnSync(script, ['aarch64-apple-darwin', 'colab'], {
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+      });
+      expect(result.status).toBe(omitted === 'build' ? 9 : 1);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).not.toContain('notice diagnostics');
+      expect(result.stderr).not.toContain('dist diagnostics');
     }
   );
 });

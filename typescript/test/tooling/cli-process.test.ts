@@ -28,7 +28,9 @@ function fixture(mode = 'exit', output = 'ignore') {
       child.once('message', () => {
         const group = Number(execFileSync('/bin/ps', ['-o', 'pgid=', '-p', String(process.pid)], { encoding: 'utf8' }).trim());
         const launcherGroup = Number(execFileSync('/bin/ps', ['-o', 'pgid=', '-p', String(process.ppid)], { encoding: 'utf8' }).trim());
-        fs.writeFileSync(process.argv[2], JSON.stringify({ child: child.pid, group, launcherGroup }));
+        const pendingMarker = process.argv[2] + '.pending';
+        fs.writeFileSync(pendingMarker, JSON.stringify({ child: child.pid, group, launcherGroup }));
+        fs.renameSync(pendingMarker, process.argv[2]);
         if (process.argv[3] === 'exit') process.exit(0);
         if (process.argv[3] === 'overflow') process.stdout.write('over the limit');
       });
