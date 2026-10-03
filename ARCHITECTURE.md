@@ -4176,7 +4176,8 @@ derivation. Neither module has I/O, clock, storage or CoreClient access, and
 neither is wired into the deny-all door. Remote-generated IDs remain UUIDv4.
 Byte construction and valid signatures establish no authority.
 Rust tests consume the independent Python canonical fixtures read-only; Rust-owned
-RFC/Python/WebCrypto vectors exercise cryptographic validity separately. The codec
+RFC/Python/WebCrypto vectors exercise cryptographic validity separately, including fixed
+extension-certificate signatures and domain, extension, purpose, key and time binding. The codec
 dependencies are the contract's pinned Ed25519 and HMAC primitives, the existing
 pinned SHA-256 dependency and the workspace `base64` engine configured for strict
 unpadded base64url (no padding, no trailing bits), whose refusals have shared
@@ -4224,7 +4225,8 @@ Python oracle must pass before the workspace-pinned Vite+ test runner runs, and 
 tests drive it against a node:crypto stand-in door. A Playwright Chromium smoke
 (`test:browser`, in the path-filtered Remote pairing page workflow) pairs a real
 browser with a real `tmt remote serve` and checks the cookie, the forwarded
-device context, certificates and silent session reopening.
+device context, both certificate purposes and silent session reopening, then verifies that
+revocation removes owner context and refuses reopening while retained signatures remain valid.
 
 ## Colab extension proposal
 

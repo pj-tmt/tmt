@@ -30,7 +30,7 @@ assert.equal(
 );
 const peer = await read('../../../../typescript/remote-client/test/vectors.json');
 const cases = [];
-for (const fixture of [...peer.envelopes, ...peer.enrollments, peer.possession]) {
+for (const fixture of [...peer.envelopes, ...peer.enrollments, peer.possession, ...peer.extCerts]) {
   const message = fromHex(fixture.hex);
   const signature = await subtle.sign('Ed25519', privateKey, message);
   assert(await subtle.verify('Ed25519', publicKey, signature, message));
