@@ -122,6 +122,11 @@ Read the complete [native release verification section](../../../DEVELOPMENT.md#
 before archive, installer, upgrade, bootstrap or publication work. It owns the
 procedures referenced below; DEVELOPMENT owns ordinary native checks.
 
+For packed verifier process-runner changes, follow DEVELOPMENT's
+[packed cleanup checks](../../../DEVELOPMENT.md#packed-verifier-process-cleanup).
+Preserve its real absence and surviving-group controls; synthetic fixture success
+does not authorize publication or replace artifact acceptance.
+
 - For Rust archives, follow the guide's native Rust release archive procedure.
   Keep cargo-dist's manifest as the artifact metadata owner; independently verify
   bounded extraction, notices, linkage, skill installation and persisted state.

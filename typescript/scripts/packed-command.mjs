@@ -24,7 +24,19 @@ export function runPackedCommand(
     try {
       process.kill(-result.pid, 'SIGKILL');
     } catch (error) {
-      if (error.code !== 'ESRCH') throw error;
+      // spawnSync reaps its direct child before returning a terminated result.
+      // Darwin can deny a signal to an exiting group; only observed absence
+      // after direct termination excuses that denial, never a successful wait alone.
+      let absent = error.code === 'ESRCH';
+      const closed = Number.isInteger(result.status) || typeof result.signal === 'string';
+      if (error.code === 'EPERM' && closed) {
+        try {
+          process.kill(-result.pid, 0);
+        } catch (inspectionError) {
+          absent = inspectionError.code === 'ESRCH';
+        }
+      }
+      if (!absent) throw error;
     }
   }
   if (result.error) throw result.error;
