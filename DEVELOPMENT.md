@@ -2445,8 +2445,10 @@ outdated compare anchor, out-of-range note or missing COVERAGE link requires
 release-please regeneration on the next main push. A late merged commit therefore
 holds the merge group until refreshed notes cover it, preventing silent omissions.
 
-Before release-please runs, `node typescript/scripts/release-pr-safety.mjs draft`
-checks all manifest versions. A matching draft with no exact git tag holds only
+After `github-release` reconciles merged release PRs and before `release-pr`,
+`node typescript/scripts/release-pr-safety.mjs draft`
+checks all manifest versions with fresh App-token REST reads, including drafts
+created in this invocation. A matching draft with no exact git tag holds only
 its manifest path. The step writes JSON `held_paths`, sanitized matching `drafts` evidence and a
 summary naming held paths;
 `skip=true` only when every released manifest path is held. The workflow passes
@@ -2563,7 +2565,12 @@ actionlint .github/workflows/ci.yml
 
 ## Queued release pull requests
 
-Before `release-pr`, `Release` runs `typescript/scripts/release-please-queue.mjs`.
+`Release` runs `github-release` first, then the fresh tagless-draft check, then
+`typescript/scripts/release-please-queue.mjs` before `release-pr`. The pinned
+release-please refuses PR updates while a merged release PR is still untagged;
+reconciling it first lets the same run refresh remaining PRs against updated main.
+A `github-release` failure stops the job and explicitly reports that `release-pr`
+was not attempted. Both commands still only plan in a dry run.
 Explicit-token GraphQL discovery follows up to 20 cursor pages of 100 open PRs, ordered
 by creation time, and considers only same-repository heads starting with
 `release-please--branches--main--` targeting `main`. Complete discovery is required
@@ -2585,12 +2592,12 @@ require reconciliation before any mutation. Successful dequeue permits refresh i
 this invocation; the existing enable step can re-enqueue the refreshed candidate.
 A failed recheck or failed/unverified dequeue emits `blocked`, writes a clear
 recovery notice in the step summary, and skips both `release-pr` and auto-merge
-enabling. `github-release` still runs, allowing downstream draft processing to
+enabling. `github-release` has already run, allowing downstream draft processing to
 continue; its own failures still fail the job. Verify the PR and queue state before
 retrying the Release run through the normal authorized workflow. Dry runs only
 report the planned dequeue and run release-please in dry-run mode. Covered queued
 notes retain their head and a summary notice;
-`github-release` runs in either case. REST notes must match the discovered PR head.
+`github-release` precedes either decision. REST notes must match the discovered PR head.
 Acquisition failures, malformed PR metadata and incomplete history fail the run
 visibly rather than silently skipping. Malformed responses, repeated
 cursors, duplicate PRs, API errors and exhausted discovery fail visibly.
@@ -2629,7 +2636,7 @@ actionlint .github/workflows/release.yml
 ```
 
 Fixtures cover stale queued notes → recheck/dequeue/refresh, failed dequeue → skip
-with summary and continued `github-release`, covered queued notes → skip, and
+with summary and prior `github-release`, covered queued notes → skip, and
 non-queued PRs → refresh. Identity/head/queue races, dry runs and failure responses
 must prove no retry or unintended mutation; unchanged generated heads remain preserved.
 

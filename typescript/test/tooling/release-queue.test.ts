@@ -18,14 +18,20 @@ const workflow = readFileSync(
   new URL('../../../.github/workflows/release.yml', import.meta.url),
   'utf8'
 );
-const step = workflow
-  .split('      - name: Run release-please\n')[1]
-  .split('\n      # Only one release PR')[0];
-const shell = step
-  .split('        run: |\n')[1]
-  .split('\n')
-  .map((line) => line.slice(10))
-  .join('\n');
+function workflowShell(name: string): string {
+  const step = workflow.split(`      - name: ${name}\n`)[1].split('\n      - ')[0];
+  return step
+    .split('        run: |\n')[1]
+    .split('\n')
+    .filter((line) => line.startsWith('          '))
+    .map((line) => line.slice(10))
+    .join('\n');
+}
+const releaseShell = workflowShell('Create releases for merged release pull requests');
+const shell = workflowShell('Run release-please');
+const draftCommand = /run: (node [^\n]+ draft)/.exec(
+  workflow.split('      - name: Check for a tagless manifest draft\n')[1]
+)?.[1];
 const connection = (nodes: unknown[], hasNextPage = false, endCursor: string | null = null) => ({
   data: {
     repository: {
@@ -82,6 +88,7 @@ function execute(
   response: unknown,
   {
     queryFails = false,
+    queueQueryFails = false,
     failCommand = 'none',
     live = 'true',
     teeFails = false,
@@ -90,10 +97,22 @@ function execute(
     dequeueFails = false,
     dequeueUnlocks = true,
     heldPaths = [] as string[],
+    sameRunDrafts = [] as string[],
   } = {}
 ) {
   const directory = mkdtempSync(path.join(tmpdir(), 'tmt-release-queue-'));
   try {
+    const manifest = JSON.parse(
+      readFileSync(new URL('../../../.release-please-manifest.json', import.meta.url), 'utf8')
+    ) as Record<string, string>;
+    const drafts = (paths: string[]) =>
+      paths.map((path, index) => ({
+        id: 100 + index,
+        tag_name: `${path === '.' ? 'v' : 'tmt-squad-v'}${manifest[path]}`,
+        draft: true,
+        created_at: '2026-10-03T06:33:00Z',
+      }));
+    writeFileSync(path.join(directory, 'new-drafts.json'), JSON.stringify(drafts(sameRunDrafts)));
     writeFileSync(path.join(directory, 'query.json'), JSON.stringify(response));
     const candidate = (
       response as ReturnType<typeof connection>
@@ -150,7 +169,10 @@ function execute(
     );
     writeFileSync(
       path.join(directory, 'releases.json'),
-      JSON.stringify([{ tag_name: tag, draft: false, published_at: '2026-10-02T01:00:00Z' }])
+      JSON.stringify([
+        { tag_name: tag, draft: false, published_at: '2026-10-02T01:00:00Z' },
+        ...drafts(heldPaths),
+      ])
     );
     // Anchor equals main HEAD: complete coverage is empty, with no history commands needed.
     writeExecutable(
@@ -178,6 +200,7 @@ if [ "$GH_TOKEN" != 'fixture-app' ]; then exit 22; fi
 if [ "$QUERY_FAILS" = true ]; then echo 'query unavailable' >&2; exit 21; fi
 case "$2" in
   graphql)
+    if [ "$QUEUE_QUERY_FAILS" = true ]; then echo 'queue query unavailable' >&2; exit 21; fi
     case "$4" in
       *dequeuePullRequest*)
         printf 'dequeue\\n' >> "$RUNNER_TEMP/commands"
@@ -189,6 +212,7 @@ case "$2" in
     esac ;;
   */pulls/*) cat "$RUNNER_TEMP/pr.json" ;;
   */releases*) cat "$RUNNER_TEMP/releases.json" ;;
+  */git/matching-refs/*) printf '[]\\n' ;;
   *) exit 24 ;;
 esac
 `,
@@ -207,9 +231,14 @@ if (process.argv[2].endsWith('/release-please-run.mjs')) {
     console.error('release-please failure');
     process.exit(19);
   }
+  if (command === 'github-release' && process.env.LIVE === 'true') {
+    const releases = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/releases.json', 'utf8'));
+    const drafts = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/new-drafts.json', 'utf8'));
+    fs.writeFileSync(process.env.RUNNER_TEMP + '/releases.json', JSON.stringify([...releases, ...drafts]));
+  }
   if (command === 'release-pr' && process.env.LIVE === 'true' && process.env.STALE_NOTES === 'true' &&
       fs.readFileSync(process.env.RUNNER_TEMP + '/queued', 'utf8') === 'true' &&
-      process.env.HELD_CLI_CANDIDATE !== 'true') {
+      !JSON.parse(process.env.TAGLESS_DRAFT_PATHS).includes('.')) {
     console.error('Error updating ref: queued release branch is locked');
     process.exit(19);
   }
@@ -249,40 +278,70 @@ if (process.argv[2].endsWith('/release-please-run.mjs')) {
     const summary = path.join(directory, 'summary');
     writeFileSync(summary, '');
     writeFileSync(path.join(directory, 'commands'), '');
-    const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', shell], {
-      cwd: fileURLToPath(new URL('../../../.github/release-please', import.meta.url)),
-      env: {
-        PATH: `${directory}:${process.env.PATH}`,
-        RUNNER_TEMP: directory,
-        GITHUB_STEP_SUMMARY: summary,
-        GITHUB_OUTPUT: path.join(directory, 'output'),
-        GITHUB_REPOSITORY: 'pj-tmt/tmt',
-        LIVE: live,
-        RELEASE_TOKEN: 'fixture-app',
-        GH_TOKEN: 'wrong-user-token',
-        FAIL_COMMAND: failCommand,
-        UNKNOWN_MERGEABILITY: String(unknownMergeability),
-        STALE_NOTES: String(staleNotes),
-        DEQUEUE_FAILS: String(dequeueFails),
-        DEQUEUE_UNLOCKS: String(dequeueUnlocks),
-        TAGLESS_DRAFT_PATHS: JSON.stringify(heldPaths),
-        HELD_CLI_CANDIDATE: String(
-          heldPaths.includes('.') && candidate?.headRefName.endsWith('tmt-cli')
-        ),
-        RELEASE_WRAPPER: new URL('../../scripts/release-please-run.mjs', import.meta.url).href,
-        QUERY_FAILS: String(queryFails),
-      },
-      encoding: 'utf8',
-      timeout: 5000,
-    });
+    writeFileSync(path.join(directory, 'queries'), '');
+    const env = {
+      PATH: `${directory}:${process.env.PATH}`,
+      RUNNER_TEMP: directory,
+      GITHUB_STEP_SUMMARY: summary,
+      GITHUB_OUTPUT: path.join(directory, 'output'),
+      GITHUB_REPOSITORY: 'pj-tmt/tmt',
+      LIVE: live,
+      RELEASE_TOKEN: 'fixture-app',
+      GH_TOKEN: 'wrong-user-token',
+      FAIL_COMMAND: failCommand,
+      UNKNOWN_MERGEABILITY: String(unknownMergeability),
+      STALE_NOTES: String(staleNotes),
+      DEQUEUE_FAILS: String(dequeueFails),
+      DEQUEUE_UNLOCKS: String(dequeueUnlocks),
+      TAGLESS_DRAFT_PATHS: JSON.stringify(heldPaths),
+      RELEASE_WRAPPER: new URL('../../scripts/release-please-run.mjs', import.meta.url).href,
+      QUERY_FAILS: String(queryFails),
+      QUEUE_QUERY_FAILS: String(queueQueryFails),
+    };
+    const runStep = (script: string, cwd: string) =>
+      spawnSync('bash', ['-e', '-o', 'pipefail', '-c', script], {
+        cwd,
+        env,
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+    const pinnedDirectory = fileURLToPath(
+      new URL('../../../.github/release-please', import.meta.url)
+    );
+    const results = [runStep(releaseShell, pinnedDirectory)];
+    if (results.at(-1)?.status === 0) {
+      if (!draftCommand) throw new Error('Missing workflow draft command');
+      const refreshOutput = env.GITHUB_OUTPUT;
+      env.GITHUB_OUTPUT = path.join(directory, 'draft-output');
+      results.push(runStep(draftCommand, fileURLToPath(new URL('../../../', import.meta.url))));
+      if (results.at(-1)?.status === 0) {
+        const draftOutputs = Object.fromEntries(
+          readFileSync(env.GITHUB_OUTPUT, 'utf8')
+            .trim()
+            .split('\n')
+            .map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)])
+        );
+        Object.assign(env, {
+          TAGLESS_DRAFT: draftOutputs.skip,
+          TAGLESS_DRAFT_PATHS: draftOutputs.held_paths,
+        });
+        env.GITHUB_OUTPUT = refreshOutput;
+        results.push(runStep(shell, pinnedDirectory));
+      }
+    }
+    const result = results.at(-1)!;
     if (result.error) throw result.error;
     return {
       status: result.status,
-      output: result.stdout + result.stderr,
+      output: results.map((step) => step.stdout + step.stderr).join(''),
       summary: readFileSync(summary, 'utf8'),
       commands: readFileSync(path.join(directory, 'commands'), 'utf8'),
       queries: readFileSync(path.join(directory, 'queries'), 'utf8'),
-      outputs: readFileSync(path.join(directory, 'output'), 'utf8'),
+      outputs: results.length === 3 ? readFileSync(path.join(directory, 'output'), 'utf8') : '',
+      draftOutputs:
+        results.length >= 2 && results[1].status === 0
+          ? readFileSync(path.join(directory, 'draft-output'), 'utf8')
+          : '',
     };
   } finally {
     rmSync(directory, { recursive: true, force: true });
@@ -324,14 +383,14 @@ describe('release PR queue pre-check', () => {
     expect(result.summary).toContain(QUEUED_NOTICE);
     expect(result.commands).toBe('github-release\n');
     expect(result.queries).toMatch(
-      /^api graphql\napi repos\/pj-tmt\/tmt\/pulls\/\d+\napi repos\/pj-tmt\/tmt\/releases/
+      /^api repos\/pj-tmt\/tmt\/releases\?per_page=100&page=1\napi graphql\napi repos\/pj-tmt\/tmt\/pulls\/\d+\napi repos\/pj-tmt\/tmt\/releases/
     );
   });
 
   it('refreshes stale queued notes in the same run and keeps github-release', () => {
     const result = execute(connection([release(true)]), { staleNotes: true });
     expect(result.status).toBe(0);
-    expect(result.commands).toBe('dequeue\nrelease-pr\ngithub-release\n');
+    expect(result.commands).toBe('github-release\ndequeue\nrelease-pr\n');
     expect(result.summary).toContain('Dequeued stale release PR');
     expect(result.outputs).not.toContain('queue_blocked=true');
     expect(result.summary).not.toContain(QUEUED_NOTICE);
@@ -343,14 +402,14 @@ describe('release PR queue pre-check', () => {
       dequeueUnlocks: false,
     });
     expect(result.status).toBe(19);
-    expect(result.commands).toBe('dequeue\nrelease-pr\n');
+    expect(result.commands).toBe('github-release\ndequeue\nrelease-pr\n');
     expect(result.output).toContain('Error updating ref: queued release branch is locked');
   });
 
   it('skips refresh and queue enabling on dequeue failure but keeps github-release', () => {
     const result = execute(connection([release(true)]), { staleNotes: true, dequeueFails: true });
     expect(result.status).toBe(0);
-    expect(result.commands).toBe('dequeue\ngithub-release\n');
+    expect(result.commands).toBe('github-release\ndequeue\n');
     expect(result.summary).toContain('Could not safely dequeue stale release PR');
     expect(result.summary).toContain(
       'skipping release-pr and auto-merge enabling. github-release continues'
@@ -361,27 +420,60 @@ describe('release PR queue pre-check', () => {
     );
   });
 
-  it('does not suppress github-release failure after dequeue failure', () => {
+  it('reports github-release failure before attempting refresh or dequeue', () => {
     const result = execute(connection([release(true)]), {
       staleNotes: true,
       dequeueFails: true,
       failCommand: 'github-release',
     });
     expect(result.status).toBe(19);
-    expect(result.commands).toBe('dequeue\ngithub-release\n');
+    expect(result.commands).toBe('github-release\n');
+    expect(result.output).toContain('github-release failed; release-pr was not attempted.');
+    expect(result.summary).toContain('github-release failed; release-pr was not attempted.');
+    expect(result.queries).toBe('');
   });
 
   it('plans stale queued refresh without mutating in a dry run', () => {
     const result = execute(connection([release(true)]), { staleNotes: true, live: 'false' });
     expect(result.status).toBe(0);
-    expect(result.commands).toBe('release-pr\ngithub-release\n');
+    expect(result.commands).toBe('github-release\nrelease-pr\n');
     expect(result.summary).toContain('Dry run: stale queued release PR would be dequeued');
   });
 
   it('preserves a queued draft-held candidate while allowing unheld refresh and github-release', () => {
     const result = execute(connection([release(true)]), { staleNotes: true, heldPaths: ['.'] });
     expect(result.status).toBe(0);
-    expect(result.commands).toBe('release-pr\ngithub-release\n');
+    expect(result.commands).toBe('github-release\nrelease-pr\n');
+    expect(result.summary).toContain('held by a tagless draft');
+    expect(result.queries.split('api graphql')).toHaveLength(2);
+  });
+
+  it.each([
+    { held: ['.'], refresh: true },
+    { held: ['extensions/tmt-squad'], refresh: true },
+    { held: ['.', 'extensions/tmt-squad'], refresh: false },
+  ])('sees drafts created in this run before deciding held paths: $held', ({ held, refresh }) => {
+    const result = execute(connection([]), { sameRunDrafts: held });
+    expect(result.status).toBe(0);
+    expect(result.draftOutputs).toContain(`held_paths=${JSON.stringify(held)}`);
+    expect(result.commands).toBe(refresh ? 'github-release\nrelease-pr\n' : 'github-release\n');
+  });
+
+  it('never creates same-run drafts when planning a dry run', () => {
+    const result = execute(connection([]), { sameRunDrafts: ['.'], live: 'false' });
+    expect(result.status).toBe(0);
+    expect(result.draftOutputs).toContain('held_paths=[]');
+    expect(result.commands).toBe('github-release\nrelease-pr\n');
+  });
+
+  it('preserves a stale queued candidate held by a draft created in this run', () => {
+    const result = execute(connection([release(true)]), {
+      sameRunDrafts: ['.'],
+      staleNotes: true,
+    });
+    expect(result.status).toBe(0);
+    expect(result.draftOutputs).toContain('held_paths=["."]');
+    expect(result.commands).toBe('github-release\nrelease-pr\n');
     expect(result.summary).toContain('held by a tagless draft');
     expect(result.queries.split('api graphql')).toHaveLength(2);
   });
@@ -429,15 +521,15 @@ describe('release PR queue pre-check', () => {
   it('runs both commands unchanged when release PRs are not queued', () => {
     const result = execute(connection([release(false), release(true, 'feature-branch')]));
     expect(result.status).toBe(0);
-    expect(result.commands).toBe('release-pr\ngithub-release\n');
+    expect(result.commands).toBe('github-release\nrelease-pr\n');
     expect(result.summary).not.toContain(QUEUED_NOTICE);
-    expect(result.queries).toBe('api graphql\n');
+    expect(result.queries).toBe('api repos/pj-tmt/tmt/releases?per_page=100&page=1\napi graphql\n');
   });
 
   it('still runs github-release when an unchanged release PR has unknown mergeability', () => {
     const result = execute(connection([release(false)]), { unknownMergeability: true });
     expect(result.status).toBe(0);
-    expect(result.commands).toBe('release-pr\ngithub-release\n');
+    expect(result.commands).toBe('github-release\nrelease-pr\n');
     expect(result.summary).toContain('Preserved unchanged release head with unknown mergeability');
     expect(result.output).not.toContain('unchanged head was rewritten');
   });
@@ -445,15 +537,23 @@ describe('release PR queue pre-check', () => {
   it('keeps the same pre-check and command planning in dry runs', () => {
     const result = execute(connection([]), { live: 'false' });
     expect(result.status).toBe(0);
-    expect(result.commands).toBe('release-pr\ngithub-release\n');
+    expect(result.commands).toBe('github-release\nrelease-pr\n');
     expect(result.summary).toContain('(dry run)');
   });
 
-  it('fails the workflow when the queue query fails before either command runs', () => {
+  it('fails visibly when draft discovery fails after github-release', () => {
     const result = execute(connection([]), { queryFails: true });
     expect(result.status).toBe(1);
-    expect(result.commands).toBe('');
+    expect(result.commands).toBe('github-release\n');
     expect(result.output).toContain('query unavailable');
+  });
+
+  it('fails visibly when queue discovery fails after release reconciliation and draft inspection', () => {
+    const result = execute(connection([]), { queueQueryFails: true });
+    expect(result.status).toBe(1);
+    expect(result.commands).toBe('github-release\n');
+    expect(result.draftOutputs).toContain('held_paths=[]');
+    expect(result.output).toContain('queue query unavailable');
   });
 
   it.each(['release-pr', 'github-release'])(
@@ -465,7 +565,7 @@ describe('release PR queue pre-check', () => {
     }
   );
 
-  it('still fails github-release after skipping a queued release PR', () => {
+  it('fails github-release before a covered queued PR can skip refresh', () => {
     const result = execute(connection([release(true)]), { failCommand: 'github-release' });
     expect(result.status).toBe(19);
     expect(result.commands).toBe('github-release\n');
