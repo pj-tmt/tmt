@@ -13,11 +13,7 @@ describe('Remote same-ID crash recovery (#1055 bullet 5)', () => {
       await withE2EFixture(
         async (fixture) => {
           const identity = expectJsonResult(
-            await fixture.runJsonCli<{ identity: { id: string } }>([
-              'name',
-              `remote-recovery-${phase}`,
-              '--save',
-            ])
+            await fixture.runJsonCli<{ id: string }>(['name', `remote-recovery-${phase}`, '--save'])
           );
           const owner = new RemoteOwner(fixture);
           const trace = installTmuxTrace(fixture);
@@ -27,7 +23,7 @@ describe('Remote same-ID crash recovery (#1055 bullet 5)', () => {
             const session = await owner.session(device, paired);
             const operationId = randomUUID();
             const message = `Original intent across ${phase}-acceptance crash`;
-            const intent = dispatchIntent(operationId, identity.identity.id, message);
+            const intent = dispatchIntent(operationId, identity.id, message);
             const initial = requestAttempts(fixture);
             const initialEvents = fixture.events();
             owner.armCrash(operationId, phase);
@@ -53,13 +49,13 @@ describe('Remote same-ID crash recovery (#1055 bullet 5)', () => {
               expect(items).toHaveLength(1);
               acceptedRequest = text(object(items[0]).requestId);
               await fixture.waitForEvent(
-                (e) => e.event === 'silent' && e.requestId === acceptedRequest
+                (e) => e.event === 'input' && e.line?.includes(acceptedRequest!) === true
               );
               expect(
                 requestAttempts(fixture).filter((row) => row.request_id === acceptedRequest)
               ).toEqual([
                 expect.objectContaining({
-                  recipient_identity_id: identity.identity.id,
+                  recipient_identity_id: identity.id,
                   message_text: `[remote: ${device.name}]\n${message}`,
                 }),
               ]);
@@ -88,7 +84,12 @@ describe('Remote same-ID crash recovery (#1055 bullet 5)', () => {
             const requestId = text(sent.requestId);
             expect(sent).toEqual({ state: 'accepted', operationId, requestId });
             if (acceptedRequest !== undefined) expect(requestId).toBe(acceptedRequest);
-            await fixture.waitForEvent((e) => e.event === 'silent' && e.requestId === requestId);
+            const wake = await fixture.waitForEvent(
+              (e) => e.event === 'input' && e.line?.includes(requestId) === true
+            );
+            expect(wake.line).toBe(
+              `[tmt] request ${requestId} is queued: tmt x show ${requestId} --incoming --identity ${identity.id} --json`
+            );
             const settled = requestAttempts(fixture);
             const events = fixture.events();
             expect(await recovered.append('dispatch.create', intent, operationId)).toEqual(sent);
@@ -101,12 +102,14 @@ describe('Remote same-ID crash recovery (#1055 bullet 5)', () => {
             expect(settled).toHaveLength(initial.length + 1);
             expect(settled.filter((row) => row.request_id === requestId)).toEqual([
               expect.objectContaining({
-                recipient_identity_id: identity.identity.id,
+                recipient_identity_id: identity.id,
                 message_text: `[remote: ${device.name}]\n${message}`,
               }),
             ]);
             expect(
-              fixture.events().filter((e) => e.event === 'request' && e.requestId === requestId)
+              fixture
+                .events()
+                .filter((e) => e.event === 'input' && e.line?.includes(requestId) === true)
             ).toHaveLength(1);
             expect(trace.commands().filter((command) => command === 'paste-buffer')).toHaveLength(
               1
@@ -120,7 +123,7 @@ describe('Remote same-ID crash recovery (#1055 bullet 5)', () => {
             await owner.dispose();
           }
         },
-        { mode: 'silent' }
+        { mode: 'input-log' }
       );
     }, 45_000);
   }

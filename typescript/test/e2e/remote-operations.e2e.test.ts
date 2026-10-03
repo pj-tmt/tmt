@@ -13,8 +13,20 @@ import { installTmuxTrace } from './tmux-trace.js';
 
 async function name(fixture: E2EFixture, value: string, pane = fixture.pane): Promise<string> {
   return expectJsonResult(
-    await fixture.runJsonCli<{ identity: { id: string } }>(['name', value, '--save'], { pane })
-  ).identity.id;
+    await fixture.runJsonCli<{ id: string }>(['name', value, '--save'], { pane })
+  ).id;
+}
+async function queuedWake(
+  fixture: E2EFixture,
+  requestId: string,
+  recipientId: string
+): Promise<void> {
+  const wake = await fixture.waitForEvent(
+    (event) => event.event === 'input' && event.line?.includes(requestId) === true
+  );
+  expect(wake.line).toBe(
+    `[tmt] request ${requestId} is queued: tmt x show ${requestId} --incoming --identity ${recipientId} --json`
+  );
 }
 const accepted = (operationId: string, requestId: string) => ({
   state: 'accepted',
@@ -25,201 +37,201 @@ const accepted = (operationId: string, requestId: string) => ({
 // All application actions go through the real Remote and selected core binaries.
 describe('Remote owner-device operations (#1055)', () => {
   it('bullets 1/4: delivers direct intent once, recovers its receipt and refuses changed intent', async () => {
-    await withE2EFixture(async (fixture) => {
-      const id = await name(fixture, 'remote-direct');
-      const owner = new RemoteOwner(fixture);
-      try {
-        await owner.start();
-        const { device, paired } = await owner.pair();
-        const session = await owner.session(device, paired);
-        const operationId = randomUUID();
-        const message = 'Direct Remote acceptance';
-        const before = requestAttempts(fixture);
-        const intent = dispatchIntent(operationId, id, message);
-        const sent = await session.append('dispatch.create', intent, operationId);
-        const requestId = text(sent.requestId);
-        expect(sent).toEqual(accepted(operationId, requestId));
-        const processed = await fixture.waitForEvent(
-          (e) => e.event === 'summary' && e.requestId === requestId
-        );
-        expect(processed.message).toContain(`[remote: ${device.name}]\n${message}`);
-        const rows = requestAttempts(fixture).filter((row) => row.request_id === requestId);
-        expect(rows).toHaveLength(1);
-        expect(rows[0]).toMatchObject({
-          recipient_identity_id: id,
-          message_text: `[remote: ${device.name}]\n${message}`,
-        });
-        expect(requestAttempts(fixture)).toHaveLength(before.length + 1);
-        expect(requestResponses(fixture)).toContainEqual(
-          expect.objectContaining({
-            request_id: requestId,
-            body: `mock-agent response: ${processed.message}`,
-          })
-        );
-        const settled = requestAttempts(fixture);
-        const events = fixture.events();
-        expect(await session.append('dispatch.create', intent, operationId)).toEqual(sent);
-        expect(await session.append('operation.show', { operationId })).toEqual(sent);
-        expect(
-          await session.append(
-            'dispatch.create',
-            dispatchIntent(operationId, id, 'Changed intent'),
-            operationId
-          )
-        ).toMatchObject({ error: { code: 'REMOTE_INTENT_CONFLICT' } });
-        expect(
-          owner.coreCalls().filter((call) => call.operation === 'dispatch.create')
-        ).toHaveLength(1);
-        expect(requestAttempts(fixture)).toEqual(settled);
-        expect(fixture.events()).toEqual(events);
-      } finally {
-        await owner.dispose();
-      }
-    });
-  }, 30_000);
-
-  it('bullet 2: held intent has no core effect until explicit local confirmation; refusal/EOF/cancel never dispatch', async () => {
-    await withE2EFixture(async (fixture) => {
-      const id = await name(fixture, 'remote-held');
-      const owner = new RemoteOwner(fixture);
-      try {
-        await owner.start();
-        const { device, paired } = await owner.pair();
-        await owner.stop();
-        owner.seedGrant(paired.clientId, { mode: 'hold' });
-        await owner.start();
-        const session = await owner.session(device, paired);
-        const before = requestAttempts(fixture);
-        const eventsBefore = fixture.events();
-        const effectCount = () =>
-          owner.coreCalls().filter((call) => call.operation === 'dispatch.create').length;
-        const operationId = randomUUID();
-        const message = 'Owner must see this exact frozen intent';
-        expect(
-          await session.append(
-            'dispatch.create',
-            dispatchIntent(operationId, id, message),
-            operationId
-          )
-        ).toEqual({ state: 'held', operationId });
-        const approval = await owner.approval(operationId);
-        expect(approval.held).toEqual({
-          event: 'held',
-          operationId,
-          clientId: paired.clientId,
-          deviceName: device.name,
-          recipientId: id,
-          message: `[remote: ${device.name}]\n${message}`,
-        });
-        expect(effectCount()).toBe(0);
-        expect(requestAttempts(fixture)).toEqual(before);
-        expect(fixture.events()).toEqual(eventsBefore);
-        const ended = await approval.finish('confirm');
-        const requestId = text(ended.requestId);
-        expect(ended).toEqual({ event: 'ended', ...accepted(operationId, requestId) });
-        await fixture.waitForEvent((e) => e.event === 'summary' && e.requestId === requestId);
-        expect(requestAttempts(fixture).filter((row) => row.request_id === requestId)).toEqual([
-          expect.objectContaining({
-            message_text: approval.held.message,
+    await withE2EFixture(
+      async (fixture) => {
+        const id = await name(fixture, 'remote-direct');
+        const owner = new RemoteOwner(fixture);
+        try {
+          await owner.start();
+          const { device, paired } = await owner.pair();
+          const session = await owner.session(device, paired);
+          const operationId = randomUUID();
+          const message = 'Direct Remote acceptance';
+          const before = requestAttempts(fixture);
+          const intent = dispatchIntent(operationId, id, message);
+          const sent = await session.append('dispatch.create', intent, operationId);
+          const requestId = text(sent.requestId);
+          expect(sent).toEqual(accepted(operationId, requestId));
+          await queuedWake(fixture, requestId, id);
+          const rows = requestAttempts(fixture).filter((row) => row.request_id === requestId);
+          expect(rows).toHaveLength(1);
+          expect(rows[0]).toMatchObject({
             recipient_identity_id: id,
-          }),
-        ]);
-        expect(effectCount()).toBe(1);
-        const settled = requestAttempts(fixture);
-        const settledEvents = fixture.events();
-        for (const answer of ['refuse', 'eof', 'cancel'] as const) {
-          const cancelledId = randomUUID();
+            message_text: `[remote: ${device.name}]\n${message}`,
+          });
+          expect(requestAttempts(fixture)).toHaveLength(before.length + 1);
+          const settled = requestAttempts(fixture);
+          const events = fixture.events();
+          expect(await session.append('dispatch.create', intent, operationId)).toEqual(sent);
+          expect(await session.append('operation.show', { operationId })).toEqual(sent);
           expect(
             await session.append(
               'dispatch.create',
-              dispatchIntent(cancelledId, id, `Must cancel ${answer}`),
-              cancelledId
+              dispatchIntent(operationId, id, 'Changed intent'),
+              operationId
             )
-          ).toEqual({ state: 'held', operationId: cancelledId });
-          if (answer === 'cancel')
-            expect(await owner.cancel(cancelledId)).toEqual({
-              state: 'cancelled',
-              operationId: cancelledId,
-            });
-          else {
-            const local = await owner.approval(cancelledId);
-            expect(await local.finish(answer)).toEqual({
-              event: 'ended',
+          ).toMatchObject({ error: { code: 'REMOTE_INTENT_CONFLICT' } });
+          expect(
+            owner.coreCalls().filter((call) => call.operation === 'dispatch.create')
+          ).toHaveLength(1);
+          expect(requestAttempts(fixture)).toEqual(settled);
+          expect(fixture.events()).toEqual(events);
+        } finally {
+          await owner.dispose();
+        }
+      },
+      { mode: 'input-log' }
+    );
+  }, 30_000);
+
+  it('bullet 2: held intent has no core effect until explicit local confirmation; refusal/EOF/cancel never dispatch', async () => {
+    await withE2EFixture(
+      async (fixture) => {
+        const id = await name(fixture, 'remote-held');
+        const owner = new RemoteOwner(fixture);
+        try {
+          await owner.start();
+          const { device, paired } = await owner.pair();
+          await owner.stop();
+          owner.seedGrant(paired.clientId, { mode: 'hold' });
+          await owner.start();
+          const session = await owner.session(device, paired);
+          const before = requestAttempts(fixture);
+          const eventsBefore = fixture.events();
+          const effectCount = () =>
+            owner.coreCalls().filter((call) => call.operation === 'dispatch.create').length;
+          const operationId = randomUUID();
+          const message = 'Owner must see this exact frozen intent';
+          expect(
+            await session.append(
+              'dispatch.create',
+              dispatchIntent(operationId, id, message),
+              operationId
+            )
+          ).toEqual({ state: 'held', operationId });
+          const approval = await owner.approval(operationId);
+          expect(approval.held).toEqual({
+            event: 'held',
+            operationId,
+            clientId: paired.clientId,
+            deviceName: device.name,
+            recipientId: id,
+            message: `[remote: ${device.name}]\n${message}`,
+          });
+          expect(effectCount()).toBe(0);
+          expect(requestAttempts(fixture)).toEqual(before);
+          expect(fixture.events()).toEqual(eventsBefore);
+          const ended = await approval.finish('confirm');
+          const requestId = text(ended.requestId);
+          expect(ended).toEqual({ event: 'ended', ...accepted(operationId, requestId) });
+          await queuedWake(fixture, requestId, id);
+          expect(requestAttempts(fixture).filter((row) => row.request_id === requestId)).toEqual([
+            expect.objectContaining({
+              message_text: approval.held.message,
+              recipient_identity_id: id,
+            }),
+          ]);
+          expect(effectCount()).toBe(1);
+          const settled = requestAttempts(fixture);
+          const settledEvents = fixture.events();
+          for (const answer of ['refuse', 'eof', 'cancel'] as const) {
+            const cancelledId = randomUUID();
+            expect(
+              await session.append(
+                'dispatch.create',
+                dispatchIntent(cancelledId, id, `Must cancel ${answer}`),
+                cancelledId
+              )
+            ).toEqual({ state: 'held', operationId: cancelledId });
+            if (answer === 'cancel')
+              expect(await owner.cancel(cancelledId)).toEqual({
+                state: 'cancelled',
+                operationId: cancelledId,
+              });
+            else {
+              const local = await owner.approval(cancelledId);
+              expect(await local.finish(answer)).toEqual({
+                event: 'ended',
+                state: 'cancelled',
+                operationId: cancelledId,
+              });
+            }
+            expect(await session.append('operation.show', { operationId: cancelledId })).toEqual({
               state: 'cancelled',
               operationId: cancelledId,
             });
           }
-          expect(await session.append('operation.show', { operationId: cancelledId })).toEqual({
-            state: 'cancelled',
-            operationId: cancelledId,
-          });
+          expect(effectCount()).toBe(1);
+          expect(requestAttempts(fixture)).toEqual(settled);
+          expect(fixture.events()).toEqual(settledEvents);
+        } finally {
+          await owner.dispose();
         }
-        expect(effectCount()).toBe(1);
-        expect(requestAttempts(fixture)).toEqual(settled);
-        expect(fixture.events()).toEqual(settledEvents);
-      } finally {
-        await owner.dispose();
-      }
-    });
+      },
+      { mode: 'input-log' }
+    );
   }, 45_000);
 
   it('bullet 3: permits its selected identity, refuses another identity and refuses an expired grant', async () => {
-    await withE2EFixture(async (fixture) => {
-      const allowed = await name(fixture, 'remote-allowed');
-      const otherPane = await fixture.createMockPane('remote-denied');
-      const denied = await name(fixture, 'remote-denied', otherPane.pane);
-      const owner = new RemoteOwner(fixture);
-      try {
-        await owner.start();
-        const { device, paired } = await owner.pair();
-        await owner.stop();
-        owner.seedGrant(paired.clientId, { agents: [allowed] });
-        await owner.start();
-        const session = await owner.session(device, paired);
-        const allowedId = randomUUID();
-        const sent = await session.append(
-          'dispatch.create',
-          dispatchIntent(allowedId, allowed, 'Allowed control'),
-          allowedId
-        );
-        const requestId = text(sent.requestId);
-        expect(sent).toEqual(accepted(allowedId, requestId));
-        await fixture.waitForEvent((e) => e.event === 'summary' && e.requestId === requestId);
-        const rows = requestAttempts(fixture);
-        const events = fixture.events();
-        const effects = owner.coreCalls().filter((call) => call.operation === 'dispatch.create');
-        const deniedId = randomUUID();
-        expect(
-          await session.append(
+    await withE2EFixture(
+      async (fixture) => {
+        const allowed = await name(fixture, 'remote-allowed');
+        const otherPane = await fixture.createMockPane('remote-denied');
+        const denied = await name(fixture, 'remote-denied', otherPane.pane);
+        const owner = new RemoteOwner(fixture);
+        try {
+          await owner.start();
+          const { device, paired } = await owner.pair();
+          await owner.stop();
+          owner.seedGrant(paired.clientId, { agents: [allowed] });
+          await owner.start();
+          const session = await owner.session(device, paired);
+          const allowedId = randomUUID();
+          const sent = await session.append(
             'dispatch.create',
-            dispatchIntent(deniedId, denied, 'Forbidden identity'),
-            deniedId
-          )
-        ).toMatchObject({ error: { code: 'REMOTE_SCOPE_DENIED' } });
-        expect(owner.coreCalls().filter((call) => call.operation === 'dispatch.create')).toEqual(
-          effects
-        );
-        expect(requestAttempts(fixture)).toEqual(rows);
-        expect(fixture.events()).toEqual(events);
-        await owner.stop();
-        owner.seedGrant(paired.clientId, { expiresAtMs: Date.now() - 1 });
-        await owner.start();
-        // Fresh window, nonce, signature and timestamp: expiry is the only
-        // changed authority, not a stale session or replayed request.
-        const expired = await owner.post('append', owner.opening(device, paired));
-        expect(expired.status).toBe(404);
-        expect(expired.rawBody).toBe('');
-        expect(expired.body).toBeNull();
-        expect(expired.headers['set-cookie']).toBeUndefined();
-        expect(owner.coreCalls().filter((call) => call.operation === 'dispatch.create')).toEqual(
-          effects
-        );
-        expect(requestAttempts(fixture)).toEqual(rows);
-        expect(fixture.events()).toEqual(events);
-      } finally {
-        await owner.dispose();
-      }
-    });
+            dispatchIntent(allowedId, allowed, 'Allowed control'),
+            allowedId
+          );
+          const requestId = text(sent.requestId);
+          expect(sent).toEqual(accepted(allowedId, requestId));
+          await queuedWake(fixture, requestId, allowed);
+          const rows = requestAttempts(fixture);
+          const events = fixture.events();
+          const effects = owner.coreCalls().filter((call) => call.operation === 'dispatch.create');
+          const deniedId = randomUUID();
+          expect(
+            await session.append(
+              'dispatch.create',
+              dispatchIntent(deniedId, denied, 'Forbidden identity'),
+              deniedId
+            )
+          ).toMatchObject({ error: { code: 'REMOTE_SCOPE_DENIED' } });
+          expect(owner.coreCalls().filter((call) => call.operation === 'dispatch.create')).toEqual(
+            effects
+          );
+          expect(requestAttempts(fixture)).toEqual(rows);
+          expect(fixture.events()).toEqual(events);
+          await owner.stop();
+          owner.seedGrant(paired.clientId, { expiresAtMs: Date.now() - 1 });
+          await owner.start();
+          // Fresh window, nonce, signature and timestamp: expiry is the only
+          // changed authority, not a stale session or replayed request.
+          const expired = await owner.post('append', owner.opening(device, paired));
+          expect(expired.status).toBe(404);
+          expect(expired.rawBody).toBe('');
+          expect(expired.body).toBeNull();
+          expect(expired.headers['set-cookie']).toBeUndefined();
+          expect(owner.coreCalls().filter((call) => call.operation === 'dispatch.create')).toEqual(
+            effects
+          );
+          expect(requestAttempts(fixture)).toEqual(rows);
+          expect(fixture.events()).toEqual(events);
+        } finally {
+          await owner.dispose();
+        }
+      },
+      { mode: 'input-log' }
+    );
   }, 40_000);
 
   it('owner-device reads: permitted projections and pending/empty final result work; out-of-scope read refuses', async () => {
@@ -244,7 +256,7 @@ describe('Remote owner-device operations (#1055)', () => {
           );
           const requestId = text(sent.requestId);
           expect(sent).toEqual(accepted(operationId, requestId));
-          await fixture.waitForEvent((e) => e.event === 'request' && e.requestId === requestId);
+          await queuedWake(fixture, requestId, allowed);
           const count = owner
             .coreCalls()
             .filter((call) => call.operation === 'dispatch.create').length;
@@ -282,8 +294,26 @@ describe('Remote owner-device operations (#1055)', () => {
               input: { requestId },
             })
           ).toMatchObject({ requestId, recipientId: allowed, final: { status: 'not_submitted' } });
-          fixture.releaseReplyGate(requestId);
-          await fixture.waitForEvent((e) => e.event === 'summary' && e.requestId === requestId);
+          // The core queues an inbox request and sends one advisory wake; it
+          // does not paste a talk reply frame. Act as the recipient through the
+          // actual public receipt and CLI, without fabricating a final response.
+          const incoming = expectJsonResult(
+            await fixture.runJsonCli<{
+              exchange: { prompt: { message: string }; reply: { receipt: string } };
+            }>(['x', 'show', requestId, '--incoming', '--identity', allowed], { withoutTmux: true })
+          );
+          expect(incoming.exchange.prompt.message).toBe(
+            `[remote: ${device.name}]\nRead causal control`
+          );
+          expect(incoming.exchange.reply.receipt).toMatch(/^v2_/);
+          expect(
+            expectJsonResult(
+              await fixture.runJsonCli(
+                ['reply', requestId, '--receipt', incoming.exchange.reply.receipt, '--message', ''],
+                { withoutTmux: true }
+              )
+            )
+          ).toMatchObject({ status: 'submitted', requestId, bodyBytes: 0 });
           expect(await session.append('result', { requestId })).toEqual({
             state: 'replied',
             requestId,
@@ -331,7 +361,7 @@ describe('Remote owner-device operations (#1055)', () => {
           await owner.dispose();
         }
       },
-      { replyGate: true, responseBodyBase64: '' }
+      { mode: 'input-log' }
     );
   }, 45_000);
 
@@ -440,7 +470,7 @@ describe('Remote owner-device operations (#1055)', () => {
         expect(requestAttempts(fixture).filter((row) => row.request_id === requestId)).toEqual([
           expect.objectContaining({
             route_kind: 'inbox',
-            wake_state: 'sent',
+            status: 'queued',
             recipient_identity_id: id,
           }),
         ]);
@@ -484,11 +514,7 @@ describe('Remote owner-device operations (#1055)', () => {
     assertRemoteDeviceVectors();
     await withE2EFixture(async (fixture) => {
       const identity = expectJsonResult(
-        await fixture.runJsonCli<{ identity: { id: string } }>([
-          'name',
-          'remote-sequence-agent',
-          '--save',
-        ])
+        await fixture.runJsonCli<{ id: string }>(['name', 'remote-sequence-agent', '--save'])
       );
       const owner = new RemoteOwner(fixture);
       const trace = installTmuxTrace(fixture);
@@ -507,7 +533,7 @@ describe('Remote owner-device operations (#1055)', () => {
           originator: 'anonymous',
           input: {
             operationId,
-            recipientIds: [identity.identity.id],
+            recipientIds: [identity.id],
             message: 'This out-of-order intent must never reach the agent',
             kind: 'request',
           },
