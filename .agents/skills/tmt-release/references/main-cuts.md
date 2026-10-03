@@ -72,10 +72,11 @@ Both products start at `0.1.0-alpha.1`; main keeps `0.1.0-dev`. The component ma
 owns `bootstrapSha` (the permanent pre-component history boundary), `initialVersion`
 (the approved first alpha) and `requiresCliSha` (the supporting CLI registration).
 The first-cut planner resolves the newest published CLI tag and requires that
-registration in its ancestry. Missing or older supporting releases block the cut
-with a clear reason; they create no product draft. Merge activation only after
-that supporting CLI has passed publication and public smoke. The hourly minute-17
-cut then allocates both products automatically; no manual dispatch is needed.
+registration in its ancestry. Missing or older supporting releases produce a
+non-failing blocked row with a clear reason and no product draft; CLI and Squad
+cuts continue independently. The hourly minute-17 cut allocates both products
+automatically once a supporting CLI is published; retain its public-smoke
+acceptance before product publication. No manual dispatch is needed.
 
 Use the same four-host archive, installation, upgrade and public-smoke gates as
 other extensions. The first release has no previous version to upgrade; later

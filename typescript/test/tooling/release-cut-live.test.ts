@@ -160,13 +160,26 @@ describe('live release cut lifecycle', () => {
     vi.mocked(f.client.main).mockReturnValue(later);
     f.state.cut = later;
     const blocked = await runReleaseCuts({ ...f, live: true });
+    for (const [product, tag] of [
+      ['cli', 'v5.0.0-alpha.49'],
+      ['squad', 'tmt-squad-v0.1.0-alpha.15'],
+    ]) {
+      expect(blocked.actions).toContainEqual({ product, status: 'created', tag, cut: later });
+      expect(f.client.dispatch).toHaveBeenCalledWith(product, tag);
+    }
+    expect(blocked.actions.some((action) => action.status === 'failed')).toBe(false);
     for (const product of ['remote', 'colab'])
       expect(blocked.actions).toContainEqual({
         product,
         status: 'blocked',
         reason: expect.stringContaining('predates registration'),
       });
-    expect(f.client.dispatch).not.toHaveBeenCalledWith('remote', expect.anything());
+    for (const product of ['remote', 'colab']) {
+      expect(f.client.dispatch).not.toHaveBeenCalledWith(product, expect.anything());
+      expect(f.releases.some((release) => release.tag_name.startsWith(`tmt-${product}-v`))).toBe(
+        false
+      );
+    }
     f.command(['tag', 'v5.0.0-alpha.49', f.cut]);
     f.releases.push({
       id: 99,
