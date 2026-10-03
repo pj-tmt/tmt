@@ -313,6 +313,9 @@ fn ipc(layout: &Layout, body: &[u8]) -> Result<Vec<u8>> {
     {
         return Err(StateFault::UnsafeFile.into());
     }
+    // The exchange deadline begins after this blocking local-path connect.
+    // A full listener backlog can stall connect if serve stops accepting; that
+    // failure needs diagnosis, never a fallback to an independent offline writer.
     let mut socket = UnixStream::connect(path)?;
     let deadline = Instant::now() + Duration::from_secs(4);
     let header = format!(
