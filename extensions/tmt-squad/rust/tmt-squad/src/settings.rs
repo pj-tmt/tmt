@@ -87,14 +87,33 @@ pub fn run(config: &mut Config, matches: &ArgMatches) -> Result<Value, SquadErro
         .value();
     if let Some(changed) = changed {
         result["changed"] = json!(changed);
-        if matches!(
-            flags.get_one::<String>("key").unwrap().as_str(),
-            "board.direction" | "board.sizes" | "board.panes"
-        ) {
-            result["notices"].as_array_mut().unwrap().push(json!(format!("Saved layout {} and its split (direction, panes, sizes) to squad.toml. Later preset changes won't override them.", config.layout(squad.unwrap())?.as_str())));
+        if let Some(notice) = saved_notice(
+            config,
+            squad.map(String::as_str),
+            flags.get_one::<String>("key").unwrap(),
+        )? {
+            result["notices"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!(notice));
         }
     }
     Ok(result)
+}
+
+pub fn saved_notice(
+    config: &Config,
+    squad: Option<&str>,
+    key: &str,
+) -> Result<Option<String>, SquadError> {
+    if matches!(key, "board.direction" | "board.sizes" | "board.panes") {
+        Ok(Some(format!(
+            "Saved layout {} and its split (direction, panes, sizes) to squad.toml. Later preset changes won't override them.",
+            config.layout(squad.unwrap())?.as_str()
+        )))
+    } else {
+        Ok(None)
+    }
 }
 
 pub fn display(value: &Value) -> String {

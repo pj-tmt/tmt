@@ -742,10 +742,22 @@ o = "run touch ${marker}"
       expect(created.status).toBe(0);
       const notebook = JSON.parse(created.stdout).path as string;
       writeFileSync(notebook, '# Current work\nReview token rotation.\n');
-      writeFileSync(
-        toml,
-        `${original}\n[squad.product.reminders]\nenabled = true\nstale_after = "1m"\n`
-      );
+      expect(
+        (await squad(sandbox, ['config', 'set', 'reminders.enabled', 'true', '--squad', 'product']))
+          .status
+      ).toBe(0);
+      expect(
+        (
+          await squad(sandbox, [
+            'config',
+            'set',
+            'reminders.stale_after',
+            '1m',
+            '--squad',
+            'product',
+          ])
+        ).status
+      ).toBe(0);
       const metadataBefore = observe(sandbox);
       const first = await listing();
       expect(first.status).toBe(0);
@@ -804,19 +816,56 @@ o = "run touch ${marker}"
       expect(missing.body.squad.notesStaleness.state).toBe('unknown');
       expect(existsSync(notebook)).toBe(false);
       const beforeDisable = readFileSync(file, 'utf8');
-      writeFileSync(toml, `${original}\n[squad.product.reminders]\nenabled = false\n`);
+      expect(
+        (
+          await squad(sandbox, [
+            'config',
+            'set',
+            'reminders.enabled',
+            'false',
+            '--squad',
+            'product',
+          ])
+        ).status
+      ).toBe(0);
       const off = await listing();
       expect(off.body.squad.notesStaleness.state).toBe('disabled');
       expect(readFileSync(file, 'utf8')).toBe(beforeDisable);
-      writeFileSync(
-        toml,
-        `${original}\n[squad.product.reminders]\nenabled = true\nstale_after = "1m"\n`
-      );
+      expect(
+        (await squad(sandbox, ['config', 'set', 'reminders.enabled', 'true', '--squad', 'product']))
+          .status
+      ).toBe(0);
+      expect(
+        (
+          await squad(sandbox, [
+            'config',
+            'set',
+            'reminders.stale_after',
+            '1m',
+            '--squad',
+            'product',
+          ])
+        ).status
+      ).toBe(0);
       const reenabled = await listing();
       expect(reenabled.body.sections[0].rows[0].staleness.unchangedSinceMs).toBe(
         updated.body.sections[0].rows[0].staleness.unchangedSinceMs
       );
       const afterReenable = readFileSync(file, 'utf8');
+      const validSettings = readFileSync(toml, 'utf8');
+      for (const [key, value] of [
+        ['reminders.enabled', 'yes'],
+        ['reminders.stale_after', '59s'],
+        ['reminders.stale_after', '25h'],
+      ]) {
+        const rejected = await squad(sandbox, ['config', 'set', key, value, '--squad', 'product']);
+        expect(rejected.status).toBe(1);
+        expect(rejected.body.error.code).toBe('SQUAD_CONFIG_INVALID');
+        expect(readFileSync(toml, 'utf8')).toBe(validSettings);
+        expect(readFileSync(file, 'utf8')).toBe(afterReenable);
+      }
+      expect((await squad(sandbox, ['config', 'set', 'reminders.enabled', 'true'])).status).toBe(1);
+      expect(readFileSync(toml, 'utf8')).toBe(validSettings);
       const invalid = `${original}\n[squad.product.reminders]\nenabled = true\nstale_after = "59s"\n`;
       writeFileSync(toml, invalid);
       const refused = await listing();
