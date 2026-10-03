@@ -21,9 +21,13 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   verified registration Session in the served SDK's `operations` helper. It never reopens
   the session (that would end Live's tunnels); the SDK owns sequence resync and same-ID
   reads. `context()` combines `api/session` (device, name, grant revision) with
-  `/sdk/mount` (machine) and requires the revision to match the Session. A failed `send`
-  or `operation` becomes `uncertain`, never a retry. `listAgents` keeps id, name and
-  presence only, so delivery shows as unavailable.
+  `/sdk/mount` (machine). A failed `send` or `operation` becomes `uncertain`, never a
+  retry. `listAgents` keeps id, name and presence only; the port has no delivery field and
+  no `check`. A Session fault (SDK `RefusalError` `REMOTE_SESSION_ENDED`, `ClientError`
+  `sequence_unavailable`, a verified refused-`REMOTE_SESSION_ENDED` state, an expired
+  Session or a changed grant revision) is normalized to `SessionEndedError` or an
+  `uncertain` state with that reason. Registration must rebuild the client and its
+  controllers when it replaces the Session; an old client never adopts a new one.
 - **`ask-records.ts`.** Record types `ask`, `ask-state`, `ask-reply`, the ledger states and
   `canTransition`. `readAskRecords` (alias `readAskViews`) reads only the admitted
   per-writer projection and verifies each ask's signature with that writer's key; a
@@ -31,9 +35,11 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   ask stays readable; effect checks happen in the controller.
 - **`ask-record-store.ts` (`AskRecordStore`).** The own stream is the ledger. `adopt` verifies
   the signed ask and its scope, then stores the local draft (`storeAskDraft`, in
-  `ask-attempt.ts`) and publishes the ask; the same ID with other bytes is
-  `INTENT_CONFLICT`. `state` and `reply` write immutable revisioned records. All writes for
-  one ask run under the Web Lock `ask-ledger:<space>:<page>:<device>:<id>` (`exclusive`).
+  the same module; signed input and signature only) and publishes the ask; the same ID with
+  other bytes is
+  `INTENT_CONFLICT`. A stored draft never authorizes another effect. `state` and `reply`
+  write immutable revisioned records, validated here, not in the Writer. All writes for one
+  ask run under the Web Lock `ask-ledger:<space>:<page>:<device>:<id>` (`exclusive`).
 - **`ask-attempt.ts` (`AskController`).** `prepare` captures synchronously against the
   current Remote context. `send` is the only Remote write: recheck context, sign, adopt
   (durable), record `dispatching`, recheck expiry and context again, then `remote.send`; a
@@ -41,8 +47,11 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   `recover` only calls `operation` and `result`, publishing state and the final
   as records. `observe` runs while the page is visible, backs off from 2 s up to 30 s, stops
   after two hours and never sends on reload or reconnect. `abandon` applies only to
-  `uncertain`, records `MAY_HAVE_BEEN_DELIVERED` and cancels nothing.
-- **`writer.ts` and the fold Worker.** `Writer.submitOwn` validates the record, has the
+  `uncertain`, records `MAY_HAVE_BEEN_DELIVERED` and cancels nothing. On a Session fault
+  the controller publishes `uncertain` (an `accepted` ask's records stay unchanged), then
+  calls `sessionEnded` once, refuses further work and stops observing.
+- **`writer.ts` and the fold Worker.** `Writer.submitOwn` is generic over the own roots
+  (`threads`, `intents`, `messages`, `replies`) and imports nothing from Ask. It has the
   Worker `prepare-own` a candidate update (immutable per key, size-bounded, not committed),
   then submits it through the same `submit(update, 'own')` path as content, so sequence,
   Web Lock and exact-envelope staging are shared. The decoder state commits only after the
@@ -58,8 +67,8 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   operation ID, is not offered: an `uncertain` ask can only be re-checked or abandoned.
 - Preview and signed bytes differ by exactly the `[remote: <device name>]` line; the
   recipient sees the prefixed text, so acceptance asserts that text verbatim.
-- Production drops unknown delivery values and shows unavailable; absent mode or expiry is
-  unavailable too.
+- `agents.list` reports presence only in v1, so the UI shows presence and no delivery state.
+  Absent mode or expiry evidence shows as unavailable.
 - Tests: `test/ask-ledger.test.ts` (own record before effect, concurrent same-ID sends,
   absent recovery and abandon, rename or revision change before publication, per-writer
   attribution, shared-session SDK use, visible bounded observation), `test/own-fold.test.ts`
