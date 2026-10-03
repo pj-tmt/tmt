@@ -302,7 +302,9 @@ fn session(
                     && !app.loading()
                     && let Some(meter) = app.meter.as_mut().filter(|meter| meter.room == room)
                 {
-                    meter.sample(input.as_ref().map_err(|_| ()), Instant::now());
+                    let now = Instant::now();
+                    meter.sample(input.as_ref().map_err(|_| ()), now);
+                    app.project_usage(now);
                     dirty = true;
                 }
                 Effect::None

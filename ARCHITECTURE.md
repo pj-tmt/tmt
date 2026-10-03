@@ -1268,35 +1268,48 @@ pruned against visible/hidden tabs, and owns the runtime selected window. Leavin
 a tab closes sampling continuity. Meter state is separate from pane/fold settings.
 
 `board::rate` validates cumulative input/output/cache-subset, session/driver/epoch
-and sequence/time order. Complete deltas enter a fixed 720-slot ring of 5 s
-receipt-time buckets: observed batches, never reconstructed completion times.
-Missing, invalid, gap, decrease, new-session or recovery evidence establishes a
-baseline without invented tokens. Prior-epoch tokens and gap evidence expire by
-the selected window (5 s, 1 min, 30 min or 1 h). Never-reporting members are excluded
-and listed in help; previously reporting members with lost evidence make the
-known sum a lower bound. Failed reads become partial after two sampling periods.
-Provider observedAt is order evidence, not a heartbeat. Input plus output counts
-cached input once; mixed providers sum reported token units, not costs/text volume.
+and sequence/time order. Each reporting UUID owns a bounded ring of 5 s
+receipt-time buckets, sized by the longest configured observation window (at most
+24 h). Aggregate totals and trend slices derive from those same member rings,
+without a second counter tracker. Missing, invalid, gap, decrease, new-session or
+recovery evidence establishes a baseline without invented tokens. Removing a
+roster UUID drops its history. Failed reads close continuity and mark gaps after
+two sampling periods. Provider observedAt is order evidence, not a heartbeat.
+Input plus output counts cached input once; mixed providers sum reported token
+units, not costs/text volume. Retained usage belongs to the current observed
+session model, explicitly best effort.
 
 `config::TokenRate` layers team preset, global `[board.token_rate]` and per-squad
-keys; Team alone defaults on. Built-in all/leads tabs omit the meter. The default
-window is 1 min; 5 s is offered only at exactly 5 s sampling. The bindable
-`token-window` action (`w` in both host presets) cycles available windows, outside
-text inputs. Longer windows divide known deltas by the covered span until full;
-the label discloses that span. Windows with no usable interval hide, including
-warm-up (10 s for windows other than 5 s). Measured zero renders `0`, or `≥0` for
-missing reporting coverage. `board::meter` owns cubic counting digits (600 ms,
-250 ms frame spacing and an exact final frame), smooth retargeting and immediate
-window switches/reduced motion. Its eight trend bars derive from the ring;
-slices are rounded up to 5 s, so trend spans are 40 s/80 s/30 min/1 h. No evidence
-is blank; measured zero is ▁; nonzero bars use ▂ through █.
-The meter renders one right-aligned number/unit/label/trend group, using a
-seven-cell maximum number region and no padding between its parts; the trend
-preserves its eight slots, including empty slices. The meter owns step-aside: drop trend, then only a full default-1m label, shorten
-`tok/s` to `/s`, then hide before cutting lead/attention text. Covered-span and
-non-default labels persist. The normal cached render and ratatui diff own output;
-backend-cell tests prove meter-only ticks emit inside the meter band, with no
-parallel paint path. Window cycling is runtime state, never a config write.
+keys; Team alone defaults on. `[board] tok` and per-squad `board.tok` select
+exactly three distinct ascending whole m/h windows from 1m through 24h, default
+1m/5m/60m. Both layers are validated even when masked; the reader reports the
+winning setting path for settings inspection. Built-in all/leads tabs omit the
+named-squad meter. The bindable `token-window` action (`w` in both host presets)
+cycles the summary through these windows outside text inputs. The meter shows
+observed totals and always labels the window, never divides by elapsed time.
+Incomplete uptime, gap evidence or unreported members prefix totals with `~`;
+unreported identities contribute no tokens. A baseline alone is not measured
+zero; usable intervals shorter than 10 s hide the summary. Member cells show
+`—` until usable observations exist.
+
+`App::project_usage` derives a board-only row document from the immutable public
+status document, using the accepted meter receipts for model and three token
+fields. Repeated section rows read one UUID history. Changed values invalidate
+only the existing row grid/cell cache; retained views keep their owning values
+while another squad loads. The default named-squad grid adds usage columns through
+`Rows::with_usage`; custom grids stay unchanged. One-shot `ls` has no window
+history and its JSON and grids remain unchanged. Observation policy changes
+start fresh history rather than inventing earlier coverage.
+
+`board::meter` owns cubic counting digits (600 ms, 250 ms frame spacing and an
+exact final frame), smooth retargeting and immediate window switches/reduced
+motion. Its eight trend bars derive from member rings; slices round up to 5 s.
+No evidence is blank; measured zero is ▁; nonzero bars use ▂ through █.
+The meter renders one right-aligned number/unit/window/trend group with a
+seven-cell maximum number region. It drops the trend and shortens the unit before
+hiding, preserving its window label and lead/attention text. The normal cached
+render and ratatui diff own output; no parallel paint path is introduced.
+Window cycling is runtime state, never a config write.
 A switch advances the worker's generation, cancelling superseded core reads in
 the shared `tmt-invoke` bounded process owner. The refresh worker owns one never-reset stop flag per generation; preemption
 and shutdown set that flag while the generation counter still fences events.

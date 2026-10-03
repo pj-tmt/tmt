@@ -235,6 +235,33 @@ impl Rows {
         ])
     }
 
+    /// Board-only observation columns; public ls grids and custom grids stay intact.
+    pub fn with_usage(mut self, windows: [crate::config::TokenWindow; 3]) -> Self {
+        if !self.columns.iter().any(|c| c.field == "model") {
+            let mut model = Column::sized("model", "MODEL", Some(Basis::Cells(10)));
+            model.from = ColumnSource::parse("session.model", field_name, |_| false);
+            model.priority = Some(3);
+            self.lines[0].push(Cell {
+                field: Some("model".into()),
+                span: 1,
+            });
+            self.columns.push(model);
+        }
+        for (i, window) in windows.into_iter().enumerate() {
+            let field = format!("tok_{}", i + 1);
+            let mut column = Column::sized(&field, &window.label(), Some(Basis::Cells(7)));
+            column.min = Some(5);
+            column.align = Align::Right;
+            column.priority = Some((5 - i) as u16);
+            self.lines[0].push(Cell {
+                field: Some(field),
+                span: 1,
+            });
+            self.columns.push(column);
+        }
+        self
+    }
+
     /// The built-in leads tab (#507): each squad's lead on one line.
     pub fn leads() -> Self {
         Self::with_one_line(vec![
