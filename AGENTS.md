@@ -87,7 +87,7 @@ in English.
 
 One exception: the prose of a translated handbook page, and the translated UI
 strings in its `strings.json`, may be written in the language of the directory
-`site/src/i18n/<lang>/` that holds them (`ja` or `zh`).
+`site/src/i18n/<lang>/` that holds them (`ja` or `zh-hant`).
 A language is allowed once the `languageExceptions` key of
 [`.github/repository-layout.json`](.github/repository-layout.json) lists its
 directory, which lands with that language's first translation. English remains the

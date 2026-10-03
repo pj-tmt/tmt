@@ -24,7 +24,7 @@
     "typescript"
   ],
   "languageExceptions": {
-    "site/src/i18n/zh": "zh-Hant"
+    "site/src/i18n/zh-hant": "zh-Hant"
   },
   "temporary": {}
 }

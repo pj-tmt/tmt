@@ -139,3 +139,21 @@ th code {
     transform: scale(0.985);
   }
 }
+
+/* Phrase-aware wrapping follows each heading's content language, including
+   English fallback pages inside a translated route. */
+h1:lang(zh-Hant),
+h2:lang(zh-Hant),
+h3:lang(zh-Hant),
+h1:lang(zh-Hans),
+h2:lang(zh-Hans),
+h3:lang(zh-Hans) {
+  word-break: keep-all;
+  text-wrap: balance;
+}
+h1:lang(ja),
+h2:lang(ja),
+h3:lang(ja) {
+  text-wrap: balance;
+  word-break: auto-phrase;
+}

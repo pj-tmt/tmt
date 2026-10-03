@@ -216,7 +216,7 @@ export function Chapter() {
   );
 }
 
-// Shown above an English page read under /ja or /zh until its translation lands.
+// Shown above an English page read under /ja or /zh-hant until its translation lands.
 function NotTranslated() {
   const { ui } = useStrings();
   return (
