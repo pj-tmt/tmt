@@ -39,7 +39,7 @@ Read the repository guidance before planning work:
    When replacing implementations, map behavioral assertions, not test counts:
    returned-error rollback is not crash recovery. Preserve resource cleanup
    ordering through the existing child-process owner. Native CLI scenarios use
-   the shared sandbox runner's ancestry and input descriptor isolation,
+   the shared sandbox runner's native ancestry and input connection isolation,
    documented in DEVELOPMENT;
    keep direct runtime-caller positive controls fenced rather than adding
    scenario skips or production guard overrides.

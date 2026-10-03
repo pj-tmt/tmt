@@ -497,12 +497,18 @@ jobs:
           path: rust/target/debug/examples
       - name: Make the Rust TOML helper executable
         run: chmod +x rust/target/debug/examples/release-version
+      - name: Download the native caller launcher for tooling tests
+        uses: actions/download-artifact@v4
+        with:
+          name: native-caller-fixture-x86_64-unknown-linux-musl
+          path: rust/target/debug/examples
       - name: Run retained developer tooling tests
         working-directory: typescript
         # The deleted TypeScript source coverage denominator is not Rust coverage.
         # Rust unit/process contracts and Docker remain independent required gates.
         run: |
           chmod +x ../rust/target/debug/tmt ../rust/target/debug/tmt-driver-herdr
+          chmod +x ../rust/target/debug/examples/runtime-caller-fixture
           pnpm test:run
 
   # The Docker E2E suite runs as two jobs so that the longest required job is
@@ -616,6 +622,18 @@ jobs:
         with:
           name: release-version-fixture
           path: rust/target/debug/examples/release-version
+          if-no-files-found: error
+          retention-days: 1
+      - name: Build the native caller launcher for tooling tests
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        working-directory: rust
+        run: cargo build --locked --release --target '${{ matrix.target }}' -p tmt-adapters --example runtime-caller-fixture
+      - name: Share the native caller launcher with tooling tests
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-caller-fixture-${{ matrix.target }}
+          path: rust/target/${{ matrix.target }}/release/examples/runtime-caller-fixture
           if-no-files-found: error
           retention-days: 1
       - name: Record the Cargo-owned version

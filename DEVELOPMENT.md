@@ -1348,13 +1348,16 @@ separately; scenario-local environment changes remain explicit.
 These fixtures do not inherit caller/provider markers, driver recursion flags or
 color settings. Environment isolation does not remove process ancestry. Native
 TypeScript `runCli` also isolates CLI ancestry through the test-only
-`test/support/neutral-parent.mjs`; [testing boundaries](ARCHITECTURE.md#testing-and-evidence-boundaries)
-own its reparenting, input descriptor, completion, deadline and cleanup contract. The native
+`rust/crates/tmt-adapters/examples/runtime-caller-fixture.rs`;
+[testing boundaries](ARCHITECTURE.md#testing-and-evidence-boundaries)
+own its reparenting, input connection, completion, deadline and cleanup contract. The native
 `caller-isolation.test.ts` keeps a direct shared-runtime positive
 control fenced before and after isolation, with the same provider marker on both
 paths. Build its existing process-shape fixture with
-`cargo build --locked --manifest-path rust/Cargo.toml --example runtime-caller-fixture`
-before the native suite, as the native CI worker does. Docker caller scenarios
+`cargo build --locked --manifest-path rust/Cargo.toml -p tmt-adapters --example runtime-caller-fixture`
+before tooling or native tests, as CI does. Unit tests download the launcher as a
+separate fixture artifact from their already-required Linux runtime builder;
+product artifacts and job dependencies stay unchanged. Docker caller scenarios
 deliberately retain their process ancestry.
 
 The native process selector resolves the repository build at

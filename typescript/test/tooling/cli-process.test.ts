@@ -318,6 +318,22 @@ process.stdout.write(String(fs.readFileSync(0).length));
   });
 });
 
+it('cancellation before setup starts closes and removes the private control socket', async () => {
+  const prefix = `tmt-cli-parent-${process.pid}-`;
+  const before = fs.readdirSync('/tmp').filter((name) => name.startsWith(prefix));
+  const failure = new Error('callback failed before setup');
+  let root = '';
+  await expect(
+    withSandbox((sandbox) => {
+      root = sandbox.root;
+      void runCli(sandbox, []);
+      throw failure;
+    })
+  ).rejects.toBe(failure);
+  expect(fs.existsSync(root)).toBe(false);
+  expect(fs.readdirSync('/tmp').filter((name) => name.startsWith(prefix))).toEqual(before);
+});
+
 it('resolves a scenario executable on its declared PATH and preserves access errors', async () => {
   await withSandbox(async (sandbox) => {
     const bin = path.join(sandbox.root, 'bin');
