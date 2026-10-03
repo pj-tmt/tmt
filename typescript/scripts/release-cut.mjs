@@ -210,7 +210,7 @@ export function readCutRange(git, previous, cut) {
   return commits;
 }
 
-/** Allocated drafts and Git tags reserve versions; only published ancestor releases delimit notes/migrations. */
+/** All drafts/tags reserve numbers; allocated ancestors delimit new work, published ancestors delimit notes. */
 export function releaseCutHistory({ releases, product, cut, git, excludeTag = '' }) {
   const { tagPrefix } = releasePolicy(product);
   const tags = git(['tag', '--list', `${tagPrefix}*`])
@@ -236,8 +236,19 @@ export function releaseCutHistory({ releases, product, cut, git, excludeTag = ''
     compareVersions(versionOfTag(b.tag, product), versionOfTag(a.tag, product))
   );
   let previous = null;
+  let previousAllocated = null;
+  const isAncestor = (ancestor, descendant) => {
+    try {
+      git(['merge-base', '--is-ancestor', ancestor, descendant]);
+      return true;
+    } catch (error) {
+      if (error.cause?.status !== 1) throw error;
+      return false;
+    }
+  };
   for (const entry of ordered) {
-    if (!entry.published) continue;
+    // Orphan tags reserve a number but do not establish an allocated release cut.
+    if (entry.published === undefined) continue;
     const sha = entry.tagged
       ? git(['rev-parse', '--verify', `refs/tags/${entry.tag}^{commit}`]).trim()
       : entry.sha;
@@ -246,16 +257,19 @@ export function releaseCutHistory({ releases, product, cut, git, excludeTag = ''
       if (entry.tagged) throw new Error('Missing product tag commit.');
       continue;
     }
-    try {
-      git(['merge-base', '--is-ancestor', sha, cut]);
-    } catch (error) {
-      if (error.cause?.status !== 1) throw error;
-      continue;
-    }
-    previous = { tag: entry.tag, sha };
-    break;
+    if (!isAncestor(sha, cut)) continue;
+    if (!previous && entry.published) previous = { tag: entry.tag, sha };
+    if (
+      !previousAllocated ||
+      (previousAllocated.sha !== sha && isAncestor(previousAllocated.sha, sha))
+    )
+      previousAllocated = { tag: entry.tag, sha };
   }
-  return { highestVersion: ordered[0] && versionOfTag(ordered[0].tag, product), previous };
+  return {
+    highestVersion: ordered[0] && versionOfTag(ordered[0].tag, product),
+    previous,
+    previousAllocated,
+  };
 }
 
 export async function planReleaseCuts({
@@ -329,6 +343,34 @@ export async function planReleaseCuts({
         throw new Error('Explicit cut version must advance every allocated product version.');
       if (!previousVersion) nextAlphaVersion(version);
       const tag = `${tagPrefix}${version}`;
+      const notesInput = {
+        repository,
+        version,
+        previousTag: history.previous?.tag,
+        tag,
+        date,
+      };
+      if (history.previousAllocated && history.previousAllocated.sha !== previous) {
+        const pending = await renderCutNotes({
+          ...notesInput,
+          commits: attributeCutCommits(
+            readCutRange(git, history.previousAllocated.sha, cut),
+            map,
+            component.name,
+            workspace
+          ),
+        });
+        if (!pending.commits.length) {
+          Object.assign(row, {
+            previous,
+            previousTag: history.previous?.tag,
+            status: 'no-releasable-commits',
+            reason: 'No releasable commits since the newest allocated ancestor cut.',
+          });
+          components.push(row);
+          continue;
+        }
+      }
       const commits = attributeCutCommits(
         readCutRange(git, previous, cut),
         map,
@@ -336,12 +378,8 @@ export async function planReleaseCuts({
         workspace
       );
       const notes = await renderCutNotes({
+        ...notesInput,
         commits,
-        repository,
-        version,
-        previousTag: history.previous?.tag,
-        tag,
-        date,
       });
       Object.assign(row, notes, {
         previous,

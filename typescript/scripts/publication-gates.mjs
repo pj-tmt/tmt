@@ -252,7 +252,10 @@ function spawn(command, args, options = {}) {
 }
 const git = (args) => {
   const result = spawn('git', args);
-  if (result.status !== 0) throw new Error(`git ${args[0]} failed: ${result.stderr.trim()}`);
+  if (result.status !== 0)
+    throw new Error(`git ${args[0]} failed: ${result.stderr.trim()}`, {
+      cause: { status: result.status },
+    });
   return result.stdout;
 };
 const ghJson = (args) => {

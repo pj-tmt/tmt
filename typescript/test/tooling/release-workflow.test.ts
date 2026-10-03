@@ -333,9 +333,10 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
 
 describe('live main release cuts (release.yml)', () => {
   const release = read('.github/workflows/release.yml');
-  it('recomputes every main push and daily recovery, with manual dry run as the default', () => {
-    expect(release).toContain('branches: [main]');
-    expect(release).toContain("- cron: '23 4 * * *'");
+  it('cuts hourly with recovery and manual dry run, without a main-push trigger', () => {
+    expect(release.split(/^jobs:/m)[0]).not.toMatch(/^  push:/m);
+    expect(release.split(/^jobs:/m)[0]).toContain('workflow_dispatch:');
+    expect(release).toContain("- cron: '17 * * * *'");
     expect(release.split(/^jobs:/m)[0]).not.toMatch(/paths(?:-ignore)?:/);
     expect(release).toMatch(/dry_run:\n(?: {8}[^\n]*\n)*? {8}default: true/);
     expect(release).toContain('group: release-cut');

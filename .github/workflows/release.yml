@@ -3,10 +3,8 @@ name: Release
 # Capture one exact main HEAD, then draft and dispatch each released component independently.
 # This workflow creates no tag and publishes nothing; native-release retains every publication gate.
 on:
-  push:
-    branches: [main]
   schedule:
-    - cron: '23 4 * * *'
+    - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
       product:

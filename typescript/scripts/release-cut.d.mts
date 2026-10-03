@@ -70,14 +70,17 @@ export function releaseCutHistory(input: {
   cut: string;
   git: (args: string[]) => string;
   excludeTag?: string;
-}): { highestVersion: string | undefined; previous: { tag: string; sha: string } | null };
+}): {
+  highestVersion: string | undefined;
+  previous: { tag: string; sha: string } | null;
+  previousAllocated: { tag: string; sha: string } | null;
+};
 export function planReleaseCuts(input: {
   metadata: CutMetadata;
   map: ComponentMap;
   workspace?: CargoWorkspace;
   git: (args: string[]) => string;
   date?: string;
-  workspace?: CargoWorkspace;
   initialVersions?: Record<string, string>;
   /** Owner-dispatched product versions; native publication authorization remains independent. */
   versions?: Record<string, string>;

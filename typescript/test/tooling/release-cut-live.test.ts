@@ -23,7 +23,7 @@ function fixture() {
   roots.push(root);
   const command = (args: string[]) => {
     const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 10_000 });
-    if (result.status !== 0) throw new Error(result.stderr);
+    if (result.status !== 0) throw new Error(result.stderr, { cause: { status: result.status } });
     return result.stdout.trimEnd();
   };
   const commit = (message: string) => {
@@ -205,6 +205,49 @@ describe('live release cut lifecycle', () => {
     const f = fixture();
     const result = await runReleaseCuts(f);
     expect(result.actions.map((a) => a.status)).toEqual(['would-create', 'would-create']);
+    expect(f.client.draft).not.toHaveBeenCalled();
+    expect(f.client.dispatch).not.toHaveBeenCalled();
+  });
+  it('does not repeat failed component content after unrelated main movement', async () => {
+    const f = fixture();
+    await runReleaseCuts({ ...f, live: true });
+    const failed = f.releases.find((release) => release.tag_name === 'v5.0.0-alpha.49')!;
+    failed.assets = [{ name: 'verification-failed.json' }];
+    vi.mocked(f.client.draft).mockClear();
+    vi.mocked(f.client.dispatch).mockClear();
+    writeFileSync(join(f.root, 'extensions/squad/feature.txt'), 'new Squad work');
+    const later = f.commit('feat: Squad follow-up');
+    f.command(['update-ref', 'refs/remotes/origin/main', later]);
+    f.state.cut = later;
+    vi.mocked(f.client.main).mockReturnValue(later);
+    const result = await runReleaseCuts({ ...f, live: true });
+    expect(result.actions.find((action) => action.product === 'squad')).toMatchObject({
+      status: 'created',
+      product: 'squad',
+      tag: 'tmt-squad-v0.1.0-alpha.16',
+    });
+    expect(result.actions.find((action) => action.product === 'cli')).toMatchObject({
+      status: 'no-releasable-commits',
+    });
+    expect(f.client.draft).toHaveBeenCalledTimes(1);
+    expect(f.client.dispatch).toHaveBeenCalledExactlyOnceWith('squad', 'tmt-squad-v0.1.0-alpha.16');
+    expect(failed.assets).toEqual([{ name: 'verification-failed.json' }]);
+  });
+  it('does not allocate again for non-releasable changes after an unpublished cut', async () => {
+    const f = fixture();
+    await runReleaseCuts({ ...f, live: true });
+    vi.mocked(f.client.draft).mockClear();
+    vi.mocked(f.client.dispatch).mockClear();
+    writeFileSync(join(f.root, 'cli.txt'), 'internal cleanup');
+    const later = f.commit('chore: internal cleanup');
+    f.command(['update-ref', 'refs/remotes/origin/main', later]);
+    f.state.cut = later;
+    vi.mocked(f.client.main).mockReturnValue(later);
+    const result = await runReleaseCuts({ ...f, live: true });
+    expect(result.actions.map((action) => action.status)).toEqual([
+      'no-releasable-commits',
+      'no-releasable-commits',
+    ]);
     expect(f.client.draft).not.toHaveBeenCalled();
     expect(f.client.dispatch).not.toHaveBeenCalled();
   });

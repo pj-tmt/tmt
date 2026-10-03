@@ -4,12 +4,16 @@ The [architecture](../../../../ARCHITECTURE.md#main-release-cuts) owns the cut a
 contract; the [release skill](../SKILL.md#main-cut-authorization)
 owns authorization.
 
-On main pushes and the daily schedule, `release.yml` captures main HEAD, complete
+On the hourly schedule (minute 17 UTC) or a manual dispatch, `release.yml` captures main HEAD, complete
 draft/tag allocation metadata and the component map/Cargo graph at that cut. Inspect
 its summary and `release-cut-plan` artifact for proposed tag, notes, linked SHAs,
 cut and skip reason. Missing draft visibility, pagination or history is a
 blocked plan. Allocation is serialized; inspect each tag-specific native pipeline
-independently. Failed drafts stay unpublished without blocking later cuts.
+independently. Allocate only when the component has releasable commits after its
+newest allocated ancestor cut (draft or published). Failed drafts stay unpublished
+without blocking new component work; unrelated or non-releasable main changes do
+not repeat their content. Notes, migrations and breaking authorization still cover
+the newest published ancestor through the captured main commit.
 
 For an owner-authorized explicit version, dispatch `release.yml` on main with
 `product=cli|squad`, `version=<canonical stable or alpha version>` and

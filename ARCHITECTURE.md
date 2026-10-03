@@ -4341,7 +4341,7 @@ artifact verifier still rejects placeholder attribution.
 ### Main release cuts
 
 A release is a product-prefixed tag on a main commit X. `release.yml` evaluates
-released components on main pushes and daily recovery; main's crates retain fixed
+released components hourly or on manual dispatch, with recovery in the hourly run; main's crates retain fixed
 development versions. `release-cut.mjs` is the pure cut planner, and
 `release-cut-live.mjs` owns bounded REST draft creation and native dispatch. The
 adapter captures main HEAD once, exports tracked X, warms its locked dependencies
@@ -4368,8 +4368,10 @@ kind, with a cycle-safe closure operation and injectable command runner. Version
 inheritance and editing stay with the Rust `release-version` tool (`toml_edit`).
 
 Each releasable cut gets one tagless draft targeting X and one tag-keyed native
-pipeline. Notes, migrations and breaking authorization cover (newest published ancestor, X]. Existing drafts, running pipelines
-and failed cuts never prevent later cuts; failed drafts stay unpublished. Automatic allocation at an already-cut product/X is idempotent; a later X remains
+pipeline. A component needs releasable commits after its newest allocated ancestor
+(draft or published) before another cut; unrelated main movement does not repeat
+failed content. Notes, migrations and breaking authorization cover (newest published ancestor, X]. Existing drafts, running pipelines
+and failed cuts never prevent new component work from being cut; failed drafts stay unpublished. Automatic allocation at an already-cut product/X is idempotent; a later X remains
 independent. Concurrent cuts may have overlapping notes until publication advances
 the shared ancestor boundary. CLI publication converges GitHub latest to the highest published CLI version;
 extensions never change latest. Ordering gates and owner operations belong to the release skill.

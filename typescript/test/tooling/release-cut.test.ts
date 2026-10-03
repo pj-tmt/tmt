@@ -330,15 +330,21 @@ describe('immutable plans and independent cuts', () => {
       target_commitish: sha(1),
     });
     const original = fixture.git.getMockImplementation()!;
-    fixture.git.mockImplementation((args) =>
-      args[0] === 'log' ? `${sha(1)}\0feat!: held contract change\n\0\n` : original(args)
-    );
+    fixture.git.mockImplementation((args) => {
+      if (args[0] === 'merge-base' && args[2] === sha(1) && args[3] === sha(0))
+        throw new Error('not ancestor', { cause: { status: 1 } });
+      if (args[0] === 'log')
+        return args.at(-1) === `${sha(1)}..${sha(2)}`
+          ? `${sha(2)}\0fix: later component work\n\0\n`
+          : `${sha(1)}\0feat!: held contract change\n\0${sha(2)}\0fix: later component work\n\0\n`;
+      return original(args);
+    });
     expect((await planReleaseCuts(fixture)).components[0]).toMatchObject({
       tag: 'v5.0.0-alpha.48',
       previousTag: 'v5.0.0-alpha.46',
       breaking: true,
       authorization: 'owner-required',
-      commits: [sha(1)],
+      commits: [sha(1), sha(2)],
     });
   });
   it('chooses a published ancestor rather than a later published descendant, without ignoring history errors', () => {
@@ -355,7 +361,11 @@ describe('immutable plans and independent cuts', () => {
       return '';
     };
     expect(releaseCutHistory({ releases, product: 'cli', cut: fixture.metadata.cut, git })).toEqual(
-      { highestVersion: '5.0.0-alpha.49', previous: { tag: 'v5.0.0-alpha.48', sha: sha(0) } }
+      {
+        highestVersion: '5.0.0-alpha.49',
+        previous: { tag: 'v5.0.0-alpha.48', sha: sha(0) },
+        previousAllocated: { tag: 'v5.0.0-alpha.48', sha: sha(0) },
+      }
     );
     expect(() =>
       releaseCutHistory({
@@ -369,6 +379,26 @@ describe('immutable plans and independent cuts', () => {
         },
       })
     ).toThrow('missing history');
+  });
+  it('uses the newest allocated source ancestor without advancing the published notes boundary', () => {
+    const releases = [
+      { tag_name: 'v5.0.0-alpha.49', draft: false },
+      { tag_name: 'v5.0.0-alpha.50', draft: true, target_commitish: sha(1) },
+      { tag_name: 'v5.0.0-alpha.51', draft: true, target_commitish: sha(0) },
+      { tag_name: 'v5.0.0-alpha.52', draft: true, target_commitish: sha(3) },
+    ];
+    const git = (args: string[]) => {
+      if (args[0] === 'tag') return '';
+      if (args[0] === 'rev-parse') return sha(0);
+      if (args[0] === 'merge-base' && args[2] > args[3])
+        throw new Error('not ancestor', { cause: { status: 1 } });
+      return '';
+    };
+    expect(releaseCutHistory({ releases, product: 'cli', cut: sha(2), git })).toEqual({
+      highestVersion: '5.0.0-alpha.52',
+      previous: { tag: 'v5.0.0-alpha.49', sha: sha(0) },
+      previousAllocated: { tag: 'v5.0.0-alpha.50', sha: sha(1) },
+    });
   });
   it('reports missing first-release seed, stable authorization and unavailable evidence explicitly', async () => {
     const fixture = planningFixture();

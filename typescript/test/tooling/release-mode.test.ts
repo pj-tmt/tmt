@@ -11,7 +11,7 @@ const MAIN = 'refs/heads/main';
 const BRANCH = 'refs/heads/feature';
 
 describe('release run mode', () => {
-  it.each(['push', 'schedule'])('makes %s live on main with no App dependency', (event) => {
+  it.each(['schedule'])('makes %s live on main with no App dependency', (event) => {
     expect(releaseMode({ event, ref: MAIN }).live).toBe(true);
   });
   it('lets a dispatch choose without silently falling back', () => {
@@ -20,7 +20,7 @@ describe('release run mode', () => {
   });
   it('is live only on main for every supported event', () => {
     for (const ref of [BRANCH, 'refs/pull/1/merge', 'refs/tags/v1', '', undefined]) {
-      for (const event of ['push', 'schedule', 'workflow_dispatch']) {
+      for (const event of ['schedule', 'workflow_dispatch']) {
         expect(() => releaseMode({ event, ref, dryRun: 'false' })).toThrow(
           'only allowed on refs/heads/main'
         );
@@ -35,7 +35,7 @@ describe('release run mode', () => {
       expect(() => releaseMode({ event: 'workflow_dispatch', ref: MAIN, dryRun })).toThrow(
         'needs dry_run to be true or false'
       );
-    for (const event of ['pull_request', 'merge_group', ''])
+    for (const event of ['push', 'pull_request', 'merge_group', ''])
       expect(() => releaseMode({ event, ref: MAIN })).toThrow('does not start on');
   });
 });
@@ -69,7 +69,7 @@ describe('release-mode.mjs', () => {
     }
   }
 
-  it.each(['push', 'schedule'])('reports automatic %s as live', (event) => {
+  it.each(['schedule'])('reports automatic %s as live', (event) => {
     const result = run({ EVENT: event, REF: MAIN });
     expect(result.status).toBe(0);
     expect(result.output).toBe('live=true\n');
@@ -77,7 +77,7 @@ describe('release-mode.mjs', () => {
 
   it('never reads or prints the App credentials, even when they reach its environment', () => {
     const result = run({
-      EVENT: 'push',
+      EVENT: 'schedule',
       REF: MAIN,
       APP_ID: '12345',
       APP_KEY: 'key-material',

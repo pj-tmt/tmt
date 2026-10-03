@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Main pushes and daily recovery are live; manual runs choose dry/live explicitly.
+// Hourly cuts and recovery are live; manual runs choose dry/live explicitly.
 // Publication authorization remains in the native gates and the release skill.
-//   EVENT=push|schedule|workflow_dispatch REF=refs/heads/main DRY_RUN=true|false
+//   EVENT=schedule|workflow_dispatch REF=refs/heads/main DRY_RUN=true|false
 //   node release-mode.mjs
 import { appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -16,7 +16,7 @@ function requireMain(ref) {
   }
 }
 
-/** `dryRun` is the dispatch input; it is unset on a push. */
+/** `dryRun` is the dispatch input; it is unset on a schedule. */
 export function releaseMode({ event, ref, dryRun }) {
   if (event === 'workflow_dispatch') {
     if (dryRun !== 'true' && dryRun !== 'false') {
@@ -26,9 +26,9 @@ export function releaseMode({ event, ref, dryRun }) {
     requireMain(ref);
     return { live: true, reason: 'a live run was requested' };
   }
-  if (event === 'push' || event === 'schedule') {
+  if (event === 'schedule') {
     requireMain(ref);
-    return { live: true, reason: event === 'push' ? 'main advanced' : 'daily recovery' };
+    return { live: true, reason: 'hourly cuts and recovery' };
   }
   throw new Error(`A release run does not start on the ${event} event.`);
 }
