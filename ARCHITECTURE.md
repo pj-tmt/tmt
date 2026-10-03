@@ -4530,7 +4530,13 @@ or generates caller-selected baselines, cuts, wraps or epoch keys. Caller-held l
 seeds are transient local inputs and require encryption to the owner before relay
 transport. The prerequisite runner reserves page-policy actions as UNAVAILABLE until #1160.
 Exact DTOs, limits and failure codes live in colab-v1. Public CLI commands,
-browser controls and reader admission are separately tracked by #1307, #1308 and #1310.
+reader admission and home lifecycle are separately tracked by #1307, #1310 and #1358.
+The browser's parent-owned `management` adapter uses existing membership admission
+for bounded metadata-only catchup, frozen device-signed requests and exact-result
+verification. `share-dialog` owns confirmation/retry state and transient bearer
+copy; no capabilities enter the renderer or content Worker. Mounted home refreshes
+discovery and derives labels from the signed log. Preview loading remains separate,
+including visible reset-baseline blocking until #1264.
 
 ### Stream sync transport
 

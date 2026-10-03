@@ -3178,6 +3178,14 @@ request before teardown. These app fixtures do not establish real mounted
 co-editing or replace the primitive library's three-engine conformance gate below. Code quality runs
 filtered frozen install, check, unit tests and build; renderer tests run locally.
 
+The parent sharing suite adds real WebCrypto request signatures, frozen retry/expiry,
+strict response/scope admission, signed-log result verification and metadata socket
+cleanup. Chromium exercises unavailable/uncertain responses, exact retry, bearer
+copy disclosure and narrowing confirmation, with light/dark/mobile screenshots.
+These remain signed protocol fixtures, not native reader/subscription acceptance.
+Run the app check/test/build gates before one handoff Chromium invocation; use the
+commands above. Home lifecycle is #1358; expiry time is unavailable pending #1350.
+
 The private browser primitives use the existing frozen pnpm workspace. From the
 repository root:
 

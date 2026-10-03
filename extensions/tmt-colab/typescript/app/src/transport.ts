@@ -1,3 +1,4 @@
+import type { ManagementPort } from './management.js';
 import type { Projection } from './fold-protocol.js';
 export interface PageSummary {
   readonly id: string;
@@ -21,6 +22,7 @@ export interface SpaceHome {
 /** App data port. Mounted adapters own authentication and admission;
  * neither HTML nor the renderer receives that adapter or its capabilities. */
 export interface PageTransport {
+  readonly management?: ManagementPort;
   spaceHome(): Promise<SpaceHome>;
   page(id: string, signal?: AbortSignal): Promise<PageSnapshot>;
 }

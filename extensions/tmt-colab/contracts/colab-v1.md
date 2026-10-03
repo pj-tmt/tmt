@@ -1344,6 +1344,31 @@ without statements or receipts until the #1160 policy slice lands. Methods other
 than POST and upgrade attempts are INVALID. Unknown reserved routes
 remain unavailable. No schema, dependency or separate replay store is added.
 
+### Trusted browser sharing (#1308)
+
+The paired owner app exposes sharing/history, member roles/add/remove, link
+create/remove/Reset and epoch advance only in parent chrome. Home and page chrome
+open the same dialog; local samples remain read-only. Policy and complete target
+assignments derive from the retained verified owner log, not discovery labels.
+Metadata-only catchup closes after the contiguous membership target is verified
+and persisted; it does not decode content, load baselines or create a renderer.
+
+Confirmation discloses history scope, the 64-epoch limit, editors' script power,
+renderer self-navigation limits and separate device/agent grants. Audience narrowing
+states that links are revoked and affected pages rotate; previously public content
+cannot be made private again. Requests freeze exact selections, ID, revision,
+expiry, signature and any generated seed before send. Only explicit unexpired
+byte-identical retry is offered after uncertainty; stale/expired requests require
+fresh review. Acknowledgment is followed by verification of its exact signed-log
+position and requested change, including when later commits exist. Failed refresh
+remains acknowledged/awaiting verification. Stale preview/writer state closes.
+
+New link IDs/seeds appear once after verification with a copy action; they are not
+persisted or logged. Reader access remains #1310, so no reader URL is fabricated;
+a lost seed requires Reset. Reset uses the full stored assignment and the existing
+atomic removal/rotation/replacement request. Home retention/archive/delete are
+#1358; expiry timestamps are #1350; reset content adoption remains #1264.
+
 ## Conformance and acceptance gates
 
 C0 needs squad-lead, Remote security and core-lead review before implementation;
