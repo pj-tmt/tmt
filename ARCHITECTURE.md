@@ -3660,6 +3660,13 @@ no second worker or arrangement resolver is introduced. The built-in leads/all
 tabs retain their fixed home/leads composition throughout picker preview, save
 and cancel; they offer all-boards scope, which affects real squad tabs only.
 
+`board::app::overlay_event` is the shared modal input adapter for help, settings,
+theme/view pickers and the switcher. It synchronizes their controller identities
+with one caller-owned `FocusStack` and routes key/mouse events through
+`tmt-tui::app::route` before base dispatch. Controllers retain save, rollback
+and worker effects; close is consumed, unhandled modal events stay captured and
+Ctrl-C returns Quit. Pane cursors and scrolls remain in their existing owners.
+
 Squad's `settings` coordinator delegates to arrangement, rows, notebook/state,
 meter, theme and tab/program area projections. Source-bearing Config reader
 results own provenance; presentation does not inspect TOML or resolve values.
@@ -3693,9 +3700,9 @@ The admitted help surface uses body placement and shared opaque modal chrome,
 one all-section key column, wrapping and a fixed inside footer. Shared key-help
 heading and spacing properties let help select bold text and one blank line
 between sections without changing the theme palette. Its caller-owned
-scroll and focus state routes keys and mouse before board actions; close is
-consumed, Ctrl-C quits, and base cursors and scrolls remain with their existing
-owners. Refresh replaces help data and clamps the shared viewport without
+scroll state and the common App focus adapter route keys and mouse before board
+actions; close is consumed, Ctrl-C quits, and base cursors and scrolls remain
+with their existing owners. Refresh replaces help data and clamps the shared viewport without
 performing reads or actions in paint.
 
 `config::edit` owns the shared settings edit policy and disposable validated

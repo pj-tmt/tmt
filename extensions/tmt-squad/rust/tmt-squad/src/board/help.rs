@@ -9,7 +9,6 @@ use ratatui::{
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::OnceLock};
 use tmt_tui::{
-    app::{FocusStack, Routed, route},
     binding::{Schema, Schemas, Scopes, Sources},
     components::{
         KeyHelp, KeyHelpEntry, KeyHelpSection, ScrollState,
@@ -44,7 +43,6 @@ fn template() -> &'static surface::Template<()> {
 
 #[derive(Default)]
 pub(super) struct Help {
-    focus: FocusStack,
     pub scroll: ScrollState,
     scene: Option<(Value, ModalSurface)>,
 }
@@ -54,27 +52,15 @@ pub(super) enum Input {
     Scroll,
 }
 impl Help {
-    pub fn open(&mut self, base: &str) {
+    pub fn open(&mut self) {
         *self = Self::default();
-        self.focus = FocusStack::new(vec![vec![base.into()]]);
-        self.focus.open(vec!["help".into()], vec![]);
     }
-    pub fn input(&mut self, event: &Event, base: &str) -> Routed<Input> {
-        if self.focus.overlay().is_none() {
-            self.open(base);
+    pub fn input(&mut self, event: &Event) -> Option<Input> {
+        if matches!(event, Event::Key(key) if matches!(key.code, KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q')))
+        {
+            return Some(Input::Close);
         }
-        let scroll = &mut self.scroll;
-        let routed = route(&mut self.focus, event, |_, event| {
-            if matches!(event, Event::Key(key) if matches!(key.code, KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q')))
-            {
-                return Some(Input::Close);
-            }
-            scroll.input(event).then_some(Input::Scroll)
-        });
-        if routed == Routed::Handled(Input::Close) {
-            self.focus.close();
-        }
-        routed
+        self.scroll.input(event).then_some(Input::Scroll)
     }
     fn render(&mut self, frame: &mut Frame, model: KeyHelp, look: Look, body: Rect) {
         let value = json!({"help": model.value(), "footer": FOOTER});
@@ -266,8 +252,5 @@ pub(super) fn model(app: &App) -> KeyHelp {
 }
 pub(super) fn render(frame: &mut Frame, app: &App, body: Rect) {
     let mut help = app.help_state.borrow_mut();
-    if help.focus.overlay().is_none() {
-        help.open(app.focused().title());
-    }
     help.render(frame, model(app), app.look(), body);
 }
