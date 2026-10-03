@@ -1,3 +1,4 @@
+import { registerChannel, verifyEd25519, verifyResponse } from './session-channel.js';
 import {
   base64url,
   base64urlBytes,
@@ -63,18 +64,6 @@ async function verifyHmac(key: Uint8Array, message: Uint8Array, tag: Uint8Array)
   );
   return tag.length === 32 && crypto.subtle.verify('HMAC', native, owned(tag), owned(message));
 }
-async function verifyEd25519(
-  publicKey: Uint8Array,
-  message: Uint8Array,
-  signature: Uint8Array,
-): Promise<boolean> {
-  const key = await crypto.subtle.importKey('raw', owned(publicKey), 'Ed25519', false, ['verify']);
-  return (
-    signature.length === 64 &&
-    crypto.subtle.verify('Ed25519', key, owned(signature), owned(message))
-  );
-}
-
 /** A device's Ed25519 key. The private half never leaves its non-extractable CryptoKey. */
 export class DeviceKey {
   readonly #private: CryptoKey;
@@ -324,49 +313,25 @@ export async function openSession(
     }),
   });
   if (response.status !== 200) throw new Error('The session was refused.');
-  const reply = (await response.json()) as Record<string, unknown>;
-  const text = (name: string): string => {
-    const value = reply[name];
-    requireValue(typeof value === 'string', name);
-    return value;
-  };
-  const replyPayload = decode(text('payload'));
-  requireValue(
-    reply.version === 1 &&
-      text('profile') === 'local-v1' &&
-      text('kind') === 'response' &&
-      text('correlationId') === id &&
-      text('machineId') === paired.machineId &&
-      text('windowId') === windowId &&
-      text('clientId') === paired.clientId &&
-      text('origin') === paired.origin &&
-      text('operation') === 'session.open' &&
-      text('sequence') === '1' &&
-      Number.isSafeInteger(reply.timestampMs),
-    'session response',
-  );
-  const signed = await envelopeSigningBytes({
-    version: 1,
-    profile: 'local-v1',
-    kind: 'response',
-    id: text('id'),
-    correlationId: id,
-    machineId: paired.machineId,
+  const reply = await verifyResponse(await response.json(), paired, {
+    id,
     windowId,
-    clientId: paired.clientId,
-    sessionId: text('sessionId'),
-    sequence: '1',
-    timestampMs: reply.timestampMs as number,
-    origin: paired.origin,
     operation: 'session.open',
-    payload: replyPayload,
+    after: 0n,
   });
+  requireValue(reply.sequence === 1n, 'session response sequence');
+  const session = JSON.parse(strictUtf8.decode(reply.payload)) as Session;
   requireValue(
-    await verifyEd25519(paired.machinePublicKey, signed, decode(text('signature'))),
-    'machine signature',
+    session.sessionId === reply.sessionId &&
+      Number.isSafeInteger(session.serverTimeMs) &&
+      session.serverTimeMs >= 0 &&
+      Number.isSafeInteger(session.grantRevision) &&
+      session.grantRevision > 0 &&
+      (session.expiresAtMs === null ||
+        (Number.isSafeInteger(session.expiresAtMs) && session.expiresAtMs >= 0)),
+    'session payload',
   );
-  const session = JSON.parse(strictUtf8.decode(replyPayload)) as Session;
-  requireValue(session.sessionId === text('sessionId'), 'session payload');
+  registerChannel(session, paired, key, windowId, send);
   return session;
 }
 

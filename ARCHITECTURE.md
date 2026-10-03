@@ -4991,9 +4991,28 @@ injected fetch. Its browser entry (`src/browser.ts`) is what the door serves:
 `vp build` on the aliased Vite core in library mode bundles it, the canonical
 builders and the pinned BIP-39 list into one unminified ES module in the crate's `assets/`. It runs the
 pairing page (fragment removed first, words shown before the owner confirms, the
-key's opaque handle kept in this origin's IndexedDB) and gives mounted pages only
-`reopenSession` and `certifyKey`, whose extension comes from `/sdk/mount`, never
-from the caller. Every `certifyKey` call signs a new `tmt-ext-cert-v1` certificate
+key's opaque handle kept in this origin's IndexedDB) and gives mounted pages
+`reopenSession`, `operations(session, {timeoutMs?})` and `certifyKey`, whose extension
+comes from `/sdk/mount`, never from the caller. The operations helper exposes
+`dispatch.create`, `operation.show`, `result` and `agents.list`; scope-free
+`capabilities` is used internally for sequence synchronization. A private session
+channel retains the signer, pinned machine key and independent sequence counters;
+all helper instances for that session share one serialized request lane. Responses
+must verify their signature, audience, session, operation, correlation and increasing
+machine sequence before their state is exposed. The caller owns durable dispatch IDs
+and intent; the SDK freezes serialized payload bytes in memory before signing and
+stores no dispatch intent in IndexedDB. Unknown outcomes throw the exported
+`ClientError`, preserving the original dispatch ID. Recovery observes
+`operation(originalId)` in the existing session. After unknown outcomes or signed
+refusals, the next call first probes read-only `capabilities` at n+1, retrying
+once at n only on a verified sequence refusal, then performs the caller's call. It never guesses a third sequence, reopens or
+automatically dispatches. Exhausted recovery reports `sequence_unavailable` so the
+caller can reopen explicitly; reopening ends that session's live sync tunnel.
+Verified pre-effect refusals return a refused state on send/observation; read calls
+throw the exported typed `RefusalError`. Generic pre-admission 404 signals
+`REMOTE_SESSION_ENDED`. The SDK README owns the exported error unions and caller
+recovery procedure. Listing forwards optional core-published delivery unchanged.
+Every `certifyKey` call signs a new `tmt-ext-cert-v1` certificate
 with the same device key and current `issuedAtMs`; verifiers own freshness.
 The paired record stores no certificate cache; legacy records with an extra
 `certificates` field still load without migration. The browser SDK exposes no
@@ -5005,7 +5024,8 @@ Python oracle must pass before the workspace-pinned Vite+ test runner runs, and 
 tests drive it against a node:crypto stand-in door. A Playwright Chromium smoke
 (`test:browser`, in the path-filtered Remote pairing page workflow) pairs a real
 browser with a real `tmt remote serve` and checks the cookie, the forwarded
-device context, both certificate purposes and silent session reopening, then verifies that
+device context, both certificate purposes, silent session reopening, and a direct
+send/operation/result read using a deterministic public-core fixture, then verifies that
 revocation removes owner context and refuses reopening while retained signatures remain valid.
 
 The #1055 acceptance suite uses E2EFixture through `harness.ts`.

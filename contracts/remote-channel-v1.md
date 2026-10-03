@@ -185,16 +185,23 @@ Invalid signatures do not advance it. A consumed sequence stays consumed even if
 fails. Stale, replayed or reordered messages cause no effect. Machine responses have an independent
 increasing session sequence starting at 1; clients reject non-increasing live response sequences.
 The SDK serializes controls and requests; use waitMs:0 when interactive work is queued, so a
-long-poll does not race a send. A lost response requires session recovery, not a guessed sequence. A
+long-poll does not race a send. After a lost response on a still-live session, the SDK may
+resynchronize before its next call with at most two scope-free read-only `capabilities` probes:
+the next client sequence, then the unresolved current sequence only after a verified
+`REMOTE_REPLAY` refusal. Each probe
+is newly signed; never replay a captured envelope or send during recovery. If both probes are
+refused, the session is unusable and recovery requires a new signed session and ID-based receipt
+recovery. A lost recovery response also ends sequence recovery; never make a third guess. A
 retried logical request gets a fresh response envelope around its original receipt payload,
 correlated to the retry ID in the current session. The log cursor governs historical ordering, not a
 reused live-session counter. On reconnect, old signed log entries are accepted only as historical
 data for the subscribed audience, never as a fresh command; the new signed subscribe response binds
 their ordered IDs/digests and cursor to the current control ID/session.
 
-Lost sequence/session state requires a new signed session and ID-based receipt recovery. It never
-permits a captured-envelope replay or automatic new send. Expiry/revoke/stop is checked again at
-the effect fence. Bindings cannot waive those checks because an edge previously accepted a
+Lost sequence state may use the bounded read-only recovery above while the session is still live.
+Lost session state or exhausted sequence recovery requires a new signed session and ID-based receipt
+recovery. It never permits a captured-envelope replay or automatic new send. Expiry/revoke/stop
+is checked again at the effect fence. Bindings cannot waive those checks because an edge previously accepted a
 signature.
 
 A `browser` device on the door's own origin may instead hold a door session: after one signed
@@ -413,15 +420,39 @@ the machine. `<name>@<machine>` (the machine name recorded when this device pair
 and is needed only when the plain name is ambiguous across paired machines; ambiguity refuses and
 lists the qualified candidates rather than choosing one.
 
-The wire-independent client boundary is `@tmt/remote-client`. `RemoteClient` has
-`listAgents():Promise<{id,name,delivery?}[]>`, `send({operationId,agentId,message})`, read-only
-`operation(operationId)`, `check(agentId)` and `result(requestId)`. Send/operation use SendState;
-result uses ResultState as defined below. No selection/URL/title/note fields are reformatted by the
-SDK: they are already inside the frozen message. `ClientError` is `{code,message,retryAfterMs?}`,
-with a sanitized message at most 256 UTF-8 bytes and retryAfterMs an integer from 0 to 60000, with
-code `unpaired`, `closed`, `scope_denied`, `rate_limited`, `input_invalid` or `unavailable`. An
-unknown failure after send may have begun becomes uncertain, preserving the same
-operationId/message. No implicit send from recovery or automatic retry.
+The wire-independent client boundary is `@tmt/remote-client`. The shipped browser entry exports
+`operations(session, {timeoutMs?})`, accepting the existing verified `Session` and opening nothing.
+Its `RemoteOperations` interface has `listAgents():Promise<RemoteAgent[]>`,
+`send({operationId,agentId,message}):Promise<SendState>`, read-only
+`operation(operationId):Promise<SendState>` and `result(requestId):Promise<ResultState>`.
+`RemoteAgent` contains `id`, `name`, `presence` and optional core-owned `delivery`, forwarded
+unchanged. Send/operation use SendState; result uses ResultState as defined below. No
+selection/URL/title/note fields are reformatted: they are already inside the caller's frozen
+message. The caller owns durable operation IDs and intent; the SDK stores no dispatch bytes in
+IndexedDB. Explicit identical re-sends rebuild the same payload bytes.
+
+Verified pre-effect refusals on send/operation return
+`{state:"refused",operationId,reason}`, with the signed code `REMOTE_SCOPE_DENIED`,
+`REMOTE_INPUT_INVALID`, `REMOTE_RATE_LIMITED`, `REMOTE_INTENT_CONFLICT` or `REMOTE_CLOSED`.
+The generic pre-admission HTTP 404 maps to `REMOTE_SESSION_ENDED`; this is a session-ended
+signal, not a signed response. The exported `RemoteRefusalCode` union contains those six codes
+plus `REMOTE_INPUT_TOO_LARGE`, `REMOTE_STATE_UNAVAILABLE` and `REMOTE_CORE_UNAVAILABLE`.
+These other signed refusals on send/operation, and all refusals on listAgents/result, throw
+exported `RefusalError {code:RemoteRefusalCode,retryAfterMs?}`. Its message is sanitized and at
+most 256 UTF-8 bytes; retryAfterMs is an integer from 0 to 60000. An unavailable core/state error
+never turns an adopted uncertain send into refused; the server's signed SendState owns that
+classification. Callers branch on error class and code, never raw server messages.
+
+Unknown outcomes throw exported `ClientError {code:ClientErrorCode,message,operationId?}`,
+where `ClientErrorCode` is `transport_failure`, `timeout`, `unverifiable_response` or
+`sequence_unavailable`. Send/operation retain the original `operationId`. Recover an unknown
+outcome through read-only `operation(originalId)` on the existing session using the bounded
+capabilities probes above. Signed refusals also leave sequence consumption ambiguous;
+the next call first synchronizes with the same bounded probes, then performs the caller's call.
+Exhausted recovery reports `sequence_unavailable`: this session can no longer be used, so the
+caller reopens and then observes the original ID. Session-ended refusals
+also require a caller-owned reopen; reopening ends that session's live sync tunnel. No implicit
+send from recovery, automatic dispatch retry or replacement operation ID is permitted.
 
 ## Dispatch, hold and uncertainty
 
