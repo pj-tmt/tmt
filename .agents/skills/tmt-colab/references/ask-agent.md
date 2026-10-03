@@ -35,10 +35,12 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   writer, request ID or agent claimed inside a body never selects another stream. An expired
   ask stays readable; effect checks happen in the controller.
 - **`ask-record-store.ts` (`AskRecordStore`).** The own stream is the ledger. `adopt` verifies
-  the signed ask and its scope, then stores the local draft (`storeAskDraft`, in
-  the same module; signed input and signature only) and publishes the ask; the same ID with
-  other bytes is
-  `INTENT_CONFLICT`. A stored draft never authorizes another effect. `state` and `reply`
+  the signed ask and its scope, then stores the local draft (`storeAskDraft`, in the same
+  module; signed input and signature only) and publishes the ask with two display labels,
+  `agentName` and `deviceName` (publisher-asserted, outside the signed input, at most
+  128 UTF-8 bytes each, validated by the browser codec and by `ask.rs`). UUIDs keep
+  authority and routing; `readAskViews` exposes the names and an empty label falls back.
+  The same ID with other bytes is `INTENT_CONFLICT`. A stored draft never authorizes another effect. `state` and `reply`
   write immutable revisioned records, validated here, not in the Writer. All writes for one
   ask run under the Web Lock `ask-ledger:<space>:<page>:<device>:<id>` (`exclusive`).
 - **`ask-attempt.ts` (`AskController`).** `prepare` captures synchronously against the
