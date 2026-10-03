@@ -33,7 +33,7 @@ vi.mock('../src/objects.js', async (original) => ({
     }
     async admit() {
       calls.push('admit');
-      return new Uint8Array([1]);
+      return { namespace: 'content', writer: author, update: new Uint8Array([1]) };
     }
   },
 }));

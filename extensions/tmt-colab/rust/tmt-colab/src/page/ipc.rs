@@ -25,8 +25,23 @@ struct Detail {
     message: String,
 }
 impl WriteError {
-    pub fn code(&self) -> &str {
-        &self.error.code
+    pub fn code(&self) -> &'static str {
+        self.known_code()
+            .unwrap_or_else(|| Fault::Unavailable.code())
+    }
+    fn known_code(&self) -> Option<&'static str> {
+        [
+            Fault::StaleBase,
+            Fault::Invalid,
+            Fault::Capacity,
+            Fault::Missing,
+            Fault::Inactive,
+            Fault::Denied,
+            Fault::Unavailable,
+        ]
+        .into_iter()
+        .map(|fault| fault.code())
+        .find(|code| *code == self.error.code)
     }
     pub(crate) fn status(&self) -> u16 {
         match self.code() {
@@ -133,20 +148,7 @@ pub fn write(layout: &Layout, prepared: &Prepared) -> Result<Receipt> {
     if parsed.code != Some(200) {
         let failure: WriteError =
             serde_json::from_slice(&response[end..]).map_err(|_| Fault::Unavailable)?;
-        if ![
-            Fault::StaleBase,
-            Fault::Invalid,
-            Fault::Capacity,
-            Fault::Missing,
-            Fault::Inactive,
-            Fault::Denied,
-            Fault::Unavailable,
-        ]
-        .iter()
-        .any(|f| f.code() == failure.code())
-        {
-            return Err(Fault::Unavailable.into());
-        }
+        failure.known_code().ok_or(Fault::Unavailable)?;
         return Err(failure.into());
     }
     let receipt: Receipt =

@@ -151,7 +151,7 @@ fn snapshot(store: &Store, key: &Keyring, page: &str, writing: bool) -> Result<S
     values::generated_id(page)?;
     store.owner_read(&key.space_id, &key.owner_public(), |tx| {
         let (states, _) = fold::verify_log(&tx.log()?, key, page)?;
-        if states.last().is_some_and(|a| !a.active) && writing {
+        if states.last().is_some_and(|a| !a.policy.writable()) && writing {
             return Err(Fault::Inactive.into());
         }
         Ok(())
@@ -365,7 +365,7 @@ pub fn commit(
         if let Some(saved) = tx.saved_operation(&p.operation_id, &digest)? {
             return Ok(saved);
         }
-        if !authority.active {
+        if !authority.policy.writable() {
             return Err(Fault::Inactive.into());
         }
         if p.membership_head.statement_hash != hex(&head.hash)

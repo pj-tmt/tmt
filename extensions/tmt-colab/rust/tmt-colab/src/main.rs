@@ -115,39 +115,39 @@ fn grammar() -> Command {
                 ),
             )
             .subcommand(tmt_cli_style::command(&SPACES))
-        .subcommand(
-            tmt_cli_style::command(&PAGE)
-                .subcommand_required(true)
-                .subcommand(tmt_cli_style::command(&READ).arg(page_id()))
-                .subcommand(
-                    tmt_cli_style::command(&WRITE)
-                        .arg(page_id())
-                        .arg(
-                            Arg::new("file")
-                                .long("file")
-                                .required(true)
-                                .value_name("path|-")
-                                .value_parser(clap::value_parser!(std::path::PathBuf)),
-                        )
-                        .arg(
-                            Arg::new("expected-revision")
-                                .long("expected-revision")
-                                .value_name("revision")
-                                .value_parser(|value: &str| {
-                                    if value.strip_prefix("v1:").is_some_and(|h| {
-                                        h.len() == 64
-                                            && h.bytes().all(|b| {
-                                                b.is_ascii_digit() || (b'a'..=b'f').contains(&b)
-                                            })
-                                    }) {
-                                        Ok(value.to_owned())
-                                    } else {
-                                        Err("Use the opaque revision returned by page read")
-                                    }
-                                }),
-                        ),
-                ),
-        )
+            .subcommand(
+                tmt_cli_style::command(&PAGE)
+                    .subcommand_required(true)
+                    .subcommand(tmt_cli_style::command(&READ).arg(page_id()))
+                    .subcommand(
+                        tmt_cli_style::command(&WRITE)
+                            .arg(page_id())
+                            .arg(
+                                Arg::new("file")
+                                    .long("file")
+                                    .required(true)
+                                    .value_name("path|-")
+                                    .value_parser(clap::value_parser!(std::path::PathBuf)),
+                            )
+                            .arg(
+                                Arg::new("expected-revision")
+                                    .long("expected-revision")
+                                    .value_name("revision")
+                                    .value_parser(|value: &str| {
+                                        if value.strip_prefix("v1:").is_some_and(|h| {
+                                            h.len() == 64
+                                                && h.bytes().all(|b| {
+                                                    b.is_ascii_digit() || (b'a'..=b'f').contains(&b)
+                                                })
+                                        }) {
+                                            Ok(value.to_owned())
+                                        } else {
+                                            Err("Use the opaque revision returned by page read")
+                                        }
+                                    }),
+                            ),
+                    ),
+            )
             .subcommand(
                 tmt_cli_style::command(&EXPORT)
                     .arg(Arg::new("page").required(true).value_parser(|value: &str| {
