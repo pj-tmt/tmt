@@ -216,7 +216,10 @@ export function readCutRange(git, previous, cut) {
   return commits;
 }
 
-/** All drafts/tags reserve numbers; allocated ancestors delimit new work, published ancestors delimit notes. */
+const failedDraft = (release) =>
+  release.draft && release.assets?.some((asset) => asset.name === 'verification-failed.json');
+
+/** All drafts/tags reserve numbers; non-failed allocated ancestors delimit work, published ancestors delimit notes. */
 export function releaseCutHistory({ releases, product, cut, git, excludeTag = '' }) {
   const { tagPrefix } = releasePolicy(product);
   const tags = git(['tag', '--list', `${tagPrefix}*`])
@@ -236,6 +239,7 @@ export function releaseCutHistory({ releases, product, cut, git, excludeTag = ''
       tagged: existing?.tagged || !release.draft,
       sha: release.target_commitish,
       published: !release.draft,
+      failed: failedDraft(release),
     });
   }
   const ordered = [...allocated.values()].sort((a, b) =>
@@ -254,7 +258,7 @@ export function releaseCutHistory({ releases, product, cut, git, excludeTag = ''
   };
   for (const entry of ordered) {
     // Orphan tags reserve a number but do not establish an allocated release cut.
-    if (entry.published === undefined) continue;
+    if (entry.published === undefined || entry.failed) continue;
     const sha = entry.tagged
       ? git(['rev-parse', '--verify', `refs/tags/${entry.tag}^{commit}`]).trim()
       : entry.sha;
@@ -323,7 +327,9 @@ export async function planReleaseCuts({ metadata, map, workspace, git, date, ver
         !versions[product] &&
         metadata.releases.some(
           (release) =>
-            productOfTag(release.tag_name) === product && release.target_commitish === cut
+            productOfTag(release.tag_name) === product &&
+            release.target_commitish === cut &&
+            !failedDraft(release)
         )
       ) {
         Object.assign(row, {

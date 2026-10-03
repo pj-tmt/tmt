@@ -12,7 +12,13 @@ export interface CutMetadata {
   draftVisibility?: string;
   capturedAt?: string;
   evidenceError?: string;
-  releases?: { tag_name: string; draft: boolean; body?: string; target_commitish?: string }[];
+  releases?: {
+    tag_name: string;
+    draft: boolean;
+    body?: string;
+    target_commitish?: string;
+    assets?: { name: string }[];
+  }[];
 }
 export interface CutRow {
   product: string;
