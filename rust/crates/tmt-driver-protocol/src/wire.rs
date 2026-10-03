@@ -229,6 +229,147 @@ pub struct FocusRequest {
     pub pane_id: String,
 }
 
+/// What a runtime driver answers to `capabilities`: what core applies itself
+/// on an agent's hook path, without starting the driver.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeCapabilities {
+    pub protocols: Vec<u32>,
+    /// `runtime` for a runtime driver.
+    pub kind: String,
+    /// The driver's name, also the harness ID stored with a session.
+    pub name: String,
+    pub version: String,
+    /// `locations`, and optionally `resume` and `usage`.
+    pub ops: Vec<String>,
+    /// Bare command names; a pane command whose last path component is one of
+    /// them is this agent, and `tmt run` starts the first.
+    pub executables: Vec<String>,
+    /// The environment variables `locations` reads; core passes only these.
+    #[serde(default)]
+    pub env: Vec<String>,
+    /// The variable holding the caller's provider session ID, which core
+    /// reads itself.
+    #[serde(default)]
+    pub session_env: Option<String>,
+    #[serde(default)]
+    pub hooks: Option<Hooks>,
+}
+
+/// Where a provider hook's payload holds each value, and what each event
+/// means; core decodes hooks from this without starting the driver.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Hooks {
+    /// `sessionHooksJson`: the settings layout of the built-in Claude and
+    /// Codex hooks.
+    pub format: String,
+    pub fields: HookFields,
+    pub events: Vec<HookEventDeclaration>,
+}
+
+/// JSON Pointers (RFC 6901) into a hook's payload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HookFields {
+    pub event: String,
+    pub session: String,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub transcript: Option<String>,
+    #[serde(default)]
+    pub turn: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HookEventDeclaration {
+    /// The string at `fields.event` that selects this event.
+    pub name: String,
+    pub effect: HookEffect,
+    /// For `start` and `end`: the pointer whose string `values` maps.
+    #[serde(default)]
+    pub by: Option<String>,
+    #[serde(default)]
+    pub values: BTreeMap<String, Transition>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HookEffect {
+    /// A session began or changed.
+    Start,
+    /// A session ended or changed.
+    End,
+    /// A turn began.
+    Working,
+    /// A turn ended.
+    Idle,
+}
+
+/// How a session changed, as a `start` or `end` event reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Transition {
+    Started,
+    Resumed,
+    Cleared,
+    Compacted,
+    Forked,
+    Ended,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocationsRequest {
+    pub home: String,
+    /// Only the variables the driver declared, and only those set.
+    pub env: BTreeMap<String, String>,
+}
+
+/// Absolute paths; core decides how it uses each.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocationsResponse {
+    /// The agent counts as installed when one of these exists.
+    pub config_dirs: Vec<String>,
+    /// Where `tmt setup` installs TMT's skill.
+    pub skills: String,
+    /// Where `tmt setup` writes hooks; required when hooks are declared.
+    pub hook_settings: Option<String>,
+    /// The only directory whose files core passes to `usage`; required when
+    /// `usage` is declared.
+    pub transcript_root: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResumeRequest {
+    pub session: String,
+    /// Only a model a hook reported for this session.
+    pub model: Option<String>,
+}
+
+/// Core starts `argv` directly, never through a shell, and only when its
+/// first element is a declared executable.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResumeResponse {
+    pub argv: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UsageRequest {
+    pub session: String,
+    /// A path core checked lies inside `transcriptRoot`.
+    pub transcript: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageResponse {
+    /// `None` when the transcript shows no usage.
+    pub context_tokens: Option<u64>,
+}
+
 /// A driver prints exactly one of `{"ok": …}` or `{"error": …}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

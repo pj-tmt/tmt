@@ -1,19 +1,26 @@
 # Driver protocol v1
 
-A driver is an executable that tells TMT about a terminal host that TMT does
-not build in, for example Herdr. This document owns the wire format. The
-`tmt-driver-protocol` crate encodes it, and guides link here instead of
-repeating it.
+A driver is an executable that tells TMT about something TMT does not build
+in. A host driver (`kind: "host"`) knows a terminal host, for example Herdr.
+A runtime driver (`kind: "runtime"`) knows a coding agent: how to recognize
+its command, read its hooks, resume its sessions and find its files. This
+document owns the wire format. The `tmt-driver-protocol` crate encodes it,
+and guides link here instead of repeating it.
 
-**Status:** the format, the crate, the approval registry and the client that
-runs one driver call exist. Core uses an approved driver for its host: it
-finds the caller's pane through `caller` and explicit targets through
-`resolve-target`, lists bindings through `snapshot`, keeps markers with
-`publish` and `clear`, records the server through `server`, and delivers,
-reads and focuses through `prompt`, `input`, `capture` and `focus`. Users
-approve, list and remove drivers with `tmt driver install|ls|rm`. Herdr is
-served only by its first-party driver, `tmt-driver-herdr`, which ships in the
-CLI release (#1082).
+**Status:**
+
+- **Host drivers:** the format, the crate, the approval registry and the
+  client that runs one driver call exist. Core uses an approved driver for its
+  host: it finds the caller's pane through `caller` and explicit targets
+  through `resolve-target`, lists bindings through `snapshot`, keeps markers
+  with `publish` and `clear`, records the server through `server`, and
+  delivers, reads and focuses through `prompt`, `input`, `capture` and
+  `focus`. Users approve, list and remove drivers with
+  `tmt driver install|ls|rm`. Herdr is served only by its first-party driver,
+  `tmt-driver-herdr`, which ships in the CLI release (#1082).
+- **Runtime drivers:** the format, the crate's encoding and the conformance
+  harness exist. Core does not run runtime drivers yet: `tmt driver install`
+  refuses any `kind` but `host` (#1266).
 
 ## Invocation
 
@@ -85,9 +92,13 @@ required member needs protocol 2.
 `capabilities` lists every protocol the driver speaks. Core uses the highest
 protocol that both sides speak. Each `tmt` release speaks the current protocol
 and the previous one. When protocol 2 ships, protocol 1 stays supported for at
-least one more minor `tmt` release.
+least six months and at least one more minor `tmt` release, whichever is
+later. Host and runtime drivers share the protocol number.
 
 ## Operations
+
+These are a host driver's operations. A runtime driver has its own, under
+[Runtime drivers](#runtime-drivers).
 
 ### `capabilities`
 
@@ -287,6 +298,197 @@ its own. Falling back is core's decision, because only core holds the runtime
 evidence. Each request makes one attempt; a `blocked` agent is not prompted
 again until a new request.
 
+## Runtime drivers
+
+A runtime driver tells TMT about one coding agent. Most of what core needs
+happens on an agent's hook, where every call to a new process would cost 25
+to 300 ms of a 2 s budget. So the driver declares that part once, in
+`capabilities`, and core applies the declaration itself without starting the
+driver: recognizing the agent's command, naming the caller's session and
+decoding hooks. Core runs the driver only for the work a declaration can't
+describe: finding the agent's files, building a resume command and reading
+usage from a transcript.
+
+A runtime driver delivers nothing. Core delivers to an agent through its
+host, with its own delivery policy. Channels such as Claude's MCP channel and
+Codex's app-server stay built in.
+
+### Runtime `capabilities`
+
+```json
+{"protocols": [1], "kind": "runtime", "name": "kimi", "version": "0.1.0",
+ "ops": ["locations", "resume", "usage"],
+ "executables": ["kimi"],
+ "env": ["KIMI_HOME"],
+ "sessionEnv": "KIMI_SESSION_ID",
+ "hooks": Hooks | null}
+```
+
+- **`kind`:** `runtime`.
+- **`name`, `version` and `protocols`:** as for a host driver. The name is
+  also the harness ID stored with a session.
+- **`ops`:** `locations` is required; `resume` and `usage` are optional.
+  `usage` needs `hooks` with an `idle` event and a `transcript` field.
+- **`executables`:** 1 to 4 distinct bare command names, each 1–64 of
+  `[a-z0-9._-]` and starting with a letter or digit. A pane command whose last
+  path component equals one of them is this agent. `tmt run` with no command
+  starts the first.
+- **`env`:** at most 4 environment variables that `locations` reads, each
+  `[A-Z][A-Z0-9_]*` and never `TMT_*`.
+- **`sessionEnv`:** the variable that holds the caller's provider session ID
+  in the agent's environment, or `null`. It follows the `env` rules. Core
+  reads it itself. A session ID is 1–256 bytes, not blank, with no control
+  characters.
+
+A `Hooks` declaration:
+
+```json
+{"format": "sessionHooksJson",
+ "fields": {"event": "/hook_event_name", "session": "/session_id",
+            "model": "/model", "transcript": "/transcript_path",
+            "turn": "/turn_id"},
+ "events": [
+   {"name": "SessionStart", "effect": "start", "by": "/source",
+    "values": {"startup": "started", "resume": "resumed", "clear": "cleared",
+               "compact": "compacted", "fork": "forked"}},
+   {"name": "SessionEnd", "effect": "end", "by": "/reason",
+    "values": {"clear": "cleared", "resume": "resumed", "logout": "ended"}},
+   {"name": "UserPromptSubmit", "effect": "working"},
+   {"name": "Stop", "effect": "idle"}]}
+```
+
+- **`format`:** `sessionHooksJson` only. `tmt setup` writes one command entry
+  per declared event into the settings file that `locations` names, in the
+  layout the built-in Claude and Codex hooks use. It asks before it writes,
+  as it does for those.
+- **`fields`:** where each value is in a hook's JSON payload, as JSON Pointers
+  ([RFC 6901](https://www.rfc-editor.org/rfc/rfc6901)) of at most 128 bytes.
+  `event` and `session` are required; `model`, `transcript` and `turn` are
+  optional.
+- **`events`:** 1 to 8, with distinct names of 1–64 characters of
+  `[A-Za-z0-9_]`. Each has an `effect`:
+
+| Effect | Meaning | `by` and `values` |
+|---|---|---|
+| `start` | A session began or changed. | Required. Each value is `started`, `resumed`, `cleared`, `compacted` or `forked`. |
+| `end` | A session ended or changed. | Required. Each value is `cleared`, `resumed` or `ended`. |
+| `working` | A turn began. | Not allowed. |
+| `idle` | A turn ended. | Not allowed. |
+
+`by` is a JSON Pointer like the fields, and `values` holds 1 to 16 entries
+whose keys are 1–64 bytes of text.
+
+**Decoding a hook.** Core reads the payload: at most 64 KiB and one JSON
+object. It finds the event whose `name` equals the string at `fields.event`,
+and reads the session ID at `fields.session`. For `start` and `end` it maps
+the string at `by` through `values`. Core ignores the payload, changing
+nothing, when:
+
+- no event matches;
+- a required value is missing or isn't a valid string;
+- a `by` value isn't in `values`.
+
+An optional field that is missing or invalid reads as absent: `model` is 1–256
+bytes of text, `transcript` an absolute path, and `turn` follows the session
+ID rule. What a decoded event does to a binding is core's policy, the same as
+for the built-in drivers' hooks.
+
+### Runtime operations
+
+| Operation | Deadline | Answer bound |
+|---|---|---|
+| `locations` | 1 s | 4 KiB |
+| `resume` | 1 s | 4 KiB |
+| `usage` | the hook's remaining time, at most 1 s | 4 KiB |
+
+A driver answers `unsupported` to any operation it doesn't list, including
+every host operation. `no_agent`, `blocked` and `not_ready` are a failure from
+these operations, as from any operation but `prompt`.
+
+#### `locations`
+
+- **Request:** `{"home": "/Users/ann", "env": {"KIMI_HOME": "~/kimi"}}`. `env`
+  holds only the declared variables that are set.
+- **Answer:**
+
+```json
+{"configDirs": ["/Users/ann/.kimi"], "skills": "/Users/ann/.kimi/skills",
+ "hookSettings": "/Users/ann/.kimi/settings.json",
+ "transcriptRoot": "/Users/ann/.kimi/sessions"}
+```
+
+Every path is absolute, at most 1024 bytes of text, with no `.` or `..`
+component. `configDirs` holds 1 to 4 paths.
+
+- **`hookSettings`:** required when `hooks` is declared, otherwise `null`. It
+  lies inside one of `configDirs`.
+- **`skills`:** lies inside one of `configDirs`, or is the skills root that
+  agents share, `<home>/.agents/skills` (Codex, Gemini CLI and OpenCode read
+  that one).
+- **`transcriptRoot`:** required when `usage` is declared, otherwise `null`.
+
+`tmt setup` writes to `skills` and `hookSettings`, so a driver can point it
+only at the agent's own directories or the shared skills root.
+
+Core uses each one:
+
+- **`configDirs`:** the agent counts as installed when one exists.
+- **`skills`:** where `tmt setup` installs TMT's skill.
+- **`hookSettings`:** where `tmt setup` writes hooks.
+- **`transcriptRoot`:** the only directory whose files core passes to `usage`.
+
+#### `resume`
+
+- **Request:** `{"session": "…", "model": "…" | null}`. `model` is only a
+  model a hook reported for that session; otherwise it is `null`.
+- **Answer:** `{"argv": ["kimi", "--resume", "…"]}`.
+
+`argv` holds 1 to 64 strings without NUL. Its first is one of the declared
+`executables`, as written there. Core starts it directly and never through a
+shell. Any error answer, a timeout or an invalid `argv` means the resume
+failed: core reports it and starts nothing. A failed resume never starts a
+fresh session.
+
+#### `usage`
+
+- **Request:** `{"session": "…", "transcript": "/Users/ann/.kimi/sessions/x.jsonl"}`.
+  `transcript` is the path an `idle` hook reported. Core has resolved it and
+  checked that it lies inside `transcriptRoot`.
+- **Answer:** `{"contextTokens": n | null}`, where n is 0 through 2^53 − 1.
+  `null` means the transcript shows no usage.
+
+An error answer or a timeout leaves the remembered usage unchanged.
+
+### States and retries
+
+A runtime driver keeps no state between calls. Core stores everything, so a
+driver or `tmt` that is killed and started again loses nothing. A failed or
+late operation is not a cancel: it changes no session state, and core never
+repeats it on its own. Late output from a killed driver is discarded.
+
+### Runtime trust boundary
+
+Everything in the host [trust boundary](#trust-boundary) applies, and:
+
+- core checks an `argv` against the declared `executables` before it starts
+  anything, and checks every path against the rules above before using it;
+- a driver receives only what each request lists: never message text,
+  tokens, receipts or other identities' data;
+- core alone decides what a decoded hook does to a binding, and keeps
+  binding checks, storage, `!` protection, delivery and retry policy.
+
+**Installation refuses a runtime driver when any of these hold:**
+
+- its declaration is invalid;
+- it uses a built-in driver's name, or another installed driver's;
+- one of its executables is claimed by a built-in driver or by another
+  installed runtime driver. In this protocol a runtime driver cannot take
+  over a command that a built-in driver handles.
+
+An upgrade that declares more (an executable, an environment variable, a hook
+event, or an operation) reads as `changed` and isn't run
+until it is approved again.
+
 ## Trust boundary
 
 Everything a driver prints is untrusted input. Core bounds it, parses it
@@ -343,5 +545,19 @@ executable or `serve` in process. It checks:
 - every declared operation, against a pane and a target that don't exist, so
   running it against a live server changes nothing there.
 
-Checks that need a bound pane belong to the host's own fixture. A driver
-conforms when `check` reports no findings.
+Checks that need a bound pane belong to the host's own fixture. A host
+driver conforms when `check` reports no findings.
+
+`conformance::check_runtime` does the same for a runtime driver. It runs every
+operation, declared or not, and checks:
+
+- the declaration, including its hooks;
+- `locations` for a fixture home and an empty environment: every path must
+  meet the rules, and the paths a declaration requires must be there;
+- `resume` for a fixture session: either an `argv` that starts with a declared
+  executable, or an error answer;
+- `usage` for a transcript inside `transcriptRoot` that doesn't exist: either
+  `null` or an error answer.
+
+Nothing it asks changes the agent's files. A runtime driver conforms when
+`check_runtime` reports no findings.

@@ -325,7 +325,7 @@ impl<R: CommandRunner> ExternalDriver<'_, R> {
         Err(DeliveryError::new(stage, cause))
     }
 
-    fn call<T: tmt_driver_protocol::Answer>(
+    fn call<T: tmt_driver_protocol::Answer<Declaration = tmt_driver_protocol::Grammar>>(
         &self,
         body: impl serde::Serialize,
     ) -> Result<Result<T, tmt_driver_protocol::DriverError>, HostError> {

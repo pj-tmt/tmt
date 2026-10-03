@@ -2643,18 +2643,33 @@ ownership map.
   driver applies the recovery rule the
   [Claude channel contract](contracts/claude-channel-v1.md#recovery) owns.
 
-### Host driver protocol
+### Driver protocol
 
-Terminal hosts that TMT doesn't build in will run out of process as host
-drivers (#570). [`contracts/driver-protocol-v1.md`](contracts/driver-protocol-v1.md)
-owns the wire format. `rust/crates/tmt-driver-protocol` encodes it for both
-sides:
+Terminal hosts that TMT doesn't build in run out of process as host drivers
+(#570), and coding agents will run as runtime drivers (#1083).
+[`contracts/driver-protocol-v1.md`](contracts/driver-protocol-v1.md) owns the
+wire format for both kinds. `rust/crates/tmt-driver-protocol` encodes it for
+both sides:
 
-- wire types and per-operation limits;
-- `decode`, which is core's bounded, strict parsing and validation against the
-  pane-ID and target grammar each driver declares;
-- `serve`, a driver's entry point;
-- `conformance::check`, which runs through any invoker.
+- wire types and per-operation limits, in one `Op` set: a driver answers
+  `unsupported` to the other kind's operations;
+- `decode`, which is core's bounded, strict parsing and validation of each
+  answer against what the driver declared (the `Answer` trait's
+  `Declaration`): a host driver's pane-ID and target grammar, or a runtime
+  driver's `RuntimeDeclaration`;
+- `serve` and `serve_runtime`, a driver's entry point for each kind;
+- `conformance::check` and `conformance::check_runtime`, which run through
+  any invoker.
+
+A runtime driver's hook-path work is declarative: `RuntimeDeclaration` holds
+its executables (what it claims), its session variable and its hook layout
+(JSON Pointers and event effects), and `decode_hook` turns a provider hook's
+payload into a `HookObservation` without starting the driver. Measured on the
+#1083 issue, that decode costs about 1 µs, against 0.3 µs for the built-in
+Claude decoder and 1–2 ms (up to 0.5 s for a binary's first exec) for a
+driver process. Only `locations`, `resume` and `usage` run the driver. Core
+does not consume runtime drivers yet: host approval refuses any `kind` but
+`host`, and the adapters' wiring is #1266.
 
 A host's name, pane-ID prefix and target template (parsing, matching and the
 overlap check between hosts) are defined once in `rust/crates/tmt-host-grammar`,

@@ -1,7 +1,8 @@
 //! A driver's side: answer one `__tmt-driver <protocol> <op>` invocation.
-//! A driver implements [`Handler`] for the operations it supports and calls
-//! [`serve`] from `main`; argv, the bounded request, the envelope and the
-//! output bound are handled here, so every driver gets them right.
+//! A host driver implements [`Handler`] and calls [`serve`] from `main`; a
+//! runtime driver implements [`RuntimeHandler`] and calls [`serve_runtime`].
+//! argv, the bounded request, the envelope and the output bound are handled
+//! here, so every driver gets them right.
 
 use crate::{MAX_REQUEST_BYTES, Op, PROTOCOL, SUBCOMMAND, wire::*};
 use serde::{Serialize, de::DeserializeOwned};
@@ -58,6 +59,83 @@ pub trait Handler {
     }
 }
 
+/// A runtime driver. `locations` is required; `resume` and `usage` default
+/// to `unsupported`. List the ones you implement in `capabilities().ops`,
+/// and [`serve_runtime`] answers `unsupported` for any other, including
+/// every host operation.
+#[allow(unused_variables)]
+pub trait RuntimeHandler {
+    fn capabilities(&mut self) -> RuntimeCapabilities;
+
+    fn locations(
+        &mut self,
+        request: Request<LocationsRequest>,
+    ) -> Result<LocationsResponse, DriverError>;
+
+    fn resume(&mut self, request: Request<ResumeRequest>) -> Result<ResumeResponse, DriverError> {
+        Err(unsupported(Op::Resume))
+    }
+    fn usage(&mut self, request: Request<UsageRequest>) -> Result<UsageResponse, DriverError> {
+        Err(unsupported(Op::Usage))
+    }
+}
+
+/// One kind of driver behind the shared invocation handling.
+trait Dispatch {
+    /// The `capabilities` answer and the operations it declares.
+    fn declare(&mut self) -> (Vec<u8>, Vec<String>);
+    /// Answers a declared operation other than `capabilities`.
+    fn answer(&mut self, op: Op, request: &[u8]) -> Vec<u8>;
+}
+
+struct Host<'h, H>(&'h mut H);
+
+impl<H: Handler> Dispatch for Host<'_, H> {
+    fn declare(&mut self) -> (Vec<u8>, Vec<String>) {
+        let capabilities = self.0.capabilities();
+        let ops = capabilities.ops.clone();
+        (bounded(Op::Capabilities, Ok(capabilities)), ops)
+    }
+
+    fn answer(&mut self, op: Op, request: &[u8]) -> Vec<u8> {
+        let handler = &mut *self.0;
+        match op {
+            Op::Caller => call(op, request, |r| handler.caller(r)),
+            Op::Server => call(op, request, |r| handler.server(r)),
+            Op::ResolveTarget => call(op, request, |r| handler.resolve_target(r)),
+            Op::Snapshot => call(op, request, |r| handler.snapshot(r)),
+            Op::Probe => call(op, request, |r| handler.probe(r)),
+            Op::Publish => call(op, request, |r| handler.publish(r).map(|()| Empty {})),
+            Op::Clear => call(op, request, |r| handler.clear(r)),
+            Op::Capture => call(op, request, |r| handler.capture(r)),
+            Op::Input => call(op, request, |r| handler.input(r).map(|()| Empty {})),
+            Op::Prompt => call(op, request, |r| handler.prompt(r).map(|()| Empty {})),
+            Op::Focus => call(op, request, |r| handler.focus(r).map(|()| Empty {})),
+            Op::Capabilities | Op::Locations | Op::Resume | Op::Usage => error(unsupported(op)),
+        }
+    }
+}
+
+struct Runtime<'h, H>(&'h mut H);
+
+impl<H: RuntimeHandler> Dispatch for Runtime<'_, H> {
+    fn declare(&mut self) -> (Vec<u8>, Vec<String>) {
+        let capabilities = self.0.capabilities();
+        let ops = capabilities.ops.clone();
+        (bounded(Op::Capabilities, Ok(capabilities)), ops)
+    }
+
+    fn answer(&mut self, op: Op, request: &[u8]) -> Vec<u8> {
+        let handler = &mut *self.0;
+        match op {
+            Op::Locations => call(op, request, |r| handler.locations(r)),
+            Op::Resume => call(op, request, |r| handler.resume(r)),
+            Op::Usage => call(op, request, |r| handler.usage(r)),
+            _ => error(unsupported(op)),
+        }
+    }
+}
+
 fn unsupported(op: Op) -> DriverError {
     DriverError::new(
         ErrorCode::Unsupported,
@@ -75,8 +153,27 @@ fn bad_request(message: impl Into<String>) -> DriverError {
 pub fn serve(
     args: &[String],
     input: impl Read,
-    mut output: impl Write,
+    output: impl Write,
     handler: &mut impl Handler,
+) -> i32 {
+    run(args, input, output, &mut Host(handler))
+}
+
+/// [`serve`] for a runtime driver.
+pub fn serve_runtime(
+    args: &[String],
+    input: impl Read,
+    output: impl Write,
+    handler: &mut impl RuntimeHandler,
+) -> i32 {
+    run(args, input, output, &mut Runtime(handler))
+}
+
+fn run(
+    args: &[String],
+    input: impl Read,
+    mut output: impl Write,
+    driver: &mut impl Dispatch,
 ) -> i32 {
     let (status, answer) = match args {
         [subcommand, protocol, op] if subcommand == SUBCOMMAND => {
@@ -87,7 +184,7 @@ pub fn serve(
                 )
             } else {
                 match Op::parse(op) {
-                    Some(op) => (0, answer(op, input, handler)),
+                    Some(op) => (0, answer(op, input, driver)),
                     None => (
                         0,
                         error(DriverError::new(
@@ -117,11 +214,11 @@ fn error(error: DriverError) -> Vec<u8> {
     serde_json::to_vec(&Response::<Empty>::Error(error)).expect("an error serializes")
 }
 
-fn answer(op: Op, input: impl Read, handler: &mut impl Handler) -> Vec<u8> {
+fn answer(op: Op, input: impl Read, driver: &mut impl Dispatch) -> Vec<u8> {
+    let (capabilities, declared) = driver.declare();
     if op == Op::Capabilities {
-        return bounded(op, Ok(handler.capabilities()));
+        return capabilities;
     }
-    let declared = handler.capabilities().ops;
     if !declared.iter().any(|name| name == op.as_str()) {
         return error(unsupported(op));
     }
@@ -136,20 +233,7 @@ fn answer(op: Op, input: impl Read, handler: &mut impl Handler) -> Vec<u8> {
     if request.len() > MAX_REQUEST_BYTES {
         return error(bad_request("the request is over 1 MiB"));
     }
-    match op {
-        Op::Capabilities => unreachable!("answered above"),
-        Op::Caller => call(op, &request, |r| handler.caller(r)),
-        Op::Server => call(op, &request, |r| handler.server(r)),
-        Op::ResolveTarget => call(op, &request, |r| handler.resolve_target(r)),
-        Op::Snapshot => call(op, &request, |r| handler.snapshot(r)),
-        Op::Probe => call(op, &request, |r| handler.probe(r)),
-        Op::Publish => call(op, &request, |r| handler.publish(r).map(|()| Empty {})),
-        Op::Clear => call(op, &request, |r| handler.clear(r)),
-        Op::Capture => call(op, &request, |r| handler.capture(r)),
-        Op::Input => call(op, &request, |r| handler.input(r).map(|()| Empty {})),
-        Op::Prompt => call(op, &request, |r| handler.prompt(r).map(|()| Empty {})),
-        Op::Focus => call(op, &request, |r| handler.focus(r).map(|()| Empty {})),
-    }
+    driver.answer(op, &request)
 }
 
 fn call<T: DeserializeOwned, U: Serialize>(
@@ -276,6 +360,80 @@ mod tests {
             code(&["__tmt-driver", "1", "clear"], &huge),
             (0, "bad_request".into())
         );
+    }
+
+    struct Agent;
+
+    impl RuntimeHandler for Agent {
+        fn capabilities(&mut self) -> RuntimeCapabilities {
+            let mut capabilities = crate::runtime::tests::claude_like();
+            capabilities.ops = vec!["locations".into(), "resume".into()];
+            capabilities
+        }
+        fn locations(
+            &mut self,
+            request: Request<LocationsRequest>,
+        ) -> Result<LocationsResponse, DriverError> {
+            Ok(LocationsResponse {
+                config_dirs: vec![format!("{}/.kimi", request.body.home)],
+                skills: format!("{}/.kimi/skills", request.body.home),
+                hook_settings: None,
+                transcript_root: None,
+            })
+        }
+        fn resume(
+            &mut self,
+            request: Request<ResumeRequest>,
+        ) -> Result<ResumeResponse, DriverError> {
+            Ok(ResumeResponse {
+                argv: vec!["kimi".into(), "--resume".into(), request.body.session],
+            })
+        }
+    }
+
+    fn run_runtime(args: &[&str], request: &[u8]) -> (i32, Value) {
+        let args: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
+        let mut output = Vec::new();
+        let status = serve_runtime(&args, request, &mut output, &mut Agent);
+        (status, serde_json::from_slice(&output).unwrap())
+    }
+
+    #[test]
+    fn a_runtime_driver_answers_its_declared_ops_and_nothing_else() {
+        assert_eq!(
+            run_runtime(
+                &["__tmt-driver", "1", "resume"],
+                br#"{"deadlineMs": 1000, "session": "s-1", "model": null}"#
+            ),
+            (0, json!({"ok": {"argv": ["kimi", "--resume", "s-1"]}}))
+        );
+        let (_, capabilities) = run_runtime(&["__tmt-driver", "1", "capabilities"], b"");
+        assert_eq!(capabilities["ok"]["kind"], "runtime");
+        for op in ["usage", "snapshot", "input"] {
+            let (status, answer) = run_runtime(&["__tmt-driver", "1", op], b"{}");
+            assert_eq!(
+                (status, answer["error"]["code"].as_str()),
+                (0, Some("unsupported")),
+                "{op}"
+            );
+        }
+        let (status, answer) = run_runtime(&["__tmt-driver", "1", "locations"], b"{");
+        assert_eq!(
+            (status, answer["error"]["code"].as_str()),
+            (0, Some("bad_request"))
+        );
+        let (status, _) = run_runtime(&["__tmt-driver", "2", "locations"], b"{}");
+        assert_eq!(status, 2);
+    }
+
+    #[test]
+    fn a_host_driver_never_answers_a_runtime_op() {
+        let (_, answer) = run(
+            &["__tmt-driver", "1", "resume"],
+            br#"{"deadlineMs": 1, "session": "s", "model": null}"#,
+            0,
+        );
+        assert_eq!(answer["error"]["code"], "unsupported");
     }
 
     #[test]

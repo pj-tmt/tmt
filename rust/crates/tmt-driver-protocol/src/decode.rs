@@ -5,6 +5,7 @@
 use crate::{
     Op, PROTOCOL,
     grammar::{self, Grammar, GrammarError},
+    runtime::{self, RuntimeDeclaration},
     wire::*,
 };
 use serde::de::DeserializeOwned;
@@ -17,6 +18,8 @@ const CWD_MAX: usize = 4096;
 const COMMAND_MAX: usize = 256;
 const NAME_MAX: usize = 256;
 const START_TIME_MAX: usize = 64;
+const CONFIG_DIRS_MAX: usize = 4;
+const ARGV_MAX: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DecodeError {
@@ -58,21 +61,24 @@ impl fmt::Display for DecodeError {
 
 impl std::error::Error for DecodeError {}
 
-/// A successful answer to one operation, checked against the grammar.
+/// A successful answer to one operation, checked against what the driver
+/// declared: a host driver's [`Grammar`], or a runtime driver's
+/// [`RuntimeDeclaration`].
 pub trait Answer: DeserializeOwned {
     const OP: Op;
-    fn check(&self, grammar: &Grammar) -> Result<(), String>;
+    type Declaration;
+    fn check(&self, declaration: &Self::Declaration) -> Result<(), String>;
 }
 
 /// The driver's answer: its value, or the error it reported.
 pub fn decode<T: Answer>(
-    grammar: &Grammar,
+    declaration: &T::Declaration,
     output: &[u8],
 ) -> Result<Result<T, DriverError>, DecodeError> {
     match envelope::<T>(T::OP, output)? {
         Response::Ok(value) => {
             value
-                .check(grammar)
+                .check(declaration)
                 .map_err(|reason| DecodeError::Invalid { op: T::OP, reason })?;
             Ok(Ok(value))
         }
@@ -83,28 +89,62 @@ pub fn decode<T: Answer>(
 /// A driver's `capabilities`, and the grammar they declare. A driver that
 /// can't answer `capabilities` isn't usable, so an error answer fails too.
 pub fn decode_capabilities(output: &[u8]) -> Result<(Capabilities, Grammar), DecodeError> {
-    let op = Op::Capabilities;
-    let invalid = |reason: &str| DecodeError::Invalid {
-        op,
-        reason: reason.into(),
-    };
-    let capabilities = match envelope::<Capabilities>(op, output)? {
-        Response::Ok(capabilities) => capabilities,
-        Response::Error(error) => {
-            return Err(invalid(&format!("the driver refused: {}", error.message)));
-        }
-    };
-    if !capabilities.protocols.contains(&PROTOCOL) {
-        return Err(DecodeError::Protocol(capabilities.protocols));
-    }
-    if capabilities.kind != "host" {
-        return Err(invalid("kind must be host"));
-    }
-    if capabilities.version.is_empty() || !grammar::plain(&capabilities.version, VERSION_MAX) {
-        return Err(invalid("version must be 1-64 bytes of text"));
-    }
+    let capabilities: Capabilities = declared(output)?;
+    common(
+        &capabilities.protocols,
+        &capabilities.kind,
+        "host",
+        &capabilities.version,
+    )?;
     let grammar = Grammar::from_capabilities(&capabilities).map_err(DecodeError::Grammar)?;
     Ok((capabilities, grammar))
+}
+
+/// A runtime driver's `capabilities`, and its checked declaration. Core
+/// does not run runtime drivers yet; this is the decoding it will use, and
+/// the one [`crate::conformance::check_runtime`] applies.
+pub fn decode_runtime_capabilities(
+    output: &[u8],
+) -> Result<(RuntimeCapabilities, RuntimeDeclaration), DecodeError> {
+    let capabilities: RuntimeCapabilities = declared(output)?;
+    common(
+        &capabilities.protocols,
+        &capabilities.kind,
+        "runtime",
+        &capabilities.version,
+    )?;
+    let declaration = RuntimeDeclaration::new(&capabilities).map_err(DecodeError::Grammar)?;
+    Ok((capabilities, declaration))
+}
+
+/// A `capabilities` answer; an error answer fails too, since a driver that
+/// can't declare itself isn't usable.
+fn declared<T: DeserializeOwned>(output: &[u8]) -> Result<T, DecodeError> {
+    match envelope::<T>(Op::Capabilities, output)? {
+        Response::Ok(capabilities) => Ok(capabilities),
+        Response::Error(error) => Err(DecodeError::Invalid {
+            op: Op::Capabilities,
+            reason: format!("the driver refused: {}", error.message),
+        }),
+    }
+}
+
+/// The checks every kind of driver's declaration meets.
+fn common(protocols: &[u32], kind: &str, expected: &str, version: &str) -> Result<(), DecodeError> {
+    let invalid = |reason: String| DecodeError::Invalid {
+        op: Op::Capabilities,
+        reason,
+    };
+    if !protocols.contains(&PROTOCOL) {
+        return Err(DecodeError::Protocol(protocols.to_vec()));
+    }
+    if kind != expected {
+        return Err(invalid(format!("kind must be {expected}")));
+    }
+    if version.is_empty() || !grammar::plain(version, VERSION_MAX) {
+        return Err(invalid("version must be 1-64 bytes of text".into()));
+    }
+    Ok(())
 }
 
 fn envelope<T: DeserializeOwned>(op: Op, output: &[u8]) -> Result<Response<T>, DecodeError> {
@@ -229,6 +269,7 @@ impl ProbeResponse {
 
 impl Answer for CallerResponse {
     const OP: Op = Op::Caller;
+    type Declaration = Grammar;
     fn check(&self, grammar: &Grammar) -> Result<(), String> {
         let Some(pane) = &self.pane else {
             return Ok(());
@@ -250,6 +291,7 @@ impl Answer for CallerResponse {
 
 impl Answer for ServerResponse {
     const OP: Op = Op::Server;
+    type Declaration = Grammar;
     fn check(&self, _: &Grammar) -> Result<(), String> {
         let Some(server) = &self.server else {
             return Ok(());
@@ -268,6 +310,7 @@ impl Answer for ServerResponse {
 
 impl Answer for ResolveTargetResponse {
     const OP: Op = Op::ResolveTarget;
+    type Declaration = Grammar;
     fn check(&self, grammar: &Grammar) -> Result<(), String> {
         require(
             self.pane_id
@@ -280,6 +323,7 @@ impl Answer for ResolveTargetResponse {
 
 impl Answer for SnapshotResponse {
     const OP: Op = Op::Snapshot;
+    type Declaration = Grammar;
     fn check(&self, grammar: &Grammar) -> Result<(), String> {
         check_panes(&self.panes, grammar)
     }
@@ -287,6 +331,7 @@ impl Answer for SnapshotResponse {
 
 impl Answer for ProbeResponse {
     const OP: Op = Op::Probe;
+    type Declaration = Grammar;
     fn check(&self, grammar: &Grammar) -> Result<(), String> {
         match self {
             Self::Live { panes } => check_panes(panes, grammar),
@@ -297,6 +342,7 @@ impl Answer for ProbeResponse {
 
 impl Answer for ClearResponse {
     const OP: Op = Op::Clear;
+    type Declaration = Grammar;
     fn check(&self, _: &Grammar) -> Result<(), String> {
         Ok(())
     }
@@ -304,9 +350,93 @@ impl Answer for ClearResponse {
 
 impl Answer for CaptureResponse {
     const OP: Op = Op::Capture;
+    type Declaration = Grammar;
     /// Captured text is terminal output; core escapes it where it shows it.
     fn check(&self, _: &Grammar) -> Result<(), String> {
         Ok(())
+    }
+}
+
+impl Answer for LocationsResponse {
+    const OP: Op = Op::Locations;
+    type Declaration = RuntimeDeclaration;
+    fn check(&self, declaration: &RuntimeDeclaration) -> Result<(), String> {
+        require(
+            (1..=CONFIG_DIRS_MAX).contains(&self.config_dirs.len()),
+            "configDirs holds 1 to 4 paths",
+        )?;
+        let paths = self
+            .config_dirs
+            .iter()
+            .chain([&self.skills])
+            .chain(&self.hook_settings)
+            .chain(&self.transcript_root);
+        for path in paths {
+            require(
+                runtime::absolute_path(path),
+                "every path must be absolute, without . or .. components",
+            )?;
+        }
+        require(
+            self.hook_settings.is_some() == declaration.hooks().is_some(),
+            "hookSettings is required with hooks, and null without",
+        )?;
+        require(
+            self.hook_settings
+                .as_deref()
+                .is_none_or(|path| self.in_config_dir(path)),
+            "hookSettings must lie inside one of configDirs",
+        )?;
+        require(
+            self.transcript_root.is_some() == declaration.supports(Op::Usage),
+            "transcriptRoot is required with usage, and null without",
+        )
+    }
+}
+
+impl LocationsResponse {
+    /// `tmt setup` writes to `skills`: it lies inside one of `configDirs`, or
+    /// is the skills root agents share under the `home` that was asked about.
+    pub fn within(&self, home: &str) -> bool {
+        let shared = format!("{}/.agents/skills", home.trim_end_matches('/'));
+        self.skills == shared || self.in_config_dir(&self.skills)
+    }
+
+    fn in_config_dir(&self, path: &str) -> bool {
+        self.config_dirs.iter().any(|directory| {
+            path.strip_prefix(directory.trim_end_matches('/'))
+                .is_some_and(|rest| rest.len() > 1 && rest.starts_with('/'))
+        })
+    }
+}
+
+impl Answer for ResumeResponse {
+    const OP: Op = Op::Resume;
+    type Declaration = RuntimeDeclaration;
+    fn check(&self, declaration: &RuntimeDeclaration) -> Result<(), String> {
+        require(
+            (1..=ARGV_MAX).contains(&self.argv.len()),
+            "argv holds 1 to 64 strings",
+        )?;
+        require(
+            declaration.executables().contains(&self.argv[0]),
+            "argv must start with a declared executable",
+        )?;
+        require(
+            !self.argv.iter().any(|arg| arg.contains('\0')),
+            "argv must not contain NUL",
+        )
+    }
+}
+
+impl Answer for UsageResponse {
+    const OP: Op = Op::Usage;
+    type Declaration = RuntimeDeclaration;
+    fn check(&self, _: &RuntimeDeclaration) -> Result<(), String> {
+        require(
+            self.context_tokens.is_none_or(|tokens| tokens < (1 << 53)),
+            "contextTokens is out of range",
+        )
     }
 }
 
@@ -376,6 +506,113 @@ mod tests {
         assert!(decode_capabilities(&bytes(json!({"ok": runtime}))).is_err());
         let refused = bytes(json!({"error": {"code": "failed", "message": "no"}}));
         assert!(decode_capabilities(&refused).is_err());
+    }
+
+    #[test]
+    fn runtime_capabilities_decode_with_their_declaration_and_kinds_stay_apart() {
+        use crate::runtime::tests::claude_like;
+        let (capabilities, declaration) =
+            decode_runtime_capabilities(&bytes(json!({"ok": claude_like()}))).unwrap();
+        assert_eq!(
+            (capabilities.name.as_str(), declaration.name()),
+            ("kimi", "kimi")
+        );
+        assert!(
+            decode_capabilities(&bytes(json!({"ok": claude_like()}))).is_err(),
+            "a runtime driver is no host driver"
+        );
+        assert!(
+            decode_runtime_capabilities(&bytes(json!({"ok": herdr_like()}))).is_err(),
+            "a host driver is no runtime driver"
+        );
+        let mut edited = claude_like();
+        edited.protocols = vec![2];
+        assert_eq!(
+            decode_runtime_capabilities(&bytes(json!({"ok": edited}))),
+            Err(DecodeError::Protocol(vec![2]))
+        );
+        let mut edited = claude_like();
+        edited.version = String::new();
+        assert!(decode_runtime_capabilities(&bytes(json!({"ok": edited}))).is_err());
+        let mut edited = claude_like();
+        edited.executables = vec!["/bin/sh".into()];
+        assert!(matches!(
+            decode_runtime_capabilities(&bytes(json!({"ok": edited}))),
+            Err(DecodeError::Grammar(_))
+        ));
+    }
+
+    #[test]
+    fn runtime_answers_are_checked_against_the_declaration() {
+        use crate::runtime::tests::claude_like;
+        let declaration = RuntimeDeclaration::new(&claude_like()).unwrap();
+        let locations = |value: serde_json::Value| {
+            decode::<LocationsResponse>(&declaration, &bytes(json!({"ok": value})))
+        };
+        let good = json!({"configDirs": ["/h/.kimi"], "skills": "/h/.kimi/skills",
+                          "hookSettings": "/h/.kimi/settings.json",
+                          "transcriptRoot": "/h/.kimi/sessions"});
+        assert!(locations(good.clone()).unwrap().is_ok());
+        for (field, value) in [
+            ("configDirs", json!([])),
+            ("configDirs", json!(["/a", "/b", "/c", "/d", "/e"])),
+            ("skills", json!("relative")),
+            ("skills", json!("/h/../etc")),
+            ("hookSettings", json!(null)),
+            ("hookSettings", json!("/h/.bashrc")),
+            ("hookSettings", json!("/h/.kimi")),
+            ("hookSettings", json!("/h/.kimix/settings.json")),
+            ("transcriptRoot", json!(null)),
+        ] {
+            let mut answer = good.clone();
+            answer[field] = value;
+            assert!(locations(answer).is_err(), "{field}");
+        }
+        let skills = |path: &str| {
+            let mut answer = good.clone();
+            answer["skills"] = json!(path);
+            let answer: LocationsResponse = locations(answer).unwrap().unwrap();
+            answer.within("/h")
+        };
+        assert!(skills("/h/.kimi/skills") && skills("/h/.agents/skills"));
+        for outside in ["/h/.ssh", "/h/.agents", "/other/.agents/skills", "/h/.kimi"] {
+            assert!(!skills(outside), "{outside}");
+        }
+        let without_hooks = RuntimeDeclaration::new(&{
+            let mut capabilities = claude_like();
+            capabilities.hooks = None;
+            capabilities.ops = vec!["locations".into()];
+            capabilities
+        })
+        .unwrap();
+        assert!(
+            decode::<LocationsResponse>(&without_hooks, &bytes(json!({"ok": good}))).is_err(),
+            "hook settings without hooks"
+        );
+
+        let resume = |argv: serde_json::Value| {
+            decode::<ResumeResponse>(&declaration, &bytes(json!({"ok": {"argv": argv}})))
+        };
+        assert!(resume(json!(["kimi", "--resume", "s-1"])).unwrap().is_ok());
+        assert!(resume(json!(["kimi-cli"])).unwrap().is_ok());
+        for argv in [
+            json!([]),
+            json!(["/usr/bin/kimi"]),
+            json!(["sh", "-c", "kimi"]),
+            json!(["kimi", "a\u{0}b"]),
+            json!(vec!["kimi"; 65]),
+        ] {
+            assert!(resume(argv.clone()).is_err(), "{argv}");
+        }
+
+        let usage = |tokens: serde_json::Value| {
+            decode::<UsageResponse>(
+                &declaration,
+                &bytes(json!({"ok": {"contextTokens": tokens}})),
+            )
+        };
+        assert!(usage(json!(null)).unwrap().is_ok() && usage(json!(1200)).unwrap().is_ok());
+        assert!(usage(json!(1_u64 << 53)).is_err());
     }
 
     #[test]

@@ -1,13 +1,22 @@
-//! Checks a host driver against the contract, through whatever runs it: a
-//! spawned executable, or [`serve`](crate::serve) in process. Every check
-//! uses panes and targets that don't exist, so running it against a live
-//! server changes nothing there. Checks that need a bound pane (publishing
-//! a marker, reading it back) belong to the host's own fixture, which
-//! controls a pane; this harness proves the protocol.
+//! Checks a driver against the contract, through whatever runs it: a
+//! spawned executable, or [`serve`](crate::serve) or
+//! [`serve_runtime`](crate::serve_runtime) in process.
+//!
+//! [`check`] is for a host driver. Every check uses panes and targets that
+//! don't exist, so running it against a live server changes nothing there.
+//! Checks that need a bound pane (publishing a marker, reading it back)
+//! belong to the host's own fixture, which controls a pane; this harness
+//! proves the protocol.
+//!
+//! [`check_runtime`] is for a runtime driver. It asks about a fixture home,
+//! a fixture session and a transcript that doesn't exist, so it changes none
+//! of the agent's files.
 
 use crate::{
     Op, SUBCOMMAND,
-    decode::{Answer, DecodeError, decode, decode_capabilities, decode_done},
+    decode::{
+        Answer, DecodeError, decode, decode_capabilities, decode_done, decode_runtime_capabilities,
+    },
     grammar::Grammar,
     wire::*,
 };
@@ -25,6 +34,15 @@ pub struct DriverOutput {
 #[derive(Debug, Clone)]
 pub struct Fixture {
     pub socket: String,
+}
+
+/// What a runtime driver is asked about. Nothing here needs to exist.
+#[derive(Debug, Clone)]
+pub struct RuntimeFixture {
+    /// The home directory `locations` is asked about.
+    pub home: String,
+    /// A provider session ID `resume` is asked about.
+    pub session: String,
 }
 
 /// One way the driver broke the contract.
@@ -78,6 +96,100 @@ pub fn check(
     run.findings
 }
 
+/// Runs every runtime check; no findings means the driver conforms. `invoke`
+/// is as for [`check`].
+pub fn check_runtime(
+    invoke: &mut dyn FnMut(&[&str], &[u8]) -> DriverOutput,
+    fixture: &RuntimeFixture,
+) -> Vec<Finding> {
+    let mut run = Run {
+        invoke,
+        findings: Vec::new(),
+    };
+    let capabilities = run.call(Op::Capabilities, b"");
+    let declaration = match decode_runtime_capabilities(&capabilities.stdout) {
+        Ok((_, declaration)) => declaration,
+        Err(error) => {
+            run.found("capabilities", error.to_string());
+            return run.findings;
+        }
+    };
+    run.envelope_errors();
+    for op in Op::ALL {
+        if op == Op::Capabilities {
+            continue;
+        }
+        if declaration.supports(op) {
+            run.expect_code(op, b"{", ErrorCode::BadRequest, "a request that isn't JSON");
+        } else {
+            run.expect_code(
+                op,
+                &request(Empty {}),
+                ErrorCode::Unsupported,
+                "an undeclared op",
+            );
+        }
+    }
+    let locations = run.answer::<LocationsResponse>(
+        &declaration,
+        LocationsRequest {
+            home: fixture.home.clone(),
+            env: BTreeMap::new(),
+        },
+    );
+    let transcript_root = match locations {
+        Some(Ok(locations)) => {
+            if !locations.within(&fixture.home) {
+                run.found(
+                    Op::Locations.as_str(),
+                    "skills must lie inside configDirs or be the shared skills root",
+                );
+            }
+            locations.transcript_root
+        }
+        Some(Err(error)) => {
+            run.found(
+                Op::Locations.as_str(),
+                format!("a fixture home must have locations: {}", error.message),
+            );
+            None
+        }
+        None => None,
+    };
+    if declaration.supports(Op::Resume) {
+        // Either an argv, which decoding checked, or an error answer.
+        run.answer::<ResumeResponse>(
+            &declaration,
+            ResumeRequest {
+                session: fixture.session.clone(),
+                model: None,
+            },
+        );
+    }
+    if let (true, Some(root)) = (declaration.supports(Op::Usage), transcript_root) {
+        let answer = run.answer::<UsageResponse>(
+            &declaration,
+            UsageRequest {
+                session: fixture.session.clone(),
+                transcript: format!(
+                    "{}/tmt-conformance-missing.jsonl",
+                    root.trim_end_matches('/')
+                ),
+            },
+        );
+        if let Some(Ok(UsageResponse {
+            context_tokens: Some(tokens),
+        })) = answer
+        {
+            run.found(
+                Op::Usage.as_str(),
+                format!("a missing transcript shows no usage, got {tokens}"),
+            );
+        }
+    }
+    run.findings
+}
+
 struct Run<'a> {
     invoke: &'a mut dyn FnMut(&[&str], &[u8]) -> DriverOutput,
     findings: Vec<Finding>,
@@ -113,6 +225,23 @@ impl Run<'_> {
             );
         }
         invocation
+    }
+
+    /// Runs one operation and decodes its answer against the declaration; a
+    /// decode failure is a finding.
+    fn answer<T: Answer>(
+        &mut self,
+        declaration: &T::Declaration,
+        body: impl Serialize,
+    ) -> Option<Result<T, DriverError>> {
+        let output = self.call(T::OP, &request(body)).stdout;
+        match decode::<T>(declaration, &output) {
+            Ok(answer) => Some(answer),
+            Err(error) => {
+                self.found(T::OP.as_str(), error.to_string());
+                None
+            }
+        }
     }
 
     fn error_code(&self, op: Op, output: &[u8]) -> Result<Option<ErrorCode>, DecodeError> {
@@ -161,15 +290,11 @@ impl Missing<'_, '_> {
         self.fixture.socket.clone()
     }
 
-    fn answer<T: Answer>(&mut self, body: impl Serialize) -> Option<Result<T, DriverError>> {
-        let output = self.run.call(T::OP, &request(body)).stdout;
-        match decode::<T>(self.grammar, &output) {
-            Ok(answer) => Some(answer),
-            Err(error) => {
-                self.run.found(T::OP.as_str(), error.to_string());
-                None
-            }
-        }
+    fn answer<T: Answer<Declaration = Grammar>>(
+        &mut self,
+        body: impl Serialize,
+    ) -> Option<Result<T, DriverError>> {
+        self.run.answer(self.grammar, body)
     }
 
     fn not_found(&mut self, op: Op, body: impl Serialize) {
@@ -184,7 +309,9 @@ impl Missing<'_, '_> {
     fn check(mut self, op: Op) {
         let (socket, pane) = (self.socket(), self.pane());
         match op {
-            Op::Capabilities => {}
+            // Runtime operations: a host that lists one answers `unsupported`,
+            // which the `bad_request` check above already reports.
+            Op::Capabilities | Op::Locations | Op::Resume | Op::Usage => {}
             Op::Caller => {
                 if let Some(Ok(CallerResponse { pane: Some(_) })) =
                     self.answer::<CallerResponse>(CallerRequest {
@@ -467,6 +594,156 @@ mod tests {
             !slow.is_empty() && slow.iter().all(|check| check == "snapshot"),
             "{slow:?}"
         );
+    }
+
+    /// A runtime driver for an agent with no transcripts, right or wrong in
+    /// chosen ways.
+    #[derive(Default)]
+    struct Agent {
+        resumes_through_a_shell: bool,
+        reads_a_missing_transcript: bool,
+        forgets_the_transcript_root: bool,
+        installs_skills_anywhere: bool,
+    }
+
+    impl crate::RuntimeHandler for Agent {
+        fn capabilities(&mut self) -> RuntimeCapabilities {
+            crate::runtime::tests::claude_like()
+        }
+        fn locations(
+            &mut self,
+            request: Request<LocationsRequest>,
+        ) -> Result<LocationsResponse, DriverError> {
+            let home = request.body.home;
+            Ok(LocationsResponse {
+                config_dirs: vec![format!("{home}/.kimi")],
+                skills: if self.installs_skills_anywhere {
+                    format!("{home}/.ssh")
+                } else {
+                    format!("{home}/.kimi/skills")
+                },
+                hook_settings: Some(format!("{home}/.kimi/settings.json")),
+                transcript_root: (!self.forgets_the_transcript_root)
+                    .then(|| format!("{home}/.kimi/sessions")),
+            })
+        }
+        fn resume(
+            &mut self,
+            request: Request<ResumeRequest>,
+        ) -> Result<ResumeResponse, DriverError> {
+            let argv = if self.resumes_through_a_shell {
+                vec![
+                    "sh".into(),
+                    "-c".into(),
+                    format!("kimi -r {}", request.body.session),
+                ]
+            } else {
+                vec!["kimi".into(), "-r".into(), request.body.session]
+            };
+            Ok(ResumeResponse { argv })
+        }
+        fn usage(&mut self, _: Request<UsageRequest>) -> Result<UsageResponse, DriverError> {
+            Ok(UsageResponse {
+                context_tokens: self.reads_a_missing_transcript.then_some(9),
+            })
+        }
+    }
+
+    fn runtime_findings_with(mut driver: Agent, slow: Option<(Op, Duration)>) -> Vec<Finding> {
+        let mut invoke = |args: &[&str], request: &[u8]| {
+            let owned: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
+            let mut stdout = Vec::new();
+            crate::serve_runtime(&owned, request, &mut stdout, &mut driver);
+            let elapsed = slow
+                .filter(|(op, _)| args.get(2) == Some(&op.as_str()))
+                .map_or(Duration::ZERO, |(_, extra)| extra);
+            DriverOutput { stdout, elapsed }
+        };
+        check_runtime(
+            &mut invoke,
+            &RuntimeFixture {
+                home: "/nonexistent/home".into(),
+                session: "conformance-session".into(),
+            },
+        )
+    }
+
+    fn runtime_checks(driver: Agent) -> Vec<String> {
+        runtime_findings_with(driver, None)
+            .into_iter()
+            .map(|finding| finding.check)
+            .collect()
+    }
+
+    #[test]
+    fn a_conforming_runtime_driver_has_no_findings() {
+        assert_eq!(runtime_findings_with(Agent::default(), None), []);
+    }
+
+    #[test]
+    fn each_broken_runtime_rule_is_found() {
+        assert_eq!(
+            runtime_checks(Agent {
+                resumes_through_a_shell: true,
+                ..Agent::default()
+            }),
+            ["resume"]
+        );
+        assert_eq!(
+            runtime_checks(Agent {
+                reads_a_missing_transcript: true,
+                ..Agent::default()
+            }),
+            ["usage"]
+        );
+        assert_eq!(
+            runtime_checks(Agent {
+                forgets_the_transcript_root: true,
+                ..Agent::default()
+            }),
+            ["locations"]
+        );
+        assert_eq!(
+            runtime_checks(Agent {
+                installs_skills_anywhere: true,
+                ..Agent::default()
+            }),
+            ["locations"]
+        );
+        let slow: Vec<String> = runtime_findings_with(
+            Agent::default(),
+            Some((Op::Resume, Duration::from_millis(1001))),
+        )
+        .into_iter()
+        .map(|finding| finding.check)
+        .collect();
+        assert!(
+            !slow.is_empty() && slow.iter().all(|check| check == "resume"),
+            "{slow:?}"
+        );
+    }
+
+    #[test]
+    fn a_host_driver_is_no_runtime_driver() {
+        let mut driver = NoPanes::default();
+        let mut invoke = |args: &[&str], request: &[u8]| {
+            let owned: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
+            let mut stdout = Vec::new();
+            serve(&owned, request, &mut stdout, &mut driver);
+            DriverOutput {
+                stdout,
+                elapsed: Duration::ZERO,
+            }
+        };
+        let found = check_runtime(
+            &mut invoke,
+            &RuntimeFixture {
+                home: "/h".into(),
+                session: "s".into(),
+            },
+        );
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].check, "capabilities");
     }
 
     #[test]

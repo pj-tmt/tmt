@@ -117,7 +117,7 @@ impl<R: CommandRunner> DriverProcess<R> {
 
     /// Runs one operation: its checked answer, or the error the driver
     /// reported.
-    pub fn call<T: Answer>(
+    pub fn call<T: Answer<Declaration = Grammar>>(
         &self,
         body: impl Serialize,
         deadline: Instant,
