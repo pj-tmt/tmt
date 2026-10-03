@@ -1950,7 +1950,7 @@ integrity) against the generated `release-please-config.json` and
 `.release-please-manifest.json`: it opens one release pull request per released component, and when
 one is merged it creates the draft release (release-please's drafts, so a published release
 never has to receive assets). A live run, which is only allowed on `main`, creates a GitHub
-App token in that job alone, enables auto-merge for one open release PR at a time (the merge queue sets the strategy),
+App token in that job alone, enables auto-merge for one open release PR at a time (the merge queue sets the strategy; paused for push runs until the release cut in #1399 lands, so only an explicit `workflow_dispatch` run enables it),
 through the normal required checks and merge queue. An enabled or queued release PR
 blocks enabling another component until it merges. The workflow does not refresh a
 BEHIND branch: the queue tests the combined result on current main, including required
