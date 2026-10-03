@@ -11,6 +11,7 @@ impl OwnerTransaction<'_> {
         &self,
         after: u64,
         target: &statement::Head,
+        budget: usize,
     ) -> Result<MembershipPage> {
         let current = self.head().ok_or(super::super::Fault::ResyncRequired)?;
         if after > target.revision || current.revision < target.revision {
@@ -62,7 +63,7 @@ impl OwnerTransaction<'_> {
                 |r| r.get(0),
             )?;
             let encoded = values::encode_binary(&bytes);
-            if size + encoded.len() + 4 > 60 * 1024 {
+            if size + encoded.len() + 4 > budget {
                 break;
             }
             head = Some(
