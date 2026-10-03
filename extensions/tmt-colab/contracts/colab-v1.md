@@ -1607,37 +1607,30 @@ Command names precede operands, following the shared CLI style audit (the lead's
 ls [--archived]
 show <page>
 share mode <page> <private|link|public>
-share history <page> <shared|current>
-share members ls <page>
-share members add <page> --file <file|->
-share members remove <page> <member>
-share members role <page> <member> <viewer|commenter|editor>
-share link ls <page>
-share link add <page> --seed-file <file|-> [--link-id <uuid>] [--role <role>]
-share link reset <page> <link> --seed-file <file|-> [--link-id <uuid>] [--role <role>]
+share link list <page>
+share link add <page> --seed-file <file|-> [--link-id <uuid>]
+share link reset <page> <link> --seed-file <file|-> [--link-id <uuid>]
 share link remove <page> <link>
-retention <page> [--days <positive safe integer>|--forever]
-archive <page>
-delete <page> --yes
 ```
 
-All commands support human output and one `--json` document. `ls` has a hidden
-`list` alias at each listing leaf. Delete and widening (member addition, role
-promotion, audience/history widening, link addition/Reset) MUST require explicit
-`--yes`; absent confirmation sends and writes nothing. Member selections use the
-strict management member-add DTO; seeds are canonical base64url seed32 from an
-owned regular 0600 file or bounded stdin, never argv or output. Link role defaults
-to viewer. Removal/re-role/Reset capture complete verified assignments.
+All commands support human output and one `--json` document. Top-level `ls`
+and `share link ls` have hidden `list` aliases, following the shared CLI style.
+Audience widening and link addition/Reset MUST require explicit `--yes`; absent
+confirmation sends and writes nothing. Seeds are canonical base64url seed32
+from an owned regular 0600 file or bounded stdin, never argv or output.
+Links created or reset by this v1 CLI always have the viewer role. Removal/Reset
+capture complete verified assignments. Member, history, retention, archive and
+delete commands are deferred beyond v1.
 
 Mutations accept `--operation-id` and `--expected-revision`; generated/default
 values are captured once. Success is `{operationId, expectedRevision,
 membershipHead:{revision, statementHash}}`; link creation/Reset also returns the
 nonsecret replacement `linkId`. An explicit retry MUST retain the same IDs,
 revision, selections and caller-held seed. Unknown IPC outcomes MUST retain this
-nonsecret correlation, never regenerate a request or claim no effect. A completed
-delete can be retried by supplying its exact operation ID and expected revision.
+nonsecret correlation, never regenerate a request or claim no effect.
 
-Lists return `{spaceId, membershipHead, pages}`; an uninitialized list has null
+Link listings return `{membershipHead, links}`.
+Page lists return `{spaceId, membershipHead, pages}`; an uninitialized list has null
 space/head and empty pages. Show returns `{spaceId, membershipHead, page, members,
 links, discussions:"not-available"}`. Page fields are `pageId, title, epoch,
 sharing, history, archived, retentionDays, lastUpdateAtMs, expiresAtMs, warnings`.

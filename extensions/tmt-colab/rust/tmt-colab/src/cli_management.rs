@@ -68,7 +68,7 @@ fn fresh_id() -> Result<String> {
         &h[20..]
     ))
 }
-fn source(path: &str, secret: bool) -> Result<Vec<u8>> {
+fn source(path: &str) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     if path == "-" {
         let stdin = std::io::stdin();
@@ -104,8 +104,8 @@ fn source(path: &str, secret: bool) -> Result<Vec<u8>> {
             .open(path)?;
         let m = file.metadata()?;
         if !m.is_file()
-            || (secret
-                && (m.uid() != nix::unistd::Uid::effective().as_raw() || m.mode() & 0o777 != 0o600))
+            || m.uid() != nix::unistd::Uid::effective().as_raw()
+            || m.mode() & 0o777 != 0o600
         {
             return Err(input(
                 "Seed input must be an owned regular 0600 file; input symlinks are refused.",
@@ -119,7 +119,7 @@ fn source(path: &str, secret: bool) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 fn seed(args: &ArgMatches) -> Result<String> {
-    let mut raw = source(text(args, "seed-file"), true)?;
+    let mut raw = source(text(args, "seed-file"))?;
     let result = (|| {
         let value = std::str::from_utf8(&raw)
             .map_err(|_| input("Seed must be canonical base64url seed32."))?
@@ -143,7 +143,7 @@ fn principal<'a>(detail: &'a Value, kind: &str, id: &str) -> Result<&'a Value> {
         .ok_or_else(|| {
             fail(
                 "COLAB_PAGE_NOT_FOUND",
-                "Member or link has no assignment on this page.",
+                "Link has no assignment on this page.",
             )
         })
 }
@@ -155,17 +155,6 @@ fn selection(
 ) -> Result<Option<(&'static str, Value, bool)>> {
     let id = &page["pageId"];
     Ok(Some(match command {
-        "archive" => ("page.archive", json!({"pageId":id}), false),
-        "delete" => ("page.delete", json!({"pageId":id}), true),
-        "retention" => {
-            if let Some(days) = args.get_one::<u64>("days") {
-                ("retention.set", json!({"pageId":id,"days":days}), false)
-            } else if args.get_flag("forever") {
-                ("retention.set", json!({"pageId":id,"days":null}), false)
-            } else {
-                return Ok(None);
-            }
-        }
         "share" => {
             let (action, selected) = args.subcommand().expect("required share action");
             match action {
@@ -181,56 +170,6 @@ fn selection(
                         json!({"pageId":id,"mode":mode}),
                         rank(mode) > rank(page["sharing"].as_str().unwrap_or("private")),
                     )
-                }
-                "history" => {
-                    let mode = text(selected, "mode");
-                    (
-                        "page.history",
-                        json!({"pageId":id,"mode":mode}),
-                        mode == "shared" && page["history"] == "current",
-                    )
-                }
-                "members" => {
-                    let (action, selected) = selected.subcommand().expect("required member action");
-                    if action == "ls" {
-                        return Ok(None);
-                    }
-                    if action == "add" {
-                        let bytes = source(text(selected, "file"), false)?;
-                        // Deserialize directly into the existing strict member DTO; this
-                        // rejects duplicate/unknown fields before freezing selections.
-                        let member: tmt_colab_model::payload::MemberAdd =
-                            serde_json::from_slice(&bytes)
-                                .map_err(|_| input("Invalid member selection JSON."))?;
-                        let value = json!({"memberId":member.member_id,"role":match member.role {
-                            tmt_colab_model::payload::Role::Viewer=>"viewer",
-                            tmt_colab_model::payload::Role::Commenter=>"commenter",
-                            tmt_colab_model::payload::Role::Editor=>"editor",
-                        },"signKey":member.sign_key,"encKey":member.enc_key,"pages":member.pages.as_slice()});
-                        ("member.add", value, true)
-                    } else {
-                        let member = uuid(text(selected, "member"))?;
-                        let old = principal(detail, "members", &member)?;
-                        if action == "remove" {
-                            (
-                                "member.remove",
-                                json!({"memberId":member,"pages":old["pages"]}),
-                                false,
-                            )
-                        } else {
-                            let role = text(selected, "role");
-                            let rank = |r: &str| match r {
-                                "editor" => 2,
-                                "commenter" => 1,
-                                _ => 0,
-                            };
-                            (
-                                "member.role",
-                                json!({"memberId":member,"role":role,"pages":old["pages"]}),
-                                rank(role) > rank(old["role"].as_str().unwrap_or("viewer")),
-                            )
-                        }
-                    }
                 }
                 "link" => {
                     let (action, selected) = selected.subcommand().expect("required link action");
@@ -257,7 +196,7 @@ fn selection(
                             .map(|v| uuid(v))
                             .transpose()?
                             .map_or_else(fresh_id, Ok)?;
-                        let new = json!({"linkId":link_id,"role":text(selected,"role"),"pages":pages,"seed":seed(selected)?});
+                        let new = json!({"linkId":link_id,"role":"viewer","pages":pages,"seed":seed(selected)?});
                         if action == "add" {
                             ("link.add", new, true)
                         } else {
@@ -479,20 +418,12 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         page_args = next;
     }
     let id = uuid(text(page_args, "page"))?;
-    let replay_deleted = command == "delete"
-        && args.get_one::<String>("operation-id").is_some()
-        && args.get_one::<String>("expected-revision").is_some();
     let mut page = catalog["pages"]
         .as_array()
         .and_then(|rows| rows.iter().find(|p| p["pageId"] == id))
         .cloned()
-        .or_else(|| replay_deleted.then(|| json!({"pageId":id})))
         .ok_or_else(|| fail("COLAB_PAGE_NOT_FOUND", "Local page is not available."))?;
-    let detail = if replay_deleted {
-        json!({"membershipHead":catalog["membershipHead"]})
-    } else {
-        inspection::detail(&store, &key, &page)?
-    };
+    let detail = inspection::detail(&store, &key, &page)?;
     if catalog["membershipHead"] != detail["membershipHead"] {
         return Err(management_error("STALE_HEAD"));
     }
@@ -507,21 +438,14 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
     }
     let Some((operation, payload, widening)) = selection(command, args, &page, &detail)? else {
         return output(
-            &if command == "share" {
-                {
-                    let group = args.subcommand_name().expect("required share group");
-                    json!({"membershipHead":detail["membershipHead"],group:detail[group]})
-                }
-            } else {
-                json!({"page":page,"membershipHead":detail["membershipHead"]})
-            },
+            &json!({"membershipHead":detail["membershipHead"],"links":detail["links"]}),
             json_output,
         );
     };
     if widening && !args.get_flag("yes") {
         return Err(fail(
             "COLAB_CONFIRMATION_REQUIRED",
-            "Requires --yes after reviewing sharing/history disclosure in help. Delete ceases access and removes ciphertext; copied plaintext and previously public history cannot be recalled.",
+            "Requires --yes after reviewing sharing disclosure in help. Copied plaintext and previously public history cannot be recalled.",
         ));
     }
     let operation_id = args

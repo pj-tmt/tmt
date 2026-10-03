@@ -360,7 +360,7 @@ fn package_version_exits_without_core_or_state_access() {
 
 const PAGE: &str = "10000000-0000-4000-8000-000000000001";
 const MEMBER: &str = "20000000-0000-4000-8000-000000000001";
-const NEW_MEMBER: &str = "20000000-0000-4000-8000-000000000002";
+const LINK: &str = "20000000-0000-4000-8000-000000000002";
 const OPERATION: &str = "40000000-0000-4000-8000-000000000001";
 fn seed_page(pilot: &Pilot) {
     use ed25519_dalek::{Signer, SigningKey};
@@ -466,10 +466,6 @@ fn management_reads_verify_encrypted_titles_and_preserve_missing_and_existing_st
     assert_eq!(show["page"]["lastUpdateAtMs"], Value::Null);
     assert_eq!(show["page"]["expiresAtMs"], Value::Null);
     assert_eq!(show["discussions"], "not-available");
-    assert_eq!(
-        pilot.call(&["retention", PAGE, "--json"])["page"]["retentionDays"],
-        30
-    );
     let human = pilot.command().args(["ls"]).output().unwrap();
     assert!(human.status.success());
     assert!(!human.stdout.contains(&0x1b));
@@ -483,7 +479,6 @@ fn management_confirmation_and_input_denials_have_no_state_effects() {
     let db = pilot.root.join("selected/colab/space.db");
     let before = fs::read(&db).unwrap();
     for args in [
-        vec!["delete", PAGE, "--json"],
         vec!["share", "mode", PAGE, "link", "--json"],
         vec!["share", "mode", PAGE, "public", "--json"],
     ] {
@@ -491,24 +486,23 @@ fn management_confirmation_and_input_denials_have_no_state_effects() {
     }
     failure(
         &pilot,
-        &["retention", PAGE, "--days", "0", "--json"],
-        "COLAB_INPUT_INVALID",
-    );
-    failure(
-        &pilot,
-        &["retention", PAGE, "--days", "30", "--forever", "--json"],
-        "COLAB_INPUT_INVALID",
-    );
-    failure(
-        &pilot,
         &["show", "not-a-page", "--json"],
         "COLAB_INPUT_INVALID",
     );
+    for args in [
+        vec!["retention", PAGE, "--json"],
+        vec!["archive", PAGE, "--json"],
+        vec!["delete", PAGE, "--yes", "--json"],
+        vec!["share", "members", "list", PAGE, "--json"],
+        vec!["share", "history", PAGE, "shared", "--json"],
+    ] {
+        failure(&pilot, &args, "COLAB_INPUT_INVALID");
+    }
     assert_eq!(fs::read(&db).unwrap(), before);
     // Valid confirmed request reaches the reserved policy action on this base.
     let allowed = failure(
         &pilot,
-        &["delete", PAGE, "--yes", "--json"],
+        &["share", "mode", PAGE, "link", "--yes", "--json"],
         "COLAB_UNAVAILABLE",
     );
     assert!(allowed["operationId"].as_str().is_some());
@@ -516,37 +510,68 @@ fn management_confirmation_and_input_denials_have_no_state_effects() {
     assert_eq!(fs::read(db).unwrap(), before);
 }
 #[test]
-fn management_member_cli_uses_serving_and_offline_service_with_durable_replay() {
-    use ed25519_dalek::SigningKey;
-    use tmt_colab_model::{values, wrap};
+fn management_link_cli_uses_serving_and_offline_service_with_durable_replay() {
+    use tmt_colab_model::values;
     for serving in [false, true] {
         let mut pilot = Pilot::new(None);
         seed_page(&pilot);
-        let selection = json!({"memberId":NEW_MEMBER,"role":"viewer","signKey":values::encode_binary(&SigningKey::from_bytes(&[17;32]).verifying_key().to_bytes()),"encKey":values::encode_binary(&wrap::RecipientKey::from_seed(&[18;32]).unwrap().public_key()),"pages":[PAGE]});
-        let path = pilot.root.join("member.json");
-        fs::write(&path, selection.to_string()).unwrap();
+        // The existing service only admits links when verified audience policy allows them.
+        {
+            use tmt_colab::{
+                keyring::{Keyring, Layout},
+                store::{Store, owner::Mutation},
+            };
+            let layout = Layout::open(&pilot.root.join("selected")).unwrap();
+            let key = Keyring::read(&layout).unwrap();
+            let mut store = Store::open(&layout).unwrap();
+            store
+                .owner_transaction(
+                    &key.space_id,
+                    &key.owner_public(),
+                    Mutation {
+                        operation_id: "40000000-0000-4000-8000-000000000009",
+                        digest: [9; 32],
+                        expected_revision: 2,
+                    },
+                    |tx| {
+                        tx.append_statement(&key.sign_statement(
+                            tx.head(),
+                            "page.share",
+                            &serde_json::to_vec(&json!({"pageId":PAGE,"mode":"link","epoch":"1"}))?,
+                        )?)?;
+                        Ok(b"link mode fixture".to_vec())
+                    },
+                )
+                .unwrap();
+            store.close().unwrap();
+        }
+        let path = pilot.root.join("seed");
+        fs::write(&path, values::encode_binary(&[17; 32])).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
         if serving {
             pilot.start();
         }
         let op = "40000000-0000-4000-8000-000000000002";
         let args = [
             "share",
-            "members",
+            "link",
             "add",
             PAGE,
-            "--file",
+            "--seed-file",
             path.to_str().unwrap(),
+            "--link-id",
+            LINK,
             "--yes",
             "--operation-id",
             op,
             "--expected-revision",
-            "2",
+            "3",
             "--json",
         ];
         let result = pilot.call(&args);
         assert_eq!(result["operationId"], op);
-        assert_eq!(result["expectedRevision"], "2");
-        assert_eq!(result["membershipHead"]["revision"], "3");
+        assert_eq!(result["expectedRevision"], "3");
+        assert_eq!(result["membershipHead"]["revision"], "4");
         if serving {
             pilot.stop();
         }
@@ -554,9 +579,7 @@ fn management_member_cli_uses_serving_and_offline_service_with_durable_replay() 
         let committed = fs::read(&db).unwrap();
         assert_eq!(pilot.call(&args), result);
         assert_eq!(fs::read(&db).unwrap(), committed);
-        let mut changed = selection;
-        changed["role"] = "editor".into();
-        fs::write(&path, changed.to_string()).unwrap();
+        fs::write(&path, values::encode_binary(&[18; 32])).unwrap();
         let conflict = failure(&pilot, &args, "COLAB_CONFLICT");
         assert_eq!(conflict["operationId"], op);
         assert_eq!(fs::read(&db).unwrap(), committed);
@@ -564,26 +587,70 @@ fn management_member_cli_uses_serving_and_offline_service_with_durable_replay() 
             &pilot,
             &[
                 "share",
-                "members",
+                "link",
                 "remove",
                 PAGE,
-                NEW_MEMBER,
+                LINK,
                 "--operation-id",
                 "40000000-0000-4000-8000-000000000003",
                 "--expected-revision",
-                "2",
+                "3",
                 "--json",
             ],
             "COLAB_STALE_HEAD",
         );
-        assert_eq!(stale["expectedRevision"], "2");
+        assert_eq!(stale["expectedRevision"], "3");
         assert_eq!(fs::read(&db).unwrap(), committed);
+        let listed = pilot.call(&["share", "link", "list", PAGE, "--json"]);
+        assert_eq!(listed, pilot.call(&["share", "link", "ls", PAGE, "--json"]));
         assert!(
-            pilot.call(&["share", "members", "ls", PAGE, "--json"])["members"]
+            listed["links"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|r| r["id"] == NEW_MEMBER)
+                .any(|r| r["id"] == LINK && r["role"] == "viewer" && r["revoked"] == false)
+        );
+        let replacement = "20000000-0000-4000-8000-000000000003";
+        let reset = [
+            "share",
+            "link",
+            "reset",
+            PAGE,
+            LINK,
+            "--seed-file",
+            path.to_str().unwrap(),
+            "--link-id",
+            replacement,
+            "--json",
+        ];
+        failure(&pilot, &reset, "COLAB_CONFIRMATION_REQUIRED");
+        assert_eq!(fs::read(&db).unwrap(), committed);
+        let mut confirmed = reset.to_vec();
+        confirmed.push("--yes");
+        let outcome = pilot.call(&confirmed);
+        assert_eq!(outcome["linkId"], replacement);
+        let listed = pilot.call(&["share", "link", "list", PAGE, "--json"]);
+        assert!(
+            listed["links"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["id"] == LINK && r["revoked"] == true)
+        );
+        assert!(
+            listed["links"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["id"] == replacement && r["role"] == "viewer" && r["revoked"] == false)
+        );
+        pilot.call(&["share", "link", "remove", PAGE, replacement, "--json"]);
+        assert!(
+            pilot.call(&["share", "link", "list", PAGE, "--json"])["links"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|r| r["revoked"] == true)
         );
     }
 }
@@ -608,7 +675,7 @@ fn management_seed_admission_and_interrupted_ipc_never_fall_back_to_offline_muta
         "--seed-file",
         path.to_str().unwrap(),
         "--link-id",
-        NEW_MEMBER,
+        LINK,
         "--yes",
         "--operation-id",
         "40000000-0000-4000-8000-000000000002",
@@ -675,7 +742,7 @@ fn management_seed_admission_and_interrupted_ipc_never_fall_back_to_offline_muta
     });
     let unknown = failure(&pilot, &args, "COLAB_OUTCOME_UNKNOWN");
     server.join().unwrap();
-    assert_eq!(unknown["linkId"], NEW_MEMBER);
+    assert_eq!(unknown["linkId"], LINK);
     assert_eq!(unknown["expectedRevision"], "2");
     assert!(!unknown.to_string().contains(&encoded));
     assert_eq!(fs::read(db).unwrap(), before);

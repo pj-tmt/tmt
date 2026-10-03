@@ -3524,10 +3524,11 @@ link-seed relay restrictions are owned by
 
 ### Colab management CLI verification
 
-The local-build CLI adds `ls`, `show`, `share mode/history`, `share members
-ls/add/remove/role`, `share link ls/add/reset/remove`, `retention`, `archive` and
-`delete`. All subcommands precede operands: `tmt colab share members ls <page>`,
-`tmt colab share mode <page> link --yes`, `tmt colab delete <page> --yes`.
+The v1 local-build CLI adds `ls`, `show`, `share mode` and
+`share link list/add/reset/remove`. Subcommands precede operands:
+`tmt colab share link list <page>`, `tmt colab share mode <page> link --yes`.
+Link creation and reset always select viewer; member, history, retention, archive
+and delete commands are deferred beyond v1.
 The contract's [CLI section](extensions/tmt-colab/contracts/colab-v1.md#local-management-cli-1307)
 owns flags, disclosure, JSON and error shapes. Existing `serve`/`spaces` remain.
 
@@ -3544,11 +3545,12 @@ CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/tmt-colab-cli-target cargo test --offli
 
 Real temporary SQLite/keyring/encrypted-source fixtures cover verified titles,
 state-preserving inspection, unsafe/old-schema refusal, help/JSON/human output,
-no-effect confirmation/input denials, foreground/offline member changes, frozen
-retry after reopen, conflict/stale heads, seed-file custody and interrupted IPC
+no-effect confirmation/input denials, foreground/offline viewer-link changes, frozen
+retry after reopen, conflict/stale heads, reset/removal revocation, seed-file custody and interrupted IPC
 without an offline fallback. No real user state, browser or Docker is involved.
-The policy stack must land before final share/history/retention/archive/delete
-behavior acceptance; this IPC base reports their explicit UNAVAILABLE result.
+The policy stack must land before final share-mode behavior acceptance; this IPC
+base reports its explicit UNAVAILABLE result. Removed commands are rejected
+without changing state.
 
 ### Colab stream sync verification
 
