@@ -157,7 +157,8 @@ can resume only untouched frames after proving the exact previous worker gone;
 known per-frame outcomes remain settled. There is no automatic restart or daemon.
 Worker notices serialize per binding, including separate notices when grouping
 is disabled. A live or unobservable competing sender is never interrupted; after
-a bounded 3 s transport grace beyond the typing cap, untouched notices remain
+a bounded transport grace beyond the typing cap, equal to the longest single
+send any registered driver declares (`Driver::maximum_send_duration`), untouched notices remain
 queued with diagnostics rather than overlapping input. Direct talk sends retain
 the existing transport behavior and do not participate in this notice claim.
 Scheduling or hint delivery failure never rejects the accepted final.
