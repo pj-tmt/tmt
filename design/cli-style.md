@@ -272,7 +272,8 @@ time; opening another replaces it.
 
 - The top layer gets every key first. An overlay is modal: it handles its own
   keys and swallows the rest, so nothing reaches the board underneath. The one
-  exception is Ctrl-C, which always quits the view.
+  exception is Ctrl-C, which always quits the view. Quitting from a prompt
+  discards what was typed there; only Enter saves.
 - In the base, one pane has focus. Tab and Shift-Tab move focus between panes in
   reading order; on the Squad home tab they move between sections. The focused
   pane's title is `accent` and bold; other titles are `muted`.
