@@ -305,14 +305,20 @@ describe('native reply notice process scheduling', () => {
           { reply_state: 'sent' },
           { reply_state: 'sent' },
         ]);
-        const rendered = commands(sandbox)
-          .filter((args) => args.includes('set-buffer'))
-          .flat()
-          .join('\n');
+        const buffers = commands(sandbox).filter((args) => args.includes('set-buffer'));
+        expect(buffers).toHaveLength(1);
+        const rendered = buffers[0].at(-1);
+        expect(rendered).toBe(
+          [
+            '▚ tmt · 3 updates',
+            ...items
+              .map((item) => item.requestId)
+              .sort()
+              .map((id) => `  ✓ sender  prompt for …  tmt result ${id}`),
+            '',
+          ].join('\n')
+        );
         for (const item of items) {
-          expect(rendered).toContain(
-            `reply from sender to ${item.requestId}: tmt result ${item.requestId}`
-          );
           expect(
             parseWholeStdout(await runCli(sandbox, ['result', item.requestId, '--json']))
           ).toMatchObject({ response: `answer ${item.requestId}` });

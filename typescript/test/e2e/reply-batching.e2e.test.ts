@@ -187,7 +187,7 @@ describe('reply notice batching and real key debounce', { concurrent: false }, (
   it('uses one fixed default window and one paste for three senders across reply processes', async () => {
     await withE2EFixture(
       async (fixture) => {
-        await sender(fixture);
+        const pane = await sender(fixture);
         const requests = [await request(fixture, 'receiver')];
         for (const name of ['second', 'third']) {
           const pane = await fixture.createMockPane(name);
@@ -219,13 +219,23 @@ describe('reply notice batching and real key debounce', { concurrent: false }, (
         );
         expect(Date.now()).toBeGreaterThanOrEqual(first.due_ms);
         expect(submissions(fixture)).toHaveLength(1);
+        await fixture.waitForEvent(
+          (event) =>
+            event.event === 'input' && event.pid === pane.pid && event.line === '▚ tmt · 3 updates'
+        );
         for (const [index, item] of requests.entries()) {
           const name = ['receiver', 'second', 'third'][index];
+          const line = `  ✓ ${name.padEnd(8)}  batch question  tmt result ${item.id.slice(4, 12)}`;
           await fixture.waitForEvent(
-            (event) =>
-              event.event === 'input' &&
-              event.line === `[tmt] reply from ${name} to ${item.id}: tmt result ${item.id}`
+            (event) => event.event === 'input' && event.pid === pane.pid && event.line === line
           );
+          expect(
+            fixture
+              .events()
+              .filter(
+                (event) => event.event === 'input' && event.pid === pane.pid && event.line === line
+              )
+          ).toHaveLength(1);
         }
         expect(batches(fixture)).toEqual([]);
         await gone(fixture, first.worker_pid);
@@ -289,7 +299,7 @@ describe('reply notice batching and real key debounce', { concurrent: false }, (
               (event) =>
                 event.event === 'input' &&
                 event.pid === pane.pid &&
-                event.line === `[tmt] reply from receiver to ${item.id}: tmt result ${item.id}`
+                event.line === `▚ ✓ receiver · batch question · tmt result ${item.id.slice(4, 12)}`
             );
           }
           expect(batches(fixture)).toEqual([]);
@@ -403,7 +413,7 @@ describe('reply notice batching and real key debounce', { concurrent: false }, (
               (event) =>
                 event.event === 'input' &&
                 event.pid === pane.pid &&
-                event.line === `[tmt] reply from receiver to ${item.id}: tmt result ${item.id}`
+                event.line === `  ✓ receiver  batch question  tmt result ${item.id.slice(4, 12)}`
             );
           await gone(fixture, first.worker_pid);
         } finally {
@@ -445,7 +455,7 @@ describe('reply notice batching and real key debounce', { concurrent: false }, (
             (event) =>
               event.event === 'input' &&
               event.pid === pane.pid &&
-              event.line === `[tmt] reply from receiver to ${item.id}: tmt result ${item.id}`
+              event.line === `▚ ✓ receiver · batch question · tmt result ${item.id.slice(4, 12)}`
           );
           await gone(fixture, first.worker_pid);
         } finally {

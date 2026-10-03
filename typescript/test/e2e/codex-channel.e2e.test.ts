@@ -707,12 +707,22 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       expect(native.code, native.stdout + native.stderr).toBe(0);
       expect(baseline.code, baseline.stdout + baseline.stderr).toBe(0);
       await f.waitFor(
-        () => events(boss, 'channel').some((e) => e.content?.includes('reply from Worker')),
+        () =>
+          events(boss, 'channel').some(
+            (e) =>
+              e.content ===
+              `▚ ✓ Worker · native originator · tmt result ${String(native.json!.requestId).slice(4, 12)}`
+          ),
         15000,
         'native reply hint'
       );
       await f.waitFor(
-        () => events(plain, 'paste').some((e) => e.line?.includes('reply from Worker')),
+        () =>
+          events(plain, 'paste').some(
+            (e) =>
+              e.line ===
+              `▚ ✓ Worker · plain originator · tmt result ${String(baseline.json!.requestId).slice(4, 12)}`
+          ),
         15000,
         'baseline reply hint'
       );

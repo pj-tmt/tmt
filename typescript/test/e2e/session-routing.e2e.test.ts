@@ -90,7 +90,7 @@ describe('session-aware durable routing', { concurrent: false }, () => {
         const id = String(sent.requestId);
         expectNoObserver(fixture, id);
         fixture.releaseReplyGate(id);
-        const hint = `[tmt] reply from receiver to ${id}: tmt result ${id}`;
+        const hint = `▚ ✓ receiver · no observer · tmt result ${id.slice(4, 12)}`;
         await fixture.waitForEvent((event) => event.event === 'input' && event.line === hint);
         await fixture.waitForEvent(
           (event) => event.event === 'submitted' && event.requestId === id
@@ -105,6 +105,12 @@ describe('session-aware durable routing', { concurrent: false }, () => {
         expect(
           fixture.events().filter((event) => event.event === 'request' && event.requestId === id)
         ).toHaveLength(1);
+        expect(
+          expectJsonResult(await fixture.runJsonCli(['result', id.slice(4, 12)]))
+        ).toMatchObject({
+          requestId: id,
+          response: 'mock-agent response: no observer',
+        });
       },
       { replyGate: true }
     );
@@ -145,11 +151,16 @@ describe('session-aware durable routing', { concurrent: false }, () => {
           );
           const inputs = fixture
             .events()
-            .filter((event) => event.event === 'input' && event.line?.includes(id));
+            .filter(
+              (event) =>
+                event.event === 'input' && event.line?.includes(`tmt result ${id.slice(4, 12)}`)
+            );
           expect(inputs.filter((event) => event.pid === sender.pid)).toEqual([]);
           if (transition === 'rebound') {
             const hint = await fixture.waitForEvent(
-              (event) => event.event === 'input' && event.line?.includes(id) === true
+              (event) =>
+                event.event === 'input' &&
+                event.line === `▚ ✓ receiver · held reply · tmt result ${id.slice(4, 12)}`
             );
             expect(hint.pid).toBe(replacement.pid);
             expect(rows(fixture)[0]?.reply_state).toBe('sent');
@@ -201,7 +212,7 @@ describe('session-aware durable routing', { concurrent: false }, () => {
           expect(replied.code).toBe(0);
           expect(replied.json).toMatchObject({ status: 'submitted', requestId: id, notification });
           expect(rows(fixture)[0]).toMatchObject({ reply_state: notification });
-          const hint = `[tmt] reply from receiver to ${id}: tmt result ${id}`;
+          const hint = `▚ ✓ receiver · question · tmt result ${id.slice(4, 12)}`;
           if (hints > 0) {
             await fixture.waitForEvent((event) => event.event === 'input' && event.line === hint);
           } else {
@@ -255,7 +266,7 @@ describe('session-aware durable routing', { concurrent: false }, () => {
         await fixture.waitForEvent(
           (event) =>
             event.event === 'input' &&
-            event.line === `[tmt] reply from receiver to ${id}: tmt result ${id}`
+            event.line === `▚ ✓ receiver · late · tmt result ${id.slice(4, 12)}`
         );
         await fixture.waitForEvent(
           (event) => event.event === 'submitted' && event.requestId === id
@@ -421,7 +432,7 @@ describe('session-aware durable routing', { concurrent: false }, () => {
           reply_state: 'sent',
           timeout_state: 'not_attempted',
         });
-        const hint = `[tmt] reply from receiver to ${id}: tmt result ${id}`;
+        const hint = `▚ ✓ receiver · detached · tmt result ${id.slice(4, 12)}`;
         await fixture.waitForEvent((event) => event.event === 'input' && event.line === hint);
         expect(
           fixture.events().filter((event) => event.event === 'input' && event.line === hint)
@@ -472,7 +483,7 @@ describe('session-aware durable routing', { concurrent: false }, () => {
           { pane: recipient.pane }
         )
       );
-      const hint = `[tmt] reply from offline to ${id}: tmt result ${id}`;
+      const hint = `▚ ✓ offline · worker crash · tmt result ${id.slice(4, 12)}`;
       await fixture.waitForEvent((event) => event.event === 'input' && event.line === hint);
       await fixture.waitFor(
         () => rows(fixture)[0]?.reply_state === 'sent',
@@ -512,7 +523,7 @@ describe('session-aware durable routing', { concurrent: false }, () => {
         (event) =>
           event.event === 'input' &&
           event.line ===
-            `[tmt] no reply yet from offline to ${result.requestId} after 1s; still pending`
+            `▚ … offline · kept offline · no reply yet · 1s · tmt result ${String(result.requestId).slice(4, 12)}`
       );
       const recipient = await fixture.createMockPane('offline');
       expectJsonResult(await fixture.runJsonCli(['name', 'offline'], { pane: recipient.pane }));

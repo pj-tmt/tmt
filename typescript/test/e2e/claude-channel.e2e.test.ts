@@ -1038,7 +1038,11 @@ describe('Claude channel delivery', { concurrent: false }, () => {
         // The never-opted-in originator keeps the baseline: its notification is a paste.
         await fixture.waitFor(
           () =>
-            named(plain, 'paste').some((line) => String(line.line).includes('reply from Worker')),
+            named(plain, 'paste').some(
+              (line) =>
+                line.line ===
+                `▚ ✓ Worker · plain asks · tmt result ${String(asPlain.json!.requestId).slice(4, 12)}`
+            ),
           20_000,
           'the plain originator was pasted its reply notification'
         );
@@ -1050,8 +1054,13 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           'durable response at hint receipt'
         );
         expect(contents(boss)).toHaveLength(1);
-        expect(contents(boss)[0]).toContain('reply from Worker');
-        expect(String(named(boss, 'hint-response')[0].body)).toContain('channel-ok');
+        expect(contents(boss)[0]).toBe(
+          `▚ ✓ Worker · boss asks · tmt result ${String(asBoss.json!.requestId).slice(4, 12)}`
+        );
+        expect(named(boss, 'hint-response')[0]).toMatchObject({
+          requestId: asBoss.json!.requestId,
+          body: 'channel-ok',
+        });
         expect(named(boss, 'paste')).toEqual([]);
 
         // Per originator: tmux wrote to the plain pane (the probe works) and to no
@@ -1085,11 +1094,17 @@ describe('Claude channel delivery', { concurrent: false }, () => {
       expect(asked.code, asked.stderr || asked.stdout).toBe(0);
       expect(asked.json).toMatchObject({ offline: true });
       await fixture.waitFor(
-        () => contents(boss).some((text) => text.includes('no reply yet from Idle')),
+        () =>
+          contents(boss).some(
+            (text) =>
+              text ===
+              `▚ … Idle · offline question · no reply yet · 2s · tmt result ${String(asked.json!.requestId).slice(4, 12)}`
+          ),
         20_000,
         'timeout notification through the channel'
       );
       expect(named(boss, 'paste')).toEqual([]);
+      expect(named(boss, 'hint-response')).toEqual([]);
 
       // The late answer is still accepted and reaches the originator the same way.
       const answered = await fixture.runJsonCli([
@@ -1101,8 +1116,18 @@ describe('Claude channel delivery', { concurrent: false }, () => {
       ]);
       expect(answered.code, answered.stderr || answered.stdout).toBe(0);
       await fixture.waitFor(() => named(boss, 'hint-response').length > 0, 20_000, 'answer hint');
-      expect(contents(boss).filter((text) => text.includes('reply from Idle'))).toHaveLength(1);
-      expect(String(named(boss, 'hint-response')[0].body)).toContain('late answer');
+      expect(
+        contents(boss).filter(
+          (text) =>
+            text ===
+            `▚ ✓ Idle · offline question · tmt result ${String(asked.json!.requestId).slice(4, 12)}`
+        )
+      ).toHaveLength(1);
+      expect(named(boss, 'hint-response')).toHaveLength(1);
+      expect(named(boss, 'hint-response')[0]).toMatchObject({
+        requestId: asked.json!.requestId,
+        body: 'late answer',
+      });
 
       expect(named(boss, 'paste')).toEqual([]);
       expect(terminalWrites(trace), 'no tmux write for an opted-in originator').toEqual([]);
