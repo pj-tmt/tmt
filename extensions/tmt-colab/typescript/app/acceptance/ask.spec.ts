@@ -18,18 +18,15 @@ import { until } from './harness/process.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import type { AcceptanceWorld } from './harness/world.js';
 
-// #1110 Ask agent real-binary acceptance. The Ask UI, Remote operations (#1497),
-// the page (`tmt colab page create`, #1522), the recipient and `tmt reply` are all
-// real; the page exists before the paired browsers register. The bodies pass against
-// a build that includes #1517 and the Remote restart recovery; the cases are disabled
-// here only until #1517 (the Remote operations SDK) is on this branch (AWAITS_1517).
-// The held case waits for a Remote-provided hold fixture.
+// #1110 Ask agent real-binary acceptance. The Ask UI, Remote operations, the page
+// (`tmt colab page create`), the recipient and `tmt reply` are all real; the page exists
+// before the paired browsers register. The held case waits for a Remote-provided hold
+// fixture and stays `test.fixme`; held behavior is covered by unit tests.
 //
 // Architecture: no native bridge ledger. The asker's browser calls Remote
 // operations as its paired device and records the ask, its states and the
 // reply in its own Colab stream. v1 is owner-only.
 
-const AWAITS_1517 = ' (disabled until #1517, the Remote operations SDK, is on this branch)';
 const PAGE_HTML = '<h1>Ask acceptance</h1><p id="quote">Exact selected sentence for the agent.</p>';
 
 /** Recover the paired session after a Remote restart through the page's own Reconnect. */
@@ -58,7 +55,7 @@ const askerName = 'asker-browser';
 test.describe('Ask agent real-binary acceptance (#1110)', () => {
   test.afterEach(disposeActiveWorlds);
 
-  test.fixme(`direct send: previewed bytes reach the recipient exactly once and the reply shows in a second viewer${AWAITS_1517}`, async () => {
+  test(`direct send: previewed bytes reach the recipient exactly once and the reply shows in a second viewer`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world);
       await selectInRenderer(s.askerPage, '#quote');
@@ -92,7 +89,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
     });
   });
 
-  test.fixme(`browser reload restores the ask from its own stream with the same operation ID and no second wake${AWAITS_1517}`, async () => {
+  test(`browser reload restores the ask from its own stream with the same operation ID and no second wake`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world, { gated: true });
       await selectInRenderer(s.askerPage, '#quote');
@@ -115,7 +112,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
     });
   });
 
-  test.fixme(`remote restart after the core accepted recovers via operation.show with no second wake${AWAITS_1517}`, async () => {
+  test(`remote restart after the core accepted recovers via operation.show with no second wake`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world);
       await selectInRenderer(s.askerPage, '#quote');
@@ -142,7 +139,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
     });
   });
 
-  test.fixme(`remote restart before dispatch stays uncertain with no new dispatch; abandon records MAY_HAVE_BEEN_DELIVERED${AWAITS_1517}`, async () => {
+  test(`remote restart before dispatch stays uncertain with no new dispatch; abandon records MAY_HAVE_BEEN_DELIVERED`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world);
       await selectInRenderer(s.askerPage, '#quote');
@@ -179,7 +176,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
     });
   });
 
-  test.fixme(`colab restart keeps the ask and delivers the reply from the own stream once${AWAITS_1517}`, async () => {
+  test(`colab restart keeps the ask and delivers the reply from the own stream once`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world, { gated: true });
       await selectInRenderer(s.askerPage, '#quote');
@@ -199,7 +196,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
     });
   });
 
-  test.fixme(`revoking the asker device refuses a later send and creates no recipient work${AWAITS_1517}`, async () => {
+  test(`revoking the asker device refuses a later send and creates no recipient work`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world);
       await selectInRenderer(s.askerPage, '#quote');
@@ -220,7 +217,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
     });
   });
 
-  test.fixme(`two tabs of one paired browser: the newer tab takes the session, the older shows the notice, and "Use here" takes it back with no duplicate wake${AWAITS_1517}`, async () => {
+  test(`two tabs of one paired browser: the newer tab takes the session, the older shows the notice, and "Use here" takes it back with no duplicate wake`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world);
       // The scenario's tab is A. Tab B is a second tab of the same paired browser.

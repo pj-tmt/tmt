@@ -55,9 +55,7 @@ browsers register: each paired device registers when it first opens the app.
 `ask.spec.ts` holds the Ask cases: direct send with exact bytes and a second viewer, browser
 reload, Remote restart after the core accepted, Remote restart before dispatch, Colab restart,
 device revocation and two tabs of one browser (one active tab, "Use here" takes it back). They
-drive the real Ask UI (`selectInRenderer`, `previewAsk`, `send`, `askEntry`, `askState`). On
-this branch they are `test.fixme` until #1517 (the Remote operations SDK) is merged; against
-#1517 they pass. A restarted Remote keeps sessions and door cookies in memory, so the page
+drive the real Ask UI (`selectInRenderer`, `previewAsk`, `send`, `askEntry`, `askState`) and run against the built binaries. A restarted Remote keeps sessions and door cookies in memory, so the page
 shows "Sync disconnected" and the restart cases recover through its own Reconnect button
 (`reconnect(page)`: the SDK reopens the paired session once, then the page reloads). The
 restored ask is observed read-only under its original operation ID: accepted, or uncertain
@@ -71,6 +69,6 @@ a stand-in. Assert the recipient's text equals the previewed text, including the
 `withWorld` always disposes, and `test.afterEach(disposeActiveWorlds)` does too after a test
 timeout, so a timed-out case leaves no tmux server, process or root behind.
 
-`tabs.spec.ts` (disabled here until #1517, the operations SDK, is on this branch) pins a Remote contract the Ask design depends on: Remote keeps one session per
+`tabs.spec.ts` pins a Remote contract the Ask design depends on: Remote keeps one session per
 device, so a newer `session.open` ends the older session and its tunnels. Two tabs of one paired
 browser are one device, so v1 allows one active tab with explicit takeover.
