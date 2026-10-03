@@ -20,7 +20,8 @@ import { spawnSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { ownerOf, parseComponentMap } from './ci-scope.mjs';
+import { parseComponentMap } from './ci-scope.mjs';
+import { attributeCutCommits, parseReleaseCommits, readCutRange } from './release-cut.mjs';
 import { BUNDLE_ASSET, FAILURE_ASSET, HOLD_ASSET } from './plan-release-builds.mjs';
 import { clearHold, ghApi, readHold, recordHold } from './release-draft-assets.mjs';
 import { selectPrevious } from './release-upgrade.mjs';
@@ -148,8 +149,8 @@ export function countMigrations(source) {
 }
 
 /** A conventional-commit `!` after the type or scope, or a `BREAKING CHANGE:` footer. */
-export function isBreaking({ subject, body = '' }) {
-  return /^[a-z]+(\([^)]*\))?!:/.test(subject) || /^BREAKING[ -]CHANGE:/m.test(body);
+export function isBreaking({ subject, body = '', breaking = false }) {
+  return breaking || /^[a-z]+(\([^)]*\))?!:/.test(subject) || /^BREAKING[ -]CHANGE:/m.test(body);
 }
 
 /**
@@ -256,17 +257,14 @@ function fileCount(sha, file) {
   return result.status === 0 ? countMigrations(result.stdout) : 0;
 }
 
-/** The commits `from..to` that touch a file the component owns, with their messages. */
-function releaseCommits({ from, to, product, map }) {
-  const text = git(['log', '--name-only', '--format=%x1e%H%x1f%s%x1f%b%x1f', `${from}..${to}`]);
-  return text
-    .split('\x1e')
-    .filter(Boolean)
-    .map((entry) => {
-      const [sha, subject, body, names] = entry.split('\x1f');
-      return { sha, subject, body, files: names.split('\n').filter(Boolean) };
-    })
-    .filter(({ files }) => files.some((file) => ownerOf(file, map) === product));
+/** Publication sees the same cut range, additive consumers and nested breaks as the notes. */
+export function releaseCommits({ from, to, product, map }, readGit = git) {
+  return attributeCutCommits(readCutRange(readGit, from, to), map, product).map((commit) => ({
+    sha: commit.sha,
+    subject: commit.message.split('\n')[0],
+    body: commit.message,
+    breaking: parseReleaseCommits([commit]).some((parsed) => parsed.notes.length > 0),
+  }));
 }
 
 function earlyChecks({ product, tag, release, releases, repository, map }) {

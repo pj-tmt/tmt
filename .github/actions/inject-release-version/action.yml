@@ -1,0 +1,52 @@
+name: Inject and verify a release version
+description: Edit only the selected version and implied offline Cargo lock entries at the exact cut
+inputs:
+  product:
+    description: Released component
+    required: true
+  tag:
+    description: Exact draft tag; empty for a tagless preparation with development versions
+    required: false
+    default: ''
+  source-root:
+    description: Release-source checkout whose version and lock entries are injected
+    required: false
+    default: '.'
+  tooling-root:
+    description: Reviewed tooling checkout; current main for an owner-authorized historical rerun
+    required: false
+    default: '.'
+outputs:
+  snapshot:
+    description: Version-only source/lock contract outside the source checkout
+    value: ${{ steps.inject.outputs.snapshot }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      if: inputs.tag != ''
+      with:
+        node-version: 22.23.2
+    - name: Build the reviewed TOML helper and inject the draft version
+      id: inject
+      if: inputs.tag != ''
+      shell: bash
+      env:
+        PRODUCT: ${{ inputs.product }}
+        RELEASE_TAG: ${{ inputs.tag }}
+        SOURCE_ROOT: ${{ inputs.source-root }}
+        TOOLING_ROOT: ${{ inputs.tooling-root }}
+      run: |
+        set -euo pipefail
+        source_root=$(cd "$SOURCE_ROOT" && pwd)
+        tooling_root=$(cd "$TOOLING_ROOT" && pwd)
+        # Helper and release builds share this job's Cargo target; the helper is tooling only.
+        export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$tooling_root/rust/target}"
+        cargo +1.97.0 fetch --locked --manifest-path "$tooling_root/rust/Cargo.toml"
+        cargo +1.97.0 build --offline --locked -p tmt-cli --example release-version --manifest-path "$tooling_root/rust/Cargo.toml"
+        cargo +1.97.0 fetch --locked --manifest-path "$source_root/rust/Cargo.toml"
+        snapshot="$RUNNER_TEMP/release-version-state.json"
+        node "$tooling_root/typescript/scripts/release-version-injection.mjs" prepare "$source_root" "$snapshot" "$PRODUCT" "$RELEASE_TAG"
+        cargo +1.97.0 update --offline --workspace --manifest-path "$source_root/rust/Cargo.toml"
+        node "$tooling_root/typescript/scripts/release-version-injection.mjs" verify "$source_root" "$snapshot"
+        printf 'snapshot=%s\n' "$snapshot" >> "$GITHUB_OUTPUT"

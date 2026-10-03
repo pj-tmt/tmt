@@ -129,7 +129,7 @@ jobs:
         if: github.event_name == 'merge_group'
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: node typescript/scripts/release-pr-safety.mjs titles-report
+        run: node typescript/scripts/pr-title-check.mjs
       - name: Require selected Office verification
         env:
           OFFICE_SELECTED: ${{ needs.changes.outputs.office }}

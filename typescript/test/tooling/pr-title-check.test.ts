@@ -9,8 +9,8 @@ import {
   checkQueueTitles,
   conventionalPrTitle,
   pendingQueueSubjects,
-  type SafetyReader,
-} from '../../scripts/release-pr-safety.mjs';
+  type QueueReader,
+} from '../../scripts/pr-title-check.mjs';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const head = 'a'.repeat(40);
@@ -23,7 +23,7 @@ const lostTitles = [
   'Squad board: completed-request token rate meter',
 ];
 const row = (sha: string, title: string, number: number) => `${sha}\t${title} (#${number})`;
-function reader(log: string): Pick<SafetyReader, 'git'> {
+function reader(log: string): QueueReader {
   return {
     git(args) {
       if (args[0] === 'merge-base') {
@@ -145,7 +145,7 @@ function reportFixture(
       writeFileSync(logPath, options.log ?? row(head, 'fix: change', 1));
       const result = spawnSync(
         process.execPath,
-        [path.join(root, 'typescript/scripts/release-pr-safety.mjs'), 'titles-report'],
+        [path.join(root, 'typescript/scripts/pr-title-check.mjs')],
         {
           env: {
             ...process.env,
@@ -205,7 +205,6 @@ describe('real report-only command exit status and job summary', () => {
         { gitStatus: 2 },
         { missingEvent: true },
         { eventName: 'pull_request' },
-        { missingToken: true },
       ]) {
         const { result, summary } = invoke(options);
         expect(result.status).toBe(0);
@@ -213,6 +212,12 @@ describe('real report-only command exit status and job summary', () => {
         expect(summary).toContain('Title evidence unavailable');
         expect(summary).toContain('does not fail the merge group');
       }
+    }));
+  it('reads local queue evidence without any token or REST title reads', () =>
+    reportFixture(({ invoke }) => {
+      const { result, summary } = invoke({ missingToken: true });
+      expect(result.status).toBe(0);
+      expect(summary).toContain('Checked 1 queued title(s); 0 finding(s)');
     }));
   it('keeps summary I/O failures non-blocking and retains the report in stdout', () =>
     reportFixture(({ invoke }) => {
@@ -239,7 +244,7 @@ describe('merge-group-only workflow wiring', () => {
       .split('      - name: Report conventional PR titles\n')[1]
       .split('      - name: Require selected Office verification')[0];
     expect(step).toContain("if: github.event_name == 'merge_group'");
-    expect(step).toContain('run: node typescript/scripts/release-pr-safety.mjs titles-report');
+    expect(step).toContain('run: node typescript/scripts/pr-title-check.mjs');
     expect(ci.split('  pull_request:\n')[1].split('  merge_group:')[0]).not.toContain('edited');
   });
 });
