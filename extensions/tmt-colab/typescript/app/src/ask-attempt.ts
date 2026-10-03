@@ -1,100 +1,14 @@
-import { coreId, decodeText, requireValue, text } from '@tmt/colab-client';
+import { decodeText, requireValue, text } from '@tmt/colab-client';
+import { FrozenAsk, type AdmittedSelection, type AskDestination } from './ask-intent.js';
 import {
-  FrozenAsk,
-  type AdmittedSelection,
-  type AskDestination,
-  type SignedAsk,
-} from './ask-intent.js';
-import type { RemoteClient, RemoteAgent, RemoteContext, SendState } from './ask-remote.js';
-import { record } from './storage.js';
-
-export type StoredAskDraft = Pick<SignedAsk, 'input' | 'signature'>;
-export type DraftAdoption = (intent: SignedAsk) => Promise<'created' | 'existing'>;
-export type AskState =
-  | SendState
-  | {
-      state: 'preview' | 'preparing' | 'failed';
-      operationId: string;
-    };
-
-/** Immutable signed metadata only; final message bytes stay in attempt memory.
- * This record is not the native bridge ledger or encrypted own stream.
- * Web Locks serialize same-operation adoption across tabs; a stored draft never
- * authorizes a send on reload. Transaction completion precedes any port call. */
-export const storeAskDraft: DraftAdoption = async (intent) => {
-  const key = `ask:${intent.senderDevice}:${intent.operationId}`;
-  return await navigator.locks.request(key, async () => {
-    const previous = await record<StoredAskDraft>(key);
-    if (previous) {
-      if (previous.input !== intent.input || previous.signature !== intent.signature)
-        throw new Error('INTENT_CONFLICT');
-      return 'existing';
-    }
-    await record<StoredAskDraft>(key, { input: intent.input, signature: intent.signature });
-    return 'created';
-  });
-};
-
-/** One explicit attempt. Observing/reconstructing this object has no effect.
- * There is deliberately no retry: remote child-cleanup evidence is not available. */
-export class AskAttempt {
-  #pending?: Promise<AskState>;
-  #state: AskState;
-  constructor(
-    readonly preview: FrozenAsk,
-    private key: CryptoKey,
-    private adopt: DraftAdoption = storeAskDraft,
-    private remote?: RemoteClient,
-  ) {
-    this.#state = { state: 'preview', operationId: preview.view.operationId };
-    Object.freeze(this);
-  }
-  get available(): boolean {
-    return this.remote !== undefined;
-  }
-  get state(): Readonly<AskState> {
-    return Object.freeze({ ...this.#state });
-  }
-  send(): Promise<AskState> {
-    if (!this.available) return Promise.reject(new Error('Remote operations are unavailable.'));
-    if (this.#pending) return this.#pending;
-    this.#state = { state: 'preparing', operationId: this.preview.view.operationId };
-    this.#pending = this.#send();
-    return this.#pending;
-  }
-  async #send(): Promise<AskState> {
-    const operationId = this.preview.view.operationId;
-    let started = false;
-    try {
-      const intent = await this.preview.signed(this.key);
-      if ((await this.adopt(intent)) === 'existing') {
-        this.#state = { state: 'uncertain', operationId };
-      } else {
-        // Storage/signing may have outlasted validity; fail before the port call.
-        requireValue(Date.now() < this.preview.expiresAt);
-        started = true;
-        const reply = await this.remote!.send({
-          operationId,
-          agentId: this.preview.view.agent,
-          message: decodeText(this.preview.finalBytes()),
-        });
-        requireValue(
-          reply.operationId === operationId &&
-            ['held', 'accepted', 'uncertain', 'refused', 'cancelled'].includes(reply.state),
-        );
-        if (reply.state === 'accepted') {
-          requireValue(typeof reply.requestId === 'string' && reply.requestId.startsWith('req_'));
-          coreId(reply.requestId.slice(4));
-        }
-        this.#state = { ...reply };
-      }
-    } catch {
-      this.#state = { state: started ? 'uncertain' : 'failed', operationId };
-    }
-    return this.state;
-  }
-}
-
+  refusalReason,
+  SessionEndedError,
+  sessionEndedReason,
+  type RemoteClient,
+  type RemoteAgent,
+  type RemoteContext,
+  type ResultState,
+} from './ask-remote.js';
 import { AskRecordStore } from './ask-record-store.js';
 import { ASK_MESSAGE_BYTES, ASK_REPLY_BYTES, type AskLedgerView } from './ask-records.js';
 export interface AskDestinations {
@@ -106,22 +20,39 @@ export interface AskControllerOptions {
   remote: RemoteClient;
   key: CryptoKey;
   selection(): AdmittedSelection;
+  sessionEnded?(): void;
 }
 /** Trusted parent composition: explicit Send is the only Remote write. All
- * state/result reads operate on the current device's admitted immutable ledger. */
+ * state/result reads operate on the current device's admitted immutable ledger.
+ * Registration replaces the client and controller together after Session end;
+ * this controller stops observing and never carries an old preview across it. */
 export class AskController {
   #destinations: AskDestinations | null = null;
   #sending = new Map<string, { preview: FrozenAsk; task: Promise<AskLedgerView> }>();
   #observing: Promise<void> | null = null;
+  #ended = false;
+  #endSession() {
+    if (this.#ended) return;
+    this.#ended = true;
+    this.options.sessionEnded?.();
+  }
   constructor(private options: AskControllerOptions) {}
   async destinations(): Promise<AskDestinations> {
     const { remote, store } = this.options;
-    const context = await remote.context();
+    requireValue(!this.#ended);
+    let context: RemoteContext, agents: RemoteAgent[];
+    try {
+      context = await remote.context();
+      agents = await remote.listAgents();
+    } catch (error) {
+      if (error instanceof SessionEndedError) this.#endSession();
+      throw error;
+    }
     requireValue(
       context.deviceId === store.scope.deviceId &&
         (context.expiresAtMs === null || Date.now() < context.expiresAtMs),
     );
-    const agents = await remote.listAgents();
+
     this.#destinations = {
       context,
       machines: [{ id: context.machineId, name: 'This machine', online: 'online', agents }],
@@ -130,6 +61,7 @@ export class AskController {
   }
   /** Synchronous capture; no await can replace the parent's chosen source. */
   prepare(destination: AskDestination, options: Parameters<typeof FrozenAsk.capture>[2] = {}) {
+    requireValue(!this.#ended);
     const selection = this.options.selection();
     const snapshot = this.#destinations;
     requireValue(snapshot !== null);
@@ -152,7 +84,6 @@ export class AskController {
       {
         ...destination,
         agentName: agent.name,
-        delivery: agent.delivery,
         machineName: snapshot.machines[0].name,
         online: 'online',
         mode: c.mode,
@@ -176,8 +107,10 @@ export class AskController {
     const task = this.options.store.exclusive(id, async () => {
       const { remote, store, key } = this.options;
       let started = false,
-        adopted = false;
+        adopted = false,
+        sessionEnd = false;
       try {
+        requireValue(!this.#ended);
         const current = await remote.context(),
           view = preview.view;
         requireValue(
@@ -215,25 +148,31 @@ export class AskController {
           message: decodeText(preview.finalBytes()),
         });
         requireValue(result.operationId === id);
-        await store.state(
+        sessionEnd = result.state === 'uncertain' && sessionEndedReason(result.reason);
+        const updated = await store.state(
           id,
           result.state,
           result.state === 'accepted' ? result.requestId : null,
           result.state === 'refused'
-            ? 'REMOTE_REFUSED'
+            ? refusalReason(result.reason)
             : result.state === 'cancelled'
               ? 'REMOTE_CANCELLED'
-              : null,
+              : result.state === 'uncertain'
+                ? (result.reason ?? null)
+                : null,
         );
-        return store.view(id);
+        return updated;
       } catch (error) {
+        if (error instanceof SessionEndedError) sessionEnd = true;
         if (!adopted) throw error;
         return store.state(
           id,
-          started ? 'uncertain' : 'failed',
+          started || sessionEnd ? 'uncertain' : 'failed',
           null,
-          started ? 'REMOTE_UNCERTAIN' : 'SEND_UNAVAILABLE',
+          sessionEnd ? 'REMOTE_SESSION_ENDED' : started ? 'REMOTE_UNCERTAIN' : 'SEND_UNAVAILABLE',
         );
+      } finally {
+        if (sessionEnd) this.#endSession();
       }
     });
     this.#sending.set(id, { preview, task });
@@ -241,6 +180,7 @@ export class AskController {
   }
   recover(id: string): Promise<AskLedgerView> {
     return this.options.store.exclusive(id, async () => {
+      requireValue(!this.#ended);
       const { store, remote } = this.options;
       let view = await store.view(id);
       if (['abandoned', 'failed', 'expired', 'refused', 'cancelled'].includes(view.state))
@@ -255,15 +195,27 @@ export class AskController {
           state.state,
           state.state === 'accepted' ? state.requestId : null,
           state.state === 'refused'
-            ? 'REMOTE_REFUSED'
+            ? refusalReason(state.reason)
             : state.state === 'cancelled'
               ? 'REMOTE_CANCELLED'
-              : null,
+              : state.state === 'uncertain'
+                ? (state.reason ?? null)
+                : null,
         );
+        if (state.state === 'uncertain' && sessionEndedReason(state.reason)) {
+          this.#endSession();
+          return view;
+        }
       }
       if (view.state !== 'accepted' || view.reply) return view;
       requireValue(view.requestId !== null);
-      const result = await remote.result(view.requestId);
+      let result: ResultState;
+      try {
+        result = await remote.result(view.requestId);
+      } catch (error) {
+        if (error instanceof SessionEndedError) this.#endSession();
+        throw error;
+      }
       requireValue(result.requestId === view.requestId);
       if (result.state === 'replied') {
         if (text(result.message).length > ASK_REPLY_BYTES)
@@ -278,6 +230,7 @@ export class AskController {
   /** A bounded visible-page observer. It calls only receipt/final reads and
    * owns no send capability on reload, reconnect or a timer wake. */
   observe(signal: AbortSignal): Promise<void> {
+    if (this.#ended) return Promise.resolve();
     if (this.#observing) return this.#observing;
     const started = performance.now();
     const unresolved = (view: AskLedgerView) =>
@@ -286,7 +239,11 @@ export class AskController {
       !['RESULT_UNAVAILABLE', 'REPLY_TOO_LARGE'].includes(view.reason ?? '') &&
       Date.now() - view.intent.issuedAt < 7200000;
     const task = (async () => {
-      for (let cycle = 0; !signal.aborted && performance.now() - started < 7200000; cycle++) {
+      for (
+        let cycle = 0;
+        !signal.aborted && !this.#ended && performance.now() - started < 7200000;
+        cycle++
+      ) {
         if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
           await new Promise<void>((resolve) => {
             const wake = () => {
@@ -313,6 +270,7 @@ export class AskController {
         for (const view of pending) {
           if (
             signal.aborted ||
+            this.#ended ||
             performance.now() - started >= 7200000 ||
             (typeof document !== 'undefined' && document.visibilityState === 'hidden')
           )
@@ -323,7 +281,7 @@ export class AskController {
             // Read/publication failure leaves the original operation for re-check.
           }
         }
-        if (!(await this.options.store.views()).some(unresolved)) return;
+        if (this.#ended || !(await this.options.store.views()).some(unresolved)) return;
         if (!signal.aborted)
           await new Promise<void>((resolve) => {
             const done = () => {

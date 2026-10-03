@@ -15,7 +15,6 @@ import {
   time,
   type Bytes,
 } from '@tmt/colab-client';
-import type { Delivery } from './ask-remote.js';
 
 export const REQUEST_BYTES = 1024 * 1024;
 const HOUR = 60 * 60 * 1000;
@@ -41,7 +40,6 @@ export interface AskDestination {
   online: 'online' | 'offline' | 'unknown';
   agent: string;
   agentName: string;
-  delivery?: Delivery;
   grantExpiresAt: number | null;
   deviceName: string;
   grantRevision: string;
@@ -92,10 +90,6 @@ export class FrozenAsk {
     requireValue(destination.mode === null || ['direct', 'hold'].includes(destination.mode));
     if (destination.grantExpiresAt !== null) time(destination.grantExpiresAt);
     requireValue(['online', 'offline', 'unknown'].includes(destination.online));
-    requireValue(
-      destination.delivery === undefined ||
-        ['channel', 'paste', 'not_ready', 'not_running'].includes(destination.delivery),
-    );
     for (const value of [
       selection.quote,
       selection.comment,

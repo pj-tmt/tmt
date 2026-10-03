@@ -21,7 +21,6 @@ export function destination(): AskDestination {
     online: 'online',
     agent: id(6),
     agentName: 'Deterministic agent',
-    delivery: 'channel',
     grantExpiresAt: null,
     deviceName: 'Fixture browser',
     grantRevision: '1',
@@ -44,7 +43,7 @@ export class RemoteDouble implements RemoteClient {
     };
   }
   async listAgents() {
-    return [{ id: id(6), name: 'Deterministic agent', delivery: 'channel' as const }];
+    return [{ id: id(6), name: 'Deterministic agent', presence: 'active' as const }];
   }
   async send(input: SendInput): Promise<SendState> {
     this.sends.push({ ...input });
@@ -59,9 +58,6 @@ export class RemoteDouble implements RemoteClient {
   async operation(operationId: string): Promise<SendState> {
     this.reads.push(operationId);
     return { state: 'uncertain', operationId };
-  }
-  async check() {
-    return { capture: 'read-only' };
   }
   async result(requestId: string) {
     return { state: 'replied' as const, requestId, message: '' };

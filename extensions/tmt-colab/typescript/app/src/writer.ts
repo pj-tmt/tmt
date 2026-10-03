@@ -7,9 +7,8 @@ import {
   requireValue,
 } from '@tmt/colab-client';
 import { Connection } from './connection.js';
-import { type JsonValue, UPDATE_BYTES } from './fold-protocol.js';
+import { type JsonValue, type OwnRoot, UPDATE_BYTES } from './fold-protocol.js';
 import type { ObjectEntry } from './objects.js';
-import { recordKey, validateRecord, type AskRoot } from './ask-records.js';
 import { record } from './storage.js';
 interface SavedWriter {
   pending: { id: string; entry: ObjectEntry } | null;
@@ -219,10 +218,8 @@ export class Writer {
       });
     });
   }
-  async submitOwn(root: AskRoot, key: string, value: JsonValue) {
-    validateRecord(value);
-    const expected = recordKey(value);
-    requireValue(root === expected.root && key === expected.key);
+  async submitOwn(root: OwnRoot, key: string, value: JsonValue) {
+    requireValue(['threads', 'intents', 'messages', 'replies'].includes(root));
     const c = await this.connection();
     await c.ready;
     const prepared = await c.run(() =>

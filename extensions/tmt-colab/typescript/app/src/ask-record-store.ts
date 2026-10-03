@@ -1,7 +1,7 @@
 import { generatedId, requireValue, spaceId } from '@tmt/colab-client';
 import type { SignedAsk } from './ask-intent.js';
 import type { OwnState, JsonValue } from './fold-protocol.js';
-import { storeAskDraft } from './ask-attempt.js';
+import { record } from './storage.js';
 import {
   canTransition,
   readAskRecords,
@@ -13,6 +13,23 @@ import {
   type AskRoot,
   type LedgerState,
 } from './ask-records.js';
+
+export type StoredAskDraft = Pick<SignedAsk, 'input' | 'signature'>;
+/** Only signed metadata is reserved locally. A stored reservation never
+ * authorizes another effect after failed publication or browser restart. */
+export async function storeAskDraft(intent: SignedAsk): Promise<'created' | 'existing'> {
+  const key = `ask:${intent.senderDevice}:${intent.operationId}`;
+  return await navigator.locks.request(key, async () => {
+    const previous = await record<StoredAskDraft>(key);
+    if (previous) {
+      if (previous.input !== intent.input || previous.signature !== intent.signature)
+        throw new Error('INTENT_CONFLICT');
+      return 'existing';
+    }
+    await record<StoredAskDraft>(key, { input: intent.input, signature: intent.signature });
+    return 'created';
+  });
+}
 
 export interface AskRecordStoreOptions {
   space: string;

@@ -1043,7 +1043,9 @@ bridge ledger, native Ask route or additional SQLite migration.
 The browser wraps the same verified Session held by registration and Live with
 Remote's operations helper. The wrapper opens nothing and never reopens on
 uncertainty: the helper resyncs its sequence and reads the original operation ID.
-Only session end makes Live reconnect; recovery then uses the new shared session.
+Only session end or unrecoverable sequence state signals Registration to reconnect.
+Registration rebuilds both the RemoteClient and page AskControllers with the new
+shared Session; pending previews close, and recovery reads the original IDs.
 
 Only explicit Send in trusted parent chrome dispatches agent work. Comments,
 sync, replay, compaction, reload and renderer messages MUST NOT dispatch. Ask
@@ -1059,9 +1061,9 @@ parent includes that line in the delivered preview, while signing and sending
 only the frozen message below it. The verified device name and grant revision
 and session expiry are pinned to the preview; rename, revision change or session
 end refuses Send from the pending preview.
-No second prefix or post-preview formatter is permitted. Delivery readiness is
-unavailable when Remote supplies no reviewed delivery projection; presence never
-becomes channel readiness. The production adapter ignores unknown delivery data.
+No second prefix or post-preview formatter is permitted. Delivery readiness is always unavailable in local v1; presence never becomes
+channel readiness. The adapter drops the SDK's unknown delivery projection, and
+Colab carries no delivery-readiness field.
 Grant mode and expiry are shown only when supplied by verified Remote evidence;
 missing policy remains unavailable, with no inferred hold warning.
 
@@ -1120,7 +1122,17 @@ Ask records are inert JSON values in the existing per-writer own Yjs roots:
 Binary fields use canonical base64url. State revisions are positive canonical
 decimal strings, ordered numerically. `requestId` and `reason` are explicitly
 null when absent. Reasons are bounded sanitized codes, never raw transport
-errors. Records are immutable under the parent-owned publication API.
+errors. Verified pre-effect Remote refusals preserve `REMOTE_SCOPE_DENIED`,
+`REMOTE_INPUT_INVALID`, `REMOTE_RATE_LIMITED`, `REMOTE_INTENT_CONFLICT`,
+`REMOTE_CLOSED` or `REMOTE_SESSION_ENDED`; unknown refusal codes become
+`REMOTE_REFUSED`. A session-end refusal or a typed SDK `sequence_unavailable` outcome becomes
+uncertain (`REMOTE_SESSION_ENDED` or `REMOTE_SEQUENCE_UNAVAILABLE`) and signals
+Registration to reconnect. The adapter never reopens. A session-ending result
+read leaves the existing accepted record unchanged and stops observation until
+reconnect. A fresh preview is required for later Send. Unknown-effect errors
+remain uncertain. SDK error handling branches only on the exported class and
+reviewed code, never text or an unverified error-shaped object. Records are immutable under
+the parent-owned publication API.
 
 Viewers admit the encrypted own envelope and its writer chain before interpreting
 records. They verify the intent's signature and message digest, space/page,

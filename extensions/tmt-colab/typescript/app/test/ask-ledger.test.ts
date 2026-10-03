@@ -5,7 +5,7 @@ import { AskController } from '../src/ask-attempt.js';
 import { AskRecordStore } from '../src/ask-record-store.js';
 import { readAskViews, type AskLedgerView } from '../src/ask-records.js';
 import { FrozenAsk } from '../src/ask-intent.js';
-import { createRemoteClient } from '../src/ask-remote.js';
+import { createRemoteClient, SessionEndedError } from '../src/ask-remote.js';
 import type { OwnState } from '../src/fold-protocol.js';
 import { destination, id, RemoteDouble, selection } from './ask-fixtures.js';
 const draft = new Map<string, unknown>();
@@ -32,7 +32,7 @@ const vector = JSON.parse(
   readFileSync(new URL('../../../contracts/vectors/send-preview-v1.json', import.meta.url), 'utf8'),
 );
 const hex = (s: string) => Uint8Array.from(s.match(/../g) ?? [], (v) => parseInt(v, 16));
-async function setup() {
+async function setup(onPublish?: (root: string) => void) {
   draft.clear();
   const key = await crypto.subtle.importKey(
     'pkcs8',
@@ -49,6 +49,7 @@ async function setup() {
     publicKey: hex(vector.publicKey),
     readOwn: () => own,
     publish: async (root, key, value) => {
+      onPublish?.(root);
       own[id(4)][root][key] = structuredClone(value);
     },
   });
@@ -237,4 +238,178 @@ it('visible bounded observation publishes finals through reads only and abort st
   stop.abort();
   await controller.observe(stop.signal);
   expect(remote.sends).toHaveLength(1);
+});
+
+it('preserves verified scope refusal and never dispatches again during recovery', async () => {
+  const { controller, remote } = await setup();
+  await controller.destinations();
+  const frozen = controller.prepare(destination());
+  remote.send = async (input) => {
+    remote.sends.push(input);
+    return { state: 'refused', operationId: input.operationId, reason: 'REMOTE_SCOPE_DENIED' };
+  };
+  expect((await controller.send(frozen)).reason).toBe('REMOTE_SCOPE_DENIED');
+  expect((await controller.recover(frozen.view.operationId)).state).toBe('refused');
+  expect(remote.sends).toHaveLength(1);
+  expect(remote.reads).toEqual([]);
+});
+
+it('publishes uncertainty before requesting Session replacement and never reuses its preview', async () => {
+  const { store, key, remote, own } = await setup();
+  const notifications: string[] = [];
+  const controller = new AskController({
+    store,
+    key,
+    remote,
+    selection,
+    sessionEnded: () => {
+      const states = Object.values(own[id(4)].messages) as unknown as { state: string }[];
+      notifications.push(states.at(-1)!.state);
+    },
+  });
+  await controller.destinations();
+  const frozen = controller.prepare(destination());
+  remote.send = async (input) => {
+    remote.sends.push(input);
+    return { state: 'uncertain', operationId: input.operationId, reason: 'REMOTE_SESSION_ENDED' };
+  };
+  expect((await controller.send(frozen)).reason).toBe('REMOTE_SESSION_ENDED');
+  expect(notifications).toEqual(['uncertain']);
+  await controller.observe(new AbortController().signal);
+  expect(remote.reads).toEqual([]);
+  expect(() => controller.prepare(destination())).toThrow();
+  expect(remote.sends).toHaveLength(1);
+});
+
+it('a session-ending final read stops observation, preserves its accepted record, then a new controller recovers read-only', async () => {
+  const { store, remote, key, own } = await setup();
+  const ended = vi.fn();
+  const controller = new AskController({ store, remote, key, selection, sessionEnded: ended });
+  await controller.destinations();
+  const frozen = controller.prepare(destination());
+  await controller.send(frozen);
+  const before = structuredClone(own);
+  const read = vi.fn(async () => {
+    throw new SessionEndedError('REMOTE_SESSION_ENDED');
+  });
+  remote.result = read;
+  await controller.observe(new AbortController().signal);
+  await controller.observe(new AbortController().signal);
+  expect(read).toHaveBeenCalledOnce();
+  expect(ended).toHaveBeenCalledOnce();
+  expect(own).toEqual(before);
+  const next = new RemoteDouble();
+  const reconnected = new AskController({ store, remote: next, key, selection });
+  expect((await reconnected.recover(frozen.view.operationId)).reply?.body).toBe('');
+  expect(next.sends).toEqual([]);
+});
+
+it('SDK class and code identify session faults; error-shaped objects never cause replacement', async () => {
+  class ClientError extends Error {
+    constructor(readonly code: string) {
+      super(code);
+    }
+  }
+  class RefusalError extends Error {
+    constructor(readonly code: string) {
+      super(code);
+    }
+  }
+  let fault: unknown;
+  let refusal = false;
+  const adapter = await createRemoteClient(
+    new URL('http://example.test/x/colab/'),
+    {
+      ClientError,
+      RefusalError,
+      operations: () => ({
+        listAgents: async () => {
+          throw fault;
+        },
+        send: async ({ operationId }) => {
+          if (refusal) return { state: 'refused', operationId, reason: 'REMOTE_SESSION_ENDED' };
+          throw fault;
+        },
+        operation: async () => {
+          throw fault;
+        },
+        result: async () => {
+          throw fault;
+        },
+      }),
+    },
+    { sessionId: id(7), serverTimeMs: Date.now(), grantRevision: 1, expiresAtMs: null },
+  );
+  for (const [error, reason] of [
+    [new ClientError('sequence_unavailable'), 'REMOTE_SEQUENCE_UNAVAILABLE'],
+    [new RefusalError('REMOTE_SESSION_ENDED'), 'REMOTE_SESSION_ENDED'],
+  ] as const) {
+    fault = error;
+    expect(await adapter.send({ operationId: id(9), agentId: id(6), message: 'exact' })).toEqual({
+      state: 'uncertain',
+      operationId: id(9),
+      reason,
+    });
+    await expect(adapter.result(`req_${id(8)}`)).rejects.toBeInstanceOf(SessionEndedError);
+    await expect(adapter.listAgents()).rejects.toBeInstanceOf(SessionEndedError);
+  }
+  fault = { code: 'sequence_unavailable' };
+  expect((await adapter.operation(id(9))).state).toBe('uncertain');
+  expect(((await adapter.operation(id(9))) as { reason?: string }).reason).toBeUndefined();
+  await expect(adapter.result(`req_${id(8)}`)).rejects.toBe(fault);
+  refusal = true;
+  expect(await adapter.send({ operationId: id(9), agentId: id(6), message: 'exact' })).toEqual({
+    state: 'uncertain',
+    operationId: id(9),
+    reason: 'REMOTE_SESSION_ENDED',
+  });
+});
+
+it('failed own publication reserves the operation and a later adoption cannot dispatch', async () => {
+  let fail = true;
+  const { controller, remote, store, key } = await setup(() => {
+    if (fail) throw new Error('disk full');
+  });
+  await controller.destinations();
+  const frozen = controller.prepare(destination());
+  await expect(controller.send(frozen)).rejects.toThrow('disk full');
+  expect(remote.sends).toEqual([]);
+  fail = false;
+  const reloaded = new AskController({ store, remote, key, selection });
+  expect((await reloaded.send(frozen)).state).toBe('uncertain');
+  expect(remote.sends).toEqual([]);
+});
+
+it('expiry during durable publication refuses before the Remote effect', async () => {
+  let expiry = 0;
+  const { controller, remote } = await setup((root) => {
+    if (root === 'messages') vi.spyOn(Date, 'now').mockReturnValue(expiry);
+  });
+  await controller.destinations();
+  const frozen = controller.prepare(destination());
+  expiry = frozen.expiresAt;
+  try {
+    expect((await controller.send(frozen)).state).toBe('expired');
+  } finally {
+    vi.restoreAllMocks();
+  }
+  expect(remote.sends).toEqual([]);
+});
+
+it('mis-correlated effects stay uncertain; held reads do not grow the ledger or dispatch again', async () => {
+  for (const mode of ['wrong_id', 'held'] as const) {
+    const { controller, remote, own } = await setup();
+    remote.mode = mode;
+    await controller.destinations();
+    const frozen = controller.prepare(destination());
+    expect((await controller.send(frozen)).state).toBe(mode === 'held' ? 'held' : 'uncertain');
+    if (mode === 'held') {
+      remote.operation = async (operationId) => ({ state: 'held', operationId });
+      const before = structuredClone(own);
+      await controller.recover(frozen.view.operationId);
+      await controller.recover(frozen.view.operationId);
+      expect(own).toEqual(before);
+    }
+    expect(remote.sends).toHaveLength(1);
+  }
 });
