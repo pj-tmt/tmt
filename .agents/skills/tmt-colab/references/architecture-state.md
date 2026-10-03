@@ -25,6 +25,14 @@ restate them.
 - Regenerate frozen vectors only with their Python oracle in a throwaway virtualenv with
   `cryptography`, never `--write` outside a reviewed regeneration.
 
+## App build entries
+
+The app build emits its main entry plus a standalone `assets/recovery.js` entry that reuses
+tab coordination (`vp build` then `vp build --mode recovery`; the `build` script runs both).
+Only this recovery script is public; the rest of the app stays owner-gated. Verify its
+private-guidance CSP and pairing failure/reload guard alongside the app lifecycle tests
+(`served.spec.ts`, `session-recovery.test.ts`).
+
 ## Persistence layout
 
 - The data root comes from one fixed `storage.root` API call through the absolute

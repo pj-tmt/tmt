@@ -3223,10 +3223,7 @@ build shows a build-hint placeholder. Published `tmt-colab` artifacts must embed
 the app. Core registers Colab with the shared installer; packaging/publication
 remain separate gates. Rust builds and tests do not require a browser build.
 See [installer registration](#remote-and-colab-installer-registration).
-The app build emits its main entry plus a standalone `assets/recovery.js` entry
-that reuses tab coordination. Only this recovery script is public; verify its
-private-guidance CSP and pairing failure/reload guard alongside app lifecycle tests.
-The app's `build` script builds both entries. Build and verify it from the repository root:
+Build and verify it from the repository root:
 
 ```bash
 (cd rust && cargo build --offline --locked -p tmt-colab)
