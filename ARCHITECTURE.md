@@ -4121,7 +4121,8 @@ extensions never change latest.
 
 Automatic publication covers authorized existing alpha products only. Ben retains
 stable, breaking, version-line changes and manual publication authorization.
-New product activation needs separate approval. Exact gates and owner recovery
+Activating a new released product is a component-map change accepted by tmt-lead
+and the owning squad lead (for example, #1418). Exact gates and owner recovery
 operations belong to the [release skill](.agents/skills/tmt-release/SKILL.md) and
 [main-cut reference](.agents/skills/tmt-release/references/main-cuts.md).
 
