@@ -2782,6 +2782,7 @@ dependencies = [
  "tmt-sys",
  "tmt-test-support",
  "tungstenite",
+ "unicode-width",
  "ureq",
  "uuid",
 ]

@@ -145,6 +145,11 @@ fn blocked_notice_is_final_without_fallback_and_later_members_still_deliver() {
             batch: &batch,
             worker: &worker,
             notices: &notices,
+            host_text: notices
+                .iter()
+                .map(|notice| notice.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n"),
             progress: std::cell::Cell::new(NoticeProgress::Unstarted),
             storage_error: std::cell::Cell::new(None),
         };

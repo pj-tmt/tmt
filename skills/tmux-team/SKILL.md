@@ -311,8 +311,11 @@ Identified offline recipients instead return queued with an offline notice.
 Their request stays in Inbox; no automatic re-wake occurs when they come online.
 Confirmed live delivery does not leave duplicate incoming attention. Explicit
 `--inbox` remains queue-only. Detached or interrupted originators can receive
-`[tmt] reply from <name> to <id>: tmt result <id>` at their current verified
-binding. Read that result; do not reply to the hint or resend the request.
+`▚ ✓ <name> · <original request preview> · tmt result <id>` at their current
+verified binding. Pane batches align one row per request under a count header.
+The ID appears only in the runnable result command, using a unique short prefix
+when available. Missing or expired previews fall back to
+`[tmt] reply from <name>: tmt result <id>`. Read that result; do not reply to the hint or resend the request.
 A live blocking waiter receives the full response without an extra hint.
 A `--detach` request gets the reply hint only, never a timeout hint. The bounded
 timeout hint sent for a non-detached request to an offline recipient means still

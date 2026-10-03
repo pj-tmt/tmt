@@ -1100,13 +1100,13 @@ fn receipt_dependencies_stay_at_their_reviewed_layer() {
 }
 
 #[test]
-fn display_width_dependency_stays_in_the_shared_cli_style() {
+fn display_width_dependency_is_limited_to_presentation_owners() {
     for (owner, expected) in [
         ("tmt-cli-style", 0),
         ("tmt-command-output", 1),
         ("tmt-cli", 1),
         ("tmt-core", 1),
-        ("tmt-adapters", 1),
+        ("tmt-adapters", 0),
     ] {
         assert_eq!(
             policy::dependency_violations(&package(

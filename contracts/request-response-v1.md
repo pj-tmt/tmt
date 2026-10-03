@@ -143,11 +143,27 @@ claimed alongside it. A proven-dead exact waiter incarnation can be released
 atomically with valid first acceptance; uncertain process evidence cannot release
 it. Detached, timed-out and interrupted callers instead receive one best-effort
 hint at their identity UUID's current verified binding:
-`[tmt] reply from <replier> to <id>: tmt result <id>`.
+`▚ ✓ <recipient> · <original request preview> · tmt result <id>`.
+The preview uses the originator's own retained request text, never the responder's
+final. Display fields replace control characters and Unicode line separators
+with spaces; previews take at most 48 Unicode scalar values and names 64, with
+`…` appended when truncated. They contain no ANSI styling. The selected request
+ID is redacted from display fields and appears exactly once, only in the runnable
+`tmt result` command. A unique indexed eight-hex UUID prefix is used when
+available; otherwise the full ID is used. Uniqueness is checked at rendering,
+so a later request can make an already delivered prefix ambiguous; result lists
+then expose full candidate IDs. Missing or expired prompt context falls back to
+`[tmt] reply from <recipient>: tmt result <id>`.
+Timeout hints show the same original preview with `no reply yet` and the timeout
+duration, without a result command; missing context uses a still-pending fallback.
 Ordinary pane reply hints share a fixed window from the first notice (5 s by
 default). New notices never reset that window. A finite detached worker reads
 durable SQLite state across invocations, delivers one combined paste containing
-every sender and request ID, and exits. Global
+a `▚ tmt · N updates` header and one row per request, then exits. Rows align
+recipient, preview and result-command columns by Unicode display width. A single
+member retains the individual format; registered channel delivery retains
+individual frames. Stored legacy notice text is rederived from request keys at
+send time. Global
 `notifications.replyBatchWindowMs` accepts integer milliseconds `0..60000`;
 `0` disables grouping. `notifications.typingQuietMs` accepts `0..30000`, default
 `2000`: attached tmux clients viewing that pane defer delivery until no key has

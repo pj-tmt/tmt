@@ -179,7 +179,7 @@ fn response_lookup<E>(
     Ok(ResponseLookup::Unavailable)
 }
 
-fn prefix_range<E>(input: &str) -> Result<Option<(String, String)>, RequestError<E>> {
+pub(super) fn prefix_range<E>(input: &str) -> Result<Option<(String, String)>, RequestError<E>> {
     let prefix = input.strip_prefix("req_").unwrap_or(input);
     // A complete prefixed ID retains exact lookup semantics, including case.
     if input.starts_with("req_") && prefix.len() == 36 {
