@@ -28,9 +28,7 @@ its summary and `release-cut-plan` artifact for proposed tag, notes, linked SHAs
 cut and skip reason. Missing draft visibility, pagination or history is a
 blocked plan. Allocation is serialized; inspect each tag-specific native pipeline
 independently. Allocate only when the component has releasable commits after its
-newest allocated ancestor cut (draft or published). Failed drafts stay unpublished
-without blocking new component work; unrelated or non-releasable main changes do
-not repeat their content. Notes, migrations and breaking authorization still cover
+newest allocated ancestor cut (in flight or published), excluding drafts with `verification-failed.json`; failed drafts reserve their numbers but allow a new cut, including at the same main SHA. Notes, migrations and breaking authorization still cover
 the newest published ancestor through the captured main commit.
 
 For an owner-authorized explicit version, dispatch `release.yml` on main with
@@ -293,5 +291,5 @@ CLI selection, the completeness marker, release attestation and every downloaded
 asset's attestation. A failed readback needs diagnosis; never republish immutable
 assets or move a public tag.
 
-Packed-verifier cleanup and Project release tracking are in
-[native-release.md](native-release.md#packed-verifier-cleanup).
+See [packed-verifier cleanup](native-release.md#packed-verifier-cleanup) and
+[Project release tracking](native-release.md#project-release-tracking).

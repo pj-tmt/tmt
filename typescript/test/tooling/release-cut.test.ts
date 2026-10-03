@@ -411,6 +411,35 @@ describe('immutable plans and independent cuts', () => {
     expect(unavailable.components).toEqual([]);
     expect(unavailable.unavailable).toContain('pagination');
   });
+  it('reserves failed draft numbers without moving either source boundary, including a tagged draft', () => {
+    const releases = [
+      { tag_name: 'v5.0.0-alpha.49', draft: false },
+      { tag_name: 'v5.0.0-alpha.50', draft: true, target_commitish: sha(1) },
+      {
+        tag_name: 'v5.0.0-alpha.51',
+        draft: true,
+        target_commitish: sha(2),
+        assets: [{ name: 'verification-failed.json' }],
+      },
+    ];
+    const git = (args: string[]) => {
+      if (args[0] === 'tag') return 'v5.0.0-alpha.51';
+      if (args[0] === 'rev-parse') return args[2].includes('alpha.51') ? sha(2) : sha(0);
+      if (args[0] === 'merge-base' && args[2] > args[3])
+        throw new Error('not ancestor', { cause: { status: 1 } });
+      return '';
+    };
+    expect(releaseCutHistory({ releases, product: 'cli', cut: sha(2), git })).toEqual({
+      highestVersion: '5.0.0-alpha.51',
+      previous: { tag: 'v5.0.0-alpha.49', sha: sha(0) },
+      previousAllocated: { tag: 'v5.0.0-alpha.50', sha: sha(1) },
+    });
+    releases[2].draft = false;
+    expect(releaseCutHistory({ releases, product: 'cli', cut: sha(2), git })).toMatchObject({
+      previous: { tag: 'v5.0.0-alpha.51', sha: sha(2) },
+      previousAllocated: { tag: 'v5.0.0-alpha.51', sha: sha(2) },
+    });
+  });
   it('skips a stable component with no releasable work before requiring an explicit next version', async () => {
     const fixture = planningFixture();
     fixture.metadata.releases = [{ tag_name: 'v5.0.0', draft: false }];
@@ -510,8 +539,16 @@ describe('bounded REST-only state acquisition', () => {
               id: i + 1,
               tag_name: `v5.0.0-alpha.${i}`,
               draft: false,
+              assets: [],
             }))
-          : [{ id: 101, tag_name: 'v5.0.0-alpha.101', draft: true }];
+          : [
+              {
+                id: 101,
+                tag_name: 'v5.0.0-alpha.101',
+                draft: true,
+                assets: [{ name: 'verification-failed.json', browser_download_url: 'unused' }],
+              },
+            ];
         return JSON.stringify(releases);
       }
       throw new Error('Unexpected metadata endpoint: ' + endpoint);
@@ -519,8 +556,19 @@ describe('bounded REST-only state acquisition', () => {
     const result = readCutMetadata(input, execute);
     expect(result.releases).toHaveLength(101);
     expect(execute).toHaveBeenCalledTimes(2);
+    expect(result.releases!.at(-1)!.assets).toEqual([{ name: 'verification-failed.json' }]);
     expect(JSON.stringify(result)).not.toContain(input.token);
   });
+  it.each([undefined, null, {}, [null], [{}], [{ name: 42 }]])(
+    'refuses unavailable or malformed asset evidence (%j)',
+    (assets) => {
+      expect(() =>
+        readCutMetadata(input, () =>
+          JSON.stringify([{ id: 1, tag_name: 'v5.0.0-alpha.49', draft: true, assets }])
+        )
+      ).toThrow('asset metadata');
+    }
+  );
   it('refuses invisible drafts, incomplete pages and duplicate records', () => {
     expect(() => readCutMetadata({ ...input, draftVisibility: '' })).toThrow('visibility');
     expect(() =>

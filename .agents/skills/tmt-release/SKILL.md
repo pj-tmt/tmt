@@ -56,9 +56,9 @@ unapproved breaking changes stay held by the existing owner gate.
 Cut allocation uses cadence-admitted main pushes, an hourly schedule backup and
 owner dispatch. The [main-cut reference](references/main-cuts.md) owns cadence
 admission and its fail-closed history checks. New work
-eligibility uses the newest allocated ancestor cut, whether draft or published:
-no releasable component commit after it means no new cut. Failed drafts reserve
-their content and number without blocking subsequent new component work. Notes,
+eligibility uses the newest non-failed allocated ancestor cut, whether in flight or published:
+no releasable component commit after it means no new cut. Verification-failed drafts reserve
+their number but allow their content to be cut again, including at the same main SHA. Notes,
 migration comparison and breaking authorization retain the published boundary
 above. Allocation remains a short serialized critical section; each admitted run
 captures current main and preserves unallocated work. Once allocated, tag-keyed

@@ -1921,8 +1921,9 @@ A release is a product-prefixed tag on a main commit. `release.yml` admits main
 pushes by cadence, with hourly backup and manual dispatch. Allocation captures
 main once and reserves each released component's next alpha number from drafts
 and tags; each allocated tag owns an independent pipeline. New work is measured
-from the newest allocated ancestor cut, whether draft or published. Failed drafts
-stay unpublished and do not hold later cuts or merges.
+from the newest non-failed allocated ancestor cut, whether in flight or published.
+Verification-failed drafts reserve numbers but allow replacement cuts, including
+at the same main commit; they stay unpublished and do not hold later cuts or merges.
 
 The release version is injected at build through the private `tmt-release-tool`:
 only the selected version declaration and implied Cargo lock entries may differ

@@ -42,13 +42,20 @@ export function readCutMetadata(
     }
     throw new Error('Incomplete cut REST pagination.');
   };
-  const releases = list('releases').map(({ id, tag_name, draft, body, target_commitish }) => ({
-    id,
-    tag_name,
-    draft,
-    body,
-    target_commitish,
-  }));
+  const releases = list('releases').map(
+    ({ id, tag_name, draft, body, target_commitish, assets }) => {
+      if (!Array.isArray(assets) || assets.some((asset) => typeof asset?.name !== 'string'))
+        throw new Error('Invalid release asset metadata.');
+      return {
+        id,
+        tag_name,
+        draft,
+        body,
+        target_commitish,
+        assets: assets.map(({ name }) => ({ name })),
+      };
+    }
+  );
   if (releases.some((r) => typeof r.draft !== 'boolean' || typeof r.tag_name !== 'string'))
     throw new Error('Invalid release metadata.');
   return {

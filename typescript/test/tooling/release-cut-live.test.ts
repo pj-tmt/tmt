@@ -322,30 +322,69 @@ describe('live release cut lifecycle', () => {
     expect(f.client.draft).not.toHaveBeenCalled();
     expect(f.client.dispatch).not.toHaveBeenCalled();
   });
-  it('does not repeat failed component content after unrelated main movement', async () => {
+  it.each(['failed', 'in-flight', 'published', 'held'])(
+    '%s cut controls new-work eligibility after unrelated main movement',
+    async (state) => {
+      const f = fixture();
+      await runReleaseCuts({ ...f, live: true });
+      const previousCut = f.releases.find((release) => release.tag_name === 'v5.0.0-alpha.49')!;
+      if (state === 'failed') previousCut.assets = [{ name: 'verification-failed.json' }];
+      if (state === 'held') previousCut.assets = [{ name: 'publication-held.json' }];
+      if (state === 'published') {
+        previousCut.draft = false;
+        f.command(['tag', previousCut.tag_name, f.cut]);
+      }
+      const unchanged = structuredClone(previousCut);
+      vi.mocked(f.client.draft).mockClear();
+      vi.mocked(f.client.dispatch).mockClear();
+      writeFileSync(join(f.root, 'extensions/squad/feature.txt'), 'new Squad work');
+      const later = f.commit('feat: Squad follow-up');
+      f.command(['update-ref', 'refs/remotes/origin/main', later]);
+      f.state.cut = later;
+      vi.mocked(f.client.main).mockReturnValue(later);
+      const result = await runReleaseCuts({ ...f, live: true });
+      expect(result.actions.find((action) => action.product === 'squad')).toMatchObject({
+        status: 'created',
+        product: 'squad',
+        tag: 'tmt-squad-v0.1.0-alpha.16',
+      });
+      expect(result.actions.find((action) => action.product === 'cli')).toMatchObject(
+        state === 'failed'
+          ? { status: 'created', tag: 'v5.0.0-alpha.50', cut: later }
+          : { status: 'no-releasable-commits' }
+      );
+      if (state === 'failed') {
+        const replacement = f.releases.find((release) => release.tag_name === 'v5.0.0-alpha.50')!;
+        expect(
+          [...replacement.body!.matchAll(/\/commit\/([a-f0-9]{40})/g)].map((m) => m[1])
+        ).toEqual([f.cut]);
+        expect(f.client.dispatch).toHaveBeenCalledWith('cli', replacement.tag_name);
+      }
+      expect(f.client.draft).toHaveBeenCalledTimes(state === 'failed' ? 2 : 1);
+      expect(f.client.dispatch).toHaveBeenCalledTimes(state === 'failed' ? 2 : 1);
+      expect(f.client.dispatch).toHaveBeenCalledWith('squad', 'tmt-squad-v0.1.0-alpha.16');
+      expect(previousCut).toEqual(unchanged);
+    }
+  );
+  it('replaces a verification-failed cut at the same X with the next number, without retrying it', async () => {
     const f = fixture();
     await runReleaseCuts({ ...f, live: true });
     const failed = f.releases.find((release) => release.tag_name === 'v5.0.0-alpha.49')!;
     failed.assets = [{ name: 'verification-failed.json' }];
+    const unchanged = structuredClone(failed);
     vi.mocked(f.client.draft).mockClear();
     vi.mocked(f.client.dispatch).mockClear();
-    writeFileSync(join(f.root, 'extensions/squad/feature.txt'), 'new Squad work');
-    const later = f.commit('feat: Squad follow-up');
-    f.command(['update-ref', 'refs/remotes/origin/main', later]);
-    f.state.cut = later;
-    vi.mocked(f.client.main).mockReturnValue(later);
     const result = await runReleaseCuts({ ...f, live: true });
-    expect(result.actions.find((action) => action.product === 'squad')).toMatchObject({
-      status: 'created',
-      product: 'squad',
-      tag: 'tmt-squad-v0.1.0-alpha.16',
-    });
-    expect(result.actions.find((action) => action.product === 'cli')).toMatchObject({
-      status: 'no-releasable-commits',
-    });
+    expect(result.actions).toEqual([
+      { product: 'cli', status: 'created', tag: 'v5.0.0-alpha.50', cut: f.cut },
+      { product: 'squad', status: 'already-cut', reason: expect.any(String) },
+    ]);
     expect(f.client.draft).toHaveBeenCalledTimes(1);
-    expect(f.client.dispatch).toHaveBeenCalledExactlyOnceWith('squad', 'tmt-squad-v0.1.0-alpha.16');
-    expect(failed.assets).toEqual([{ name: 'verification-failed.json' }]);
+    expect(f.client.dispatch).toHaveBeenCalledExactlyOnceWith('cli', 'v5.0.0-alpha.50');
+    const replacement = f.releases.find((release) => release.tag_name === 'v5.0.0-alpha.50')!;
+    expect(replacement.body).toBe(failed.body!.replaceAll('5.0.0-alpha.49', '5.0.0-alpha.50'));
+    expect(failed).toEqual(unchanged);
+    expect(f.command(['tag', '--list', replacement.tag_name])).toBe('');
   });
   it('does not allocate again for non-releasable changes after an unpublished cut', async () => {
     const f = fixture();
