@@ -197,6 +197,50 @@ mod tests {
     }
 
     #[test]
+    fn claude_config_directory_owns_detection_settings_and_skills() {
+        use crate::drivers::claude;
+        let directory = TestDirectory::new();
+        let home = directory.path.join("home");
+        let cwd = directory.path.join("cwd");
+        fs::create_dir_all(home.join(".claude")).unwrap();
+        fs::create_dir(&cwd).unwrap();
+        for (configured, expected) in [
+            (PathBuf::new(), home.join(".claude")),
+            (
+                PathBuf::from("relative-claude"),
+                cwd.join("relative-claude"),
+            ),
+            (
+                directory.path.join("custom-claude"),
+                directory.path.join("custom-claude"),
+            ),
+        ] {
+            let environment = ProviderEnvironment::from_parts(
+                &home,
+                &cwd,
+                Vec::new(),
+                [("CLAUDE_CONFIG_DIR", configured)],
+            );
+            let locations = environment.locations(&claude::DRIVER);
+            assert_eq!(
+                locations.hook_settings,
+                Some(expected.join("settings.json"))
+            );
+            assert_eq!(locations.skills, expected.join("skills"));
+            assert_eq!(
+                locations.legacy_skills,
+                vec![expected.join("commands/team.md")]
+            );
+            assert_eq!(locations.config_dirs, vec![expected.clone()]);
+            if expected != home.join(".claude") {
+                assert!(!environment.detect().contains(&&claude::DRIVER));
+                fs::create_dir_all(&expected).unwrap();
+            }
+            assert!(environment.detect().contains(&&claude::DRIVER));
+        }
+    }
+
+    #[test]
     fn pi_directory_expands_home_forms_and_relative_overrides_from_cwd() {
         let directory = TestDirectory::new();
         let base = environment(&directory);

@@ -1,3 +1,6 @@
+/// Maximum work budget accepted by the private lifecycle worker protocol.
+pub const MAXIMUM_HOOK_WORK_BUDGET_MS: u64 = 2_000;
+
 /// The launcher selects one channel policy, independent of provider names.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ChannelMode {
@@ -146,6 +149,7 @@ pub enum Invocation {
     ProviderHook {
         provider: String,
         worker: bool,
+        work_budget_ms: Option<u64>,
     },
     ReplyNoticeWorker {
         batch_id: String,

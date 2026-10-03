@@ -248,27 +248,27 @@ fn grid_line(
                 .as_array()
                 .is_some_and(|failed| failed.iter().any(|name| name == field))
         });
-        // Every cell uses the token resolved in status::document, including
-        // the state resolver's token. Decoration only: text is unchanged.
+        // Admitted cell tokens override projected decoration; absent and
+        // failed providers without projected colors stay quiet. Look owns selection.
         let token = cell
             .field
             .as_deref()
             .and_then(|field| row["colors"][field].as_str());
-        let style = if value.is_none_or(str::is_empty) {
+        let role = admitted
+            .style
+            .token
+            .filter(|_| !failed || token.is_some())
+            .or_else(|| token.and_then(crate::look::role));
+        let style = if value.is_none_or(str::is_empty) || (failed && token.is_none()) {
             look.role(Role::Dim)
-        } else if let Some(token) = token {
-            look.named(token)
-        } else if failed {
-            // A field provider's run failed: its `?` stays quiet.
-            look.role(Role::Dim)
+        } else if let Some(role) = role {
+            look.role(role)
         } else {
             Style::new()
         };
         let emphasize = value.is_some_and(|value| !value.is_empty())
             && (matches!(cell.field.as_deref(), Some("state" | "pending"))
-                || token
-                    .and_then(crate::look::role)
-                    .is_some_and(|role| matches!(role, Role::Waiting | Role::Blocked)));
+                || role.is_some_and(|role| matches!(role, Role::Waiting | Role::Blocked)));
         let style = look.row_span(selected, style, emphasize);
         fitted.push((
             crate::markup::fitted(text, box_width, admitted.style.text_flow, column.align),
@@ -786,6 +786,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     let look = app.look();
     app.hits.borrow_mut().clear();
     app.note_hits.borrow_mut().clear();
+    app.link_hits.borrow_mut().clear();
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
     app.title_hits.borrow_mut().clear();
@@ -807,6 +808,18 @@ pub fn render(frame: &mut Frame, app: &App) {
         Line::from(format!("/{}▏", app.search))
     } else if let Some(notice) = &app.notice {
         Line::from(Span::styled(notice.as_str(), look.role(Role::Waiting)))
+    } else if let Some(link) = app
+        .selected_link()
+        .filter(|_| app.focused_pane() == Some(Pane::Notes))
+    {
+        Line::from(Span::styled(
+            format!(
+                "{} · {} · Enter/click to activate",
+                link.kind.label(),
+                link.target
+            ),
+            look.role(Role::Link),
+        ))
     } else if let Some(error) = &app.error {
         Line::from(Span::styled(error.as_str(), look.role(Role::Blocked)))
     } else {
@@ -1107,10 +1120,10 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
         .as_ref()
         .is_none_or(|notes| notes.width != width || notes.look != look);
     if rebuilt {
-        let (lines, sources) = match &view.notes {
+        let (lines, sources, links, hits) = match &view.notes {
             Notes::Text(text) if view.render == NotesRender::Markdown => {
-                let mapped = markdown::render_mapped(text, width, look);
-                (mapped.lines, mapped.sources)
+                let mapped = markdown::render_links(text, width, look, &view.links);
+                (mapped.lines, mapped.sources, mapped.links, mapped.hits)
             }
             Notes::Text(text) => {
                 let mut lines = Vec::new();
@@ -1121,10 +1134,12 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
                         sources.push(source);
                     }
                 }
-                (lines, sources)
+                (lines, sources, Vec::new(), Vec::new())
             }
             _ => (
                 notebook_lines(&view.notes, width, look, view.render),
+                Vec::new(),
+                Vec::new(),
                 Vec::new(),
             ),
         };
@@ -1133,10 +1148,16 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
             look,
             lines,
             sources,
+            links,
+            hits,
         });
     }
     let notes = derived.notes.as_ref().expect("prepared notes");
     let (lines, sources) = (&notes.lines, &notes.sources);
+    let selected_link = notes
+        .links
+        .iter()
+        .position(|link| app.note_link.as_ref() == Some(&(link.target.clone(), link.offset)));
     let mut selected = None;
     let mut marked = std::collections::BTreeSet::new();
     if let (Some(key), Notes::Text(text)) = (app.shown_tab(), &view.notes) {
@@ -1146,9 +1167,20 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
             cursor.reconcile(text);
         }
         if app.focused_pane() == Some(Pane::Notes) {
-            selected = Some(cursor.source);
+            selected = selected_link
+                .map(|id| notes.links[id].source)
+                .or(Some(cursor.source));
+            let visual = selected_link
+                .and_then(|id| {
+                    notes
+                        .hits
+                        .iter()
+                        .find(|hit| hit.link == id)
+                        .map(|hit| hit.line)
+                })
+                .or_else(|| cursor.visual(sources));
             if cursor.follow
-                && let Some(line) = cursor.visual(sources)
+                && let Some(line) = visual
             {
                 app.scrolls
                     .reveal_range(Pane::Notes, line..line + 1, area, lines.len());
@@ -1182,6 +1214,21 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
         look.role(Role::Dim),
         |at, line| {
             let mut line = line.clone();
+            let mut cell = 0;
+            for span in &mut line.spans {
+                let end = cell + span.width();
+                if notes.hits.iter().any(|hit| {
+                    hit.line == at
+                        && Some(hit.link) == selected_link
+                        && hit.start < end
+                        && hit.end > cell
+                }) {
+                    span.style = look
+                        .row_span(true, span.style, false)
+                        .add_modifier(Modifier::BOLD);
+                }
+                cell = end;
+            }
             let is_selected = sources.get(at).copied() == selected && selected.is_some();
             if is_selected {
                 line.style = look.selection();
@@ -1205,6 +1252,23 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
             }
             line
         },
+    );
+    app.link_hits.borrow_mut().extend(
+        notes
+            .hits
+            .iter()
+            .filter(|hit| hit.line >= offset && hit.line < offset + viewport && hit.start < width)
+            .map(|hit| {
+                (
+                    Rect {
+                        x: area.x.saturating_add(2 + hit.start as u16),
+                        y: area.y + (hit.line - offset) as u16,
+                        width: hit.end.min(width).saturating_sub(hit.start) as u16,
+                        height: 1,
+                    },
+                    hit.link,
+                )
+            }),
     );
     app.note_hits
         .borrow_mut()
@@ -1764,6 +1828,7 @@ mod tests {
             squad: Some("product".into()),
             view: Ok(View {
                 token_rate: None,
+                home: None,
             derived: Default::default(),
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": sections}),
                 rows: columns(),
@@ -1778,8 +1843,10 @@ mod tests {
                 render: crate::config::NotesRender::Markdown,
                 bindings: crate::action::preset(true, &[]),
                 section_bindings: Vec::new(),
+                configured_bindings: Default::default(),
                 opener: None,
                 clipboard: None,
+                links: Default::default(),
                 tab_colors: Default::default(),
                 look: Default::default(),
                 theme_notice: None,
@@ -2427,6 +2494,7 @@ columns = [{ name = "member", width = "30%" },
             squad: Some("product".into()),
             view: Ok(View {
                 token_rate: None,
+                home: None,
             derived: Default::default(),
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": [
                     {"title": null, "rows": [row("auth-fix", "blocked", "rotate tokens", json!({
@@ -2441,8 +2509,10 @@ columns = [{ name = "member", width = "30%" },
                 render: NotesRender::Markdown,
                 bindings,
                 section_bindings: Vec::new(),
+                configured_bindings: Default::default(),
                 opener: None,
                 clipboard: None,
+                links: Default::default(),
                 tab_colors: Default::default(),
                 look: Default::default(),
                 theme_notice: None,
@@ -2517,7 +2587,7 @@ columns = [
 ]
 lines = [
     ["member", "state", "task", "pr", "empty"],
-    ["", { field = "pending", span = 4 }],
+    ["", { field = "pending", span = 4, token = "waiting" }],
 ]
 "#,
         );
@@ -2590,6 +2660,164 @@ lines = [
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn cell_tokens_override_decoration_but_keep_missing_failure_and_reverse_rules() {
+        let rows = rows_from(
+            "[p.rows]\ncolumns=[{name='task',width=12,overflow='wrap',max_lines=2}]\nlines=[[{field='task',token='waiting'}]]\n",
+        );
+        let grid = crate::markup::Grid::compile(&rows, |_| 20, 12).unwrap();
+        for depth in [
+            tmt_cli_style::Depth::TrueColor,
+            tmt_cli_style::Depth::Ansi16,
+            tmt_cli_style::Depth::None,
+        ] {
+            let look = crate::look::Look {
+                depth,
+                ..Default::default()
+            };
+            for (row, role) in [
+                (
+                    json!({"fields":{"task":"alpha beta gamma"},"colors":{"task":"review"}}),
+                    Role::Waiting,
+                ),
+                (json!({"fields":{"task":"?"},"failed":["task"]}), Role::Dim),
+                (json!({"fields":{"task":""}}), Role::Dim),
+                (json!({"fields":{}}), Role::Dim),
+            ] {
+                let scene = crate::markup::row_values(&rows, "product", vec![(0, &row)]).unwrap();
+                for selected in [false, true] {
+                    let lines =
+                        grid_line(look, &rows, &grid, &scene[0], &row, 0, selected).unwrap();
+                    for spans in lines {
+                        assert_eq!(spans.len(), 1);
+                        assert_eq!(
+                            spans[0].style,
+                            look.row_span(selected, look.role(role), role == Role::Waiting)
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn declarative_style_preserves_stale_row_inheritance() {
+        let mut app = board(json!([{"title":null,"rows":[
+            row("worker", "working", "ship", json!({
+                "pending":"approve",
+                "staleness":{"state":"stale","ageMs":3_600_000},
+            })),
+            row("other", "working", "docs", json!({})),
+        ]}]));
+        app.view.as_mut().unwrap().rows = rows_from(
+            "[p.rows]\ncolumns=[{name='member',width=10},{name='task',width=15}]\nlines=[['member','task'],['',{field='pending',token='waiting'}]]\n",
+        );
+        app.selected = 1;
+        for depth in [
+            tmt_cli_style::Depth::TrueColor,
+            tmt_cli_style::Depth::Ansi16,
+            tmt_cli_style::Depth::None,
+        ] {
+            let look = crate::look::Look {
+                depth,
+                ..Default::default()
+            };
+            app.view.as_mut().unwrap().look = look;
+            let screen = draw(&app, 60, 10);
+            let y = screen
+                .iter()
+                .position(|line| line.contains("approve"))
+                .unwrap();
+            let x = screen[y].find("approve").unwrap();
+            let mut terminal = Terminal::new(TestBackend::new(60, 10)).unwrap();
+            terminal.draw(|frame| render(frame, &app)).unwrap();
+            let cell = &terminal.backend().buffer()[(x as u16, y as u16)];
+            let expected = look.role(Role::Dim).patch(look.role(Role::Waiting));
+            assert_eq!(cell.fg, expected.fg.unwrap_or_default());
+            assert_eq!(cell.modifier, expected.add_modifier);
+            assert!(screen.iter().any(|line| line.ends_with("stale 1h")));
+        }
+    }
+
+    #[test]
+    fn team_pending_line_style_snapshots_and_unstyled_control() {
+        // Literal text/style snapshots of the real rendered pending span, including padding.
+        const TRUE_COLOR: &str = r#""                               approve rollout                                  "
+[(2, "Reset/Reset/Reset/NONE/None"), (17, "Rgb(122, 131, 174)/Reset/Reset/NONE/None"), (1, "Reset/Reset/Reset/NONE/None"), (10, "Rgb(122, 131, 174)/Reset/Reset/NONE/None"), (1, "Reset/Reset/Reset/NONE/None"), (49, "Rgb(255, 158, 100)/Reset/Reset/NONE/None")]
+"                               approve rollout                                  "
+[(2, "Rgb(192, 202, 245)/Rgb(40, 52, 87)/Reset/NONE/None"), (17, "Rgb(122, 131, 174)/Rgb(40, 52, 87)/Reset/NONE/None"), (1, "Rgb(192, 202, 245)/Rgb(40, 52, 87)/Reset/NONE/None"), (10, "Rgb(122, 131, 174)/Rgb(40, 52, 87)/Reset/NONE/None"), (1, "Rgb(192, 202, 245)/Rgb(40, 52, 87)/Reset/NONE/None"), (49, "Rgb(255, 158, 100)/Rgb(40, 52, 87)/Reset/NONE/None")]"#;
+        const ANSI16: &str = r#""                               approve rollout                                  "
+[(2, "Reset/Reset/Reset/NONE/None"), (17, "Reset/Reset/Reset/DIM/None"), (1, "Reset/Reset/Reset/NONE/None"), (10, "Reset/Reset/Reset/DIM/None"), (1, "Reset/Reset/Reset/NONE/None"), (49, "Yellow/Reset/Reset/NONE/None")]
+"                               approve rollout                                  "
+[(31, "Reset/Reset/Reset/REVERSED/None"), (49, "Reset/Reset/Reset/BOLD | REVERSED/None")]"#;
+        let config: toml_edit::DocumentMut = "[squad.product]\nlayout='team'\n".parse().unwrap();
+        let path = std::env::temp_dir().join(format!("tmt-line-style-{}.toml", std::process::id()));
+        std::fs::write(&path, config.to_string()).unwrap();
+        let rows = crate::config::Config::read(path.clone())
+            .unwrap()
+            .rows("product")
+            .unwrap();
+        std::fs::remove_file(path).unwrap();
+        let mut app = board(json!([{"title":null,"rows":[
+            row("worker", "working", "ship", json!({"pending":"approve rollout"})),
+            row("other", "working", "docs", json!({})),
+        ]}]));
+        app.view.as_mut().unwrap().rows = rows;
+        let snapshot = |app: &App| {
+            let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+            terminal.draw(|frame| render(frame, app)).unwrap();
+            let buffer = terminal.backend().buffer();
+            let y = draw(app, 80, 12)
+                .iter()
+                .position(|line| line.contains("approve rollout"))
+                .unwrap() as u16;
+            let cells: Vec<_> = (0..80).map(|x| &buffer[(x, y)]).collect();
+            let text: String = cells.iter().map(|cell| cell.symbol()).collect();
+            let mut runs: Vec<(usize, String)> = Vec::new();
+            for cell in cells {
+                let state = format!(
+                    "{:?}/{:?}/{:?}/{:?}/{:?}",
+                    cell.fg, cell.bg, cell.underline_color, cell.modifier, cell.diff_option
+                );
+                match runs.last_mut().filter(|last| last.1 == state) {
+                    Some(last) => last.0 += 1,
+                    None => runs.push((1, state)),
+                }
+            }
+            format!("{text:?}\n{runs:?}")
+        };
+        for depth in [
+            tmt_cli_style::Depth::TrueColor,
+            tmt_cli_style::Depth::Ansi16,
+        ] {
+            app.view.as_mut().unwrap().look = crate::look::Look {
+                depth,
+                ..Default::default()
+            };
+            app.selected = 1;
+            let normal = snapshot(&app);
+            app.selected = 0;
+            let selected = snapshot(&app);
+            let view = app.view.as_mut().unwrap();
+            view.rows.lines[1][2].token = None;
+            *view.derived.borrow_mut() = Default::default();
+            app.selected = 1;
+            let control = snapshot(&app);
+            assert_ne!(
+                normal, control,
+                "removing the token must break the pending snapshot"
+            );
+            app.view.as_mut().unwrap().rows.lines[1][2].token = Some(Role::Waiting);
+            *app.view.as_ref().unwrap().derived.borrow_mut() = Default::default();
+            let expected = match depth {
+                tmt_cli_style::Depth::TrueColor => TRUE_COLOR,
+                tmt_cli_style::Depth::Ansi16 => ANSI16,
+                _ => unreachable!("snapshot covers colored terminal depths"),
+            };
+            assert_eq!(format!("{normal}\n{selected}"), expected, "{depth:?}");
         }
     }
 
@@ -4246,6 +4474,53 @@ lines = [
             matches!(effect, crate::board::app::Effect::Act(_)),
             "{effect:?}"
         );
+    }
+
+    #[test]
+    fn notebook_links_preview_before_click_and_honor_explicit_bindings() {
+        use crate::board::app::{Effect, Request};
+        let mut app = paned(
+            split(
+                Direction::LeftRight,
+                vec![Pane::Rows, Pane::Notes],
+                vec![50, 50],
+            ),
+            Notes::Text("[界 wide words](https://example.com) [other](tmt:back)".into()),
+        );
+        draw(&app, 60, 15);
+        let (hit, _) = app.link_hits.borrow()[0];
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: hit.x,
+            row: hit.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        assert_eq!(app.mouse(click, std::time::Instant::now()), Effect::None);
+        assert_eq!(app.focused_pane(), Some(Pane::Notes));
+        assert!(
+            draw(&app, 60, 15)
+                .last()
+                .unwrap()
+                .contains("https://example.com")
+        );
+        assert!(
+            matches!(app.mouse(click, std::time::Instant::now()), Effect::Act(Request::Open { link, .. }) if link == "https://example.com")
+        );
+        app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(app.selected_link().unwrap().target, "tmt:back");
+        app.key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
+        assert_eq!(app.selected_link().unwrap().target, "https://example.com");
+        app.view.as_mut().unwrap().configured_bindings = crate::action::parse_bindings(
+            [("tab", Some("next-pane")), ("enter", Some("copy {name}"))].into_iter(),
+            "bind",
+        )
+        .unwrap();
+        assert!(matches!(
+            app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            Effect::Act(Request::Copy { .. })
+        ));
+        app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(app.focused_pane(), Some(Pane::Rows));
     }
 
     #[test]

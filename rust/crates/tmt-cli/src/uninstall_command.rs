@@ -122,7 +122,7 @@ impl Plan {
         rows
     }
 
-    /// `settings.tmt-backup-*.json` beside each hooks file.
+    /// Retain legacy adjacent backups and new private backup-directory entries.
     fn backups(&self) -> Vec<PathBuf> {
         let mut directories: Vec<PathBuf> = self
             .hooks
@@ -134,6 +134,14 @@ impl Plan {
                 }
             })
             .collect();
+        let private: Vec<PathBuf> = directories
+            .iter()
+            .map(|directory| directory.join(tmt_adapters::setup::BACKUP_DIRECTORY))
+            .filter(|directory| {
+                fs::symlink_metadata(directory).is_ok_and(|metadata| metadata.is_dir())
+            })
+            .collect();
+        directories.extend(private);
         directories.sort();
         directories.dedup();
         let mut backups: Vec<PathBuf> = directories

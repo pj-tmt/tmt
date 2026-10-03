@@ -43,11 +43,13 @@ fn the_handbook_example_reads_as_columns_and_lines_with_a_span() {
         [
             Cell {
                 field: None,
-                span: 1
+                span: 1,
+                token: None
             },
             Cell {
                 field: Some("pending".into()),
-                span: 3
+                span: 3,
+                token: None
             }
         ]
     );
@@ -506,4 +508,55 @@ fn empty_cells_and_spans_cover_tracks_and_all_covered_solves_are_unchanged() {
         1,
         "value-only percentage does not join the solved total"
     );
+}
+
+#[test]
+fn cell_tokens_are_semantic_located_and_optional_in_metadata() {
+    for role in Role::ALL {
+        let rows = parse(&format!(
+            "[p.rows]\ncolumns=[{{name='task'}}]\nlines=[[{{field='task',token='{}'}}]]\n",
+            role.name()
+        ))
+        .unwrap();
+        assert_eq!(rows.lines[0][0].token, Some(role));
+        assert_eq!(
+            rows.value()["lines"][0][0],
+            json!({"field":"task","span":1,"token":role.name()})
+        );
+    }
+    for token in [
+        "'red'",
+        "'amber'",
+        "'#ffaa00'",
+        "'default'",
+        "'Waiting'",
+        "''",
+        "1",
+        "true",
+        "{}",
+    ] {
+        let message = error(&format!(
+            "[p.rows]\ncolumns=[{{name='task'}}]\nlines=[[{{field='task',token={token}}}]]\n"
+        ));
+        assert!(
+            message.starts_with("`squad.p.rows.lines[0][0].token` must be a semantic theme token:"),
+            "{message}"
+        );
+    }
+    for rows in [
+        Rows::preset(),
+        Rows::leads(),
+        Rows::overview(),
+        parse(HANDBOOK).unwrap(),
+    ] {
+        assert!(rows.lines.iter().flatten().all(|cell| cell.token.is_none()));
+        assert!(
+            rows.value()["lines"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .flat_map(|line| line.as_array().unwrap())
+                .all(|cell| cell.get("token").is_none())
+        );
+    }
 }

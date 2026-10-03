@@ -311,6 +311,22 @@ the resulting statements and transition. A request cannot supply an unverified
 baseline to be signed. The browser verifies returned owner-signed statements
 through the usual log admission; a transport success alone is not a new head.
 
+The root-local engine exposes `OwnerRequest` / `OwnerAction` through
+`Engine::apply`. An admitted management caller supplies an optional exact
+transport digest and `RequestScope {initiating_page, affected_pages}`. Scope IDs
+are sorted/unique and the initiating page belongs to the affected set. Scoped
+member removal/role changes and link removal/Reset match the target's stored page
+assignment during planning and the in-transaction recheck. Page actions bind a
+singleton page set. An absent scope is reserved for root-local composition.
+The replay digest purpose-separates normalized action, scope and transport bytes;
+an exact replay returns the original outcome and signed head, and conflicting
+bytes/scope return `CONFLICT`. A fresh scope mismatch returns `STALE_HEAD`.
+With neither transport nor scope, existing root-local digests remain unchanged.
+The runner prerequisite implements member/link/device/epoch dispatch; its reserved
+page-policy actions return `UNAVAILABLE` until the #1160 policy slice lands.
+This API is not transport admission. The caller serializes through sync first,
+then Registration; no request-carried field grants signing authority.
+
 On cloud backends membership, sharing, rotation and other root-signed changes
 require the owner's machine online. The cloud service never holds the root key
 or signs in its place. An offline management request remains unavailable; it
@@ -722,6 +738,27 @@ tail from `n+1` in both namespaces for chain verification and exact retries.
 Never delete another namespace's payload solely because its sequence falls in
 the prefix. A failed partner publication leaves the prior pair and updates
 intact; this rule needs no new ledger or checkpoint schema.
+
+For browser bootstrap, every observed namespace checkpoint for an author stream
+MUST agree on one prefix sequence n and signed update head hash(n). Deliver all
+checkpoints before the retained tail; that tail MUST be contiguous from n+1
+across both namespaces. Receipt
+ledgers support retries, not browser authority; no additional ledger proof or
+signature scheme is required. Checkpoint plaintext is raw merged update-v1 bytes.
+The browser MUST bound each checkpoint and their aggregate catchup plaintext by
+the existing 4 MiB Worker state budget, independently of the retained tail's
+200-update/256 KiB budget. Apply checkpoints as single-item Worker steps before
+the tail. Those unpublished steps may retain cross-writer pending dependencies;
+the final tail step MUST resolve them and validate complete content before
+publishing any view. The existing 2 MiB source projection cap remains in force.
+The owner-browser reader authenticates own envelopes for chain continuity but
+MUST NOT decrypt or fold them; it MUST visibly state that own data is not displayed.
+Historical revoked-device objects MUST predate revocation and remain within the
+exact signed namespace cut; checkpoint replacements require the cut's exact
+envelope hash, and catchup MUST reach every nonempty signed tail endpoint before
+publishing a view. Named-member, link and bridge author policy remains outside
+this owner-browser slice (#1111/#1160).
+
 Crash before deletion retains replay-safe redundant data; concurrent tail
 updates survive. A gone device's stream remains as signed data within quotas.
 There is no cross-writer compaction checkpoint in v1; the epoch baseline above
@@ -1141,10 +1178,35 @@ at most 64 per page. While head/membership `more` is true, later pages carry
 head is the target for this catchup; unknown, missing or above-head revisions
 return `RESYNC_REQUIRED`. Clients independently verify owner signatures, chain,
 root pin and target hash; a client-side fork cannot be detected from the unsigned
-revision alone. Whole statements must fit one 64 KiB frame: pages use at most
-60 KiB of encoded statement data (less on the first page to reserve its baseline
-fields), an individual stored envelope at most 44 KiB;
-oversized statements fail `CAPACITY`, never truncate. Chunked membership statements are deferred to #1285.
+revision alone. A statement entry is either an inline canonical base64url string
+or exactly `{statementHash}`, with a canonical base64url hash32 reference to the
+model membership hash. Envelopes above 32 KiB use references. A referenced
+statement is the only entry on its membership page and is followed immediately
+by scoped server `chunk` frames with exactly `statementHash, index, count, bytes`
+beyond the common fields. Object chunks retain their separate
+`objectId, envelopeHash, index, count, bytes` shape; mixed identities and unknown
+fields reject. The transferred bytes are exact stored statement-envelope JSON,
+not reconstructed payloads or a new raw-JSON hash.
+
+Membership pages contain at most 64 entries and 60 KiB of encoded inline data;
+the first page additionally respects its metadata/baseline wire budget. When the
+first page supplies a `baselineObject` (inline or referenced), inline statements
+may fit that budget, but any statement reference is deferred to the next
+membership page. Baseline chunks, if any, stay consecutive first, so there is
+only one pending assembly.
+
+Statement envelope admission uses the existing model cap:
+`floor((768 KiB + 1 KiB) * 4 / 3) + 2 KiB`, or 1,051,989 bytes and at most 33
+chunks. SQL checks that cap before loading the transfer bytes. Chunk bytes/order,
+consecutive delivery and frame credit follow the object-transfer rules below;
+assembly uses the same absolute two-second deadline. Partial bytes never advance
+or persist the referenced statement. Before admission, clients check strict model
+syntax and payload digest, the reference's model statement hash, pinned owner
+root/space, owner signature, next revision and previous hash. The completed
+membership page must agree with its advertised target head before log persistence
+and dependent chain/wrap/content admission. Invalid/oversized/interrupted transfers
+discard partial bytes without truncating durable statements; payload admission
+remains 768 KiB.
 
 After membership, pages carry `wraps` addressed to this device or its member,
 ordered by numeric epoch, kind, recipient and revision. They include retained
@@ -1153,8 +1215,9 @@ the requested epoch, and are bounded by 512 entries and 60 KiB encoded bytes per
 page. An empty list means no wraps exist. Each stream-object page carries
 `chains:[{deviceId,chain}]` with exact chain transport as canonical base64url for
 its author if not already sent on the connection (at most 64 per page). Retained
-revoked-author chains can be delivered: clients must reject them using the
-verified log before applying objects. A chain never grants current authority.
+revoked-author chains can be delivered: clients MUST enforce the verified log's
+[signed-cut restrictions](#decoder-isolation-compaction-and-limits) on historical
+objects before applying them. A chain never grants current authority.
 
 `baseline` is null or canonical base64url of exact model baseline-descriptor
 JSON, bounded to 8 KiB. Its scope/revision must match the admitted page/epoch and

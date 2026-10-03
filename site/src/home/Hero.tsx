@@ -2,7 +2,7 @@ import { Inline } from "../components/Inline";
 import { LocalLink } from "../components/LocalLink";
 import { Tag } from "../components/marks";
 import { useStrings } from "../lang/useStrings";
-import { HandoffScene } from "./HandoffScene";
+import { SpatialExchange } from "./SpatialExchange";
 
 export function Hero() {
   const { home } = useStrings();
@@ -81,7 +81,7 @@ export function Hero() {
             </LocalLink>
           </p>
         </div>
-        <HandoffScene />
+        <SpatialExchange />
       </div>
     </div>
   );

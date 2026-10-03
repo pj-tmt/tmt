@@ -16,6 +16,8 @@ pub(super) struct NotebookLines {
     pub look: crate::look::Look,
     pub lines: Vec<Line<'static>>,
     pub sources: Vec<usize>,
+    pub links: Vec<super::markdown::Link>,
+    pub hits: Vec<super::markdown::LinkHit>,
 }
 
 pub(super) struct Grid {

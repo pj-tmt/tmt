@@ -70,6 +70,10 @@ bootstrap or upgrade gates. Keep their shared runtime proof in one owner.
 Formatter migrations preserve DEVELOPMENT's per-owner options and separate
 code/docs selections, with mechanical output isolated from configuration changes.
 Keep exact regeneration and semantic equivalence evidence in the PR.
+Lint migrations preserve per-owner file arguments, plugins, warning severities and
+exit behavior. Compare effective rules and diagnostic multisets, and record newly
+enabled defaults separately; DEVELOPMENT owns the workspace lint commands and shared
+configuration. Keep compiler checks separate until an explicit equivalence decision.
 
 For installed-agent guidance changes, follow DEVELOPMENT's installed guidance
 source ownership: edit the single canonical skill, verify native provider links

@@ -6,6 +6,7 @@ export const BASELINE_UPDATE_BYTES = SOURCE_BYTES + UPDATE_BYTES + 1024;
 export const STATE_BYTES = 4 * 1024 * 1024;
 export type FoldCommand =
   | { type: 'apply' | 'check'; updates: Uint8Array[] }
+  | { type: 'checkpoint'; update: Uint8Array }
   | { type: 'prepare'; source: string; base?: string }
   | {
       type: 'baseline';

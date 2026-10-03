@@ -3,7 +3,7 @@
 
 use super::{
     attachment::{LaunchOptions, TOKEN_ENV},
-    record::{Process, Ready, Record, Store},
+    record::{FreshEndpoint, Process, Ready, Record, Store},
     server::{OwnedServer, StartError},
     transport::Client,
 };
@@ -60,34 +60,58 @@ impl Lease {
         ))?;
         let server = lease.server.as_ref().expect("owned server just assigned");
         let mut client = Client::connect(&server.endpoint, deadline).map_err(|_| invalid())?;
-        let id = uuid::Uuid::new_v4().to_string();
-        let (method, params) = match resume_session {
-            Some(session) => ("thread/resume", options.thread_resume_params(session)),
-            None => ("thread/start", options.thread_start_params()),
-        };
-        let response = client
-            .call(&json!({"id":id,"method":method,"params":params}), &id)
-            .map_err(|_| invalid())?;
-        let session = created_thread(&response, options.working_directory())?;
-        if resume_session.is_some_and(|expected| expected != &session) {
-            return Err(invalid());
+        if let Some(expected) = resume_session {
+            let id = uuid::Uuid::new_v4().to_string();
+            let response = client.call(&json!({"id":id,"method":"thread/resume", "params":options.thread_resume_params(expected)}), &id).map_err(|_| invalid())?;
+            let session = created_thread(&response, options.working_directory())?;
+            if expected != &session {
+                return Err(invalid());
+            }
+            lease.command = options
+                .foreground(command, &server.endpoint.url(), &session)
+                .map_err(|_| invalid())?;
+            lease.record = lease.store.ready(
+                &lease.record,
+                Ready {
+                    server: Process::of(&server.incarnation),
+                    port: server.endpoint.port(),
+                    thread: session.as_str().into(),
+                },
+            )?;
+            lease.session = Some(session);
+        } else {
+            let id = uuid::Uuid::new_v4().to_string();
+            let response = client
+                .call(
+                    &json!({"id":id,"method":"thread/loaded/list","params":{}}),
+                    &id,
+                )
+                .map_err(|_| invalid())?;
+            if response.get("error").is_some()
+                || response
+                    .pointer("/result/data")
+                    .and_then(Value::as_array)
+                    .is_none_or(|data| !data.is_empty())
+            {
+                return Err(invalid());
+            }
+            lease.command = options
+                .fresh_foreground(command, &server.endpoint.url())
+                .map_err(|_| invalid())?;
+            lease.record = lease.store.fresh_endpoint(
+                &lease.record,
+                FreshEndpoint {
+                    server: Process::of(&server.incarnation),
+                    port: server.endpoint.port(),
+                    cwd: options.working_directory().canonicalize()?,
+                    thread: None,
+                },
+            )?;
         }
-        lease.command = options
-            .foreground(command, &server.endpoint.url(), &session)
-            .map_err(|_| invalid())?;
         lease.environment = super::channel_context::environment(&lease.record);
         lease
             .environment
             .push((TOKEN_ENV.into(), server.capability().into()));
-        lease.record = lease.store.ready(
-            &lease.record,
-            Ready {
-                server: Process::of(&server.incarnation),
-                port: server.endpoint.port(),
-                thread: session.as_str().into(),
-            },
-        )?;
-        lease.session = Some(session);
         // A planned foreground may exist as soon as the command is returned.
         // EOF/withdraw is not evidence that it ended.
         lease.cleanup = EnrollmentCleanup::PreserveForeground;

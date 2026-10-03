@@ -40,6 +40,8 @@ export const text = {
   saving: 'Saving…',
   editFailed:
     'The edit was not saved. Reopen the page to review the latest source before trying again.',
+  ownNotDisplayed:
+    'This page contains authenticated own data. Comments and activity are not displayed yet.',
   reload: 'Reload',
   pages: 'Pages',
   home: 'Space home',

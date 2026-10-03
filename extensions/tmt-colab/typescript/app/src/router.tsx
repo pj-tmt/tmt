@@ -110,7 +110,11 @@ function Home() {
 function Page() {
   const snapshot = page.useLoaderData();
   const [showSource, setShowSource] = useState(false);
-  const [view, setView] = useState({ source: snapshot.source, title: snapshot.title });
+  const [view, setView] = useState({
+    source: snapshot.source,
+    title: snapshot.title,
+    ownData: snapshot.ownData ?? false,
+  });
   const latest = useRef(view),
     dirty = useRef(false),
     base = useRef(snapshot.source);
@@ -122,13 +126,14 @@ function Page() {
     dirty.current = false;
     base.current = snapshot.source;
     setDraft(snapshot.source);
-    setView({ source: snapshot.source, title: snapshot.title });
+    setView({ source: snapshot.source, title: snapshot.title, ownData: snapshot.ownData ?? false });
     setLiveError(null);
     setEditError(null);
     const unsubscribe = snapshot.binding?.subscribe(
       (value) => {
-        latest.current = value;
-        setView(value);
+        const next = { ...value, ownData: value.ownData ?? false };
+        latest.current = next;
+        setView(next);
         if (!dirty.current) {
           base.current = value.source;
           setDraft(value.source);
@@ -188,6 +193,7 @@ function Page() {
           {text.source}
         </button>
       </div>
+      {view.ownData && <p role="status">{text.ownNotDisplayed}</p>}
       <div className={`workspace ${showSource ? 'split' : ''}`}>
         {showSource && (
           <div className="source">

@@ -3,6 +3,7 @@
 //! and actions leave as fully resolved requests.
 
 use super::scroll::{Scrolls, Step, WHEEL_LINES};
+use crate::links::Kind;
 use crate::{
     action::{Action, Bindings, Verb},
     attention::Attention,
@@ -29,6 +30,8 @@ pub struct View {
     pub token_rate: Option<RateView>,
     /// The `status --json` document, so the board and `status` never differ.
     pub document: Value,
+    /// Retained home composition; only the aggregate board view owns it.
+    pub home: Option<super::home::Home>,
     pub(super) derived: RefCell<super::derived::Derived>,
     pub rows: crate::rows::Rows,
     pub board: Board,
@@ -40,8 +43,10 @@ pub struct View {
     pub bindings: Bindings,
     /// Each document section's own bindings, in document order.
     pub section_bindings: Vec<Bindings>,
+    pub configured_bindings: Bindings,
     pub opener: Option<Vec<String>>,
     pub clipboard: Option<Vec<String>>,
+    pub links: crate::links::Handlers,
     /// `[tabs.colors]`, re-read with every load like the rest of squad.toml.
     pub tab_colors: crate::config::TabColors,
     /// The user's saved identity, the sender of talk, reply and annotate.
@@ -95,6 +100,10 @@ pub enum Request {
         program: Option<Vec<String>>,
     },
     Run(Vec<String>),
+    RevealFile {
+        path: String,
+        opener: Option<Vec<String>>,
+    },
     Talk {
         me: String,
         squad: String,
@@ -165,8 +174,17 @@ pub struct MenuEntry {
     pub choice: Choice,
 }
 
+/// Opening sender/member retained until a link composer is submitted.
+#[derive(Clone)]
+pub struct LinkSend {
+    member: String,
+    sender: String,
+}
+
 /// The row's action menu, or the choice among a member's open requests.
 pub struct Menu {
+    pub link: Option<LinkSend>,
+    pub prefill: String,
     pub title: String,
     pub entries: Vec<MenuEntry>,
     pub selected: usize,
@@ -182,6 +200,7 @@ pub enum Compose {
 
 /// The one-line composer: Enter sends, Esc cancels, empty sends nothing.
 pub struct Input {
+    pub link: Option<LinkSend>,
     pub prompt: String,
     pub text: String,
     pub compose: Compose,
@@ -233,6 +252,8 @@ pub struct TitleHit {
 
 #[derive(Default)]
 pub struct App {
+    pub(super) note_link: Option<(String, usize)>,
+    pub(super) link_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
     pub(super) note_cursors: RefCell<BTreeMap<String, super::notes::NotesCursor>>,
     pub(super) note_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
     pub(super) notebooks: RefCell<super::notes::Notebooks>,
@@ -394,6 +415,7 @@ impl App {
 
     /// Another squad is now on screen: its selection and scrolling start over.
     fn shown_changed(&mut self) {
+        self.note_link = None;
         self.selected = 0;
         self.scrolls = Scrolls::default();
         self.follow = true;
@@ -414,6 +436,11 @@ impl App {
     /// Swaps in a loaded squad in one step. A result for a squad the user
     /// already left is kept for switching back, never shown.
     pub fn apply(&mut self, snapshot: Snapshot) {
+        debug_assert!(
+            !snapshot.view.as_ref().is_ok_and(|view| view.home.is_some())
+                || snapshot.squad.as_deref() == Some(super::ALL),
+            "home data belongs to the aggregate snapshot"
+        );
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
         self.pinned = snapshot.pinned;
@@ -934,6 +961,8 @@ impl App {
                     .collect();
                 entries.sort_by_key(|entry| entry.key.chars().count() > 1);
                 self.menu = Some(Menu {
+                    link: None,
+                    prefill: String::new(),
                     title: row["name"].as_str().unwrap_or_default().to_owned(),
                     entries,
                     selected: 0,
@@ -998,6 +1027,7 @@ impl App {
 
     fn ask(&mut self, prompt: String, compose: Compose, squad: String) -> Effect {
         self.input = Some(Input {
+            link: None,
             prompt,
             text: String::new(),
             compose,
@@ -1066,6 +1096,8 @@ impl App {
                     [only] => self.choose(only.choice.clone()),
                     _ => {
                         self.menu = Some(Menu {
+                            link: None,
+                            prefill: String::new(),
                             title: format!("reply to {name}"),
                             entries: open,
                             selected: 0,
@@ -1125,6 +1157,174 @@ impl App {
         self.ask(prompt, Compose::Annotate { to, row }, squad)
     }
 
+    fn link_member(&self, name: &str) -> Option<&Value> {
+        self.view.as_ref()?.document["sections"]
+            .as_array()?
+            .iter()
+            .flat_map(|section| section["rows"].as_array().into_iter().flatten())
+            .find(|row| row["name"].as_str() == Some(name) || row["id"].as_str() == Some(name))
+            .or_else(|| {
+                let lead = &self.view.as_ref()?.document["squad"]["lead"];
+                (lead["name"].as_str() == Some(name) || lead["id"].as_str() == Some(name))
+                    .then_some(lead)
+            })
+    }
+
+    pub(super) fn selected_link(&self) -> Option<super::markdown::Link> {
+        let (target, offset) = self.note_link.as_ref()?;
+        self.view
+            .as_ref()?
+            .derived
+            .borrow()
+            .notes
+            .as_ref()?
+            .links
+            .iter()
+            .find(|link| &link.target == target && &link.offset == offset)
+            .cloned()
+    }
+
+    fn note_binding(&self, key: KeyEvent) -> Option<Action> {
+        let view = self.view.as_ref()?;
+        let event = event_name(key)?;
+        self.rows()
+            .get(self.selected)
+            .and_then(|(index, _)| view.section_bindings.get(*index))
+            .and_then(|bindings| bindings.get(&event))
+            .or_else(|| view.configured_bindings.get(&event))
+            .cloned()
+    }
+
+    fn choose_link(&mut self, id: usize) -> bool {
+        let Some(view) = &self.view else {
+            return false;
+        };
+        let derived = view.derived.borrow();
+        let Some(notes) = &derived.notes else {
+            return false;
+        };
+        let Some(link) = notes.links.get(id) else {
+            return false;
+        };
+        self.note_link = Some((link.target.clone(), link.offset));
+        self.notice = None;
+        if let (Some(key), Notes::Text(text), Some(hit)) = (
+            self.shown_tab(),
+            &view.notes,
+            notes.hits.iter().find(|hit| hit.link == id),
+        ) {
+            let mut cursors = self.note_cursors.borrow_mut();
+            let cursor = cursors.entry(key.to_owned()).or_default();
+            cursor.select_visual(text, &notes.sources, hit.line);
+            cursor.follow = true;
+        }
+        true
+    }
+
+    fn select_link(&mut self, step: isize) -> Effect {
+        let state = self.view.as_ref().and_then(|view| {
+            view.derived.borrow().notes.as_ref().map(|notes| {
+                (
+                    notes.links.len(),
+                    notes.links.iter().position(|link| {
+                        self.note_link.as_ref() == Some(&(link.target.clone(), link.offset))
+                    }),
+                )
+            })
+        });
+        let Some((len, old)) = state else {
+            return Effect::None;
+        };
+        if len == 0 {
+            self.note_link = None;
+            self.next_pane();
+            return Effect::None;
+        }
+        let next = old.map_or(if step < 0 { len - 1 } else { 0 }, |old| {
+            (old as isize + step).rem_euclid(len as isize) as usize
+        });
+        self.choose_link(next);
+        Effect::None
+    }
+
+    fn activate_link(&mut self) -> Effect {
+        if self.loading() {
+            return self.say("The board is loading; link refused.");
+        }
+        let Some(link) = self.selected_link() else {
+            return Effect::None;
+        };
+        let view = self.view.as_ref().expect("rendered link has a view");
+        match link.kind {
+            Kind::Web | Kind::Github => Effect::Act(Request::Open {
+                link: link.target,
+                opener: view.opener.clone(),
+            }),
+            Kind::File(path) => Effect::Act(Request::RevealFile {
+                path,
+                opener: view.opener.clone(),
+            }),
+            Kind::Custom { scheme, path } => {
+                match crate::links::argv(&view.links, &scheme, &path) {
+                    Ok(argv) => Effect::Act(Request::Run(argv)),
+                    Err(reason) => self.say(reason),
+                }
+            }
+            Kind::Tmt {
+                verb: Verb::Back, ..
+            } => Effect::Act(Request::Back),
+            Kind::Tmt {
+                verb,
+                member: Some(member),
+                text,
+            } => {
+                let Some(row) = self.link_member(&member).cloned() else {
+                    return self.say("Link target is not a current squad member.");
+                };
+                let member = row["name"].as_str().unwrap_or_default().to_owned();
+                match verb {
+                    Verb::Jump => Effect::Act(Request::Jump(member)),
+                    Verb::Copy => match Action::parse("copy").unwrap().args[0].fill(&row) {
+                        Ok(text) => Effect::Act(Request::Copy {
+                            text,
+                            program: view.clipboard.clone(),
+                        }),
+                        Err(reason) => self.say(reason),
+                    },
+                    Verb::Open => match effects::default_link(&row)
+                        .ok_or_else(|| "This member has no link.".to_owned())
+                        .and_then(effects::web_link)
+                    {
+                        Ok(link) => Effect::Act(Request::Open {
+                            link: link.to_owned(),
+                            opener: view.opener.clone(),
+                        }),
+                        Err(reason) => self.say(reason),
+                    },
+                    Verb::Talk | Verb::Reply | Verb::Annotate => {
+                        let sender = view.me.clone().unwrap_or_default();
+                        let action = Action::parse(verb.name()).expect("built-in verb");
+                        let effect = self.compose(&action, &row);
+                        if let Some(input) = &mut self.input {
+                            input.text = text.clone();
+                            input.link = Some(LinkSend {
+                                member: member.clone(),
+                                sender: sender.clone(),
+                            });
+                        }
+                        if let Some(menu) = &mut self.menu {
+                            menu.prefill = text;
+                            menu.link = Some(LinkSend { member, sender });
+                        }
+                        effect
+                    }
+                    _ => self.say("Unsupported link verb."),
+                }
+            }
+            _ => self.say("Invalid link target."),
+        }
+    }
+
     fn move_note(&self, step: Step) {
         let (Some(view), Some(key)) = (&self.view, self.shown_tab()) else {
             return;
@@ -1170,6 +1370,27 @@ impl App {
         }
         let input = self.input.take().expect("composing");
         let text = input.text.trim().to_owned();
+        if let Some(LinkSend { member, sender }) = &input.link {
+            let row = self.link_member(member);
+            let valid = self.view.as_ref().and_then(|view| view.me.as_ref()) == Some(sender)
+                && !self.loading()
+                && self.current.as_deref() == Some(&input.squad)
+                && row.is_some_and(|row| match &input.compose {
+                    Compose::Talk { to } => to == member,
+                    Compose::Annotate { to, .. } => self.lead().as_ref() == Ok(to),
+                    Compose::Reply { request, from } => {
+                        from == member
+                            && row["waitingOnYou"].as_array().is_some_and(|items| {
+                                items
+                                    .iter()
+                                    .any(|item| item["requestId"].as_str() == Some(request))
+                            })
+                    }
+                });
+            if !valid {
+                return self.say("The link target or request changed; nothing sent.");
+            }
+        }
         let squad = input.squad;
         let Some(me) = self.view.as_ref().and_then(|view| view.me.clone()) else {
             return Effect::None;
@@ -1235,8 +1456,15 @@ impl App {
                 }
             }
         };
+        let prefill = menu.prefill.clone();
+        let link = menu.link.clone();
         self.menu = None;
-        chosen.map_or(Effect::None, |choice| self.choose(choice))
+        let effect = chosen.map_or(Effect::None, |choice| self.choose(choice));
+        if let Some(input) = &mut self.input {
+            input.text = prefill;
+            input.link = link;
+        }
+        effect
     }
 
     pub fn key(&mut self, key: KeyEvent) -> Effect {
@@ -1327,6 +1555,20 @@ impl App {
             return Effect::None;
         }
         if self.focused_pane() == Some(Pane::Notes) && !self.help {
+            if matches!(key.code, KeyCode::Tab | KeyCode::BackTab | KeyCode::Enter)
+                && let Some(action) = self.note_binding(key)
+            {
+                return self.perform(&action);
+            }
+            if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
+                return self.select_link(if key.code == KeyCode::BackTab { -1 } else { 1 });
+            }
+            if key.code == KeyCode::Enter && self.note_link.is_some() {
+                return self.activate_link();
+            }
+            if key.code == KeyCode::Esc && self.note_link.take().is_some() {
+                return Effect::None;
+            }
             let step = match key.code {
                 KeyCode::Up | KeyCode::Char('k') => Some(Step::Lines(-1)),
                 KeyCode::Down | KeyCode::Char('j') => Some(Step::Lines(1)),
@@ -1342,6 +1584,7 @@ impl App {
                 {
                     return self.perform(&action);
                 }
+                self.note_link = None;
                 self.move_note(step);
                 return Effect::None;
             }
@@ -1565,6 +1808,25 @@ impl App {
         }
         self.focus_at(event.column, event.row);
         if self.focused_pane() == Some(Pane::Notes) {
+            let hit = self
+                .link_hits
+                .borrow()
+                .iter()
+                .find(|(area, _)| {
+                    area.contains(ratatui::layout::Position::new(event.column, event.row))
+                })
+                .map(|(_, link)| *link);
+            if let Some(id) = hit {
+                let previous = self.note_link.clone();
+                if self.choose_link(id) {
+                    return if previous == self.note_link {
+                        self.activate_link()
+                    } else {
+                        Effect::None
+                    };
+                }
+            }
+            self.note_link = None;
             if let (Some(key), Some(view)) = (self.shown_tab(), &self.view)
                 && let Notes::Text(text) = &view.notes
                 && let Some((_, visual)) = self.note_hits.borrow().iter().find(|(area, _)| {
@@ -1645,6 +1907,7 @@ pub(crate) mod tests {
     fn view(sections: Value) -> View {
         View {
             token_rate: None,
+            home: None,
             derived: Default::default(),
             document: json!({"squad": {"name": "product"}, "sections": sections}),
             rows: crate::rows::Rows::preset(),
@@ -1659,14 +1922,45 @@ pub(crate) mod tests {
             render: crate::config::NotesRender::Markdown,
             bindings: crate::action::preset(true, &[]),
             section_bindings: Vec::new(),
+            configured_bindings: Default::default(),
             opener: None,
             clipboard: None,
+            links: Default::default(),
             tab_colors: Default::default(),
             look: Default::default(),
             theme_notice: None,
             me: None,
             replies: Vec::new(),
         }
+    }
+
+    #[test]
+    fn late_home_snapshot_is_retained_under_its_own_key() {
+        let mut app = App::new(Some("product".into()));
+        let mut home = snapshot(super::super::ALL, json!([]));
+        home.tabs.push(super::super::ALL.into());
+        home.view.as_mut().unwrap().home = Some(super::super::home::Home {
+            summary: super::super::home::Counts {
+                members: 7,
+                ..Default::default()
+            },
+            sections: Vec::new(),
+            squads: Vec::new(),
+            failures: Vec::new(),
+            incomplete: false,
+        });
+        app.apply(home);
+        assert_eq!(app.current.as_deref(), Some("product"));
+        assert!(app.view.is_none());
+        assert_eq!(
+            app.cache[super::super::ALL]
+                .home
+                .as_ref()
+                .unwrap()
+                .summary
+                .members,
+            7
+        );
     }
 
     pub(crate) fn snapshot(squad: &str, sections: Value) -> Snapshot {
@@ -1831,6 +2125,7 @@ pub(crate) mod tests {
             ]),
         );
         let view = snapshot.view.as_mut().unwrap();
+        view.configured_bindings = bindings.clone();
         view.bindings = bindings;
         view.section_bindings = sections;
         view.clipboard = Some(vec!["pbcopy".into()]);
@@ -2194,6 +2489,7 @@ pub(crate) mod tests {
                 },
             ] {
                 app.input = Some(Input {
+                    link: None,
                     prompt: "message".into(),
                     text: "draft".into(),
                     compose: compose.clone(),
@@ -2716,6 +3012,7 @@ mod token_window_tests {
             },
         ] {
             app.input = Some(Input {
+                link: None,
                 prompt: "message".into(),
                 text: String::new(),
                 compose,
@@ -2756,5 +3053,115 @@ mod token_window_tests {
         snapshot.hidden.clear();
         app.apply(snapshot);
         assert!(app.meters.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod link_tests {
+    use super::*;
+    use serde_json::json;
+    fn app(target: &str) -> App {
+        let mut app = tests::crew(Default::default(), Vec::new());
+        let view = app.view.as_mut().unwrap();
+        view.me = Some("Ben".into());
+        view.document["squad"]["lead"] = json!({"name":"auth-fix"});
+        view.notes = Notes::Text(format!("[action]({target})"));
+        let Notes::Text(text) = &view.notes else {
+            unreachable!()
+        };
+        let mapped = super::super::markdown::render_links(text, 80, view.look, &view.links);
+        view.derived.borrow_mut().notes = Some(super::super::derived::NotebookLines {
+            width: 80,
+            look: view.look,
+            lines: mapped.lines,
+            sources: mapped.sources,
+            links: mapped.links,
+            hits: mapped.hits,
+        });
+        app.select_link(1);
+        app
+    }
+    fn enter(app: &mut App) -> Effect {
+        app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+    }
+    #[test]
+    fn builtins_use_the_existing_prompt_and_cancel_or_stale_targets_send_nothing() {
+        for verb in ["talk", "annotate"] {
+            let mut app = app(&format!("tmt:{verb}/auth-fix?text=hello%20%24%28id%29"));
+            assert_eq!(app.activate_link(), Effect::None);
+            assert_eq!(app.input.as_ref().unwrap().text, "hello $(id)");
+            assert_eq!(
+                app.input_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+                Effect::None
+            );
+            assert!(app.input.is_none());
+            app.activate_link();
+            app.view.as_mut().unwrap().document["sections"][0]["rows"] = json!([]);
+            app.view.as_mut().unwrap().document["squad"]["lead"] = serde_json::Value::Null;
+            assert_eq!(enter(&mut app), Effect::None);
+            assert!(app.notice.as_ref().unwrap().contains("nothing sent"));
+        }
+        let mut app = app("tmt:talk/auth-fix?text=hello");
+        app.activate_link();
+        app.view.as_mut().unwrap().me = Some("Other".into());
+        assert_eq!(enter(&mut app), Effect::None);
+        app.view.as_mut().unwrap().me = Some("Ben".into());
+        app.activate_link();
+        assert_eq!(
+            enter(&mut app),
+            Effect::Act(Request::Talk {
+                me: "Ben".into(),
+                squad: "product".into(),
+                to: "auth-fix".into(),
+                text: "hello".into()
+            })
+        );
+    }
+    #[test]
+    fn answer_picker_is_prefilled_and_revalidates_current_open_requests() {
+        let mut app = app("tmt:answer/auth-fix?text=answer");
+        app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["waitingOnYou"] = json!([
+            {"requestId":"one", "preview":"first"}, {"requestId":"two", "preview":"second"}
+        ]);
+        assert_eq!(app.activate_link(), Effect::None);
+        assert!(app.input.is_none());
+        assert_eq!(app.menu.as_ref().unwrap().prefill, "answer");
+        app.menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.input.as_ref().unwrap().text, "answer");
+        assert_eq!(
+            enter(&mut app),
+            Effect::Act(Request::Reply {
+                me: "Ben".into(),
+                request: "one".into(),
+                from: "auth-fix".into(),
+                text: "answer".into()
+            })
+        );
+        app.activate_link();
+        app.menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["waitingOnYou"] = json!([]);
+        assert_eq!(enter(&mut app), Effect::None);
+    }
+    #[test]
+    fn all_member_verbs_refuse_nonmembers_and_a_retained_loading_frame() {
+        for verb in ["jump", "talk", "answer", "open", "copy", "annotate"] {
+            let mut app = app(&format!("tmt:{verb}/missing"));
+            assert_eq!(app.activate_link(), Effect::None);
+            assert!(app.input.is_none() && app.menu.is_none());
+        }
+        let mut lead = app("tmt:jump/Lead");
+        lead.view.as_mut().unwrap().document["squad"]["lead"] =
+            json!({"id":"lead-id", "name":"Lead"});
+        assert_eq!(
+            lead.activate_link(),
+            Effect::Act(Request::Jump("Lead".into()))
+        );
+        let mut app = app("tmt:jump/auth-fix");
+        assert_eq!(
+            app.activate_link(),
+            Effect::Act(Request::Jump("auth-fix".into()))
+        );
+        app.current = Some("infra".into());
+        assert_eq!(app.activate_link(), Effect::None);
     }
 }

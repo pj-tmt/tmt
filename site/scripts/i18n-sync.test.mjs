@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { blobSha, checkTranslations, readFrontMatter } from "./i18n-sync.mjs";
 
-const languages = { "site/src/i18n/ja": "ja", "site/src/i18n/zh": "zh-Hant" };
+const languages = { "site/src/i18n/ja": "ja", "site/src/i18n/zh-hant": "zh-Hant" };
 
 // A repository root with English chapters and optional translated pages.
 function fixture(files, run) {
@@ -93,8 +93,8 @@ test("untranslated chapters are listed per language and are not errors", () => {
   assert.deepEqual(result.errors, []);
   assert.deepEqual(result.untranslated.sort(), [
     "site/src/i18n/ja/squad.mdx",
-    "site/src/i18n/zh/squad.mdx",
-    "site/src/i18n/zh/start.mdx",
+    "site/src/i18n/zh-hant/squad.mdx",
+    "site/src/i18n/zh-hant/start.mdx",
   ]);
 });
 
@@ -111,13 +111,13 @@ test("malformed pages are errors, each for its own reason", () => {
   };
   const files = { "site/src/chapters/start.mdx": "x", "site/src/chapters/squad.mdx": "x" };
   files["site/src/chapters/drivers.mdx"] = "x";
-  for (const [name, [text]] of Object.entries(cases)) files[`site/src/i18n/zh/${name}`] = text;
+  for (const [name, [text]] of Object.entries(cases)) files[`site/src/i18n/zh-hant/${name}`] = text;
   const result = fixture(files, (root) => checkTranslations(root, languages));
   assert.deepEqual(result.stale, []);
   const byPath = Object.fromEntries(result.errors.map((error) => [error.path, error.message]));
   assert.equal(Object.keys(byPath).length, 4);
   for (const [name, [, pattern]] of Object.entries(cases)) {
-    assert.match(byPath[`site/src/i18n/zh/${name}`], pattern);
+    assert.match(byPath[`site/src/i18n/zh-hant/${name}`], pattern);
   }
 });
 
@@ -169,13 +169,13 @@ test("a strings.json without a usable $source is an error", () => {
       {
         "site/src/lang/strings.ts": STRINGS_TS,
         "site/src/chapters/start.mdx": "x",
-        "site/src/i18n/zh/strings.json": json,
+        "site/src/i18n/zh-hant/strings.json": json,
       },
       (root) => checkTranslations(root, languages),
     );
     assert.equal(result.errors.length, 1, json);
     assert.match(result.errors[0].message, pattern);
-    assert.equal(result.errors[0].path, "site/src/i18n/zh/strings.json");
+    assert.equal(result.errors[0].path, "site/src/i18n/zh-hant/strings.json");
   }
 });
 

@@ -119,6 +119,7 @@ function run(
     systemPath?: string[];
     installerVersions?: string[];
     fetchError?: string;
+    retry?: boolean;
   } = {}
 ) {
   const root = path.join(base, `run-${(counter += 1)}`);
@@ -145,6 +146,7 @@ function run(
       repository: 'wkh237/tmt',
       root: path.join(root, 'work'),
       now: () => 1893456000000,
+      retry: options.retry,
       ...(options.systemPath ? { systemPath: options.systemPath } : {}),
       fetch: async (url: string) => {
         fetched.push(url);
@@ -366,6 +368,20 @@ describe('the public installer smoke of a CLI release', () => {
     expect(
       readFileSync(path.join(attempt.root, 'work', 'home', 'upgrade-count'), 'utf8').trim()
     ).toBe('2');
+  });
+
+  it('preserves the exact reset diagnostic and allows no further acquisition attempt in a deferred retry', async () => {
+    const attempt = run({ upgradeCause: diagnostic(), upgradeFailures: 1 }, { retry: true });
+    expect((await attempt.results).at(-1)).toMatchObject({
+      ok: false,
+      infrastructure: 'github-api-rate-limit',
+      rateLimit: { diagnostic: diagnostic(), resetAtMs: 1893456002000 },
+    });
+    expect(attempt.waits).toEqual([]);
+    expect(
+      readFileSync(path.join(attempt.root, 'work', 'home', 'upgrade-count'), 'utf8').trim()
+    ).toBe('1');
+    expect(failed(await run({}, { retry: true }).results)).toEqual([]);
   });
 
   it.each([

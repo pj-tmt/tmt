@@ -1,0 +1,60 @@
+---
+source: site/src/chapters/concepts.mdx
+sourceRevision: a388f87fd84d2b8665dc35288cba29bd7eee3a75
+title: 四個詞就能說明大部分概念
+---
+
+import { Cmd } from "../../components/Cmd";
+import { components as Mdx } from "../../components/mdx";
+import { Terms } from "../../components/marks";
+import { Badge, States } from "../../components/samples";
+
+<Terms>
+  <dt>identity</dt>
+  <dd>
+    可保留的名稱，例如 <code>reviewer</code>。名稱是全域的，不限於某個資料夾。已儲存的名稱（
+    <code>-s</code>）在窗格消失後仍會保留；暫時名稱會跟著窗格一起消失。
+  </dd>
+  <dt>binding</dt>
+  <dd>
+    identity 目前所在的位置，例如某個 tmux 窗格。如果兩個 agent 都可能是呼叫者，tmt 不會用猜的。
+  </dd>
+  <dt>driver</dt>
+  <dd>
+    tmt 對某種程式的了解。tmux driver 認得窗格；Claude Code 和 Codex driver 認得各自的對話與 hook。
+  </dd>
+  <dt>extension</dt>
+  <dd>
+    名為 <code>tmt-&lt;name&gt;</code> 的選用程式，會新增 <code>tmt &lt;name&gt;</code>
+    指令。Squad 就是一個擴充套件。
+  </dd>
+</Terms>
+
+<Mdx.h3 id="agent-states">Agent 狀態</Mdx.h3>
+
+tmt 會記錄綁定位置中的 agent 是否正在執行。選用的窗格徽章會顯示這個狀態。
+
+<States
+  items={[
+    [<Badge name="reviewer" state="running" />, "Running。", "訊息會貼進窗格。"],
+    [
+      <Badge name="reviewer" state="ended" />,
+      "Ended。",
+      "tmt 不會把訊息貼進只有 shell 的窗格。訊息會留在 agent 的 inbox 等待，並通知你。",
+    ],
+    [
+      <Badge name="reviewer" state="unknown" />,
+      "Unknown。",
+      "最近沒有足夠的資訊能確認狀態。訊息仍照原本的方式傳送。",
+    ],
+  ]}
+/>
+
+<Mdx.h3 id="what-a-new-session-sees">新 session 會看到什麼</Mdx.h3>
+
+<Cmd>{`
+$ tmt whoami --context
+TMT identity: "reviewer" (saved)
+Originated X items: 3 unacknowledged
+Incoming X items: 0 unacknowledged
+`}</Cmd>

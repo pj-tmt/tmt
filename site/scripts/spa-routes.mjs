@@ -1,5 +1,5 @@
 // GitHub Pages serves files, not routes. Give every handbook page its own
-// index.html in every language (/, /ja/, /zh/), so a deep link or a reload
+// index.html in every language (/, /ja/, /zh-hant/), so a deep link or a reload
 // returns 200, and a 404.html that loads the same app for anything else.
 // Each file also carries what a crawler reads without running the app: its
 // <html lang> and the hreflang alternates for the same page in every language.
@@ -20,7 +20,7 @@ const pagePaths = [
 const languages = [
   { prefix: "", htmlLang: "en" },
   { prefix: "ja", htmlLang: "ja" },
-  { prefix: "zh", htmlLang: "zh-Hant" },
+  { prefix: "zh-hant", htmlLang: "zh-Hant" },
 ];
 
 // The same base as vite.config.ts. Alternates need addresses a crawler can use,
@@ -62,6 +62,20 @@ for (const language of languages) {
     writeFileSync(target, render(language, pagePath));
     files += 1;
   }
+}
+// Keep published /zh links working. The router replaces the path while retaining
+// query and hash; the canonical identifies the new route to crawlers.
+for (const pagePath of pagePaths) {
+  const target = join(dist, directory("zh", pagePath), "index.html");
+  mkdirSync(dirname(target), { recursive: true });
+  const html = render(
+    languages.find((language) => language.prefix === "zh-hant"),
+    pagePath,
+  );
+  writeFileSync(
+    target,
+    html.replace("</head>", `<link rel="canonical" href="${href("zh-hant", pagePath)}" /></head>`),
+  );
 }
 writeFileSync(join(dist, "404.html"), template);
 console.log(`spa-routes: ${files} page routes (${languages.length} languages) and 404.html`);

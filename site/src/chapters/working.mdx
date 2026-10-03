@@ -45,6 +45,8 @@ $ tmt unbind                      # in a pane: detach it; a temporary name is re
 
 `tmt add <pane> <name>` binds another pane. The pane is a tmux pane id such as `%12`, a `window.pane` or a `session:window.pane`. `tmt marked <name>` binds the pane you marked in tmux, never the active one. Add `-s` to either to save the name.
 
+After a new binding, the hint names the identity you just created. A temporary name gets a command to save it; a saved name gets a command to listen for work. The commands quote names that contain spaces or shell punctuation. Repeating a binding does not repeat the hint; `TMT_HINTS=off` disables these optional hints.
+
 A name doesn't need a pane. `tmt identity create coordinator` makes a saved name with no pane yet, and requests sent to it wait in its inbox. `tmt identity show coordinator` and `tmt identity ls` read names without tmux; add `--json` for scripts. You can attach searchable facts to a name and filter by them:
 
 <Cmd>{`
@@ -159,7 +161,7 @@ $ tmt setup claude       # hooks for one agent
 $ tmt setup codex --remove
 `}</Cmd>
 
-Your existing settings stay byte for byte apart from tmt's hooks, a backup is written first, and a failing hook never blocks the agent. `--usage` adds the optional [usage counters](/drivers#usage-counters).
+Your existing settings stay byte for byte apart from tmt's hooks, a backup is written first, and a failing hook never blocks the agent. Backups go into a private `.tmt-setup-backups` folder next to the settings file, and older backups stay where they are. tmt never deletes or moves them: past 32, setup still applies the change but warns and shows the folder so you can clean it up. `--usage` adds the optional [usage counters](/drivers#usage-counters).
 
 ### `tmt uninstall`
 

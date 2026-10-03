@@ -240,6 +240,16 @@ override so those Markdown files are checked separately. The single target lists
 live in `typescript/scripts/format-workspace.mjs`; both write and check modes expand
 parent-relative globs to absolute paths there and fail if any pattern matches nothing.
 Keep these script names and separate selections when changing formatting.
+Workspace lint commands use exact Vite+ 1.0.0 (bundled Oxlint 1.85.0), explicitly
+selecting each package's existing Vite/Vitest config. Their `lint` blocks load
+`typescript/scripts/lint-config.mjs`; keep file arguments and plugin flags with the package
+scripts. Office's isolated verification images copy this module and its type declaration
+alongside the package configuration. Tooling warnings remain visible without failing the command; extension
+checks retain `--deny-warnings`, and Office/Colab apps retain `--react-plugin`.
+The shared config individually disables three new React diagnostic classes pending
+[owner disposition](https://github.com/pj-tmt/tmt/issues/1405); the other new defaults
+remain enabled. Existing `tsc` checks and Functions' emitting compiler remain separate.
+Type-aware checking is a [separate decision](https://github.com/pj-tmt/tmt/issues/1404).
 Root tooling, native, stress, Docker and extension suites run through exact
 Vite+ 1.0.0 with bundled Vitest 5.0.1. Their separate configurations retain their
 own test discovery and are selected explicitly with `--config`. Use
@@ -637,12 +647,14 @@ A chapter opens with one such scene from `site/src/chapter-scenes/` (the working
 chapter's mark legend, the sketches on the in-progress colab and planned meet pages); its words are in `site/src/lang/strings.ts` like the home page's.
 `index.html` also asks Google Fonts for the token mono family's glyphs of the marks (`●○◌◆✗✓↻▸`), because the
 latin subset has none; the family lacks `○✗✓↻`, which fall back to the system monospace font.
-Every page exists in English at its path and under `/ja/` and `/zh/`. A translation is
+Every page exists in English at its path and under `/ja/` and `/zh-hant/`. A translation is
 `site/src/i18n/<lang>/<chapter file>.mdx`, named like the English chapter in `site/src/chapters/` and
 exporting its front matter as `frontmatter` (`title` is the page title). A page without a file shows the
-English page with a "not yet translated" note. The language switcher in the status bar (and in the `[tmt]`
+English page with a "not yet translated" note. The language dropdown in the status bar (and in the `[tmt]`
 menu on a narrow screen) keeps the page, remembers the choice in the browser and sets `<html lang>`
-(`zh` is `zh-Hant`). `scripts/spa-routes.mjs` writes each language's route files with their `<html lang>`
+(`zh-hant` is `zh-Hant`). Published `/zh/` routes redirect to `/zh-hant/`, preserving the
+page, query and anchor; the earlier browser preference `zh` also selects `zh-hant`.
+`scripts/spa-routes.mjs` writes each language's route files with their `<html lang>`
 and `hreflang` alternates; `SITE_ORIGIN` makes the alternates fully qualified, and
 `.github/workflows/site.yml` sets it to the Pages origin next to the default `/tmt/` base path.
 The words of the site's own components (home page, status bar, notes around a page) are typed data in
@@ -666,7 +678,7 @@ SITE_BASE=./ VITE_SITE_HISTORY=hash pnpm exec vp build   # a preview at an unkno
 ### Translations
 
 English is the source. A translation of `site/src/chapters/<page>.mdx` is
-`site/src/i18n/<lang>/<page>.mdx` (`ja`, `zh`) and starts with front matter:
+`site/src/i18n/<lang>/<page>.mdx` (`ja`, `zh-hant`) and starts with front matter:
 
 ```yaml
 ---
@@ -708,7 +720,7 @@ Translators keep these in English everywhere: command names, flags and ids, the
 words `talk`, `reply` and `receipt`, the board marks (● ○ ◌ ◆ ✗ ✓ ↻ ▸), sample
 terminal output and code. A translated heading keeps the English slug as an explicit
 id (`<h3 id="install">安裝</h3>`), because links, the home page and the on-this-page
-list use it and `slug()` drops non-Latin text. Chinese (`zh`) is Traditional Chinese
+list use it and `slug()` drops non-Latin text. Chinese (`zh-hant`) is Traditional Chinese
 with Taiwan usage; it also keeps `agent`, `driver`, `harness`, `board`, `colab` and
 `meet`, and uses 窗格 for pane, 終端機 for terminal, 擴充套件 for extension, 卡住 for blocked and
 恢復 for resume.
@@ -1066,6 +1078,27 @@ Owned Codex startup and attachment planning (#738) are covered by
 isolated shell stand-ins and check observable process/file cleanup; cwd probes
 compare relative and absolute `-C`. They do not start Codex or a model and do not
 replace the final live foreground continuity gate.
+
+For fresh Codex bootstrap (#1198), run focused model-free checks:
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters drivers::codex::supervisor`,
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters drivers::codex::channel_hooks`,
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters drivers::codex::record`,
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters drivers::codex::server`, and
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli --bin tmt run_command::channel`.
+They cover empty fresh baseline, one-time thread discovery, deferred publication,
+eager same-generation hooks, immediate unrelated-generation/auxiliary paths,
+immutable binding, callback failure and evidence-preserving group cleanup.
+Activity mapping tests cover exact fresh/resume foreground attribution, prompt
+Working and Stop Idle, rejection of missing/malformed/replaced/Unknown evidence,
+and the byte-identical default observed incarnation for Claude/plain hooks.
+The TERM-ignoring child test checks group SIGKILL and verified reaping without
+orphan zombies. Run `CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli --test architecture`
+for the shared admission and hook-composition boundaries. Also run
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli private_hook_worker_budget` and
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli budget_tests` for typed relative
+budget bounds, malformed arguments and the unchanged default two-second worker.
+These checks do not
+invoke a provider/model or replace the built-driver eager-TUI and Idle proof.
 
 The adapter `process::cleanup_policy_tests` must pass under both `cargo test` and
 nextest: isolated re-exec cases prove timeout cleanup regardless of whether the
@@ -1624,7 +1657,9 @@ fallback. It observes rooms and metadata through an independent SQLite reader.
 A workspace `cargo build --locked` produces the default executable. Squad unit
 tests run with `cargo test --locked -p tmt-squad`. For dependency changes,
 compare `cargo tree -p tmt-cli -e normal,build -f '{p} {f}'` with `main` and the
-package-scoped release `tmt` (see Rust checks) to prove the CLI is unchanged.
+package-scoped release `tmt` (see Rust checks) to prove the CLI is unchanged. Notebook link checks cover wrapped Unicode
+hits, target previews, configured overrides, inert unknown schemes, argv isolation
+and sender/member/open-request revalidation. Parsing and paint must perform no actions.
 
 Native Squad tests verify leadership selection and clearing without membership
 or role loss, repeated additions without overwriting state, and explicit recovery
@@ -1637,6 +1672,12 @@ Tab parity is checked by `built_in_board_documents_equal_ls_tab_documents` and
 and `ls --tab` must have identical projected documents and row-grid metadata,
 including hidden squads/tabs, source section deduplication, repeated user section
 matches, cross-squad memberships, and partial-read failure/recovery evidence.
+`board::home::tests` verifies the board-only retained model against that same
+aggregate document and text, shared section matches, per-squad membership
+counts, request/observed age provenance, bounded acquisition calls and partial
+failure recovery. The model does not change painting; frozen board parity stays
+unchanged. Use an isolated `XDG_CACHE_HOME` when testing board observation.
+
 User tab validation happens during Config reading, including hidden definitions. `--tab` conflicts
 with `--squad` and `--refresh-fields`; aggregate reads do not run providers.
 
@@ -1666,6 +1707,15 @@ measurements are local evidence, not a flaky CI threshold.
 
 Setup planning/publication tests use disposable settings files and preserve user
 hook/permission bytes, exact reruns, recovery copies and changed-input refusal.
+Claude cases cover unset/empty, absolute and relative `CLAUDE_CONFIG_DIR` roots
+across settings, skills, detection and transcript admission. Symlinked settings
+(including dangling links and replacement after planning) are preserved along
+with their target, with actionable human/JSON refusal. Backup tests independently
+compare exact bytes and private directory/file modes, preserve legacy copies,
+and prove publication continues with a directory/manual-cleanup warning above
+32 backups in `.tmt-setup-backups`. Unknown Claude `SessionEnd` reasons yield
+no lifecycle observation, with a known terminal reason as the positive control;
+rejection is not process-exit evidence.
 `test/native/setup.test.ts` owns CLI consent, stable-launcher repair/removal and
 the always-zero bounded hook failure contract, including custom `CODEX_HOME`
 without trust/config mutation. Runtime adapter tests own Claude/Codex payload
@@ -1956,10 +2006,12 @@ unchanged; only after all gates pass is it removed, followed by normal publicati
 attestation and public-install smoke checks. The
 [release skill](.agents/skills/tmt-release/SKILL.md#automated-alpha-publication) owns rerun authorization.
 
-Rerun uses the main commit selected by the dispatch for verifier scripts and their
-locked dependencies. Archives, manifest, version and digests come from the draft;
-CLI expected skill bytes and migration counts come from a separate read-only checkout
-of its release SHA (`release-source`). No scripts from that checkout run in rerun.
+Rerun uses the main commit selected by the dispatch for Node verifier scripts and
+their locked dependencies. Archives, manifest, version and digests come from the
+draft; CLI expected skill bytes, migration counts and applicable Rust adapter
+acceptance code come from a separate checkout of its release SHA (`release-source`).
+The read-only proof job compiles that source's adapter test with its own locked
+dependencies and toolchain pin; release-source Node verifier scripts do not run.
 Ordinary upgrade proof retains release-commit tooling. This separates repaired tooling
 from the unchanged candidate under test without rebuilding or replacing its assets.
 
@@ -2020,6 +2072,58 @@ The smoke job has a 25-minute bound. Infrastructure-only failures open a separat
 broken release. Mixed or real failures retain the post-publication failure issue. Both
 conclusions fail the job and retain artifacts from all four hosts. Missing or malformed
 host evidence cannot establish an infrastructure-only failure; nothing is silently accepted.
+The host artifacts are qualified by product, tag and target and retain the classified
+diagnostic and its parsed UTC reset epoch. The smoke report's shared `smokeFailureOutcome`
+output schedules only an infrastructure-only failure through a dedicated `actions: write`
+dispatch job. It explicitly POSTs `native-release-smoke-retry.yml` on main with the source
+run ID/attempt, product, tag and affected targets: `workflow_dispatch` is exempt from
+`GITHUB_TOKEN` event suppression, while completion-triggered `workflow_run` is unreliable
+for automatically dispatched native runs. Reusable callers propagate this capability;
+install and issue-report jobs do not request it.
+`public-install-retry.mjs` requires four distinct matching-host results per tag, validates
+the exact diagnostic through the smoke owner's parser, and selects only the classified
+failed acquisition targets. Unclassified hosts are never retried. Missing timing,
+inconsistent evidence or a reset more than 60 minutes away keeps the original failure.
+The retry planner verifies the source through REST: the current attempt of a same-repository
+main `workflow_dispatch` run of `native-release.yml` or standalone `native-release-smoke.yml`,
+with four matching concluded target jobs and product/tag-qualified artifact conclusions.
+Requested targets must each be classified and reset-eligible; only those targets are retried,
+while unrequested host failures retain their original conclusions. Dispatch inputs cannot
+fabricate a recovered host, select healthy targets or recursively retry a retry run.
+Host artifacts record their run attempt; artifacts from an earlier attempt cannot
+prove the current one. A partial manual rerun without four current-attempt results
+retains the issue and does not schedule recovery.
+
+One Linux job waits until the last selected reset plus one second, bounded at 60 minutes;
+each selected target then repeats the public install on its matching host with `--retry`,
+which allows one acquisition attempt without another rate-limit retry. Source and retry
+install jobs share `.github/actions/public-install-smoke`: it owns the tag data
+checkout, Node setup and verifier invocation, including any host architecture wrapper.
+Fixtures require the source matrix's target/runner pairs to equal the retry planner's `TARGETS`.
+The source dispatch finishes promptly; the long wait runs solely in the independent workflow, whose
+source-run/attempt/product/tag `public-install-retry-...` group never holds `release-<product>`
+and cannot block the next release. Only the planner has `actions: read` to verify the source
+run/jobs and download its artifacts;
+install legs have `contents: read`, no token on the acquisition path, and tag checkouts
+read solely as data. A separate `issues: write` reporter reconciles retry evidence with
+all original hosts. Full recovery comments on and closes the infrastructure issue,
+naming both runs; repeated classified failures, real failures and missing retry evidence
+retain failure reporting. Real post-publication issues are never closed by this retry.
+Recovery also leaves an infrastructure issue open when its latest reporter-owned
+failure names a different run. Shared hosted-runner quota can be exhausted again
+after the reset; that result stays failed.
+Original failed jobs remain failed, and a failed retry also fails its run. A newer release
+appearing during the wait can still fail the existing latest-installer/version checks;
+the retry does not relax them or rerun publication.
+
+Fixture-only checks for smoke and deferred reset recovery (no live install or dispatch):
+
+```bash
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/verify-public-install.test.ts test/tooling/public-install-retry.test.ts test/tooling/release-publish.test.ts test/tooling/release-workflow.test.ts)
+(cd typescript && corepack pnpm check:tooling)
+actionlint .github/workflows/native-release-smoke.yml .github/workflows/native-release-smoke-retry.yml .github/workflows/native-release-bundle.yml
+```
+
 A failed leg keeps its failed checks as data, and a final job
 with `issues: write` comments on, or opens, the issue of the checks above; nothing is rolled
 back. Both `publish` and `published` run `main`'s code and never the release commit's: `publish`
@@ -2090,13 +2194,40 @@ ended and the first thing it said. A failed host keeps its log as an artifact, a
 bounded line (it reads the logs as data, because the release commit's own scripts wrote them);
 the `upgrade` hold marker carries that reason with the run URL.
 
-The automated proof does not run `tmt upgrade` or a public installer: the candidate has no
-published release for `tmt upgrade` to find, and production has no test endpoint. By hand,
-in an isolated HOME and prefix, install the previous published version with its own public
-installer. Then run the candidate installer's `__native-install` over that prefix, and run
-the candidate's `tmt upgrade` against a receipt with that version's online
-(`github-release`) provenance. Both must succeed and leave the superseded receipt
-unchanged. Receipts written by older releases stay readable: v5.0.0-alpha.2 through
+For CLI, each `prove` host also runs the real-archive adapter acceptance test after
+the installer/migration proof, using the same digest-checked previous and candidate
+archives. `release-upgrade.mjs acceptance` compiles only `tmt-adapters`' lib tests
+from `rust/` to select its pinned toolchain, with no debug information or
+incremental compilation, then
+requires exactly one discovered and executed passing ignored test. The existing
+read-only `native-rust` dependency cache is restored without another writer. The
+job retains its ten-minute timeout; compile duration and the test's output appear
+in the run summary and proof log. A compiler, discovery or test failure fails the
+upgrade gate. CI uses Cargo's available workers; local developers export
+`CARGO_BUILD_JOBS=2`, which the verifier preserves. Extension proofs do not compile
+or run this CLI test.
+
+The adapter proof injects canonical acquisition responses into the release's
+upgrade adapter and executes real old/new binaries in isolated state. It verifies
+receipt provenance, download cleanup, retained old bytes, exact candidate skill
+bytes, conflict preservation, partial refresh failure and repair. If the two
+embedded skill texts match, only differential content-transition coverage is
+reported as skipped; the other assertions still run. An owner-authorized rerun
+uses current main's repaired tooling to compile and execute the release's own
+adapter from `release-source/rust`, selecting that source's toolchain pin. If the
+release-source checkout predates the post-#575 release-gate test form (including
+the #563 variant that requires differing text), this sub-proof reports
+`predates; not applicable` without blocking the rerun or claiming a pass. The
+installer/migration proof remains required; a missing release-source checkout is
+an error.
+
+Neither pre-publication proof runs public `tmt upgrade` downloads or a public
+installer: the candidate has no published release to find, and production has no
+test endpoint. The post-publication smoke below retains that separate live proof.
+For manual installer coverage, use an isolated HOME and prefix to install the
+previous published version with its public installer, then the candidate's
+installer. Preserve the superseded receipt. Receipts written by older releases
+stay readable: v5.0.0-alpha.2 through
 alpha.6 and Office 0.1.0-alpha.1 through alpha.3 record the pre-rename repository
 `wkh237/tmux-team`, which receipt reading accepts as the official one (#492).
 
@@ -2183,8 +2314,9 @@ prefixes, never a user's installed command or app data. The invoking executable
 must be the active release; an unmanaged checkout binary fails before networking.
 Production has no test endpoint or TLS bypass. API fixtures inject only the
 adapter's acquisition boundary; actual local TLS fixtures use test-only trust.
-Test old/new real release archives separately from synthetic tar fixtures, with
-different embedded skills, to prove the newly active executable supplies refresh.
+Test old/new real release archives separately from synthetic tar fixtures. Use
+different embedded skills for differential proof that the newly active executable
+supplies refresh; identical text still permits the remaining upgrade assertions.
 
 Channel discovery uses GitHub's product-prefixed `git/matching-refs/tags/<prefix>`
 API and exact-tag release metadata, independent of the repository's total release
@@ -2255,8 +2387,8 @@ generate target-filtered notices through cargo-about and retain complete texts.
 rcgen/rustls local-server fixtures are dev-only, not production endpoint options.
 
 The explicit actual-archive acceptance test requires separately versioned,
-matching-host cargo-dist artifacts with different embedded skills. It is ignored
-by ordinary tests, not counted as release proof until selected and passed:
+matching-host cargo-dist artifacts. It is ignored by ordinary tests and explicitly
+selected by the CLI release upgrade proof. A manual invocation is:
 
 ```sh
 TMT_UPGRADE_OLD_ARCHIVE=/absolute/old/archive.tar.gz \
@@ -2264,8 +2396,9 @@ TMT_UPGRADE_OLD_MANIFEST=/absolute/old/manifest.json \
 TMT_UPGRADE_NEW_ARCHIVE=/absolute/new/archive.tar.gz \
 TMT_UPGRADE_NEW_MANIFEST=/absolute/new/manifest.json \
 TMT_UPGRADE_TARGET=aarch64-apple-darwin \
-cargo test --locked --manifest-path rust/Cargo.toml -p tmt-adapters \
-  cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts -- --ignored
+CARGO_BUILD_JOBS=2 cargo +1.97.0 test --locked --manifest-path rust/Cargo.toml -p tmt-adapters --lib \
+  native_install::upgrade::artifact_tests::cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts \
+  -- --exact --ignored --nocapture
 ```
 
 Require one selected passing test, not an empty filtered run. This test injects
@@ -2273,6 +2406,8 @@ canonical acquisition responses but executes real old/new binaries, managed
 skill installation, partial hidden refresh and repair in scrubbed task-owned
 state. It does not claim to contact a public release or exercise the public CLI
 over a fake production endpoint. Run the independent artifact verifier too.
+Identical embedded text prints a skipped differential content-transition result;
+candidate-byte equality, conflict preservation and repair are still required.
 
 #### Offline composition
 
@@ -3100,6 +3235,15 @@ receipts, projections, wraps and returned outcomes reject raw, base64url and hex
 seed leakage. Link seeds are borrowed owner-local inputs; tests never claim this
 library seam admits unsigned browser management requests.
 
+Runner verification uses the same `--test transitions` suite. Real-store cases
+cover transport-bound and root-local retries, unchanged legacy digests, scope
+match/mismatch, conflicting replay, revoked-target replay and the original signed
+head after subsequent writes and reopening. Existing membership/link/epoch cases
+continue through their thin `Engine::apply` wrappers, including late-write rollback
+and moving-snapshot retries. `OwnerRequest.scope = None` preserves root-local
+composition; a browser management caller must admit its live signature/session
+and supply its transport digest and scope. No management route is added here.
+
 ### Colab owner registration verification
 
 Run `(cd rust && cargo test --offline --locked -p tmt-colab --test registration)`
@@ -3180,6 +3324,9 @@ registration is implemented under #1162. Run
 registered owner tabs through the real mounted socket: append/broadcast, durable
 retry/catchup, read-only `/api/session` and `/api/pages` owner discovery,
 130-revision exact-byte membership paging and unknown-revision resync,
+large signed statements through exact chunks across the eight-frame credit window,
+resumed first-page references and SQL-side statement-size refusal,
+inline/chunked baseline-first ordering before statements for fresh/resumed clients,
 strict event bodies/header/path, failed-revoke rollback, replay
 without writes, active/pre-hello tunnel closure, cap/idle bounds and shutdown.
 Tests inject private temporary roots and verify socket removal; they use no
@@ -3258,9 +3405,10 @@ are public test data. This foundation does not satisfy the complete L1 gates.
 
 The private local page app has its own package and Chromium isolation suite.
 Its test/build/dev entry points use workspace-pinned Vite+; `vitest.config.ts`
-keeps app unit discovery separate. TypeScript and Oxlint retain their existing
-check responsibilities; the existing `check` script selects the Vite configuration's
-`fmt` block, preserving the app's single quotes, all trailing commas and 100-column
+keeps app unit discovery separate. TypeScript retains its existing check responsibility;
+bundled Oxlint retains the app's lint selection, React plugin and deny-warning policy.
+The existing `check` script selects the Vite configuration's `lint` and
+`fmt` blocks, preserving the app's single quotes, all trailing commas and 100-column
 width with import and package-key sorting disabled:
 
 ```sh
@@ -3306,8 +3454,25 @@ uses the eight-frame ACK window described in the sync section. It covers unprune
 from sequence one, plus signed reset-baseline fixtures. The baseline suite covers
 chunked retrieval, descriptor/log binding, exact baseline struct identity, subsequent
 edits/reload and rejection of commitment/source/descriptor/old-epoch substitution
-without partial rendering. Checkpoints and own data remain unsupported (#1280);
-native bootstrap supplies the matching stored baseline object. This is signed
+without partial rendering. Paired-checkpoint fixtures cover raw merged update-v1
+bytes above 256 KiB, chunked retrieval, interleaved content/own tails, reload/edit
+continuity and
+rejection of prefix sequence/hash, namespace, body and gap substitutions. Signed
+revocation tests require exact pinned checkpoints and cut endpoints. Checkpoints
+use single-item Worker steps bounded by its 4 MiB state cap (also the aggregate
+checkpoint catchup cap); tails remain bounded to 200 updates/256 KiB. Dependency
+resolution is required at the final tail step, before any renderer publication. Own ciphertext
+is authenticated for the chain only, with an explicit parent notice; it never
+enters the decoder. The shared `checkpoint-v1.json` fixture also runs through the
+bounded native decoder child (`cargo test --manifest-path rust/Cargo.toml --locked
+-p tmt-colab --test checkpoint_vectors`). Native bootstrap supplies paired checkpoints, their full
+cross-namespace tail and the matching stored baseline object. Statement
+fixtures cover signed envelopes above 64 KiB across ACK-paced frames, baseline-first
+ordering, exact durable log/reload and rejection before renderer publication.
+Admission units cover hash/signature/payload/target/chain substitutions, write failure
+and durable-prefix conflicts without head advancement; framing units cover shared
+assembly identity/order/size limits, interleaving, the absolute deadline and cleanup.
+This is signed
 protocol-fixture evidence, not native mounted browser E2E: #1250 owns refresh and
 #1253 owns native assets.
 The content Worker suite proves concurrent writer convergence and reload

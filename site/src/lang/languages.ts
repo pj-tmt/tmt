@@ -1,8 +1,8 @@
-export type LangCode = "en" | "ja" | "zh";
+export type LangCode = "en" | "ja" | "zh-hant";
 
 export type Language = {
   code: LangCode;
-  // The URL prefix: English lives at the root, the others under /ja and /zh.
+  // The URL prefix: English lives at the root, the others under /ja and /zh-hant.
   prefix: string;
   label: string;
   // The value for <html lang> and hreflang; Traditional Chinese is zh-Hant.
@@ -10,9 +10,9 @@ export type Language = {
 };
 
 export const languages: Language[] = [
-  { code: "en", prefix: "", label: "EN", htmlLang: "en" },
+  { code: "en", prefix: "", label: "English", htmlLang: "en" },
   { code: "ja", prefix: "/ja", label: "日本語", htmlLang: "ja" },
-  { code: "zh", prefix: "/zh", label: "中文", htmlLang: "zh-Hant" },
+  { code: "zh-hant", prefix: "/zh-hant", label: "繁體中文", htmlLang: "zh-Hant" },
 ];
 
 export function languageOf(code: LangCode): Language {

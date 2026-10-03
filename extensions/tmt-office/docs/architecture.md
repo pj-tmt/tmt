@@ -874,9 +874,9 @@ The service defaults off outside the strictly configured demo emulators.
 Production activation requires separate ingress/abuse, retention, IAM and cost
 review; instance/concurrency limits are not a billing cap. Native secure storage
 and the integrated CLI flow remain separate delivery gates.
-Service unit checks use its own Vitest/Oxlint configuration and explicitly selected
-Vite+ formatter configuration. The existing
-browser Docker owner adds Functions and the real-token pairing scenarios; its
+Service unit checks use its own Vitest configuration and explicitly selected
+Vite+ lint/formatter configuration, loading the workspace's shared lint rules.
+The existing browser Docker owner adds Functions and the real-token pairing scenarios; its
 service-owned privileged fixture is test-only. Standalone SPA type checks exclude
 E2E imports; `type:check:e2e` explicitly checks the combined fixture with both
 packages installed. Browser production source never imports the Admin SDK.
@@ -962,8 +962,9 @@ returns to the moment the backup was taken.
   records these consumers. This does not adopt Vite+ runtime/package-manager
   management. Vite+ also supplies the bundled Oxfmt formatter; each package
   explicitly selects its existing Vite/Vitest configuration's `fmt` block.
-  Root code/docs retain separate file selections, Oxlint remains independent,
-  and no file has competing formatter owners.
+  Root code/docs retain separate file selections. Bundled Oxlint uses each package's
+  explicitly selected lint block and the shared workspace rules, retaining package
+  file arguments, plugins and warning policy. No file has competing formatter owners.
 - Drawing dependencies are allowed. Compare a library's actual map/drag/board
   functionality, accessibility, bundle cost, maintenance and license before
   adding one. The scaffold needs no canvas engine, sprites or

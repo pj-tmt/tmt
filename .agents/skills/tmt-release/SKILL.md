@@ -154,8 +154,11 @@ procedures referenced below; DEVELOPMENT owns ordinary native checks.
   its own publications). Do not equate a
   downloadable CI bundle with a published or accepted release.
 - Every CLI or extension release also passes the guide's upgrade from the last
-  published release (its public installer, then the candidate's installer and
-  `tmt upgrade`), not only a fresh install. Old receipts must stay readable.
+  published release, not only a fresh install. Old receipts must stay readable.
+  The pre-publication CLI proof requires installation, migration and real-archive
+  acceptance of the release's own adapter on all four hosts. Follow the guide's
+  distinction between injected acquisition, skipped differential skill coverage for identical text,
+  older-source rerun applicability and separate public installer/upgrade smoke.
 - For curl bootstrap, follow the guide's native curl bootstrap verification.
   Generate from final verified cargo-dist artifacts and invoke the existing
   native publisher; do not enable a competing stock installer. Test an actual
@@ -231,8 +234,9 @@ gates, the markers and the procedures; this section owns who may publish what.
 - A held draft carries `publication-held.json` with the gate, the reason and the run. Read it,
   then follow the guide: the owner publishes by hand, or releases the hold by dispatch, which
   skips only the gate the marker names. An owner-authorized `rerun` instead re-proves
-  every gate with current main tooling against the draft's existing assets and release-source
-  expectations, preserving the marker on failure and removing it only after all pass.
+  every gate with current main tooling against the draft's existing assets and its
+  release-source expectations and adapter code, preserving the marker on failure
+  and removing it only after all pass.
   `rerun` requires the owner's explicit authorization, like `hold`.
 - After it publishes, the pipeline reads the release back (public, immutable, the policy's
   flags, the tag on the release commit, GitHub's attestation for the release and every asset).
@@ -243,6 +247,15 @@ gates, the markers and the procedures; this section owns who may publish what.
   the native classified rate-limit diagnostic, within DEVELOPMENT's attempt/reset-wait
   bounds; exhausted rate limits keep a failed job with a separate infrastructure issue,
   while any real or mixed failure keeps the release-failure conclusion. Keep the separate
+  deferred affected-target re-proof outside the native run's `release-<product>` group:
+  consume the report owner's infrastructure outcome and explicitly dispatch the smoke-retry
+  workflow (completion events from token-dispatched native runs are suppressed). Its planner
+  verifies the main source run, attempt and matching tag/target evidence through REST.
+  Keep both host jobs on the shared `public-install-smoke` action, including architecture
+  wrappers, and pin source/retry target and runner parity in fixtures.
+  Keep its 60-minute reset bound and one acquisition attempt. Complete original and retry evidence is required before the issue owner
+  comments with both runs and closes an infrastructure issue. Neither a failed original
+  job nor a failed retry becomes green, and real failure issues stay open. Keep the
   bounded latest-installer lag retry for an older alpha, and pin the consumed native
   diagnostic format in fixture tests. Never dispatch
   publication to recover a public smoke rate limit.

@@ -334,7 +334,7 @@ o = "run touch ${marker}"
       expect(listed.body.lines[1]).toEqual([
         { field: null, span: 1 },
         { field: null, span: 1 },
-        { field: 'pending', span: 3 },
+        { field: 'pending', span: 3, token: 'waiting' },
       ]);
       const rows = listed.body.sections[0].rows;
       expect(rows.map((row: { name: string }) => row.name)).toEqual(['unlinked', 'linked']);

@@ -393,3 +393,57 @@ fn a_manual_removal_quotes_a_path_as_one_shell_word() {
     assert!(decoded.status.success());
     assert_eq!(decoded.stdout, path.as_os_str().as_encoded_bytes());
 }
+
+#[test]
+fn fresh_binding_is_immutable_and_ready_requires_exact_admitted_foreground() {
+    let fixture = crate::test_support::TestDirectory::new();
+    let store = Store::open(&fixture.path).unwrap();
+    let original = record();
+    store.create(&original, |_| RuntimeLiveness::Alive).unwrap();
+    let endpoint = FreshEndpoint {
+        server: Process::of(&ProcessIncarnation::new(12, "server").unwrap()),
+        port: 49000,
+        cwd: "/tmp".into(),
+        thread: None,
+    };
+    let pending = store.fresh_endpoint(&original, endpoint).unwrap();
+    let foreground = ProcessIncarnation::new(13, "foreground").unwrap();
+    let pending = store.foreground(&pending, &foreground).unwrap();
+    let candidate = store
+        .fresh_thread(&pending, "22222222-2222-4222-8222-222222222222")
+        .unwrap();
+    assert!(candidate.ready.is_none());
+    assert!(
+        store
+            .fresh_thread(&candidate, "33333333-3333-4333-8333-333333333333")
+            .is_err()
+    );
+    assert!(
+        store
+            .admit_fresh(
+                &candidate,
+                &ProcessIncarnation::new(14, "wrong").unwrap(),
+                |_| RuntimeLiveness::Alive
+            )
+            .is_err()
+    );
+    assert!(
+        store
+            .admit_fresh(&candidate, &foreground, |_| RuntimeLiveness::Unknown)
+            .is_err()
+    );
+    let unchanged = store.read(&candidate.binding_id).unwrap().unwrap();
+    assert!(unchanged == candidate);
+    let ready = store
+        .admit_fresh(&candidate, &foreground, |_| RuntimeLiveness::Alive)
+        .unwrap();
+    assert_eq!(
+        ready.ready.unwrap().thread,
+        "22222222-2222-4222-8222-222222222222"
+    );
+    assert!(
+        store
+            .admit_fresh(&candidate, &foreground, |_| RuntimeLiveness::Alive)
+            .is_err()
+    );
+}

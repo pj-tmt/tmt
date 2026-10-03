@@ -7,7 +7,7 @@ pub mod record;
 pub mod removal;
 
 pub use environment::{SetupEnvironment, provider_settings};
-pub use publication::{apply, read_settings};
+pub use publication::{BACKUP_DIRECTORY, apply, backup_directory, backup_warning, read_settings};
 
 use crate::drivers::{DriverDefinition, HookFormat};
 use std::path::PathBuf;

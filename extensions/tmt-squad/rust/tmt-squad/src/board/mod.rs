@@ -5,6 +5,7 @@ mod app;
 mod changes;
 mod composition;
 mod derived;
+mod home;
 mod markdown;
 mod meter;
 pub(crate) mod notes;
@@ -159,6 +160,9 @@ fn execute(core: &Core, request: Request) -> Result<String, String> {
         },
         Request::Open { link, opener } => {
             effects::open(&link, opener.as_deref()).map(|()| format!("Opened {link}"))
+        }
+        Request::RevealFile { path, opener } => {
+            effects::reveal_file(&path, opener.as_deref()).map(|()| format!("Revealed {path}"))
         }
         Request::Copy { text, program } => {
             effects::copy(&text, program.as_deref(), effects::tmux_socket().as_deref())

@@ -364,20 +364,20 @@ its original operation, never becomes falsely unsent.
 Payloads for core API operations are the existing API envelope, decoded without rewriting input.
 Remote narrows supported operations/authority before core calls.
 
-| Logical operation                                                                  | Scope and public core mapping                                                                                                                                                                                                                 |
-| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `capabilities`                                                                     | Signed paired discovery of supported subset, fixed suite and core bounds.                                                                                                                                                                     |
-| `agents.list`                                                                      | `agents.read`; `tmt ls --json` projected to permitted UUID/name/presence and delivery status, without pane address/cwd/process/profile.                                                                                                     |
-| `identities.status`                                                                | `status.read`; input restricted to permitted UUIDs. Self-report is not readiness or completion.                                                                                                                                              |
-| `check`                                                                            | `check.read`; one permitted agent, the bounded capture `tmt check --json` returns locally. Read-only; it never writes to a pane.                                                                                                             |
-| `dispatch.create`                                                                  | `talk`; one permitted direct request recipient, anonymous core originator plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. No fan-out, room or announcement in v1. |
-| `dispatch.show`, `operation.show`                                                  | `talk`; only journal-owned operation IDs; core immutable receipt or remote held state.                                                                                                                                                       |
-| `requests.show`, `result`                                                          | `results.read`; any request the local `tmt result` can read, through the public API or `tmt result --json`.                                                                                                                                 |
-| `requests.list`, global `changes.cursor`, `references.resolve`, `rooms.roster`     | Unsupported in v1; later projections need explicit scoped admission.                                                                                                                                                                         |
-| `notes.read`, `rooms.write`, `rooms.retire`                                        | Unsupported in v1.                                                                                                                                                                                                                            |
-| `identityHooks.*`, `skills.install`, `skills.remove`                               | Never remotely callable; JSON consent cannot manufacture local lifecycle/install authority.                                                                                                                                                   |
-| reply/answer, X acknowledgment, config, pair, run/resume, approvals, installation | Never remotely callable. Result/log ack does not reply or acknowledge core work.                                                                                                                                                              |
-| any other command, argv or shell                                                   | Never; there is no generic command endpoint.                                                                                                                                                                                                  |
+| Logical operation                                                                 | Scope and public core mapping                                                                                                                                                                                                      |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capabilities`                                                                    | Signed paired discovery of supported subset, fixed suite and core bounds.                                                                                                                                                          |
+| `agents.list`                                                                     | `agents.read`; `tmt ls --json` projected to permitted UUID/name/presence and delivery status, without pane address/cwd/process/profile.                                                                                            |
+| `identities.status`                                                               | `status.read`; input restricted to permitted UUIDs. Self-report is not readiness or completion.                                                                                                                                    |
+| `check`                                                                           | `check.read`; one permitted agent, the bounded capture `tmt check --json` returns locally. Read-only; it never writes to a pane.                                                                                                   |
+| `dispatch.create`                                                                 | `talk`; one permitted direct request recipient, anonymous core originator plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. No fan-out, room or announcement in v1. |
+| `dispatch.show`, `operation.show`                                                 | `talk`; only journal-owned operation IDs; core immutable receipt or remote held state.                                                                                                                                             |
+| `requests.show`, `result`                                                         | `results.read`; any request the local `tmt result` can read, through the public API or `tmt result --json`.                                                                                                                        |
+| `requests.list`, global `changes.cursor`, `references.resolve`, `rooms.roster`    | Unsupported in v1; later projections need explicit scoped admission.                                                                                                                                                               |
+| `notes.read`, `rooms.write`, `rooms.retire`                                       | Unsupported in v1.                                                                                                                                                                                                                 |
+| `identityHooks.*`, `skills.install`, `skills.remove`                              | Never remotely callable; JSON consent cannot manufacture local lifecycle/install authority.                                                                                                                                        |
+| reply/answer, X acknowledgment, config, pair, run/resume, approvals, installation | Never remotely callable. Result/log ack does not reply or acknowledge core work.                                                                                                                                                   |
+| any other command, argv or shell                                                  | Never; there is no generic command endpoint.                                                                                                                                                                                       |
 
 `agents.list`, `check`, `operation.show` and `result` are adapter helpers over ordinary public JSON
 commands, not new core API operations. SDK `api(op,input)` cannot reach local management/argv
@@ -612,6 +612,15 @@ tunnel with no bytes in either direction for the idle bound is closed, and an up
 is refused with HTTP 503 and `Retry-After` before it reaches the extension. An extension keeps one
 WebSocket per page and reconnects after an idle close or a refusal.
 
+On a mounted WebSocket upgrade, the door forwards the client's `Sec-WebSocket-Protocol` value
+unchanged, including every offered subprotocol in its original order, and returns the extension's
+selected `Sec-WebSocket-Protocol` value in its `101` response unchanged. These values may carry
+extension-issued bearer tokens; the door never logs, audits or persists them. On every mounted
+request, including upgrades, client-supplied `tmt-device-context`, `tmt-device-event` and `tmt-mount`
+headers are stripped. Only the door sets these headers: `tmt-mount` identifies the actual mount,
+`tmt-device-context` is added only for an authenticated owner-device session, and `tmt-device-event`
+is reserved for the local callback above.
+
 **Relay.** Remote carries opaque, namespaced logs for extensions and never decrypts or interprets
 their payloads. A namespace is `<extension>:<path>` (for example `colab:<space>/<page>/<stream>`).
 Operations are append with create-only per-stream sequence (an exact retry returns the original
@@ -631,9 +640,9 @@ ID and exact bytes. Comments, sync, replay and rendered content never dispatch. 
 maps onto the operation receipts and `operation.show` found/not-found recovery; results are
 readable only for operations its device owns. Agent delivery status comes from `agents.list`.
 
-**Backends.** Extensions declare the resources they need per backend (collections or paths, Rules
-or Worker admission fragments for their namespaces, TTL fields, indexes, blob storage). Remote
-provisions and deploys them with its own resources, as below.
+**Backends (Proposal).** Extensions use the single
+[backend declaration contract](#proposal-extension-backend-declarations). Remote composes those
+resources with its own through [authorized deploy](#proposal-authorized-deploy).
 
 Principals stay separate. Owner devices are paired through remote and are the only principals that
 can call operations. People an extension shares with (page members, link holders) are never paired
@@ -655,23 +664,281 @@ Visibility is the extension's rule, not a remote grant.
 ## Backends and deploy
 
 The same message, relay and admission owners serve every backend: `local` (the door plus extension
-stores under the data root), then Firestore, then Cloudflare. `tmt remote deploy <backend>` creates
-one deployment per backend in the owner's own account, composing remote's resources with every
-enabled extension's declared resources. Deploying into a real account requires the owner's
-explicit authorization for that account at deploy time; tests use emulators, local workerd or
-Miniflare only.
+stores under the data root), then Firestore, then Cloudflare. The following cloud bindings,
+encryption profile, backend declarations and deploy behavior are **Proposal, not implemented**.
+Specifying them does not enable a cloud backend; implementation and the proposed
+[cloud conformance gates](#proposal-cloud-conformance) are required before use.
 
-| Backend      | Mapping; not implemented                                                                                                                                                                                                                                                                                                                                                                 |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `local`      | `loopback-http` binding below for operations; mounted extension routes and WebSocket relay on the same door; state under the data root.                                                                                                                                                                                                                                                |
-| `firestore`  | Append envelope and relay documents per machine/namespace; subscribe from cursor via snapshot listeners; ack through a device-scoped checkpoint. Rules deny unauthorized writes at the edge. Rules cannot verify arbitrary Ed25519 signatures: the owner machine verifies every operation envelope before effects, and the edge admission design must be specified here before use. |
-| `cloudflare` | Append to a per-machine Durable Object (and per-namespace objects for relay) through a Worker; subscribe from opaque cursor over WebSocket; ack a scoped prefix. The Worker rejects unsigned/unknown traffic with HTTP 404 before forwarding. Message-layer authorization remains authoritative.                                                                                     |
+| Backend      | Mapping                                                                                                                                                          |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `local`      | [Loopback HTTP](#transport-binding-loopback-http), mounted extension routes and WebSocket relay; state under the data root.                                      |
+| `firestore`  | **Proposal:** authenticated, bounded encrypted inbox documents; owner-machine responses; snapshot listeners and device-scoped checkpoints.                       |
+| `cloudflare` | **Proposal:** Worker admission before per-machine Durable Object storage; per-namespace relay objects; bounded WebSocket delivery and device-scoped checkpoints. |
 
-The owner machine connects outward to a cloud backend and stays authoritative for operations; the
-edge terminates TLS and only limits abuse. Operation payloads crossing a cloud backend must be
-end-to-end encrypted to the machine key under a reviewed encryption profile added to this contract;
-relay payloads are already encrypted by their extension. Until both the edge admission and that
-encryption profile are specified, `firestore` and `cloudflare` are not permitted.
+### Proposal: shared cloud admission
+
+A deployment has a stable Remote-generated UUID and separate operation and extension namespace
+roots. Only paired owner devices reach the operation root. Non-owner extension principals reach
+only their admitted extension namespaces, as defined by the
+[extension channel API](#extension-channel-api); neither an extension credential nor page membership
+grants operation access.
+
+The owner machine connects outward using a deployment credential restricted to its machine and
+connector role. The edge authenticates that connector separately from device traffic; no device or
+extension route can publish admission records or machine responses. Neither cloud service holds the machine
+encryption private key or a device private key, calls core, or owns Remote's authoritative journal.
+
+Remote publishes an edge admission projection containing the machine/window IDs, device ID,
+public key, kind, origin, profile, grant revision, disabled state and expiry. Only the machine
+connector writes it. Projection updates never decrease revisions; a disabled tombstone cannot become live
+again. A projection also has a provider-time lease of at most 60 seconds, renewed automatically
+while the machine is connected. Missing, expired or conflicting projections refuse admission.
+Stop, revocation or narrowing ends the applicable edge connection/subscription when observed.
+Propagation can lag; edge acceptance never substitutes for a live local grant.
+
+Before adoption, the machine authenticates the cloud carrier, decrypts it and verifies the enclosed
+[signed envelope](#signed-envelopes), including exact header agreement. It applies the existing
+grant, timestamp, session, sequence, scope, operation and replay admission under its authority lock,
+then the existing [durable adoption](#durable-log-append-subscribe-and-ack) and
+[effect fence](#dispatch-hold-and-uncertainty). A stale projection, valid provider credential,
+storage notification or encrypted upload cannot waive any check. Disconnected machines cannot
+accept new operations; expired session/time evidence must be recovered, never turned into an
+offline send queue.
+
+The edge applies the existing [abuse budgets](#browser-use-and-audit) as admission ceilings,
+carrier byte bounds and bounded temporary storage before forwarding; the machine keeps the
+persistent authoritative counters. Physical chunks do not allocate new logical-call budgets. An
+upload or document receipt is transport evidence only. Operation acceptance requires the machine's
+authenticated response. Backends cannot mint log cursors or acknowledge the machine stream: checkpoints carry the encrypted signed `ack` control,
+and listeners/WebSockets carry responses to encrypted signed `subscribe` controls. Catch-up,
+retention, isolation and no-resend behavior keep their existing definition owners. Switching
+backends preserves logical IDs and exact intent, never creates a new operation. Idempotency
+compares the decrypted logical operation and exact payload bytes, not randomized ciphertext.
+
+### Proposal: Firestore Auth and Rules
+
+Remote deploys an HTTPS admission service, Firebase Auth and default-deny Firestore Rules. A paired
+device obtains a Remote-scoped custom token through a possession challenge, then uses Firebase Auth
+to access the deployment; this is automatic transport authentication, without another user sign-in
+or pairing. The service pins the device key from the live projection and issues a single-use
+128-bit random challenge, valid for at most 60 seconds. The device signs LP(`tmt-cloud-auth-v1`) ||
+LP(deploymentId) || LP(machineId) || LP(windowId) || LP(clientId) || LP(origin) || LP(raw challenge).
+The service checks the signature and matching live projection before consuming the challenge.
+Browser HTTP Origin must equal the pinned origin; CLI traffic has no HTTP Origin and signs `cli`.
+Failed challenges disclose no machine/device inventory and obey the unauthenticated abuse bound.
+
+The Auth UID is the device's `clientId`; trusted token claims bind deployment, machine and grant
+revision. The issuer alone supplies those claims. Rules recheck the corresponding live admission
+document on every request, matching the authenticated UID and claims; a refreshed token, cached
+claim or ordinary Firebase user cannot restore expired/revoked access. Clients cannot write Auth
+claims, admission projections, upload permits or response records. Rules do not verify Ed25519 or
+HTTP Origin; the service checks device proof, and the machine independently checks every envelope.
+
+Before each upload, the admission service verifies the signed carrier header, encapsulation,
+ciphertext length/digest and live projection, and reserves quota. It creates a permit scoped to that
+exact carrier digest and device with a 60-second upload deadline. A repeated permit request for the
+same carrier returns that permit without allocating storage again. The permit authorizes only a
+bounded create-only manifest and its fixed number of chunks, not operation adoption. Quota includes
+incomplete uploads; refusing or expiring one creates no hidden queue.
+
+Rules admit only that device's permitted machine inbox path, exact permit fields, chunk indexes and
+sizes, and server-time creation/expiry fields. Chunks contain at most 256 KiB of decoded ciphertext;
+the manifest has at most 8 KiB of metadata and is created last. The permit fixes the total decoded
+length and chunk count, using the effective carrier bound below. The machine assembles only a
+complete manifest, checks every chunk and the signed ciphertext digest, and refuses truncation,
+extra chunks or conflicting bytes before decryption. This chunking is transport framing, never a
+second logical operation. Provider document limits must also pass deployment validation.
+
+Only the scoped connector writes machine responses; clients read only their own response path.
+Responses use the same bounded manifest/chunk framing. Queries are constrained to that device's
+path, never a deployment inventory; expired/incomplete uploads are reclaimed within the temporary
+storage quota, with logical expiry enforced before access even when provider TTL deletion lags.
+Snapshot listeners deliver ciphertext, not authoritative operation state. Device checkpoint writes
+are bounded create-only encrypted controls for machine verification, not edits to a trusted cursor. Extension collections
+and blob paths have their own declared admission and no overlap with these roots.
+
+[Server SDK access bypasses Rules](https://firebase.google.com/docs/firestore/security/rules-conditions),
+so the admission service and connector also require separately scoped IAM credentials. No Admin
+credential reaches a client. The deploy plan accounts for required service access rather than
+claiming Rules protect privileged code. A refresh failure stops transport; reconnect recovers
+owned state through a fresh signed session, without resending work.
+
+### Proposal: Cloudflare Worker and Durable Objects
+
+Only the Worker is publicly reachable. It checks exact route/framing, byte and rate bounds,
+browser Origin (absent for `cli`), live admission projection and the device signature over the
+carrier before forwarding. Unknown, unsigned, expired or revoked operation traffic receives the
+generic pre-auth refusal; syntactically valid ciphertext alone grants nothing. Verification must
+conform to the existing strict Ed25519 profile; native Worker crypto availability is not proof of
+its strict-refusal semantics.
+
+A per-machine Durable Object isolates bounded transport inbox/outbox state and per-device
+connections. Connector authentication is restricted to that machine and is separate from paired
+device proof; only the connector publishes admission projections and responses. The object never
+decides operation authority, decrypts operation payloads or executes core. HTTP/WebSocket success
+means delivery only. Connection admission grants no session or scope, and each application frame
+passes the same checks. Missing projection leases, quota exhaustion and storage failures refuse
+rather than queue invisibly. Invalidating a device projection closes its subscriptions.
+
+Relay objects and blob bindings are separate per declared extension namespace. The
+[extension admission hook](#extension-channel-api) applies to append, subscription, objects and
+awareness before relay effects; an unavailable hook refuses. A shared-page user cannot reach the
+operation object through relay credentials, a namespace alias or a Worker fragment.
+
+### Proposal: end-to-end operation encryption
+
+The fixed carrier profile is `cloud-hpke-v1`, using
+[RFC 9180](https://www.rfc-editor.org/rfc/rfc9180.html) base mode: DHKEM(P-256, HKDF-SHA256)
+(`0x0010`), HKDF-SHA256 (`0x0001`), AES-128-GCM (`0x0001`). There is no negotiation, plaintext
+fallback or Ed25519-to-ECDH secret conversion. The existing Ed25519 machine key remains the pinned
+authentication identity; Remote generates a distinct P-256 machine encryption key and keeps its
+private material under its existing owner-only state policy. Extension content keys remain
+extension-owned.
+
+The public descriptor is exactly `{version,profile,machineId,keyId,revision,publicKey,notBeforeMs,
+expiresAtMs,signature}`. Version is 1, profile is `cloud-hpke-v1`, keyId is a Remote-generated
+UUID, revision is positive and validity times are JSON integers with notBeforeMs < expiresAtMs.
+PublicKey is the RFC 9180 uncompressed 65-byte P-256 point, strictly validated and encoded using
+the existing base64url rules. The machine signs LP(`tmt-cloud-key-v1`) followed by LP of each
+preceding descriptor value in field order, using decimal integers and the raw public-key bytes.
+The device verifies that signature with the machine key pinned by
+[pairing](#pairing), machine/profile/time agreement and a nondecreasing persisted revision before
+using the encryption key. Equal revisions must have identical descriptor bytes. A backend cannot
+replace the trust root or authorize a key downgrade.
+
+The machine durably publishes a new key/revision before accepting traffic for it and refuses
+retired key IDs. It retains old decryption material only for bounded already-adopted recovery,
+never to accept expired new traffic. Lost or compromised authentication keys require pairing
+again; an authenticated encryption-key rotation does not create another device identity or grant.
+Withholding a newer descriptor can cause refusal, never a bypass. This static recipient-key
+profile makes no forward-secrecy claim after recipient-key compromise.
+
+A request/control carrier is exactly `{version,profile,keyId,header,enc,ciphertext,signature}`.
+Version/profile are 1/`cloud-hpke-v1`. Header contains exactly the enclosed envelope's fields
+from version through operation, excluding payload and signature. Let `H` be that envelope's
+[canonical signature input](#signed-envelopes) through operation, without its final payload digest;
+all existing field/encoding rules apply. `enc` is the 65-byte RFC encapsulated P-256 public key,
+and `ciphertext` includes the 16-byte AEAD tag; both use strict base64url. Plaintext is the exact
+complete signed envelope JSON, retaining the decoded payload bytes without reserialization.
+
+Define `B = LP("tmt-cloud-carrier-v1") || LP("1") || LP("cloud-hpke-v1") || LP(keyId) || LP(H)`.
+HPKE info is B; request AAD is `B || LP(raw enc)`. Use a fresh encapsulation/context for each
+new carrier and exactly one HPKE Seal at sequence zero. The device additionally signs
+`B || LP(raw enc) || LP(decimal ciphertext byte length) || LP(SHA-256(raw ciphertext))` with its
+existing Ed25519 key. This outer proof lets the edge authenticate before decryption; the machine
+checks it independently and requires every decrypted header field to match. Both the carrier and
+the inner signature must pass. Cloud encryption covers controls, reads, sends, results and check
+captures, not just message text; the unpaired enrollment form remains the
+[pairing](#pairing) protocol, never an operation.
+
+A response carrier has the same fields plus `requestDigest`, the base64url SHA-256 of the
+request's outer signature input; it echoes that request's keyId and enc. Its header describes the
+machine-signed response inside. Let `R` be its B value, and
+`E = LP("tmt-cloud-response-v1") || LP(raw requestDigest)`. From the request's HPKE context derive
+`responseKey = Export(E || LP("key"), 16)` and
+`responseNonce = Export(E || LP("nonce"), 12)`. AES-128-GCM seals the exact complete signed
+response with AAD `R || LP(raw enc) || LP(raw requestDigest)`. The machine's outer signature
+covers that AAD followed by LP(decimal ciphertext byte length) and LP(SHA-256(raw ciphertext)).
+The client verifies the pinned machine signature, request binding, AEAD and enclosed signed
+response before interpreting any state.
+
+Each context produces exactly one response ciphertext, frozen before publication. Identical
+transport retransmission returns only those frozen bytes; a changed response, recovered receipt or
+later notification uses a fresh request/control context. A lost context requires fresh signed
+session/ID-based recovery, never reuse of a key/nonce with new plaintext. Asynchronous state arrives
+inside responses to fresh subscribe controls; log entries keep their machine signatures.
+Clients retain context secrets only for the bounded in-flight request and discard them on
+completion or abandoned observation. The machine freezes the encrypted response durably before
+publishing it and never regenerates different bytes under that context after a crash. Transport
+recovery expires within the existing journal retention/capacity; expired ciphertext is unavailable,
+not permission to resend. Core final retention and journal ownership are unchanged.
+
+For an advertised maximum signed-envelope JSON length N, ciphertext is at most N + 16 decoded
+bytes. A carrier reserves 8 KiB for its bounded header/metadata and has a 65-byte decoded
+encapsulation; the conservative wire cap is
+`4 * ceil((N + 16) / 3) + 4 * ceil(65 / 3) + 8192`. The binding advertises N for
+each request/response class before allocating or uploading; insufficient provider capacity refuses.
+Batch responses retain the existing bounded subscription policy. Ciphertext chunks never change
+this total cap. IDs, operation names, origin, sizes, timing, key revisions and traffic remain
+visible; content secrecy is not metadata secrecy or protection from a compromised app host.
+
+### Proposal: extension backend declarations
+
+An enabled owner-installed extension supplies a strict version-1 declaration per backend:
+`{version,extension,backend,resources,admission}`. Extension uses the existing mounted-name
+grammar; backend is `local`, `firestore` or `cloudflare`. A declaration has at most 64 resources
+and 64 KiB of UTF-8 JSON. Remote reads only installed, owner-approved artifacts, never downloads or
+executes a declaration-carried command.
+
+Each resource is `{name,kind,path,limits,ttlField,indexes}`. Name uses the extension-name grammar
+and is unique in the declaration; kind is `log`, `checkpoint`, `blob` or `awareness`. Path is a
+relative namespace path: no absolute path, empty/dot segment, escape or wildcard outside that extension's root. Limits specify
+positive JSON integers `maxObjectBytes`, `maxNamespaceBytes` and `maxEntries`, bounded by Remote's
+advertised backend limits. TtlField is null or a declared expiry field; indexes contain at most 64
+`{field,direction}` entries, where direction is `asc` or `desc` and field is declared by the
+resource. Awareness is ephemeral, with no stored objects, TTL field or indexes. Page membership,
+epoch/writer checks and expiry policy remain extension-owned; declarations cannot redefine grants,
+signed operations or the machine journal.
+
+Admission is `{artifact,digest,entryPoint}`: an installed relative artifact path, its lowercase
+SHA-256 hex digest and its namespace entry point; `local` names the extension's existing admission
+hook. Remote composes each artifact only with namespace-scoped resource/context capabilities;
+operation credentials, projections and response publication are unavailable to fragments. Reject
+cross-root reads/writes, reserved operation routes, catch-all grants, arbitrary IAM roles,
+overlapping resources or a composition that cannot enforce this boundary. The same
+[principal and relay rules](#extension-channel-api) apply; a fragment cannot confer owner-device
+context. Unsupported resource kinds, admission requirements, quotas or provider limits fail the
+whole plan before provisioning. Routes/assets may be mounted only through the declared namespace,
+never an extension-selected public operation URL. Extensions requiring changes submit a new
+declaration, not a second backend/sign-in/deploy owner.
+
+### Proposal: authorized deploy
+
+`tmt remote deploy <backend>` composes Remote's resources and all enabled extension declarations
+into one deployment in the owner's account. Before effects it shows the exact account/project,
+deployment ID, region, enabled extensions and declaration digests, resources, roles/bindings,
+Rules/Worker changes, quotas/expiry/index policy and destructive changes. The owner explicitly
+authorizes that plan for that target account at deploy time. Existing pairing, start, account login
+or extension installation is not authorization to create or change real account resources.
+
+Firestore provisions the admission/token service and its scoped service role, Auth configuration,
+operation admission/permit/inbox/outbox/checkpoint collections, composed Rules, indexes/TTL and only
+declared extension/blob resources. Cloudflare provisions the Worker, per-machine and declared
+per-namespace Durable Object bindings, scoped connector credentials and only declared blob resources.
+Private device/machine encryption material is never provisioned to either provider. A backend
+with missing required services/permissions is refused before publishing an active binding.
+
+Remote records deployment identity, plan/declaration digests and per-resource outcomes durably in
+its own state. Validate all declarations first; publish a usable binding only after the complete
+authorized plan succeeds. A partial failure reports completed/pending resources and leaves new
+routes disabled. Exact-plan retry resumes owned provisioning by stable resource identity, without
+duplicating resources or sending agent work. A changed plan/account needs new authorization.
+Never overwrite or delete unrelated account resources; deletion/data loss requires explicit
+authorization in that concrete plan. Preserve an existing deployment on failed upgrade or report
+its actual partial availability; never claim provider rollback restored data.
+
+[Start and pair](#provisioning-on-start-and-pair) automatically prepare the namespaces/bridge of
+already authorized local or deployed resources and publish the device admission projection. They
+do not authorize first deployment, new account resources or expanded provider permissions. Adding
+an enabled extension with undeployed requirements leaves that cloud extension unavailable until
+an authorized deploy; local availability and existing operation authority are unchanged.
+
+### Proposal: cloud conformance
+
+Before cloud implementation acceptance, independent HPKE and application byte vectors plus
+browser/native interoperability must cover key descriptors, header/AAD/digest binding, strict
+point/base64/signature refusal, response-key derivation and nonce reuse prevention. Mutating one
+condition from a valid control must refuse before journal/core effects. No test may infer
+operation acceptance from provider status or a stored manifest.
+
+Firestore emulator and local workerd/Miniflare cases must prove unknown/cross-machine/cross-device
+and extension-only principals denied, clients unable to alter grants/receipts, live-lease and
+revocation fences, complete-only chunk assembly, bounded abandoned uploads, quota/storage failure,
+subscription/checkpoint isolation and lost-response recovery without new effects. Test a stale
+edge that admits a locally revoked device: the machine still performs no effect. Backend migration
+retains the same operation ID and exact intent. Declaration collisions/privilege expansion and
+unapproved or partly failed deploy plans publish no new usable binding. These are proposed gates,
+not evidence of implemented cloud support.
 
 ## Provisioning on start and pair
 

@@ -2,7 +2,8 @@
 use super::*;
 
 pub(crate) struct MembershipPage {
-    pub statements: Vec<String>,
+    pub statements: Vec<serde_json::Value>,
+    pub transfer: Option<([u8; 32], Vec<u8>)>,
     pub revision: u64,
     pub more: bool,
 }
@@ -12,6 +13,7 @@ impl OwnerTransaction<'_> {
         after: u64,
         target: &statement::Head,
         budget: usize,
+        allow_reference: bool,
     ) -> Result<MembershipPage> {
         let current = self.head().ok_or(super::super::Fault::ResyncRequired)?;
         if after > target.revision || current.revision < target.revision {
@@ -39,6 +41,7 @@ impl OwnerTransaction<'_> {
         let mut head = anchor;
         let mut statements = Vec::new();
         let mut size = 0;
+        let mut transfer = None;
         let mut revision = after;
         while revision < target.revision && statements.len() < 64 {
             let n = revision.checked_add(1).ok_or(OwnerFault::Capacity)?;
@@ -51,21 +54,31 @@ impl OwnerTransaction<'_> {
                 )
                 .optional()?;
             let length = length.ok_or(super::super::Fault::ResyncRequired)?;
-            if length <= 0 || length > 44 * 1024 {
+            if length <= 0 || length > crate::limits::STATEMENT_BYTES as i64 {
                 return Err(OwnerFault::Capacity.into());
             }
-            let envelope = self
-                .statement(n)?
-                .ok_or(super::super::Fault::ResyncRequired)?;
+            // A reference occupies its own page. Defer it when the caller's
+            // page supplies a baseline, or finish earlier inline entries first.
+            if length > crate::limits::CHUNK_BYTES as i64
+                && (!allow_reference || !statements.is_empty())
+            {
+                break;
+            }
             let bytes: Vec<u8> = self.tx.query_row(
                 "SELECT envelope FROM membership_log WHERE revision=?",
                 [sequence(n)],
                 |r| r.get(0),
             )?;
-            let encoded = values::encode_binary(&bytes);
-            if size + encoded.len() + 4 > budget {
+            let chunked = bytes.len() > crate::limits::CHUNK_BYTES;
+            let encoded = if chunked {
+                String::new()
+            } else {
+                values::encode_binary(&bytes)
+            };
+            if !chunked && size + encoded.len() + 4 > budget {
                 break;
             }
+            let envelope = statement::Envelope::from_json(&bytes)?;
             head = Some(
                 envelope
                     .verify_next(self.space, self.root, head.as_ref())
@@ -74,13 +87,20 @@ impl OwnerTransaction<'_> {
             );
             revision = n;
             size += encoded.len() + 4;
-            statements.push(encoded);
+            if chunked {
+                let hash = envelope.hash()?;
+                statements.push(serde_json::json!({"statementHash":values::encode_binary(&hash)}));
+                transfer = Some((hash, bytes));
+                break;
+            }
+            statements.push(serde_json::json!(encoded));
         }
         if revision == target.revision && head.as_ref().is_none_or(|h| h.hash != target.hash) {
             return Err(super::super::Fault::ResyncRequired.into());
         }
         Ok(MembershipPage {
             statements,
+            transfer,
             revision,
             more: revision < target.revision,
         })

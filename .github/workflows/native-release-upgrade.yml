@@ -2,8 +2,9 @@ name: Native release upgrade proof
 
 # Proves that a release (a draft about to be published, or a published one) upgrades from the
 # last published release of its product, with the real archives of both on the four matching
-# hosts: a CLI release through the managed-install lifecycle, an extension release through the
-# newest published CLI's `tmt <extension> install`. It reads releases and downloads their assets;
+# hosts: a CLI release through the managed-install lifecycle and injected adapter acceptance,
+# an extension release through the newest published CLI's `tmt extension install <extension>`.
+# It reads releases and downloads their assets;
 # it never creates, edits, uploads to or publishes anything, so a maintainer can run it by hand
 # for any release and the publication run calls it for a draft.
 on:
@@ -147,7 +148,7 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.current-tooling && github.sha || needs.fetch.outputs.sha }}
-      # Candidate data stays at the release commit; none of this checkout's scripts run.
+      # Candidate data and Rust adapter acceptance stay at the release commit on reruns.
       - uses: actions/checkout@v4
         if: inputs.current-tooling
         with:
@@ -162,6 +163,19 @@ jobs:
       - name: Warm the macOS toolchain lookup
         if: runner.os == 'macOS'
         uses: ./.github/actions/warm-xcrun
+      - name: Install Rust for CLI adapter acceptance
+        if: inputs.product == 'cli'
+        run: rustup toolchain install 1.97.0 --profile minimal
+      - name: Restore Rust dependencies for CLI adapter acceptance
+        if: inputs.product == 'cli'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        env:
+          CARGO_PROFILE_DEV_DEBUG: 0
+          CARGO_INCREMENTAL: 0
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: false
       - uses: actions/download-artifact@v4
         with:
           name: upgrade-assets-${{ inputs.tag }}
@@ -184,6 +198,22 @@ jobs:
           node typescript/scripts/release-upgrade.mjs prove --product "$PRODUCT" --tag "$RELEASE_TAG" \
             --target "$TARGET" --directory "$RUNNER_TEMP/upgrade" --skill "$skill" "${source_args[@]}" \
             2>&1 | tee "$RUNNER_TEMP/upgrade-proof.log"
+      - name: Prove the real-archive CLI upgrade adapter
+        if: inputs.product == 'cli'
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          TARGET: ${{ matrix.target }}
+          CURRENT_TOOLING: ${{ inputs.current-tooling }}
+          CARGO_TARGET_DIR: ${{ github.workspace }}/rust/target
+        run: |
+          set -o pipefail
+          source_args=()
+          if [ "$CURRENT_TOOLING" = true ]; then
+            source_args=(--source-root "$GITHUB_WORKSPACE/release-source")
+          fi
+          node typescript/scripts/release-upgrade.mjs acceptance --product cli --tag "$RELEASE_TAG" \
+            --target "$TARGET" --directory "$RUNNER_TEMP/upgrade" "${source_args[@]}" \
+            2>&1 | tee -a "$RUNNER_TEMP/upgrade-proof.log"
       - name: Keep the log of a failed proof
         if: failure()
         uses: actions/upload-artifact@v4

@@ -2,7 +2,7 @@
 //! bold, italic, inline code and links get styles; every other construct
 //! (tables, HTML, images, code blocks, quotes, footnotes) is shown as its own
 //! source text, never dropped or half-rendered. Nothing here executes,
-//! fetches or opens anything; links are text.
+//! fetches or opens anything; links carry inert destination metadata.
 
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use ratatui::{
@@ -17,7 +17,7 @@ use unicode_width::UnicodeWidthChar;
 struct Block {
     prefix: String,
     indent: usize,
-    spans: Vec<(String, Style, usize)>,
+    spans: Vec<(String, Style, usize, Option<usize>)>,
     source_line: usize,
 }
 
@@ -31,7 +31,9 @@ struct Renderer<'a> {
     bold: usize,
     italic: usize,
     heading: bool,
-    link: Option<String>,
+    link: Option<usize>,
+    links: Vec<Link>,
+    handlers: &'a crate::links::Handlers,
     /// Numbering for each open list; None for bullets.
     lists: Vec<Option<u64>>,
     /// Skip events inside an unsupported construct already shown as source.
@@ -48,7 +50,9 @@ impl Renderer<'_> {
             style = style.add_modifier(Modifier::ITALIC);
         }
         if self.link.is_some() {
-            style = style.add_modifier(Modifier::UNDERLINED);
+            style = style
+                .patch(self.look.role(Role::Link))
+                .add_modifier(Modifier::UNDERLINED);
         }
         style
     }
@@ -75,7 +79,9 @@ impl Renderer<'_> {
             self.start(" ".repeat(indent), indent);
         }
         if let Some(block) = &mut self.current {
-            block.spans.push((text.to_owned(), style, self.source_line));
+            block
+                .spans
+                .push((text.to_owned(), style, self.source_line, self.link));
         }
     }
 
@@ -100,7 +106,12 @@ impl Renderer<'_> {
             self.blocks.push(Block {
                 prefix: String::new(),
                 indent: 0,
-                spans: vec![(line.to_owned(), Style::new(), self.source_line + offset)],
+                spans: vec![(
+                    line.to_owned(),
+                    Style::new(),
+                    self.source_line + offset,
+                    None,
+                )],
                 source_line: self.source_line + offset,
             });
         }
@@ -182,22 +193,31 @@ impl Renderer<'_> {
             Event::End(TagEnd::Strong) => self.bold = self.bold.saturating_sub(1),
             Event::Start(Tag::Emphasis) => self.italic += 1,
             Event::End(TagEnd::Emphasis) => self.italic = self.italic.saturating_sub(1),
-            Event::Start(Tag::Link { dest_url, .. }) => self.link = Some(dest_url.to_string()),
-            Event::End(TagEnd::Link) => {
-                self.source_line = self
-                    .starts
-                    .partition_point(|start| *start < range.end)
-                    .saturating_sub(1);
-                if let Some(url) = self.link.take() {
-                    self.push(&format!(" ({url})"), self.look.role(Role::Dim));
+            Event::Start(Tag::Link { dest_url, .. }) => {
+                if let Some(kind) = crate::links::classify(&dest_url, self.handlers) {
+                    self.link = Some(self.links.len());
+                    self.links.push(Link {
+                        target: dest_url.to_string(),
+                        kind,
+                        source: self.source_line,
+                        offset: range.start,
+                    });
                 }
             }
+            Event::End(TagEnd::Link) => self.link = None,
             Event::Text(text) => {
                 let style = self.style();
                 self.push(&text, style);
             }
-            Event::Code(code) => self.push(&code, self.look.role(Role::Accent)),
-            Event::SoftBreak => self.push(" ", Style::new()),
+            Event::Code(code) => self.push(
+                &code,
+                if self.link.is_some() {
+                    self.style()
+                } else {
+                    self.look.role(Role::Accent)
+                },
+            ),
+            Event::SoftBreak => self.push(" ", self.style()),
             Event::HardBreak => {
                 let indent = self.current.as_ref().map_or(0, |block| block.indent);
                 self.start(" ".repeat(indent), indent);
@@ -207,7 +227,12 @@ impl Renderer<'_> {
                 self.blocks.push(Block {
                     prefix: String::new(),
                     indent: 0,
-                    spans: vec![("───".into(), self.look.role(Role::Dim), self.source_line)],
+                    spans: vec![(
+                        "───".into(),
+                        self.look.role(Role::Dim),
+                        self.source_line,
+                        None,
+                    )],
                     source_line: self.source_line,
                 });
             }
@@ -227,12 +252,39 @@ pub fn render(text: &str, width: usize, look: crate::look::Look) -> Vec<Line<'st
 }
 
 /// Painted lines and their zero-based notebook source lines.
+#[derive(Debug, Clone)]
+pub(super) struct Link {
+    pub target: String,
+    pub kind: crate::links::Kind,
+    pub source: usize,
+    pub offset: usize,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct LinkHit {
+    pub line: usize,
+    pub start: usize,
+    pub end: usize,
+    pub link: usize,
+}
+
 pub(super) struct Mapped {
     pub lines: Vec<Line<'static>>,
     pub sources: Vec<usize>,
+    pub links: Vec<Link>,
+    pub hits: Vec<LinkHit>,
 }
 
 pub(super) fn render_mapped(text: &str, width: usize, look: crate::look::Look) -> Mapped {
+    render_links(text, width, look, &crate::links::Handlers::new())
+}
+
+pub(super) fn render_links(
+    text: &str,
+    width: usize,
+    look: crate::look::Look,
+    handlers: &crate::links::Handlers,
+) -> Mapped {
     let starts = std::iter::once(0)
         .chain(text.match_indices('\n').map(|(at, _)| at + 1))
         .collect();
@@ -247,6 +299,8 @@ pub(super) fn render_mapped(text: &str, width: usize, look: crate::look::Look) -
         italic: 0,
         heading: false,
         link: None,
+        links: Vec::new(),
+        handlers,
         lists: Vec::new(),
         skip_until: 0,
     };
@@ -255,12 +309,24 @@ pub(super) fn render_mapped(text: &str, width: usize, look: crate::look::Look) -
         renderer.event(event, range);
     }
     renderer.finish();
-    let (lines, sources) = renderer
-        .blocks
-        .into_iter()
-        .flat_map(|block| wrap(block, width.max(1)))
-        .unzip();
-    Mapped { lines, sources }
+    let mut mapped = Mapped {
+        lines: Vec::new(),
+        sources: Vec::new(),
+        links: renderer.links,
+        hits: Vec::new(),
+    };
+    for block in renderer.blocks {
+        let (lines, mut hits) = wrap(block, width.max(1));
+        for hit in &mut hits {
+            hit.line += mapped.lines.len();
+        }
+        for (line, source) in lines {
+            mapped.lines.push(line);
+            mapped.sources.push(source);
+        }
+        mapped.hits.extend(hits);
+    }
+    mapped
 }
 
 fn cells(text: &str) -> usize {
@@ -269,47 +335,73 @@ fn cells(text: &str) -> usize {
 
 /// Greedy word wrap over styled spans; continuation lines use the hanging
 /// indent, and a word longer than a line is split between characters.
-fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize)> {
+fn wrap(block: Block, width: usize) -> (Vec<(Line<'static>, usize)>, Vec<LinkHit>) {
+    let mut hits: Vec<LinkHit> = Vec::new();
     let mut lines = Vec::new();
     let mut line: Vec<Span<'static>> = vec![Span::raw(block.prefix.clone())];
     let mut used = cells(&block.prefix);
     let start = used;
     let mut source_line = block.source_line;
     let indent = " ".repeat(block.indent);
-    let mut words: Vec<(String, Style, usize)> = Vec::new();
-    for (text, style, source) in block.spans {
+    let mut words: Vec<(String, Style, usize, Option<usize>)> = Vec::new();
+    for (text, style, source, link) in block.spans {
         for word in text.split_inclusive(' ') {
-            words.push((word.to_owned(), style, source));
+            words.push((word.to_owned(), style, source, link));
         }
     }
-    for (word, style, source) in words {
+    for (word, style, source, link) in words {
         let body = word.trim_end_matches(' ');
         if used > start && used + cells(body) > width {
+            if let Some(space) = line.last_mut().filter(|span| span.content == " ") {
+                space.style = space.style.remove_modifier(Modifier::UNDERLINED);
+            }
             lines.push((Line::from(std::mem::take(&mut line)), source_line));
             source_line = source;
             line.push(Span::raw(indent.clone()));
             used = block.indent;
         }
         let mut piece = String::new();
-        for character in word.chars() {
+        for character in body.chars() {
             let size = character.width().unwrap_or(0);
             if used + size > width {
-                if character == ' ' {
-                    continue;
-                }
                 line.push(Span::styled(std::mem::take(&mut piece), style));
                 lines.push((Line::from(std::mem::take(&mut line)), source_line));
                 source_line = source;
                 line.push(Span::raw(indent.clone()));
                 used = block.indent;
             }
+            if let Some(link) = link.filter(|_| size > 0) {
+                if let Some(last) = hits
+                    .last_mut()
+                    .filter(|h| h.line == lines.len() && h.link == link && h.end == used)
+                {
+                    last.end += size;
+                } else {
+                    hits.push(LinkHit {
+                        line: lines.len(),
+                        start: used,
+                        end: used + size,
+                        link,
+                    });
+                }
+            }
             piece.push(character);
             used += size;
         }
         line.push(Span::styled(piece, style));
+        if word.ends_with(' ') && used < width {
+            line.push(Span::styled(" ", style));
+            if let Some(hit) = hits
+                .last_mut()
+                .filter(|h| Some(h.link) == link && h.line == lines.len())
+            {
+                hit.end += 1;
+            }
+            used += 1;
+        }
     }
     lines.push((Line::from(line), source_line));
-    lines
+    (lines, hits)
 }
 
 #[cfg(test)]
@@ -343,7 +435,46 @@ mod tests {
         let linked = render_mapped("[alpha\nbeta](https://example.com)", 9, Look::default());
         assert!(
             linked.sources.windows(2).all(|pair| pair[0] <= pair[1]),
-            "a multiline link target belongs to its closing source line"
+            "multiline link labels preserve source order"
+        );
+    }
+
+    #[test]
+    fn link_cells_follow_unicode_wrap_and_undefined_schemes_stay_plain() {
+        let mapped = render_links(
+            "- [界 **wide** `code`](tmt:jump/auth-fix) [evil](javascript:x) #412",
+            10,
+            Look::default(),
+            &crate::links::Handlers::new(),
+        );
+        assert_eq!(mapped.links.len(), 1);
+        assert_eq!(mapped.links[0].target, "tmt:jump/auth-fix");
+        assert!(!text(&mapped.lines).join(" ").contains("tmt:jump"));
+        let underlined = |span: &Span| span.style.add_modifier.contains(Modifier::UNDERLINED);
+        let first = &mapped.lines[0];
+        assert_eq!(first.spans[2].content, " ");
+        assert!(underlined(&first.spans[2]), "inner space joins the label");
+        assert!(!underlined(first.spans.last().unwrap()));
+        assert!(mapped.hits.iter().any(|hit| hit.line > 0));
+        for hit in &mapped.hits {
+            assert!(hit.start >= 2 && hit.end <= 10 && hit.start < hit.end);
+            assert_eq!(hit.link, 0);
+        }
+        assert!(
+            mapped
+                .lines
+                .iter()
+                .flat_map(|line| &line.spans)
+                .any(|span| span.content.contains("界") && underlined(span))
+        );
+        let plain = render_mapped("[evil](javascript:x)", 80, Look::default());
+        assert!(plain.hits.is_empty());
+        assert!(
+            plain
+                .lines
+                .iter()
+                .flat_map(|line| &line.spans)
+                .all(|span| !underlined(span))
         );
     }
 
@@ -380,7 +511,7 @@ mod tests {
                 "",
                 "• tokens: waiting on Ben",
                 "  • login vs sweep",
-                "• see PR 412 (https://x/412)",
+                "• see PR 412",
                 "",
                 "1. first",
                 "2. second",

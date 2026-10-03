@@ -55,50 +55,56 @@ async function fetchText(url) {
 }
 
 /** Only the native acquisition diagnostic is retryable; HTTP status alone is not evidence. */
+export function parseRateLimitDiagnostic(diagnostic) {
+  if (
+    typeof diagnostic !== 'string' ||
+    diagnostic.length > 1000 ||
+    !/^GitHub API rate limit: reset\/earliest retry time [^\n]+; the (?:required wait exceeds the remaining deadline|single retry was exhausted)\. Retry later or optionally set GITHUB_TOKEN\.$/.test(
+      diagnostic
+    )
+  )
+    return null;
+  const epoch = diagnostic.match(/\(UTC epoch (\d+)\)/)?.[1];
+  const resetAtMs = epoch === undefined ? NaN : Number(epoch) * 1000;
+  return { diagnostic, resetAtMs: Number.isSafeInteger(resetAtMs) ? resetAtMs : null };
+}
+
 function rateLimitDiagnostic(error) {
   const result = error.cause;
   if (!result || result.status !== 1 || result.stderr !== '') return null;
   try {
     const { error: failure } = JSON.parse(result.stdout);
     if (!['NATIVE_UPGRADE_FAILED', 'EXTENSION_INSTALL_FAILED'].includes(failure?.code)) return null;
-    const cause = failure.cause;
-    if (
-      typeof cause !== 'string' ||
-      !/^GitHub API rate limit: reset\/earliest retry time [^\n]+; the (?:required wait exceeds the remaining deadline|single retry was exhausted)\. Retry later or optionally set GITHUB_TOKEN\.$/.test(
-        cause
-      )
-    )
-      return null;
-    return cause;
+    return parseRateLimitDiagnostic(failure.cause);
   } catch {
     return null;
   }
 }
 
 /** Retry only the failed acquisition, at most once and with at most five minutes of waiting. */
-async function withAttempts(label, step, { wait = sleep, now = Date.now } = {}) {
-  for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
+async function withAttempts(label, step, { wait = sleep, now = Date.now, retry = false } = {}) {
+  const attempts = retry ? 1 : ATTEMPTS;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       return await step();
     } catch (error) {
       const diagnostic = rateLimitDiagnostic(error);
       if (!diagnostic) throw error;
-      const epoch = diagnostic.match(/\(UTC epoch (\d+)\)/)?.[1];
-      const retryAtMs = epoch === undefined ? NaN : Number(epoch) * 1000;
-      const waitMs = Math.max(1000, retryAtMs - now() + 1000);
+      const waitMs = Math.max(1000, diagnostic.resetAtMs - now() + 1000);
       const reason =
-        attempt === ATTEMPTS
-          ? `attempt bound exceeded (${ATTEMPTS} attempts)`
-          : !Number.isSafeInteger(retryAtMs)
+        attempt === attempts
+          ? `attempt bound exceeded (${attempts} attempts)`
+          : diagnostic.resetAtMs === null
             ? 'reset time unavailable'
             : waitMs > MAX_WAIT_MS
               ? `wait bound exceeded (${MAX_WAIT_MS / 1000} seconds)`
               : '';
       if (reason) {
         const failure = new Error(
-          `Public install infrastructure: ${label}: ${reason}; ${diagnostic}`
+          `Public install infrastructure: ${label}: ${reason}; ${diagnostic.diagnostic}`
         );
         failure.infrastructure = 'github-api-rate-limit';
+        failure.rateLimit = diagnostic;
         throw failure;
       }
       await wait(waitMs);
@@ -152,6 +158,7 @@ export async function smokeRelease({
   fetch: read = fetchText,
   wait = sleep,
   now = Date.now,
+  retry = false,
   systemPath = ['/usr/bin', '/bin', '/usr/sbin', '/sbin'],
 }) {
   const version = versionOfTag(tag, product);
@@ -187,6 +194,7 @@ export async function smokeRelease({
         ok: false,
         reason,
         ...(error.infrastructure ? { infrastructure: error.infrastructure } : {}),
+        ...(error.rateLimit ? { rateLimit: error.rateLimit } : {}),
         ...(detail === reason ? {} : { detail }),
       });
       return false;
@@ -265,7 +273,7 @@ export async function smokeRelease({
       const stdout = await withAttempts(
         'tmt upgrade',
         () => tmt(['upgrade', '--channel', 'alpha', '--json']),
-        { wait, now }
+        { wait, now, retry }
       );
       const report = JSON.parse(stdout);
       if (resolved(report.executable) !== resolved(binary)) {
@@ -302,7 +310,7 @@ export async function smokeRelease({
             ],
             { timeoutMs: 300_000 }
           ),
-        { wait, now }
+        { wait, now, retry }
       )
     );
     if (report.version !== version)
@@ -344,6 +352,7 @@ async function main(argv, environment) {
       source: { type: 'string' },
       target: { type: 'string', default: process.platform },
       'result-file': { type: 'string', default: '' },
+      retry: { type: 'boolean', default: false },
     },
   });
   for (const name of ['product', 'tag', 'source']) {
@@ -368,6 +377,7 @@ async function main(argv, environment) {
       source: path.resolve(values.source),
       repository,
       root,
+      retry: values.retry,
     });
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -379,7 +389,10 @@ async function main(argv, environment) {
     writeFileSync(
       values['result-file'],
       JSON.stringify({
+        product: values.product,
+        tag: values.tag,
         target: values.target,
+        runAttempt: Number(environment.GITHUB_RUN_ATTEMPT ?? '1'),
         failed: results.filter(({ ok }) => !ok).map(({ ok: _ok, ...failure }) => failure),
       })
     );

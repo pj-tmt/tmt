@@ -619,14 +619,17 @@ fn squad_view(
         Notes::NotShown
     };
     let view = View {
+        home: None,
         token_rate,
         derived: Default::default(),
         rows,
         render: config.notes_render(&squad.name)?,
         bindings: config.bindings_for_tab(&squad.name, tmux, &board.panes)?,
         section_bindings: sections.into_iter().map(|section| section.bind).collect(),
+        configured_bindings: config.configured_bindings()?,
         opener: config.program("opener")?,
         clipboard: config.program("clipboard")?,
+        links: config.links()?,
         tab_colors: config.tabs()?.colors,
         look: crate::look::Look::new(theme),
         theme_notice,
@@ -679,13 +682,16 @@ fn member_view(
     });
     let view = View {
         token_rate: None,
+        home: None,
         derived: Default::default(),
         rows: loaded.rows,
         render: NotesRender::Markdown,
         bindings,
         section_bindings,
+        configured_bindings: config.configured_bindings()?,
         opener: config.program("opener")?,
         clipboard: config.program("clipboard")?,
+        links: config.links()?,
         tab_colors: settings.colors,
         look: crate::look::Look::new(theme),
         theme_notice,
@@ -717,17 +723,20 @@ fn all_view(
     let settings = config.tabs()?;
     // The cross-squad tabs have no squad table: the global theme alone.
     let (theme, theme_notice) = config.theme("")?;
-    let loaded = tab_view::load(core, config, squads, tabs, me.as_ref(), ALL)?;
+    let (loaded, home) = super::home::load(core, config, squads, tabs, me.as_ref())?;
     let bindings = config.bindings_for_tab(ALL, false, &[])?;
     let view = View {
         token_rate: None,
+        home: Some(home),
         derived: Default::default(),
         rows: loaded.rows,
         render: NotesRender::Markdown,
         bindings,
         section_bindings: Vec::new(),
+        configured_bindings: Default::default(),
         opener: None,
         clipboard: None,
+        links: Default::default(),
         tab_colors: settings.colors,
         look: crate::look::Look::new(theme),
         theme_notice,
@@ -1059,6 +1068,12 @@ esac
                 view.document, listed,
                 "board and ls share complete projected documents"
             );
+            assert_eq!(view.home.is_some(), key == ALL);
+            if let Some(home) = &view.home {
+                assert_eq!(home.squads.len(), 2);
+                assert_eq!(home.summary.members, 2);
+                assert_eq!(home.summary.waiting, 1);
+            }
             assert_eq!(view.rows.value()["columns"], listed["columns"]);
             assert_eq!(view.rows.value()["lines"], listed["lines"]);
             assert_eq!(listed["sections"][0]["rows"][0]["squad"], "product");
