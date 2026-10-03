@@ -1,0 +1,79 @@
+---
+source: site/src/chapters/drivers.mdx
+sourceRevision: 58ca656bb374eede2d12b69d3b2abb68d71d016c
+title: Driver
+---
+
+import { components as Mdx } from "../../components/mdx";
+import { Cmd } from "../../components/Cmd";
+import { Soon, Tag } from "../../components/marks";
+
+driver 是 tmt 对某一类程序的了解。_host_ driver 了解 agent 在哪里运行，以及如何向它们输入内容。_runtime_ driver 了解某一种 agent 程序：如何启动、恢复，以及报告它的会话。
+
+**大多数人需要的 driver 都已内置，无需安装。** tmt 会识别你启动的程序，并自动使用匹配的 driver：
+
+<Cmd>{`
+$ tmt run reviewer claude        # 将当前窗格命名为 "reviewer"，并在其中启动 Claude Code
+$ tmt run builder codex          # 同样启动 Codex
+$ tmt setup                      # 可选：经你确认后，连接找到的所有 agent
+`}</Cmd>
+
+不运行 setup，所有 agent 仍然可用：tmt 通过窗格与它们通信。`tmt setup` 补充的是只有 agent 自身才能告诉 tmt 的信息。它让 tmt 知道哪个会话属于哪个名称，从而让 `tmt resume` 重新打开正确的会话，并在启动时提供简短的“你是谁、有哪些待办”摘要。`tmt setup` 会准确列出将修改的设置，并先征求同意；`tmt setup claude` 或 `tmt setup codex` 为单个 agent 做同样的设置，`--remove` 则撤销这些设置。
+
+| Driver      | 类型    | 无需 setup 即可使用                                           | 运行 `tmt setup` 后                                           |
+| ----------- | ------- | ------------------------------------------------------------- | ------------------------------------------------------------- |
+| tmux        | host    | 全部功能                                                      | 无需其他设置                                                  |
+| Claude Code | runtime | talk、reply、`tmt run`                                        | 准确恢复原会话、会话启动时的上下文、运行中/已结束状态         |
+| Codex       | runtime | talk、reply、`tmt run`；在共享服务器上会要求提供 `--identity` | 准确恢复原会话、共享服务器上的准确线程匹配、运行中/已结束状态 |
+
+<Mdx.h3 id="the-built-in-drivers">内置 driver</Mdx.h3>
+
+- [tmux](/drivers/tmux)：host driver。了解 agent 在哪里运行，以及如何向它们输入内容。
+- [Claude Code](/drivers/claude-code)：runtime driver，支持准确恢复原会话、会话启动时的上下文和可选的消息通道。
+- [Codex](/drivers/codex)：runtime driver，即使多个窗格共用一个 Codex 服务器，也能安全工作。
+
+<Mdx.h3 id="herdr-ships-with-tmt-approve-once">Herdr：随 tmt 提供，批准一次即可</Mdx.h3>
+
+Herdr host driver 随 tmt 提供，但只有在你批准后才会运行。`tmt driver install herdr` 会显示它将运行的内容，并先询问：
+
+<Cmd>{`
+$ tmt driver install herdr   # 显示将运行的内容，然后询问
+$ tmt driver ls              # herdr：ok、changed 或 missing
+`}</Cmd>
+
+只要新版 driver 没有提出额外要求，tmt 升级后仍会保留原有批准。如果要求增加，`tmt driver ls` 会将它标记为 changed 并给出原因，再次运行 `tmt driver install herdr` 即可批准。批准之前，在 Herdr 窗格中运行的命令每天会提示一次，Herdr binding 则继续等待，不会被删除。
+
+<Mdx.h3 id="usage-counters">用量计数器</Mdx.h3>
+
+用量记录需要主动开启。`tmt setup --usage`（或 `tmt setup claude --usage`、`tmt setup codex --usage`）还会添加一个钩子，在每轮结束时运行，记录 agent 的用量：
+
+- **上下文大小**，位于 `resume.usage`：`tokens` 是下一个请求会重新发送的 token 数，`windowTokens` 是提供方报告的上下文窗口大小（Codex 会报告，Claude Code 不会）。
+- **消耗量**，位于 `resume.consumption`：已完成请求使用的 token 数。`inputTokens` 包含缓存输入，`outputTokens` 是输出（包括推理），总量为输入加输出。
+
+两者都会显示在 `tmt ls --json` 和 `tmt identity show --json` 中，[Squad](/extensions/squad) 的一列也可以显示上下文大小。只存储 token 数量，不存储会话内容。该钩子还会在每轮结束时让 `session.activity` 回到空闲状态；没有它，tmt 绝不会仅凭沉默就猜测 agent 已空闲。`tmt setup --no-usage` 只移除这个钩子。
+
+这些数字表示 token 数，不是费用。它们描述已完成的请求，而不是实时流式输出，可能落后一轮。每个计数器从首次读数开始，不会计入之前的历史。缺少计数器意味着数据不可用，绝不表示零。计算速率的工具应在首次读数、`epoch` 变化、`gap` 为 true 或计数器下降时建立新的基线。
+
+<Mdx.h3 id="more-drivers">
+  更多 driver <Tag kind="planned" />
+</Mdx.h3>
+
+其他 driver 将各自成为独立的包，拥有自己的版本，像 extension 一样安装和更新。任何人都可以发布：driver 是一个名为 `tmt-driver-<name>`、响应 tmt driver 协议的程序，内置 driver 也使用同一接口。安装的 driver 还可以接替内置 driver，例如带有额外功能的 Claude Code driver。此时 `tmt driver ls` 始终会显示各程序由哪个 driver 处理。
+
+<Cmd>{`
+$ tmt driver install ./tmt-driver-screen  # 显示将运行的内容，然后询问
+$ tmt driver ls                          # 已批准的 host driver：ok、changed 或 missing
+$ tmt driver rm screen
+`}</Cmd>
+
+首批计划支持：
+
+<Soon
+  items={[
+    ["Pi", "runtime"],
+    ["Cursor Agent", "runtime"],
+    ["agy", "runtime"],
+  ]}
+/>
+
+编写 driver 的方法见[构建 driver](/develop/drivers)。

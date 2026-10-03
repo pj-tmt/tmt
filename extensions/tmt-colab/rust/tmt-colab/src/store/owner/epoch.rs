@@ -63,6 +63,48 @@ impl Store {
     }
 }
 impl OwnerTransaction<'_> {
+    /// Stored statements were authenticated at append. Reuse the fold's reducer
+    /// without repeated signatures or a writer reservation on every sync check.
+    pub(crate) fn page_policy_at(
+        &self,
+        page: &str,
+        revision: u64,
+    ) -> Result<crate::fold::PagePolicy> {
+        let mut policy = crate::fold::PagePolicy::default();
+        let mut query = self
+            .tx
+            .prepare("SELECT envelope FROM membership_log WHERE revision<=? ORDER BY revision")?;
+        for row in query.query_map([sequence(revision)], |r| r.get::<_, Vec<u8>>(0))? {
+            let wire: serde_json::Value = serde_json::from_slice(&row?)?;
+            let bytes =
+                values::binary(wire["statement"].as_str().ok_or(OwnerFault::Invalid)?, 1024)?;
+            let header = statement::decode(&bytes)?;
+            let bytes = values::binary(
+                wire["payload"].as_str().ok_or(OwnerFault::Invalid)?,
+                payload::MAX_BYTES,
+            )?;
+            if crypto::digest(&bytes) != *header.payload_digest {
+                return Err(OwnerFault::Invalid.into());
+            }
+            policy.apply(&payload::decode(header.operation, &bytes)?, page)?;
+        }
+        Ok(policy)
+    }
+    pub(crate) fn delete_page_data(&mut self, page: &str) -> Result<()> {
+        // Keep pages, signed policy and operation receipts as permanent tombstones.
+        // The retained page primary key also prevents create_page from reviving it.
+        for sql in [
+            "DELETE FROM receipts WHERE page=?",
+            "DELETE FROM checkpoints WHERE page=?",
+            "DELETE FROM streams WHERE page=?",
+            "DELETE FROM baselines WHERE page=?",
+            "DELETE FROM wraps WHERE page=?",
+            "DELETE FROM epoch_secrets WHERE page=?",
+        ] {
+            self.tx.execute(sql, [page])?;
+        }
+        Ok(())
+    }
     pub(crate) fn pages(&self) -> Result<Vec<String>> {
         let mut query = self.tx.prepare("SELECT page FROM pages ORDER BY page")?;
         Ok(query

@@ -156,7 +156,7 @@ const byName = (left, right) => left.name.localeCompare(right.name);
  * versions from where each crate declares them, and lock entries from the crates that have one.
  */
 export function generateReleasePleaseConfig({ components, workspace }) {
-  releaseConsumption(components);
+  const consumption = releaseConsumption(components);
   const { crates, lockNames, files } = workspace;
   const map = { components };
   const ownerOfCrate = (crate) => ownerOf(crate.manifest, map);
@@ -209,6 +209,23 @@ export function generateReleasePleaseConfig({ components, workspace }) {
     const linked = linkedCrates(owned, crates).filter(
       (crate) => ownerOfCrate(crate) !== component.name
     );
+    // Once an extension consumes shared leaves, every external production workspace
+    // link needs reviewed attribution. Use the same Cargo graph as exclusion planning.
+    if (consumption.some(({ target }) => target === packagePath)) {
+      for (const crate of linked) {
+        if (
+          !consumption.some(
+            ({ source, target }) =>
+              target === packagePath && (crate.dir === source || crate.dir.startsWith(`${source}/`))
+          )
+        ) {
+          throw new Error(
+            `Workspace leaf ${crate.name} linked by release consumer ${component.name} has no release attribution. ` +
+              `Declare a private component owning ${crate.dir} with releaseConsumers: ["${component.name}"] in .github/components.json after ownership review.`
+          );
+        }
+      }
+    }
     const exclude = excludedPaths(component, linked, files);
     packages[packagePath] = {
       'release-type': 'simple',

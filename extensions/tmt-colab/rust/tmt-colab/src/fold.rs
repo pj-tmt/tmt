@@ -30,10 +30,67 @@ pub(crate) struct Authority {
     pub head: statement::Head,
     pub recipients: Arc<BTreeMap<(String, String), Issuer>>,
     pub revoked_devices: Arc<BTreeSet<String>>,
+    pub policy: PagePolicy,
+}
+/// One reducer for authenticated folds and transaction-local admission projections.
+#[derive(Clone, Debug)]
+pub(crate) struct PagePolicy {
     pub epoch: u64,
     pub link_mode: bool,
+    pub public_mode: bool,
     pub history_current: bool,
-    pub active: bool,
+    pub archived: bool,
+    pub deleted: bool,
+    pub retention_days: Option<u64>,
+}
+impl Default for PagePolicy {
+    fn default() -> Self {
+        Self {
+            epoch: 1,
+            link_mode: false,
+            public_mode: false,
+            history_current: false,
+            archived: false,
+            deleted: false,
+            retention_days: Some(30),
+        }
+    }
+}
+impl PagePolicy {
+    pub fn writable(&self) -> bool {
+        !self.archived && !self.deleted
+    }
+    pub fn apply(&mut self, payload: &Payload, page: &str) -> Result<()> {
+        match payload {
+            Payload::EpochAdvance(p) if p.page_id == page => {
+                let next = values::decimal(&p.epoch, false)?;
+                if self.epoch.checked_add(1) != Some(next) || !self.writable() {
+                    return Err(OwnerFault::Invalid.into());
+                }
+                self.epoch = next;
+            }
+            Payload::PageShare(p) if p.page_id == page => {
+                if self.deleted || values::decimal(&p.epoch, false)? != self.epoch {
+                    return Err(OwnerFault::Invalid.into());
+                }
+                self.link_mode = matches!(p.mode, payload::ShareMode::Link);
+                self.public_mode = matches!(p.mode, payload::ShareMode::Public);
+            }
+            Payload::PageHistory(p) if p.page_id == page => {
+                self.history_current = matches!(p.mode, payload::HistoryMode::Current);
+            }
+            Payload::RetentionSet(p) if p.page_id == page => {
+                self.retention_days = match p.days {
+                    payload::Days::Forever => None,
+                    payload::Days::Count(n) => Some(n),
+                };
+            }
+            Payload::Archive(p) if p.page_id == page => self.archived = true,
+            Payload::Delete(p) if p.page_id == page => self.deleted = true,
+            _ => {}
+        }
+        Ok(())
+    }
 }
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -55,6 +112,8 @@ pub(crate) struct Snapshot {
 pub(crate) struct View {
     pub source: String,
     pub title: String,
+    pub update: Vec<u8>,
+    pub memory_limit: crate::decoder::MemoryLimit,
 }
 impl Snapshot {
     pub fn capture(store: &Store, key: &Keyring, page: &str) -> Result<Self> {
@@ -62,7 +121,10 @@ impl Snapshot {
             let (states, payloads) = verify_log(&tx.log()?, key, page)?;
             let authority = states.last().ok_or(OwnerFault::Invalid)?.clone();
             let epoch = tx.current_epoch(page)?;
-            if tx.head() != Some(&authority.head) || !authority.active || epoch != authority.epoch {
+            if tx.head() != Some(&authority.head)
+                || !authority.policy.writable()
+                || epoch != authority.policy.epoch
+            {
                 return Err(OwnerFault::Invalid.into());
             }
             for payload in &payloads {
@@ -106,6 +168,15 @@ impl Snapshot {
         })
     }
     pub fn materialize(&self, key: &Keyring, page: &str, decoder: &mut Decoder) -> Result<View> {
+        self.materialize_edit(key, page, decoder, None)
+    }
+    pub fn materialize_edit(
+        &self,
+        key: &Keyring,
+        page: &str,
+        decoder: &mut Decoder,
+        source: Option<&str>,
+    ) -> Result<View> {
         let mut baseline = Vec::new();
         if let Some(saved) = &self.baseline {
             let d = payload::decode_baseline(&saved.descriptor)?;
@@ -178,7 +249,7 @@ impl Snapshot {
                 || c.stream_seq != stored.seq.to_string()
                 || c.prev_hash != stored.previous
                 || envelope.hash()? != stored.hash
-                || at_write.epoch != self.epoch
+                || at_write.policy.epoch != self.epoch
                 || at_write.revoked_devices.contains(&c.author_device)
             {
                 return Err(OwnerFault::Invalid.into());
@@ -321,16 +392,19 @@ impl Snapshot {
             }
         }
         let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
-        let folded = decoder.decode(
-            UpdateBatch {
-                namespace: Namespace::Content,
-                baseline: &baseline,
-                updates: &refs,
-            },
-            Role::Editor,
-            None,
-        )?;
+        let batch = UpdateBatch {
+            namespace: Namespace::Content,
+            baseline: &baseline,
+            updates: &refs,
+        };
+        let folded = if let Some(source) = source {
+            decoder.prepare(batch, source, None)?
+        } else {
+            decoder.decode(batch, Role::Editor, None)?
+        };
         Ok(View {
+            update: folded.merged,
+            memory_limit: folded.memory_limit,
             source: folded.projection["html"]
                 .as_str()
                 .ok_or(OwnerFault::Invalid)?
@@ -351,10 +425,7 @@ pub(crate) fn verify_log(
     let mut payloads = Vec::new();
     let mut recipients: Arc<BTreeMap<(String, String), Issuer>> = Arc::new(BTreeMap::new());
     let mut revoked_devices = Arc::new(BTreeSet::new());
-    let mut epoch: u64 = 1;
-    let mut link_mode = false;
-    let mut history_current = false;
-    let mut active = true;
+    let mut policy = PagePolicy::default();
     for item in log {
         let verified = item.verify_next(
             &key.space_id,
@@ -417,22 +488,9 @@ pub(crate) fn verify_log(
             Payload::DeviceRevoke(p) => {
                 Arc::make_mut(&mut revoked_devices).insert(p.device_id.clone());
             }
-            Payload::EpochAdvance(p) if p.page_id == page => {
-                let next = values::decimal(&p.epoch, false)?;
-                if epoch.checked_add(1) != Some(next) {
-                    return Err(OwnerFault::Invalid.into());
-                }
-                epoch = next;
-            }
-            Payload::PageShare(p) if p.page_id == page => {
-                link_mode = matches!(p.mode, payload::ShareMode::Link)
-            }
-            Payload::PageHistory(p) if p.page_id == page => {
-                history_current = matches!(p.mode, payload::HistoryMode::Current);
-            }
-            Payload::Archive(p) | Payload::Delete(p) if p.page_id == page => active = false,
             _ => {}
         }
+        policy.apply(&verified.payload, page)?;
         if let Some(recipient) = addition {
             let id = (recipient.kind.clone(), recipient.id.clone());
             if Arc::make_mut(&mut recipients)
@@ -453,10 +511,7 @@ pub(crate) fn verify_log(
             head: verified.head,
             recipients: recipients.clone(),
             revoked_devices: revoked_devices.clone(),
-            epoch,
-            link_mode,
-            history_current,
-            active,
+            policy: policy.clone(),
         });
         payloads.push(verified.payload);
     }
@@ -486,10 +541,10 @@ fn recipient(
 }
 pub(crate) fn eligible(r: &Recipient, a: &Authority, page: &str) -> bool {
     !r.revoked
-        && a.active
+        && a.policy.writable()
         && ((r.kind == "member" && r.id == a.head.owner_member.id)
             || r.pages.iter().any(|p| p == page))
-        && (r.kind != "link" || a.link_mode)
+        && (r.kind != "link" || a.policy.link_mode)
 }
 pub(crate) fn verify_chain(
     chain: &certificate::Chain,

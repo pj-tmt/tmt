@@ -355,13 +355,20 @@ jobs:
         working-directory: rust
         run: |
           cargo build --locked -p tmt-squad
-          cargo build --locked --example storage-probe
+          extension_started=$SECONDS
+          cargo build --locked -p tmt-remote -p tmt-colab --bins
+          echo "Built Remote/Colab process fixtures in $((SECONDS - extension_started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
+          cargo build --locked --example storage-probe --example runtime-caller-fixture
           cargo build --locked --release -p tmt-cli -p tmt-driver-herdr --bins
       - name: Build Squad process fixtures
         if: needs.changes.outputs.native_scope == 'squad'
         working-directory: rust
         run: |
           cargo build --locked -p tmt-squad
+          extension_started=$SECONDS
+          cargo build --locked -p tmt-remote -p tmt-colab --bins
+          echo "Built Remote/Colab process fixtures in $((SECONDS - extension_started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
+          cargo build --locked -p tmt-adapters --example runtime-caller-fixture
           cargo build --locked --release -p tmt-cli -p tmt-driver-herdr --bins
       - name: Download the verified Office companion
         if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_office == 'true'
@@ -490,12 +497,25 @@ jobs:
         with:
           name: runtime-x86_64-unknown-linux-musl
           path: rust/target/debug
+      - name: Download the Rust TOML helper for injection fixtures
+        uses: actions/download-artifact@v4
+        with:
+          name: release-version-fixture
+          path: rust/target/debug/examples
+      - name: Make the Rust TOML helper executable
+        run: chmod +x rust/target/debug/examples/release-version
+      - name: Download the native caller launcher for tooling tests
+        uses: actions/download-artifact@v4
+        with:
+          name: native-caller-fixture-x86_64-unknown-linux-musl
+          path: rust/target/debug/examples
       - name: Run retained developer tooling tests
         working-directory: typescript
         # The deleted TypeScript source coverage denominator is not Rust coverage.
         # Rust unit/process contracts and Docker remain independent required gates.
         run: |
           chmod +x ../rust/target/debug/tmt ../rust/target/debug/tmt-driver-herdr
+          chmod +x ../rust/target/debug/examples/runtime-caller-fixture
           pnpm test:run
 
   # The Docker E2E suite runs as two jobs so that the longest required job is
@@ -595,7 +615,34 @@ jobs:
         working-directory: rust
         env:
           MACOSX_DEPLOYMENT_TARGET: '11.0'
-        run: cargo build --locked --release --target '${{ matrix.target }}' -p tmt-cli -p tmt-driver-herdr --bins
+        run: |
+          started=$SECONDS
+          cargo build --locked --release --target '${{ matrix.target }}' -p tmt-cli -p tmt-driver-herdr --bins
+          echo "Built native runtime in $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Build the Rust TOML helper for tooling fixtures
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        working-directory: rust
+        run: cargo build --locked -p tmt-test-support --example release-version
+      - name: Share the Rust TOML helper with tooling tests
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-version-fixture
+          path: rust/target/debug/examples/release-version
+          if-no-files-found: error
+          retention-days: 1
+      - name: Build the native caller launcher for tooling tests
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        working-directory: rust
+        run: cargo build --locked --release --target '${{ matrix.target }}' -p tmt-adapters --example runtime-caller-fixture
+      - name: Share the native caller launcher with tooling tests
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-caller-fixture-${{ matrix.target }}
+          path: rust/target/${{ matrix.target }}/release/examples/runtime-caller-fixture
+          if-no-files-found: error
+          retention-days: 1
       - name: Record the Cargo-owned version
         working-directory: rust
         run: |
@@ -620,7 +667,7 @@ jobs:
       matrix:
         include:
           - target: x86_64-apple-darwin
-            runner: macos-15-intel
+            runner: macos-15
           - target: aarch64-apple-darwin
             runner: macos-15
     runs-on: ${{ matrix.runner }}
@@ -664,6 +711,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22.23.2
+          architecture: ${{ matrix.target == 'x86_64-apple-darwin' && 'x64' || '' }}
       - name: Download the matching native executable
         uses: actions/download-artifact@v4
         with:
@@ -679,14 +727,18 @@ jobs:
       - name: Warm the macOS toolchain lookup
         if: runner.os == 'macOS'
         uses: ./.github/actions/warm-xcrun
-      - name: Verify native runtime on matching host
+      - name: Verify native runtime with the matching target process
         if: ${{ !matrix.container }}
         run: |
+          scripts/run-native-verification.sh '${{ matrix.target }}' <<'VERIFY'
+          started=$SECONDS
           node typescript/scripts/verify-native-runtime.mjs \
             --executable "$GITHUB_WORKSPACE/runtime/tmt" \
             --target '${{ matrix.target }}' \
             --version "$(cat runtime/version.txt)" \
             --skill skills/tmux-team/SKILL.md
+          echo "Verified native runtime in $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
+          VERIFY
       - name: Build the verification-only Alpine environment
         if: ${{ matrix.container }}
         run: docker build -f typescript/test/native/runtime.Dockerfile -t tmt-runtime-proof .
@@ -710,7 +762,7 @@ jobs:
       matrix:
         include:
           - label: macOS x64
-            runner: macos-15-intel
+            runner: macos-15
             target: x86_64-apple-darwin
             container: false
           - label: macOS arm64

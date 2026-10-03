@@ -1,5 +1,5 @@
 // GitHub Pages serves files, not routes. Give every handbook page its own
-// index.html in every language (/, /ja/, /zh-hant/), so a deep link or a reload
+// index.html in every language (/, /ja/, /zh-hant/, /zh-hans/), so a deep link or a reload
 // returns 200, and a 404.html that loads the same app for anything else.
 // Each file also carries what a crawler reads without running the app: its
 // <html lang> and the hreflang alternates for the same page in every language.
@@ -21,6 +21,7 @@ const languages = [
   { prefix: "", htmlLang: "en" },
   { prefix: "ja", htmlLang: "ja" },
   { prefix: "zh-hant", htmlLang: "zh-Hant" },
+  { prefix: "zh-hans", htmlLang: "zh-Hans" },
 ];
 
 // The same base as vite.config.ts. Alternates need addresses a crawler can use,

@@ -53,7 +53,9 @@ impl Config {
             self.board(key)?
         };
         for (key, action, source) in self.binding_settings(key, tmux, &board.panes, section)? {
+            let description = action.description();
             out.push(key, json!(action.text), source);
+            out.entries.last_mut().unwrap().description = Some(description);
         }
         let scope = context.filter(|key| !tabs::aggregate(key));
         for entry in &mut out.entries {
@@ -314,6 +316,22 @@ mod tests {
         );
         let all = cfg.settings(Some(tabs::ALL), true, None).unwrap();
         assert_eq!(entry(&all, "bind.enter").value, "refresh");
+        assert_eq!(
+            entry(&all, "bind.enter").description.as_deref(),
+            Some("refresh the board now")
+        );
+        let json = all.value();
+        let binding = json["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["key"] == "bind.enter")
+            .unwrap();
+        assert_eq!(binding["value"], "refresh");
+        assert!(
+            binding.get("description").is_none(),
+            "presentation metadata does not change raw config JSON"
+        );
         assert_eq!(entry(&all, "bind.enter").source, "tabs.all.bind.enter");
         assert_eq!(
             entry(&all, "rows").value,

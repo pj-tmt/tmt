@@ -3,7 +3,10 @@ use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
     net::TcpStream,
-    os::unix::{fs::PermissionsExt, net::UnixListener},
+    os::unix::{
+        fs::PermissionsExt,
+        net::{UnixListener, UnixStream},
+    },
     path::PathBuf,
     process::{Child, Command, Stdio},
     sync::{
@@ -80,7 +83,11 @@ fn help_missing_core_and_invalid_options() {
     let b = pilot.command().args(["help", "serve"]).output().unwrap();
     assert!(a.status.success() && b.status.success());
     assert_eq!(a.stdout, b.stdout);
-    assert!(String::from_utf8(a.stdout).unwrap().contains("deny-all"));
+    assert!(
+        String::from_utf8(a.stdout)
+            .unwrap()
+            .contains("owner-device")
+    );
     assert!(
         !pilot
             .command()
@@ -136,7 +143,7 @@ fn startup_reads_capabilities_and_root_mounts_without_core_calls_and_sigterm_rea
         });
         let descriptor: Value = serde_json::from_str(&rx.recv_timeout(STARTUP).unwrap()).unwrap();
         reader.join().unwrap();
-        assert_eq!(descriptor["state"], "closed");
+        assert_eq!(descriptor["state"], "ready");
         assert_eq!(descriptor["startupCoreCalls"], 2);
         let address = descriptor["address"]
             .as_str()
@@ -513,8 +520,11 @@ fn pair_json_confirms_one_device_through_the_running_serve() {
 }
 
 /// A bounded HTTP callback fixture for actual foreground-process composition.
+/// Failed production attempts are retried with up to 30 s backoff. Allow that
+/// retry plus scheduler delay; receiving the event, not elapsed time, is readiness.
+const DEVICE_EVENT_WINDOW: Duration = Duration::from_secs(60);
 struct DeviceCallback {
-    events: mpsc::Receiver<Value>,
+    events: mpsc::Receiver<Result<Value, String>>,
     stop: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -532,41 +542,25 @@ impl DeviceCallback {
         let (sent, events) = mpsc::channel();
         let thread = std::thread::spawn(move || {
             while !flag.load(Ordering::Acquire) {
-                match listener.accept() {
-                    Ok((mut stream, _)) => {
-                        stream
-                            .set_read_timeout(Some(Duration::from_secs(2)))
-                            .unwrap();
-                        let mut reader = BufReader::new(stream.try_clone().unwrap());
-                        let mut line = String::new();
-                        reader.read_line(&mut line).unwrap();
-                        assert_eq!(line, "POST /.tmt/remote/device-events HTTP/1.1\r\n");
-                        let (mut marker, mut length) = (false, None);
-                        loop {
-                            line.clear();
-                            assert!(reader.read_line(&mut line).unwrap() > 0);
-                            if line == "\r\n" {
-                                break;
-                            }
-                            marker |= line == "tmt-device-event: 1\r\n";
-                            if let Some(value) = line.strip_prefix("Content-Length: ") {
-                                length = Some(value.trim().parse::<usize>().unwrap());
-                            }
-                        }
-                        assert!(marker);
-                        let length = length.unwrap();
-                        assert!(length <= 4096);
-                        let mut body = vec![0; length];
-                        reader.read_exact(&mut body).unwrap();
-                        stream
-                            .write_all(b"HTTP/1.1 204 No Content\r\n\r\n")
-                            .unwrap();
-                        sent.send(serde_json::from_slice(&body).unwrap()).unwrap();
-                    }
+                let result = match listener.accept() {
+                    Ok((mut stream, _)) => Self::receive(&mut stream, &flag),
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        std::thread::sleep(Duration::from_millis(5))
+                        std::thread::sleep(Duration::from_millis(5));
+                        continue;
                     }
-                    Err(e) => panic!("callback listener failed: {e}"),
+                    Err(e) => Err(format!("callback listener failed: {e}")),
+                };
+                match result {
+                    Ok(None) => continue,
+                    Ok(Some(event)) => {
+                        if sent.send(Ok(event)).is_err() {
+                            break;
+                        }
+                    }
+                    Err(error) => {
+                        let _ = sent.send(Err(error));
+                        break;
+                    }
                 }
             }
         });
@@ -576,17 +570,178 @@ impl DeviceCallback {
             thread: Some(thread),
         }
     }
+    fn receive(stream: &mut UnixStream, stop: &AtomicBool) -> Result<Option<Value>, String> {
+        // Readiness waits only check cancellation. Preserve partial framing
+        // across them, with one absolute acquisition deadline. Nonblocking I/O
+        // also handles a peer that has already closed before accept completes.
+        stream.set_nonblocking(true).map_err(|e| e.to_string())?;
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut bytes = Vec::new();
+        let mut chunk = [0; 4096];
+        while !stop.load(Ordering::Acquire) && Instant::now() < deadline {
+            if let Some(end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                let head = std::str::from_utf8(&bytes[..end]).map_err(|e| e.to_string())?;
+                let mut lines = head.split("\r\n");
+                if lines.next() != Some("POST /.tmt/remote/device-events HTTP/1.1") {
+                    return Err("unexpected device-event request line".into());
+                }
+                let mut marker = false;
+                let mut length = None;
+                for line in lines {
+                    marker |= line == "tmt-device-event: 1";
+                    if let Some(value) = line.strip_prefix("Content-Length: ") {
+                        length = Some(value.parse::<usize>().map_err(|e| e.to_string())?);
+                    }
+                }
+                let length = length.ok_or("missing callback Content-Length")?;
+                if !marker || length > 4096 || end > 8192 {
+                    return Err("invalid device-event marker or size".into());
+                }
+                let body = end + 4;
+                if bytes.len() >= body + length {
+                    let event = serde_json::from_slice(&bytes[body..body + length])
+                        .map_err(|e| format!("invalid device-event JSON: {e}"))?;
+                    // An attempt may expire before the fixture is scheduled.
+                    // Its reply can fail; the durable snapshot will be replayed.
+                    let _ = stream.write_all(b"HTTP/1.1 204 No Content\r\n\r\n");
+                    return Ok(Some(event));
+                }
+            } else if bytes.len() > 8192 {
+                return Err("device-event head exceeds fixture bound".into());
+            }
+            match stream.read(&mut chunk) {
+                Ok(0) => return Ok(None), // Incomplete attempt; serve retries it.
+                Ok(n) => bytes.extend_from_slice(&chunk[..n]),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    use nix::poll::{PollFd, PollFlags, poll};
+                    use std::os::fd::AsFd;
+                    let mut ready = [PollFd::new(stream.as_fd(), PollFlags::POLLIN)];
+                    match poll(&mut ready, 100u16) {
+                        Ok(_) | Err(nix::errno::Errno::EINTR) => {}
+                        Err(e) => return Err(format!("callback readiness failed: {e}")),
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => return Ok(None),
+                Err(e) => return Err(format!("callback read failed: {e}")),
+            }
+        }
+        Ok(None)
+    }
+    fn next_within(&self, window: Duration) -> Result<Value, String> {
+        self.events.recv_timeout(window).map_err(|e| {
+            format!("foreground did not deliver device event within {window:?}: {e}")
+        })?
+    }
     fn next(&self) -> Value {
-        self.events
-            .recv_timeout(Duration::from_secs(10))
-            .expect("foreground did not deliver device event")
+        self.next_within(DEVICE_EVENT_WINDOW)
+            .unwrap_or_else(|e| panic!("{e}"))
     }
 }
 impl Drop for DeviceCallback {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
-        self.thread.take().unwrap().join().unwrap();
+        if let Some(thread) = self.thread.take() {
+            // The scenario reports failure through next(). Never panic again
+            // while its assertion is unwinding, but always join the worker.
+            if thread.join().is_err() {
+                eprintln!("device callback worker panicked during cleanup");
+            }
+        }
     }
+}
+
+#[test]
+fn device_callback_retries_incomplete_requests_and_reports_protocol_errors() {
+    let pilot = Pilot::new();
+    let callback = DeviceCallback::serve(&pilot.root);
+    let socket = pilot.root.join("colab/door.sock");
+    {
+        let mut abandoned = UnixStream::connect(&socket).unwrap();
+        abandoned.write_all(b"POST /.tmt/").unwrap();
+    }
+    let event = serde_json::json!({"type":"device.revoked","grantRevision":3});
+    let body = event.to_string();
+    let mut stream = UnixStream::connect(&socket).unwrap_or_else(|e| {
+        panic!(
+            "callback connect: {e}; worker: {:?}",
+            callback.next_within(Duration::from_millis(100))
+        )
+    });
+    write!(stream, "POST /.tmt/remote/device-events HTTP/1.1\r\ntmt-device-event: 1\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+    assert_eq!(callback.next(), event);
+    let mut invalid = UnixStream::connect(&socket).unwrap();
+    invalid
+        .write_all(b"GET /wrong HTTP/1.1\r\nContent-Length: 0\r\n\r\n")
+        .unwrap();
+    assert_eq!(
+        callback.next_within(DEVICE_EVENT_WINDOW).unwrap_err(),
+        "unexpected device-event request line"
+    );
+    drop(callback);
+}
+
+#[test]
+fn device_callback_missing_event_and_panicked_worker_fail_without_abort() {
+    const CHILD: &str = "TMT_1460_CALLBACK_FAILURE";
+    if let Ok(root) = std::env::var(CHILD) {
+        let mut callback = DeviceCallback::serve(std::path::Path::new(&root));
+        assert!(
+            callback
+                .next_within(Duration::from_millis(20))
+                .unwrap_err()
+                .contains("foreground did not deliver device event")
+        );
+        // Deterministically model the original failed worker, then unwind the
+        // scenario. The old Drop join unwrap aborts this isolated test process.
+        callback.stop.store(true, Ordering::Release);
+        callback.thread.take().unwrap().join().unwrap();
+        callback.thread = Some(std::thread::spawn(|| panic!("injected worker failure")));
+        panic!("missing device event assertion");
+    }
+    let pilot = Pilot::new();
+    let stderr_path = pilot.root.join("failure.stderr");
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "device_callback_missing_event_and_panicked_worker_fail_without_abort",
+            "--nocapture",
+        ])
+        .env(CHILD, &pilot.root)
+        .stdout(Stdio::null())
+        .stderr(fs::File::create(&stderr_path).unwrap())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + DEVICE_EVENT_WINDOW;
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            child.wait().unwrap();
+            panic!("callback failure subprocess did not terminate");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let stderr = fs::read_to_string(stderr_path).unwrap();
+    assert_eq!(
+        status.code(),
+        Some(101),
+        "must fail as a Rust assertion, not a signal: {stderr}"
+    );
+    assert!(
+        UnixStream::connect(pilot.root.join("colab/door.sock")).is_err(),
+        "callback worker leaked after the failed scenario"
+    );
+    assert!(
+        stderr.contains("missing device event assertion"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("device callback worker panicked during cleanup"),
+        "{stderr}"
+    );
 }
 
 #[test]

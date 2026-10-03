@@ -26,6 +26,8 @@ const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
     ("tmt-cli", "insta", None),                 // command rendering snapshots
     ("tmt-cli", "proc-macro2", None),           // architecture syntax fixtures
     ("tmt-cli", "toml_edit", None),             // audited unsafe-boundary manifest policy
+    ("tmt-test-support", "serde_json", None),   // release TOML example JSON boundary
+    ("tmt-test-support", "toml_edit", None),    // formatting-preserving release TOML example
     ("tmt-cli", "syn", None),                   // architecture AST checks
     ("tmt-cli", "tmt-office-model", None),      // Office parser fixtures
     ("tmt-cli", "tmt-driver-protocol", None),   // Herdr driver conformance harness
@@ -210,6 +212,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             // Production row geometry and grapheme fitting; no core behavior.
             "tmt-tui",
             "clap",
+            "jiff",
             "serde_json",
             "toml_edit",
             "subprocess",
@@ -328,7 +331,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         .collect()
 }
 
-/// This owner is fixture publication only, never a published product.
+/// This owner is private fixture tooling, never a published product.
 pub fn test_support_package_violations(package: &Value) -> Vec<String> {
     if package["name"] != "tmt-test-support" {
         return Vec::new();

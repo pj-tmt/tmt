@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { productOfTag, archivePrefix, releasePolicy } from './native-release-policy.mjs';
 import { compareVersions, versionOfTag } from './release-versions.mjs';
-import { ownerOf, parseComponentMap } from './ci-scope.mjs';
+import { ownerOf, parseComponentMap, releasedComponentsForPath } from './ci-scope.mjs';
 
 export const PROJECT_ID = 'PVT_kwDOFBKkD84BlZ_A';
 export const LIMITS = { graphql: 200, rest: 20, pages: 20, prs: 2000, batch: 25 };
@@ -273,8 +273,13 @@ export function affectedProducts(paths, map) {
     const name = ownerOf(path, map);
     const component = map.components.find((entry) => entry.name === name);
     if (!component) throw new Error(`No component owns ${path}.`);
-    // Consumers come from the same map used by release-please, never from CI selection rules.
-    const owners = component.releaseConsumers.length ? component.releaseConsumers : [name];
+    // Private consumption adds attribution without replacing existing released-root membership.
+    const owners = component.releaseConsumers.length
+      ? [
+          ...component.releaseConsumers,
+          ...releasedComponentsForPath(path, map).map((entry) => entry.name),
+        ]
+      : [name];
     for (const owner of owners) {
       try {
         releasePolicy(owner);

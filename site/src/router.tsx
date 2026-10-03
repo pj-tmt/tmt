@@ -12,7 +12,7 @@ import { languages, withLang } from "./lang/languages";
 const root = createRootRoute({ component: Layout, notFoundComponent: Chapter });
 
 // Every page exists once per language: English at its path, the others under
-// /ja and /zh-hant. Untranslated pages render their English content (see Chapter).
+// their language prefix. Untranslated pages render English content (see Chapter).
 export const routeTree = root.addChildren([
   ...pages.map((page) =>
     createRoute({

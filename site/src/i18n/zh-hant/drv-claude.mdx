@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drv-claude.mdx
-sourceRevision: a9b20d9dd287fd5dd0da493c0642d1a70df12d69
+sourceRevision: 44f7c122826138af7e784079ba61766762cba41f
 title: Claude Code
 ---
 
@@ -37,6 +37,12 @@ $ tmt resume reviewer       # 重新開啟 reviewer 自己的對話
 `}</Cmd>
 
 Setup 會為 tmt 加入三個 Claude Code hook（session 開始、session 結束、提交 prompt），不會變更設定中的其他內容。hook 不會阻擋 Claude Code：如果 tmt 太慢或找不到，session 仍會正常啟動，只是不會收到摘要。`tmt setup claude --remove` 會移除這些 hook。
+
+設定 `CLAUDE_CONFIG_DIR` 後，tmt 會改用該資料夾作為 Claude 的設定與 skill 目錄，並從那裡讀取對話紀錄，不再使用 `~/.claude`。相對路徑以執行 tmt 時所在的資料夾為起點。
+
+設定檔是符號連結時，Setup 不會編輯它；連結與目標都會保持原樣。如果仍要加入 tmt 的 hook，先備份連結指向的檔案，再把 `CLAUDE_CONFIG_DIR` 指向空資料夾並執行 `tmt setup claude`，最後把那裡的 tmt hook 項目手動複製到你實際使用的設定檔。
+
+如果 session 結束的原因不在 tmt 認得的範圍內，tmt 不會直接認定它已結束，而會檢查 Claude 行程本身。
 
 <Mdx.h3 id="what-you-get">能用的功能</Mdx.h3>
 

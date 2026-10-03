@@ -167,7 +167,10 @@ fn invocation_errors_keep_public_mappings_and_cleanup_uncertainty() {
             cause: None,
             cleanup: Cleanup::Unconfirmed(std::io::Error::other("denied"))
         }),
-        failure("Core cleanup could not be confirmed; outcome is unknown.")
+        RemoteError::new(
+            "REMOTE_CORE_UNCERTAIN",
+            "Core cleanup could not be confirmed; outcome is unknown."
+        )
     );
     assert_eq!(
         invocation_error(InvokeError {
@@ -185,4 +188,123 @@ fn invocation_errors_keep_public_mappings_and_cleanup_uncertainty() {
         }),
         failure("Core output could not be read within its bound.")
     );
+}
+
+// Re-exec owns the lock in a separate process: SIGKILL bypasses Rust destructors.
+#[test]
+fn invocation_lease_probe_child() {
+    let Some(root) = std::env::var_os("TMT_REMOTE_LEASE_PROBE") else {
+        return;
+    };
+    let root = PathBuf::from(root);
+    let layout = crate::state::Layout::open(&root).unwrap();
+    let serving = layout.serve_lock().unwrap();
+    if std::env::var_os("TMT_REMOTE_LEASE_INHERIT").is_some() {
+        serving.retain_for_invocations().unwrap();
+    }
+    CoreClient::at(root.join("tmt"))
+        .unwrap()
+        .capabilities(&AtomicBool::new(false))
+        .unwrap();
+}
+#[test]
+fn existing_invoke_preserves_explicit_lease_after_owner_crash() {
+    use nix::{
+        sys::signal::{Signal, kill, killpg},
+        sys::stat::Mode,
+        unistd::{Pid, mkfifo},
+    };
+    use std::{
+        io::Write,
+        process::{Child, Command, Stdio},
+    };
+    struct Processes {
+        owner: Child,
+        root: PathBuf,
+    }
+    impl Drop for Processes {
+        fn drop(&mut self) {
+            let _ = self.owner.kill();
+            let _ = self.owner.wait();
+            if let Ok(text) = fs::read_to_string(self.root.join("pid"))
+                && let Ok(pid) = text.trim().parse::<i32>()
+            {
+                let _ = killpg(Pid::from_raw(pid), Signal::SIGKILL);
+            }
+        }
+    }
+    for inherit in [false, true] {
+        let fixture = Fixture::new(
+            "cat >/dev/null; echo $$ > pid; read release < gate; echo stopped > finished; printf '{\"ok\":true}'",
+        );
+        mkfifo(&fixture.0.join("gate"), Mode::S_IRUSR | Mode::S_IWUSR).unwrap();
+        let mut gate = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(fixture.0.join("gate"))
+            .unwrap();
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "core::tests::invocation_lease_probe_child",
+                "--nocapture",
+            ])
+            .env("TMT_REMOTE_LEASE_PROBE", &fixture.0)
+            .env_remove("TMT_REMOTE_LEASE_INHERIT")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if inherit {
+            command.env("TMT_REMOTE_LEASE_INHERIT", "1");
+        }
+        let mut processes = Processes {
+            owner: command.spawn().unwrap(),
+            root: fixture.0.clone(),
+        };
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let pid = loop {
+            if let Ok(text) = fs::read_to_string(fixture.0.join("pid"))
+                && let Ok(pid) = text.trim().parse::<i32>()
+            {
+                break pid;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "invoked child did not reach barrier"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        processes.owner.kill().unwrap();
+        processes.owner.wait().unwrap();
+        assert!(
+            kill(Pid::from_raw(pid), None).is_ok(),
+            "child must still be active"
+        );
+        let layout = crate::state::Layout::open(&fixture.0).unwrap();
+        let restarted = layout.serve_lock();
+        if inherit {
+            assert!(matches!(restarted, Err(ref error) if error.code == "REMOTE_ALREADY_SERVING"));
+        } else {
+            assert!(
+                restarted.is_ok(),
+                "default CLOEXEC lock does not fence the orphan"
+            );
+        }
+        drop(restarted);
+        gate.write_all(b"continue\n").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while kill(Pid::from_raw(pid), None).is_ok() {
+            assert!(
+                Instant::now() < deadline,
+                "invoked child leaked after release"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(
+            fs::read_to_string(fixture.0.join("finished")).unwrap(),
+            "stopped\n"
+        );
+        assert!(layout.serve_lock().is_ok(), "lease must end with the child");
+        fs::remove_file(fixture.0.join("pid")).unwrap();
+    }
 }

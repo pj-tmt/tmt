@@ -203,7 +203,8 @@ fn schema_history_uses_core_migrations() {
         [
             (1, "machine".to_owned()),
             (2, "grants".to_owned()),
-            (3, "sessions".to_owned())
+            (3, "sessions".to_owned()),
+            (4, "journal".to_owned())
         ]
     );
     let journal: String = inspect
@@ -217,11 +218,11 @@ fn schema_history_uses_core_migrations() {
         .unwrap()
         .query_row("SELECT COUNT(*) FROM _migrations", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(count, 3);
+    assert_eq!(count, 4);
     // A newer build's history refuses instead of being reinterpreted.
     Connection::open(&db)
         .unwrap()
-        .execute("INSERT INTO _migrations VALUES (4, 'future', 'now')", [])
+        .execute("INSERT INTO _migrations VALUES (5, 'future', 'now')", [])
         .unwrap();
     assert_eq!(
         Store::open(&layout.serve_lock().unwrap())
@@ -233,7 +234,7 @@ fn schema_history_uses_core_migrations() {
     // A renamed step refuses as damaged history.
     let damage = Connection::open(&db).unwrap();
     damage
-        .execute("DELETE FROM _migrations WHERE version = 4", [])
+        .execute("DELETE FROM _migrations WHERE version = 5", [])
         .unwrap();
     damage
         .execute(

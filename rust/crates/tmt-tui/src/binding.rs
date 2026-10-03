@@ -144,6 +144,9 @@ fn fail(file: &str, element: &MarkupElement, message: impl Into<String>) -> Erro
         Kind::Cell => "tmt-cell",
         Kind::Text => "tmt-text",
         Kind::Repeat => "tmt-repeat",
+        Kind::Modal => "tmt-modal",
+        Kind::Scroll => "tmt-scroll",
+        Kind::KeyHelp => "tmt-key-help",
     };
     Error {
         file: file.into(),
@@ -178,6 +181,13 @@ fn check<A: Sources>(
     // parse guarantees repeat keys; binding paths below index only present attributes.
     let attrs = &element.attributes;
     let error = |message| fail(file, element, message);
+    if matches!(element.kind, Kind::Modal | Kind::Scroll | Kind::KeyHelp)
+        || attrs.contains_key("slot")
+    {
+        return Err(error(
+            "component markup must be lowered by components::surface::compile".into(),
+        ));
+    }
     let path = |key: &str| -> Result<Path, Error> {
         Path::parse(&attrs[key]).map_err(|why| error(format!("{key}={:?}: {why}", attrs[key])))
     };

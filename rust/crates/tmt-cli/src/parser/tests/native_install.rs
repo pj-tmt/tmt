@@ -79,15 +79,18 @@ fn internal_native_install_requires_explicit_inputs_and_typed_pin_policy() {
             if actual == if pin == "--pin" { PinAction::PinCandidate } else { PinAction::Clear })
         );
     }
-    let mut office = input.to_vec();
-    office.extend(["--product", "office"]);
-    assert!(matches!(
-        super::parse(&self::args(&office)).unwrap().invocation,
-        Invocation::NativeInstall {
-            product: tmt_core::native_install::Product::Office,
-            ..
-        }
-    ));
+    for product in [
+        tmt_core::native_install::Product::Office,
+        tmt_core::native_install::Product::Remote,
+        tmt_core::native_install::Product::Colab,
+    ] {
+        let mut selected = input.to_vec();
+        selected.extend(["--product", product.as_str()]);
+        assert!(
+            matches!(super::parse(&self::args(&selected)).unwrap().invocation,
+            Invocation::NativeInstall { product: actual, .. } if actual == product)
+        );
+    }
     let mut invalid_product = input.to_vec();
     invalid_product.extend(["--product", "third-party"]);
     assert_eq!(parse_error(&invalid_product).code, "USAGE_ERROR");

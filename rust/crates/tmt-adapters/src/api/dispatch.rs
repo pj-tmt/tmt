@@ -1,6 +1,6 @@
 //! Dispatch receipt recovery and the existing one-shot wake composition.
 
-use super::{Fault, identity, invalid};
+use super::{DispatchIdentity, Fault, identity, invalid};
 use crate::{dispatch, request_runtime::wall_time_ms, storage::Storage};
 use tmt_core::{dispatch::DispatchInput, request::Originator, settings::Settings};
 
@@ -22,12 +22,29 @@ pub(super) fn show_receipt(storage: &Storage, id: String) -> Result<Vec<u8>, Fau
 
 pub(super) fn create_dispatch(
     storage: &mut Storage,
-    selector: Option<String>,
+    selector: Option<DispatchIdentity>,
     mut input: DispatchInput,
     settings: Option<Settings>,
 ) -> Result<Vec<u8>, Fault> {
-    input.originator = match &selector {
-        Some(selector) => Originator::Explicit(identity(storage, selector)?),
+    input.originator = match selector {
+        Some(DispatchIdentity::Explicit(selector)) => {
+            Originator::Explicit(identity(storage, &selector)?)
+        }
+        Some(DispatchIdentity::SavedId(id)) => {
+            let selected = storage
+                .find_active_identity_by_id(&id)
+                .map_err(|_| Fault::unavailable())?
+                .ok_or_else(|| {
+                    Fault::new("NAME_NOT_FOUND", "Saved originator identity was not found.")
+                })?;
+            if selected.lifetime != tmt_core::identity::Lifetime::Saved {
+                return Err(Fault::new(
+                    "MCP_SAVED_IDENTITY_REQUIRED",
+                    "MCP requires an existing saved identity.",
+                ));
+            }
+            Originator::Explicit(selected.id)
+        }
         None => Originator::Unknown,
     };
     let settings = settings.expect("dispatch settings");
@@ -68,4 +85,64 @@ pub(super) fn create_dispatch(
         None
     };
     Ok(dispatch::encode_receipt_with_wake(&receipt, wake))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::TestDirectory;
+    use tmt_core::{
+        binding::BindingRepository,
+        identity::{Lifetime, create_or_resolve},
+    };
+
+    #[test]
+    fn saved_dispatch_selection_never_falls_back_to_a_retired_uuid_display_name() {
+        let directory = TestDirectory::new();
+        let mut storage = Storage::open(directory.path.join("fixture.db")).unwrap();
+        let sender = create_or_resolve(&mut storage, "Sender", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        let recipient = create_or_resolve(&mut storage, "Receiver", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        let temporary = create_or_resolve(&mut storage, "Temporary", Lifetime::Temporary)
+            .unwrap()
+            .identity;
+        storage
+            .with_binding_transaction(|rows| rows.retire_identity(&sender, false))
+            .unwrap();
+        let replacement = create_or_resolve(&mut storage, &sender.id, Lifetime::Saved)
+            .unwrap()
+            .identity;
+        // Ordinary JSON API name/UUID selection keeps its existing fallback.
+        assert_eq!(identity(&mut storage, &sender.id).unwrap(), replacement.id);
+        let operation = "6ceab579-6d31-45fc-bf61-f2ce90c96a1e";
+        let input = DispatchInput {
+            originator: Originator::Unknown,
+            operation_id: operation.into(),
+            recipient_ids: vec![recipient.id],
+            message: "work".into(),
+            kind: tmt_core::request::RequestKind::Request,
+            room: None,
+        };
+        let error = create_dispatch(
+            &mut storage,
+            Some(DispatchIdentity::SavedId(sender.id)),
+            input.clone(),
+            Some(Settings::default()),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "NAME_NOT_FOUND");
+        let error = create_dispatch(
+            &mut storage,
+            Some(DispatchIdentity::SavedId(temporary.id)),
+            input,
+            Some(Settings::default()),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "MCP_SAVED_IDENTITY_REQUIRED");
+        assert!(storage.dispatch_receipt(operation).unwrap().is_none());
+        storage.close().unwrap();
+    }
 }

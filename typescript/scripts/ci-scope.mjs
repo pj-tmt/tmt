@@ -83,6 +83,11 @@ export function parseComponentMap(text) {
       throw new Error(`Component ${component.name} bootstrapSha must be a commit SHA.`);
     if (component.release !== undefined && typeof component.release !== 'boolean')
       throw new Error(`Component ${component.name} release must be boolean.`);
+    for (const name of component.releaseConsumers) {
+      const consumer = components.find((candidate) => candidate.name === name);
+      if (component.release !== false || !consumer?.package || consumer.release === false)
+        throw new Error(`Invalid release consumer ${name} of ${component.name}.`);
+    }
   }
   if (components.length === 0) throw new Error('The component map has no components.');
   const ids = new Set();
@@ -122,6 +127,17 @@ function componentMap() {
 }
 
 const within = (root, path) => root === '.' || path === root || path.startsWith(`${root}/`);
+
+/** Released product roots containing a path; CI selectedBy and longest ownership do not replace membership. */
+export function releasedComponentsForPath(path, map = componentMap()) {
+  return map.components.filter(
+    (component) =>
+      component.package &&
+      component.release !== false &&
+      component.owns.some((root) => within(root, path)) &&
+      !component.excludes.some((root) => within(root, path))
+  );
+}
 
 /**
  * Whether a component is released: `release: false` parks it (release-please skips it, and the

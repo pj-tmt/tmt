@@ -195,6 +195,33 @@ impl Registration {
             })
             .map_err(map_error)
     }
+    /// The caller serializes management with sync before taking this mutex.
+    pub fn apply_owner(
+        &mut self,
+        request: crate::transitions::OwnerRequest<'_>,
+        now: u64,
+    ) -> std::result::Result<crate::transitions::Applied, crate::transitions::TransitionError> {
+        self.engine
+            .apply(&mut self.store, &self.keyring, request, now)
+    }
+    /// Root-local ciphertext write; caller holds the sync mutex before this service.
+    pub(crate) fn page_write(
+        &mut self,
+        prepared: &crate::page::Prepared,
+        now: u64,
+    ) -> crate::Result<crate::page::Committed> {
+        crate::page::commit(&mut self.store, &self.keyring, prepared, now)
+    }
+    pub(crate) fn management_device(
+        &mut self,
+        context: Option<&str>,
+        now: u64,
+    ) -> std::result::Result<(String, [u8; 32]), Code> {
+        let device = Context::parse(context)?.device_id;
+        let signing = self.active_device(context, now)?;
+        Ok((device, signing))
+    }
+
     /// The caller supplies server time, never a request-selected clock.
     pub fn register(
         &mut self,
@@ -480,6 +507,16 @@ impl crate::sync::Admission for OwnerAdmission {
         store: &Store,
     ) -> std::result::Result<crate::sync::CatchupContext, crate::sync::Code> {
         let service = self.0.lock().map_err(|_| crate::sync::Code::Denied)?;
+        service
+            .store
+            .owner_read(&scope.space, &service.keyring.owner_public(), |tx| {
+                let head = tx.head().ok_or(crate::sync::Code::Denied)?;
+                if tx.page_policy_at(&scope.page, head.revision)?.deleted {
+                    return Err(crate::sync::Code::Denied.into());
+                }
+                Ok(())
+            })
+            .map_err(|_| crate::sync::Code::Denied)?;
         Ok(crate::sync::CatchupContext {
             membership_head: store
                 .owner_head(&scope.space, &service.keyring.owner_public())
@@ -544,6 +581,12 @@ impl crate::sync::Admission for OwnerAdmission {
                 }
                 if now < cert.issued_at || now >= cert.expires_at {
                     return Err(SyncCode::Expired.into());
+                }
+                let policy = tx.page_policy_at(&scope.page, head.revision)?;
+                if policy.deleted
+                    || (policy.archived && matches!(access, crate::sync::Access::Append(_)))
+                {
+                    return Err(SyncCode::Denied.into());
                 }
                 if tx.page_epoch(&scope.page)?.as_deref() != Some(scope.epoch.as_str()) {
                     return Err(SyncCode::StaleEpoch.into());

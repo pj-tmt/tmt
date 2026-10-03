@@ -312,7 +312,13 @@ fn squad_is_a_fixed_extension_product_with_two_command_links() {
     use super::Product;
     assert_eq!(
         Product::ALL,
-        [Product::Cli, Product::Office, Product::Squad]
+        [
+            Product::Cli,
+            Product::Office,
+            Product::Squad,
+            Product::Remote,
+            Product::Colab
+        ]
     );
     let squad = Product::parse("squad").unwrap();
     assert_eq!(
@@ -344,6 +350,62 @@ fn squad_is_a_fixed_extension_product_with_two_command_links() {
 }
 
 #[test]
+fn remote_is_an_official_product_without_companions_or_an_office_probe() {
+    use super::Product;
+    let remote = Product::parse("remote").unwrap();
+    assert_eq!(
+        (
+            remote.tag_prefix(),
+            remote.executable(),
+            remote.package(),
+            remote.namespace()
+        ),
+        ("tmt-remote-v", "tmt-remote", "tmt-remote", "lib/tmt-remote")
+    );
+    assert_eq!(remote.links(), &["tmt-remote"]);
+    assert_eq!(remote.link_target(), "../lib/tmt-remote/current/tmt-remote");
+    assert_eq!(
+        remote.files(),
+        [
+            "tmt-remote",
+            "LICENSE",
+            "NATIVE-INSTALL.md",
+            "THIRD-PARTY-NOTICES.txt"
+        ]
+    );
+    assert!(remote.companions().is_empty());
+    assert!(!remote.requires_release_verifier());
+}
+
+#[test]
+fn colab_uses_the_settled_flat_archive_contract_without_an_office_probe() {
+    use super::Product;
+    let colab = Product::parse("colab").unwrap();
+    assert_eq!(
+        (
+            colab.tag_prefix(),
+            colab.executable(),
+            colab.package(),
+            colab.namespace()
+        ),
+        ("tmt-colab-v", "tmt-colab", "tmt-colab", "lib/tmt-colab")
+    );
+    assert_eq!(colab.links(), &["tmt-colab"]);
+    assert_eq!(colab.link_target(), "../lib/tmt-colab/current/tmt-colab");
+    assert_eq!(
+        colab.files(),
+        [
+            "tmt-colab",
+            "LICENSE",
+            "NATIVE-INSTALL.md",
+            "THIRD-PARTY-NOTICES.txt"
+        ]
+    );
+    assert!(colab.companions().is_empty());
+    assert!(!colab.requires_release_verifier());
+}
+
+#[test]
 fn the_cli_accepts_either_prerelease_flag_on_an_alpha_and_extensions_match_exactly() {
     use super::Product;
     let alpha = version("5.0.0-alpha.7");
@@ -353,7 +415,12 @@ fn the_cli_accepts_either_prerelease_flag_on_an_alpha_and_extensions_match_exact
     assert!(Product::Cli.accepts_prerelease_flag(&alpha, true));
     assert!(Product::Cli.accepts_prerelease_flag(&stable, false));
     assert!(!Product::Cli.accepts_prerelease_flag(&stable, true));
-    for extension in [Product::Office, Product::Squad] {
+    for extension in [
+        Product::Office,
+        Product::Squad,
+        Product::Remote,
+        Product::Colab,
+    ] {
         assert!(extension.accepts_prerelease_flag(&alpha, true));
         assert!(!extension.accepts_prerelease_flag(&alpha, false));
         assert!(extension.accepts_prerelease_flag(&stable, false));

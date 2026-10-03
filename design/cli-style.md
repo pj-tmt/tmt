@@ -142,7 +142,7 @@ tokens. Additional marks stay labelled board only. A row's leading state mark is
 | `✗`        | failed or blocked                                                                       |
 | `!`        | warning                                                                                 |
 | `◆`        | waits on your decision                                                                  |
-| `▾`        | an open foldable pane in a toggle hint (board only)                                      |
+| `▾`        | an open foldable pane in a toggle hint (board only)                                     |
 | `▸`        | folded Squad board pane (board only)                                                    |
 | `≥`        | lower bound from missing member token coverage (board only)                             |
 | `▁▂▃▄▅▆▇█` | completed-request trend: ▁ measured zero, ▂–█ relative rate, blank no data (board only) |
@@ -253,6 +253,142 @@ Examples:
   # Send a message to one agent
   tmt talk worker "Run the tests"
 ```
+
+## Full-screen interaction
+
+This section owns how a full-screen view, such as the Squad board, behaves:
+what has focus, which keys work where, and how overlays, states and narrow
+screens look. The `tmt-tui` components implement it (#1465), and the board's
+surfaces move onto them. **Status:** the rules are the target for that work. A
+surface that has not migrated may still differ; a new surface follows them from
+the start.
+
+### Layers and focus
+
+A view is a stack of layers. The **base** is the tab line, the panes and the
+footer. An **overlay** (help, settings, a picker, a prompt) sits on top of it,
+and a **notice** takes the footer line until the next key. Only one overlay is open at a
+time; opening another replaces it.
+
+- The top layer gets every key first. An overlay is modal: it handles its own
+  keys and swallows the rest, so nothing reaches the board underneath. The one
+  exception is Ctrl-C, which always quits the view. Quitting from a prompt
+  discards what was typed there; only Enter saves.
+- In the base, one pane has focus. Tab and Shift-Tab move focus between panes in
+  reading order; on the Squad home tab they move between sections. A pane may use Tab for its own items, such as links in the notes, and passes it on when it has none or the user bound Tab. The focused
+  pane's title is `accent` and bold; other titles are `muted`.
+- One cursor per pane. Moving between panes keeps each pane's cursor and scroll
+  position. A refresh never moves the cursor or the scroll position; the cursor follows its item, or the nearest one if the item is gone. When content shrinks or the width changes how lines wrap, the scroll position clamps to the new range and keeps the cursor's item in view.
+
+### Keys
+
+The same key means the same thing in every view and overlay.
+
+| Key            | Base                                 | Overlay                         |
+| -------------- | ------------------------------------ | ------------------------------- |
+| ↑↓, j/k        | move the cursor                      | move or scroll                  |
+| PgUp/PgDn      | page                                 | page                            |
+| Home/End, g/G  | first or last item                   | first or last line              |
+| Enter          | the row's main action (jump)         | confirm or save                 |
+| Esc            | clear search or selection, else quit | close without changing anything |
+| `?`            | open help                            | close help, or text in a field  |
+| `q`            | quit                                 | close, or text in a field       |
+| ←→             | previous or next tab                 | not used (edit cursor in input) |
+| `/`            | search                               | not used                        |
+| Tab, Shift-Tab | next or previous pane                | next or previous field          |
+| Ctrl-C         | quit                                 | quit                            |
+
+A view may add its own keys, but never reuses one of these for something else.
+User bindings can change a key; help and footers always show the effective key.
+
+### Footer and key help
+
+- The base footer lists the focused pane's most useful keys, as `key word`
+  pairs separated by two spaces (`⏎ jump  o open  y copy`). When the width runs
+  out, whole hints drop, lowest priority first; a hint is never cut mid-word.
+  `? more` and `q quit` always stay.
+- An overlay shows its own keys on its last inside line, separated by `·`
+  (`↑↓ scroll · PgUp/PgDn page · Esc close`), and the base footer stays as it is.
+- Help lists every key in one table: one key column, as wide as the widest key,
+  and a description in plain words. A description never shows an internal
+  action name (`next-pane`, `token-window`); one map from action to description
+  owns the wording, shared by help and the settings view. Names are shown as
+  member names, never as IDs. When the description column would be narrower than 20 cells, each key goes on its own line with its description indented below it; no key is ever cut.
+- At very small widths the footer keeps `? more` first, then `q quit`, then the rest by priority. `?` closes help; other overlays ignore it unless they list it.
+
+### Overlays
+
+- An overlay is a box with square corners and a single-line `dim` border. Its
+  title sits in the top border: the overlay's name in `muted`, then any mode,
+  joined by `·` (`settings · Enter edit · * read-only`).
+- Nothing from the base shows through: the overlay clears its area first.
+- Content is inset one cell from the left and right borders. The key line, a
+  status line and the scroll position (`1–23 of 74`, `muted`) share that inset.
+- Size: help and other reference overlays fill the whole body between the tab line and the footer, which stay as they are. Small overlays (pickers, confirmations) are as wide as their content, at most 90% of the view and 80% of its height, centered. Below 100 columns every overlay takes the full body width.
+  Content that does not fit scrolls; the overlay never grows past the view.
+- A prompt is a short overlay docked above the footer, so the board stays
+  visible as a live preview of the value being typed.
+
+### Lists and selection
+
+- Selection is the whole row, every wrapped line included, in the `selection`
+  background, edge to edge in the pane. Without a background color it is reverse
+  video (see Themes).
+- Wrapped lines start under the cell's text; a fixed gutter keeps marks and
+  text aligned while the cursor moves.
+- Text that does not fit ends in `…`; paths and links keep both ends
+  (`squad.settin…board.panes`). Keys and marks are never cut.
+- Content below the fold shows `N more ↓` in `dim` on the last line.
+
+### Empty, loading and error states
+
+| State   | Looks like                                                    | Role               |
+| ------- | ------------------------------------------------------------- | ------------------ |
+| empty   | a short phrase in parentheses: `(no notes yet)`               | `muted`            |
+| loading | `⠋ loading` on the summary line, only after a moment          | `dim`              |
+| partial | the data plus one line saying what is missing and why         | `waiting` with `!` |
+| error   | `✗` and one sentence: what failed and what to do              | `blocked`          |
+| success | `✓` and a short confirmation, cleared on the next key         | `working`          |
+| caution | `!` and one sentence, such as a setting that now stays pinned | `waiting`          |
+
+Messages use the short name the user sees on screen (`stale_after`), never a
+full config path or raw syntax such as backticks. A failed provider or a value
+the view cannot read shows the empty mark `–`, not an error, unless the user
+asked for that value.
+
+### Motion
+
+Only live data and progress move: the token meter, the trend sparkline, the loading spinner and refreshed counts. Nothing blinks, slides or animates for decoration. With
+`reduced_motion`, live marks update in place without stepping animations. A
+refresh repaints in place and never scrolls or flashes the view.
+
+### Narrow widths
+
+The full layout is designed for 80 columns and wider.
+
+- Columns step aside by priority before anything wraps (see Lists).
+- Below 100 columns, side-by-side panes may stack or fold to their title line
+  (`▸`); overlays take the full body width.
+- The tab line keeps the current tab and the home block visible and folds the
+  rest into named overflow (`‹ 2 … +7 ›`).
+- Below 60 columns the view shows the focused pane only, with its title.
+
+### Roles by component state
+
+| Component        | Normal             | Focused or selected            | Disabled or empty |
+| ---------------- | ------------------ | ------------------------------ | ----------------- |
+| pane title       | `muted`            | `accent`, bold                 | `dim`             |
+| border           | `dim`              | `dim`                          | `dim`             |
+| tab              | `muted`            | `accent`, bold, `selection` bg | `dim`             |
+| list row         | `text`             | `selection` background         | `muted`           |
+| key in help      | `accent`           | `accent`, `selection` bg       | `dim`             |
+| description      | `text`             | `text`, `selection` bg         | `muted`           |
+| editable setting | `accent` key       | `selection` background, `›`    | `muted` key, `*`  |
+| link             | `link`, underlined | `link`, `selection` bg         | `text`, plain     |
+| input value      | `text`, cursor `▏` | —                              | `muted`           |
+| scroll position  | `muted`            | —                              | —                 |
+
+Attention marks (`◆`, `✗`) keep their own roles in every state, including selection with a background. Without a background color, selection follows Themes: one common foreground in reverse video, with attention marks in bold.
 
 ## Degradation
 

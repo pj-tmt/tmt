@@ -6,16 +6,24 @@ mount uses Remote's session/key certification, Colab registration and verified
 bootstrap, with a bounded Worker and live content binding. Comments and agent
 operations remain later slices.
 
-The local-build executable serves the `dist` output at startup, with optional
-`serve --app-dir` override; build and restart serve to adopt changes. Vite emits
-relative asset URLs for the nested Remote mount. The app uses installed/system
+The executable serves an immutable app inventory at startup. Build with
+`TMT_COLAB_APP_DIR=/absolute/path/to/dist` to embed the complete Vite output,
+including its dependency notices; the resulting binary needs no app directory at
+runtime. An invalid supplied build fails compilation. `serve --app-dir` overrides
+embedded bytes; without either, source builds try the checkout's `dist`, then show
+the build hint. Rebuilding embedded assets requires rebuilding the binary.
+Vite emits relative asset URLs for the nested Remote mount. The app uses system
 font fallbacks and makes no third-party asset requests. The static route, fallback
 and CSP contract is owned by
 [colab-v1](../../contracts/colab-v1.md#implemented-mounted-browser-assets-1253).
 
 Trusted chrome uses the shared design tokens. Page HTML runs in an opaque frame
 under the [renderer contract](../../contracts/colab-v1.md#renderer-and-live-anchors).
-Only source and render metadata enter that frame. A frame can navigate itself and
+The frame loads the same-mount build-owned `renderer.html` with its own response
+CSP and accepts bounded source/render metadata once from its parent. Its policy
+also sandboxes direct opening. Trusted mounted chrome disallows inline scripts
+and styles; the loopback Vite dev parent has the documented hot-reload exception.
+A frame can navigate itself and
 leak a request before teardown; the app does not promise complete exfiltration
 prevention.
 

@@ -12,10 +12,16 @@ import {
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createServer, type Socket } from 'node:net';
+import type { Readable } from 'node:stream';
+import { fileURLToPath } from 'node:url';
 import { resolveCliExecutables, type CliExecutable } from './cli-executable.mjs';
 
 // The container's test-owned Secret Service is reached through its explicit session bus.
 const runtimeConnectionEnvironmentKeys = ['DBUS_SESSION_BUS_ADDRESS'] as const;
+const neutralParent = fileURLToPath(
+  new URL('../../../rust/target/debug/examples/runtime-caller-fixture', import.meta.url)
+);
 
 const lifecycleKey = Symbol('sandbox process lifetime');
 interface ActiveRun {
@@ -144,48 +150,152 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
   });
   let stop = () => {};
   const result = new Promise<CliResult>((resolve, reject) => {
-    let child: ReturnType<typeof spawn>;
+    let socketRoot: string;
     try {
-      child = spawn(sandbox.cli.executable, [...sandbox.cli.args, ...args], {
-        cwd: sandbox.cwd,
-        env: sandbox.env,
-        detached: true,
-        stdio: [hasStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-      });
+      // A nested sandbox's TMPDIR can exceed macOS's Unix socket path bound.
+      // This private per-run directory has the same explicit cleanup owner.
+      socketRoot = mkdtempSync(`/tmp/tmt-cli-parent-${process.pid}-`);
     } catch (error) {
-      // Synchronous argument rejection creates no process to dispose.
       cleaned();
       reject(error);
       return;
     }
+    const socketPath = path.join(socketRoot, 'control');
+    let child: ReturnType<typeof spawn> | undefined;
     // Decode at the stream boundary so a multibyte UTF-8 character split
     // across OS chunks cannot be corrupted by per-buffer toString() calls.
-    // Both descriptors are unconditionally configured as pipes above.
-    const stdoutStream = child.stdout!;
-    const stderrStream = child.stderr!;
-    stdoutStream.setEncoding('utf8');
-    stderrStream.setEncoding('utf8');
+    // Both output descriptors are configured as pipes when setup starts.
+    let stdoutStream: Readable | undefined;
+    let stderrStream: Readable | undefined;
     let stdout = '';
     let stderr = '';
     let outputBytes = 0;
     let failure: Error | undefined;
+    let controlBytes = 0;
+    let completion: { status: number | null; signal: NodeJS.Signals | null } | undefined;
+    let cliGroup: number | undefined;
+    const groups = new Set<number>();
+    const connections = new Set<Socket>();
+    let input: Socket | undefined;
+    const server = createServer((socket) => {
+      if (settled) {
+        socket.destroy();
+        return;
+      }
+      connections.add(socket);
+      socket.setEncoding('utf8');
+      socket.on('error', () => undefined);
+      let control = '';
+      socket.on('data', (chunk: string) => {
+        control += chunk;
+        controlBytes += Buffer.byteLength(chunk);
+        if (controlBytes > 16384) {
+          failure ??= new Error('Neutral-parent control exceeded its bound.');
+          beginCleanup();
+        }
+        let newline: number;
+        while ((newline = control.indexOf('\n')) !== -1) {
+          const line = control.slice(0, newline);
+          control = control.slice(newline + 1);
+          try {
+            const report: unknown = JSON.parse(line);
+            if (typeof report === 'object' && report !== null && 'group' in report) {
+              if (
+                cliGroup !== undefined ||
+                typeof report.group !== 'number' ||
+                !Number.isSafeInteger(report.group) ||
+                report.group <= 1 ||
+                report.group === child?.pid
+              )
+                throw new Error('Invalid CLI process-group ownership.');
+              cliGroup = report.group;
+              groups.add(cliGroup);
+              input = socket;
+              if (finishing) {
+                stopGroup(cliGroup);
+                socket.destroy();
+              } else {
+                // The bootstrap consumes exactly this acknowledgement, then maps
+                // its socket to stdin. Input outlives the setup child's exit.
+                socket.write('ready\n');
+                if (options.stdin !== undefined) {
+                  if (options.closeStdin === false) socket.write(options.stdin);
+                  else socket.end(options.stdin);
+                } else socket.end();
+              }
+            } else if (typeof report === 'object' && report !== null && 'error' in report) {
+              const error = report.error;
+              if (
+                typeof error !== 'object' ||
+                error === null ||
+                !('message' in error) ||
+                typeof error.message !== 'string' ||
+                !('code' in error) ||
+                typeof error.code !== 'string'
+              )
+                throw new Error('Invalid launcher error.');
+              failure ??= Object.assign(new Error(error.message), { code: error.code });
+              beginCleanup();
+            } else {
+              if (completion !== undefined) throw new Error('Duplicate launcher completion.');
+              if (
+                cliGroup === undefined ||
+                typeof report !== 'object' ||
+                report === null ||
+                !('status' in report) ||
+                !('signal' in report)
+              )
+                throw new Error('Missing selected CLI completion.');
+              const { status, signal } = report;
+              if (
+                !(
+                  status === null ||
+                  (typeof status === 'number' &&
+                    Number.isInteger(status) &&
+                    status >= 0 &&
+                    status <= 255)
+                ) ||
+                !(
+                  signal === null ||
+                  (typeof signal === 'string' && signal in os.constants.signals)
+                ) ||
+                (status === null) !== (signal !== null)
+              )
+                throw new Error('Invalid selected CLI completion.');
+              completion = { status, signal: signal as NodeJS.Signals | null };
+              beginCleanup();
+            }
+          } catch (error) {
+            failure ??= new Error('Invalid neutral-parent control.', { cause: error });
+            beginCleanup();
+          }
+        }
+      });
+      socket.once('close', () => {
+        connections.delete(socket);
+        if (control !== '') {
+          failure ??= new Error('Incomplete neutral-parent control.');
+          beginCleanup();
+        }
+        checkCompletion();
+      });
+    });
     let cleanupError: Error | undefined;
     let cleanupPermissionDenied = false;
+    let cleanupOtherFailure = false;
     let inspectionError: unknown;
     let closed: { status: number | null; signal: NodeJS.Signals | null } | undefined;
-    let groupGone = child.pid === undefined;
     let finishing = false;
     let settled = false;
     let cleanupDeadline = 0;
-    const groupExists = (): boolean => {
-      if (groupGone || child.pid === undefined) return false;
+    const groupExists = (group: number): boolean => {
+      if (!groups.has(group)) return false;
       try {
-        process.kill(-child.pid, 0);
+        process.kill(-group, 0);
         return true;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
-          groupGone = true;
+          groups.delete(group);
           return false;
         }
         throw error;
@@ -196,35 +306,50 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
       settled = true;
       clearTimeout(timer);
       if (error) {
-        cleanupFailed(error);
-        child.unref();
-        child.stdin?.destroy();
-        stdoutStream.destroy();
-        stderrStream.destroy();
-        reject(
-          failure
-            ? new AggregateError([failure, error], `${failure.message} ${error.message}`)
-            : error
-        );
-      } else {
-        cleaned();
-        if (failure) reject(failure);
-        else resolve({ ...closed!, stdout, stderr });
+        child?.unref();
+        stdoutStream?.destroy();
+        stderrStream?.destroy();
       }
+      for (const socket of connections) socket.destroy();
+      const complete = (transportError?: Error): void => {
+        try {
+          rmSync(socketRoot, { recursive: true, force: true });
+        } catch (cause) {
+          transportError ??= new Error('Could not remove CLI control socket.', { cause });
+        }
+        const cleanupFailure = error ?? transportError;
+        if (cleanupFailure) {
+          cleanupFailed(cleanupFailure);
+          reject(
+            failure
+              ? new AggregateError(
+                  [failure, cleanupFailure],
+                  `${failure.message} ${cleanupFailure.message}`
+                )
+              : cleanupFailure
+          );
+        } else {
+          cleaned();
+          if (failure) reject(failure);
+          else resolve({ ...completion!, stdout, stderr });
+        }
+      };
+      if (server.listening) server.close(complete);
+      else complete();
     };
     const pollCleanup = (): void => {
       if (settled) return;
       try {
-        groupExists();
+        for (const group of groups) groupExists(group);
       } catch (error) {
         // A transient probe failure is not proof of exit. Keep polling until
         // absence is confirmed or the cleanup deadline expires.
         inspectionError = error;
       }
-      if (closed && groupGone) {
+      if (closed && groups.size === 0) {
         // A denied signal or initial probe can race with group exit. Require
         // direct-child close and a subsequent ESRCH probe before excusing it.
-        finish(cleanupPermissionDenied ? undefined : cleanupError);
+        finish(cleanupPermissionDenied && !cleanupOtherFailure ? undefined : cleanupError);
         return;
       }
       if (performance.now() >= cleanupDeadline) {
@@ -237,23 +362,29 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
       }
       setTimeout(pollCleanup, 10);
     };
+    const stopGroup = (group: number): void => {
+      try {
+        // Signal once while still owned; never signal a PID after observing absence.
+        if (groupExists(group)) {
+          process.kill(-group, 'SIGKILL');
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ESRCH') groups.delete(group);
+        else {
+          if ((error as NodeJS.ErrnoException).code === 'EPERM') cleanupPermissionDenied = true;
+          else cleanupOtherFailure = true;
+          cleanupError = new Error('Could not stop CLI process group.', { cause: error });
+        }
+      }
+    };
     const beginCleanup = (): void => {
       if (finishing || settled) return;
       finishing = true;
       clearTimeout(timer);
       cleanupDeadline = performance.now() + 1000;
-      try {
-        // Signal once while still owned; never signal a PID after observing absence.
-        if (groupExists()) {
-          process.kill(-child.pid!, 'SIGKILL');
-        }
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ESRCH') groupGone = true;
-        else {
-          cleanupPermissionDenied = (error as NodeJS.ErrnoException).code === 'EPERM';
-          cleanupError = new Error('Could not stop CLI process group.', { cause: error });
-        }
-      }
+      input?.destroy();
+      if (!child) closed = { status: null, signal: null };
+      for (const group of groups) stopGroup(group);
       pollCleanup();
     };
     const timer = setTimeout(() => {
@@ -279,28 +410,70 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
         if (stream === 'stdout') stdout += text;
         else stderr += text;
       };
-    stdoutStream.on('data', readOutput('stdout'));
-    stderrStream.on('data', readOutput('stderr'));
-    if (child.stdin) child.stdin.on('error', () => undefined);
-    child.on('error', (error) => {
+    const checkCompletion = (): void => {
+      if (!closed || finishing || settled) return;
+      // Socket records and stdio close are independent event streams. Wait for
+      // both to drain before treating a missing completion as failure.
+      if (completion === undefined && connections.size !== 0) return;
+      if (completion === undefined)
+        failure ??= new Error('Could not establish neutral-parent CLI completion.');
+      beginCleanup();
+    };
+    server.once('error', (error) => {
       failure ??= error;
       beginCleanup();
     });
-    try {
-      if (hasStdin && child.stdin) {
-        if (options.closeStdin === false) child.stdin.write(options.stdin);
-        else child.stdin.end(options.stdin);
+    server.once('listening', () => {
+      if (finishing || settled) return;
+      try {
+        child = spawn(
+          neutralParent,
+          [
+            'neutral-setup',
+            socketPath,
+            hasStdin ? 'input' : 'ignore',
+            sandbox.cli.executable,
+            ...sandbox.cli.args,
+            ...args,
+          ],
+          {
+            cwd: sandbox.cwd,
+            env: sandbox.env,
+            detached: true,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: true,
+          }
+        );
+      } catch (error) {
+        failure = error as Error;
+        beginCleanup();
+        return;
       }
-    } catch (error) {
-      failure = new Error('Could not write CLI stdin.', { cause: error });
-      beginCleanup();
-    }
-    // Descendants can keep inherited pipes open after the direct child exits.
-    child.once('exit', beginCleanup);
-    child.on('close', (status, signal) => {
-      closed = { status, signal };
-      beginCleanup();
+      if (child.pid !== undefined) groups.add(child.pid);
+      stdoutStream = child.stdout!;
+      stderrStream = child.stderr!;
+      stdoutStream.setEncoding('utf8');
+      stderrStream.setEncoding('utf8');
+      stdoutStream.on('data', readOutput('stdout'));
+      stderrStream.on('data', readOutput('stderr'));
+      child.on('error', (error) => {
+        failure ??= error;
+        beginCleanup();
+      });
+      // Successful setup exits to orphan the supervisor. Its completion record,
+      // not setup exit, starts cleanup of the selected CLI and descendants.
+      child.once('exit', (status, signal) => {
+        if (status !== 0 || signal !== null) {
+          failure ??= new Error('Neutral-parent setup did not exit successfully.');
+          beginCleanup();
+        }
+      });
+      child.once('close', (status, signal) => {
+        closed = { status, signal };
+        checkCompletion();
+      });
     });
+    server.listen(socketPath);
   });
   return { result, cleanup, stop: () => stop() };
 }
