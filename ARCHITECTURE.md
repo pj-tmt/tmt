@@ -3594,6 +3594,14 @@ retains and revalidates sender, target, lead and open request before public
 `tmt answer` or annotation dispatch. Questions stay inside the picker. No
 tiles, replies feed, cron data or model/token totals are synthesized.
 
+Planned section ownership after #1292: `tmt-tiles-oai` owns the ③ tiles
+painter/controller strip (#1293); `tmt-cronboard-oai` owns the ⑤ summary strip
+(#1319). Tiles return pure lines and local entry/x/width/start/end placements;
+home translates them into the shared cursor, paging, reveal and clipped hits.
+Cron supplies a pure one-line summary and an explicit stable clock-key target,
+not a squad target. Both reuse `App.selected` and `Scrolls`; their acquisition
+and list/lifecycle owners stay outside paint, with shared hunks coordinated.
+
 Moving a tab (Shift+←/→, or a drag on the tab
 line) saves `[tabs] order` through `Config::write`, the same compare-and-set,
 format-preserving replacement that records `me`. A tab line that doesn't
