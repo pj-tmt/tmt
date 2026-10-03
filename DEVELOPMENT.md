@@ -3269,9 +3269,13 @@ from sequence one, plus signed reset-baseline fixtures. The baseline suite cover
 chunked retrieval, descriptor/log binding, exact baseline struct identity, subsequent
 edits/reload and rejection of commitment/source/descriptor/old-epoch substitution
 without partial rendering. Paired-checkpoint fixtures cover raw merged update-v1
-bytes, chunked retrieval, interleaved content/own tails, reload/edit continuity and
+bytes above 256 KiB, chunked retrieval, interleaved content/own tails, reload/edit
+continuity and
 rejection of prefix sequence/hash, namespace, body and gap substitutions. Signed
-revocation tests require exact pinned checkpoints and cut endpoints. Own ciphertext
+revocation tests require exact pinned checkpoints and cut endpoints. Checkpoints
+use single-item Worker steps bounded by its 4 MiB state cap (also the aggregate
+checkpoint catchup cap); tails remain bounded to 200 updates/256 KiB. Dependency
+resolution is required at the final tail step, before any renderer publication. Own ciphertext
 is authenticated for the chain only, with an explicit parent notice; it never
 enters the decoder. The shared `checkpoint-v1.json` fixture also runs through the
 bounded native decoder child (`cargo test --manifest-path rust/Cargo.toml --locked

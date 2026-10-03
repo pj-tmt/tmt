@@ -16,15 +16,14 @@ function declare(doc: Y.Doc) {
   doc.getMap('meta');
 }
 declare(committed);
-function project(doc: Y.Doc) {
+function project(doc: Y.Doc, complete = true) {
   const html = doc.getText('html'),
     meta = doc.getMap('meta');
   if (
     [...doc.share.keys()].some((key) => key !== 'html' && key !== 'meta') ||
     html._map.size !== 0 ||
     meta._start !== null ||
-    doc.store.pendingStructs !== null ||
-    doc.store.pendingDs !== null ||
+    (complete && (doc.store.pendingStructs !== null || doc.store.pendingDs !== null)) ||
     html
       .toDelta()
       .some(
@@ -50,6 +49,9 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: FoldCommand }
     if (command.type === 'baseline') {
       if (initialized || command.update.length > BASELINE_UPDATE_BYTES)
         throw new Error('Invalid baseline state or capacity');
+      Y.applyUpdate(candidate, command.update);
+    } else if (command.type === 'checkpoint') {
+      if (command.update.length > STATE_BYTES) throw new Error('Decoder checkpoint capacity');
       Y.applyUpdate(candidate, command.update);
     } else if (command.type === 'apply' || command.type === 'check') {
       if (
@@ -85,7 +87,9 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: FoldCommand }
       update = new Uint8Array(Y.encodeStateAsUpdate(candidate, vector));
       if (update.length > UPDATE_BYTES) throw new Error('Edit exceeds update capacity');
     } else throw new Error('Invalid decoder command');
-    const projection = project(candidate);
+    // A writer checkpoint may depend on another writer's checkpoint. Final tail
+    // admission requires complete resolution before the parent publishes anything.
+    const projection = project(candidate, command.type !== 'checkpoint');
     if (
       command.type === 'baseline' &&
       (projection.title !== command.title ||
@@ -107,7 +111,7 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: FoldCommand }
       throw new Error('Decoder state capacity');
     // Prepared local bytes have no durable receipt yet. Keep their projection out
     // of committed state so later foreign updates cannot publish an unsaved draft.
-    if (command.type === 'apply' || command.type === 'baseline') {
+    if (command.type === 'apply' || command.type === 'baseline' || command.type === 'checkpoint') {
       initialized = true;
       committed.destroy();
       committed = candidate;

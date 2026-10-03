@@ -176,6 +176,8 @@ export class Connection {
           });
           requireValue(result.source === baseline.source && result.title === baseline.title);
         }
+        for (const update of this.#catchup.checkpoints)
+          await this.fold.run({ type: 'checkpoint', update });
         const projection = await this.fold.run({ type: 'apply', updates });
         requireValue(!this.#stopped);
         this.#complete = true;
@@ -185,6 +187,8 @@ export class Connection {
       } finally {
         this.#catchup.baseline?.update.fill(0);
         this.#catchup.baseline = null;
+        this.#catchup.checkpoints.forEach((v) => v.fill(0));
+        this.#catchup.checkpoints = [];
         updates.forEach((v) => v.fill(0));
         this.#catchup.updates = [];
       }

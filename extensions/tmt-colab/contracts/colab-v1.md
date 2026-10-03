@@ -729,6 +729,12 @@ checkpoints before the retained tail; that tail MUST be contiguous from n+1
 across both namespaces. Receipt
 ledgers support retries, not browser authority; no additional ledger proof or
 signature scheme is required. Checkpoint plaintext is raw merged update-v1 bytes.
+The browser MUST bound each checkpoint and their aggregate catchup plaintext by
+the existing 4 MiB Worker state budget, independently of the retained tail's
+200-update/256 KiB budget. Apply checkpoints as single-item Worker steps before
+the tail. Those unpublished steps may retain cross-writer pending dependencies;
+the final tail step MUST resolve them and validate complete content before
+publishing any view. The existing 2 MiB source projection cap remains in force.
 The owner-browser reader authenticates own envelopes for chain continuity but
 MUST NOT decrypt or fold them; it MUST visibly state that own data is not displayed.
 Historical revoked-device objects MUST predate revocation and remain within the

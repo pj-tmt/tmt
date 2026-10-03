@@ -2,6 +2,7 @@ import { exactKeys } from '@tmt/colab-client';
 import {
   BASELINE_UPDATE_BYTES,
   UPDATE_BYTES,
+  STATE_BYTES,
   validateProjection,
   type FoldCommand,
   type FoldResult,
@@ -47,6 +48,8 @@ export class Fold {
         command.updates.reduce((n, v) => n + v.length, 0) > UPDATE_BYTES)
     )
       return Promise.reject(new Error('Decoder input capacity'));
+    if (command.type === 'checkpoint' && command.update.length > STATE_BYTES)
+      return Promise.reject(new Error('Decoder checkpoint capacity'));
     if (
       command.type === 'baseline' &&
       (command.update.length > BASELINE_UPDATE_BYTES ||

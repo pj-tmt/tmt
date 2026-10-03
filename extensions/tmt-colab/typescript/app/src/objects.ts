@@ -12,7 +12,7 @@ import {
   strictVerify,
 } from '@tmt/colab-client';
 import { Admission } from './admission.js';
-import { UPDATE_BYTES } from './fold-protocol.js';
+import { STATE_BYTES, UPDATE_BYTES } from './fold-protocol.js';
 export interface Position {
   seq: string;
   envelopeHash: string;
@@ -134,7 +134,7 @@ export class Objects {
     if (ns === 'content') {
       requireValue(a.root !== null);
       plaintext = await env.open(c, a.root, key);
-      if (plaintext.length > UPDATE_BYTES) {
+      if (plaintext.length > (kind === 'checkpoint' ? STATE_BYTES : UPDATE_BYTES)) {
         plaintext.fill(0);
         throw new Error('Checkpoint decoder capacity');
       }
@@ -161,9 +161,10 @@ export class Objects {
     if (ns === 'own') this.ownData = true;
     return plaintext;
   }
-  async streams(value: unknown): Promise<Uint8Array[]> {
+  async streams(value: unknown): Promise<{ checkpoints: Uint8Array[]; updates: Uint8Array[] }> {
     requireValue(Array.isArray(value) && value.length <= 256);
-    const updates: Uint8Array[] = [];
+    const updates: Uint8Array[] = [],
+      checkpoints: Uint8Array[] = [];
     let count = 0;
     for (const stream of value) {
       exactKeys(stream, ['streamId', 'namespace', 'checkpoint', 'tail']);
@@ -182,7 +183,7 @@ export class Objects {
           'checkpoint',
           stream.namespace as Namespace,
         );
-        if (update) updates.push(update);
+        if (update) checkpoints.push(update);
       }
       for (const entry of stream.tail) {
         const update = await this.admit(
@@ -194,6 +195,6 @@ export class Objects {
         if (update) updates.push(update);
       }
     }
-    return updates;
+    return { checkpoints, updates };
   }
 }

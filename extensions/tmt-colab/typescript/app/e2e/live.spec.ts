@@ -247,18 +247,24 @@ async function wire(
     const writer = new Y.Doc();
     Y.applyUpdate(writer, c.binary(cp.checkpoint, 256 * 1024));
     const before = Y.encodeStateVector(writer);
-    writer.getText('html').insert(writer.getText('html').length, 'x'.repeat(40_000));
-    const padding = Y.encodeStateAsUpdate(writer, before);
+    writer.getText('html').insert(writer.getText('html').length, 'x'.repeat(180_000));
+    const firstPadding = Y.encodeStateAsUpdate(writer, before),
+      middle = Y.encodeStateVector(writer);
+    writer.getText('html').insert(writer.getText('html').length, 'x'.repeat(120_000));
+    const secondPadding = Y.encodeStateAsUpdate(writer, middle),
+      padding = Y.mergeUpdates([firstPadding, secondPadding]);
     writer.destroy();
     entries.length = 0;
     let previous = new Uint8Array(32);
     const prefixUpdates = [
       c.binary(cp.contentUpdates[0], 256 * 1024),
       new Uint8Array([255]),
-      Y.mergeUpdates([c.binary(cp.contentUpdates[1], 256 * 1024), padding]),
+      Y.mergeUpdates([c.binary(cp.contentUpdates[1], 256 * 1024), firstPadding]),
+      new Uint8Array([255]),
+      secondPadding,
       new Uint8Array([255]),
     ];
-    for (let index = 0; index < 4; index++) {
+    for (let index = 0; index < 6; index++) {
       const env = await c.Envelope.seal(
         {
           space: v.space,
@@ -291,7 +297,7 @@ async function wire(
               : (namespace as 'content' | 'own'),
           authorDevice: v.device,
           membershipRevision: '2',
-          streamSeq: compacted.invalid === 'n' && namespace === 'own' ? '3' : '4',
+          streamSeq: compacted.invalid === 'n' && namespace === 'own' ? '5' : '6',
           prevHash:
             compacted.invalid === 'prefix' && namespace === 'own'
               ? new Uint8Array(32).fill(7)
@@ -460,7 +466,7 @@ async function wire(
           });
           const objects = [
             ...checkpoints.map((x) => ({ row: x.row, namespace: x.namespace, checkpoint: true })),
-            ...entries.slice(compacted ? (compacted.invalid === 'gap' ? 5 : 4) : 0).map((row) => ({
+            ...entries.slice(compacted ? (compacted.invalid === 'gap' ? 7 : 6) : 0).map((row) => ({
               row,
               namespace: c.decodeHeader(
                 c.Envelope.fromJson(c.binary(row.envelope, 400 * 1024)).header(),
@@ -753,13 +759,13 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
   await expect(page.getByRole('heading', { name: 'Checkpoint', exact: true })).toBeVisible();
   await expect(page.getByRole('status')).toContainText('Comments and activity are not displayed');
   await page.getByRole('button', { name: 'Source', exact: true }).click();
-  await expect(page.getByRole('textbox')).toHaveValue('<p>after tail</p>' + 'x'.repeat(40_000));
+  await expect(page.getByRole('textbox')).toHaveValue('<p>after tail</p>' + 'x'.repeat(300_000));
   await page.getByRole('textbox').fill('<h1>After compacted reload</h1>');
   await page.getByRole('button', { name: 'Save source' }).click();
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'After compacted reload' }),
   ).toBeVisible();
-  expect(f.entries.at(-1)!.seq).toBe('7');
+  expect(f.entries.at(-1)!.seq).toBe('9');
   f.dropNext();
   await page.getByRole('textbox').fill('<h1>Frozen retry after prune</h1>');
   await page.getByRole('button', { name: 'Save source' }).click();
@@ -775,7 +781,7 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
   await expect(page.getByRole('button', { name: 'Save source' })).toBeDisabled();
   await f.settled();
   expect(f.retries).toBe(1);
-  expect(f.entries.at(-1)!.seq).toBe('9');
+  expect(f.entries.at(-1)!.seq).toBe('11');
   const before = f.hellos;
   f.resync();
   await expect.poll(() => f.hellos).toBe(before + 1);
