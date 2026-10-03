@@ -3,6 +3,7 @@ import type { ComponentMap } from './ci-scope.mjs';
 import type { runPackedCommand } from './packed-command.mjs';
 export interface RestRecord {
   number?: number;
+  pull_request?: object;
   id?: number;
   title?: string;
   state?: string;

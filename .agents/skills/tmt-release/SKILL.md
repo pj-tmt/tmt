@@ -72,7 +72,8 @@ manifest remains the releasability owner; a monitor must not close its issue on
 incomplete evidence or mutate held release PRs. Keep `issues: write` for monitoring
 in its separate job; its REST uses `github.token`. Only the existing
 release-job App reader sees drafts, passing metadata rather than credentials.
-Preserve zero-failure behavior,
+Distinguish current published-release smoke infrastructure issues from real check failures;
+a rate-limit issue recommends retrying smoke, never publication. Preserve zero-failure behavior,
 visible summary warnings and fixture-only REST tests. [DEVELOPMENT’s monitor
 section](../../../DEVELOPMENT.md#release-stall-monitoring) owns thresholds,
 credentials, bounded discovery and the single-issue recovery lifecycle.
@@ -211,4 +212,10 @@ gates, the markers and the procedures; this section owns who may publish what.
   A failed check opens an issue and fails the run; nothing is rolled back, and a repair is a new
   reviewed version. A read-only smoke then installs the published release through the public
   installer (and `tmt upgrade` for the CLI) in an isolated environment on the four hosts, and a
-  failure there is reported on the same issue.
+  real failure there is reported on the same issue. Smoke remains unauthenticated. Retry only
+  the native classified rate-limit diagnostic, within DEVELOPMENT's attempt/reset-wait
+  bounds; exhausted rate limits keep a failed job with a separate infrastructure issue,
+  while any real or mixed failure keeps the release-failure conclusion. Keep the separate
+  bounded latest-installer lag retry for an older alpha, and pin the consumed native
+  diagnostic format in fixture tests. Never dispatch
+  publication to recover a public smoke rate limit.

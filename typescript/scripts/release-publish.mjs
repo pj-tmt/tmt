@@ -208,18 +208,38 @@ export function verifyPublication({
   return results;
 }
 
+/** Shared reporter/monitor contract for post-publication issue conclusions. */
+export function postPublicationIssueTitles(tag) {
+  return {
+    failure: `Release ${tag} failed its post-publication checks`,
+    rateLimit: `Release ${tag} public install blocked by GitHub API rate limit`,
+  };
+}
+
 /** The title and body of the issue a failed check opens. */
 export function renderFailureIssue({ tag, results, runUrl }) {
   const failed = results.filter(({ ok }) => !ok);
+  const infrastructureOnly =
+    failed.length > 0 &&
+    failed.every(({ infrastructure }) => infrastructure === 'github-api-rate-limit');
+  const titles = postPublicationIssueTitles(tag);
   return {
-    title: `Release ${tag} failed its post-publication checks`,
+    title: infrastructureOnly ? titles.rateLimit : titles.failure,
     body: [
+      ...(infrastructureOnly
+        ? [
+            'Public install infrastructure condition: bounded unauthenticated rate-limit retries were exhausted. This is not evidence of a broken release. Retry the smoke after the reset; do not rerun publication.',
+            '',
+          ]
+        : []),
       `The release pipeline published \`${tag}\`, and these checks of the published release failed:`,
       '',
       ...failed.map(({ check, reason }) => `- \`${check}\`: ${reason}`),
       '',
       ...(runUrl ? [`Run: ${runUrl}`, ''] : []),
-      'Nothing was rolled back: a published release cannot be undone and, with immutability on, its assets and tag cannot be changed. The owner decides whether it stays as it is or a new reviewed version repairs it. Later drafts of the product publish only while their own gates pass, and the immutability gate stops them if the repository setting is off.',
+      infrastructureOnly
+        ? 'Nothing was rolled back or repaired. Publication succeeded; the public install still needs verification after the rate limit resets.'
+        : 'Nothing was rolled back: a published release cannot be undone and, with immutability on, its assets and tag cannot be changed. The owner decides whether it stays as it is or a new reviewed version repairs it. Later drafts of the product publish only while their own gates pass, and the immutability gate stops them if the repository setting is off.',
       '',
       'Opened by `typescript/scripts/release-publish.mjs` (the post-publication checks and the public install smoke).',
     ].join('\n'),
@@ -243,7 +263,8 @@ export function reportFailure({ api, tag, results, runUrl }) {
  * on one line, never trusted beyond the issue text. No file at all (the download of the
  * artifacts failed) still reports a failure, since the run says a leg failed.
  */
-export function readSmokeFailures(directory) {
+export function readSmokeFailures(directory, { expectedResults = 0 } = {}) {
+  let observed = 0;
   const line = (text) =>
     String(text)
       .replace(/\p{Cc}+/gu, ' ')
@@ -252,16 +273,21 @@ export function readSmokeFailures(directory) {
   const results = [];
   for (const name of existsSync(directory) ? readdirSync(directory).sort() : []) {
     if (!name.startsWith('smoke-failures-')) continue;
+    observed += 1;
     const target = name.slice('smoke-failures-'.length);
     try {
       const { failed } = JSON.parse(
         readFileSync(path.join(directory, name, 'smoke-result.json'), 'utf8')
       );
-      for (const { check, reason } of failed.slice(0, 10)) {
+      if (!Array.isArray(failed) || failed.length > 10) throw new Error('Invalid smoke failures');
+      for (const { check, reason, infrastructure } of failed) {
+        if (typeof check !== 'string' || typeof reason !== 'string')
+          throw new Error('Invalid smoke failure');
         results.push({
           check: `${line(check)} (${line(target)})`,
           ok: false,
           reason: line(reason),
+          ...(infrastructure === 'github-api-rate-limit' ? { infrastructure } : {}),
         });
       }
     } catch {
@@ -271,6 +297,13 @@ export function readSmokeFailures(directory) {
         reason: 'its result file could not be read; see the run',
       });
     }
+  }
+  if (expectedResults && observed !== expectedResults) {
+    results.push({
+      check: 'public install evidence',
+      ok: false,
+      reason: `expected ${expectedResults} host results, found ${observed}; infrastructure-only failure cannot be established`,
+    });
   }
   return results.length > 0
     ? results
@@ -401,6 +434,7 @@ function main(argv, environment) {
       directory: { type: 'string' },
       'run-url': { type: 'string', default: '' },
       attempts: { type: 'string', default: String(VERIFY_ATTEMPTS) },
+      'expected-results': { type: 'string', default: '0' },
       components: { type: 'string', default: COMPONENTS },
     },
   });
@@ -457,7 +491,10 @@ function main(argv, environment) {
     }
   } else if (command === 'report') {
     if (!values.directory) throw new Error('report needs --directory.');
-    const results = readSmokeFailures(values.directory);
+    const expectedResults = Number(values['expected-results']);
+    if (!Number.isSafeInteger(expectedResults) || expectedResults < 0 || expectedResults > 10)
+      throw new Error('--expected-results must be a whole number from 0 to 10.');
+    const results = readSmokeFailures(values.directory, { expectedResults });
     report(environment, renderVerifySummary({ tag: values.tag, results }));
     try {
       const { issue, created } = reportFailure({

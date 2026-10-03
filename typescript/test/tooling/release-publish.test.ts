@@ -1,4 +1,6 @@
 import path from 'node:path';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   checkPublishedRelease,
@@ -7,6 +9,7 @@ import {
   renderFailureIssue,
   renderVerifySummary,
   reportFailure,
+  readSmokeFailures,
   verifyPublication,
   type CheckResult,
   type Outcome,
@@ -453,6 +456,55 @@ describe('the failure issue', () => {
     expect(body).toContain('Run: https://github.com/wkh237/tmt/actions/runs/1');
     expect(body).toContain('Nothing was rolled back');
     expect(renderFailureIssue({ tag: TAG, results }).body).not.toContain('Run:');
+  });
+
+  it('reports only rate limits as infrastructure; mixed failures retain the broken-release conclusion', () => {
+    const limited = {
+      check: 'tmt upgrade',
+      ok: false,
+      reason: 'wait bound exceeded',
+      infrastructure: 'github-api-rate-limit' as const,
+    };
+    const infrastructure = renderFailureIssue({ tag: TAG, results: [limited] });
+    expect(infrastructure.title).toBe(
+      `Release ${TAG} public install blocked by GitHub API rate limit`
+    );
+    expect(infrastructure.body).toContain('not evidence of a broken release');
+    expect(infrastructure.body).toContain('do not rerun publication');
+    expect(renderFailureIssue({ tag: TAG, results: [limited, ...results] }).title).toBe(
+      `Release ${TAG} failed its post-publication checks`
+    );
+  });
+
+  it('requires every host artifact before reporting an infrastructure-only conclusion', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'smoke-reports-'));
+    const save = (target: string, failed: object[]) => {
+      const dir = path.join(root, `smoke-failures-${target}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, 'smoke-result.json'), JSON.stringify({ failed }));
+    };
+    try {
+      save('one', [
+        {
+          check: 'tmt upgrade',
+          reason: 'wait bound exceeded',
+          infrastructure: 'github-api-rate-limit',
+        },
+      ]);
+      const render = () =>
+        renderFailureIssue({ tag: TAG, results: readSmokeFailures(root, { expectedResults: 4 }) });
+      expect(render().title).toContain('failed its post-publication checks');
+      for (const target of ['two', 'three', 'four']) save(target, []);
+      expect(render().title).toContain('blocked by GitHub API rate limit');
+      save('two', [{ check: 'install', reason: 'archive corrupt' }]);
+      expect(render().title).toContain('failed its post-publication checks');
+      save('two', [{ check: 'install', reason: 'bad', infrastructure: 'unknown' }]);
+      expect(render().title).toContain('failed its post-publication checks');
+      writeFileSync(path.join(root, 'smoke-failures-two', 'smoke-result.json'), 'invalid');
+      expect(render().title).toContain('failed its post-publication checks');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('opens one issue per release, and comments when it is already open', () => {

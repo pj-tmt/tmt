@@ -27,6 +27,7 @@ const manifest = { '.': '5.0.0-alpha.8', 'extensions/tmt-squad': '0.1.0-alpha.8'
 function fixture() {
   const rows: Record<string, ReturnType<StallClient['list']>> = {
     releases: [],
+    'issues?state=open': [],
     'pulls?state=open&base=main': [],
     'issues/42/comments': [],
   };
@@ -81,6 +82,63 @@ const pull = (branch = cli) => ({
   number: 21,
   head: { ref: branch, sha: sha(1), repo: { full_name: repository } },
   base: { ref: 'main' },
+});
+
+describe('post-publication smoke conclusions', () => {
+  it.each([
+    ['public install blocked by GitHub API rate limit', 'public smoke infrastructure blocked'],
+    ['failed its post-publication checks', 'published release checks failed'],
+  ])('distinguishes %s without changing publication', async (suffix, message) => {
+    const f = fixture();
+    f.rows.releases = [{ tag_name: 'v5.0.0-alpha.8', draft: false }];
+    f.rows['issues?state=open'] = [{ number: 99, title: `Release v5.0.0-alpha.8 ${suffix}` }];
+    const result = await detectReleaseStalls(f.options);
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].message).toContain(message);
+    expect(f.write).not.toHaveBeenCalled();
+  });
+
+  it('prioritizes a real failure when both reporter conclusions remain open', async () => {
+    const f = fixture();
+    f.rows.releases = [{ tag_name: 'v5.0.0-alpha.8', draft: false }];
+    f.rows['issues?state=open'] = [
+      {
+        number: 99,
+        title: 'Release v5.0.0-alpha.8 public install blocked by GitHub API rate limit',
+      },
+      { number: 100, title: 'Release v5.0.0-alpha.8 failed its post-publication checks' },
+    ];
+    const result = await detectReleaseStalls(f.options);
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].message).toContain('published release checks failed');
+  });
+
+  it('keeps a proven draft stall when post-publication issue discovery is unavailable', async () => {
+    const f = fixture();
+    delete f.rows['issues?state=open'];
+    f.options.drafts = [draft()];
+    f.options.heldPaths = ['extensions/tmt-squad'];
+    const result = await detectReleaseStalls(f.options);
+    expect(result.findings).toHaveLength(1);
+    expect(result.warning).toContain('Post-publication smoke evidence unavailable');
+    const report = await monitorReleaseStalls(f.options);
+    expect(report.healthy).toBe(false);
+    expect(f.write).toHaveBeenCalled();
+  });
+
+  it('ignores old releases and pull requests that happen to use the reporter title', async () => {
+    const f = fixture();
+    f.rows.releases = [{ tag_name: 'v5.0.0-alpha.8', draft: false }];
+    f.rows['issues?state=open'] = [
+      { number: 99, title: 'Release v5.0.0-alpha.7 failed its post-publication checks' },
+      {
+        number: 100,
+        title: 'Release v5.0.0-alpha.8 failed its post-publication checks',
+        pull_request: {},
+      },
+    ];
+    expect((await detectReleaseStalls(f.options)).findings).toEqual([]);
+  });
 });
 
 describe('release stall thresholds and component evidence', () => {

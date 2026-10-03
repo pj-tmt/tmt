@@ -4,6 +4,7 @@ export interface SmokeResult {
   readonly reason: string;
   /** Bounded multiline diagnostics, when the short reason omits command output. */
   readonly detail?: string;
+  readonly infrastructure?: 'github-api-rate-limit';
 }
 export function installerUrl(repository: string): string;
 export function smokeRelease(input: {
@@ -17,6 +18,7 @@ export function smokeRelease(input: {
   /** The one network read: the text at a URL. */
   fetch?: (url: string) => Promise<string>;
   wait?: (milliseconds: number) => Promise<void>;
+  now?: () => number;
   /** The directories after the prefix on the isolated PATH; the system's by default. */
   systemPath?: readonly string[];
 }): Promise<SmokeResult[]>;

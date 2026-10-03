@@ -670,12 +670,14 @@ describe('public install smoke (native-release-smoke.yml)', () => {
 
   it('keeps what failed as data and reports it with the only write access, in a job of its own', () => {
     expect(smoke).toMatch(
-      /if: failure\(\)\n {8}uses: actions\/upload-artifact@v4\n {8}with:\n {10}name: smoke-failures-\$\{\{ matrix\.target \}\}/
+      /if: always\(\)\n {8}uses: actions\/upload-artifact@v4\n {8}with:\n {10}name: smoke-failures-\$\{\{ matrix\.target \}\}/
     );
     expect(report).toContain('needs: smoke');
     expect(report).toContain("if: ${{ !cancelled() && needs.smoke.result == 'failure' }}");
     expect(report).toMatch(/^ {4}permissions:\n {6}contents: read\n {6}issues: write\n/m);
     expect(report).toContain('pattern: smoke-failures-*');
+    expect(report).toContain('--expected-results 4');
+    expect(smoke).toContain('timeout-minutes: 25');
     expect(report).toContain(
       'release-publish.mjs report --product "$PRODUCT" --tag "$RELEASE_TAG"'
     );

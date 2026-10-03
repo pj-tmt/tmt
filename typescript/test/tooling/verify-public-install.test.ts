@@ -35,6 +35,12 @@ interface Fake {
   /** Body of `tmt upgrade`'s JSON: the fields to override. */
   upgrade?: Record<string, unknown>;
   upgradeStderr?: string;
+  upgradeCause?: string;
+  upgradeFailures?: number;
+  upgradeCode?: string;
+  upgradeAfterStderr?: string;
+  extensionCause?: string;
+  extensionFailures?: number;
   upgradeStdout?: string;
   installerStatus?: number;
   withoutBinary?: boolean;
@@ -82,8 +88,12 @@ case "$*" in
   --version) echo '${fake.installed ?? version}' ;;
   "upgrade --channel alpha --json")
     count=$(cat "$HOME/upgrade-count" 2>/dev/null || echo 0); echo $((count + 1)) > "$HOME/upgrade-count"
-    ${fake.upgradeStderr ? `printf '%s' '${fake.upgradeStdout ?? ''}'; echo '${fake.upgradeStderr}' >&2; exit 1` : `printf '%s' '${JSON.stringify(upgrade)}' | sed "s#@EXE@#$exe#"`} ;;
+    ${fake.upgradeCause ? `if [ "$count" -lt ${fake.upgradeFailures ?? 10} ]; then printf '%s' '${JSON.stringify({ error: { code: fake.upgradeCode ?? 'NATIVE_UPGRADE_FAILED', message: 'Native upgrade failed', cause: fake.upgradeCause } })}'; ${fake.upgradeStderr ? `echo '${fake.upgradeStderr}' >&2;` : ''} exit 1; fi` : ''}
+    ${fake.upgradeAfterStderr ? `echo '${fake.upgradeAfterStderr}' >&2; exit 1` : ''}
+    ${!fake.upgradeCause && fake.upgradeStderr ? `printf '%s' '${fake.upgradeStdout ?? ''}'; echo '${fake.upgradeStderr}' >&2; exit 1` : `printf '%s' '${JSON.stringify(upgrade)}' | sed "s#@EXE@#$exe#"`} ;;
   "extension install squad "*)
+    count=$(cat "$HOME/extension-count" 2>/dev/null || echo 0); echo $((count + 1)) > "$HOME/extension-count"
+    ${fake.extensionCause ? `if [ "$count" -lt ${fake.extensionFailures ?? 10} ]; then printf '%s' '${JSON.stringify({ error: { code: 'EXTENSION_INSTALL_FAILED', message: fake.extensionCause + ' Inspect with: tmt extension ls', cause: fake.extensionCause } })}'; exit 1; fi` : ''}
     ${extension.command === false ? 'echo "error: unrecognized subcommand \'extension\'" >&2; exit 2' : 'true'}
     prefix=$(echo "$*" | sed 's/.*--prefix //')
     mkdir -p "$prefix/lib" ${extension.link ? '"$prefix/bin" && : > "$prefix/bin/tmt"' : ''}
@@ -107,6 +117,8 @@ function run(
     source?: Record<string, string>;
     fetches?: string[];
     systemPath?: string[];
+    installerVersions?: string[];
+    fetchError?: string;
   } = {}
 ) {
   const root = path.join(base, `run-${(counter += 1)}`);
@@ -132,10 +144,22 @@ function run(
       source,
       repository: 'wkh237/tmt',
       root: path.join(root, 'work'),
+      now: () => 1893456000000,
       ...(options.systemPath ? { systemPath: options.systemPath } : {}),
       fetch: async (url: string) => {
         fetched.push(url);
-        return installerText(fake);
+        if (options.fetchError) throw new Error(options.fetchError);
+        return installerText({
+          ...fake,
+          ...(options.installerVersions
+            ? {
+                version:
+                  options.installerVersions[
+                    Math.min(fetched.length - 1, options.installerVersions.length - 1)
+                  ],
+              }
+            : {}),
+        });
       },
       wait: async (milliseconds: number) => {
         waits.push(milliseconds);
@@ -212,19 +236,53 @@ describe('the public installer smoke of a CLI release', () => {
     expect(elsewhere.at(-1)?.reason).toContain('not');
   });
 
-  it('retries a stale latest installer, then fails naming both versions', async () => {
+  it('bounds the specifically classified previous-version latest-installer lag', async () => {
     const attempt = run({ version: '5.0.0-alpha.11' }, { tag: 'v5.0.0-alpha.12' });
     const results = await attempt.results;
     expect(results).toEqual([
       {
         check: 'public installer',
         ok: false,
-        reason:
-          'the public installer failed after 3 attempts: the latest installer is for 5.0.0-alpha.11, not 5.0.0-alpha.12',
+        reason: 'the latest installer is for 5.0.0-alpha.11, not 5.0.0-alpha.12',
       },
     ]);
     expect(attempt.fetched).toHaveLength(3);
     expect(attempt.waits).toEqual([20_000, 20_000]);
+  });
+
+  it('recovers when latest catches up, without retrying a newer or malformed installer', async () => {
+    const attempt = run({}, { installerVersions: ['5.0.0-alpha.11', '5.0.0-alpha.12'] });
+    expect(failed(await attempt.results)).toEqual([]);
+    expect(attempt.fetched).toHaveLength(2);
+    expect(attempt.waits).toEqual([20_000]);
+    for (const version of ['5.0.0-alpha.13', 'invalid']) {
+      const other = run({ version });
+      expect(failed(await other.results)).toHaveLength(1);
+      expect(other.fetched).toHaveLength(1);
+      expect(other.waits).toEqual([]);
+    }
+  });
+
+  it('does not retry an installer download error merely because latest reads allow lag recovery', async () => {
+    const attempt = run({}, { fetchError: 'HTTP 403' });
+    expect(failed(await attempt.results)).toEqual([
+      { check: 'public installer', ok: false, reason: 'HTTP 403' },
+    ]);
+    expect(attempt.fetched).toHaveLength(1);
+    expect(attempt.waits).toEqual([]);
+  });
+
+  it('pins the native diagnostic format, timing representation and reasons consumed by smoke', () => {
+    const rust = readFileSync(
+      new URL('../../../rust/crates/tmt-adapters/src/release_http.rs', import.meta.url),
+      'utf8'
+    );
+    expect(rust.match(/"GitHub API rate limit:[^"\n]+"/)?.[0]).toBe(
+      '"GitHub API rate limit: reset/earliest retry time {reset}; {reason}. Retry later or optionally set GITHUB_TOKEN."'
+    );
+    expect(rust).toContain('format!("{date} (UTC epoch {epoch})")');
+    expect(rust).toContain('Some("the single retry was exhausted")');
+    expect(rust).toContain('Some("the required wait exceeds the remaining deadline")');
   });
 
   it('fails an installer that exits nonzero, a missing tmt and a version that is not the installer’s', async () => {
@@ -258,87 +316,172 @@ describe('the public installer smoke of a CLI release', () => {
     expect(different.at(-1)?.reason).toBe('tmux-team/SKILL.md differs from v5.0.0-alpha.12');
   });
 
-  it('retries the upgrade, reports a rate limit as one, and does not retry a wrong answer', async () => {
-    const attempt = run({ upgradeStderr: 'HTTP 403: API rate limit exceeded' });
-    const results = await attempt.results;
-    expect(results.at(-1)?.ok).toBe(false);
-    expect(results.at(-1)?.reason).toMatch(
-      /^GitHub rate limit: tmt upgrade failed after 3 attempts/
-    );
+  const diagnostic = (epoch = '1893456002') =>
+    `GitHub API rate limit: reset/earliest retry time 2030-01-01 0:00:02.0 +00:00:00 (UTC epoch ${epoch}); the required wait exceeds the remaining deadline. Retry later or optionally set GITHUB_TOKEN.`;
+
+  it('retries only the upgrade after its reset and preserves the already completed install', async () => {
+    const attempt = run({ upgradeCause: diagnostic(), upgradeFailures: 1 });
+    expect(failed(await attempt.results)).toEqual([]);
+    expect(attempt.waits).toEqual([3000]);
+    expect(attempt.fetched).toHaveLength(1);
     expect(
       readFileSync(path.join(attempt.root, 'work', 'home', 'upgrade-count'), 'utf8').trim()
-    ).toBe('3');
-    expect(attempt.waits).toEqual([20_000, 20_000]);
-    const other = await run({ upgradeStderr: 'boom' }).results;
-    expect(other.at(-1)?.reason).not.toContain('rate limit');
+    ).toBe('2');
+  });
+
+  it('fails a real error after a rate-limit retry without retaining infrastructure classification', async () => {
+    const attempt = run({
+      upgradeCause: diagnostic(),
+      upgradeFailures: 1,
+      upgradeAfterStderr: 'archive corrupt',
+    });
+    const result = (await attempt.results).at(-1);
+    expect(result?.ok).toBe(false);
+    expect(result?.reason).toContain('archive corrupt');
+    expect(result?.infrastructure).toBeUndefined();
+    expect(attempt.waits).toEqual([3000]);
+  });
+
+  it('retries extension acquisition alone using its native error cause', async () => {
+    const attempt = run(
+      { extensionCause: diagnostic(), extensionFailures: 1 },
+      { product: 'squad', tag: 'tmt-squad-v0.1.0-alpha.4' }
+    );
+    expect(failed(await attempt.results)).toEqual([]);
+    expect(attempt.waits).toEqual([3000]);
+    expect(attempt.fetched).toHaveLength(1);
+    expect(
+      readFileSync(path.join(attempt.root, 'work', 'home', 'extension-count'), 'utf8').trim()
+    ).toBe('2');
+  });
+
+  it('keeps a repeated rate limit as a failed infrastructure conclusion after two attempts', async () => {
+    const attempt = run({ upgradeCause: diagnostic() });
+    expect((await attempt.results).at(-1)).toMatchObject({
+      ok: false,
+      infrastructure: 'github-api-rate-limit',
+    });
+    expect((await attempt.results).at(-1)?.reason).toContain('attempt bound exceeded (2 attempts)');
+    expect(attempt.waits).toEqual([3000]);
+    expect(
+      readFileSync(path.join(attempt.root, 'work', 'home', 'upgrade-count'), 'utf8').trim()
+    ).toBe('2');
+  });
+
+  it.each([
+    diagnostic('1893456600'),
+    diagnostic().replace(/2030[^;]+/, 'unavailable (missing or invalid timing header)'),
+  ])('fails clearly without waiting beyond the bound or guessing missing timing', async (cause) => {
+    const attempt = run({ upgradeCause: cause });
+    const result = (await attempt.results).at(-1);
+    expect(result?.infrastructure).toBe('github-api-rate-limit');
+    expect(result?.reason).toMatch(/wait bound exceeded|reset time unavailable/);
+    expect(attempt.waits).toEqual([]);
+    expect(
+      readFileSync(path.join(attempt.root, 'work', 'home', 'upgrade-count'), 'utf8').trim()
+    ).toBe('1');
+  });
+
+  it.each([
+    { upgradeStderr: 'HTTP 403: API rate limit exceeded' },
+    { upgradeStderr: 'boom' },
+    { upgradeCause: diagnostic(), upgradeStderr: 'an unrelated failure' },
+    { upgradeCause: diagnostic(), upgradeCode: 'SOME_OTHER_FAILURE' },
+    { upgradeCause: 'HTTP 429: too many requests' },
+  ])('fails real or unclassified errors immediately: %j', async (fake) => {
+    const attempt = run(fake);
+    const result = (await attempt.results).at(-1);
+    expect(result?.ok).toBe(false);
+    expect(result?.infrastructure).toBeUndefined();
+    expect(attempt.waits).toEqual([]);
+    expect(
+      readFileSync(path.join(attempt.root, 'work', 'home', 'upgrade-count'), 'utf8').trim()
+    ).toBe('1');
   });
 });
 
 describe('failed command diagnostics', () => {
-  it('keeps both bounded streams in the run log and result file after retries', () => {
-    const root = path.join(base, 'diagnostic-cli');
-    const source = path.join(root, 'source');
-    for (const [name, text] of Object.entries({ 'tmux-team': SKILL, 'tmt-inbox': INBOX })) {
-      mkdirSync(path.join(source, 'skills', name), { recursive: true });
-      writeFileSync(path.join(source, 'skills', name, 'SKILL.md'), text);
-    }
-    const preload = path.join(root, 'fetch.mjs');
-    writeExecutable(
-      preload,
-      `globalThis.fetch = async () => ({ ok: true, text: async () => ${JSON.stringify(
-        installerText({
-          upgradeStdout: 'stdout-cause-' + 'x'.repeat(4000),
-          upgradeStderr: 'stderr-cause-' + 'y'.repeat(4000),
-        })
-      )} });\nglobalThis.setTimeout = (fn) => { fn(); return 0; };\n`,
-      0o644
-    );
-    // No real network or retry sleeps: timers are immediate only in this isolated test process.
-    const resultFile = path.join(root, 'result.json');
-    const process = spawnSync(
-      globalThis.process.execPath,
-      [
-        '--import',
-        preload,
-        fileURLToPath(new URL('../../scripts/verify-public-install.mjs', import.meta.url)),
-        '--product',
-        'cli',
-        '--tag',
-        'v5.0.0-alpha.12',
-        '--source',
-        source,
-        '--target',
-        'aarch64-apple-darwin',
-        '--result-file',
-        resultFile,
-      ],
-      {
-        encoding: 'utf8',
-        timeout: 20_000,
-        env: { ...globalThis.process.env, GITHUB_REPOSITORY: 'pj-tmt/tmt' },
+  it.each([false, true])(
+    'keeps failed CLI status and artifact evidence (infrastructure: %s)',
+    (limited) => {
+      const root = path.join(base, `diagnostic-cli-${limited}`);
+      const source = path.join(root, 'source');
+      for (const [name, text] of Object.entries({ 'tmux-team': SKILL, 'tmt-inbox': INBOX })) {
+        mkdirSync(path.join(source, 'skills', name), { recursive: true });
+        writeFileSync(path.join(source, 'skills', name, 'SKILL.md'), text);
       }
-    );
-    expect(process.error).toBeUndefined();
-    expect(process.status).toBe(1);
-    const result = JSON.parse(readFileSync(resultFile, 'utf8'));
-    expect(result.target).toBe('aarch64-apple-darwin');
-    expect(result.failed).toHaveLength(1);
-    const failure = result.failed[0];
-    expect(failure.check).toBe('tmt upgrade');
-    expect(failure.reason.length).toBeLessThanOrEqual(500);
-    expect(failure.detail.length).toBeLessThanOrEqual(6000);
-    for (const text of [
-      'failed after 3 attempts',
-      'stdout: stdout-cause-',
-      'stderr: stderr-cause-',
-      '(4013 characters)',
-    ]) {
-      expect(failure.detail).toContain(text);
-      expect(process.stderr).toContain(text);
+      const preload = path.join(root, 'fetch.mjs');
+      writeExecutable(
+        preload,
+        `globalThis.fetch = async () => ({ ok: true, text: async () => ${JSON.stringify(
+          installerText(
+            limited
+              ? {
+                  upgradeCause:
+                    'GitHub API rate limit: reset/earliest retry time 2030-01-01 (UTC epoch 1893456000); the required wait exceeds the remaining deadline. Retry later or optionally set GITHUB_TOKEN.',
+                }
+              : {
+                  upgradeStdout: 'stdout-cause-' + 'x'.repeat(4000),
+                  upgradeStderr: 'stderr-cause-' + 'y'.repeat(4000),
+                }
+          )
+        )} });\nglobalThis.setTimeout = (fn) => { fn(); return 0; };\n`,
+        0o644
+      );
+      // No real network or retry sleeps: timers are immediate only in this isolated test process.
+      const resultFile = path.join(root, 'result.json');
+      const process = spawnSync(
+        globalThis.process.execPath,
+        [
+          '--import',
+          preload,
+          fileURLToPath(new URL('../../scripts/verify-public-install.mjs', import.meta.url)),
+          '--product',
+          'cli',
+          '--tag',
+          'v5.0.0-alpha.12',
+          '--source',
+          source,
+          '--target',
+          'aarch64-apple-darwin',
+          '--result-file',
+          resultFile,
+        ],
+        {
+          encoding: 'utf8',
+          timeout: 20_000,
+          env: { ...globalThis.process.env, GITHUB_REPOSITORY: 'pj-tmt/tmt' },
+        }
+      );
+      expect(process.error).toBeUndefined();
+      expect(process.status).toBe(1);
+      const result = JSON.parse(readFileSync(resultFile, 'utf8'));
+      expect(result.target).toBe('aarch64-apple-darwin');
+      expect(result.failed).toHaveLength(1);
+      const failure = result.failed[0];
+      expect(failure.check).toBe('tmt upgrade');
+      expect(failure.reason.length).toBeLessThanOrEqual(500);
+      if (limited) {
+        expect(failure.infrastructure).toBe('github-api-rate-limit');
+        expect(failure.reason).toContain('wait bound exceeded');
+        expect(process.stderr).toContain('Public install infrastructure');
+        return;
+      }
+      expect(failure.infrastructure).toBeUndefined();
+      expect(failure.detail.length).toBeLessThanOrEqual(6000);
+      for (const text of [
+        'Packed command failed (exited 1, expected 0)',
+        'stdout: stdout-cause-',
+        'stderr: stderr-cause-',
+        '(4013 characters)',
+      ]) {
+        expect(failure.detail).toContain(text);
+        expect(process.stderr).toContain(text);
+      }
+      expect(failure.detail).not.toContain('x'.repeat(2001));
+      expect(failure.detail).not.toContain('y'.repeat(2001));
     }
-    expect(failure.detail).not.toContain('x'.repeat(2001));
-    expect(failure.detail).not.toContain('y'.repeat(2001));
-  });
+  );
 });
 
 describe('the public installer smoke of an extension release', () => {
