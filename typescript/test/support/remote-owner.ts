@@ -37,6 +37,13 @@ export interface RemoteFixture {
   readonly executables: { readonly cli: CliExecutable };
   paneSessionId(pane?: string): string;
 }
+export interface CoreCall {
+  operation: string | null;
+  operationId: string | null;
+  argv: string[];
+  wrapperPid: number;
+  corePid: number | null;
+}
 interface Exit {
   code: number | null;
   signal: NodeJS.Signals | null;
@@ -48,6 +55,13 @@ function alive(pid: number): boolean {
   } catch (error) {
     if (object(error).code === 'ESRCH') return false;
     throw error;
+  }
+}
+async function until(predicate: () => boolean, description: string): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error(`Timed out: ${description}`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
   }
 }
 async function bounded<T>(promise: Promise<T>, description: string, timeoutMs = 5000): Promise<T> {
@@ -178,6 +192,8 @@ class RemoteProcess {
 export interface HttpReply {
   status: number;
   body: unknown;
+  rawBody: string;
+  headers: http.IncomingHttpHeaders;
 }
 /** One framed, bounded request; no cookie, ambient credential or SDK retry. */
 export function post(url: string, input: unknown, origin?: string): Promise<HttpReply> {
@@ -195,7 +211,7 @@ export function post(url: string, input: unknown, origin?: string): Promise<Http
     });
     let bytes = 0;
     const chunks: Buffer[] = [];
-    const timer = setTimeout(() => request.destroy(new Error('Remote HTTP deadline')), 5000);
+    const timer = setTimeout(() => request.destroy(new Error('Remote HTTP deadline')), 20_000);
     request.on('error', (error) => {
       clearTimeout(timer);
       reject(error);
@@ -217,9 +233,12 @@ export function post(url: string, input: unknown, origin?: string): Promise<Http
       response.on('end', () => {
         clearTimeout(timer);
         try {
+          const rawBody = Buffer.concat(chunks).toString('utf8');
           resolve({
             status: response.statusCode ?? 0,
-            body: JSON.parse(Buffer.concat(chunks).toString('utf8')),
+            body: rawBody === '' ? null : JSON.parse(rawBody),
+            rawBody,
+            headers: response.headers,
           });
         } catch (error) {
           reject(error);
@@ -228,6 +247,14 @@ export function post(url: string, input: unknown, origin?: string): Promise<Http
     });
     request.end(body);
   });
+}
+export function dispatchIntent(operationId: string, recipientId: string, message: string) {
+  return {
+    version: 1,
+    operation: 'dispatch.create',
+    originator: 'anonymous',
+    input: { operationId, recipientIds: [recipientId], message, kind: 'request' },
+  };
 }
 export class RemoteSession {
   private next = 1n;
@@ -264,6 +291,9 @@ export class RemoteSession {
       options
     );
   }
+  append(operation: string, input: unknown, id?: string): Promise<Record<string, unknown>> {
+    return this.exchange('append', this.envelope(operation, input, id === undefined ? {} : { id }));
+  }
   async exchange(
     route: 'append' | 'subscribe' | 'ack',
     request: RemoteEnvelope
@@ -287,6 +317,8 @@ export class RemoteOwner {
   private readonly processes = new Set<RemoteProcess>();
   private readonly requests = new Set<Promise<HttpReply>>();
   private serve: RemoteProcess | undefined;
+  private crashedGroup: number | undefined;
+  private barrierId: string | undefined;
   private address = '';
   private machineId = '';
   private windowId = '';
@@ -326,22 +358,54 @@ export class RemoteOwner {
       `import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 const descriptor = ${JSON.stringify(descriptor)};
+const directory = ${JSON.stringify(this.directory)};
 const trace = ${JSON.stringify(this.coreTrace)};
 const argv = [...descriptor.args, ...process.argv.slice(2)];
 const input = fs.readFileSync(0);
-let operation = null;
+let operation = null, operationId = null;
 if (process.argv[2] === 'api') {
-  try { operation = JSON.parse(input.toString('utf8')).operation; } catch {}
+  try { const value = JSON.parse(input.toString('utf8')); operation = value.operation; operationId = value.input?.operationId ?? null; } catch {}
 }
-const child = spawn(descriptor.executable, argv, { stdio: ['pipe', 'inherit', 'inherit'] });
-fs.appendFileSync(trace, JSON.stringify({ operation, argv, wrapperPid: process.pid, corePid: child.pid }) + '\\n');
+fs.appendFileSync(trace, JSON.stringify({ operation, operationId, argv, wrapperPid: process.pid, corePid: null }) + '\\n');
+let barrier;
+try { barrier = JSON.parse(fs.readFileSync(directory + '/barrier.json', 'utf8')); } catch {}
+const gated = operation === 'dispatch.create' && operationId === barrier?.operationId;
+async function gate(phase) {
+  if (!gated || phase !== barrier.phase) return;
+  fs.writeFileSync(directory + '/barrier-entered.json', JSON.stringify({ phase, operationId, pid: process.pid }));
+  await new Promise((resolve, reject) => {
+    const release = directory + '/barrier-release';
+    const watcher = fs.watch(directory, check);
+    const timer = setTimeout(() => { watcher.close(); reject(new Error('Crash barrier deadline')); }, 30000);
+    function check() { if (fs.existsSync(release)) { clearTimeout(timer); watcher.close(); resolve(); } }
+    check();
+  });
+}
+await gate('before');
+const child = spawn(descriptor.executable, argv, { stdio: ['pipe', gated ? 'pipe' : 'inherit', 'inherit'] });
+fs.writeFileSync(directory + '/' + process.pid + '.core.json', JSON.stringify({ pid: child.pid }));
+const chunks = [];
+let bytes = 0;
+if (gated) child.stdout.on('data', chunk => {
+  bytes += chunk.length;
+  if (bytes > 16 * 1024 * 1024) { child.kill('SIGKILL'); throw new Error('Actual core output exceeded bound'); }
+  chunks.push(chunk);
+});
 child.stdin.on('error', () => {});
 child.stdin.end(input);
-child.once('error', error => { console.error(error.message); process.exitCode = 1; });
-child.once('close', (code, signal) => {
-  if (signal) process.kill(process.pid, signal);
-  else process.exitCode = code ?? 1;
+const exit = await new Promise((resolve, reject) => {
+  child.once('error', reject);
+  child.once('close', (code, signal) => resolve({ code, signal }));
 });
+if (gated) {
+  // These are the real selected core's bytes, retained before forwarding. The
+  // scenario independently checks its durable receipt and actual agent effect.
+  fs.writeFileSync(directory + '/barrier-core-output', Buffer.concat(chunks));
+  await gate('after');
+  process.stdout.write(Buffer.concat(chunks));
+}
+if (exit.signal) process.kill(process.pid, exit.signal);
+else process.exitCode = exit.code ?? 1;
 `,
       0o600
     );
@@ -353,18 +417,123 @@ child.once('close', (code, signal) => {
     );
     return executable;
   }
-  coreCalls(): Array<{
-    operation: string | null;
-    argv: string[];
-    wrapperPid: number;
-    corePid: number;
-  }> {
+  coreCalls(): CoreCall[] {
     if (!fs.existsSync(this.coreTrace)) return [];
     return fs
       .readFileSync(this.coreTrace, 'utf8')
       .split('\n')
       .filter(Boolean)
-      .map((line) => JSON.parse(line));
+      .map((line) => {
+        const call = JSON.parse(line) as CoreCall;
+        const child = path.join(this.directory, `${call.wrapperPid}.core.json`);
+        if (fs.existsSync(child))
+          call.corePid = Number(object(JSON.parse(fs.readFileSync(child, 'utf8'))).pid);
+        return call;
+      });
+  }
+  armCrash(operationId: string, phase: 'before' | 'after'): void {
+    assert.equal(this.barrierId, undefined, 'one crash barrier');
+    this.barrierId = operationId;
+    fs.writeFileSync(
+      path.join(this.directory, 'barrier.json'),
+      JSON.stringify({ operationId, phase })
+    );
+  }
+  async crashBarrier(): Promise<Record<string, unknown>> {
+    const file = path.join(this.directory, 'barrier-entered.json');
+    await until(
+      () => fs.existsSync(file) && fs.readFileSync(file, 'utf8').length > 0,
+      'real-core crash barrier'
+    );
+    const entered = object(JSON.parse(fs.readFileSync(file, 'utf8')));
+    assert.equal(entered.operationId, this.barrierId);
+    return entered;
+  }
+  barrierCoreOutput(): Record<string, unknown> {
+    return object(
+      JSON.parse(fs.readFileSync(path.join(this.directory, 'barrier-core-output'), 'utf8'))
+    );
+  }
+  /** Kill only serve: the real owned invocation must retain its lease. */
+  async crash(): Promise<void> {
+    assert(this.serve, 'serve running for crash');
+    const serve = this.serve;
+    this.stoppedAddress = this.address;
+    this.crashedGroup = serve.pid;
+    process.kill(serve.pid, 'SIGKILL');
+    const exit = await bounded(serve.result, 'crashed serve joined');
+    assert.equal(exit.signal, 'SIGKILL');
+    this.processes.delete(serve);
+    this.serve = undefined;
+    await this.assertListenerClosed();
+  }
+  async assertRestartBlocked(): Promise<void> {
+    const attempt = this.launch(['serve', '--json']);
+    try {
+      const exit = await bounded(attempt.result, 'restart refused while invocation owns lease');
+      assert.notEqual(exit.code, 0);
+      const replies = attempt.lines.map((line) => object(JSON.parse(line)));
+      assert(replies.some((reply) => object(reply.error).code === 'REMOTE_ALREADY_SERVING'));
+    } finally {
+      await attempt.stop();
+      this.processes.delete(attempt);
+    }
+  }
+  /** Reap the invocation before restart, leaving its original durable ID intact. */
+  async finishCrash(): Promise<void> {
+    assert(this.barrierId, 'armed crash barrier');
+    for (const call of this.coreCalls().filter((call) => call.operationId === this.barrierId)) {
+      if (alive(call.wrapperPid)) {
+        try {
+          process.kill(-call.wrapperPid, 'SIGKILL');
+        } catch (error) {
+          if (object(error).code !== 'ESRCH') throw error;
+        }
+      }
+      await until(
+        () => !alive(call.wrapperPid) && (!call.corePid || !alive(call.corePid)),
+        'crash invocation reaped'
+      );
+    }
+    this.barrierId = undefined;
+    for (const file of ['barrier.json', 'barrier-entered.json', 'barrier-release'])
+      fs.rmSync(path.join(this.directory, file), { force: true });
+    if (this.crashedGroup) {
+      assert(!alive(-this.crashedGroup), 'crashed serve group gone');
+      this.crashedGroup = undefined;
+    }
+  }
+  async approval(operationId: string): Promise<{
+    held: Record<string, unknown>;
+    finish: (answer: 'confirm' | 'refuse' | 'eof') => Promise<Record<string, unknown>>;
+  }> {
+    const child = this.launch(['approve', operationId, '--json']);
+    const held = await child.event((event) => event.event === 'held');
+    return {
+      held,
+      finish: async (answer) => {
+        child.child.stdin.end(answer === 'eof' ? undefined : JSON.stringify({ op: answer }) + '\n');
+        try {
+          const ended = await child.event((event) => event.event === 'ended');
+          assert.equal((await bounded(child.result, 'local approval exit')).code, 0);
+          return ended;
+        } finally {
+          await child.stop();
+          this.processes.delete(child);
+        }
+      },
+    };
+  }
+  async cancel(operationId: string): Promise<Record<string, unknown>> {
+    const child = this.launch(['cancel', operationId, '--json']);
+    try {
+      assert.equal((await bounded(child.result, 'local cancellation exit')).code, 0);
+      assert.equal(child.lines.length, 1);
+      return object(JSON.parse(child.lines[0]!));
+    } finally {
+      await child.stop();
+      this.processes.delete(child);
+    }
   }
   private launch(args: string[]): RemoteProcess {
     const executable = fileURLToPath(
@@ -383,12 +552,7 @@ child.once('close', (code, signal) => {
     this.machineId = text(descriptor.machineId);
     const url = new URL(this.address);
     assert.equal(url.hostname, '127.0.0.1');
-    const mount = await post(`${url.origin}/sdk/mount`, { path: '/' }, url.origin);
-    assert.equal(mount.status, 200);
-    const run = object(mount.body);
-    assert.equal(run.machineId, this.machineId);
-    assert.equal(run.address, this.address);
-    this.windowId = text(run.windowId);
+    this.windowId = text(descriptor.windowId);
   }
   post(route: 'append' | 'subscribe' | 'ack' | 'pair', input: unknown): Promise<HttpReply> {
     assert(this.serve, 'serve must run before HTTP');
@@ -438,8 +602,8 @@ child.once('close', (code, signal) => {
       this.processes.delete(owner);
     }
   }
-  async session(device: RemoteDevice, paired: PairedDevice): Promise<RemoteSession> {
-    const request = requestEnvelope(
+  opening(device: RemoteDevice, paired: PairedDevice): RemoteEnvelope {
+    return requestEnvelope(
       device,
       paired,
       this.windowId,
@@ -449,6 +613,9 @@ child.once('close', (code, signal) => {
       { clientNonce: randomBytes(16).toString('hex') },
       { kind: 'control' }
     );
+  }
+  async session(device: RemoteDevice, paired: PairedDevice): Promise<RemoteSession> {
+    const request = this.opening(device, paired);
     const reply = await this.post('append', request);
     assert.equal(reply.status, 200);
     const response = verifyResponse(reply.body, request, paired);
@@ -498,7 +665,7 @@ child.once('close', (code, signal) => {
     assert.equal(this.processes.size, 0, 'no owned Remote child during grant seeding');
     for (const call of this.coreCalls()) {
       assert(
-        !alive(call.wrapperPid) && !alive(call.corePid),
+        !alive(call.wrapperPid) && (!call.corePid || !alive(call.corePid)),
         'core invocation exited before seeding'
       );
     }
@@ -530,6 +697,32 @@ child.once('close', (code, signal) => {
     } catch (error) {
       errors.push(error);
     }
+    // Invoke children have their own process groups. Serve's death alone is
+    // insufficient; stop every recorded actual invocation before releasing roots.
+    for (const call of this.coreCalls()) {
+      try {
+        if (alive(call.wrapperPid) || (call.corePid && alive(call.corePid))) {
+          try {
+            process.kill(-call.wrapperPid, 'SIGKILL');
+          } catch (error) {
+            if (object(error).code !== 'ESRCH') throw error;
+          }
+          await until(
+            () => !alive(call.wrapperPid) && (!call.corePid || !alive(call.corePid)),
+            'owned invocation teardown'
+          );
+        }
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    if (this.barrierId) {
+      try {
+        await this.finishCrash();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
     for (const child of this.processes) {
       try {
         await child.stop();
@@ -544,7 +737,7 @@ child.once('close', (code, signal) => {
       errors.push(error);
     }
     for (const call of this.coreCalls()) {
-      if (alive(call.wrapperPid) || alive(call.corePid))
+      if (alive(call.wrapperPid) || (call.corePid && alive(call.corePid)))
         errors.push(
           new Error(`Core invocation survived Remote teardown: ${call.wrapperPid}/${call.corePid}`)
         );
