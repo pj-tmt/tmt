@@ -1,4 +1,4 @@
-//! Root-local membership and known-device changes. Remote event admission stays in Registration.
+//! Atomic recipient and known-device changes. Remote event admission stays in Registration.
 use super::{Engine, TransitionError, epoch};
 use crate::{
     Result,
@@ -34,14 +34,22 @@ pub struct DeviceRevoke<'a> {
     /// Trusted remote grant revision; replay fencing is independent of operation ID.
     pub grant_revision: u64,
 }
-enum Action<'a> {
+pub(super) enum Action<'a> {
     Member(MemberAction),
-    Device { id: &'a str, grant: u64 },
+    Device {
+        id: &'a str,
+        grant: u64,
+    },
+    Link {
+        remove: Option<&'a str>,
+        add: Option<Recipient>,
+        seed: Option<&'a [u8; 32]>,
+    },
 }
 impl Action<'_> {
     fn reduction(&self, target: &Recipient) -> bool {
         match self {
-            Self::Member(MemberAction::Add(_)) => false,
+            Self::Member(MemberAction::Add(_)) | Self::Link { remove: None, .. } => false,
             Self::Member(MemberAction::Role { role, .. }) => {
                 rank(role) < rank(target.role.as_deref().unwrap_or(""))
             }
@@ -61,6 +69,21 @@ impl Action<'_> {
             Self::Member(MemberAction::Role { member_id, role }) => {
                 ("member.role", json!({"memberId":member_id,"role":role}))
             }
+            Self::Link {
+                remove: Some(id),
+                add,
+                ..
+            } => (
+                "link.remove",
+                json!({"linkId":id,
+                "replacement":add.as_ref().map(link_payload)}),
+            ),
+            Self::Link {
+                remove: None,
+                add: Some(r),
+                ..
+            } => ("link.add", link_payload(r)),
+            Self::Link { .. } => ("link.add", Value::Null),
             Self::Device { id, grant } => (
                 "device.revoke",
                 json!({"deviceId":id,"grantRevision":grant}),
@@ -68,9 +91,14 @@ impl Action<'_> {
         }
     }
 }
+fn link_payload(r: &Recipient) -> Value {
+    json!({"linkId":r.id,"role":r.role,"linkSignKey":values::encode_binary(&r.signing_key),
+        "linkEncKey":values::encode_binary(&r.encryption_key),"pages":r.pages})
+}
 struct Plan {
     authority: Authority,
     pages: Vec<String>,
+    rotate_pages: BTreeSet<String>,
     target: Recipient,
     devices: BTreeSet<String>,
     noop: bool,
@@ -157,7 +185,7 @@ impl Engine {
         }
         Err(OwnerFault::StaleHead.into())
     }
-    fn change(
+    pub(super) fn change(
         &mut self,
         store: &mut Store,
         key: &Keyring,
@@ -202,6 +230,12 @@ impl Engine {
                 if snapshot.authority.head != plan.authority.head {
                     return Err(OwnerFault::StaleHead.into());
                 }
+                if let Action::Link { add: Some(r), .. } = &action
+                    && r.pages.contains(page)
+                    && !fold::eligible(r, &snapshot.authority, page)
+                {
+                    return Err(OwnerFault::WrongOwner.into());
+                }
                 snapshots.insert(page.clone(), snapshot);
             }
             let mut prepared = BTreeMap::new();
@@ -210,6 +244,7 @@ impl Engine {
                 let rotate = match &action {
                     Action::Member(MemberAction::Add(_)) => snapshot.authority.history_current,
                     Action::Member(MemberAction::Role { .. }) => false,
+                    Action::Link { .. } => plan.rotate_pages.contains(&page),
                     _ => true,
                 };
                 if rotate {
@@ -285,7 +320,13 @@ impl Engine {
                     }
                     tx.pin_cuts(&cuts)?;
                     let mut payload = selected.clone();
-                    if operation != "member.add" {
+                    if operation == "link.remove" {
+                        payload
+                            .as_object_mut()
+                            .ok_or(OwnerFault::Invalid)?
+                            .remove("replacement");
+                    }
+                    if operation != "member.add" && operation != "link.add" {
                         payload["cuts"] =
                             Value::Array(cuts.iter().map(|c| c.payload()).collect::<Result<_>>()?);
                     }
@@ -309,36 +350,60 @@ impl Engine {
                                 statements.push(s);
                                 wraps.extend(w);
                             }
-                            Page::Keep(snapshot) if operation == "member.add" => {
-                                let r = &plan.target;
-                                if snapshot.authority.history_current {
-                                    return Err(OwnerFault::Invalid.into());
-                                }
-                                for (epoch, secret) in tx.recent_secrets(page, snapshot.epoch)? {
-                                    let w = key.seal_wrap(
-                                        &wrap::Header {
-                                            space: key.space_id.clone(),
-                                            page: page.clone(),
-                                            epoch: epoch.to_string(),
-                                            recipient_kind: "member".into(),
-                                            recipient_id: r.id.clone(),
-                                            recipient_key: r.encryption_key,
-                                            signer_key: key.owner_public(),
-                                            membership_revision: (expected + 1).to_string(),
-                                        },
-                                        &secret,
-                                    )?;
-                                    tx.put_wrap(&w)?;
-                                    wraps.push(w);
-                                }
+                            Page::Keep(snapshot)
+                                if operation == "member.add" || operation == "link.add" =>
+                            {
+                                wraps.extend(join_wraps(
+                                    tx,
+                                    key,
+                                    &plan.target,
+                                    page,
+                                    snapshot.epoch,
+                                    snapshot.authority.history_current,
+                                    expected + 1,
+                                )?);
                             }
                             _ => {}
                         }
                     }
-                    if let Action::Member(_) = &action {
+                    // Reset's replacement follows every removal/advance, in this same transaction.
+                    if let Action::Link {
+                        remove: Some(_),
+                        add: Some(r),
+                        ..
+                    } = &action
+                    {
+                        let added = key.sign_statement(
+                            tx.head(),
+                            "link.add",
+                            &serde_json::to_vec(&link_payload(r))?,
+                        )?;
+                        tx.append_statement(&added)?;
+                        let revision = tx.head().ok_or(OwnerFault::Invalid)?.revision;
+                        for page in &r.pages {
+                            let snapshot =
+                                prepared.get(page).ok_or(OwnerFault::Invalid)?.snapshot();
+                            let epoch = tx.current_epoch(page)?;
+                            wraps.extend(join_wraps(
+                                tx,
+                                key,
+                                r,
+                                page,
+                                epoch,
+                                snapshot.authority.history_current,
+                                revision,
+                            )?);
+                        }
+                        tx.put_recipient(r)?;
+                        statements.push(added);
+                    }
+                    if matches!(&action, Action::Member(_) | Action::Link { .. }) {
                         let mut r = plan.target.clone();
                         match &action {
-                            Action::Member(MemberAction::Remove { .. }) => r.revoked = true,
+                            Action::Member(MemberAction::Remove { .. })
+                            | Action::Link {
+                                remove: Some(_), ..
+                            } => r.revoked = true,
                             Action::Member(MemberAction::Role { role, .. }) => {
                                 r.role = Some(role.clone())
                             }
@@ -346,7 +411,7 @@ impl Engine {
                         }
                         tx.put_recipient(&r)?;
                     }
-                    if operation == "member.remove" {
+                    if operation == "member.remove" || operation == "link.remove" {
                         for device in &plan.devices {
                             if let Some(mut d) = tx.device(device)? {
                                 d.revoked = true;
@@ -453,6 +518,47 @@ fn plan(tx: &OwnerTransaction<'_>, key: &Keyring, action: &Action<'_>) -> Result
             }
             r
         }
+        Action::Link { remove, add, seed } => {
+            if let Some(r) = add {
+                payload::decode("link.add", &serde_json::to_vec(&link_payload(r))?)?;
+                if authority
+                    .recipients
+                    .contains_key(&("link".into(), r.id.clone()))
+                {
+                    return Err(OwnerFault::Conflict.into());
+                }
+            }
+            if let Some(id) = remove {
+                values::generated_id(id)?;
+                let issuer = authority
+                    .recipients
+                    .get(&("link".into(), (*id).into()))
+                    .ok_or(OwnerFault::Invalid)?;
+                let r = &issuer.recipient;
+                if r.revoked {
+                    return Err(OwnerFault::WrongOwner.into());
+                }
+                if let Some(seed) = seed {
+                    let old = tmt_colab_model::link::Keys::derive(seed, &key.space_id, id)?;
+                    if old.signing_public() == r.signing_key
+                        || old.recipient().public_key() == r.encryption_key
+                    {
+                        return Err(OwnerFault::WrongOwner.into());
+                    }
+                }
+                for device in tx.devices()? {
+                    let chain = certificate::Chain::from_json(&device.chain)?;
+                    let c = chain.certificate()?;
+                    if c.issuer_kind == "link" && c.issuer_id == *id {
+                        fold::verify_chain(&chain, issuer, key, authority.head.revision)?;
+                        devices.insert(c.device_id.into());
+                    }
+                }
+                r.clone()
+            } else {
+                add.clone().ok_or(OwnerFault::Invalid)?
+            }
+        }
         Action::Device { id, grant } => {
             values::generated_id(id)?;
             if *grant == 0 {
@@ -476,7 +582,12 @@ fn plan(tx: &OwnerTransaction<'_>, key: &Keyring, action: &Action<'_>) -> Result
         }
     };
     let pages = match action {
-        Action::Member(MemberAction::Add(r)) => r.pages.clone(),
+        Action::Member(MemberAction::Add(r))
+        | Action::Link {
+            remove: None,
+            add: Some(r),
+            ..
+        } => r.pages.clone(),
         _ => {
             let r = &target;
             let pages = if r.id == authority.head.owner_member.id && r.kind == "member" {
@@ -494,12 +605,35 @@ fn plan(tx: &OwnerTransaction<'_>, key: &Keyring, action: &Action<'_>) -> Result
             active
         }
     };
+    let rotate_pages = if matches!(
+        action,
+        Action::Link {
+            remove: Some(_),
+            ..
+        }
+    ) {
+        pages.iter().cloned().collect()
+    } else {
+        BTreeSet::new()
+    };
+    let mut pages = pages;
+    if let Action::Link {
+        remove: Some(_),
+        add: Some(r),
+        ..
+    } = action
+    {
+        pages.extend(r.pages.iter().cloned());
+        pages.sort();
+        pages.dedup();
+    }
     if pages.len() > 256 {
         return Err(OwnerFault::Capacity.into());
     }
     Ok(Plan {
         authority,
         pages,
+        rotate_pages,
         target,
         devices,
         noop,
@@ -541,11 +675,79 @@ fn project(
                 .recipient
                 .role = Some(role.clone());
         }
+        Action::Link {
+            remove: Some(_), ..
+        } => {
+            Arc::make_mut(&mut authority.recipients)
+                .get_mut(&("link".into(), target.id.clone()))
+                .ok_or(OwnerFault::Invalid)?
+                .recipient
+                .revoked = true;
+        }
+        Action::Link {
+            remove: None,
+            add: Some(r),
+            ..
+        } => {
+            let verified =
+                statement.verify_next(&key.space_id, &key.owner_public(), Some(&authority.head))?;
+            Arc::make_mut(&mut authority.recipients).insert(
+                ("link".into(), r.id.clone()),
+                Issuer {
+                    recipient: r.clone(),
+                    statement_hash: statement.hash()?,
+                    revision: verified.head.revision,
+                },
+            );
+        }
+        Action::Link { .. } => return Err(OwnerFault::Invalid.into()),
         Action::Device { id, .. } => {
             Arc::make_mut(&mut authority.revoked_devices).insert((*id).into());
         }
     }
     Ok(())
+}
+fn join_wraps(
+    tx: &mut OwnerTransaction<'_>,
+    key: &Keyring,
+    r: &Recipient,
+    page: &str,
+    epoch: u64,
+    current: bool,
+    revision: u64,
+) -> Result<Vec<wrap::Envelope>> {
+    let mut wraps = Vec::new();
+    let secrets = if current {
+        vec![(
+            epoch,
+            tx.epoch_secret(page, epoch)?.ok_or(OwnerFault::Invalid)?,
+        )]
+    } else {
+        tx.recent_secrets(page, epoch)?
+    };
+    for (retained, mut secret) in secrets {
+        let result: Result<()> = (|| {
+            let wrapped = key.seal_wrap(
+                &wrap::Header {
+                    space: key.space_id.clone(),
+                    page: page.into(),
+                    epoch: retained.to_string(),
+                    recipient_kind: r.kind.clone(),
+                    recipient_id: r.id.clone(),
+                    recipient_key: r.encryption_key,
+                    signer_key: key.owner_public(),
+                    membership_revision: revision.to_string(),
+                },
+                &secret,
+            )?;
+            tx.put_wrap(&wrapped)?;
+            wraps.push(wrapped);
+            Ok(())
+        })();
+        secret.fill(0);
+        result?;
+    }
+    Ok(wraps)
 }
 fn outcome(statements: &[statement::Envelope], wraps: Vec<wrap::Envelope>) -> Result<Vec<u8>> {
     let mut ordered = BTreeMap::new();

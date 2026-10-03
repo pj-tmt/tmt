@@ -603,6 +603,16 @@ remaining recipients. If sharing continues, explicit owner `link.add` creates a
 NEW link identity/seed distributed only to intended holders. Reset link MUST
 perform this removal/rotation, not just change a URL or hide an edge record.
 
+The owner-local engine commits `link.remove`, affected-page `epoch.advance`
+statements and an optional replacement `link.add`, in that order, in one owner
+transaction. The replacement ID must never have been used, and its seed must not
+reproduce the removed link's pinned keys under the old ID. Seeds are borrowed for
+model derivation and never stored in statements, projections or public replay
+outcomes. The owner caller retains/distributes a replacement seed only after
+success. A current-mode link add wraps the existing current epoch only; Reset
+creates the fresh baseline/epoch before joining its optional replacement. Shared
+joins and replacements use the same bounded history wrap lists as members.
+
 Private pages admit named members only. Link pages additionally admit
 link-certified devices at the link role. Public mode is loopback-only in v1;
 Firestore and Cloudflare MUST reject public mode and key publication. Going
@@ -1170,7 +1180,8 @@ list. Append additionally requires the current membership revision and an allowe
 namespace, and returns the registered extension signing key for model signature
 verification. Upgrade verifies the full remote binding and device chain; repeated
 Read checks do not redo signatures or reserve the SQLite writer. Catchup takes its
-head from `Store::owner_head`; reset descriptor supply remains caller-owned. Workers preserve upgrade read-ahead, drive silent transfer/write deadlines,
+head from `Store::owner_head` and the exact persisted reset descriptor through
+`Store::baseline` when one exists. Workers preserve upgrade read-ahead, drive silent transfer/write deadlines,
 apply the tunnel cap/idle bound, and close retained sockets before shutdown joins.
 
 The #830 fixture used 64 KiB frames/messages, queue 8, receipt/tail capacity 64,
