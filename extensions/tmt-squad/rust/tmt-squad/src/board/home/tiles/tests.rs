@@ -14,7 +14,7 @@ fn squad(name: &str) -> SquadLine {
             blocked: 2,
             ..Default::default()
         },
-        pressing: None,
+        members: Counts::default(),
     }
 }
 
@@ -110,6 +110,7 @@ fn members_are_urgency_sorted_and_private_row_values_never_appear() {
     let item = TileItem {
         squad: &squad,
         members: &counts,
+        usage: None,
     };
     for width in [160, 100, 80] {
         let painted = paint(std::slice::from_ref(&item), width, Look::default(), None).unwrap();
@@ -140,6 +141,7 @@ fn selection_covers_the_whole_block_but_leaves_gaps_and_neighbours_alone() {
         .map(|squad| TileItem {
             squad,
             members: &counts,
+            usage: None,
         })
         .collect::<Vec<_>>();
     for (base, depth) in [
@@ -191,6 +193,7 @@ fn escaped_unicode_and_missing_lead_fit_even_tiny_widths() {
     let item = TileItem {
         squad: &squad,
         members: &counts,
+        usage: None,
     };
     assert!(
         text(
@@ -205,6 +208,7 @@ fn escaped_unicode_and_missing_lead_fit_even_tiny_widths() {
     let item = TileItem {
         squad: &squad,
         members: &counts,
+        usage: None,
     };
     for width in 1..=160 {
         let painted = paint(std::slice::from_ref(&item), width, Look::default(), Some(0)).unwrap();
@@ -219,5 +223,143 @@ fn escaped_unicode_and_missing_lead_fit_even_tiny_widths() {
             assert!(region.x + region.width <= width);
             assert!(region.lines.end <= painted.lines.len());
         }
+    }
+}
+
+fn usage(windows: [TokenWindow; 3]) -> HomeUsage<'static> {
+    HomeUsage {
+        lead_model: Some("gpt"),
+        windows,
+        lead: [1_000, 2_000, 3_000].map(|tokens| {
+            Some(crate::board::rate::Reading {
+                tokens,
+                partial: false,
+                span: 60_000,
+            })
+        }),
+        // The formatter consumes the supplied share, never derives it from totals.
+        squad: [None; 3],
+        share: Some(crate::board::app::UsageShare {
+            fraction: 0.375,
+            partial: true,
+        }),
+    }
+}
+
+#[test]
+fn runtime_observations_keep_missing_zero_partial_model_and_supplied_share_distinct() {
+    let squad = squad("squad");
+    let counts = members();
+    let mut usage = usage(TokenWindow::DEFAULTS);
+    usage.lead = [
+        Some(crate::board::rate::Reading {
+            tokens: 0,
+            partial: false,
+            span: 60_000,
+        }),
+        None,
+        Some(crate::board::rate::Reading {
+            tokens: 7_500,
+            partial: true,
+            span: 60_000,
+        }),
+    ];
+    let item = TileItem {
+        squad: &squad,
+        members: &counts,
+        usage: Some(usage),
+    };
+    let painted = paint(std::slice::from_ref(&item), 160, Look::default(), None).unwrap();
+    let line = text(&painted.lines)[1].clone();
+    assert!(line.contains("gpt"));
+    assert!(line.contains("     0     —   ~8k  ~38%"), "{line}");
+    let missing = TileItem {
+        squad: &squad,
+        members: &counts,
+        usage: None,
+    };
+    let missing = paint(&[missing], 160, Look::default(), None).unwrap();
+    assert_eq!(text(&missing.lines)[1].matches('—').count(), 5);
+    assert!(!text(&missing.lines)[1].contains('0'));
+}
+
+#[test]
+fn uniform_labels_appear_once_and_narrow_rows_retain_the_last_two_windows() {
+    let squad = squad("squad");
+    let counts = members();
+    let windows = [
+        TokenWindow::FIVE_MINUTES,
+        TokenWindow::HOUR,
+        TokenWindow::parse("24h").unwrap(),
+    ];
+    let item = TileItem {
+        squad: &squad,
+        members: &counts,
+        usage: Some(usage(windows)),
+    };
+    for width in [160, 100, 80] {
+        let items = std::slice::from_ref(&item);
+        let label = legend(items, width);
+        assert_eq!(
+            label,
+            match width {
+                160 => "lead tokens · 5m · 60m · 24h · share (24h)",
+                100 => "lead tokens · 60m · 24h · share (24h)",
+                _ => "lead tokens · 60m · 24h",
+            }
+        );
+        let painted = text(&paint(items, width, Look::default(), None).unwrap().lines).join("\n");
+        assert!(painted.contains("2k"));
+        assert!(painted.contains("3k"));
+        assert_eq!(painted.contains("1k"), width == 160);
+        assert!(!painted.contains("60m"));
+        assert!(!painted.contains("24h"));
+    }
+}
+
+#[test]
+fn mixed_windows_label_each_observation_and_share_without_reordering_tiles() {
+    let squads = [squad("first"), squad("second")];
+    let counts = members();
+    let items = [
+        TileItem {
+            squad: &squads[0],
+            members: &counts,
+            usage: Some(usage(TokenWindow::DEFAULTS)),
+        },
+        TileItem {
+            squad: &squads[1],
+            members: &counts,
+            usage: Some(usage([
+                TokenWindow::FIVE_MINUTES,
+                TokenWindow::HOUR,
+                TokenWindow::parse("24h").unwrap(),
+            ])),
+        },
+    ];
+    for width in [160, 100, 80] {
+        assert_eq!(legend(&items, width), "lead tokens · windows vary");
+        let painted = paint(&items, width, Look::default(), None).unwrap();
+        let output = text(&painted.lines).join("\n");
+        assert!(output.contains("5m:2k"), "{output}");
+        assert!(output.contains("60m:3k"), "{output}");
+        assert!(output.contains("60m:2k"), "{output}");
+        assert!(output.contains("24h:3k"), "{output}");
+        assert!(output.contains("60m:~38%"), "{output}");
+        assert!(output.contains("24h:~38%"), "{output}");
+        assert_eq!(
+            painted
+                .regions
+                .iter()
+                .map(|region| region.item)
+                .collect::<Vec<_>>(),
+            [0, 1]
+        );
+        assert!(
+            painted
+                .lines
+                .iter()
+                .all(|line| line.width() <= usize::from(width))
+        );
     }
 }

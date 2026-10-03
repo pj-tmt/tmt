@@ -45,13 +45,6 @@ pub(super) struct HomeUsage<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Consumed by #1293 tiles and #1295 HOME header painting."
-    )
-)]
 pub(super) struct UsageShare {
     pub fraction: f64,
     pub partial: bool,
@@ -714,13 +707,6 @@ impl App {
         }
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Consumed by #1293 tiles and #1295 HOME header painting."
-        )
-    )]
     pub(super) fn home_usage(&self, squad: &str, now: Instant) -> Option<HomeUsage<'_>> {
         let view = self.view.as_ref()?;
         let home = view.home.as_ref()?;
@@ -4650,7 +4636,7 @@ mod token_window_tests {
                 squad: "product".into(),
                 lead: Some(serde_json::json!({"id":"a"})),
                 counts: Default::default(),
-                pressing: None,
+                members: Default::default(),
             }],
         });
         let mut input = super::super::rate::tests::input(100);

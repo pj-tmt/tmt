@@ -1,6 +1,6 @@
 //! Home targets share the board's selection, effects, composer and scroll owner.
 
-use super::{Age, Counts, Home};
+use super::{Age, Home};
 use crate::board::app::{App, Effect, Request};
 use serde_json::Value;
 
@@ -19,8 +19,6 @@ pub struct HomeEntry<'a> {
     pub row: &'a Value,
     pub lead: Option<&'a str>,
     pub age: Option<&'a Age>,
-    pub counts: Option<&'a Counts>,
-    pub pressing: Option<&'a Value>,
 }
 
 impl Home {
@@ -39,8 +37,6 @@ impl Home {
                         row: &row.member,
                         lead: row.lead.as_deref(),
                         age: row.age.as_ref(),
-                        counts: None,
-                        pressing: None,
                     });
                 }
             }
@@ -61,8 +57,6 @@ impl Home {
                     row,
                     lead: squad.lead.as_ref().and_then(|lead| lead["name"].as_str()),
                     age: None,
-                    counts: Some(&squad.counts),
-                    pressing: squad.pressing.as_ref(),
                 });
             }
         }
@@ -101,8 +95,6 @@ impl App {
                     row: &NO_ROW,
                     lead: None,
                     age: None,
-                    counts: None,
-                    pressing: None,
                 },
             );
         }
@@ -120,8 +112,6 @@ impl App {
                     row: &feedback.row,
                     lead: feedback.lead.as_deref(),
                     age: None,
-                    counts: None,
-                    pressing: None,
                 },
             );
         }
