@@ -278,8 +278,7 @@ time; opening another replaces it.
   reading order; on the Squad home tab they move between sections. A pane may use Tab for its own items, such as links in the notes, and passes it on when it has none or the user bound Tab. The focused
   pane's title is `accent` and bold; other titles are `muted`.
 - One cursor per pane. Moving between panes keeps each pane's cursor and scroll
-  position. A refresh never moves the cursor or the scroll position; the cursor
-  follows its item, or the nearest one if the item is gone.
+  position. A refresh never moves the cursor or the scroll position; the cursor follows its item, or the nearest one if the item is gone. When content shrinks or the width changes how lines wrap, the scroll position clamps to the new range and keeps the cursor's item in view.
 
 ### Keys
 
@@ -314,7 +313,8 @@ User bindings can change a key; help and footers always show the effective key.
   and a description in plain words. A description never shows an internal
   action name (`next-pane`, `token-window`); one map from action to description
   owns the wording, shared by help and the settings view. Names are shown as
-  member names, never as IDs.
+  member names, never as IDs. When the description column would be narrower than 20 cells, each key goes on its own line with its description indented below it; no key is ever cut.
+- At very small widths the footer keeps `? more` first, then `q quit`, then the rest by priority. `?` closes help; other overlays ignore it unless they list it.
 
 ### Overlays
 
@@ -324,8 +324,7 @@ User bindings can change a key; help and footers always show the effective key.
 - Nothing from the base shows through: the overlay clears its area first.
 - Content is inset one cell from the left and right borders. The key line, a
   status line and the scroll position (`1–23 of 74`, `muted`) share that inset.
-- Size: as wide as its content, at most 90% of the view, and at most 80% of its
-  height, centered. Below 100 columns an overlay takes the full body width.
+- Size: help and other reference overlays fill the whole body between the tab line and the footer, which stay as they are. Small overlays (pickers, confirmations) are as wide as their content, at most 90% of the view and 80% of its height, centered. Below 100 columns every overlay takes the full body width. Below 100 columns an overlay takes the full body width.
   Content that does not fit scrolls; the overlay never grows past the view.
 - A prompt is a short overlay docked above the footer, so the board stays
   visible as a live preview of the value being typed.
@@ -389,8 +388,7 @@ The full layout is designed for 80 columns and wider.
 | input value      | `text`, cursor `▏` | —                              | `muted`           |
 | scroll position  | `muted`            | —                              | —                 |
 
-Attention marks (`◆`, `✗`) keep their own roles in every state, including
-selection.
+Attention marks (`◆`, `✗`) keep their own roles in every state, including selection with a background. Without a background color, selection follows Themes: one common foreground in reverse video, with attention marks in bold.
 
 ## Degradation
 
