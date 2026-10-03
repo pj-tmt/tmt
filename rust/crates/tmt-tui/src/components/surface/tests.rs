@@ -176,6 +176,40 @@ fn wrapped_fixed_slots_reserve_lines_before_scroll_and_remeasure_on_resize() {
 }
 
 #[test]
+fn authored_modal_height_bounds_docked_prompt_without_changing_reference_body() {
+    let scene_for = |placement| {
+        let markup = MARKUP.replace(
+            "placement=\"body\"",
+            &format!("placement=\"{placement}\" class=\"h-7\""),
+        );
+        compile(
+            "height.xml",
+            &crate::parse("height.xml", &markup).unwrap(),
+            &schema(),
+            &NoSources,
+        )
+        .unwrap()
+        .materialize(
+            "height.xml",
+            &json!({"help": model().value(), "footer": "Esc close", "status": "read-only"}),
+            &NoSources,
+        )
+        .unwrap()
+    };
+    for height in [0, 1, 5, 20, 40] {
+        let mut scroll = ScrollState::default();
+        let (_, map) = draw(&scene_for("docked"), &mut scroll, 80, height);
+        assert_eq!(
+            map.areas.outer.height,
+            7.min((u32::from(height) * 4 / 5) as u16)
+        );
+        assert_eq!(map.areas.outer.bottom(), height + 2);
+        let (_, reference) = draw(&scene_for("body"), &mut scroll, 80, height);
+        assert_eq!(reference.areas.outer, Rect::new(2, 2, 80, height));
+    }
+}
+
+#[test]
 fn every_section_uses_the_global_display_cell_key_width() {
     let mut scroll = ScrollState::default();
     let (buffer, map) = draw(&scene(&model()), &mut scroll, 120, 18);

@@ -581,7 +581,11 @@ fn render_inner(
     if let Some(spec) = &scene.spec.list {
         collection::select(&mut content, spec, selected.flatten());
     }
-    let demand_height = body.height;
+    let authored_height = match modal_node.style.height {
+        Extent::Cells(height) => Some(height),
+        _ => None,
+    };
+    let demand_height = authored_height.unwrap_or(body.height);
     let mut areas = scene.spec.modal.areas(
         body.intersection(buffer.area),
         [demand_width, demand_height],
@@ -642,13 +646,14 @@ fn render_inner(
     if rows > usize::from(u16::MAX) {
         return Err("scroll content exceeds 65535 visual lines".into());
     }
-    let demand_height = rows
+    let measured_height = rows
         .saturating_add(
             3 + usize::from(footer_lines)
                 + usize::from(status_lines)
                 + usize::from(scene.spec.has(ModalSlot::Query)),
         )
         .min(usize::from(u16::MAX)) as u16;
+    let demand_height = authored_height.unwrap_or(measured_height);
     let mut areas = scene.spec.modal.areas_with_lines(
         body.intersection(buffer.area),
         [demand_width, demand_height],
