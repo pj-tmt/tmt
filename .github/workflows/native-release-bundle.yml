@@ -514,3 +514,23 @@ jobs:
     with:
       product: ${{ inputs.product }}
       tag: ${{ inputs.tag }}
+
+  # Dispatch is exempt from GITHUB_TOKEN event suppression. Wait for read-back and
+  # the entire smoke workflow; classified rate limits keep the smoke failure visible.
+  project-release:
+    name: Reconcile Project release state
+    needs: [published, smoke]
+    if: ${{ !cancelled() && needs.published.result == 'success' && (needs.smoke.result == 'success' || (needs.smoke.result == 'failure' && needs.smoke.outputs.outcome == 'infrastructure')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch the full Project sweep
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/project-release.yml/dispatches" \
+            --method POST --input - <<'JSON'
+          {"ref":"main","inputs":{"dry_run":"false"}}
+          JSON

@@ -95,6 +95,21 @@ owns the observation day and the separate explicit UTC cutover, 24 hours after
 the report-only PR merges. Keep release-please as the release attribution and
 changelog owner.
 
+## Project release reconciliation
+
+Keep delivery evidence separate from publication: the Project updater derives
+closed-issue fields from merged closing PRs, changed-path product ownership and
+the earliest published containing tag for every affected product. Use the existing
+component map and release policy/version helpers, never notes or a recency window.
+Every sweep is authoritative for eligible issues, including recovery from built-in
+status workflow writes. Exclude epic trackers from both fields; their owning lead
+retains the acceptance/dogfood gate, and the summary lists them as skipped. The post-publication dispatch waits for read-back and smoke completion;
+classified infrastructure failures still reconcile without weakening smoke.
+Retain the daily safety net. Follow [DEVELOPMENT's Project release tracking
+procedure](../../../DEVELOPMENT.md#project-release-tracking) for full dry-run table
+review, request budgets, exact verification commands and activation evidence.
+A tracking dispatch never authorizes publication or a publishing-workflow replay.
+
 ## Promotion and prerelease checks
 
 Read the complete [native release verification section](../../../DEVELOPMENT.md#native-release-verification)

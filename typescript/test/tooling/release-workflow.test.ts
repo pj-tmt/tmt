@@ -704,7 +704,7 @@ describe('the release run releases a hold (native-release.yml)', () => {
   it('grants the pipeline what its gates, its publication and its failure issue need and nothing more', () => {
     const bundleJob = job(run, 'bundle');
     expect(bundleJob).toMatch(
-      /permissions:\n(?: {6}#[^\n]*\n)* {6}contents: write\n {6}actions: read\n {6}pull-requests: read\n {6}checks: read\n {6}issues: write\n/
+      /permissions:\n(?: {6}#[^\n]*\n)* {6}contents: write\n {6}actions: write\n {6}pull-requests: read\n {6}checks: read\n {6}issues: write\n/
     );
   });
 });
@@ -751,5 +751,34 @@ describe('held release rerun workflow boundary', () => {
     expect(prove).toContain('source_args=(--source-root "$GITHUB_WORKSPACE/release-source")');
     expect(prove).toContain('skill="$GITHUB_WORKSPACE/release-source/skills/tmux-team/SKILL.md"');
     expect(prove).not.toMatch(/GH_TOKEN|github\.token|secrets\./);
+  });
+});
+
+describe('post-publication Project reconciliation', () => {
+  const dispatch = job(bundle, 'project-release');
+  it('waits for read-back and all smoke jobs, including classified infrastructure failure', () => {
+    expect(dispatch).toContain('needs: [published, smoke]');
+    expect(dispatch).toContain(
+      "if: ${{ !cancelled() && needs.published.result == 'success' && (needs.smoke.result == 'success' || (needs.smoke.result == 'failure' && needs.smoke.outputs.outcome == 'infrastructure')) }}"
+    );
+    expect(smokeWorkflow).toContain('value: ${{ jobs.report.outputs.outcome }}');
+    expect(job(smokeWorkflow, 'report')).toContain('outcome: ${{ steps.report.outputs.outcome }}');
+    expect(job(smokeWorkflow, 'report')).toContain('id: report');
+    expect(job(smokeWorkflow, 'report')).toContain('--expected-results 4');
+    expect(job(smokeWorkflow, 'smoke')).not.toContain('continue-on-error: true');
+  });
+  it('grants only dispatch permission, uses GITHUB_TOKEN REST, and runs no release code', () => {
+    expect(dispatch).toMatch(/permissions:\n {6}actions: write\n {4}steps:/);
+    expect(dispatch).toContain('GH_TOKEN: ${{ github.token }}');
+    expect(dispatch).toContain('actions/workflows/project-release.yml/dispatches');
+    expect(dispatch).toContain('{"ref":"main","inputs":{"dry_run":"false"}}');
+    expect(dispatch).not.toMatch(
+      /checkout|secrets\.|contents:|pull-requests:|issues:|environment:/
+    );
+    expect(
+      [...jobs(bundle)]
+        .filter(([, text]) => /^ {6}actions: write$/m.test(text))
+        .map(([name]) => name)
+    ).toEqual(['project-release']);
   });
 });

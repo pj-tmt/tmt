@@ -216,12 +216,19 @@ export function postPublicationIssueTitles(tag) {
   };
 }
 
+/** A shared classification for reporting and the post-smoke Project dispatch. */
+export function smokeFailureOutcome(results) {
+  const failed = results.filter(({ ok }) => !ok);
+  return failed.length > 0 &&
+    failed.every(({ infrastructure }) => infrastructure === 'github-api-rate-limit')
+    ? 'infrastructure'
+    : 'failure';
+}
+
 /** The title and body of the issue a failed check opens. */
 export function renderFailureIssue({ tag, results, runUrl }) {
   const failed = results.filter(({ ok }) => !ok);
-  const infrastructureOnly =
-    failed.length > 0 &&
-    failed.every(({ infrastructure }) => infrastructure === 'github-api-rate-limit');
+  const infrastructureOnly = smokeFailureOutcome(results) === 'infrastructure';
   const titles = postPublicationIssueTitles(tag);
   return {
     title: infrastructureOnly ? titles.rateLimit : titles.failure,
@@ -495,6 +502,7 @@ function main(argv, environment) {
     if (!Number.isSafeInteger(expectedResults) || expectedResults < 0 || expectedResults > 10)
       throw new Error('--expected-results must be a whole number from 0 to 10.');
     const results = readSmokeFailures(values.directory, { expectedResults });
+    output(environment, { outcome: smokeFailureOutcome(results) });
     report(environment, renderVerifySummary({ tag: values.tag, results }));
     try {
       const { issue, created } = reportFailure({

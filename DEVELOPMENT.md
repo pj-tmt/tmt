@@ -2622,15 +2622,16 @@ Every issue carries these Project fields:
   that tracker. Do not hang slices under an umbrella issue that is itself a
   tracker child; umbrella or findings-log issues stay outside the tracker.
 - `Squad`: the squad whose lead owns the issue.
-- `Status`, which moves forward only:
+- `Status` records delivery state; the release sweep corrects stale closed-issue states:
   - `Todo`: not started.
   - `In Progress`: implementation started, including draft or stacked PRs.
   - `In Review`: a PR is ready for review or queued. In a stacked chain, the
     issue stays here while any of its PRs is still queued.
   - `Merged`: the last required PR is on `main` and a release is pending. A
     `Fixes #N` merge moves the issue here through the Project workflow.
-  - `Released`: shipped in a published release. Release automation sets it and
-    fills `Released in`.
+  - `Released`: every affected product has a published tag containing the closing
+    merge commit(s). Release automation sets it and fills `Released in`.
+  - `Done`: closed without a delivering merged PR (not planned, duplicate, or resolved elsewhere); release automation sets it.
 - `Agents`: comma-separated names of agents actively building or coordinating
   it now, including assigned members waiting on a named dependency. List the
   lead first. Reviewers who build nothing are not listed. Removing a member
@@ -3147,66 +3148,92 @@ is not full three-engine L1 acceptance.
 
 ## Project release tracking
 
-`project-release.yml` records published core `v5.*`, Squad and Office releases in
-the release project ([pj-tmt organization project 1](https://github.com/orgs/pj-tmt/projects/1)).
-The updater mints a per-run installation token with the existing release GitHub
-App using `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` in the `release`
-environment. Ben grants the App **Organization projects: read and write**, plus
-pull-request and issue read access to `pj-tmt/tmt`. The SHA-pinned token action
-requests only those permissions for owner `pj-tmt` and repository `tmt`, revoking
-the token on cleanup. Only the reconciliation step receives it. The separate
-read-only `GITHUB_TOKEN` reads repository release/compare metadata. No PAT or
-`PROJECT_TOKEN` is used. Missing App credentials fail before API reads; missing
-App permissions fail token minting or the API request visibly.
+`project-release.yml` sweeps all existing closed issue items from
+[pj-tmt organization project 1](https://github.com/orgs/pj-tmt/projects/1), regardless
+of their current Status, except issues labeled `epic`: the owning lead retains
+both tracker fields under [Tracker rules](#project-tracking). Each skipped epic
+appears in the per-item summary as `skipped: epic tracker`. The release App token uses the existing
+`RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` in the main-only `release`
+environment, with **Organization projects: read and write**, plus issue and PR
+read permissions. The pinned token action requests only those permissions and
+revokes the token on cleanup. Only reconciliation receives it. The separate
+`GITHUB_TOKEN` reads published releases; no PAT or `PROJECT_TOKEN` is used.
+Missing credentials or incomplete permissions fail visibly before writes.
 
-The `release` environment's protection policy allows only branch `main`, with no
-required reviewers or wait timer. No separate environment is needed. Because a
-`release:published` run has a tag ref, the updater uses completion of **Native
-release artifacts**, a daily catch-up at 04:23 UTC, and main-only manual replay.
-CLI, Office and Squad share that actual publishing workflow; `Release` only
-creates drafts. Owner/manual publication (including a manually released hold)
-is picked up by the next publisher completion or daily run while within the
-latest-ten window; use explicit tag replay for immediate tracking or older tags.
-This updater never publishes releases. Missing configuration fails its separate
-workflow without blocking publication. After Ben grants the App permissions,
-the first live run must be a manual dry-run replay of a recent tag; review its
-proposed fields before a write-enabled replay. [Architecture](ARCHITECTURE.md)
-owns the selection and terminal-state contract.
+The daily cron remains 04:23 UTC. After publication read-back succeeds and all
+smoke jobs conclude, `native-release-bundle.yml` explicitly dispatches a full
+sweep with `GITHUB_TOKEN`. It accepts successful smoke or a complete failure set
+classified by the existing reporter as GitHub API rate-limit infrastructure.
+Missing/mixed failure evidence and actual release failures do not qualify for
+this immediate dispatch; the scheduled sweep still reconciles repository state.
+No failed smoke job is made successful. The calling native workflow grants
+`actions: write` to the reusable-workflow boundary; only its dedicated dispatch
+job requests that permission, with no content or issue access and no checkout.
+`workflow_dispatch` works with `GITHUB_TOKEN`, avoiding the suppression that
+made `workflow_run` unreliable. The redundant completion trigger is removed.
+The updater neither publishes nor blocks publication and always executes main's
+trusted code, with full git history and tags, never release-tag code or artifacts.
 
-Automatic runs reconcile the latest ten published supported releases, including
-publications followed by failed downstream checks. A publisher run exceeding the ten-release window fails with replay guidance. The window bounds
-recovery from replaced pending workflow runs; older missed tags require replay.
-Manual dispatch defaults to dry-run and requires a published tag:
+Each run discovers all published supported releases and all Project items within
+explicit bounds. GitHub's paginated `closedByPullRequestsReferences`, including
+closed PRs, supplies merged closing PRs. Local git reads the first-parent merge
+delta (including deleted paths and both sides of renames) and tag containment.
+The existing component owner map assigns products; its private-leaf consumers
+are reused. Existing historical Office tags remain evidence even while Office
+publication is parked. Components without a native publication policy stay
+Merged with an explicit waiting reason. For each affected product, the first
+publication containing all relevant closing merge commits becomes the sole
+canonical entry. All products must be present for Released. Closed issues with
+no merged closing PR use the closed-issue state defined in [Project tracking](#project-tracking),
+with empty release evidence. Open issues, epic trackers, PR items and foreign-repository
+issues are untouched.
+
+The sweep owns Status and Released in for these closed issues: it replaces stale
+text and corrects incorrect terminal states instead of trusting previous field
+values. It does not preserve manual text in the generated Released in field.
+The per-item summary shows current → planned Status and Released in, including
+unchanged items and waiting reasons. This is also the built-in-workflow strategy:
+full sweeps are authoritative on every run, repairing late close/merge workflow
+writes to Merged. The fixture explicitly resets Released and Done to Merged and
+proves convergence; no Project settings are changed or claimed to have been
+inspected. Concurrent external changes can cause readback failure; the next full
+sweep repairs them. Avoid manual edits to these two fields during a live run.
+
+For initial activation, run a full dry run first and review the per-item step
+summary against the first write-enabled run. There is no tag replay or latest-ten
+window. After merge, an authorized operator can dispatch the non-publishing
+updater through REST:
 
 ```bash
-gh workflow run project-release.yml --repo pj-tmt/tmt --ref main \
-  -f tag=tmt-squad-v0.1.0-alpha.9 -f dry_run=true
-# After reviewing the proposed item/field changes, replay the same tag with dry_run=false.
+gh api repos/pj-tmt/tmt/actions/workflows/project-release.yml/dispatches \
+  --method POST --input - <<'JSON'
+{"ref":"main","inputs":{"dry_run":"true"}}
+JSON
+# After reviewing the table, repeat with dry_run=false.
 ```
 
-Each run has at most 60 GraphQL requests (reads and writes together), 250 REST
-requests, ten pages per connection and 250 PR references per resolution batch.
-PR queries and field mutations batch up to 25 aliases. Requests have a 30-second
-bound and are not polled or retried; the job has a 15-minute deadline. The script
-checks the remaining write/readback budget before mutation. It reports selected
-releases, resolved PRs/issues, non-project issues, planned/changed fields and exact
-request counts to the log and job summary. Dry-run performs selection and reads
-but no mutations. Replays skip already-recorded release entries and never lower
-Status; text is written before Status so interrupted writes remain retryable.
-Project-wide workflow serialization avoids competing automated appends; avoid
-manual edits to these two fields while a live updater is running.
+A run allows at most 200 GraphQL requests, 20 REST requests, 20 pages of 100 rows
+per connection and 2,000 distinct merged closing PRs. Project field schemas and
+each issue’s labels must fit a complete 100-row page or discovery fails before writes. Both issue reads and field
+writes batch 25 aliases. Ordinary discovery costs R REST release pages plus P
+GraphQL Project pages and ceil(I/25) closing-PR queries for I closed issues,
+plus any additional closing-PR pages. Each mutation phase costs ceil(F/25) for
+its changed fields; a live write run adds P readback pages. No-op runs write
+nothing. Mutation reservation includes all planned field batches plus 20 possible
+readback pages before the first write. A ceiling can be reached before a nominal
+row cap: incomplete discovery or insufficient reserve aborts with no writes.
+Requests have a 30-second timeout with no retries or polling; the job deadline is
+15 minutes. Exact REST/GraphQL attempt counts are reported on success and error.
+Local git requires complete history and every published tag; missing evidence
+fails visibly. False Released states are demoted before text changes, and new
+Released promotions follow evidence. Partial failures remain safely retryable.
 
-Release-please's same-repository `/issues/` links are type-checked as merged PRs;
-pre-transfer `wkh237/tmt` links are accepted for this repository. Missing PR notes
-fall back to the preceding published version of the same product and paginated
-commit-associated PRs. A first release without PR references is a visible error,
-not permission to guess issue ownership. The updater never adds missing project
-items. Test locally without credentials or mutations:
+Run fixture-only checks without live API calls or Docker:
 
 ```bash
 cd typescript
-corepack pnpm exec vp test run --config vitest.config.ts test/tooling/project-release.test.ts
+corepack pnpm exec vp test run --config vitest.config.ts test/tooling/project-release.test.ts test/tooling/release-workflow.test.ts test/tooling/release-publish.test.ts
 corepack pnpm check:tooling
 cd ..
-actionlint .github/workflows/project-release.yml
+actionlint .github/workflows/project-release.yml .github/workflows/native-release.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-smoke.yml
 ```

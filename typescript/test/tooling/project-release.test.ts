@@ -1,67 +1,76 @@
-import { type spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vite-plus/test';
+import { parseComponentMap } from '../../scripts/ci-scope.mjs';
 import {
+  affectedProducts,
   applyUpdates,
   githubApi,
+  gitEvidence,
   LIMITS,
-  PROJECT_ID,
-  noteReferences,
   planUpdates,
-  publishedWindow,
+  readClosingPrs,
   readProject,
   readReleases,
   reconcile,
   releaseIdentity,
-  releaseIssues,
-  resolveClosingIssues,
+  renderSummary,
   type Api,
-  type IssueEvidence,
+  type ClosingPr,
   type Project,
+  type ProjectItem,
   type Release,
 } from '../../scripts/project-release.mjs';
 
 const repository = 'pj-tmt/tmt';
+const map = parseComponentMap(
+  readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
+);
+// Synthetic files live only in temporary repositories; derive the product root from the map.
+const squadRoot = map.components.find((component) => component.name === 'squad')!.owns[0];
 const connection = (nodes: unknown[], cursor: string | null = null) => ({
   nodes,
   pageInfo: { hasNextPage: !!cursor, endCursor: cursor },
 });
-const issue = { id: 'issue-1', number: 851, url: 'https://github.com/pj-tmt/tmt/issues/851' };
-const pr = (nodes = [issue], cursor: string | null = null) => ({
-  __typename: 'PullRequest',
-  number: 904,
-  merged: true,
-  closingIssuesReferences: connection(nodes, cursor),
+const item = (number: number, status = 'Merged', text = ''): ProjectItem => ({
+  id: `item-${number}`,
+  content: {
+    __typename: 'Issue',
+    id: `issue-${number}`,
+    number,
+    url: `https://github.com/${repository}/issues/${number}`,
+    state: 'CLOSED',
+    repository: { nameWithOwner: repository },
+    labels: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+  },
+  status: { name: status },
+  released: { text },
 });
-const release = (
-  tag = 'v5.0.0-alpha.1',
-  body = '[#904](https://github.com/pj-tmt/tmt/issues/904)'
-): Release => ({ tag_name: tag, body, draft: false, published_at: '2026-10-02T00:00:00Z' });
-const evidence = (labels = ['tmt-cli 5.0.0-alpha.1']) =>
-  new Map<string, IssueEvidence>([[issue.id, { ...issue, labels: new Set(labels) }]]);
-const project = (text = '', status = 'Merged'): Project => ({
+const project = (items = [item(1)]): Project => ({
   projectId: 'project',
   statusId: 'status',
   releasedId: 'released',
-  optionId: 'terminal',
+  options: Object.fromEntries(
+    ['Todo', 'In Progress', 'In Review', 'Merged', 'Released', 'Done'].map((name) => [name, name])
+  ),
   pages: 1,
-  items: new Map([
-    [
-      issue.id,
-      { id: 'item', content: { id: issue.id }, status: { name: status }, released: { text } },
-    ],
-  ]),
+  items: new Map(items.map((row) => [row.content.id, row])),
 });
-function fakeApi(
-  rest: (path: string) => unknown = () => [],
-  graphql: (query: string) => unknown = () => ({})
-): Api {
-  const counts = { rest: 0, graphql: 0 };
+const release = (tag_name: string, minute = 0): Release => ({
+  tag_name,
+  draft: false,
+  published_at: `2026-10-01T00:${String(minute).padStart(2, '0')}:00Z`,
+  body: 'No PR links in these notes.',
+});
+function fakeApi(rest: Api['rest'] = () => [], graphql: Api['graphql'] = () => ({})): Api {
+  const counts = { graphql: 0, rest: 0 };
   return {
     counts,
-    rest: vi.fn((path) => {
+    rest: vi.fn((url) => {
       counts.rest++;
-      return rest(path);
+      return rest(url);
     }),
     graphql: vi.fn((query) => {
       counts.graphql++;
@@ -70,345 +79,504 @@ function fakeApi(
     reserve: vi.fn(),
   };
 }
-function projectResponse(text = '', status = 'Merged') {
+function projectResponse(p: Project, cursor: string | null = null) {
   return {
     node: {
       fields: connection([
-        { id: 'status', name: 'Status', options: [{ id: 'terminal', name: 'Released' }] },
-        { id: 'released', name: 'Released in', dataType: 'TEXT' },
+        {
+          id: p.statusId,
+          name: 'Status',
+          options: Object.entries(p.options).map(([name, id]) => ({ id, name })),
+        },
+        { id: p.releasedId, name: 'Released in', dataType: 'TEXT' },
       ]),
-      items: connection([
-        { id: 'item', content: issue, status: { name: status }, released: { text } },
-      ]),
+      items: connection([...p.items.values()], cursor),
     },
   };
 }
-
-describe('release PR and closing-issue resolution', () => {
-  it('uses product-owned version parsing and ignores unrelated release lines', () => {
-    expect(releaseIdentity('v5.0.0-alpha.3')?.label).toBe('tmt-cli 5.0.0-alpha.3');
-    expect(releaseIdentity('tmt-squad-v0.1.0-alpha.7')?.label).toBe('tmt-squad 0.1.0-alpha.7');
-    for (const tag of ['v4.2.1', 'v5.bad', 'other-v1.0.0'])
-      expect(releaseIdentity(tag)).toBeUndefined();
-  });
-  it('deduplicates PR-style issue links, accepts pre-transfer notes, and excludes foreign/bare references', () => {
-    expect(
-      noteReferences(
-        '[#4](https://github.com/pj-tmt/tmt/issues/4) https://github.com/wkh237/tmt/pull/4 https://github.com/pj-tmt/tmt/pull/9 #55 https://github.com/elsewhere/tmt/pull/8',
-        repository
-      )
-    ).toEqual([4, 9]);
-  });
-  it('batches PRs and follows closing issue pages without interpreting ordinary issues as PRs', () => {
-    const api = fakeApi(undefined, (query) =>
-      query.includes('after:"next"')
-        ? { repository: { p0: pr([{ ...issue, id: 'issue-2' }]) } }
-        : {
-            repository: {
-              p0: pr([issue], 'next'),
-              p1: { __typename: 'Issue' },
-              p2: { ...pr(), merged: false },
-            },
-          }
-    );
-    const result = resolveClosingIssues(api, repository, [904, 904, 851, 77]);
-    expect([...result.get(904)!.keys()]).toEqual(['issue-1', 'issue-2']);
-    expect(result.get(851)).toBeNull();
-    expect(result.get(77)).toBeNull();
-    expect(api.graphql).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(api.graphql).mock.calls[0][0]).toContain('p2:issueOrPullRequest');
-  });
-  it('fails on unresolved references, missing cursors and exhausted pagination before any mutation', () => {
-    expect(() =>
-      resolveClosingIssues(
-        fakeApi(undefined, () => ({ repository: { p0: null } })),
-        repository,
-        [1]
-      )
-    ).toThrow('could not be resolved');
-    const api = fakeApi(undefined, () => ({ repository: { p0: pr([issue], 'again') } }));
-    expect(() => resolveClosingIssues(api, repository, [1])).toThrow('pagination cap');
-    expect(api.graphql).toHaveBeenCalledTimes(LIMITS.pages);
-    expect(() =>
-      resolveClosingIssues(
-        api,
-        repository,
-        Array.from({ length: LIMITS.prs + 1 }, (_, i) => i)
-      )
-    ).toThrow('reference cap');
-  });
-  it('maps one issue closed by multiple PRs and released components to distinct append entries', () => {
-    const api = fakeApi(undefined, () => ({ repository: { p0: pr() } }));
-    const releases = [release(), release('tmt-squad-v0.1.0-alpha.1')];
-    const result = releaseIssues(api, repository, releases, releases);
-    expect(result.issues.size).toBe(1);
-    expect([...result.issues.get(issue.id)!.labels]).toEqual([
-      'tmt-cli 5.0.0-alpha.1',
-      'tmt-squad 0.1.0-alpha.1',
+function stateApi(p: Project, releases: Release[], prs: Map<string, ClosingPr[]>): Api {
+  return fakeApi(
+    () => releases,
+    (query) => {
+      if (query.startsWith('mutation')) {
+        const result: Record<string, unknown> = {};
+        for (const match of query.matchAll(
+          /(u\d+):(update|clear)ProjectV2ItemFieldValue\(input:\{projectId:"[^"]+",itemId:"([^"]+)",fieldId:"([^"]+)"(?:,value:\{(?:text|singleSelectOptionId):("(?:[^"\\]|\\.)*")\})?\}\)/g
+        )) {
+          const [, alias, method, id, field, value] = match;
+          const row = [...p.items.values()].find((entry) => entry.id === id)!;
+          if (field === 'status') row.status = { name: JSON.parse(value) };
+          else row.released = { text: method === 'clear' ? '' : JSON.parse(value) };
+          result[alias] = { projectV2Item: { id } };
+        }
+        return result;
+      }
+      if (query.includes('closedByPullRequestsReferences')) {
+        return Object.fromEntries(
+          [...query.matchAll(/(i\d+):node\(id:"([^"]+)"\)/g)].map(([, alias, id]) => [
+            alias,
+            { id, state: 'CLOSED', closedByPullRequestsReferences: connection(prs.get(id) || []) },
+          ])
+        );
+      }
+      return projectResponse(p);
+    }
+  );
+}
+function history(
+  run: (input: {
+    directory: string;
+    git: (args: string[]) => string;
+    commit: (files: string[]) => string;
+  }) => void
+) {
+  const directory = mkdtempSync(path.join(tmpdir(), 'tmt-project-release-'));
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' };
+  const git = (args: string[]) => {
+    const result = spawnSync('git', args, {
+      cwd: directory,
+      env,
+      encoding: 'utf8',
+      timeout: 10_000,
+    });
+    if (result.status !== 0) throw new Error(result.stderr);
+    return result.stdout.trim();
+  };
+  let sequence = 0;
+  const commit = (files: string[]) => {
+    for (const file of files) {
+      mkdirSync(path.dirname(path.join(directory, file)), { recursive: true });
+      writeFileSync(path.join(directory, file), `revision ${++sequence}`);
+    }
+    git(['add', '.']);
+    git([
+      '-c',
+      'user.name=TMT Test',
+      '-c',
+      'user.email=test@example.invalid',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--quiet',
+      '-m',
+      'fixture\n\nCo-authored-by: Codex <codex@openai.com>',
     ]);
-    expect(api.graphql).toHaveBeenCalledTimes(1);
-  });
-  it('falls back to the same-component compare range and commit-associated merged PRs', () => {
-    const api = fakeApi(
-      (path) =>
-        path.startsWith('compare/')
-          ? { status: 'ahead', total_commits: 1, commits: [{ sha: 'abc' }] }
-          : [
-              { number: 904, merged_at: 'now', base: { repo: { full_name: repository } } },
-              { number: 9, merged_at: null },
-            ],
-      () => ({ repository: { p0: pr() } })
-    );
-    const target = release('v5.0.0-alpha.2', 'No PR links');
-    const result = releaseIssues(
-      api,
-      repository,
-      [target],
-      [release(), target, release('tmt-squad-v0.1.0-alpha.9')]
-    );
-    expect(result.sources).toEqual([{ tag: target.tag_name, method: 'compare', prs: [904] }]);
-    expect(api.rest).toHaveBeenCalledWith(
-      'compare/v5.0.0-alpha.1...v5.0.0-alpha.2?per_page=100&page=1'
-    );
-    expect(result.issues.has(issue.id)).toBe(true);
-  });
-  it('fails visibly instead of silently inventing an initial-release PR range', () => {
-    const r = release('v5.0.0-alpha.1', 'No references');
-    expect(() => releaseIssues(fakeApi(), repository, [r], [r])).toThrow(
-      'No PR notes or previous release'
-    );
-  });
+    return git(['rev-parse', 'HEAD']);
+  };
+  try {
+    git(['init', '--quiet']);
+    commit(['initial']);
+    run({ directory, git, commit });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+const closingPr = (number: number, oid: string): ClosingPr => ({
+  id: `pr-${number}`,
+  number,
+  merged: true,
+  mergeCommit: { oid },
+  repository: { nameWithOwner: repository },
 });
+const writes = (api: Api) =>
+  vi.mocked(api.graphql).mock.calls.filter(([query]) => query.startsWith('mutation'));
 
-describe('bounded release reconciliation', () => {
-  it('selects only published supported releases and rejects an event outside the window', () => {
-    const rows = Array.from({ length: 11 }, (_, i) => ({
-      ...release(`v5.0.0-alpha.${i + 1}`),
-      published_at: `2026-10-02T00:${String(i).padStart(2, '0')}:00Z`,
+describe('full repository-state release sweep', () => {
+  it('repairs old/not-in-notes issues, waits for every product, repairs built-in drift, and reruns without writes', () =>
+    history(({ directory, git, commit }) => {
+      const docs = commit(['docs/fixture.md']);
+      git(['tag', 'v5.0.0-alpha.1']);
+      const squad = commit([`${squadRoot}/input`]);
+      git(['tag', 'tmt-squad-v0.1.0-alpha.1']);
+      const mixed = commit(['rust/input', `${squadRoot}/input`]);
+      git(['tag', 'tmt-squad-v0.1.0-alpha.2']);
+      const releases = [release('v5.0.0-alpha.1'), release('tmt-squad-v0.1.0-alpha.1', 1)];
+      for (let i = 2; i <= 15; i++) {
+        git(['tag', `v5.0.0-alpha.${i}`]);
+        releases.push(release(`v5.0.0-alpha.${i}`, i));
+      }
+      const pending = commit(['rust/input']);
+      git(['tag', 'v5.0.0-alpha.99']);
+      releases.push({ ...release('v5.0.0-alpha.99', 30), draft: true });
+      const p = project([
+        item(1),
+        item(2),
+        item(3, 'Released', 'incorrect release'),
+        item(4),
+        item(5),
+        item(6, 'In Progress'),
+      ]);
+      p.items.get('issue-6')!.content.state = 'OPEN';
+      const prs = new Map([
+        ['issue-1', [closingPr(101, docs)]],
+        ['issue-2', [closingPr(102, squad)]],
+        ['issue-3', [closingPr(103, mixed)]],
+        ['issue-5', [closingPr(105, pending)]],
+      ]);
+      const api = stateApi(p, releases, prs);
+      const input = { api, repository, git: gitEvidence({ cwd: directory }), map, dryRun: true };
+      const preview = reconcile(input);
+      expect(writes(api)).toHaveLength(0);
+      expect(
+        preview.changed.map(({ issue, status, text }) => [issue.split('/').pop(), status, text])
+      ).toEqual([
+        ['1', 'Released', 'tmt-cli 5.0.0-alpha.1'],
+        ['2', 'Released', 'tmt-squad 0.1.0-alpha.1'],
+        ['3', 'Merged', 'tmt-cli 5.0.0-alpha.2'],
+        ['4', 'Done', ''],
+      ]);
+      expect(preview.requests).toEqual({ rest: 1, graphql: 2 });
+      expect(renderSummary(preview)).toContain('Released → Merged');
+      expect(renderSummary(preview)).toContain('incorrect release → tmt-cli 5.0.0-alpha.2');
+      expect(renderSummary(preview)).toContain('REST 1/20; GraphQL 2/200');
+      const first = reconcile({ ...input, dryRun: false });
+      expect(first.changed).toEqual(preview.changed);
+      expect(p.items.get('issue-6')!.status!.name).toBe('In Progress');
+      const writeCount = writes(api).length;
+      expect(reconcile({ ...input, dryRun: false }).changed).toEqual([]);
+      expect(writes(api)).toHaveLength(writeCount);
+      // Model a late built-in close/merge event. Full sweeps do not trust existing status.
+      p.items.get('issue-1')!.status = { name: 'Merged' };
+      p.items.get('issue-4')!.status = { name: 'Merged' };
+      expect(reconcile({ ...input, dryRun: false }).changed.map((row) => row.status)).toEqual([
+        'Released',
+        'Done',
+      ]);
+      releases.push(release('tmt-squad-v0.1.0-alpha.2', 31));
+      expect(reconcile({ ...input, dryRun: false }).changed).toMatchObject([
+        { status: 'Released', text: 'tmt-cli 5.0.0-alpha.2\ntmt-squad 0.1.0-alpha.2' },
+      ]);
+      expect(p.items.get('issue-5')!.status!.name).toBe('Merged');
     }));
-    expect(publishedWindow(rows, 'schedule', {})).toHaveLength(10);
-    expect(publishedWindow(rows, 'workflow_dispatch', {}, rows[0].tag_name)).toEqual([rows[0]]);
-    expect(() =>
-      publishedWindow([{ ...rows[0], draft: true }], 'workflow_dispatch', {}, rows[0].tag_name)
-    ).toThrow('published tag');
-    expect(() =>
-      publishedWindow(rows, 'workflow_run', {
-        workflow_run: {
-          name: 'Native release artifacts',
-          head_branch: 'main',
-          event: 'workflow_dispatch',
-          created_at: '2026-10-01T00:00:00Z',
-        },
-      })
-    ).toThrow('window');
-    expect(() =>
-      publishedWindow(rows, 'workflow_run', { workflow_run: { name: 'Other' } })
-    ).toThrow('provenance');
-  });
-  it('bounds release listing without silently truncating history', () => {
-    const api = fakeApi(() => Array.from({ length: 100 }, () => release()));
-    expect(() => readReleases(api)).toThrow('pagination cap');
-    expect(api.rest).toHaveBeenCalledTimes(LIMITS.pages);
-  });
-  it('reads Project items across pages and validates the terminal fields', () => {
-    const api = fakeApi(undefined, (query) => {
-      const response = projectResponse();
-      if (!query.includes('after:"second"'))
-        response.node.items = connection([], 'second') as typeof response.node.items;
-      return response;
-    });
-    expect(readProject(api).items.get(issue.id)?.id).toBe('item');
-    expect(api.graphql).toHaveBeenCalledTimes(2);
-    expect(() => readProject(fakeApi(undefined, () => ({ node: null })))).toThrow(
-      'Missing project'
-    );
-  });
-  it('preserves existing text, deduplicates exact labels, and never moves Released backwards', () => {
-    const old = 'Hand-entered history\r\ntmt-cli 5.0.0-alpha.1';
-    const p = project(old, 'Released');
-    const plan = planUpdates(evidence(['tmt-cli 5.0.0-alpha.1', 'tmt-squad 0.1.0-alpha.1']), p);
-    expect(plan.changes).toEqual([
-      {
-        itemId: 'item',
-        issue: issue.url,
-        text: `${old}\ntmt-squad 0.1.0-alpha.1`,
-        writeText: true,
-        writeStatus: false,
-      },
-    ]);
-    p.items.get(issue.id)!.released!.text = plan.changes[0].text;
-    expect(
-      planUpdates(evidence(['tmt-cli 5.0.0-alpha.1', 'tmt-squad 0.1.0-alpha.1']), p).changes
-    ).toEqual([]);
-    expect(planUpdates(evidence(), { ...p, items: new Map() }).skipped).toEqual([issue.url]);
-  });
-  it('writes text before terminal status, and retries a partial update without duplicate text', () => {
-    const p = project();
-    const api = fakeApi();
-    applyUpdates(api, p, planUpdates(evidence(), p), false);
-    expect(vi.mocked(api.graphql).mock.calls[0][0]).toContain('value:{text:');
-    expect(vi.mocked(api.graphql).mock.calls[1][0]).toContain(
-      'value:{singleSelectOptionId:"terminal"}'
-    );
-    const retry = planUpdates(evidence(), project('tmt-cli 5.0.0-alpha.1'));
-    expect(retry.changes[0]).toMatchObject({ writeText: false, writeStatus: true });
-    const failed = fakeApi(undefined, () => {
-      throw new Error('partial failure');
-    });
-    expect(() => applyUpdates(failed, p, planUpdates(evidence(), p), false)).toThrow(
-      'partial failure'
-    );
-    expect(failed.graphql).toHaveBeenCalledTimes(1);
-  });
-  it('performs a complete dry run with no mutations and a steady-state run with no writes', () => {
-    const run = (existing: boolean, dryRun: boolean) => {
-      const api = fakeApi(
-        () => release(),
-        (query) =>
-          query.includes('issueOrPullRequest')
-            ? { repository: { p0: pr() } }
-            : projectResponse(
-                existing ? 'tmt-cli 5.0.0-alpha.1' : '',
-                existing ? 'Released' : 'Merged'
-              )
+
+  it('skips a closed epic without a PR and an epic with merged delivery, while reconciling its child', () =>
+    history(({ directory, git, commit }) => {
+      const sha = commit(['rust/input']);
+      git(['tag', 'v5.0.0-alpha.1']);
+      const noPr = item(7, 'Released', 'owner acceptance evidence');
+      const withDelivery = item(8, 'In Progress', 'dogfood pending');
+      for (const epic of [noPr, withDelivery]) epic.content.labels.nodes.push({ name: 'epic' });
+      const child = item(9);
+      Object.assign(child.content, { parent: { id: withDelivery.content.id } });
+      const p = project([noPr, withDelivery, child]);
+      const api = stateApi(
+        p,
+        [release('v5.0.0-alpha.1')],
+        new Map([
+          ['issue-8', [closingPr(80, sha)]],
+          ['issue-9', [closingPr(90, sha)]],
+        ])
       );
+      const before = structuredClone([noPr, withDelivery]);
       const result = reconcile({
         api,
         repository,
-        eventName: 'workflow_dispatch',
-        event: {},
-        tag: release().tag_name,
-        dryRun,
+        dryRun: false,
+        git: gitEvidence({ cwd: directory }),
+        map,
       });
+      expect([noPr, withDelivery]).toEqual(before);
+      expect(result.changed.map((row) => row.itemId)).toEqual(['item-9']);
       expect(
-        vi.mocked(api.graphql).mock.calls.every(([query]) => !query.startsWith('mutation'))
-      ).toBe(true);
-      return result;
-    };
-    expect(run(false, true).changed).toHaveLength(1);
-    expect(run(true, false).changed).toEqual([]);
-    expect(run(true, false).requests).toEqual({ rest: 1, graphql: 2 });
-  });
-  it('verifies a completed catch-up and makes a repeated run a mutation-free no-op', () => {
-    let text = '',
-      status = 'Merged';
-    const api = fakeApi(
-      () => release(),
-      (query) => {
-        if (query.startsWith('mutation')) {
-          if (query.includes('value:{text:')) text = 'tmt-cli 5.0.0-alpha.1';
-          if (query.includes('value:{singleSelectOptionId:')) status = 'Released';
-          return {};
-        }
-        return query.includes('issueOrPullRequest')
-          ? { repository: { p0: pr() } }
-          : projectResponse(text, status);
+        result.rows
+          .filter((row) => row.waiting.includes('skipped: epic tracker'))
+          .map((row) => row.itemId)
+      ).toEqual(['item-7', 'item-8']);
+      expect(renderSummary(result)).toContain('skipped: epic tracker');
+      for (const [query] of vi.mocked(api.graphql).mock.calls) {
+        if (query.includes('closedByPullRequestsReferences'))
+          expect(query).not.toMatch(/issue-[78]/);
+        if (query.startsWith('mutation')) expect(query).not.toMatch(/item-[78]/);
       }
-    );
-    const options = {
-      api,
-      repository,
-      eventName: 'workflow_dispatch',
-      event: {},
-      tag: release().tag_name,
-      dryRun: false,
-    };
-    expect(reconcile(options).changed).toHaveLength(1);
-    expect(api.counts).toEqual({ rest: 1, graphql: 5 });
-    const writes = vi
-      .mocked(api.graphql)
-      .mock.calls.filter(([query]) => query.startsWith('mutation')).length;
-    expect(reconcile(options).changed).toEqual([]);
-    expect(
-      vi.mocked(api.graphql).mock.calls.filter(([query]) => query.startsWith('mutation'))
-    ).toHaveLength(writes);
-    expect({ text, status }).toEqual({ text: 'tmt-cli 5.0.0-alpha.1', status: 'Released' });
-  });
+    }));
 
-  it('rejects an insufficient write budget before mutating', () => {
+  it('does not count another product or an unpublished tag; multiple closing PRs must all be contained', () =>
+    history(({ directory, git, commit }) => {
+      const a = commit([`${squadRoot}/input`]);
+      git(['tag', 'v5.0.0-alpha.1']);
+      git(['tag', 'tmt-squad-v0.1.0-alpha.1']);
+      const b = commit([`${squadRoot}/input`]);
+      git(['tag', 'tmt-squad-v0.1.0-alpha.2']);
+      const p = project();
+      const releases = [release('v5.0.0-alpha.1')];
+      const api = stateApi(p, releases, new Map([['issue-1', [closingPr(1, a), closingPr(2, b)]]]));
+      const input = { api, repository, dryRun: true, git: gitEvidence({ cwd: directory }), map };
+      expect(reconcile(input).rows[0]).toMatchObject({
+        status: 'Merged',
+        text: '',
+        waiting: ['Awaiting squad'],
+      });
+      releases.push(release('tmt-squad-v0.1.0-alpha.1'));
+      expect(reconcile(input).rows[0].status).toBe('Merged');
+      releases.push(release('tmt-squad-v0.1.0-alpha.2', 1));
+      expect(reconcile(input).rows[0]).toMatchObject({
+        status: 'Released',
+        text: 'tmt-squad 0.1.0-alpha.2',
+      });
+    }));
+
+  it('uses publication time rather than version precedence, and rejects missing git evidence', () =>
+    history(({ directory, git, commit }) => {
+      const sha = commit(['rust/input']);
+      git(['tag', 'v5.0.0-alpha.2']);
+      git(['tag', 'v5.0.0-alpha.1']);
+      const p = project();
+      const releases = [release('v5.0.0-alpha.1', 2), release('v5.0.0-alpha.2', 1)];
+      const api = stateApi(p, releases, new Map([['issue-1', [closingPr(1, sha)]]]));
+      const input = { api, repository, dryRun: true, git: gitEvidence({ cwd: directory }), map };
+      expect(reconcile(input).rows[0].text).toBe('tmt-cli 5.0.0-alpha.2');
+      releases.push(release('v5.0.0-alpha.3', 3));
+      expect(() => reconcile(input)).toThrow('Git evidence failed');
+      expect(writes(api)).toHaveLength(0);
+    }));
+
+  it('uses ancestry across branches and includes deletion and both rename owners', () =>
+    history(({ directory, git, commit }) => {
+      const ancestor = git(['rev-parse', 'HEAD']);
+      const unrelated = commit(['unrelated']);
+      git(['tag', 'v5.0.0-alpha.1']);
+      git(['checkout', '--detach', ancestor]);
+      const merged = commit(['docs/fixture.md']);
+      const evidence = gitEvidence({ cwd: directory });
+      expect(evidence.containingTags(merged).has('v5.0.0-alpha.1')).toBe(false);
+      expect(evidence.containingTags(unrelated).has('v5.0.0-alpha.1')).toBe(true);
+      mkdirSync(path.join(directory, squadRoot), { recursive: true });
+      git(['mv', 'docs/fixture.md', `${squadRoot}/renamed.md`]);
+      git(['rm', 'initial']);
+      const rename = commit(['additional']);
+      expect(evidence.paths(rename)).toEqual(
+        expect.arrayContaining(['docs/fixture.md', `${squadRoot}/renamed.md`, 'initial'])
+      );
+      expect(affectedProducts(evidence.paths(rename), map).products).toEqual(['cli', 'squad']);
+    }));
+
+  it('uses the owner map, selected paths and private consumers without silently releasing private components', () => {
+    expect(
+      affectedProducts(
+        ['docs/fixture.md', 'typescript/test/native/squad.test.ts', 'rust/crates/tmt-tui/a.rs'],
+        map
+      )
+    ).toEqual({ products: ['cli', 'squad'], unpublished: [] });
+    expect(affectedProducts(['extensions/tmt-office/a.rs'], map).products).toEqual(['office']);
+    expect(affectedProducts(['extensions/tmt-colab/rust/a.rs'], map)).toEqual({
+      products: [],
+      unpublished: ['tmt-colab'],
+    });
+    expect(releaseIdentity('tmt-squad-v0.1.0-alpha.9')?.product).toBe('squad');
+    for (const tag of ['v4.2.1', 'v5.bad', 'unknown-v1.0.0'])
+      expect(releaseIdentity(tag)).toBeUndefined();
+  });
+});
+
+describe('bounded discovery and mutation safety', () => {
+  it('paginates complete releases and closing relationships, including closed PRs', () => {
+    const api = fakeApi((url) =>
+      url.endsWith('page=1')
+        ? Array.from({ length: 100 }, () => release('v5.0.0-alpha.1'))
+        : [release('v5.0.0-alpha.2')]
+    );
+    expect(readReleases(api)).toHaveLength(101);
+    const pr = closingPr(1, 'a'.repeat(40));
+    const paged = fakeApi(undefined, (query) => ({
+      i0: {
+        id: 'issue-1',
+        state: 'CLOSED',
+        closedByPullRequestsReferences: connection(
+          [pr],
+          query.includes('after:"next"') ? null : 'next'
+        ),
+      },
+    }));
+    expect(readClosingPrs(paged, [item(1)], repository).prs.size).toBe(1);
+    expect(paged.graphql).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(paged.graphql).mock.calls[0][0]).toContain('includeClosedPrs:true');
+  });
+  it('batches issue reads and follows Project pages, excluding foreign/open items from reconciliation', () => {
+    const p = project([item(1)]);
+    const api = fakeApi(undefined, (query) =>
+      projectResponse(p, query.includes('after:"next"') ? null : 'next')
+    );
+    expect(readProject(api).pages).toBe(2);
+    const rows = Array.from({ length: 26 }, (_, i) => item(i));
+    const reads = stateApi(project(rows), [], new Map());
+    readClosingPrs(reads, rows, repository);
+    expect(reads.graphql).toHaveBeenCalledTimes(2);
+    p.items.get('issue-1')!.content.repository.nameWithOwner = 'other/repository';
+    const skipped = reconcile({
+      api: stateApi(p, [], new Map()),
+      repository,
+      dryRun: false,
+      git: { validateTags() {}, paths: () => [], containingTags: () => new Set() },
+      map,
+    });
+    expect(skipped.issues).toBe(0);
+  });
+  it('fails incomplete pagination, schema, merge and changed issue evidence before writes', () => {
+    expect(() =>
+      readReleases(fakeApi(() => Array.from({ length: 100 }, () => release('v5.0.0-alpha.1'))))
+    ).toThrow('pagination cap');
     const p = project();
-    const api = fakeApi();
+    delete p.options.Done;
+    expect(() => readProject(stateApi(p, [], new Map()))).toThrow('Project requires');
+    const uncertainLabels = project();
+    uncertainLabels.items.get('issue-1')!.content.labels.pageInfo = {
+      hasNextPage: true,
+      endCursor: 'more-labels',
+    };
+    expect(() => readProject(stateApi(uncertainLabels, [], new Map()))).toThrow(
+      'Incomplete issue labels'
+    );
+    const cases = [
+      { id: 'issue-1', state: 'OPEN' },
+      {
+        id: 'issue-1',
+        state: 'CLOSED',
+        closedByPullRequestsReferences: connection([closingPr(1, 'bad')]),
+      },
+      {
+        id: 'issue-1',
+        state: 'CLOSED',
+        closedByPullRequestsReferences: connection([
+          { ...closingPr(1, 'a'.repeat(40)), repository: { nameWithOwner: 'other/repo' } },
+        ]),
+      },
+      {
+        id: 'issue-1',
+        state: 'CLOSED',
+        closedByPullRequestsReferences: {
+          nodes: [],
+          pageInfo: { hasNextPage: true, endCursor: null },
+        },
+      },
+    ];
+    for (const value of cases) {
+      const api = fakeApi(undefined, () => ({ i0: value }));
+      expect(() => readClosingPrs(api, [item(1)], repository)).toThrow();
+      expect(writes(api)).toHaveLength(0);
+    }
+  });
+  it('clears false text, corrects false terminal states first, and retries partial evidence writes', () => {
+    const p = project([item(1, 'Released', 'wrong'), item(2)]);
+    const evidence = new Map([
+      ['issue-1', { status: 'Done', text: '', prs: [], waiting: [] }],
+      ['issue-2', { status: 'Released', text: 'tmt-cli 5.0.0-alpha.1', prs: [2], waiting: [] }],
+    ]);
+    const api = stateApi(p, [], new Map());
+    applyUpdates(api, p, planUpdates(evidence, p), false);
+    expect(writes(api)[0][0]).toContain('singleSelectOptionId:"Done"');
+    expect(writes(api)[1][0]).toContain('clearProjectV2ItemFieldValue');
+    expect(writes(api)[2][0]).toContain('singleSelectOptionId:"Released"');
+    expect(planUpdates(evidence, p).changes).toEqual([]);
+    p.items.get('issue-2')!.status = { name: 'Merged' };
+    expect(planUpdates(evidence, p).changes).toMatchObject([
+      { writeText: false, writeStatus: true },
+    ]);
+    const failure = fakeApi(undefined, () => {
+      throw new Error('write failure');
+    });
+    expect(() => applyUpdates(failure, p, planUpdates(evidence, p), false)).toThrow(
+      'write failure'
+    );
+    expect(failure.graphql).toHaveBeenCalledTimes(1);
+  });
+  it('reserves all mutation and readback requests before writes and rejects incomplete mutation responses', () => {
+    const p = project(Array.from({ length: 26 }, (_, i) => item(i)));
+    const evidence = new Map(
+      [...p.items.keys()].map((id) => [id, { status: 'Done', text: '', prs: [], waiting: [] }])
+    );
+    const plan = planUpdates(evidence, p);
+    const api = stateApi(p, [], new Map());
+    applyUpdates(api, p, plan, true);
+    expect(api.reserve).toHaveBeenCalledWith(2 + LIMITS.pages);
+    expect(writes(api)).toHaveLength(0);
     api.reserve = () => {
       throw new Error('budget');
     };
-    expect(() => applyUpdates(api, p, planUpdates(evidence(), p), false)).toThrow('budget');
-    expect(api.graphql).not.toHaveBeenCalled();
+    expect(() => applyUpdates(api, p, plan, false)).toThrow('budget');
+    expect(writes(api)).toHaveLength(0);
+    expect(() => applyUpdates(fakeApi(), p, plan, false)).toThrow('Incomplete Project mutation');
   });
-  it('bounds real transport calls and reserves mutation capacity without retries', () => {
+  it('detects a readback mismatch instead of reporting an ignored write as success', () => {
+    const p = project();
+    const api = fakeApi(
+      () => [],
+      (query) => {
+        if (query.startsWith('mutation')) return { u0: { projectV2Item: { id: 'item-1' } } };
+        if (query.includes('closedByPullRequestsReferences'))
+          return {
+            i0: { id: 'issue-1', state: 'CLOSED', closedByPullRequestsReferences: connection([]) },
+          };
+        return projectResponse(p);
+      }
+    );
+    expect(() =>
+      reconcile({
+        api,
+        repository,
+        dryRun: false,
+        map,
+        git: { validateTags() {}, paths: () => [], containingTags: () => new Set() },
+      })
+    ).toThrow('readback did not match');
+    expect(writes(api)).toHaveLength(1);
+  });
+
+  it('counts real transport attempts, scopes credentials and stops without retries', () => {
     const spawn = vi.fn(() => ({
       status: 0,
       stdout: '{"data":{}}',
     })) as unknown as typeof spawnSync;
     const api = githubApi({
       repository,
-      appToken: 'test-project',
-      readToken: 'test-read',
+      appToken: 'project-token',
+      readToken: 'read-token',
       spawn,
     });
-    for (let i = 0; i < LIMITS.graphql; i++) api.graphql('query{viewer{login}}');
+    for (let i = 0; i < LIMITS.graphql; i++) api.graphql('query{}');
     expect(() => api.reserve(1)).toThrow('before writes');
-    expect(() => api.graphql('query{viewer{login}}')).toThrow('budget exceeded');
+    expect(() => api.graphql('query{}')).toThrow('budget exceeded');
     expect(spawn).toHaveBeenCalledTimes(LIMITS.graphql);
+    expect(api.counts.graphql).toBe(LIMITS.graphql);
+    expect(() => githubApi({ repository })).toThrow('RELEASE_APP_TOKEN');
     const denied = githubApi({
       repository,
-      appToken: 'test-project',
+      appToken: 'token',
       spawn: vi.fn(() => ({
         status: 1,
-        stdout: '{"errors":[{"message":"missing project access"}]}',
+        stdout: '{"errors":[{"message":"denied"}]}',
       })) as unknown as typeof spawnSync,
     });
-    expect(() => denied.graphql('query{viewer{login}}')).toThrow('missing project access');
+    expect(() => denied.graphql('query{}')).toThrow('denied');
+    expect(denied.counts.graphql).toBe(1);
   });
-
-  it('batches catch-up field mutations and refuses unknown future statuses', () => {
-    const p = project();
-    const rows = Array.from({ length: 26 }, (_, i) => ({
-      itemId: `item-${i}`,
-      issue: `issue-${i}`,
-      text: 'tmt-cli 5.0.0-alpha.1',
-      writeText: true,
-      writeStatus: true,
-    }));
-    const api = fakeApi();
-    applyUpdates(api, p, { changes: rows, skipped: [] }, false);
-    expect(api.graphql).toHaveBeenCalledTimes(4);
-    expect(api.reserve).toHaveBeenCalledWith(5);
-    expect(
-      vi.mocked(api.graphql).mock.calls[0][0].match(/updateProjectV2ItemFieldValue/g)
-    ).toHaveLength(25);
-    expect(() => planUpdates(evidence(), project('', 'Archived'))).toThrow('Unknown status');
-  });
-
-  it('fails before reads when RELEASE_APP_TOKEN is missing', () => {
-    expect(() => githubApi({ repository })).toThrow('RELEASE_APP_TOKEN is missing');
-  });
-  it('freezes trusted event wiring, dry-run default and project-wide serialization', () => {
+  it('escapes table cells and keeps full daily/main-only dispatch wiring', () => {
+    const p = project([item(1, 'Merged', '<script>|x\ny')]);
+    const row = planUpdates(
+      new Map([['issue-1', { status: 'Done', text: '', prs: [], waiting: [] }]]),
+      p
+    );
+    const summary = renderSummary({
+      dryRun: true,
+      releases: [],
+      issues: 1,
+      rows: row.rows,
+      changed: row.changes,
+      requests: { graphql: 2, rest: 1 },
+    });
+    expect(summary).toContain('&lt;script&gt;&#124;x<br>y');
+    expect(summary).not.toContain('<script>');
     const workflow = readFileSync(
       new URL('../../../.github/workflows/project-release.yml', import.meta.url),
       'utf8'
     );
-    expect(workflow).not.toContain('types: [published]');
     expect(workflow).toContain("- cron: '23 4 * * *'");
-    expect(PROJECT_ID).toBe('PVT_kwDOFBKkD84BlZ_A');
-    expect(workflow).toContain('workflows: [Native release artifacts]');
+    expect(workflow).not.toContain('workflow_run:');
     expect(workflow).toContain('default: true');
+    expect(workflow).toContain('fetch-depth: 0');
+    expect(workflow).toContain("if: github.ref == 'refs/heads/main'");
     expect(workflow).toContain('ref: main');
     expect(workflow).toContain('group: project-release-tracking');
-    expect(workflow).toContain('RELEASE_APP_TOKEN: ${{ steps.app.outputs.token }}');
-    expect(workflow).toContain('environment: release');
-    expect(workflow).toContain("if: github.ref == 'refs/heads/main'");
-    expect(workflow).toContain(
-      'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1'
-    );
-    expect(workflow).toContain('owner: pj-tmt');
-    expect(workflow).toContain('repositories: tmt');
-    expect(workflow).toContain('permission-organization-projects: write');
-    expect(workflow).toContain('permission-pull-requests: read');
-    expect(workflow).toContain('permission-issues: read');
-    expect(workflow).not.toContain('PROJECT_TOKEN');
-    expect(workflow.indexOf('Require release App credentials')).toBeLessThan(
-      workflow.indexOf('Create the project updater App token')
-    );
     expect(workflow).not.toContain('contents: write');
+    expect(workflow).toContain('permission-organization-projects: write');
   });
 });
