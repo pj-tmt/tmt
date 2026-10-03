@@ -97,9 +97,9 @@ endpoint, retry attachment, change routing, or authorize paste fallback.
 This lookup is source-qualified for 0.159.2, 0.159.3 and 0.160.0. Their
 `config/src/project_trust.rs` and `git-utils/src/trust.rs` are identical at the
 release commits
-[`01fc69f`](https://github.com/openai/codex/blob/01fc69f4026735edfdf6789820549727a4867b11/codex-rs/config/src/project_trust.rs),
-[`ff6aec9`](https://github.com/openai/codex/blob/ff6aec96948b70d94983af2641a6b67c94faeff5/codex-rs/config/src/project_trust.rs),
-and [`a956835`](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/config/src/project_trust.rs).
+[0.159.2 (`ff6aec9`)](https://github.com/openai/codex/blob/ff6aec96948b70d94983af2641a6b67c94faeff5/codex-rs/config/src/project_trust.rs),
+[0.159.3 (`01fc69f`)](https://github.com/openai/codex/blob/01fc69f4026735edfdf6789820549727a4867b11/codex-rs/config/src/project_trust.rs),
+and [0.160.0 (`a956835`)](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/config/src/project_trust.rs).
 This source qualification is separate from live channel qualification.
 
 Acceptance covers plain default launch without enrollment, explicit opt-in,
