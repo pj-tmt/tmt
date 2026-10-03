@@ -4018,19 +4018,24 @@ bytes and explicit executable or deliberately non-executable modes.
 Its test-only `neutral-parent.mjs` launcher owns reparenting before CLI spawn:
 only a PID-1-adopted supervisor starts the selected executable, removing the
 agent runtime from its ancestry without a product guard override. The direct
-relay remains the harness's child and process-group leader; the supervisor, CLI
-and ordinary descendants share that group. Inherited stdin/stdout/stderr preserve
-CLI bytes, while a separate bounded completion descriptor conveys errors and
-checks the relayed exit code or signal. Reparenting and spawn are inside the
+relay remains the harness's child and leads the launcher group. The supervisor
+starts a second group whose bootstrap reports its PID and waits for the harness
+to acknowledge ownership before executing the selected CLI in place. The CLI
+therefore leads its own group, preserving hooks' local deadline contract. The
+harness stops and verifies both groups, including readiness arriving during
+cleanup. Closing the acknowledgement descriptor cancels an unstarted bootstrap.
+Inherited stdin/stdout/stderr preserve CLI bytes, while separate bounded control
+descriptors convey ownership, errors and the relayed exit code or signal; exec
+closes them before product execution. Reparenting and spawn are inside the
 existing execution deadline; an unknown adopter fails visibly. Native caller
 isolation tests retain real shared-host guard positive controls. This boundary
 does not alter Rust fixtures or Docker's intentional runtime ancestry.
 It also owns `TMUX_TMPDIR` under the sandbox, so ancestor discovery cannot reach
 the host's default tmux server after caller variables are cleared. Native process
 fixtures do not start default-socket servers; real tmux scenarios belong to Docker.
-Descriptor clones share that lifetime. Direct-child exit starts same-group
+Descriptor clones share that lifetime. Direct-child exit starts owned-group
 cleanup even when descendants retain output pipes. Success requires direct
-close and confirmed group absence. A SIGKILL or initial group-probe permission
+close and confirmed absence of both groups. A SIGKILL or initial group-probe permission
 error is tolerated only after direct-child close and a subsequent ESRCH group
 probe; live or unknown
 groups still fail within the cleanup bound. An unconfirmed group is never

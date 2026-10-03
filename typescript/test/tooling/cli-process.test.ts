@@ -26,7 +26,8 @@ function fixture(mode = 'exit', output = 'ignore') {
       });
       child.once('message', () => {
         const group = Number(execFileSync('/bin/ps', ['-o', 'pgid=', '-p', String(process.pid)], { encoding: 'utf8' }).trim());
-        fs.writeFileSync(process.argv[2], JSON.stringify({ child: child.pid, group }));
+        const launcherGroup = Number(execFileSync('/bin/ps', ['-o', 'pgid=', '-p', String(process.ppid)], { encoding: 'utf8' }).trim());
+        fs.writeFileSync(process.argv[2], JSON.stringify({ child: child.pid, group, launcherGroup }));
         if (process.argv[3] === 'exit') process.exit(0);
         if (process.argv[3] === 'overflow') process.stdout.write('over the limit');
       });
@@ -265,7 +266,8 @@ it('runs beneath a PID-1-owned supervisor and preserves argv, stdin and both str
       `import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 const grandparent = Number(execFileSync('/bin/ps', ['-o', 'ppid=', '-p', String(process.ppid)], { encoding: 'utf8' }).trim());
-process.stdout.write(JSON.stringify({ grandparent, args: process.argv.slice(2), stdin: fs.readFileSync(0, 'utf8') }));
+const group = Number(execFileSync('/bin/ps', ['-o', 'pgid=', '-p', String(process.pid)], { encoding: 'utf8' }).trim());
+process.stdout.write(JSON.stringify({ grandparent, groupLeader: group === process.pid, args: process.argv.slice(2), stdin: fs.readFileSync(0, 'utf8') }));
 process.stderr.write('diagnostic 雪');
 process.exit(17);
 `,
@@ -279,6 +281,7 @@ process.exit(17);
     expect(result).toMatchObject({ status: 17, signal: null, stderr: 'diagnostic 雪' });
     expect(JSON.parse(result.stdout)).toEqual({
       grandparent: 1,
+      groupLeader: true,
       args: ['prefix with spaces', 'quote\"; $HOME', '雪'],
       stdin: 'input\0雪\n',
     });
@@ -306,9 +309,10 @@ it('deadline termination stops the supervisor, CLI and descendants before dispos
       const pending = runCli({ ...sandbox, cli: f.cli }, [], { deadlineMs: 1000 });
       await until(() => fs.existsSync(f.marker));
       await expect(pending).rejects.toThrow('exceeded the 1000 millisecond test bound');
-      const { child, group } = JSON.parse(fs.readFileSync(f.marker, 'utf8'));
+      const { child, group, launcherGroup } = JSON.parse(fs.readFileSync(f.marker, 'utf8'));
       expect(alive(child)).toBe(false);
       expect(alive(-group)).toBe(false);
+      expect(alive(-launcherGroup)).toBe(false);
     });
     expect(fs.existsSync(root)).toBe(false);
   } finally {

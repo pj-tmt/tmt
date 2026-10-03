@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { Readable } from 'node:stream';
+import type { Duplex, Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { resolveCliExecutables, type CliExecutable } from './cli-executable.mjs';
 
@@ -156,7 +156,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
           cwd: sandbox.cwd,
           env: sandbox.env,
           detached: true,
-          stdio: [hasStdin ? 'pipe' : 'ignore', 'pipe', 'pipe', 'pipe'],
+          stdio: [hasStdin ? 'pipe' : 'ignore', 'pipe', 'pipe', 'pipe', 'pipe'],
           windowsHide: true,
         }
       );
@@ -178,31 +178,69 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
     let outputBytes = 0;
     let failure: Error | undefined;
     let control = '';
+    let controlBytes = 0;
+    let completion: unknown;
+    let launcherError: unknown;
+    let cliGroup: number | undefined;
+    const groups = new Set(child.pid === undefined ? [] : [child.pid]);
+    const acknowledgement = child.stdio[4]! as Duplex;
+    acknowledgement.on('error', () => undefined);
     const controlStream = child.stdio[3]! as Readable;
     controlStream.setEncoding('utf8');
     controlStream.on('data', (chunk: string) => {
       control += chunk;
-      if (Buffer.byteLength(control) > 16384) {
+      controlBytes += Buffer.byteLength(chunk);
+      if (controlBytes > 16384) {
         failure ??= new Error('Neutral-parent control exceeded its bound.');
         beginCleanup();
+      }
+      let newline: number;
+      while ((newline = control.indexOf('\n')) !== -1) {
+        const line = control.slice(0, newline);
+        control = control.slice(newline + 1);
+        try {
+          const report: unknown = JSON.parse(line);
+          if (typeof report === 'object' && report !== null && 'group' in report) {
+            if (
+              cliGroup !== undefined ||
+              typeof report.group !== 'number' ||
+              !Number.isSafeInteger(report.group) ||
+              report.group <= 1 ||
+              report.group === child.pid
+            )
+              throw new Error('Invalid CLI process-group ownership.');
+            cliGroup = report.group;
+            groups.add(cliGroup);
+            if (finishing) stopGroup(cliGroup);
+            else acknowledgement.end('ready\n');
+          } else if (typeof report === 'object' && report !== null && 'error' in report) {
+            launcherError ??= report;
+          } else {
+            if (completion !== undefined) throw new Error('Duplicate launcher completion.');
+            completion = report;
+          }
+        } catch (error) {
+          failure ??= new Error('Invalid neutral-parent control.', { cause: error });
+          beginCleanup();
+        }
       }
     });
     let cleanupError: Error | undefined;
     let cleanupPermissionDenied = false;
+    let cleanupOtherFailure = false;
     let inspectionError: unknown;
     let closed: { status: number | null; signal: NodeJS.Signals | null } | undefined;
-    let groupGone = child.pid === undefined;
     let finishing = false;
     let settled = false;
     let cleanupDeadline = 0;
-    const groupExists = (): boolean => {
-      if (groupGone || child.pid === undefined) return false;
+    const groupExists = (group: number): boolean => {
+      if (!groups.has(group)) return false;
       try {
-        process.kill(-child.pid, 0);
+        process.kill(-group, 0);
         return true;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
-          groupGone = true;
+          groups.delete(group);
           return false;
         }
         throw error;
@@ -219,6 +257,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
         stdoutStream.destroy();
         stderrStream.destroy();
         controlStream.destroy();
+        acknowledgement.destroy();
         reject(
           failure
             ? new AggregateError([failure, error], `${failure.message} ${error.message}`)
@@ -233,16 +272,16 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
     const pollCleanup = (): void => {
       if (settled) return;
       try {
-        groupExists();
+        for (const group of groups) groupExists(group);
       } catch (error) {
         // A transient probe failure is not proof of exit. Keep polling until
         // absence is confirmed or the cleanup deadline expires.
         inspectionError = error;
       }
-      if (closed && groupGone) {
+      if (closed && groups.size === 0) {
         // A denied signal or initial probe can race with group exit. Require
         // direct-child close and a subsequent ESRCH probe before excusing it.
-        finish(cleanupPermissionDenied ? undefined : cleanupError);
+        finish(cleanupPermissionDenied && !cleanupOtherFailure ? undefined : cleanupError);
         return;
       }
       if (performance.now() >= cleanupDeadline) {
@@ -255,23 +294,28 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
       }
       setTimeout(pollCleanup, 10);
     };
+    const stopGroup = (group: number): void => {
+      try {
+        // Signal once while still owned; never signal a PID after observing absence.
+        if (groupExists(group)) {
+          process.kill(-group, 'SIGKILL');
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ESRCH') groups.delete(group);
+        else {
+          if ((error as NodeJS.ErrnoException).code === 'EPERM') cleanupPermissionDenied = true;
+          else cleanupOtherFailure = true;
+          cleanupError = new Error('Could not stop CLI process group.', { cause: error });
+        }
+      }
+    };
     const beginCleanup = (): void => {
       if (finishing || settled) return;
       finishing = true;
       clearTimeout(timer);
       cleanupDeadline = performance.now() + 1000;
-      try {
-        // Signal once while still owned; never signal a PID after observing absence.
-        if (groupExists()) {
-          process.kill(-child.pid!, 'SIGKILL');
-        }
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ESRCH') groupGone = true;
-        else {
-          cleanupPermissionDenied = (error as NodeJS.ErrnoException).code === 'EPERM';
-          cleanupError = new Error('Could not stop CLI process group.', { cause: error });
-        }
-      }
+      acknowledgement.destroy();
+      for (const group of groups) stopGroup(group);
       pollCleanup();
     };
     const timer = setTimeout(() => {
@@ -318,7 +362,8 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
     child.on('close', (status, signal) => {
       if (!failure) {
         try {
-          const report: unknown = JSON.parse(control);
+          if (control !== '') throw new Error('Incomplete launcher control.');
+          const report: unknown = launcherError ?? completion;
           if (typeof report !== 'object' || report === null)
             throw new Error('Missing launcher result.');
           if ('error' in report) {
@@ -334,6 +379,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
               throw new Error('Invalid launcher error.');
             failure = Object.assign(new Error(error.message), { code: error.code });
           } else if (
+            cliGroup === undefined ||
             !('status' in report) ||
             report.status !== status ||
             !('signal' in report) ||

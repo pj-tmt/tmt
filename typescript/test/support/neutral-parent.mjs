@@ -1,39 +1,43 @@
-// Test infrastructure only: preserve the caller-owned process group and streams,
-// but start the selected executable only after its supervisor is adopted by PID 1.
+// Test infrastructure only: start the selected executable beneath PID 1,
+// as its own process-group leader, after the harness acknowledges ownership.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 
 const [mode, ...args] = process.argv.slice(2);
 const script = import.meta.filename;
+const nodeArgs = ['--disable-warning=ExperimentalWarning', script];
 
 function report(value) {
-  fs.writeSync(3, JSON.stringify(value));
-  fs.closeSync(3);
+  fs.writeSync(3, JSON.stringify(value) + '\n');
+}
+
+function complete(value) {
+  report(value);
+  if (mode === 'supervise') fs.writeSync(5, JSON.stringify(value));
 }
 
 function reportError(error) {
-  report({ error: { message: error.message, code: error.code ?? 'NEUTRAL_PARENT_FAILED' } });
+  complete({ error: { message: error.message, code: error.code ?? 'NEUTRAL_PARENT_FAILED' } });
   process.exit(1);
 }
 
 if (mode === 'relay') {
-  // The intermediary exits without waiting for the supervisor. Its control pipe
-  // stays open in the supervisor, whose payload completion ends this relay.
-  const intermediary = spawn(process.execPath, [script, 'detach', ...args], {
-    stdio: ['inherit', 'inherit', 'inherit', 'pipe'],
+  // The intermediary exits without waiting for the supervisor. Its completion
+  // descriptor stays open in the supervisor, whose payload exit ends this relay.
+  const intermediary = spawn(process.execPath, [...nodeArgs, 'detach', ...args], {
+    stdio: ['inherit', 'inherit', 'inherit', 3, 4, 'pipe'],
   });
   intermediary.once('error', reportError);
-  const control = intermediary.stdio[3];
-  control.setEncoding('utf8');
+  const completion = intermediary.stdio[5];
+  completion.setEncoding('utf8');
   let body = '';
-  control.on('data', (chunk) => {
+  completion.on('data', (chunk) => {
     body += chunk;
     if (body.length > 16384) reportError(new Error('Neutral-parent control exceeded its bound.'));
   });
-  control.once('end', () => {
+  completion.once('end', () => {
     try {
       const result = JSON.parse(body);
-      report(result);
       if (result.error) process.exit(1);
       if (result.signal) process.kill(process.pid, result.signal);
       else process.exit(result.status);
@@ -42,30 +46,62 @@ if (mode === 'relay') {
     }
   });
 } else if (mode === 'detach') {
-  const supervisor = spawn(process.execPath, [script, 'supervise', String(process.pid), ...args], {
-    stdio: ['inherit', 'inherit', 'inherit', 3],
-  });
+  const supervisor = spawn(
+    process.execPath,
+    [...nodeArgs, 'supervise', String(process.pid), ...args],
+    {
+      stdio: ['inherit', 'inherit', 'inherit', 3, 4, 5],
+    }
+  );
   supervisor.once('error', reportError);
   supervisor.once('spawn', () => process.exit(0));
 } else if (mode === 'supervise') {
-  const [parent, executable, ...argv] = args;
+  const [parent, ...command] = args;
   const deadline = performance.now() + 1000;
   // Reparenting, rather than setsid/detached alone, removes provider ancestry.
-  // Refuse another adopter (for example a runtime subreaper); never guess that
-  // an unknown parent is neutral or provide a production guard override.
+  // Refuse an unknown adopter, such as a runtime subreaper.
   while (process.ppid === Number(parent)) {
     if (performance.now() >= deadline) reportError(new Error('Neutral parent was not adopted.'));
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   if (process.ppid !== 1) reportError(new Error('Neutral parent requires adoption by PID 1.'));
-  const child = spawn(executable, argv, { stdio: 'inherit' });
+  const child = spawn(process.execPath, [...nodeArgs, 'execute', ...command], {
+    detached: true,
+    stdio: ['inherit', 'inherit', 'inherit', 3, 4],
+  });
   child.once('error', reportError);
-  // exit, not stream close: descendants may retain the inherited descriptors.
-  // The outer harness stops and verifies the group after the relayed exit.
+  // The selected CLI leads this second owned group. Exec preserves its PID,
+  // group and inherited streams; the supervisor can still relay its exit.
   child.once('exit', (status, signal) => {
-    report({ status, signal });
+    complete({ status, signal });
     process.exit(0);
   });
+} else if (mode === 'execute') {
+  const [executable, ...argv] = args;
+  report({ group: process.pid });
+  const acknowledgement = fs.createReadStream('', { fd: 4, autoClose: false });
+  acknowledgement.setEncoding('utf8');
+  let body = '';
+  const timer = setTimeout(
+    () => reportError(new Error('CLI group ownership was not acknowledged.')),
+    1000
+  );
+  acknowledgement.on('data', (chunk) => {
+    body += chunk;
+    if (!'ready\n'.startsWith(body))
+      return reportError(new Error('Invalid CLI group acknowledgement.'));
+    if (body !== 'ready\n') return;
+    clearTimeout(timer);
+    try {
+      // execve closes non-standard descriptors, so the product never receives
+      // the harness control protocol or an environment-based guard override.
+      process.execve(executable, [executable, ...argv], process.env);
+    } catch (error) {
+      reportError(error);
+    }
+  });
+  acknowledgement.once('end', () => process.exit(1));
+  acknowledgement.once('error', reportError);
 } else {
   reportError(new Error('Unknown neutral-parent stage.'));
 }

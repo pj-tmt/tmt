@@ -15,20 +15,31 @@ it('isolates inherited shared-runtime ancestry while a direct CLI remains fenced
     );
     writeExecutable(codex, readFileSync(fixture));
     const parent = path.join(sandbox.root, 'shared-runtime.mjs');
-    const launcher = fileURLToPath(new URL('../support/neutral-parent.mjs', import.meta.url));
+    const runner = fileURLToPath(new URL('../support/cli-process.ts', import.meta.url));
     writeExecutable(
       parent,
       `import { spawn } from 'node:child_process';
+import { runCli, withSandbox } from ${JSON.stringify(runner)};
 const [, mode, executable, ...args] = process.argv.slice(2);
-const child = mode === 'neutral'
-  ? spawn(${JSON.stringify(process.execPath)}, [${JSON.stringify(launcher)}, 'relay', executable, ...args], { stdio: ['inherit', 'inherit', 'inherit', 'pipe'] })
-  : spawn(executable, args, { stdio: 'inherit' });
-child.stdio[3]?.resume();
-child.once('error', (error) => { console.error(error); process.exit(1); });
-child.once('exit', (status, signal) => {
-  if (signal) process.kill(process.pid, signal);
-  else process.exit(status);
-});
+if (mode === 'neutral') {
+  process.env.TMT_TEST_CLI = JSON.stringify({ executable, args });
+  const result = await withSandbox((sandbox) => runCli({
+    ...sandbox,
+    cwd: process.cwd(),
+    env: process.env,
+  }, []));
+  process.stdout.write(result.stdout);
+  process.stderr.write(result.stderr);
+  if (result.signal) process.kill(process.pid, result.signal);
+  else process.exit(result.status);
+} else {
+  const child = spawn(executable, args, { stdio: 'inherit' });
+  child.once('error', (error) => { console.error(error); process.exit(1); });
+  child.once('exit', (status, signal) => {
+    if (signal) process.kill(process.pid, signal);
+    else process.exit(status);
+  });
+}
 `,
       0o644
     );
