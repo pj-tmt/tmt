@@ -1310,19 +1310,24 @@ from pane buffers. Direct-default grants and opt-in hold remain Remote's admissi
 
 ### Local MCP (v1)
 
-`tmt mcp --identity <saved-name-or-uuid>` is an agent-launched stdio read interface
+`tmt mcp --identity <saved-name-or-uuid>` is an agent-launched stdio interface
 for the existing exchange. The [MCP contract](contracts/mcp-v1.md) owns its wire,
 schemas, bounds and qualified protocol revisions. `tmt-adapters::mcp` owns typed
 admission, lifecycle and bounded framing; `tmt-cli::mcp_command` pins one saved
 identity UUID and application data root, then composes the existing identity,
-inbox, incoming X, result and API dispatch-receipt command owners in-process.
+inbox/answer, incoming X inspection/acknowledgment, result and API dispatch
+command owners in-process.
 The same JSON encoders serve the CLI and tools. Identity selection is local
 attribution, not same-user authentication; incoming reads retain participant
 scope. No MCP-only exchange state, persistence, dependency or retry semantics
-is introduced. There are no writing tools or provider setup in this slice.
+is introduced. Dispatch uses its existing operation UUID and immutable acceptance;
+answer derives its existing recipient proof; ack requires the observed revision.
+The API wire is unchanged: its internal dispatch selection distinguishes local
+name/UUID lookup from an exact saved UUID, preventing retirement/name fallback
+from retargeting a pinned writer. Provider setup and blocking talk remain later work.
 
 This process is separate from the private Claude channel server, whose framing
-and behavior remain unchanged. It provides no runtime enrollment, push wake,
+and behavior remain unchanged. It provides no runtime enrollment, server push notifications,
 network listener or remote authentication. Native channels and the proposed
 remote door retain their own owners. Each call closes storage before publishing;
 EOF and framing failure end only this stdio invocation.

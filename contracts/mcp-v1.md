@@ -59,20 +59,36 @@ remote interface must enforce its own principal and permissions.
 
 ## Tools and schemas
 
-The current surface is five read-only tools. `tools/call.params` has required
+The current surface is eight tools: five reads and three writes. `tools/call.params` has required
 string `name`, optional object `arguments` (default `{}`), and optional object
 `_meta`. Other properties are rejected. Every arguments object has
 `additionalProperties: false`; optional properties may be absent, not null.
 Required properties are listed below. ID/filter strings are nonempty and at most
 256 UTF-8 bytes. No tool accepts an `identity` property.
 
-| Tool            | Arguments                                                            | Existing owner and identical JSON resource                                               |
-| --------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `tmt_list`      | `{}`                                                                 | `tmt identity list --json`; non-retired records, without presence                        |
-| `tmt_operation` | Required string `operationId`: canonical lowercase, non-nil UUID     | `tmt api` operation `dispatch.show`                                                      |
-| `tmt_inbox`     | Optional string `from`; optional integer `limit`, 1–200 (default 50) | `tmt inbox --identity <bound UUID> --json`                                               |
-| `tmt_request`   | Required string `requestId`                                          | `tmt x show <id> --incoming --identity <bound UUID> --json`, including its reply receipt |
-| `tmt_result`    | Required string `requestId`                                          | `tmt result <id> --json`, including exact retained final text                            |
+| Tool            | Arguments                                                            | Existing owner and identical JSON resource                                                                 |
+| --------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `tmt_list`      | `{}`                                                                 | `tmt identity list --json`; non-retired records, without presence                                          |
+| `tmt_operation` | Required string `operationId`: canonical lowercase, non-nil UUID     | `tmt api` operation `dispatch.show`                                                                        |
+| `tmt_inbox`     | Optional string `from`; optional integer `limit`, 1–200 (default 50) | `tmt inbox --identity <bound UUID> --json`                                                                 |
+| `tmt_request`   | Required string `requestId`                                          | `tmt x show <id> --incoming --identity <bound UUID> --json`, including its reply receipt                   |
+| `tmt_result`    | Required string `requestId`                                          | `tmt result <id> --json`, including exact retained final text                                              |
+| `tmt_send`      | Required strings `operationId`, `recipientId`, `message`             | `tmt api` operation `dispatch.create`, one `recipientIds` entry, `kind: request`, server-selected identity |
+| `tmt_answer`    | Required strings `requestId`, `message`                              | `tmt answer --request <id> --identity <bound UUID> --stdin --json`; derives the existing recipient proof   |
+| `tmt_ack`       | Required string `requestId`; required integer `revision`             | `tmt x ack <id> --incoming --revision <revision> --identity <bound UUID> --json`                           |
+
+For `send`, both UUIDs must be canonical lowercase and non-nil, and `message`
+must be nonblank. Send returns durable dispatch acceptance with the existing
+optional first advisory wake, not blocking talk completion. A caller must retain
+its operation UUID before invoking it. `answer` always names one incoming request
+and submits its exact final; empty finals are allowed. It never selects a latest
+request or takes a receipt, sender, file path or stdin selector from tool arguments.
+Identical retained finals replay and different finals conflict. `ack` acknowledges
+only the bound participant's incoming view at a supplied positive safe-integer
+revision (1–9,007,199,254,740,991). Stale revisions cannot suppress later attention.
+Neither answer nor reads implicitly acknowledge work. Messages are UTF-8 strings
+bounded to 1,048,576 bytes independently of escaping; BOM, CRLF, NUL and Unicode
+are preserved. Other underlying service admission rules still apply.
 
 A tool-call document (serialize it on one line for stdio):
 
@@ -89,9 +105,15 @@ The published `inputSchema` is an object with the properties and required fields
 above. Strings use `type: "string"`, `minLength: 1`, `maxLength: 256`; the byte
 bound is checked separately. `operationId` uses `type: "string", format: "uuid"`
 and the canonical restriction above. `limit` uses `type: "integer"`,
-`minimum: 1`, `maximum: 200`. All five tools advertise `readOnlyHint: true`,
-`destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false`;
-annotations describe behavior and grant no authority.
+`minimum: 1`, `maximum: 200`. Message schemas use `type: "string"`,
+`maxLength: 1048576`; core's byte limit and send's nonblank restriction are checked
+separately. `recipientId` has the same UUID schema as `operationId`. `revision`
+uses `type: "integer"`, `minimum: 1`, `maximum: 9007199254740991`. The five reads
+advertise `readOnlyHint: true`; send/answer/ack advertise `readOnlyHint: false`.
+All eight advertise `destructiveHint: false`, `idempotentHint: true`,
+`openWorldHint: false`. Idempotence requires retaining all supplied arguments,
+especially the send operation UUID and acknowledged revision. Annotations describe
+behavior and grant no authority.
 
 ## Bounds and recovery
 
@@ -111,12 +133,17 @@ There are no detached workers, listeners or persistent open database handles.
 Reads retain ordinary storage opening, migration, expiry and retention behavior;
 they never acknowledge an attention revision or submit a final.
 
-`operation` only recovers the immutable dispatch receipt; it cannot dispatch or
-wake again. An unavailable `result` is not evidence of cancellation or permission
-to resend. Transport timeout is not cancellation. Existing terminal uncertain
-receipts remain terminal. Recovery and final-response ownership are defined by
-the [request/response contract](request-response-v1.md); MCP adds no exchange
-states, receipt type, storage or retry semantics.
+`send` uses the existing dispatch service: identical operation UUID, originator
+and normalized intent returns the immutable acceptance, without another wake;
+changed intent conflicts. No automatic retry creates a new UUID. A lost response
+is recovered with `operation`, which cannot dispatch or wake again. This remains
+true after process restart, across concurrent clients, and after uncertain wake
+classification. An unavailable `result` is not evidence of cancellation or
+permission to resend. Transport timeout or MCP cancellation notification does
+not cancel durable work. Existing terminal uncertain receipts remain terminal.
+Final submission and attention revision decisions stay with the shared
+[request/response contract](request-response-v1.md); MCP adds no exchange states,
+receipt type, storage or retry semantics.
 
 ## Boundaries and later slices
 
@@ -125,14 +152,15 @@ The CLI owns launch selection and composes existing command services in-process.
 core owns exchange decisions. All are core paths. The private
 [Claude channel](claude-channel-v1.md) server is unchanged and shares no extracted
 framing with this server. Native Claude and [Codex](codex-channel-v1.md) channels
-are host wake/delivery mechanisms. This MCP interface is an agent's pull/read
-interface; launching it neither installs those channels nor wakes an unloaded
-model. The [remote door](remote-channel-v1.md) is a separate authenticated channel
+are host wake/delivery mechanisms. This MCP interface lets an agent pull and act on exchanges. Send may use the
+existing advisory wake; launching the server neither installs those channels nor
+wakes an unloaded model. The [remote door](remote-channel-v1.md) is a separate authenticated channel
 boundary, not an HTTP mode of this process.
 
-Writing tools (`tmt_send`, `tmt_answer`, `tmt_ack`) are a separate implementation
-slice under #477 and are **not advertised or accepted here**. `send` will mean
-existing dispatch acceptance; the name `talk` is reserved for a later blocking
-operation. Waiting talk and consented provider setup/uninstall remain separately
-tracked work. No claim of automatic provider registration or full team enrollment
-is made by this read-only slice.
+All tools compose existing command owners. The API wire still has the same
+operations; its internal dispatch selector distinguishes ordinary local name/UUID
+selection from a pinned saved UUID, which never falls back to a display name.
+Answer and ack use the same exact saved selection in their existing CLI owners.
+The name `talk` is reserved for a later blocking operation. Waiting talk and
+consented provider setup/uninstall remain separately tracked work. No automatic
+provider registration or runtime enrollment is supplied by this server.
