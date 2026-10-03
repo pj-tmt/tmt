@@ -1675,7 +1675,7 @@ CLI failures add `COLAB_INPUT_INVALID`, `COLAB_CONFIRMATION_REQUIRED`,
 keep their codes. Success exits 0. Neither acknowledgments nor unsigned output
 create browser authority; browser refresh still uses verified catchup.
 
-## Root-local page source CLI (#1438, first slice)
+## Root-local page source CLI (#1438)
 
 `tmt colab page read <page> [--json]` captures existing state through the
 owner-authenticated fold and isolated decoder. Raw stdout is exact admitted UTF-8
@@ -1713,8 +1713,10 @@ fail closed, including receipt replay; a frozen expired request must be prepared
 This device is not a Remote registration and grants no browser session or agent
 operation authority. Private material stays in Keyring.
 
-After preparation releases the read snapshot, the offline caller holds the serve
-lifecycle lock. One existing-state device transaction checks the pinned chain,
+After preparation releases the read snapshot, the caller tries the serve lifecycle
+lock. Holding it selects the offline existing-state writer; a held lock selects the
+running serve through the existing owned 0600 Unix socket. One device transaction
+checks the pinned chain,
 base/head/epoch/positions, then commits the device chain, signed encrypted content
 append and exact operation receipt together. Existing create-only append/quota/
 conflict semantics are reused. Exact frozen retries return the original receipt,
@@ -1723,10 +1725,28 @@ success is `{spaceId,pageId,epoch,membershipHead,revision,streamId,seq,envelopeH
 sourceSha256,memoryLimit}`; hashes use lowercase hex except the model envelope hash,
 which is canonical base64url.
 
-The first slice requires serve to be stopped: a held lifecycle lock returns
-`COLAB_UNAVAILABLE` with a stop-serve explanation and no fallback. Serving IPC,
-live author-chain broadcast and native browser acceptance are the second #1438
-slice; this contract does not claim they are implemented.
+Serving writes use POST `/.tmt/colab/local/page-write`. Its strict prepared DTO is
+`{version,operationId,spaceId,pageId,epoch,membershipHead,baseRevision,sourceSha256,
+memoryLimit,chain,envelope}`; version is 1, operationId is a frozen UUIDv4, and
+chain/envelope are canonical base64url. The request contains no plaintext source,
+private key or epoch key. Forwarded device-context or event headers are DENIED;
+wrong methods/upgrades and unknown/duplicate fields reject. The reserved router
+shares management's local-header denial. One body-cap rule gives this route
+512 KiB and retains 64 KiB for other HTTP routes. Acquisition, frame, queue and
+response bounds remain in force; the client bounds its response and absolute read
+deadline. An IPC failure or uncertain response never falls back to an offline
+writer, changes the operation identity or automatically resends.
+
+Serving locks sync before Registration and prepares bounded transport before the
+transaction. A new committed append queues a `broadcast` with the normal scoped
+position/envelope fields and `chains:[{deviceId,chain}]`; the chain identifies the
+local author and is repeated to permit certificate renewal. The browser admits
+chains on its serialized executor before envelope authentication and Worker
+application. Larger envelopes use the existing reference and lazy chunk transfer,
+with the chain retained on the completed broadcast. Exact replay returns the
+original receipt without another broadcast. Slow or revoked peers use existing
+resync/admission failure behavior; queue failure does not undo a durable receipt.
+The service never receives or decodes plaintext source.
 
 ## Plaintext page export (#1309)
 

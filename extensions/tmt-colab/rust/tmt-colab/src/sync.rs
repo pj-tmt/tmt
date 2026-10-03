@@ -277,6 +277,46 @@ impl<A> Clone for Server<A> {
         Self(Arc::clone(&self.0))
     }
 }
+impl Server<crate::registration::OwnerAdmission> {
+    /// Prepare transport before committing. The opaque server never opens source.
+    pub(crate) fn page_write(
+        &self,
+        prepared: &crate::page::Prepared,
+        now: u64,
+    ) -> crate::Result<crate::page::Receipt> {
+        let bytes = values::binary(&prepared.envelope, limits::UPDATE_BYTES)?;
+        let decoded = object::Envelope::from_json(&bytes)?;
+        let header = object::Header::decode(decoded.header())?;
+        let c = &header.context;
+        let scope = SyncScope {
+            space: c.space.clone(),
+            page: c.page.clone(),
+            epoch: c.epoch.clone(),
+        };
+        let hash = decoded.hash()?;
+        let (envelope, transfer) = delivery(&scope, hash, bytes)?;
+        let broadcast = wire::output(
+            &scope,
+            "broadcast",
+            serde_json::json!({
+                "streamId": c.author_device, "seq": c.stream_seq,
+                "envelopeHash": values::encode_binary(&hash), "envelope": envelope,
+                "chains": [{"deviceId": c.author_device, "chain": prepared.chain}]
+            }),
+        )?;
+        let mut state = self.0.lock().map_err(|_| crate::page::Fault::Unavailable)?;
+        let committed = state
+            .admission
+            .0
+            .lock()
+            .map_err(|_| crate::page::Fault::Unavailable)?
+            .page_write(prepared, now)?;
+        if committed.accepted == Accepted::New {
+            state.fanout(&scope, broadcast, transfer);
+        }
+        Ok(committed.receipt)
+    }
+}
 impl<A: Admission> Server<A> {
     pub fn new(store: Store, admission: A) -> Self {
         Self(Arc::new(Mutex::new(State {

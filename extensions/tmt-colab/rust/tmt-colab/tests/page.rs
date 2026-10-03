@@ -455,7 +455,7 @@ fn cli_raw_json_stdin_invalid_capacity_and_lifecycle_refusal() {
         e["error"]["message"]
             .as_str()
             .unwrap()
-            .contains("Stop serve")
+            .contains("no offline fallback")
     );
     assert_eq!(f.bytes(), before);
 }

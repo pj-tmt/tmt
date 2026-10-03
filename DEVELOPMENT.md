@@ -3427,7 +3427,7 @@ foreign file names and refuses unsafe matching files.
 
 ### Colab page source CLI verification
 
-With existing local page state and serve stopped:
+With existing local page state:
 
 ```bash
 PATH="$PWD/rust/target/debug:$PATH" tmt colab page read 10000000-0000-4000-8000-000000000001 --json
@@ -3439,9 +3439,10 @@ Use the actual page UUID and exact revision returned by read. Raw read stdout
 preserves source bytes; head/epoch/token metadata goes to stderr. `--file -` reads
 bounded UTF-8 stdin to EOF. The title is retained. Stale bases return
 `COLAB_STALE_BASE` and exit 1; no replacement is retried against newer content.
-A running serve returns `COLAB_UNAVAILABLE`: stop it before writing. Serving IPC
-and live browser acceptance are the second #1438 slice. No page creation,
-initialization or migrations are performed by these commands.
+A running serve receives the prepared ciphertext through its private socket;
+otherwise the write holds the lifecycle lock. Failed or uncertain serving IPC
+returns `COLAB_UNAVAILABLE` without an offline fallback or automatic resend.
+No page creation, initialization or migrations are performed by these commands.
 
 The real encrypted-state tests verify Unicode/CRLF/NUL/empty source, preserved
 title, scoped signed receipts, reopen and baseline rotation, deterministic
@@ -3450,7 +3451,21 @@ later edits, rollback at receipt publication, atomic certificate renewal at expi
 revoked-writer denial, invalid/capacity input and lifecycle exclusion.
 They use `tests/support::decoder_config`; production keeps Decoder::new and its
 fixed budget. Run the normal Colab Rust gates, docs formatting and layout guard
-before handoff. The first slice changes no browser app.
+before handoff. Socket tests cover reserved-header denial, the larger local request
+cap, chunked broadcast with its certified author chain, exact replay without fanout,
+and stale refusal. Browser executor tests verify chain admission precedes decoding.
+
+Native Chromium acceptance uses the explicit ignored `browser_fixture` test producer
+and the actual foreground serve binary with the built app. Set
+`COLAB_SERVE_EXECUTABLE` to the debug `tmt-colab` executable and
+`COLAB_PAGE_FIXTURE_EXECUTABLE` to the compiled `browser_fixture-*` test executable
+from `CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-colab --test browser_fixture --no-run`, then run the app's
+normal `test:browser` gate after check/test/build. The fixture supplies public seeds,
+Remote SDK proof issuance and mount forwarding; registration, wraps, ciphertext,
+sync, rendering and CLI processes are real. It proves a new CLI author appears in
+an already subscribed tab, a chunked update renders, a browser edit invalidates an
+old CLI token, and offline writing works after serve stops. Teardown verifies the
+serve process and socket disappear and removes only its generated state.
 
 ### Colab native export verification
 

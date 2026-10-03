@@ -85,10 +85,10 @@ fn grammar() -> Command {
         summary: "Write page source against a verified base",
         examples: &[Example {
             command: "tmt colab page write 10000000-0000-4000-8000-000000000001 --file page.html --json",
-            note: "Write a minimal source update while serve is stopped",
+            note: "Write a minimal source update",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "Retains the title and submits a minimal signed content update. Use the opaque revision from page read as --expected-revision. Without it, the base is captured when this command starts; intervening changes still reject. This slice requires serve to be stopped.",
+        details: "Retains the title and submits a minimal signed content update through serve when running, or under its lifecycle lock when stopped. Use the opaque revision from page read as --expected-revision. Without it, the base is captured when this command starts; intervening changes still reject.",
     };
     let page_id = || {
         Arg::new("page").required(true).value_parser(|value: &str| {
@@ -334,22 +334,25 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
             now,
         )?;
         store.close()?;
-        // Preparation releases its read snapshot before the lifecycle/writer lock.
-        // A running service is explicit refusal until the serving IPC slice lands.
-        let _lock = layout.serve_lock().map_err(|e| {
-            if e.downcast_ref::<tmt_colab::keyring::StateFault>()
-                == Some(&tmt_colab::keyring::StateFault::AlreadyServing)
-            {
-                "Stop serve before writing; serving IPC is pending the second #1438 slice.".into()
-            } else {
-                e
+        // A held serve lock selects the existing root-local IPC path. An uncertain
+        // IPC result never falls back to a second offline writer or resends.
+        let receipt = match layout.serve_lock() {
+            Ok(_lock) => {
+                let mut store = Store::write_existing(&layout)?;
+                let committed = page::commit(&mut store, &key, &prepared, now);
+                let closed = store.close();
+                let receipt = committed?.receipt;
+                closed?;
+                receipt
             }
-        })?;
-        let mut store = Store::write_existing(&layout)?;
-        let committed = page::commit(&mut store, &key, &prepared, now);
-        let closed = store.close();
-        let receipt = committed?.receipt;
-        closed?;
+            Err(error)
+                if error.downcast_ref::<tmt_colab::keyring::StateFault>()
+                    == Some(&tmt_colab::keyring::StateFault::AlreadyServing) =>
+            {
+                page::ipc::write(&layout, &prepared)?
+            }
+            Err(error) => return Err(error),
+        };
         if json_output {
             writeln!(output, "{}", serde_json::to_string(&receipt)?)?;
         } else {
@@ -531,6 +534,11 @@ fn error_code(error: &(dyn std::error::Error + Send + Sync + 'static)) -> &'stat
         .or_else(|| {
             error
                 .downcast_ref::<tmt_colab::socket::SocketFault>()
+                .map(|e| e.code())
+        })
+        .or_else(|| {
+            error
+                .downcast_ref::<tmt_colab::page::ipc::WriteError>()
                 .map(|e| e.code())
         })
         .or_else(|| {

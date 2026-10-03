@@ -13,6 +13,16 @@ pub const TUNNEL_IDLE: Duration = Duration::from_secs(120);
 pub const HEADER_BYTES: usize = 8 * 1024;
 pub const HEADER_FIELDS: usize = 32;
 pub const HTTP_BODY_BYTES: usize = 64 * 1024;
+/// A prepared local update has two base64 layers plus a certified chain.
+pub const LOCAL_PAGE_BODY_BYTES: usize = 512 * 1024;
+/// One route-owned body rule for acquisition and local callers.
+pub fn http_body_bytes(path: &str) -> usize {
+    if path == crate::page::ipc::PATH {
+        LOCAL_PAGE_BODY_BYTES
+    } else {
+        HTTP_BODY_BYTES
+    }
+}
 pub const WS_FRAME_BYTES: usize = 64 * 1024;
 pub const SEND_QUEUE_FRAMES: usize = 8;
 pub const OBJECT_BYTES: usize = 16 * 1024 * 1024 + 2 * 1024;

@@ -217,7 +217,9 @@ export class Connection {
         'seq',
         'envelopeHash',
         'envelope',
+        ...(Object.hasOwn(frame, 'chains') ? ['chains'] : []),
       ]);
+      if (Object.hasOwn(frame, 'chains')) await this.admission.chains(frame.chains);
       const pos = { streamId: frame.streamId, seq: frame.seq, envelopeHash: frame.envelopeHash };
       position(pos);
       requireValue(typeof frame.streamId === 'string' && typeof frame.envelope === 'string');

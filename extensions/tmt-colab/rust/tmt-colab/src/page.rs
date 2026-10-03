@@ -1,4 +1,5 @@
 //! Root-local source access: isolated preparation, then fenced ciphertext commit.
+pub mod ipc;
 use crate::{
     Result,
     decoder::{Decoder, MemoryLimit},
@@ -12,7 +13,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use tmt_colab_model::{certificate, crypto, framing, object, statement, values};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fault {
     StaleBase,
     Invalid,
@@ -20,6 +21,7 @@ pub enum Fault {
     Missing,
     Inactive,
     Denied,
+    Unavailable,
 }
 impl Fault {
     pub fn code(&self) -> &'static str {
@@ -30,6 +32,7 @@ impl Fault {
             Self::Missing => "COLAB_STATE_MISSING",
             Self::Inactive => "COLAB_PAGE_INACTIVE",
             Self::Denied => "COLAB_DENIED",
+            Self::Unavailable => "COLAB_UNAVAILABLE",
         }
     }
 }
@@ -43,6 +46,9 @@ impl std::fmt::Display for Fault {
             Self::Inactive => "Archived or deleted pages cannot be written.",
             Self::Denied => {
                 "The local writer is revoked or its certificate does not match the owner."
+            }
+            Self::Unavailable => {
+                "Serving page write unavailable; no offline fallback was attempted."
             }
         })
     }
