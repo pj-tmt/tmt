@@ -7,8 +7,9 @@ owns authorization.
 `release.yml` runs on main pushes, the hourly backup schedule (minute 17 UTC) and
 manual dispatch. Under the serialized `release-cut` group, a push proceeds only
 when no admitted live cut started within the preceding 55 minutes. The gate reads
-`release.yml` run history through bounded, paginated REST requests: schedule and
-live dispatch runs count, as do pushes with the successful `Admit live release cut`
+`release.yml` runs created within the preceding three hours through bounded,
+paginated REST requests, so accumulated older history does not grow request cost.
+Within that window, schedule and live dispatch runs count, as do pushes with the successful `Admit live release cut`
 step. Dry dispatches and cadence-skipped pushes do not count. Dispatch run names
 record dry/live mode because the runs API does not expose dispatch inputs. A
 recent legacy dispatch without mode evidence blocks admission until it ages out.
@@ -16,6 +17,9 @@ The current run and pending runs that have not started are excluded. API errors,
 missing evidence or incomplete pagination fail the push closed with a clear
 message; no draft or native dispatch follows. A recent live cut instead exits
 successfully as `cadence`, reports the skip in the summary and skips cut work.
+Skipped work remains unallocated and is picked up by the next push, schedule or
+dispatch. The last merges of a quiet period wait for that next trigger; cadence
+admission creates no timer or delayed run.
 Schedule and owner dispatch keep their existing behavior and bypass push cadence.
 
 An admitted run captures main HEAD, complete

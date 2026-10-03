@@ -152,7 +152,24 @@ describe('push cut cadence admission', () => {
       'no cut admission evidence'
     );
   });
-  it('follows run pagination, including an old-created run started recently on a later page', () => {
+  it.each([425, 10_000, 100_000])(
+    'does not acquire %s accumulated historical runs',
+    (historicalCount) => {
+      const calls: string[] = [];
+      const mode = pushCadence(cadenceInputs, (_exe, args) => {
+        calls.push(args[1]);
+        // An unbounded request receives the accumulated history and must fail this control.
+        const bounded = decodeURIComponent(args[1]).includes('created=>=2026-10-04T09:00:00.000Z');
+        return JSON.stringify({
+          total_count: bounded ? 1 : historicalCount,
+          workflow_runs: [workflowRun(1, 60)],
+        });
+      });
+      expect(mode.live).toBe(true);
+      expect(calls).toHaveLength(1);
+    }
+  );
+  it('follows all pages within the creation window to find a recent start', () => {
     const calls: string[] = [];
     const old = Array.from({ length: 100 }, (_, i) => workflowRun(i + 1, 60));
     const mode = pushCadence(cadenceInputs, (_exe, args) => {
@@ -165,7 +182,9 @@ describe('push cut cadence admission', () => {
     expect(mode.live).toBe(false);
     expect(calls).toHaveLength(2);
     expect(calls[1]).toContain('page=2');
-    expect(calls.join(' ')).not.toContain('created=');
+    expect(
+      calls.every((call) => decodeURIComponent(call).includes('created=>=2026-10-04T09:00:00.000Z'))
+    ).toBe(true);
   });
 });
 

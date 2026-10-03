@@ -7,6 +7,7 @@ import { runPackedCommand } from './packed-command.mjs';
 
 const MAIN = 'refs/heads/main';
 const CADENCE_MS = 55 * 60_000;
+const HISTORY_WINDOW_MS = 3 * 60 * 60_000;
 const LIVE_ADMISSION = 'Admit live release cut';
 
 function requireMain(ref) {
@@ -79,8 +80,12 @@ export function pushCadence(
           throw new Error('Truncated REST history.');
       }
     };
-    // Enumerate the full bounded history: creation time is not start time for queued runs/reruns.
-    const runs = pages('actions/workflows/release.yml/runs?branch=main', 'workflow_runs');
+    // Keep acquisition independent of accumulated history; cadence uses each run's start below.
+    const since = encodeURIComponent(`>=${new Date(now - HISTORY_WINDOW_MS).toISOString()}`);
+    const runs = pages(
+      `actions/workflows/release.yml/runs?branch=main&created=${since}`,
+      'workflow_runs'
+    );
     const seen = new Set();
     for (const run of runs) {
       if (!Number.isSafeInteger(run?.id) || run.id <= 0 || seen.has(run.id))
