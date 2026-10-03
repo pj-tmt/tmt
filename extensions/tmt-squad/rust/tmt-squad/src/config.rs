@@ -101,7 +101,7 @@ impl TokenWindow {
         windows[(windows.iter().position(|w| *w == self).unwrap_or(2) + 1) % 3]
     }
     pub fn label(self) -> String {
-        if self.0 > 3_600_000 && self.0 % 3_600_000 == 0 {
+        if self.0 > 3_600_000 && self.0.is_multiple_of(3_600_000) {
             format!("{}h", self.0 / 3_600_000)
         } else {
             format!("{}m", self.0 / 60_000)

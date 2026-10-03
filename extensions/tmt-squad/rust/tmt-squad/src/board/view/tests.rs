@@ -3481,3 +3481,41 @@ fn help_lines(app: &App) -> Vec<String> {
         .map(|entry| format!("{}  {}", entry.keys, entry.description))
         .collect()
 }
+
+#[test]
+fn observed_usage_keeps_shorter_windows_and_model_ahead_of_pr() {
+    let path =
+        std::env::temp_dir().join(format!("squad-usage-grid-{}.toml", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let config = crate::config::Config::read(path).unwrap();
+    let mut app = preset_board();
+    let view = app.view.as_mut().unwrap();
+    let public = config.rows("product").unwrap();
+    view.rows = public
+        .clone()
+        .with_usage(crate::config::TokenWindow::DEFAULTS);
+    view.board.panes = vec![Pane::Rows];
+    assert_eq!(
+        view.rows.lines[1], public.lines[1],
+        "pending token is retained"
+    );
+    for width in [160, 120, 100, 80] {
+        app.set_body_width(width);
+        draw(&app, width, 30);
+        let derived = app.view.as_ref().unwrap().derived.borrow();
+        let columns = &derived.grid.as_ref().unwrap().layout.columns;
+        assert!(columns[..3].iter().all(Option::is_some));
+        assert!(columns[4].is_some(), "current model at {width}");
+        for (earlier, later) in [(3, 7), (7, 6), (6, 5), (5, 4)] {
+            assert!(
+                columns[earlier].is_none() || columns[later].is_some(),
+                "step-aside order at {width}: {columns:?}"
+            );
+        }
+        if width == 100 {
+            assert!(columns[3].is_none(), "PR gives room to usage");
+            assert!(columns[5].is_some(), "short window remains visible");
+        }
+    }
+}
+
