@@ -25,7 +25,10 @@ pub enum Invocation {
     Mcp {
         identity: String,
     },
-    Completion(Option<String>),
+    Completion {
+        shell: Option<String>,
+    },
+    CompletionScript(String),
     Complete(Vec<std::ffi::OsString>),
     Learn {
         skill: Option<String>,

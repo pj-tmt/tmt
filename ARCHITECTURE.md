@@ -2035,6 +2035,20 @@ creation or presence reconciliation, and returns active identities in saved-firs
 canonical order with optional literal-prefix and remembered-session filters.
 Unavailable discovery is not evidence that an identity does not exist; binding
 and launch still perform their normal authoritative checks.
+Public `completion` guides and checks startup-file configuration; its `installed`
+JSON field is textual evidence, never a claim about parent-shell functions.
+`completion_command` owns presentation. `config::ConfigPaths::shell_startup`
+resolves bash, zsh (`ZDOTDIR`) and fish (`XDG_CONFIG_HOME`) paths;
+`completion_install` owns bounded, read-only regular-file inspection. No completion
+command writes startup files. Duplicate and ambiguous lines produce guidance.
+Zsh initialization guidance is advisory because sourced frameworks can initialize
+completion; a literal compinit call provides ordering evidence only.
+Only the hidden `__completion-script <shell>` emits generated scripts. Public
+`completion` always guides or checks, including when output is piped.
+Top-level terminal help adds a final completion tip when the detected shell is
+not configured. Piped output, JSON, unsupported shells and inspection errors
+suppress this best-effort hint; help never executes startup-file contents.
+
 The CLI's hidden completion query resolves the unfinished operand through the
 same public Clap grammar and emits only a context tag, candidate names or command
 offset. Shell adapters retain generated static completion and delegate `run` arguments

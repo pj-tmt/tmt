@@ -35,10 +35,10 @@ pub fn generate(shell: &str, output: &mut impl Write) -> io::Result<()> {
             include_str!("../completion.fish"),
         ),
         _ => {
-            return writeln!(
-                output,
-                "Use 'tmt completion bash', 'tmt completion zsh' or 'tmt completion fish' to generate a shell script."
-            );
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Unsupported completion shell.",
+            ));
         }
     };
     let mut generated = Vec::new();
@@ -198,6 +198,16 @@ pub fn context(words: &[OsString]) -> Context {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_shell_emits_no_executable_output() {
+        let mut bytes = Vec::new();
+        assert_eq!(
+            generate("", &mut bytes).unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
+        assert!(bytes.is_empty());
+    }
 
     #[test]
     fn generated_scripts_keep_the_static_grammar_and_dynamic_entry() {

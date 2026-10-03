@@ -34,7 +34,9 @@ describe('interactive shell completion', { concurrent: false }, () => {
           withoutTmux: true,
         });
         expect(created.code, created.stderr).toBe(0);
-        const generated = await fixture.runCli(['completion', shell], { withoutTmux: true });
+        const generated = await fixture.runCli(['__completion-script', shell], {
+          withoutTmux: true,
+        });
         expect(generated.code, generated.stderr).toBe(0);
         const completionFile = path.join(fixture.root, `completion.${shell}`);
         const setupFile = path.join(fixture.root, `setup.${shell}`);

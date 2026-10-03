@@ -5,6 +5,8 @@ pub mod api;
 
 #[cfg(unix)]
 pub mod bounded_file;
+#[cfg(unix)]
+pub mod completion_install;
 pub mod config;
 #[cfg(unix)]
 pub mod core_executable;

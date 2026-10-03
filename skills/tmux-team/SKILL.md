@@ -164,7 +164,7 @@ stored; keep the request ID, receipt and body unchanged. Never delete storage or
 invent tmux caller variables. A user may optionally allow the data directory in
 Codex `writable_roots`; the agent must not change that setting without consent.
 
-`help`, `version`, `completion`, `learn` and `run` reject
+`help`, `version`, `learn` and `run` reject
 `--json` with `JSON_UNSUPPORTED`; run them without that flag. Native managed
 `upgrade`/`update` supports one structured JSON result, including partial failures.
 
@@ -755,10 +755,19 @@ child whose launch owner is lost is Unknown and is not a verified input target.
 Do not treat successful spawn, runtime presence or an Ended observation as a
 durable task reply.
 
-`tmt completion bash|zsh|fish` generates an optional shell script with saved-first
-identity candidates and command-owned completion after `run`'s name. Discovery
-does not probe tmux or create storage. Installing shell configuration or provider
-completion scripts is separate and requires user consent.
+`tmt completion` checks startup-file configuration for `$SHELL`; an explicit
+`bash`, `zsh` or `fish` overrides detection. The guide shows the exact file and
+line to add manually, with zsh placement after completion initialization
+(`compinit` or your shell framework), and warns about duplicate lines. This is
+textual configured-state evidence, not a check of functions loaded in the parent
+shell. `--json` reports the shell, installed state, file and line. Completion never
+edits startup files. Public `completion` always guides or checks, even when piped.
+Only `__completion-script bash|zsh|fish` emits the script used by the setup line.
+Top-level terminal help offers a tip when the detected shell is not configured;
+piped help and inspection errors suppress the tip.
+Completion offers saved-first identity candidates and command-owned completion
+after `run`'s name. Discovery does not probe tmux or create storage. Provider
+completion scripts still require separate installation.
 
 `talk` sends text to another pane and can cause external input there. Only use
 it when the user has requested that communication or the surrounding task

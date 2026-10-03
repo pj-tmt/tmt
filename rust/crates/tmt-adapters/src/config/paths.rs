@@ -45,6 +45,27 @@ impl ConfigPaths {
         Ok((global_dir, identity_dir, notes_file))
     }
 
+    /// Startup file selected by the shell's own conventional environment.
+    #[cfg(unix)]
+    pub fn shell_startup(shell: crate::completion_install::Shell) -> Result<PathBuf, ConfigError> {
+        use crate::completion_install::Shell;
+        let home = env::home_dir()
+            .ok_or_else(|| ConfigError::internal("Cannot determine the home directory"))?;
+        let variable = |name| {
+            env::var_os(name)
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+        };
+        let path = match shell {
+            Shell::Bash => home.join(".bashrc"),
+            Shell::Zsh => variable("ZDOTDIR").unwrap_or(home).join(".zshrc"),
+            Shell::Fish => variable("XDG_CONFIG_HOME")
+                .unwrap_or_else(|| home.join(".config"))
+                .join("fish/config.fish"),
+        };
+        std::path::absolute(path).map_err(|error| ConfigError::internal(error.to_string()))
+    }
+
     pub fn discover() -> Result<Self, ConfigError> {
         let cwd = env::current_dir().map_err(|error| ConfigError::internal(error.to_string()))?;
         let home = env::home_dir()
