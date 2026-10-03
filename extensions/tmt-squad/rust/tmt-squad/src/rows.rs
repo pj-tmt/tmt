@@ -13,7 +13,10 @@ use crate::{
 use serde_json::{Value, json};
 #[cfg(test)]
 use tmt_cli_style::grid;
-use tmt_cli_style::grid::{Align, Basis, Overflow, Track, Truncate};
+use tmt_cli_style::{
+    Role,
+    grid::{Align, Basis, Overflow, Track, Truncate},
+};
 use toml_edit::{Item, TableLike};
 
 const MAX_COLUMNS: usize = 12;
@@ -205,6 +208,8 @@ impl Column {
 pub struct Cell {
     pub field: Option<String>,
     pub span: usize,
+    /// Declarative semantic style; omission keeps the projected field color.
+    pub token: Option<Role>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -256,6 +261,7 @@ impl Rows {
                 .map(|column| Cell {
                     field: Some(column.field.clone()),
                     span: 1,
+                    token: None,
                 })
                 .collect(),
         ];
@@ -344,9 +350,13 @@ impl Rows {
                 }
                 value
             }).collect::<Vec<_>>(),
-            "lines": self.lines.iter().map(|line| line.iter().map(|cell| json!({
-                "field": cell.field, "span": cell.span,
-            })).collect::<Vec<_>>()).collect::<Vec<_>>(),
+            "lines": self.lines.iter().map(|line| line.iter().map(|cell| {
+                let mut value = json!({"field": cell.field, "span": cell.span});
+                if let Some(token) = cell.token {
+                    value["token"] = json!(token.name());
+                }
+                value
+            }).collect::<Vec<_>>()).collect::<Vec<_>>(),
         })
     }
 }
@@ -700,17 +710,19 @@ fn read_lines(item: &Item, place: &str, columns: usize) -> Result<Vec<Vec<Cell>>
         .collect()
 }
 
-/// `"field"`, `""` (an empty cell), or `{ field = "…", span = n }`.
+/// `"field"`, `""`, or `{ field = "…", span = n, token = "waiting" }`.
 fn read_cell(cell: &toml_edit::Value, here: &str, columns: usize) -> Result<Cell, SquadError> {
     if let Some(field) = cell.as_str() {
         return match field {
             "" => Ok(Cell {
                 field: None,
                 span: 1,
+                token: None,
             }),
             field if field_name(field) => Ok(Cell {
                 field: Some(field.to_owned()),
                 span: 1,
+                token: None,
             }),
             _ => Err(invalid(format!("`{here}` must be a field name or \"\"."))),
         };
@@ -721,6 +733,7 @@ fn read_cell(cell: &toml_edit::Value, here: &str, columns: usize) -> Result<Cell
     let mut parsed = Cell {
         field: None,
         span: 1,
+        token: None,
     };
     for (key, value) in table.iter() {
         match key {
@@ -739,6 +752,14 @@ fn read_cell(cell: &toml_edit::Value, here: &str, columns: usize) -> Result<Cell
                     .and_then(|span| usize::try_from(span).ok())
                     .filter(|span| (1..=columns).contains(span))
                     .ok_or_else(|| invalid(format!("`{here}.span` must be 1-{columns}.")))?;
+            }
+            "token" => {
+                parsed.token = Some(value.as_str().and_then(Role::parse).ok_or_else(|| {
+                    invalid(format!(
+                        "`{here}.token` must be a semantic theme token: {}.",
+                        Role::ALL.map(Role::name).join(", ")
+                    ))
+                })?);
             }
             other => {
                 return Err(invalid(format!("`{here}.{other}` is not a cell setting.")));

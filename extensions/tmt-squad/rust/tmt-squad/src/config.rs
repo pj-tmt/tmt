@@ -282,7 +282,7 @@ columns = [
     { name = "pr", width = "24%", min = 12, max = 28, priority = 2 },
     { name = "model", from = "session.model", width = "16%", min = 18, max = 18, priority = 3 },
 ]
-lines = [["member", "state", "task", "pr", "model"], ["", "", { field = "pending", span = 3 }]]
+lines = [["member", "state", "task", "pr", "model"], ["", "", { field = "pending", span = 3, token = "waiting" }]]
 [team.fields.pr]
 preset = "github-pr"
 every = "60s"
@@ -2954,6 +2954,7 @@ sort = ["state", "-name"]
         );
         assert_eq!(rows.lines[1][2].field.as_deref(), Some("pending"));
         assert_eq!(rows.lines[1][2].span, 3);
+        assert_eq!(rows.lines[1][2].token, Some(tmt_cli_style::Role::Waiting));
         assert_eq!(config.providers("x").unwrap()[0].name, "pr");
         assert_eq!(
             config.providers("x").unwrap()[0].every(),
