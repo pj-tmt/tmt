@@ -3090,7 +3090,7 @@ settlement through the existing native-installer and owned-skill adapters. The n
 come from the fixed product table, never from PATH or archive data. Installable
 eligibility is separate from historical product recognition and publication:
 Squad, Remote and Colab are installable; registering a product does not create a
-published archive. Without a published Remote release in the selected channel, install
+published archive. Without a published Remote or Colab release in the selected channel, install
 returns `EXTENSION_RELEASE_UNAVAILABLE`, names the unavailable channel and leaves
 the installation unchanged. Complete discovery marks that absence with
 `release::ReleaseUnavailable`; missing files, assets or finalization failures
