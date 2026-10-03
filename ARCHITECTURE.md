@@ -3230,7 +3230,8 @@ for Cargo dependencies and source references. Squad reaches TMT
 through `TMT_EXECUTABLE` (or `tmt` on PATH), using public `--json` commands and
 `tmt api`, with `runner` mapping results/errors to `tmt-invoke` for bounded capture.
 
-Squad keeps no store. A squad is the core room `squad-<name>`. Member fields are
+Squad membership has no extension store. A squad is the core room `squad-<name>`.
+Member fields are
 identity metadata `squad.<name>.<field>`, so one identity can belong to several
 squads and removal clears exactly one namespace. The per-member `note` field is
 retired: `membership::parse_change` refuses a nonempty `note=` with
@@ -3262,6 +3263,27 @@ preflight can still split this sequence; it is not a transaction. Removal clears
 rest of that squad's namespace. A required new marker at the identity metadata
 capacity limit returns the existing core error before the role pairs or join,
 rather than silently changing leadership. Reads never convert state.
+
+The package also exposes a Squad-owned `cron` library; command and clock callers
+are not connected yet. `cron::schedule` owns positive elapsed intervals, fixed
+local times and five-field cron parsing/next-slot math. Named time zones use
+Jiff's system/zoneinfo database without a bundled database. Fixed local times
+skip DST gaps and choose the first occurrence in a fold; elapsed intervals keep
+their stored anchor and duration. Calendar day-of-month/day-of-week restrictions
+use the standard alternative rule unless either field starts with `*`.
+`cron::store` owns the versioned `<dataRoot>/squad/cron/jobs.json` document,
+including per-squad counters that survive removal, exact message bytes, room and
+owner references, schedules, revisions and pause attribution. Its caller supplies
+the absolute `storage.root` data root and admits core UUID references. It does
+not resolve identities, decide permissions, dispatch messages or track runs.
+Reads of an absent store create nothing. A stable, nonblocking `jobs.lock`
+serializes reads and mutations; validation and file sync precede atomic rename,
+followed by directory sync. Failed publication preserves the previous document;
+a directory-sync error after rename reports an uncertain commit for rereading.
+New directories/files use 0700/0600 permissions. Invalid existing state fails
+explicitly rather than resetting counters or overwriting it. No cron data goes
+into `squad.toml` or the core database.
+
 `ls` (alias `status`) joins
 one `rooms.roster` snapshot with `ls --room` presence. Presence is read first so
 core reconciliation retires dead temporary identities before the roster snapshot;

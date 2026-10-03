@@ -210,6 +210,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             // Production row geometry and grapheme fitting; no core behavior.
             "tmt-tui",
             "clap",
+            "jiff",
             "serde_json",
             "toml_edit",
             "subprocess",
