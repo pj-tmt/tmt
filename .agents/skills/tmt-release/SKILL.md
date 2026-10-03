@@ -71,6 +71,7 @@ version is never a real cut or publication target. Preparation keeps the draft
 tag empty, creates no Git tag, and runs every source, archive and installation
 gate against the injected version. It adds no dispatch input and authorizes no
 product activation. Follow the [installation-fixture procedure](references/installation-fixtures.md).
+That reference also owns the [development-version comparison rule](references/installation-fixtures.md#development-version-comparisons).
 
 The private release tool's mechanical source/lock proof grants no publishing
 permission. Do not commit injected versions back to main, create tags early,

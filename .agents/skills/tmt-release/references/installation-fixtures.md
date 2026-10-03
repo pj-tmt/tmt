@@ -23,6 +23,20 @@ captured commit and confirm `git diff --exit-code HEAD --` before running tests.
 Retain the fixture, build time and source-gate evidence in the delivery record;
 never publish this synthetic version. Shared-host Cargo limits still apply.
 
+## Development version comparisons
+
+The infra tooling comparer, `typescript/scripts/release-versions.mjs::compareVersions`,
+orders exact `X.Y.Z-dev` below every non-dev version with the same major, minor and
+patch. Numeric core-version precedence and ordering between non-dev versions retain
+Semantic Versioning rules. Other prerelease identifiers, including `dev.1`, keep
+their ordinary semver ordering.
+
+This comparison rule does not make dev builds eligible for installation or
+publication. Native release channels and managed receipts accept only their
+release versions; installation fixtures still use the injected synthetic alpha
+above. Skill drift compares content and owned links, and companion probes compare
+exact versions; neither uses release precedence.
+
 ## Native recording driver
 
 Extension-upgrade proofs use one native recording driver on macOS and Linux.
