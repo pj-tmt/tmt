@@ -1,0 +1,240 @@
+{
+  "$source": {
+    "source": "site/src/lang/strings.ts",
+    "sourceRevision": "03b536e0b424ea20f22f9ffa99dea681217e09e3"
+  },
+  "ui": {
+    "notTranslated": "此页尚未翻译，暂时显示英文。",
+    "language": "语言",
+    "chapterWindows": "章节窗口",
+    "allChapters": "所有章节",
+    "closeMenu": "关闭菜单",
+    "onThisPage": "本页内容",
+    "pageNavigation": "页面导航",
+    "previous": "← 上一页",
+    "next": "下一页 →"
+  },
+  "home": {
+    "eyebrow": "首页",
+    "title": "一个简单的核心，*无限*种 AI 协作方式。",
+    "tagline": "agent 间简单通信，组合使用。",
+    "lede": "不同工具中的 agent 可以一起工作。Claude Code 把任务交给 Codex，或任何能运行命令的 agent，再获取回复。tmt 保留一份 receipt，将每条回复与原请求对应起来。它只增加一层功能，不替换现有工具：你仍然使用自己的终端、agent 和账号。board、colab 和 meet 都建立在这同一个核心之上。",
+    "worksWith": "适用工具",
+    "agents": "agent",
+    "anyAgent": "任意 CLI agent",
+    "hosts": "运行环境",
+    "next": "下一步",
+    "yourHarness": "你的 harness",
+    "yourServer": "你的服务器",
+    "planned": "计划中",
+    "designing": "设计中",
+    "install": "安装",
+    "start": "从一条消息开始 ↓",
+    "handoff": {
+      "label": "两个提供商的 agent 之间传递请求：运行 Claude Code 的 reviewer 通过 tmt talk 请运行 Codex 的 builder 检查差异。请求到达 Codex 后，它用 tmt reply 和收到的 receipt 回复，回复再传回 Claude Code。请求 ID 和 receipt 将两者对应起来。",
+      "title": "reviewer (Claude Code) ⇄ builder (Codex)",
+      "reviewer": "reviewer",
+      "builder": "builder",
+      "request": "请求",
+      "receipt": "receipt",
+      "reply": "reply",
+      "tied": "receipt 将回复与原请求对应起来"
+    },
+    "concepts": {
+      "items": [
+        {
+          "name": "agent",
+          "text": "一个有名称的程序，其他人可以通过名称找到它。用 `tmt run reviewer claude` 启动，或在程序内部运行 `tmt name reviewer`。"
+        },
+        {
+          "name": "请求",
+          "text": "一个 agent 发给另一个 agent 的内容。`tmt talk builder \"…\"` 为请求保存 ID 和 receipt，然后投递。"
+        },
+        {
+          "name": "结果",
+          "text": "返回的内容。agent 用 `tmt reply` 提交，再用 `tmt result req_…` 读取。"
+        }
+      ],
+      "receipt": "receipt",
+      "receiptText": "receipt 将结果与原请求对应起来。回复必须带上收到请求时附带的那份 receipt。"
+    },
+    "showcase": {
+      "chapter": "阅读本章 →",
+      "sections": {
+        "start": { "eyebrow": "开始" },
+        "working": {
+          "eyebrow": "工作流程",
+          "title": "请求在窗格之间*传递*。",
+          "text": "`tmt talk` 将请求输入到另一个 agent 的窗格中，再根据 receipt 将回复传回你的窗格。无需在窗口之间复制文本。"
+        },
+        "squad": {
+          "eyebrow": "squad",
+          "title": "每个标记只有*一种含义*。",
+          "text": "Squad 扩展在你现有的终端中，用同一个 board 显示 lead 和成员。"
+        },
+        "colab": {
+          "eyebrow": "colab",
+          "title": "整个*团队*共享一个页面。",
+          "text": "lead 的计划、笔记和决定放在一个页面上。不同机器上的 agent 和你的同事可以阅读并发表评论。"
+        },
+        "meet": {
+          "eyebrow": "meet",
+          "title": "你和 *agent* 的会议室。",
+          "text": "你、lead 和成员参加同一场会议。想发言的人先举手，由你分配发言权。先支持文字会议。"
+        },
+        "install": { "eyebrow": "安装", "title": "安装后，为第一个 agent *命名*。" }
+      }
+    }
+  },
+  "chapters": {
+    "travel": {
+      "label": "请求从 lead 传给 builder，回复再传回来。lead 运行 tmt talk。tmt 为请求保存 ID 和 receipt，然后将请求输入 builder 的窗格。builder 完成工作后，用 tmt reply 和 receipt 回复。tmt 保存回复，talk 再把它交给 lead。",
+      "lead": "lead",
+      "builder": "builder",
+      "tmtPane": "tmt",
+      "exchange": "消息往来",
+      "examples": "任何 harness 中的任何 agent 都适用。Claude Code 和 Codex 是两个例子，目前内置的 host 是 tmux。",
+      "steps": [
+        { "title": "1 · talk", "text": "lead 发送请求。tmt 为请求保存 ID 和 receipt。" },
+        { "title": "2 · 投递", "text": "请求被输入 builder 的窗格。它照常工作。" },
+        {
+          "title": "3 · reply",
+          "text": "builder 带上 receipt 回复。回复被保存，talk 再把它交给 lead。"
+        }
+      ]
+    },
+    "colab": {
+      "label": "colab 共享页面的设计草图：发布计划中的事项逐项完成，一项决定等待你处理，agent 和同事在下方发表评论。",
+      "pageTitle": "colab · 发布计划",
+      "sketch": "设计草图",
+      "planHeading": "发布 5.0",
+      "items": ["轮换令牌", "登录测试", "5.0 文档", "发布 #412"],
+      "working": "进行中",
+      "needsYou": "需要你决定：",
+      "question": "今晚发布 #412 吗？",
+      "shipTonight": "今晚发布",
+      "waitForDocs": "等待文档",
+      "decided": "已决定：",
+      "everyone": "所有人都能看到",
+      "you": "你",
+      "decision": "决定",
+      "comments": [
+        "令牌已轮换，PR #412 已创建。",
+        "构建服务器上的 E2E 测试通过。",
+        "能等文档修复后再发布吗？",
+        "5.0 文档已起草，正在审核。"
+      ],
+      "machines": ["你的笔记本电脑", "构建服务器", "Mei 的笔记本电脑"],
+      "human": "人类",
+      "roadmap": [
+        { "title": "当前 · 本地", "text": "自己机器上的页面（进行中）" },
+        {
+          "title": "下一步 · Firestore",
+          "text": "使用你自己的 Firebase 项目，让同事加入（计划中）"
+        },
+        { "title": "之后 · Cloudflare", "text": "使用你自己的 Cloudflare 账号（计划中）" }
+      ]
+    },
+    "meet": {
+      "label": "终端文字会议的设计草图：builder 正在发言，两个 agent 已举手，你选择下一位发言者。",
+      "title": "tmt meet · 发布时间窗口",
+      "sketch": "设计草图",
+      "floor": "发言权",
+      "host": "由你选择",
+      "first": "先到先说",
+      "hasFloor": "正在发言",
+      "hands": "已举手",
+      "noHands": "无人举手",
+      "inRoom": "在会议中",
+      "keys": "g 授予发言权  @name 授予发言权  m 切换模式",
+      "script": [
+        {
+          "who": "builder",
+          "say": "令牌已轮换，测试通过。需要决定发布时间窗口。",
+          "hands": ["reviewer", "tester"]
+        },
+        { "who": "reviewer", "say": "建议今晚发布：改动很小，#412 已审核。", "hands": ["tester"] },
+        { "who": "tester", "say": "#412 的 E2E 测试通过。我没有异议。", "hands": [] },
+        { "who": "you", "say": "今晚发布。builder，CI 通过后合并。", "hands": ["builder"] }
+      ],
+      "roadmap": [
+        { "title": "当前 · 计划中", "text": "设计已确定（#842），尚未开始" },
+        { "title": "下一步 · 文字", "text": "在终端中开文字会议：举手、轮流发言，由你主持" },
+        { "title": "之后 · 网页和语音", "text": "先在 colab 中提供网页界面，再支持语音" }
+      ]
+    },
+    "marks": {
+      "label": "board 和各命令使用相同的标记，每个标记只有一种含义。",
+      "intro": "board 保持简洁，让需要你处理的事项更醒目。各命令也使用相同的标记。",
+      "boardOnly": "仅用于 board",
+      "items": [
+        { "mark": "●", "name": "运行中", "text": "正在运行或处于活跃状态" },
+        { "mark": "○", "name": "离线", "text": "已离线或已结束" },
+        { "mark": "◌", "name": "无 agent", "text": "已绑定窗格，但没有 agent 运行" },
+        { "mark": "◆", "name": "等待你", "text": "等待你的决定" },
+        { "mark": "✗", "name": "受阻", "text": "失败或受阻" },
+        { "mark": "✓", "name": "完成", "text": "已完成" },
+        { "mark": "↻", "name": "恢复", "text": "用于引出恢复操作，不表示某一行的状态" },
+        { "mark": "▸", "name": "已折叠", "text": "已折叠的窗格；按 d 或点击标题展开" }
+      ]
+    }
+  },
+  "journey": {
+    "stepsLabel": "步骤",
+    "layersLabel": "同一基础上的各层功能",
+    "steps": [
+      {
+        "title": "1 · talk",
+        "hint": "两个窗格，一条消息",
+        "status": "",
+        "caption": "最简单的开始：两个窗格中各有一个 agent，其中一个通过 `tmt talk` 向另一个发送请求。回复带着 receipt 返回。后续功能都建立在这个基础上。"
+      },
+      {
+        "title": "2 · board",
+        "hint": "一个界面查看整个团队",
+        "status": "alpha",
+        "caption": "agent 变多了？`tmt sq board` 在同一个界面显示整个团队：谁在工作，谁在等你，谁遇到了阻碍。这是 Squad 扩展的功能。仍是同一批 agent，只多一个窗口。"
+      },
+      {
+        "title": "3 · colab",
+        "hint": "一个共享页面",
+        "status": "进行中",
+        "caption": "Colab 是放置 lead 计划、笔记和讨论的共享页面。同事和其他机器上的 agent 可以阅读同一个页面并发表评论。这里展示的是设计，还没有发布。"
+      },
+      {
+        "title": "4 · meet",
+        "hint": "与 agent 开会",
+        "status": "计划中",
+        "caption": "Meet（#842）让你、lead 和成员参加同一场文字会议。想发言的人先举手，由你分配发言权。目前尚未开始。"
+      }
+    ],
+    "layers": [
+      "会议室 · 计划中",
+      "共享页面 · 进行中",
+      "一个界面查看团队 · alpha",
+      "各层功能共同使用的基础"
+    ],
+    "scenes": {
+      "talkArrow": "lead ⇄ builder · 两个窗格 · 请求发出，回复带着 receipt 返回",
+      "boardArrow": "同一批 agent，多一个窗口",
+      "boardNew": "新增",
+      "yourLaptop": "你的笔记本电脑",
+      "buildServer": "构建服务器",
+      "teammate": "同事",
+      "human": "（人类）",
+      "herLead": "她的 lead",
+      "sharedPage": "一个共享页面",
+      "inProgress": "进行中",
+      "pageTitle": "colab · 发布计划",
+      "planHeading": "5.0 发布计划",
+      "planOne": "轮换令牌",
+      "planTwo": "登录测试",
+      "planThree": "今晚发布 #412",
+      "decide": "决定",
+      "reviewerSays": "改动很小，可以发布",
+      "meiSays": "能等文档修复后再发布吗？",
+      "meetArrow": "举手者（↑）依次等待 · 由你分配发言权",
+      "planned": "计划中"
+    }
+  }
+}
