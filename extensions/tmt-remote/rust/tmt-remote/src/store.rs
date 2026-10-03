@@ -5,7 +5,7 @@ use crate::{error::RemoteError, state::Serving};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 use std::time::Duration;
 
-fn database(error: impl std::fmt::Display) -> RemoteError {
+pub(crate) fn database(error: impl std::fmt::Display) -> RemoteError {
     RemoteError::new(
         "REMOTE_STATE_UNAVAILABLE",
         &format!("Remote state database failed: {error}."),
@@ -13,7 +13,7 @@ fn database(error: impl std::fmt::Display) -> RemoteError {
 }
 
 pub struct Store {
-    connection: Connection,
+    pub(crate) connection: Connection,
 }
 /// Stable per-machine identity.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -94,7 +94,7 @@ impl Store {
 }
 /// Ordered schema history in the core `_migrations` shape. Append only; a
 /// recorded name must match, and a newer database than this build refuses.
-const MIGRATIONS: [(&str, &str); 3] = [
+const MIGRATIONS: [(&str, &str); 4] = [
     (
         "machine",
         "CREATE TABLE machine(
@@ -129,6 +129,25 @@ const MIGRATIONS: [(&str, &str); 3] = [
              grant_revision INTEGER NOT NULL,
              next_client_sequence TEXT NOT NULL,
              next_server_sequence TEXT NOT NULL)",
+    ),
+    (
+        "journal",
+        "CREATE TABLE streams(client_id TEXT PRIMARY KEY REFERENCES grants(client_id),
+            incarnation TEXT NOT NULL, key BLOB NOT NULL, tip INTEGER NOT NULL DEFAULT 0,
+            floor INTEGER NOT NULL DEFAULT 0, observed INTEGER NOT NULL DEFAULT 0,
+            acknowledged INTEGER NOT NULL DEFAULT 0,last_ms INTEGER NOT NULL DEFAULT 0);
+         CREATE TABLE entries(client_id TEXT NOT NULL REFERENCES streams(client_id),
+            position INTEGER NOT NULL, envelope BLOB NOT NULL, at_ms INTEGER NOT NULL,
+            PRIMARY KEY(client_id,position));
+         CREATE TABLE operations(id TEXT PRIMARY KEY, client_id TEXT NOT NULL REFERENCES grants(client_id),
+            operation TEXT NOT NULL, digest BLOB NOT NULL, frozen BLOB, phase TEXT NOT NULL,
+            receipt TEXT NOT NULL, references_json TEXT NOT NULL DEFAULT '[]', updated_ms INTEGER NOT NULL);
+         CREATE INDEX operations_client ON operations(client_id);
+         CREATE TABLE budgets(subject TEXT NOT NULL,kind TEXT NOT NULL,started_ms INTEGER NOT NULL,
+            used INTEGER NOT NULL,PRIMARY KEY(subject,kind));
+         CREATE TABLE audit(position INTEGER PRIMARY KEY,at_ms INTEGER NOT NULL,
+            client_id TEXT NOT NULL,envelope_id TEXT NOT NULL,operation TEXT NOT NULL,operation_id TEXT,resources_json TEXT NOT NULL,
+            digest BLOB NOT NULL,grant_revision INTEGER NOT NULL,decision TEXT NOT NULL,code TEXT NOT NULL);",
     ),
 ];
 /// Default scopes, sorted bytewise.

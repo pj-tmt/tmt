@@ -4413,11 +4413,16 @@ to one message owner. `wire` owns bounded strict JSON admission (including dupli
 members at every payload depth) and preserves exact payload bytes for signatures.
 `admission` and `DoorSessions` verify live device/session authority, scope and route,
 serialize one normal message per session, and durably consume its expected sequence.
-Authenticated normal messages receive signed `REMOTE_CLOSED` refusals; there is
-still no application adoption, journal or core operation. Startup discovery is not a remote
-operation. The pilot cannot adopt a request, approve, send or return a subscription batch;
-normal-message authority is not application acceptance. No journal or core DB is created. The foreground door has no default
-deadline; it runs until interrupted. Colab has no door of its own; remote
+`journal` owns client/machine/incarnation-scoped MAC cursors, metadata catch-up and
+monotonic observed-prefix checkpoints. Subscribe/ack return signed batches/checkpoints;
+controls never create journal entries. Long polls recheck live authority after each wake
+and wake on session replacement/end or door shutdown. Application append still returns
+signed `REMOTE_CLOSED` refusals; the internal permit adoption boundary is not wired to
+public operations, approval or sends. Startup discovery is not a remote operation.
+`audit` writes bounded, sanitized metadata in the adoption/refusal transaction;
+`budgets` persists fixed-window call/send/approval counters without resetting on clock
+rollback. No core DB is opened. The foreground door has no default deadline;
+it runs until interrupted. Colab has no door of its own; remote
 mounts its owner-only socket.
 
 `state` owns remote's private `<dataRoot>/remote/` subtree, relocated from the
@@ -4443,7 +4448,14 @@ wraps. These rows survive interruption, but only in-memory live sessions authori
 normal messages; restart never revives an old row. `authority` consumes the existing
 grant fields as typed direct/hold and all/selected-agent policy, refusing malformed
 or unknown authority without changing pairing's producer. Unsafe state fails closed
-before the door binds. Colab keeps its own copy of the layout
+before the door binds. Schema 4 adds metadata streams, separate request ownership,
+fixed-window budgets and append-only audit. Metadata lasts at most 24 hours/1000 entries
+per client; acked prefixes compact sooner. Ownership reads expire after 30 days without
+renewal on reads/ack. Expired records remain bounded ID fences, so pruning never permits
+re-adoption; at 1000 ownership records/client new adoption refuses. Frozen pending intent
+is bounded to 64 MiB/client and 256 MiB total. Audit and budget key counts are each bounded
+to 100,000; capacity/write failure refuses before adoption. Public operation transitions
+and frozen-payload release are not wired yet. Colab keeps its own copy of the layout
 code until a shared leaf exists (#1041).
 
 `control::Control` binds `<dataRoot>/remote/control.sock` (0600, in the 0700

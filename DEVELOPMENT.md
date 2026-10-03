@@ -3185,14 +3185,17 @@ cover tunnel closure, durable tombstones and replay.
 Colab gets at most 16 live WebSocket tunnels, each closed after 120 seconds
 without traffic; a full pool answers 503 with `retry-after`, so colab should
 keep one socket per tab and reconnect after idle close.
-Strict normal-message authority is implemented, but authenticated append/subscribe/ack
-currently return machine-signed `REMOTE_CLOSED` refusals, without journal adoption
-or core effects. Session opens and these refusals share one durable response counter;
-client sequences are consumed once, with one normal message in flight per session.
-Malformed/unsigned/expired/revoked inputs retain generic pre-auth refusal. Focused
-checks run from `rust/` with `CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-remote --test admission`; they cover exact bytes, strict JSON,
-replay, replacement/revocation and real-storage counter reopen/exhaustion. Application
-operations, hold, sends, the relay and journal integration are not implemented. The [channel contract](contracts/remote-channel-v1.md) is
+Strict normal-message authority and signed subscribe/ack are implemented. Application
+append returns audited, machine-signed `REMOTE_CLOSED` refusals without core effects.
+Session opens, controls and responses share durable counters; client sequences are
+consumed once, with one normal message in flight per session. Malformed/unsigned/expired/
+revoked inputs retain generic pre-auth refusal. Focused checks run from `rust/` with
+`CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-remote`; admission tests cover
+exact bytes, strict JSON, retry intent, signed catch-up/checkpoints, cursor isolation,
+retention and persisted budgets. Journal unit tests inject SQLite audit failures and
+capacity, and prove waits wake on authority events/shutdown, including notification races.
+The permit's internal adoption API is tested against private real storage; public
+application operations, hold approval, core sends and the relay remain unwired. The [channel contract](contracts/remote-channel-v1.md) is
 proposed; [the separately owned browser shell](#browser-add-on-shell)
 uses only a stub. No official remote installer/release exists.
 

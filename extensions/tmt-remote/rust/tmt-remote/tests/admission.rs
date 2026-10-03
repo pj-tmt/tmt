@@ -46,6 +46,9 @@ impl OwnerDoor {
         Self::with_scopes(DEFAULT_SCOPES.iter().map(|scope| (*scope).into()).collect())
     }
     fn with_scopes(scopes: Vec<String>) -> Self {
+        Self::with_policy(scopes, "direct")
+    }
+    fn with_policy(scopes: Vec<String>, mode: &str) -> Self {
         let root = AdmissionRoot::new();
         let layout = Layout::open(&root.0).unwrap();
         let serving = layout.serve_lock().unwrap();
@@ -63,7 +66,7 @@ impl OwnerDoor {
             name: "Test device".into(),
             agents: "all".into(),
             scopes,
-            mode: "direct".into(),
+            mode: mode.into(),
             issued_at_ms: now_ms().unwrap(),
             expires_at_ms: None,
             revision: 1,
@@ -128,7 +131,7 @@ impl OwnerDoor {
         let text = |key: &str| reply[key].as_str().unwrap();
         assert_eq!(reply["correlationId"], request["id"]);
         assert_eq!(reply["operation"], request["operation"]);
-        assert_eq!(reply["clientId"], self.grant.client_id);
+        assert_eq!(reply["clientId"], request["clientId"]);
         assert_eq!(reply["machineId"], self.machine);
         let payload = canonical::base64url_decode(text("payload")).unwrap();
         crypto::verify_signature(
@@ -510,3 +513,6 @@ fn strict_payload_admission_preserves_native_json_number_values() {
     assert_eq!(value["integer"].as_u64(), Some(u64::MAX));
     assert_eq!(value["fraction"].as_f64(), Some(1.5));
 }
+
+#[path = "admission/journal.rs"]
+mod journal;
