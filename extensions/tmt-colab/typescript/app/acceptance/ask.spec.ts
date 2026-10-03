@@ -199,6 +199,16 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
     });
   });
 
+  test.fixme(`two tabs of one paired browser stay live, share asks, and a Colab restart in one does not end the other's Remote session (needs ${PENDING} and one Remote session shared between tabs)`, async () => {
+    // Remote allows one session per device (tabs.spec.ts pins it), so tabs must
+    // share a single session; today each tab opens its own and they end each
+    // other's. Steps: open the page in tab A and tab B of the same paired
+    // browser; send an ask in A and see its entry (same operation ID) in B;
+    // restart tmt-colab; both tabs reconnect; B can still send a second ask
+    // accepted by Remote (its session was not ended by A's reconnect), and
+    // the recipient has exactly two received rows.
+  });
+
   test.fixme(`a held grant shows held until local approval, then accepted (needs ${PENDING} and a hold grant fixture for the device)`, async () => {
     // Needs a way to give the paired device mode "hold": Remote's own tests
     // seed it directly in Remote storage while serve is stopped (a test-only

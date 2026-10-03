@@ -52,3 +52,8 @@ exists; the suite never seeds a page with a test-only producer. The held case al
 hold grant for the device. Enable a case by removing `fixme`, never with a stand-in.
 Assert the recipient's text equals the previewed text, including the `[remote: <device>]`
 line, and that no delivery state is shown (presence only).
+
+`tabs.spec.ts` pins a Remote contract the Ask design depends on: Remote keeps one session per
+device, so a newer `session.open` ends the older session and its tunnels. Two tabs of one
+paired browser are one device; they must share a single session, or each tab's reopen ends the
+other's. The two-tab Ask case in `ask.spec.ts` asserts the product behavior.
