@@ -2611,14 +2611,14 @@ must prove no retry or unintended mutation; unchanged generated heads remain pre
 ## Project tracking
 
 Progress is read from one place: the `pj-tmt` project
-(<https://github.com/orgs/pj-tmt/projects/1>), filtered to `label:feature`.
-Each product feature has one tracker issue titled `Feature: <name>` with the
-`feature` label. The project's Sub-issues progress counts only direct
+(<https://github.com/orgs/pj-tmt/projects/1>), filtered to `label:epic`.
+Each epic has one tracker issue titled `Epic: <name>` with the `epic`
+label. The project's Sub-issues progress counts only direct
 sub-issues, so the tracker is the only parent that matters for progress.
 
 Every issue carries these Project fields:
 
-- `Feature`: the tracker it serves. The issue is also a direct sub-issue of
+- `Epic`: the tracker it serves. The issue is also a direct sub-issue of
   that tracker. Do not hang slices under an umbrella issue that is itself a
   tracker child; umbrella or findings-log issues stay outside the tracker.
 - `Squad`: the squad whose lead owns the issue.
@@ -2653,7 +2653,7 @@ Tracker rules:
   visible under `Blocked`. Optional future children must not reopen a
   delivered milestone; state the delivered scope in `Now` and label deferred
   scope.
-- A tracker (`Feature: <name>`) is a product item the maintainer set. A
+- A tracker (`Epic: <name>`) is a product item the maintainer set. A
   squad lead may propose one through tmt-lead, but it is opened only after
   the maintainer approves it; no agent creates a tracker on its own.
 - Below a tracker, leads and the project manager may open child issues
