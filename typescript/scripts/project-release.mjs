@@ -276,11 +276,12 @@ export function affectedProducts(paths, map, workspace) {
     const component = map.components.find((entry) => entry.name === name);
     if (!component) throw new Error(`No component owns ${path}.`);
     if (component.releaseStatus === 'never') continue;
-    // Consumers replace only their private leaf, while Cargo/root membership remains additive.
+    // Linked private leaves ship through their consumers; parked products retain their own identity.
     const owners = new Set([
-      ...(component.releaseConsumers.length ? component.releaseConsumers : [name]),
+      ...component.releaseConsumers,
       ...releasedComponentsForPath(path, map, workspace).map((entry) => entry.name),
     ]);
+    if (component.package || !owners.size) owners.add(name);
     for (const owner of owners) {
       try {
         releasePolicy(owner);

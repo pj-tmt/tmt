@@ -21,7 +21,7 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
 ## Main cut authorization
 
 The [architecture](../../../ARCHITECTURE.md#main-release-cuts) owns the release
-model; [DEVELOPMENT](../../../DEVELOPMENT.md#main-release-cuts) owns its procedure.
+model; the [main-cut reference](references/main-cuts.md) owns its procedure.
 Automatic cuts and publication cover only released products on their existing
 alpha core version. Stable releases, major/minor changes, breaking releases and
 any manual publication require the owner. An explicit version on a cut requests a
@@ -64,7 +64,7 @@ Non-publishing `prepare` rehearsals and installation fixtures derive
 version is never a real cut or publication target. Preparation keeps the draft
 tag empty, creates no Git tag, and runs every source, archive and installation
 gate against the injected version. It adds no dispatch input and authorizes no
-product activation. The procedure belongs to DEVELOPMENT.
+product activation. Follow the [installation-fixture procedure](references/installation-fixtures.md).
 
 The private release tool's mechanical source/lock proof grants no publishing
 permission. Do not commit injected versions back to main, create tags early,
@@ -138,7 +138,7 @@ does not authorize publication or replace artifact acceptance.
   whose latest selection follows the main cut authorization contract above;
   Office, Squad and Herdr releases retain their product prerelease policy and never
   become latest. After
-  a manual publication, run the guide's `--check-latest` check (the pipeline checks
+  a manual publication, run the [publication readback](references/main-cuts.md#manual-publication-readback) (the pipeline checks
   its own publications). Do not equate a
   downloadable CI bundle with a published or accepted release.
 - Every CLI, extension or driver release also passes the guide's upgrade from the last

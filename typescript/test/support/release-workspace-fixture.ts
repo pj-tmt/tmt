@@ -1,6 +1,6 @@
 // Minimal real Cargo data for exact-ref release metadata contracts; no external dependencies.
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 
 export function writeReleaseWorkspace(root: string): void {
   const packages = [
@@ -30,7 +30,7 @@ export function writeReleaseWorkspace(root: string): void {
     mkdirSync(join(root, p.directory, 'src'), { recursive: true });
     writeFileSync(
       join(root, p.directory, 'Cargo.toml'),
-      `[package]\nname = "${p.name}"\nversion = "${p.version}"\nedition = "2021"\n`
+      `[package]\nworkspace = ${JSON.stringify(relative(p.directory, 'rust'))}\nname = "${p.name}"\nversion = "${p.version}"\nedition = "2021"\n`
     );
     writeFileSync(join(root, p.directory, 'src/main.rs'), 'fn main() {}\n');
   }

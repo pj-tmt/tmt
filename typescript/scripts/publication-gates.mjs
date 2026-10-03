@@ -278,9 +278,8 @@ export function releaseCommits({ from, to, product, map, workspace }, readGit = 
   );
 }
 
-function earlyChecks({ product, tag, release, releases, repository, map, workspace }) {
+function earlyChecks({ product, tag, release, releases, repository }) {
   const sha = release.target_commitish;
-  const component = componentOfProduct(map, product);
   return {
     channel: () => checkChannel({ product, tag }),
     commit: () => {
@@ -305,6 +304,8 @@ function earlyChecks({ product, tag, release, releases, repository, map, workspa
     immutability: () => checkImmutability({ releases }),
     monotonic: () => checkMonotonic({ releases, product, tag }),
     migration: () => {
+      const { map, workspace } = readReleaseSourceAtRef(sha, { root: process.cwd(), warm: true });
+      const component = componentOfProduct(map, product);
       const alpha = isAlphaVersion(versionOfTag(tag, product));
       const previousCut = releaseCutHistory({
         releases,
@@ -417,7 +418,6 @@ function main(argv, environment) {
   };
 
   if (command === 'early') {
-    const { map, workspace } = readReleaseSourceAtRef(sha, { root: process.cwd(), warm: true });
     if (values.rerun && values['release-hold'])
       throw new Error('Rerun and release-hold are separate runs.');
     let skip = '';
@@ -443,8 +443,6 @@ function main(argv, environment) {
         release,
         releases,
         repository,
-        map,
-        workspace,
       }),
       skip: EARLY_GATES.includes(skip) ? skip : '',
     });

@@ -4396,7 +4396,8 @@ activation and first alpha belong to #1418 and require owner authorization.
 Historical comparison fixtures retain public release bodies, source maps and the
 historical release PR parent cuts for CLI alpha.44→45/45→46 and Squad alpha.12→13.
 Those parents are fixture provenance only; production ancestry uses main tags.
-Procedures belong to [DEVELOPMENT](DEVELOPMENT.md#main-release-cuts).
+Procedures belong to the [release skill](.agents/skills/tmt-release/SKILL.md)
+and its [main-cut reference](.agents/skills/tmt-release/references/main-cuts.md).
 
 ### Release-to-Project tracking
 

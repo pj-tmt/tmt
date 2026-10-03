@@ -49,7 +49,7 @@ describe('native installation process contract', () => {
     'versioned candidate handoff fences publication and retains provenance and same-version repair',
     { timeout: 60_000 },
     async () => {
-      await withSandbox(async (sandbox) => {
+      await withReleaseSandbox(async (sandbox) => {
         const probe = await runCli(sandbox, [
           '__native-install',
           '--handoff-version',

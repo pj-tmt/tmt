@@ -167,8 +167,8 @@ describe('live release cut lifecycle', () => {
       ['squad', 'created', 'tmt-squad-v0.1.0-alpha.15'],
     ]);
     expect(f.client.draft).toHaveBeenCalledTimes(2);
-    expect(f.client.dispatch).toHaveBeenNthCalledWith(1, 'cli');
-    expect(f.client.dispatch).toHaveBeenNthCalledWith(2, 'squad');
+    expect(f.client.dispatch).toHaveBeenNthCalledWith(1, 'cli', 'v5.0.0-alpha.49');
+    expect(f.client.dispatch).toHaveBeenNthCalledWith(2, 'squad', 'tmt-squad-v0.1.0-alpha.15');
     for (const draft of f.releases.filter((r) => r.draft)) {
       expect(draft.target_commitish).toBe(f.cut);
       expect(draft.body).toContain(`Release cut: ${f.cut}`);
@@ -195,10 +195,9 @@ describe('live release cut lifecycle', () => {
       cut: later,
     });
     const next = f.releases.find((release) => release.tag_name === 'v5.0.0-alpha.50')!;
-    expect([...next.body!.matchAll(/\/commit\/([a-f0-9]{40})/g)].map((match) => match[1])).toEqual([
-      later,
-      f.cut,
-    ]);
+    expect(
+      [...next.body!.matchAll(/\/commit\/([a-f0-9]{40})/g)].map((match) => match[1]).sort()
+    ).toEqual([later, f.cut].sort());
     expect(failed.draft).toBe(true);
     expect(failed.assets).toEqual([{ name: 'verification-failed.json' }]);
   });

@@ -1434,13 +1434,10 @@ and storage probe remain debug fixtures. Rust debug tests, Clippy, MSRV builds
 and embedded service tests remain separate required checks; process deadlines
 and assertions are unchanged. Local selection still defaults to the debug CLI.
 
-CLI version expectations and Office installation/hook fixtures use the shared workspace reader
-once per suite, selecting the relevant crate by name and running bounded
-`cargo metadata --no-deps --offline --locked`. The reader also reads `rust/Cargo.lock` and
-lists tracked files with `git ls-files -z`, so the suite needs a Git checkout. Cargo, the
-lockfile and workspace resolution inputs must remain available even when selecting an explicit
-CLI executable. The documented build below supplies the resolution inputs; the expectation
-has no alternate version reader.
+Native version expectations reuse the shared
+[Cargo metadata reader](ARCHITECTURE.md#main-release-cuts) once per suite. The
+selected checkout's locked workspace inputs must be available even with an
+explicit executable selector.
 
 Build first, then explicitly select the test-only storage probe. The product CLI
 uses its repository-native default; the probe is never an installed SQL command:
@@ -1452,28 +1449,8 @@ TMT_TEST_STORAGE_PROBE='{"executable":"/absolute/checkout/rust/target/debug/exam
   pnpm test:native
 ```
 
-Installation and upgrade sandboxes use the one `withReleaseSandbox` helper in
-`test/support/native-installation.ts`. They require a real debug CLI injected to the shared non-publishing preparation
-version, at the selected Cargo target's
-`debug/native-release-fixture/tmt`, with its Herdr companion beside it. They never
-label a development executable as an alpha or relax channel checks. CI builds
-this fixture only when the existing native test selection includes installation
-or upgrade tests; it reuses the production injection action, verifies the source
-gate after the debug build, reports build seconds, then restores the reviewed
-workspace version and lock before running tests. Other process tests keep the
-development CLI.
-
-For local installation-fixture preparation, start with a clean, committed task
-checkout and follow the [version-injection procedure](#main-release-cuts) using
-`product=cli`, an empty tag and a snapshot outside the checkout. The
-[release skill](.agents/skills/tmt-release/SKILL.md#main-cut-authorization) owns the
-synthetic-version rule. Build
-only `tmt-cli --bin tmt` in debug mode, copy it and the independently built Herdr
-companion into `debug/native-release-fixture/`, and verify the source gate again.
-After that succeeds, restore only `rust/Cargo.toml` and `rust/Cargo.lock` from the
-captured commit and confirm `git diff --exit-code HEAD --` before running tests.
-Retain the fixture, build time and source-gate evidence in the delivery record;
-never publish this synthetic version. Shared-host Cargo limits still apply.
+Installation and upgrade tests use the
+[release skill's fixture procedure](.agents/skills/tmt-release/references/installation-fixtures.md).
 
 Native process and archive fixtures need both the CLI and Herdr executable. When
 narrowing Cargo package selection, build them together with
@@ -2087,77 +2064,9 @@ checksums or bootstrap behavior. Linkage is checked in both raw and archive proo
 
 ## Main release cuts
 
-The [architecture](ARCHITECTURE.md#main-release-cuts) owns the cut and source
-contract; the [release skill](.agents/skills/tmt-release/SKILL.md#main-cut-authorization)
-owns authorization. The following commands describe the procedure, never grant
-permission to dispatch publishing work.
-
-On main pushes and the daily schedule, `release.yml` captures main HEAD, complete
-draft/tag allocation metadata and the component map/Cargo graph at that cut. Inspect
-its summary and `release-cut-plan` artifact for proposed tag, notes, linked SHAs,
-cut and skip reason. Missing draft visibility, pagination or history is a
-blocked plan. Allocation is serialized; inspect each tag-specific native pipeline
-independently. Failed drafts stay unpublished without blocking later cuts.
-
-For an owner-authorized explicit version, dispatch `release.yml` on main with
-`product=cli|squad`, `version=<canonical stable or alpha version>` and
-`dry_run=true` first. Review the exact cut, notes, tag and native holds before the
-owner chooses `dry_run=false`. Without a version, released alpha products advance
-their current prerelease number. The draft starts tagless at the captured main
-commit; native-release creates the immutable tag only after all publication gates.
-A stable, breaking or held release still needs the owner's existing authorization.
-Parked products and their first alphas remain #1418; this procedure activates none.
-
-Keep the `release` Environment restricted to main. The cut job uses its scoped
-workflow token for draft visibility, creation and native dispatch; it requires no
-release-PR App token. In the switch merge window, tmt-lead removes its external
-merge-enqueue release hold (including the tagless-draft/release-PR condition),
-retaining normal primary review, pinned-head checks and queue protection. There
-are no release PRs to enqueue or pause.
-
-The persistent `release-version-injection.yml` PR check proves CLI and Squad on
-four native hosts. It reuses `.github/actions/inject-release-version`, fetches
-locked dependencies, captures the source/version contract, proves full locked
-metadata rejects a changed-version stale lock, updates only implied entries
-offline, then verifies the source, dist plan/build and extracted binary. Tagless
-preparation uses the shared synthetic version and retains the same gates.
-Already-versioned reruns require zero source/lock changes.
-`--no-deps` inheritance discovery cannot replace full offline locked verification.
-Review `release-injection-<product>-<target>` artifacts and job summaries. No release
-secrets or publication privileges enter PR jobs. The runtime producer transfers
-the private TOML binary separately for ordinary tooling fixtures.
-
-```bash
-(cd rust && cargo build --locked -p tmt-release-tool --bin release-version && cargo test --locked -p tmt-release-tool --bin release-version)
-(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-version-injection.test.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/repository-layout.test.ts)
-(cd typescript && corepack pnpm check:tooling)
-actionlint .github/workflows/release.yml .github/workflows/release-version-injection.yml .github/workflows/native-release.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-upgrade.yml
-```
-
-Historical notes comparisons in `test/fixtures/release-cut-history.json` are
-immutable inputs from public REST releases and Git objects. They retain historical
-release PR parent cuts for CLI alpha.44→45/45→46 and Squad alpha.12→13; production
-never maps tags through those parents. Explain fixture changes with source evidence.
-
-For authorized local proof, follow the shared-host build/disk rules and use one
-Cargo target. Build `tmt-release-tool` first; Node finds its `release-version`
-binary at that target's `debug/` (or default `rust/target/debug/`). Run
-`release-version-injection.mjs prepare <checkout> <snapshot-outside-checkout>
-<product> <tag>`; an empty tag selects the shared non-publishing preparation version. When
-versions differ, demonstrate stale-lock rejection with full `cargo metadata
---offline --locked`, then `cargo update --offline --workspace` and `verify
-<checkout> <snapshot>`. Do not rewrite an already-versioned lock. After assembly,
-`manifests <checkout> <snapshot> <plan.json> <build.json>` checks the metadata; after
-archive extraction, `artifact <checkout> <snapshot> <plan.json> <build.json>
-<binary>` additionally checks the binary. Recheck `verify` after each stage.
-The checkout stays at its captured cut and may differ only in the exact version
-field and implied local lock entries. Never broaden an allowed diff after failure.
-
-The first new-path release requires end-to-end evidence: exact main cut/tag,
-complete native build/archive/install gates, upgrade proof including CLI adapter
-acceptance, immutable publication readback, all public smoke hosts (and the
-existing rate-limit retry procedure when applicable), plus Project reconciliation.
-An archive upload or a green switch PR alone does not establish publication.
+Release-cut and version-injection procedures belong to the
+[release skill](.agents/skills/tmt-release/SKILL.md) and its
+[main-cut reference](.agents/skills/tmt-release/references/main-cuts.md).
 
 ## Native release verification
 
@@ -2189,19 +2098,10 @@ archive, installer or bootstrap acceptance when those artifacts change.
 
 #### Explicit multi-platform release preparation
 
-`Native release artifacts` (`.github/workflows/native-release.yml`) is the per-product
-release run, with explicit product routing, not part of every PR. It currently
-accepts `cli` and `squad`. Office is frozen and Herdr awaits owner-authorized activation
-(#1418): parked components allow neither preparation nor draft publication;
-existing releases remain untouched. The [Herdr archive section](#herdr-driver-archives)
-owns its activation flags and retained CLI companion. It has two modes. The default `prepare` builds and verifies one bundle from the
-current main commit without a draft release and attaches nothing: dispatch each authorized
-product on the release's reviewed, required-checks-green main commit and record the
-product, run ID and exact SHA in its issue. With `prepare` off, the run plans the
-product's draft releases that carry neither a verified bundle nor a recorded failure,
-oldest first, and builds, verifies and attaches each one at its own commit
-(`target_commitish`), one at a time. `.github/workflows/native-release-bundle.yml` is the
-pipeline it calls once per draft. The pipeline builds both macOS targets on
+The [release skill's main-cut reference](.agents/skills/tmt-release/references/main-cuts.md)
+owns exact-tag dispatch and version-only checkout preparation. The matching-host
+archive pipeline is `.github/workflows/native-release-bundle.yml`.
+The pipeline builds both macOS targets on
 arm64 and Linux targets on matching
 arm64/x64 hosts using the existing pinned tools and `build-native-artifact.sh`.
 The shared matrix keeps build and final verification hosts aligned; x64 macOS
@@ -2217,17 +2117,8 @@ Rosetta tooling, with an explicit owner rerun remedy. Ordinary proofs retain
 candidate tooling; only an owner-authorized `native-release` `rerun=<tag>` uses
 current tooling against the recorded release data.
 
-The draft release carries the state of its own build. A draft with
-`release-publication.json` has a complete bundle: the archives, the final manifest and, for
-the CLI, both installers are uploaded first, their digests compared with the local bytes,
-and that file last, after every final verifier passed. A draft with
-`verification-failed.json` (run URL, commit, failed jobs) is parked: later runs list it in
-their summary and skip it. A cancelled run records nothing and is retried. Retry a parked
-draft by dispatching the run with `prepare` off and `retry` set to its tag, or delete the
-draft. Each product has one queued run group (`release-<product>`); GitHub keeps one pending
-run per group and replaces it, which loses nothing because a run plans from the drafts
-when it starts. The run asserts that the draft tag is the tag prefix and Cargo version of
-its commit, and it never creates, edits or publishes a release.
+For exact-tag pipeline selection and failed-draft recovery, follow the
+[release procedure](.agents/skills/tmt-release/references/main-cuts.md#native-pipeline-selection).
 
 cargo-dist itself merges the downloaded `*-dist-manifest.json` inputs through
 `dist build --artifacts global --output-format=json --no-local-paths`. Do not
@@ -2249,45 +2140,8 @@ Follow [Main release cuts](#main-release-cuts) for draft creation, dry-run revie
 explicit versions and the protected Environment. The native pipeline below owns
 verification and publication; the cut workflow only drafts and dispatches it.
 
-Once a draft's bundle is attached, the run evaluates the publication gates in order:
-`channel` (the version is an alpha, `X.Y.Z-alpha.N`; a stable version or any other pre-release
-label such as `beta` or `rc` is held, and releasing that hold is refused: the owner publishes it
-by hand), `commit` (the release's commit is on `main` and the pull request that produced it passed
-`Code quality`, `Unit tests`, `Docker E2E` and `Native package matrix`), `immutability` (the
-repository's newest published release is immutable, which shows that the setting was on; the
-workflow token cannot read the setting itself), `monotonic` (the release is newer than every
-published release of its product), `migration` (no commit of the release carries `!` or a
-`BREAKING CHANGE:` footer; outside the alpha channel the component's migration list, named in
-`.github/components.json`, also has no more entries than at the product's last published
-release, while an alpha publishes new entries and the gate's summary only reports them) and
-`upgrade` (the proof above, which for the CLI includes migrating state the previous release
-wrote; the first release of a product has nothing to upgrade from). A failed gate does
-not make the draft a failed build. The draft gets `publication-held.json` (`tag`, `sha`,
-`gate`, `reason`, `runUrl`, `recordedAt`), and later runs list it as held and leave it alone.
-The jobs that evaluate the gates hold the write token, so they run `main`'s code and only read
-the release commit's data through git and the API. To release a hold once its cause is dealt
-with, publish the draft by hand as below, or dispatch `native-release.yml` on `main` with the
-product, `prepare` off and `hold` set to the tag: the run evaluates the gates again without
-the one gate the marker names (never another, and never `channel`), removes the marker when
-they pass and then publishes the draft as below.
-
-An owner-authorized `rerun=<tag>` dispatch on main with `prepare` off instead re-proves
-all gates, including the gate named in `publication-held.json`; it skips none. `retry`,
-`hold` and `rerun` are mutually exclusive. The selected tag must be a bundled, held
-product draft with a commit target. The gates validate the marker's tag, SHA and known
-gate, and finish refuses a changed gate. Any failed gate leaves the original marker
-unchanged; only after all gates pass is it removed, followed by normal publication,
-attestation and public-install smoke checks. The
-[release skill](.agents/skills/tmt-release/SKILL.md#automated-alpha-publication) owns rerun authorization.
-
-Rerun uses the main commit selected by the dispatch for Node verifier scripts and
-their locked dependencies. Archives, manifest, version and digests come from the
-draft; CLI expected skill bytes, migration counts and applicable Rust adapter
-acceptance code come from a separate checkout of its release SHA (`release-source`).
-The read-only proof job compiles that source's adapter test with its own locked
-dependencies and toolchain pin; release-source Node verifier scripts do not run.
-Ordinary upgrade proof retains release-commit tooling. This separates repaired tooling
-from the unchanged candidate under test without rebuilding or replacing its assets.
+The [release reference](.agents/skills/tmt-release/references/main-cuts.md#publication-gates-and-recovery)
+owns publication gates, hold recovery and exact-tag reruns.
 
 Fixture-only verification (no dispatch or Docker):
 
@@ -2302,58 +2156,14 @@ choice is the standing authorization, recorded in the release skill, for the rel
 to publish an alpha draft that passes every gate above; everything a gate holds, every stable
 release and every publication by hand needs the owner's explicit authorization.
 
-When every gate passes, the `publish` job publishes the draft. `release-publish.mjs publish`
-reads the draft again and refuses unless its version is an alpha, its component is released
-(`release: false` in `.github/components.json` parks a component: the cut planner creates nothing
-for it and the native planner leaves its drafts alone and this command refuses them, so a draft that
-predates the flag cannot publish), and it carries the bundle and neither
-`publication-held.json` nor `verification-failed.json`; then one `gh release edit <tag>
---draft=false --prerelease=<bool> --latest=<bool>` applies the product's policy below. Both
-flags are explicit because draft flags are not publication policy. The `published` job
-then reads the release back: it is public and `immutable: true`, its flags are the policy's (a
-CLI release is the repository's latest release, an extension release never is), its tag is on
-the release commit, it carries `release-publication.json`, and GitHub's attestation verifies
-(`gh release verify`, and `gh release verify-asset` for every asset downloaded from the
-published release). GitHub finishes the attestation after publishing, so these checks are
-retried for about two minutes. A failed check opens an issue and fails the run; nothing is
-rolled back, because a published release is immutable and a repair needs a new reviewed
-version. A `smoke` job then installs the published release as a user does
-(`.github/workflows/native-release-smoke.yml`, also run by hand with `product` and `tag`, for
-the newest published CLI/extension release or an exact published driver tag: CLI and
-extension acquisition uses current public entry points, while a driver uses its versioned
-archive URLs. A failed run reports on the issue like any other). On the four hosts of the upgrade proof, in an isolated home, state directory
-and prefix, a CLI alpha goes through the public
-`releases/latest/download/install.sh`: the installer names the tag's version, the installed `tmt`
-is the one PATH selects and reports that version, the installed shared skills are the tag's
-`skills/*` (same names, same `SKILL.md`), and `tmt upgrade --channel alpha --json` reads the live
-metadata and reports the installation current (a newer alpha that appeared since passes with a
-note). An extension alpha is installed by the newest published CLI's `tmt extension install
-<extension>` into a separate prefix; `tmt extension list` must report the tag's version and no
-CLI link may appear. A Herdr driver alpha downloads its exact tag’s
-`dist-manifest.json` and matching standalone archive through public versioned URLs,
-checks the bounded manifest, digest and inventory, then uses the current public CLI’s
-supported `driver install <extracted-path> --yes --json` and `driver ls` surfaces
-to verify capabilities and durable approval. Named released-driver acquisition belongs to #1084.
-The tag is checked out only so its skills can be read; none of its code runs.
-The shared `.github/actions/public-install-smoke` action supplies the workflow's
-`contents: read` `GITHUB_TOKEN` only through the verifier's process environment.
-The verifier forwards it to the shell bootstrap and native acquisition commands,
-never argv, inspection commands or asset fetches. The native HTTPS client sends it
-only to `api.github.com`, rebuilding authorization per redirect hop; public bootstrap
-and archive downloads remain unauthenticated. Native bounded HTTPS retries are unchanged.
+The [release reference](.agents/skills/tmt-release/references/main-cuts.md#publication-readback-and-public-smoke)
+owns publication readback and installer selection.
 
 Acquisition errors, including exhausted GitHub rate limits, are failed smoke checks
 reported on the post-publication failure issue. There is no smoke-level rate-limit
 retry or deferred retry workflow. The verifier redacts the credential before writing
 bounded reasons, diagnostics, summaries or result artifacts and checks its isolated
 home, state, temporary files and installation prefix for persisted credentials.
-The CLI latest-installer read retries only an older alpha than the highest just-published
-tag (three reads, two 20-second waits); unchanged lag fails, while a newer or malformed
-version and download errors fail immediately. Install jobs have a 25-minute bound and
-read-only contents permissions; a separate issue writer reports failures with all four
-host artifacts. Historical anonymous rate-limit issues remain visible to the release
-stall monitor; they are not automatically closed by this change.
-
 `.github/workflows/public-install-smoke-pr.yml` provides a pull-request-only dry proof:
 it resolves an existing published CLI and uses the same authenticated action on all
 four matching hosts. It is filtered to the smoke action, verifier, its own workflow
@@ -2386,10 +2196,8 @@ Each bundle carries `release-publication.json` from
 `typescript/scripts/native-release-policy.mjs`; create the draft with its
 `flags` (`gh release create <tag> --draft <flags> …`). Publication flags and channel
 authorization belong to the [release skill](.agents/skills/tmt-release/SKILL.md).
-CLI smoke proves the public latest installer for the highest published version;
-an older independent cut uses its versioned installer. The managed updater must
-select the highest eligible alpha. After a manual stable CLI
-publication, check `node typescript/scripts/release-policy.mjs --check-latest "$(gh api repos/pj-tmt/tmt/releases/latest --jq .tag_name)"`. A CLI
+For manual publication readback and public installer selection, follow the
+[release reference](.agents/skills/tmt-release/references/main-cuts.md#manual-publication-readback). A CLI
 release attaches its four tar.gz archives, final `dist-manifest.json`,
 `tmt-installer.sh` and the byte-identical `install.sh` (the name the one-line
 install uses); an Office release uses the independent `tmt-office-v<version>`

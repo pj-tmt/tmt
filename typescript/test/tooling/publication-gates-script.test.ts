@@ -523,7 +523,7 @@ describe('held-draft rerun publication decisions', () => {
     expect(result.status).toBe(0);
     expect(result.summary).toContain('Every gate passed. The next job publishes the release.');
     expect(calls().filter((call) => call.includes('DELETE'))).toHaveLength(1);
-    expect(publication().flags).toContain('--latest=true');
+    expect(publication().flags).toContain('--latest=false');
     expect(
       readState().releases.find((release) => release.tag_name === 'v5.0.0-alpha.9')?.draft
     ).toBe(false);

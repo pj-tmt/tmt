@@ -52,16 +52,16 @@ const render = (commits: CutCommit[]) =>
   });
 
 describe('direct component-map cut attribution', () => {
-  it('uses ownership, exclusions, selectedBy and declared consumers, deduplicating multi-path changes', () => {
+  it('uses release roots and declared consumers without turning CI selection into release attribution', () => {
     const commits = [
       commit('feat: CLI', ['rust/x', 'extensions/parked/x']),
       commit('feat: private leaf', ['shared/a', 'shared/b'], 2),
       commit('fix: selected test', ['tests/squad.test'], 3),
       commit('feat: parked only', ['extensions/parked/a'], 4),
     ];
-    // CI's selectedBy owner adds Squad without replacing the matching CLI root.
+    // CI selects Squad for the test; release membership still follows the CLI root.
     expect(attributeCutCommits(commits, map, 'cli').map((c) => c.sha)).toEqual([sha(1), sha(3)]);
-    expect(attributeCutCommits(commits, map, 'squad').map((c) => c.sha)).toEqual([sha(2), sha(3)]);
+    expect(attributeCutCommits(commits, map, 'squad').map((c) => c.sha)).toEqual([sha(2)]);
   });
   it('rejects unknown, never-shipped or non-private consumption instead of a second attribution list', () => {
     for (const consumers of [['missing'], ['never']]) {
