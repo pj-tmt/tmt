@@ -3,6 +3,7 @@ pub mod core;
 pub mod decoder;
 pub mod keyring;
 pub mod limits;
+pub mod registration;
 pub mod socket;
 pub mod store;
 pub mod sync;

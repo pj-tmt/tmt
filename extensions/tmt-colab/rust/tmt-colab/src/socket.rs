@@ -8,6 +8,7 @@ use crate::{
     Result,
     keyring::{Layout, StateFault},
     limits,
+    registration::{self, Registration},
 };
 use nix::poll::{PollFd, PollFlags, poll};
 use serde_json::Value;
@@ -24,7 +25,7 @@ use std::{
     },
     path::PathBuf,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     thread::{self, JoinHandle},
@@ -95,6 +96,7 @@ pub struct MountSocket {
     identity: (u64, u64),
     space_id: String,
     tunnels: Tunnels,
+    registration: Option<Arc<Mutex<Registration>>>,
 }
 struct Worker {
     socket: UnixStream,
@@ -136,59 +138,66 @@ impl MountSocket {
             path,
             space_id: space_id.to_owned(),
             tunnels,
+            registration: None,
         })
+    }
+    pub fn with_registration(mut self, registration: Arc<Mutex<Registration>>) -> Self {
+        self.registration = Some(registration);
+        self
     }
     pub fn run(self, stop: &AtomicBool) -> Result<()> {
         let mut workers: Vec<Worker> = Vec::new();
         let live = Arc::new(AtomicUsize::new(0));
         let space_id: Arc<str> = self.space_id.as_str().into();
-        let result = (|| -> Result<()> {
-            while !stop.load(Ordering::Acquire) {
-                for i in (0..workers.len()).rev() {
-                    if workers[i].handle.is_finished() {
-                        workers
-                            .swap_remove(i)
-                            .handle
-                            .join()
-                            .map_err(|_| "Socket worker panicked.")?;
+        let result =
+            (|| -> Result<()> {
+                while !stop.load(Ordering::Acquire) {
+                    for i in (0..workers.len()).rev() {
+                        if workers[i].handle.is_finished() {
+                            workers
+                                .swap_remove(i)
+                                .handle
+                                .join()
+                                .map_err(|_| "Socket worker panicked.")?;
+                        }
                     }
-                }
-                let mut events = [PollFd::new(self.listener.as_fd(), PollFlags::POLLIN)];
-                match poll(&mut events, 100u16) {
-                    Ok(_) => {}
-                    Err(nix::errno::Errno::EINTR) => continue,
-                    Err(e) => return Err(e.into()),
-                }
-                for _ in 0..limits::SOCKETS {
-                    let (mut socket, _) = match self.listener.accept() {
-                        Ok(c) => c,
-                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
-                        Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    let mut events = [PollFd::new(self.listener.as_fd(), PollFlags::POLLIN)];
+                    match poll(&mut events, 100u16) {
+                        Ok(_) => {}
+                        Err(nix::errno::Errno::EINTR) => continue,
                         Err(e) => return Err(e.into()),
-                    };
-                    if stop.load(Ordering::Acquire) {
-                        break;
                     }
-                    socket.set_nonblocking(false)?;
-                    let busy = workers.len().saturating_sub(live.load(Ordering::Acquire));
-                    if busy >= limits::SOCKETS {
-                        let _ = response(&mut socket, 429, b"CAPACITY", false);
-                        continue;
+                    for _ in 0..limits::SOCKETS {
+                        let (mut socket, _) = match self.listener.accept() {
+                            Ok(c) => c,
+                            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                            Err(e) => return Err(e.into()),
+                        };
+                        if stop.load(Ordering::Acquire) {
+                            break;
+                        }
+                        socket.set_nonblocking(false)?;
+                        let busy = workers.len().saturating_sub(live.load(Ordering::Acquire));
+                        if busy >= limits::SOCKETS {
+                            let _ = response(&mut socket, 429, b"CAPACITY", false);
+                            continue;
+                        }
+                        let retained = socket.try_clone()?;
+                        let (live, space_id, tunnels) =
+                            (Arc::clone(&live), Arc::clone(&space_id), self.tunnels);
+                        let registration = self.registration.clone();
+                        let handle = thread::Builder::new().name("colab-socket".into()).spawn(
+                            move || serve(socket, &space_id, &live, tunnels, registration.as_ref()),
+                        )?;
+                        workers.push(Worker {
+                            socket: retained,
+                            handle,
+                        });
                     }
-                    let retained = socket.try_clone()?;
-                    let (live, space_id, tunnels) =
-                        (Arc::clone(&live), Arc::clone(&space_id), self.tunnels);
-                    let handle = thread::Builder::new()
-                        .name("colab-socket".into())
-                        .spawn(move || serve(socket, &space_id, &live, tunnels))?;
-                    workers.push(Worker {
-                        socket: retained,
-                        handle,
-                    });
                 }
-            }
-            Ok(())
-        })();
+                Ok(())
+            })();
         // Close retained handles before joining, interrupting blocked reads,
         // writes and held tunnels.
         for worker in &workers {
@@ -218,12 +227,20 @@ struct Request {
     method: String,
     /// The owner device's name, when remote forwarded an owner context.
     owner: Option<String>,
+    context: Option<String>,
+    body: Vec<u8>,
     upgrade: bool,
     key: Option<String>,
     version: Option<String>,
     protocols: Vec<String>,
 }
-fn serve(mut socket: UnixStream, space_id: &str, live: &AtomicUsize, tunnels: Tunnels) {
+fn serve(
+    mut socket: UnixStream,
+    space_id: &str,
+    live: &AtomicUsize,
+    tunnels: Tunnels,
+    registration: Option<&Arc<Mutex<Registration>>>,
+) {
     let request = match acquire(&mut socket) {
         Ok(request) => request,
         Err(status) => {
@@ -231,6 +248,26 @@ fn serve(mut socket: UnixStream, space_id: &str, live: &AtomicUsize, tunnels: Tu
             return;
         }
     };
+    if request.method == "POST" && request.path == registration::PATH && !request.upgrade {
+        let result = registration
+            .ok_or(registration::Code::Unavailable)
+            .and_then(|service| {
+                let mut service = service
+                    .lock()
+                    .map_err(|_| registration::Code::Unavailable)?;
+                let now = now_ms()?;
+                service.register(request.context.as_deref(), &request.body, now)
+            });
+        match result {
+            Ok(bytes) => {
+                let _ = response_as(&mut socket, 200, &bytes, "application/json");
+            }
+            Err(code) => {
+                let _ = response(&mut socket, code.status(), code.text().as_bytes(), false);
+            }
+        }
+        return;
+    }
     if request.upgrade {
         let accepted = request.method == "GET"
             && request.path == "/sync"
@@ -245,6 +282,18 @@ fn serve(mut socket: UnixStream, space_id: &str, live: &AtomicUsize, tunnels: Tu
         if request.owner.is_none() {
             let _ = response(&mut socket, 403, b"DENIED", false);
             return;
+        }
+        if let Some(service) = registration {
+            let admitted = service
+                .lock()
+                .map_err(|_| registration::Code::Unavailable)
+                .and_then(|mut service| {
+                    service.active_device(request.context.as_deref(), now_ms()?)
+                });
+            if let Err(code) = admitted {
+                let _ = response(&mut socket, code.status(), code.text().as_bytes(), false);
+                return;
+            }
         }
         let reserved = live
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
@@ -311,12 +360,20 @@ fn escape(text: &str) -> String {
         .replace('"', "&quot;")
 }
 fn response(socket: &mut UnixStream, status: u16, body: &[u8], html: bool) -> std::io::Result<()> {
-    let deadline = Instant::now() + limits::RESPONSE;
     let kind = if html {
         "text/html; charset=utf-8"
     } else {
         "text/plain; charset=utf-8"
     };
+    response_as(socket, status, body, kind)
+}
+fn response_as(
+    socket: &mut UnixStream,
+    status: u16,
+    body: &[u8],
+    kind: &str,
+) -> std::io::Result<()> {
+    let deadline = Instant::now() + limits::RESPONSE;
     let bytes = format!(
         "HTTP/1.1 {status} Response\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Security-Policy: {POLICY}\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n\r\n",
         body.len()
@@ -402,6 +459,8 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
         path: parsed.path.ok_or(400u16)?.to_owned(),
         method: parsed.method.ok_or(400u16)?.to_owned(),
         owner: None,
+        context: None,
+        body: Vec::new(),
         upgrade: false,
         key: None,
         version: None,
@@ -429,7 +488,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             "sec-websocket-protocol" => {
                 request.protocols = value.split(',').map(|p| p.trim().to_owned()).collect()
             }
-            CONTEXT_HEADER => request.owner = Some(owner_name(value)?),
+            CONTEXT_HEADER => request.context = Some(value.to_owned()),
             "content-length" => {
                 if value.is_empty()
                     || !value.bytes().all(|b| b.is_ascii_digit())
@@ -455,6 +514,10 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
     if bytes.len() != end + size {
         return Err(400);
     }
+    request.body = bytes[end..].to_vec();
+    if request.path != registration::PATH {
+        request.owner = request.context.as_deref().map(owner_name).transpose()?;
+    }
     Ok(request)
 }
 /// The owner device name from the remote door's context; anything other than
@@ -466,6 +529,15 @@ fn owner_name(value: &str) -> std::result::Result<String, u16> {
         Some(name) if valid => Ok(name.to_owned()),
         _ => Err(400),
     }
+}
+fn now_ms() -> std::result::Result<u64, registration::Code> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| registration::Code::Unavailable)?
+        .as_millis()
+        .try_into()
+        .map_err(|_| registration::Code::Unavailable)
 }
 fn read(
     socket: &mut UnixStream,

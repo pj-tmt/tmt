@@ -2752,7 +2752,7 @@ schema-1 rows and byte-for-byte database preservation on newer-schema refusal.
 Exact mutation outcomes are capped at 32 MiB; exceeding the cap rolls back.
 Callers must propagate transaction-method errors and perform live request,
 certificate, policy and baseline admission before committing authority changes.
-No management HTTP route, CLI transition or baseline producer is enabled here.
+No management mutation route, CLI transition or baseline producer is enabled here.
 
 ```bash
 (cd rust && cargo build --offline --locked -p tmt-cli -p tmt-colab)
@@ -2778,14 +2778,40 @@ paired owner's device context.
 The socket bounds are named in `src/limits.rs`: 16 request workers, 8 KiB/32
 header fields, 64 KiB HTTP bodies, 2-second total acquisition and 1-second total
 response, and 16 WebSocket tunnels closed after 120 seconds without inbound
-bytes. HTTP
-body capacity is for later sign-in/management; page objects use the future sync
-path. The stream sync library enforces 64 KiB frames and 8 queued frames with
+bytes. Bounded HTTP bodies carry registration requests; page objects use the
+stream sync path. The stream sync library enforces 64 KiB frames and 8 queued frames with
 `RESYNC_REQUIRED` close for slow subscribers; serve accepts and holds an owner's
-`colab-sync-v1` upgrade but does not yet hand it to that library. Real socket
+`colab-sync-v1` upgrade for a registered owner device but does not yet hand it
+to that library. Real socket
 and foreground process cleanup tests run lifecycle scenarios twice, with no core calls from
 socket traffic. Owner-key temporary cleanup is publication-locked; it preserves
 foreign file names and refuses unsafe matching files.
+
+### Colab owner registration verification
+
+Run `(cd rust && cargo test --offline --locked -p tmt-colab --test registration)`
+for real SQLite/keyring persistence, strict certificate admission, exact retry,
+one-year certificate validity/renewal, transaction rollback, revision-ordered
+revocation and the mounted HTTP endpoint exercised twice with socket cleanup.
+The independent management-key/remote-certificate oracle is
+`python3 extensions/tmt-colab/contracts/vectors/authority-reference.py` (requires
+the same Python cryptography tooling as the model foundation). Rust consumes
+frozen vectors without Python.
+
+The endpoint is `POST /api/devices/register` beneath the remote mount. Its strict
+request, response, key derivation and failure codes are owned by
+[colab-v1](extensions/tmt-colab/contracts/colab-v1.md#implemented-owner-browser-registration-1162).
+Use the remote SDK's `certifyKey` for each purpose, and its authenticated owner
+session; a cookie-only context cannot register. The response is committed before
+HTTP success. Schema 3 adds device registration bindings/tombstones while retaining
+all prior authority/ciphertext rows; newer schemas refuse without mutation.
+An existing incompatible management-member key binding fails closed.
+
+The trusted `Registration::revoke(deviceId, grantRevision)` callback removes active
+registration and retains a durable tombstone; older events cannot overwrite newer
+state; equal revisions return without a database write. Production remote event delivery remains #1100, owner-signed revocation and
+page epoch rotation remain #1157, and mounted stream-sync composition remains
+#1211. No registration test claims those integrated flows are complete.
 
 ### Colab stream sync verification
 
@@ -2815,7 +2841,7 @@ Run the Store read cases with `cargo test --offline --locked -p tmt-colab --test
 state`. The caller drives acquisition and blocked-write deadlines even without
 socket input; `Connection::poll_at` accepts a monotonic instant for deterministic
 verification. Exact wire shapes and budgets are owned by colab-v1. Owner
-registration is #1162. No two-browser catchup or mounted authentication acceptance
+registration is implemented under #1162. No two-browser catchup or mounted authentication acceptance
 is claimed.
 
 The only dependency change for this slice is the existing workspace tungstenite

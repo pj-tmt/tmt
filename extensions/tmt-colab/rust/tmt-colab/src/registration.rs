@@ -1,0 +1,447 @@
+//! Owner-browser extension-key registration. Remote authenticates the device;
+//! this boundary verifies both extension-key certificates before any signing.
+use crate::{
+    Result,
+    keyring::Keyring,
+    store::{
+        Store,
+        owner::{Device, Mutation, OwnerTransaction, Recipient},
+    },
+};
+use serde::{Deserialize, Serialize};
+use tmt_colab_model::{certificate, crypto, framing, statement, values};
+
+pub const PATH: &str = "/api/devices/register";
+pub const FRESHNESS_MS: u64 = 10 * 60 * 1000;
+pub const CERTIFICATE_MS: u64 = 365 * 24 * 60 * 60 * 1000;
+pub const RENEWAL_MS: u64 = 30 * 24 * 60 * 60 * 1000;
+const GENESIS: &str = "00000000-0000-4000-8000-000000000001";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Code {
+    Invalid,
+    Denied,
+    Expired,
+    Conflict,
+    Unavailable,
+}
+impl Code {
+    pub fn status(self) -> u16 {
+        match self {
+            Self::Invalid => 400,
+            Self::Denied | Self::Expired => 403,
+            Self::Conflict => 409,
+            Self::Unavailable => 503,
+        }
+    }
+    pub fn text(self) -> &'static str {
+        match self {
+            Self::Invalid => "INVALID",
+            Self::Denied => "DENIED",
+            Self::Expired => "EXPIRED",
+            Self::Conflict => "CONFLICT",
+            Self::Unavailable => "UNAVAILABLE",
+        }
+    }
+}
+impl std::fmt::Display for Code {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.text())
+    }
+}
+impl std::error::Error for Code {}
+impl From<tmt_colab_model::Invalid> for Code {
+    fn from(_: tmt_colab_model::Invalid) -> Self {
+        Self::Invalid
+    }
+}
+
+/// Trusted only when read from remote's header on the owner-only mount socket.
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct Context {
+    device_id: String,
+    kind: String,
+    origin: String,
+    name: String,
+    public_key: String,
+    owner: bool,
+    grant_revision: u64,
+}
+impl Context {
+    fn parse(raw: Option<&str>) -> std::result::Result<Self, Code> {
+        let c: Self = serde_json::from_str(raw.ok_or(Code::Denied)?).map_err(|_| Code::Denied)?;
+        if !c.owner
+            || c.grant_revision == 0
+            || !matches!(c.kind.as_str(), "browser" | "addon" | "cli")
+        {
+            return Err(Code::Denied);
+        }
+        values::generated_id(&c.device_id).map_err(|_| Code::Denied)?;
+        c.key()?;
+        Ok(c)
+    }
+    fn key(&self) -> std::result::Result<[u8; 32], Code> {
+        let key = binary::<32>(&self.public_key).map_err(|_| Code::Denied)?;
+        crypto::public_key(&key).map_err(|_| Code::Denied)?;
+        Ok(key)
+    }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct Request {
+    device_id: String,
+    sign: KeyCertificate,
+    enc: KeyCertificate,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct KeyCertificate {
+    public_key: String,
+    issued_at_ms: u64,
+    signature: String,
+}
+fn binary<const N: usize>(text: &str) -> std::result::Result<[u8; N], Code> {
+    values::binary(text, N)?
+        .try_into()
+        .map_err(|_| Code::Invalid)
+}
+/// Remote owns this layout (canonical::ext_cert); the shared model LP primitive
+/// implements its byte rules without importing a Remote behavior dependency.
+fn ext_cert(purpose: &str, key: &[u8; 32], issued: u64) -> std::result::Result<Vec<u8>, Code> {
+    values::time(issued)?;
+    Ok(framing::frame(&[
+        b"tmt-ext-cert-v1",
+        b"colab",
+        purpose.as_bytes(),
+        key,
+        issued.to_string().as_bytes(),
+    ])?)
+}
+impl KeyCertificate {
+    fn verify(
+        &self,
+        purpose: &str,
+        context: &[u8; 32],
+        now: u64,
+    ) -> std::result::Result<[u8; 32], Code> {
+        let key = binary(&self.public_key)?;
+        let signature = binary::<64>(&self.signature)?;
+        let input = ext_cert(purpose, &key, self.issued_at_ms)?;
+        if self.issued_at_ms > now || now - self.issued_at_ms > FRESHNESS_MS {
+            return Err(Code::Expired);
+        }
+        crypto::verify_signature(context, &input, &signature).map_err(|_| Code::Denied)?;
+        if purpose == "sign" {
+            crypto::public_key(&key)?;
+        }
+        if purpose == "enc" && key == [0; 32] {
+            return Err(Code::Invalid);
+        }
+        Ok(key)
+    }
+}
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct DeviceRegistration {
+    context: Context,
+    signing: [u8; 32],
+    encryption: [u8; 32],
+    outcome: Vec<u8>,
+}
+
+pub struct Registration {
+    store: Store,
+    keyring: Keyring,
+}
+impl Registration {
+    pub fn new(store: Store, keyring: Keyring) -> Self {
+        Self { store, keyring }
+    }
+    pub fn close(self) -> Result<()> {
+        self.store.close()
+    }
+    /// The caller supplies server time, never a request-selected clock.
+    pub fn register(
+        &mut self,
+        context: Option<&str>,
+        body: &[u8],
+        now: u64,
+    ) -> std::result::Result<Vec<u8>, Code> {
+        values::time(now)?;
+        if body.len() > crate::limits::HTTP_BODY_BYTES {
+            return Err(Code::Invalid);
+        }
+        let context = Context::parse(context)?;
+        let request: Request = serde_json::from_slice(body).map_err(|_| Code::Invalid)?;
+        values::generated_id(&request.device_id)?;
+        if request.device_id != context.device_id {
+            return Err(Code::Denied);
+        }
+        let remote_key = context.key()?;
+        let signing = request.sign.verify("sign", &remote_key, now)?;
+        let encryption = request.enc.verify("enc", &remote_key, now)?;
+        self.genesis().map_err(map_error)?;
+        let keyring = &self.keyring;
+        let apply = |tx: &mut OwnerTransaction<'_>| -> Result<Vec<u8>> {
+            let (initial, member, membership_revision) = issuer(tx, keyring)?;
+            let old_device = tx.device(&context.device_id)?;
+            if old_device.as_ref().is_some_and(|d| d.revoked) {
+                return Err(Code::Denied.into());
+            }
+            if let Some(row) = tx.registration(&context.device_id)? {
+                if row.revoked || context.grant_revision < row.grant_revision {
+                    return Err(Code::Denied.into());
+                }
+                let mut saved: DeviceRegistration =
+                    serde_json::from_slice(&row.binding.ok_or(Code::Unavailable)?)?;
+                if saved.context.public_key != context.public_key
+                    || saved.signing != signing
+                    || saved.encryption != encryption
+                {
+                    return Err(Code::Conflict.into());
+                }
+                let device = old_device.as_ref().ok_or(Code::Unavailable)?;
+                let chain = certificate::Chain::from_json(&device.chain)?;
+                let cert = chain.certificate()?;
+                verify_device(
+                    &chain,
+                    &cert,
+                    &initial,
+                    &member,
+                    &saved,
+                    membership_revision,
+                    &keyring.space_id,
+                )?;
+                if now < cert.issued_at {
+                    return Err(Code::Expired.into());
+                }
+                if cert.expires_at.saturating_sub(now) >= RENEWAL_MS {
+                    saved.context = context;
+                    tx.put_registration(
+                        &saved.context.device_id,
+                        &serde_json::to_vec(&saved)?,
+                        saved.context.grant_revision,
+                    )?;
+                    return Ok(saved.outcome);
+                }
+            } else if old_device.is_some() {
+                return Err(Code::Conflict.into());
+            }
+            let revision = membership_revision.to_string();
+            let cert = certificate::Certificate {
+                space: &keyring.space_id,
+                issuer_kind: "member",
+                issuer_id: &member.id,
+                device_id: &context.device_id,
+                signing_key: &signing,
+                encryption_key: &encryption,
+                membership_revision: &revision,
+                issued_at: now,
+                expires_at: now.checked_add(CERTIFICATE_MS).ok_or(Code::Invalid)?,
+            };
+            let chain = serde_json::json!({
+                "version":1,
+                "issuerStatement":values::encode_binary(&initial.hash()?),
+                "deviceCertificate":values::encode_binary(&certificate::input(&cert)?),
+                "issuerSignature":values::encode_binary(&keyring.sign_device_certificate(&cert)?)
+            });
+            let chain_bytes = serde_json::to_vec(&chain)?;
+            certificate::Chain::from_json(&chain_bytes)?.verify(
+                &initial.hash()?,
+                &cert,
+                &member.signing_key,
+            )?;
+            let statement = serde_json::from_slice::<serde_json::Value>(&initial.to_json()?)?;
+            let outcome = serde_json::to_vec(
+                &serde_json::json!({"chain":chain,"issuerStatement":statement}),
+            )?;
+            tx.put_device(&Device {
+                chain: chain_bytes,
+                revoked: false,
+            })?;
+            let binding = DeviceRegistration {
+                context,
+                signing,
+                encryption,
+                outcome: outcome.clone(),
+            };
+            tx.put_registration(
+                &binding.context.device_id,
+                &serde_json::to_vec(&binding)?,
+                binding.context.grant_revision,
+            )?;
+            Ok(outcome)
+        };
+        self.store
+            .device_transaction(&keyring.space_id, &keyring.owner_public(), apply)
+            .map_err(map_error)
+    }
+    fn genesis(&mut self) -> Result<()> {
+        let key = &self.keyring;
+        if self
+            .store
+            .owner_head(&key.space_id, &key.owner_public())?
+            .is_some()
+        {
+            return Ok(());
+        }
+        let member = key.management_member()?;
+        let recipient = Recipient {
+            kind: "member".into(),
+            id: member.id,
+            role: Some("editor".into()),
+            signing_key: member.signing_key,
+            encryption_key: member.encryption_key,
+            pages: vec![],
+            revoked: false,
+        };
+        let payload = serde_json::to_vec(
+            &serde_json::json!({"memberId":recipient.id,"role":"editor",
+            "signKey":values::encode_binary(&recipient.signing_key),"encKey":values::encode_binary(&recipient.encryption_key),"pages":[]}),
+        )?;
+        self.store.owner_transaction(
+            &key.space_id,
+            &key.owner_public(),
+            Mutation {
+                operation_id: GENESIS,
+                digest: crypto::digest(&payload),
+                expected_revision: 0,
+            },
+            |tx| {
+                let initial = key.sign_statement(None, "member.add", &payload)?;
+                tx.append_statement(&initial)?;
+                tx.put_recipient(&recipient)?;
+                Ok(initial.to_json()?)
+            },
+        )?;
+        Ok(())
+    }
+    /// Local tombstone only. Remote event delivery is #1100; owner-signed cuts
+    /// and epoch rotation are #1157. This must be called by a trusted consumer.
+    pub fn revoke(&mut self, device_id: &str, grant_revision: u64) -> Result<()> {
+        self.store.revoke_remote_device(
+            &self.keyring.space_id,
+            &self.keyring.owner_public(),
+            device_id,
+            grant_revision,
+        )
+    }
+    /// Admission seam for socket/sync composition (#1211), checked against durable
+    /// revocation every time. A forwarded cookie/session alone is insufficient.
+    pub fn active_device(
+        &mut self,
+        context: Option<&str>,
+        now: u64,
+    ) -> std::result::Result<[u8; 32], Code> {
+        values::time(now)?;
+        let context = Context::parse(context)?;
+        let key = &self.keyring;
+        if self
+            .store
+            .owner_head(&key.space_id, &key.owner_public())
+            .map_err(map_error)?
+            .is_none()
+        {
+            return Err(Code::Denied);
+        }
+        let bytes = self
+            .store
+            .device_transaction(&key.space_id, &key.owner_public(), |tx| {
+                let row = tx.registration(&context.device_id)?.ok_or(Code::Denied)?;
+                if row.revoked || context.grant_revision < row.grant_revision {
+                    return Err(Code::Denied.into());
+                }
+                let mut binding: DeviceRegistration =
+                    serde_json::from_slice(&row.binding.ok_or(Code::Denied)?)?;
+                if binding.context.public_key != context.public_key {
+                    return Err(Code::Denied.into());
+                }
+                let device = tx.device(&context.device_id)?.ok_or(Code::Denied)?;
+                if device.revoked {
+                    return Err(Code::Denied.into());
+                }
+                let chain = certificate::Chain::from_json(&device.chain)?;
+                let cert = chain.certificate()?;
+                let (initial, member, revision) = issuer(tx, key)?;
+                verify_device(
+                    &chain,
+                    &cert,
+                    &initial,
+                    &member,
+                    &binding,
+                    revision,
+                    &key.space_id,
+                )?;
+                if now < cert.issued_at || now >= cert.expires_at {
+                    return Err(Code::Expired.into());
+                }
+                if context.grant_revision > row.grant_revision {
+                    binding.context = context;
+                    tx.put_registration(
+                        &binding.context.device_id,
+                        &serde_json::to_vec(&binding)?,
+                        binding.context.grant_revision,
+                    )?;
+                }
+                Ok(binding.signing.to_vec())
+            })
+            .map_err(map_error)?;
+        bytes.try_into().map_err(|_| Code::Unavailable)
+    }
+}
+fn issuer(
+    tx: &OwnerTransaction<'_>,
+    keyring: &Keyring,
+) -> Result<(statement::Envelope, statement::OwnerMember, u64)> {
+    let head = tx.head().ok_or(Code::Unavailable)?;
+    let member = keyring.management_member()?;
+    if head.owner_member != member {
+        return Err(Code::Unavailable.into());
+    }
+    let initial = tx.statement(1)?.ok_or(Code::Unavailable)?;
+    let verified = initial.verify_next(&keyring.space_id, &keyring.owner_public(), None)?;
+    if verified.head.owner_member != member {
+        return Err(Code::Unavailable.into());
+    }
+    let issuer = tx
+        .recipient("member", &member.id)?
+        .ok_or(Code::Unavailable)?;
+    if issuer.revoked
+        || issuer.signing_key != member.signing_key
+        || issuer.encryption_key != member.encryption_key
+        || issuer.role.as_deref() != Some("editor")
+    {
+        return Err(Code::Denied.into());
+    }
+    Ok((initial, member, head.revision))
+}
+fn verify_device(
+    chain: &certificate::Chain,
+    cert: &certificate::Certificate<'_>,
+    initial: &statement::Envelope,
+    member: &statement::OwnerMember,
+    binding: &DeviceRegistration,
+    revision: u64,
+    space: &str,
+) -> Result<()> {
+    if cert.device_id != binding.context.device_id || cert.space != space {
+        return Err(Code::Denied.into());
+    }
+    if cert.issuer_kind != "member"
+        || cert.issuer_id != member.id
+        || cert.signing_key != &binding.signing
+        || cert.encryption_key != &binding.encryption
+        || values::decimal(cert.membership_revision, false)? > revision
+    {
+        return Err(Code::Denied.into());
+    }
+    chain.verify(&initial.hash()?, cert, &member.signing_key)?;
+    Ok(())
+}
+fn map_error(error: Box<dyn std::error::Error + Send + Sync>) -> Code {
+    error
+        .downcast_ref::<Code>()
+        .copied()
+        .unwrap_or(Code::Unavailable)
+}

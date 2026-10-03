@@ -78,6 +78,12 @@ pub struct Device {
     pub revoked: bool,
 }
 
+pub(crate) struct RegistrationRow {
+    pub binding: Option<Vec<u8>>,
+    pub revoked: bool,
+    pub grant_revision: u64,
+}
+
 pub struct OwnerTransaction<'a> {
     tx: &'a Transaction<'a>,
     space: &'a str,
@@ -150,6 +156,78 @@ impl Store {
         )?;
         tx.commit()?;
         Ok(outcome)
+    }
+    /// Registration changes a device projection, not membership authority. Genesis
+    /// must already have been committed through owner_transaction.
+    pub(crate) fn device_transaction(
+        &mut self,
+        space: &str,
+        root: &[u8; 32],
+        apply: impl FnOnce(&mut OwnerTransaction<'_>) -> Result<Vec<u8>>,
+    ) -> Result<Vec<u8>> {
+        if crypto::space_id(root)? != space {
+            return Err(OwnerFault::WrongOwner.into());
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let head = read_head(&tx, space, root)?.ok_or(OwnerFault::Invalid)?;
+        let outcome = apply(&mut OwnerTransaction {
+            tx: &tx,
+            space,
+            root,
+            head: Some(head),
+        })?;
+        tx.commit()?;
+        Ok(outcome)
+    }
+    /// Trusted remote event consumer only; no HTTP route grants this capability.
+    /// An unknown device is tombstoned too, so late registration cannot revive it.
+    pub(crate) fn revoke_remote_device(
+        &mut self,
+        space: &str,
+        root: &[u8; 32],
+        id: &str,
+        grant_revision: u64,
+    ) -> Result<()> {
+        values::generated_id(id)?;
+        if grant_revision == 0 {
+            return Err(OwnerFault::Invalid.into());
+        }
+        if crypto::space_id(root)? != space {
+            return Err(OwnerFault::WrongOwner.into());
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        read_head(&tx, space, root)?;
+        let revision = sequence(grant_revision);
+        let previous: Option<String> = tx
+            .query_row(
+                "SELECT grant_revision FROM device_registrations WHERE device_id=?",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        // Level-triggered remote replay must not rewrite an equal revision.
+        if previous.is_some_and(|old| old >= revision) {
+            return Ok(());
+        }
+        tx.execute("INSERT INTO device_registrations VALUES (?,NULL,1,?)
+            ON CONFLICT(device_id) DO UPDATE SET binding=NULL,revoked=1,grant_revision=excluded.grant_revision", params![id,revision])?;
+        let bytes: Option<Vec<u8>> = tx
+            .query_row("SELECT record FROM devices WHERE id=?", [id], |r| r.get(0))
+            .optional()?;
+        if let Some(bytes) = bytes {
+            let mut device: Device = serde_json::from_slice(&bytes)?;
+            device.revoked = true;
+            tx.execute(
+                "UPDATE devices SET record=? WHERE id=?",
+                params![serde_json::to_vec(&device)?, id],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 }
 impl OwnerTransaction<'_> {
@@ -241,6 +319,34 @@ impl OwnerTransaction<'_> {
         bytes
             .map(|b| serde_json::from_slice(&b).map_err(Into::into))
             .transpose()
+    }
+
+    pub(crate) fn registration(&self, id: &str) -> Result<Option<RegistrationRow>> {
+        self.tx
+            .query_row(
+                "SELECT binding,revoked,grant_revision FROM device_registrations WHERE device_id=?",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, String>(2)?)),
+            )
+            .optional()?
+            .map(|(binding, revoked, revision)| -> Result<_> {
+                Ok(RegistrationRow {
+                    binding,
+                    revoked,
+                    grant_revision: revision.parse()?,
+                })
+            })
+            .transpose()
+    }
+    pub(crate) fn put_registration(
+        &mut self,
+        id: &str,
+        binding: &[u8],
+        revision: u64,
+    ) -> Result<()> {
+        self.tx.execute("INSERT INTO device_registrations VALUES (?,?,0,?)
+            ON CONFLICT(device_id) DO UPDATE SET binding=excluded.binding,grant_revision=excluded.grant_revision", params![id,binding,sequence(revision)])?;
+        Ok(())
     }
     /// Retains an epoch secret without moving the page's current epoch. The
     /// transition caller advances it in this same closure after baseline admission.

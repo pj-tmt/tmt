@@ -113,6 +113,25 @@ def history_vectors(a):
     join_payload = json.dumps(dict(memberId=member,role="viewer",signKey=b64(public(Ed25519PrivateKey.from_private_bytes(bytes([7])*32))),encKey=b64(public(recipient)),pages=pages),separators=(",", ":")).encode()
     return dict(historyCases=cases,historyWrongOwner=wrong_owner,forwardWrap=forward(pages[0],63),historyJoin=dict(currentEpoch="64",membershipRevision="2",recipientSeed=recipient_seed.hex(),memberAdd=signed("member.add",join_payload),wrapLists=[wraps[:512],wraps[512:]]))
 
+def management_vectors(a):
+    import uuid
+    seed = bytes.fromhex(a["seed"])
+    def derive(label):
+        return expand(mac(b"", seed), lp(label.encode(), a["space"].encode()), 32)
+    sign = derive("tmt-colab-management-signing-seed-v1")
+    enc = derive("tmt-colab-management-encryption-seed-v1")
+    identity = bytearray(derive("tmt-colab-management-member-id-v1")[:16])
+    identity[6] = (identity[6] & 15) | 64
+    identity[8] = (identity[8] & 63) | 128
+    device = Ed25519PrivateKey.from_private_bytes(bytes([9])*32)
+    key = public(Ed25519PrivateKey.from_private_bytes(bytes([10])*32))
+    message = lp(b"tmt-ext-cert-v1", b"colab", b"sign", key, b"1790000000000")
+    return dict(ownerSeed=a["seed"],space=a["space"],memberId=str(uuid.UUID(bytes=bytes(identity))),
+        signingPublic=public(Ed25519PrivateKey.from_private_bytes(sign)).hex(),
+        encryptionPublic=public(X25519PrivateKey.from_private_bytes(enc)).hex(),
+        remotePublic=public(device).hex(),extensionPublic=key.hex(),issuedAtMs=1790000000000,
+        extCertInput=message.hex(),extCertSignature=device.sign(message).hex())
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
@@ -120,7 +139,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     authority = generate()
     authority.update(history_vectors(authority))
-    for destination, value in [(DEST, authority), (DEST.with_name("owner-member-v1.json"), owner_member_vectors(authority))]:
+    for destination, value in [(DEST, authority), (DEST.with_name("owner-member-v1.json"), owner_member_vectors(authority)), (DEST.with_name("management-key-v1.json"), management_vectors(authority))]:
         frozen = json.dumps(value, indent=2) + "\n"
         if args.write:
             destination.write_text(frozen)
