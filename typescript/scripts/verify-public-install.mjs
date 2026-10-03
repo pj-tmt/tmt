@@ -54,6 +54,27 @@ async function fetchText(url) {
   return response.text();
 }
 
+/** Public assets are bounded and unauthenticated, including redirects. */
+async function fetchBytes(url, maximum) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(60_000), redirect: 'follow' });
+  if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
+  const chunks = [];
+  let size = 0;
+  const reader = response.body.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > maximum) throw new Error('Public artifact exceeds its byte bound');
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks);
+  } finally {
+    await reader.cancel();
+  }
+}
+
 /** Only the native acquisition diagnostic is retryable; HTTP status alone is not evidence. */
 export function parseRateLimitDiagnostic(diagnostic) {
   if (
@@ -156,6 +177,8 @@ export async function smokeRelease({
   repository,
   root,
   fetch: read = fetchText,
+  download = fetchBytes,
+  target,
   wait = sleep,
   now = Date.now,
   retry = false,
@@ -290,6 +313,69 @@ export async function smokeRelease({
     return results;
   }
 
+  if (product === 'driver-herdr') {
+    // Retain #1204's bounded retry only for the native diagnostic. Asset HTTP errors fail directly.
+    if (
+      !(await check('current public CLI', async () => {
+        const report = JSON.parse(
+          await withAttempts(
+            'tmt upgrade',
+            () => tmt(['upgrade', '--channel', 'alpha', '--json']),
+            { wait, now, retry }
+          )
+        );
+        if (
+          resolved(report.executable) !== resolved(binary) ||
+          report.pathWarning ||
+          compareVersions(report.version, cliVersion) < 0 ||
+          !isAlphaVersion(report.version) ||
+          report.skills?.conflicts?.length
+        )
+          throw new Error('Public CLI upgrade selected an unexpected installation');
+        return report.version;
+      }))
+    )
+      return results;
+    await check('driver public archive and approval', async () => {
+      // #1084 owns named driver acquisition. Exercise today's supported path approval surface.
+      const { selectNativeArtifact, withNativeArtifact } =
+        await import('./native-artifact-policy.mjs');
+      if (!target) throw new Error('Driver public smoke requires a target');
+      const archiveName = `tmt-driver-herdr-${target}.tar.gz`;
+      const directory = path.join(root, 'driver assets');
+      mkdirSync(directory);
+      const manifest = path.join(directory, 'dist-manifest.json');
+      const archive = path.join(directory, archiveName);
+      const url = `https://github.com/${repository}/releases/download/${tag}/`;
+      writeFileSync(manifest, await download(`${url}dist-manifest.json`, 4 * 1024 * 1024), {
+        flag: 'wx',
+      });
+      writeFileSync(archive, await download(`${url}${archiveName}`, 64 * 1024 * 1024), {
+        flag: 'wx',
+      });
+      const metadata = selectNativeArtifact(manifest, archive, target, product, { release: true });
+      if (metadata.version !== version)
+        throw new Error(`Driver manifest version is ${metadata.version}, not ${version}`);
+      await withNativeArtifact(archive, metadata, async (extracted) => {
+        const executable = path.join(extracted, 'tmt-driver-herdr');
+        const report = JSON.parse(tmt(['driver', 'install', executable, '--yes', '--json']));
+        if (report.approved?.name !== 'herdr' || report.approved?.version !== version)
+          throw new Error('Driver approval did not record the published capabilities');
+        const listed = JSON.parse(tmt(['driver', 'ls', '--json'])).drivers.find(
+          (driver) => driver.name === 'herdr'
+        );
+        if (
+          listed?.state !== 'ok' ||
+          listed?.version !== version ||
+          listed?.sha256 !== report.approved.sha256
+        )
+          throw new Error('Durable driver approval differs from the public archive');
+      });
+      return version;
+    });
+    return results;
+  }
+
   const extensionPrefix = path.join(root, 'extension prefix');
   const extensionInstalled = await check(`${product} install`, async () => {
     const report = JSON.parse(
@@ -378,6 +464,7 @@ async function main(argv, environment) {
       repository,
       root,
       retry: values.retry,
+      target: values.target,
     });
   } finally {
     rmSync(root, { recursive: true, force: true });

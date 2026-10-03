@@ -59,7 +59,7 @@ export function proveArchiveAcceptance(input: {
 }): { outcome: 'nothing' | 'predates' | 'proved' };
 export const PROOF_FILES: readonly string[];
 export function assessUpgrade(input: {
-  plan: { previous: string | null };
+  plan: { previous: string | null; product?: string };
   hasFileAt: (file: string) => boolean;
 }): { outcome: 'nothing' | 'predates' | 'proved'; reason: string };
 export function releaseCommit(input: {

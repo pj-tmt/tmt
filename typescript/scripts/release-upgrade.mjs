@@ -42,6 +42,7 @@ export const PROOF_FILES = [
   'release-versions.mjs',
   'verify-native-installation.mjs',
   'verify-native-extension-upgrade.mjs',
+  'verify-native-driver-upgrade.mjs',
 ];
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const MANIFEST = 'dist-manifest.json';
@@ -106,7 +107,7 @@ export function stageRelease({ download, release, product, target, directory }) 
 
 /**
  * The fetch step. Stages, for every target of the candidate, the candidate, the previous release
- * and, for an extension, the newest published CLI under `directory/<target>/<kind>`, and writes
+ * and, for an extension or driver, the newest published CLI under `directory/<target>/<kind>`, and writes
  * `plan.json` with the tags and the digests. A product with no earlier published release stages
  * nothing: there is nothing to upgrade from.
  */
@@ -123,7 +124,7 @@ export function fetchUpgrade({ releases, download, product, tag, directory }) {
     if (product !== 'cli') {
       [driverRelease] = publishedReleases(releases, 'cli');
       if (!driverRelease)
-        throw new Error('An extension upgrade proof needs a published CLI release.');
+        throw new Error('An extension or driver upgrade proof needs a published CLI release.');
       plan.driver = driverRelease.tag_name;
     }
     for (const target of targets) {
@@ -206,15 +207,20 @@ export function proveStaged({ directory, product, tag, target, run, skill, sourc
       ...(sourceRoot ? ['--source-root', sourceRoot] : []),
     ]);
   } else {
-    run('verify-native-extension-upgrade.mjs', [
-      ...common,
-      '--product',
-      product,
-      '--driver-archive',
-      driver.archive,
-      '--driver-manifest',
-      driver.manifest,
-    ]);
+    run(
+      product === 'driver-herdr'
+        ? 'verify-native-driver-upgrade.mjs'
+        : 'verify-native-extension-upgrade.mjs',
+      [
+        ...common,
+        '--product',
+        product,
+        '--driver-archive',
+        driver.archive,
+        '--driver-manifest',
+        driver.manifest,
+      ]
+    );
   }
   return { previous };
 }
@@ -337,7 +343,10 @@ export function proveArchiveAcceptance({
  */
 export function assessUpgrade({ plan, hasFileAt }) {
   if (!plan.previous) return { outcome: 'nothing', reason: '' };
-  const missing = PROOF_FILES.find((file) => !hasFileAt(`typescript/scripts/${file}`));
+  const required = PROOF_FILES.filter(
+    (file) => file !== 'verify-native-driver-upgrade.mjs' || plan.product === 'driver-herdr'
+  );
+  const missing = required.find((file) => !hasFileAt(`typescript/scripts/${file}`));
   if (missing) {
     return {
       outcome: 'predates',
