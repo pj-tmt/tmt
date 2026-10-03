@@ -2,6 +2,15 @@
 export const text = {
   product: 'Colab',
   local: 'Local preview',
+  mounted: 'Paired space',
+  mountedNote: 'Connected through your paired Remote session.',
+  registering: 'Opening your paired space…',
+  registrationFailed: 'Could not open this paired space. Reload to retry.',
+  pinMismatch:
+    'This address does not match the pinned space. Return to the original space address.',
+  noWraps: 'This device has no verified page key yet. The page remains blocked.',
+  livePending: 'The page key is verified. Live page loading is not available yet.',
+  reload: 'Reload',
   pages: 'Pages',
   home: 'Space home',
   intro: 'A place for pages you share.',

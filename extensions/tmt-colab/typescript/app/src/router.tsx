@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   createHashHistory,
+  createBrowserHistory,
   createRootRouteWithContext,
   createRoute,
   createRouter,
@@ -14,9 +15,10 @@ import { text } from './strings.js';
 
 const root = createRootRouteWithContext<{ transport: PageTransport }>()({
   component: Shell,
-  errorComponent: () => (
+  errorComponent: ({ error }) => (
     <section className="notice">
       <h1>{text.error}</h1>
+      <p role="alert">{error instanceof Error ? error.message : text.blocked}</p>
       <Link to="/">{text.retry}</Link>
     </section>
   ),
@@ -36,8 +38,17 @@ const home = createRoute({
 const page = createRoute({
   getParentRoute: () => root,
   path: '/pages/$pageId',
-  loader: ({ context, params }) => context.transport.page(params.pageId),
+  loader: ({ context, params, abortController }) =>
+    context.transport.page(params.pageId, abortController.signal),
   component: Page,
+});
+
+const blocked = createRoute({
+  getParentRoute: () => root,
+  path: '/blocked',
+  loader: () => {
+    throw new Error(text.pinMismatch);
+  },
 });
 
 function Shell() {
@@ -52,7 +63,9 @@ function Shell() {
           {text.product}
           <span>tmt</span>
         </Link>
-        <span className="local">{text.local}</span>
+        <span className="local">
+          {location.pathname.startsWith('/r/') ? text.mounted : text.local}
+        </span>
         <button className="theme" aria-label={text.theme} onClick={() => setDark(!dark)}>
           {dark ? '◐' : '◑'}
         </button>
@@ -60,7 +73,7 @@ function Shell() {
       <main>
         <Outlet />
       </main>
-      <footer>{text.adapter}</footer>
+      <footer>{location.pathname.startsWith('/r/') ? text.mountedNote : text.adapter}</footer>
     </>
   );
 }
@@ -151,10 +164,28 @@ function Page() {
     </section>
   );
 }
-export function createAppRouter(transport: PageTransport) {
+export function createAppRouter(transport: PageTransport, space?: string) {
+  const history = space
+    ? createBrowserHistory({
+        parseLocation: () => {
+          const fragment = new URLSearchParams(location.hash.slice(1));
+          let path = fragment.get('space') === space ? (fragment.get('path') ?? '/') : '/blocked';
+          if (!/^\/(?:pages\/[0-9a-f-]+)?$/.test(path)) path = '/blocked';
+          return {
+            href: path,
+            pathname: path,
+            search: '',
+            hash: '',
+            state: { ...window.history.state, __TSR_index: window.history.state?.__TSR_index ?? 0 },
+          };
+        },
+        createHref: (path) =>
+          `${location.pathname}#space=${space}${path === '/' ? '' : `&path=${encodeURIComponent(path)}`}`,
+      })
+    : createHashHistory();
   return createRouter({
-    routeTree: root.addChildren([home, page]),
-    history: createHashHistory(),
+    routeTree: root.addChildren([home, page, blocked]),
+    history,
     context: { transport },
   });
 }
