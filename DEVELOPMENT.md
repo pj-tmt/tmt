@@ -243,7 +243,8 @@ Keep these script names and separate selections when changing formatting.
 Workspace lint commands use exact Vite+ 1.0.0 (bundled Oxlint 1.85.0), explicitly
 selecting each package's existing Vite/Vitest config. Their `lint` blocks load
 `typescript/scripts/lint-config.mjs`; keep file arguments and plugin flags with the package
-scripts. Tooling warnings remain visible without failing the command; extension
+scripts. Office's isolated verification images copy this module and its type declaration
+alongside the package configuration. Tooling warnings remain visible without failing the command; extension
 checks retain `--deny-warnings`, and Office/Colab apps retain `--react-plugin`.
 The shared config individually disables three new React diagnostic classes pending
 [owner disposition](https://github.com/pj-tmt/tmt/issues/1405); the other new defaults
