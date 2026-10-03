@@ -23,7 +23,10 @@ export interface Recipient {
   role: payload.Role;
   pages: string[];
 }
-export type Policy = PageInfo;
+export interface Policy extends PageInfo {
+  retentionDays: number | null;
+  deleted: boolean;
+}
 export interface ManagementView {
   page: Policy;
   revision: string;
@@ -35,6 +38,8 @@ export type Selection =
   | { operation: 'page.share'; value: { pageId: string; mode: PageInfo['sharing'] } }
   | { operation: 'page.history'; value: payload.Values['page.history'] }
   | { operation: 'epoch.advance'; value: { pageId: string } }
+  | { operation: 'retention.set'; value: payload.Values['retention.set'] }
+  | { operation: 'page.archive' | 'page.delete'; value: { pageId: string } }
   | { operation: 'member.add'; value: payload.Values['member.add'] }
   | { operation: 'member.remove'; value: { memberId: string; pages: string[] } }
   | { operation: 'member.role'; value: { memberId: string; pages: string[]; role: payload.Role } }
@@ -53,6 +58,7 @@ export interface Pending {
   readonly body: string;
   readonly id: string;
   readonly page: string;
+  readonly context: Readonly<Policy>;
   readonly operation: Selection['operation'];
   readonly expiresAt: number;
   readonly expectedRevision: string;
@@ -82,6 +88,8 @@ export function project(page: PageInfo, log: readonly statement.Verified[]): Man
     sharing: 'private',
     history: 'shared',
     archived: false,
+    retentionDays: 30,
+    deleted: false,
   };
   const members = new Map<string, Recipient>(),
     links = new Map<string, Recipient>();
@@ -124,6 +132,12 @@ export function project(page: PageInfo, log: readonly statement.Verified[]): Man
         break;
       case 'epoch.advance':
         if (p.value.pageId === page.pageId) policy.epoch = p.value.epoch;
+        break;
+      case 'retention.set':
+        if (p.value.pageId === page.pageId) policy.retentionDays = p.value.days;
+        break;
+      case 'page.delete':
+        if (p.value.pageId === page.pageId) policy.deleted = true;
         break;
       case 'page.archive':
         if (p.value.pageId === page.pageId) policy.archived = true;
@@ -267,12 +281,16 @@ export function selectionBytes(view: ManagementView, selection: Selection): Uint
     'page.share': ['pageId', 'mode'],
     'page.history': ['pageId', 'mode'],
     'epoch.advance': ['pageId'],
+    'retention.set': ['pageId', 'days'],
+    'page.archive': ['pageId'],
+    'page.delete': ['pageId'],
     'member.add': ['memberId', 'role', 'signKey', 'encKey', 'pages'],
     'member.remove': ['memberId', 'pages'],
     'member.role': ['memberId', 'pages', 'role'],
     'link.add': ['linkId', 'role', 'pages', 'seed'],
     'link.remove': ['linkId', 'pages', 'replacement'],
   };
+  requireValue(!view.page.deleted);
   exactKeys(value, keys[selection.operation]);
   if ('pageId' in value) requireValue(value.pageId === page);
   if ('pages' in value) {
@@ -281,6 +299,15 @@ export function selectionBytes(view: ManagementView, selection: Selection): Uint
     value.pages.forEach(generatedId);
   }
   switch (selection.operation) {
+    case 'retention.set':
+      requireValue(
+        selection.value.days === null ||
+          (Number.isSafeInteger(selection.value.days) && selection.value.days > 0),
+      );
+      break;
+    case 'page.archive':
+      requireValue(!view.page.archived);
+      break;
     case 'member.add':
       payload.decode(selection.operation, text(JSON.stringify(value)));
       break;
@@ -338,28 +365,30 @@ export class ManagementClient implements ManagementPort {
     readonly mount: URL,
     readonly registration: Registration,
   ) {}
-  async snapshot(signal?: AbortSignal) {
+  async snapshot(signal?: AbortSignal, context?: { page: string; exclude?: boolean }) {
     const boot = await discover(
       this.mount,
       (space, owner) => verifyRegistration(this.registration, space, owner),
       signal,
     );
-    const context = boot.pages[0];
-    const log = context
-      ? await managementLog(this.mount, boot, context, this.registration, signal)
-      : [];
+    const page = context?.exclude
+      ? boot.pages.find((p) => p.pageId !== context.page)
+      : (boot.pages.find((p) => p.pageId === context?.page) ?? boot.pages[0]);
+    const log = page ? await managementLog(this.mount, boot, page, this.registration, signal) : [];
     return { boot, log };
   }
   async read(id: string, signal?: AbortSignal): Promise<ManagementView> {
-    const { boot, log } = await this.snapshot(signal);
+    const { boot, log } = await this.snapshot(signal, { page: id });
     const page = boot.pages.find((p) => p.pageId === id);
     if (!page || !log.length) throw new ManagementError('DENIED');
     const view = project(page, log);
-    requireValue(view.page.epoch === page.epoch);
+    requireValue(!view.page.deleted && view.page.epoch === page.epoch);
     return view;
   }
   async prepare(view: ManagementView, selection: Selection): Promise<Pending> {
-    const selected = structuredClone(selection);
+    const selected = structuredClone(selection),
+      context = Object.freeze({ ...view.page }),
+      expectedRevision = view.revision;
     const bytes = selectionBytes(view, selected),
       id = crypto.randomUUID(),
       issuedAt = Date.now(),
@@ -368,8 +397,8 @@ export class ManagementClient implements ManagementPort {
     requireValue(cert.issuedAt <= issuedAt && cert.expiresAt > issuedAt);
     const request = await managementInput({
       space: cert.space,
-      page: view.page.pageId,
-      expectedRevision: view.revision,
+      page: context.pageId,
+      expectedRevision,
       operationId: id,
       operation: selected.operation,
       payload: bytes,
@@ -386,10 +415,11 @@ export class ManagementClient implements ManagementPort {
           : null;
     return Object.freeze({
       id,
-      page: view.page.pageId,
+      page: context.pageId,
+      context,
       operation: selected.operation,
       expiresAt,
-      expectedRevision: view.revision,
+      expectedRevision,
       body: JSON.stringify({
         request: encodeBinary(request),
         payload: encodeBinary(bytes),
@@ -459,7 +489,9 @@ export class ManagementClient implements ManagementPort {
     signal?: AbortSignal,
   ): Promise<ManagementView> {
     requireValue(ack.operationId === pending.id);
-    const { boot, log } = await this.snapshot(signal);
+    const deleting = pending.operation === 'page.delete';
+    const { boot, log } = await this.snapshot(signal, { page: pending.page, exclude: deleting });
+    if (deleting && !log.length) throw new ManagementError('AWAITING_VERIFICATION');
     requireValue(log.length > 0);
     const committed = log.find((v) => v.header.revision === ack.membershipHead.revision);
     requireValue(
@@ -500,6 +532,12 @@ export class ManagementClient implements ManagementPort {
         ),
       );
     const page = boot.pages.find((p) => p.pageId === pending.page);
+    if (deleting) {
+      requireValue(page === undefined);
+      const view = project(pending.context, log);
+      requireValue(view.page.deleted);
+      return view;
+    }
     requireValue(page !== undefined);
     const view = project(page, log);
     requireValue(boot.pages.some((p) => p.pageId === pending.page && p.epoch === view.page.epoch));

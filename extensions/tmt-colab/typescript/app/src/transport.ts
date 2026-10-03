@@ -12,6 +12,8 @@ export interface PageSummary {
   readonly id: string;
   readonly title: string;
   readonly sharing: 'private' | 'link' | 'public';
+  readonly archived?: boolean;
+  readonly retentionDays?: number | null;
 }
 export interface PageSnapshot extends PageSummary {
   readonly source: string;

@@ -130,31 +130,59 @@ function ManageButton({ pageId, changed }: { pageId: string; changed?(): void })
 }
 function Home() {
   const space = home.useLoaderData();
+  const { transport } = root.useRouteContext();
+  const [archived, setArchived] = useState(false);
+  const pages = space.pages.filter((p) => Boolean(p.archived) === archived);
   return (
     <section className="home">
       <p className="eyebrow">{text.pages}</p>
       <h1>{space.title}</h1>
       <p className="intro">{text.intro}</p>
-      {space.pages.length ? (
+      {transport.management && (
+        <label>
+          Show archived pages
+          <input
+            type="checkbox"
+            checked={archived}
+            onChange={(e) => setArchived(e.target.checked)}
+          />
+        </label>
+      )}
+      {pages.length ? (
         <ul className="pages">
-          {space.pages.map((p) => (
+          {pages.map((p) => (
             <li key={p.id}>
-              <Link to="/pages/$pageId" params={{ pageId: p.id }}>
-                <div>
-                  <span className="page-mark">▤</span>
+              {p.archived ? (
+                <div className="archived-page">
                   <h2>{p.title}</h2>
+                  <span className="chip">Archived · writes frozen</span>
                 </div>
-                <span className="chip">{text[p.sharing]}</span>
-                <span className="open">
-                  {text.open} <span aria-hidden>↗</span>
-                </span>
-              </Link>
+              ) : (
+                <Link to="/pages/$pageId" params={{ pageId: p.id }}>
+                  <div>
+                    <span className="page-mark">▤</span>
+                    <h2>{p.title}</h2>
+                  </div>
+                  <span className="chip">{text[p.sharing]}</span>
+                  <span className="open">
+                    {text.open} <span aria-hidden>↗</span>
+                  </span>
+                </Link>
+              )}
+              {transport.management && (
+                <p>
+                  Retention: {p.retentionDays === null ? 'forever' : `${p.retentionDays} days`}.
+                  Expiry time unavailable.
+                </p>
+              )}
               <ManageButton pageId={p.id} />
             </li>
           ))}
         </ul>
       ) : (
-        <p>{text.empty}</p>
+        <p>
+          {archived ? 'No archived pages.' : transport.management ? 'No active pages.' : text.empty}
+        </p>
       )}
     </section>
   );
