@@ -135,21 +135,29 @@ pub struct Admitted {
     pub context: DeviceContext,
     pub session: Arc<SessionState>,
 }
+/// Monotonic time source shared by session idle checks and activity touches.
+pub type IdleClock = Arc<dyn Fn() -> Instant + Send + Sync>;
+
 /// What a session's tunnels share with it: ending the session (revocation or
 /// a newer session for the device) closes them, and their traffic counts as use.
 pub struct SessionState {
+    clock: IdleClock,
     ended: AtomicBool,
     used: Mutex<Instant>,
 }
 impl Default for SessionState {
     fn default() -> Self {
-        Self {
-            ended: AtomicBool::new(false),
-            used: Mutex::new(Instant::now()),
-        }
+        Self::with_clock(Arc::new(Instant::now))
     }
 }
 impl SessionState {
+    pub(crate) fn with_clock(clock: IdleClock) -> Self {
+        Self {
+            used: Mutex::new(clock()),
+            clock,
+            ended: AtomicBool::new(false),
+        }
+    }
     pub fn end(&self) {
         self.ended.store(true, Ordering::Release);
     }
@@ -158,13 +166,13 @@ impl SessionState {
     }
     pub fn touch(&self) {
         if let Ok(mut used) = self.used.lock() {
-            *used = Instant::now();
+            *used = (self.clock)();
         }
     }
     pub fn idle(&self) -> Duration {
-        self.used
-            .lock()
-            .map_or(Duration::MAX, |used| used.elapsed())
+        self.used.lock().map_or(Duration::MAX, |used| {
+            (self.clock)().saturating_duration_since(*used)
+        })
     }
 }
 

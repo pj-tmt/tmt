@@ -534,15 +534,25 @@ fn revocation_ends_sessions_and_tunnels_before_it_acknowledges() {
 
 #[test]
 fn an_idle_session_ends_and_reopens_silently() {
-    let h = Harness::with(FAST, Duration::from_millis(300));
+    let idle = Duration::from_millis(300);
+    let now = Arc::new(Mutex::new(Instant::now()));
+    let clock = Arc::clone(&now);
+    let h = Harness::with_clock(FAST, idle, Arc::new(move || *clock.lock().unwrap()));
     let colab = Colab::serve(&h);
     let device = Device::browser(&h, 7);
     let client_id = paired(&h, &device);
     let reply = open_session(&h, &Opening::new(&h, &client_id, &device.key).wire());
     let cookie = pair_of(&reply.cookie().unwrap());
     assert!(mounted(&h, &colab, Some(&cookie)).is_some());
-    // Idle expiry is a time bound: wait past it.
-    thread::sleep(Duration::from_millis(400));
+    // Scheduling cannot age the frozen clock. Just before the idle bound the
+    // cookie still admits its device, and that mount counts as fresh activity.
+    *now.lock().unwrap() += idle - Duration::from_nanos(1);
+    assert_eq!(
+        mounted(&h, &colab, Some(&cookie)).unwrap()["deviceId"],
+        client_id
+    );
+    // Expire exactly one idle interval after the last mounted request.
+    *now.lock().unwrap() += idle;
     assert_eq!(mounted(&h, &colab, Some(&cookie)), None);
     // Reopening is one signed control with no owner step or new pairing.
     let reopened = open_session(&h, &Opening::new(&h, &client_id, &device.key).wire());
