@@ -73,7 +73,7 @@ tracked entry; ignored local outputs are outside that map. Handbook translations
 are the one place repository prose may be non-English
 ([AGENTS](AGENTS.md#repository-content-language)). The allowlist's optional
 `languageExceptions` key maps a language directory (`site/src/i18n/ja`,
-`site/src/i18n/zh`) to its HTML language tag (`ja`, `zh-Hant`); a language's entry
+`site/src/i18n/zh-hant`) to its HTML language tag (`ja`, `zh-Hant`); a language's entry
 lands with its first tracked translation. The test fails a listed directory with no
 tracked file, a code outside that closed set, and a tracked file under
 `site/src/i18n/` outside a listed directory.

@@ -37,7 +37,7 @@ function layoutViolations(
 
 const LANGUAGE_TAGS: Record<string, string> = {
   'site/src/i18n/ja': 'ja',
-  'site/src/i18n/zh': 'zh-Hant',
+  'site/src/i18n/zh-hant': 'zh-Hant',
 };
 
 function languageViolations(
@@ -56,7 +56,7 @@ function languageEntryProblems(
 ): string[] {
   return Object.entries(listed).flatMap(([directory, tag]) => {
     if (!(directory in LANGUAGE_TAGS)) {
-      return [`${directory}: not an allowed language (ja, zh)`];
+      return [`${directory}: not an allowed language (ja, zh-hant)`];
     }
     return [
       ...(tag === LANGUAGE_TAGS[directory]
@@ -93,10 +93,10 @@ describe('repository layout', () => {
   });
 
   it('allows non-English handbook prose only under a listed language directory', () => {
-    const listed = { 'site/src/i18n/ja': 'ja', 'site/src/i18n/zh': 'zh-Hant' };
+    const listed = { 'site/src/i18n/ja': 'ja', 'site/src/i18n/zh-hant': 'zh-Hant' };
     const directories = Object.keys(listed);
     expect(
-      languageViolations(['site/src/i18n/ja/start.mdx', 'site/src/i18n/zh/a.mdx'], listed)
+      languageViolations(['site/src/i18n/ja/start.mdx', 'site/src/i18n/zh-hant/a.mdx'], listed)
     ).toEqual([]);
     expect(
       languageViolations(
@@ -116,20 +116,20 @@ describe('repository layout', () => {
   });
 
   it('keeps the language set closed and requires tracked content in each listed directory', () => {
-    const listed = { 'site/src/i18n/ja': 'ja', 'site/src/i18n/zh': 'zh-Hant' };
+    const listed = { 'site/src/i18n/ja': 'ja', 'site/src/i18n/zh-hant': 'zh-Hant' };
     expect(
-      languageEntryProblems(listed, ['site/src/i18n/ja/a.mdx', 'site/src/i18n/zh/a.mdx'])
+      languageEntryProblems(listed, ['site/src/i18n/ja/a.mdx', 'site/src/i18n/zh-hant/a.mdx'])
     ).toEqual([]);
     expect(
-      languageEntryProblems({ 'site/src/i18n/ja': 'ja', 'site/src/i18n/zh': 'zh' }, [
+      languageEntryProblems({ 'site/src/i18n/ja': 'ja', 'site/src/i18n/zh-hant': 'zh' }, [
         'site/src/i18n/ja/a.mdx',
       ])
     ).toEqual([
-      'site/src/i18n/zh: expected the language tag zh-Hant',
-      'site/src/i18n/zh: track a translated page in it or remove the entry',
+      'site/src/i18n/zh-hant: expected the language tag zh-Hant',
+      'site/src/i18n/zh-hant: track a translated page in it or remove the entry',
     ]);
     expect(languageEntryProblems({ 'site/src/i18n/fr': 'fr' }, ['site/src/i18n/fr/a.mdx'])).toEqual(
-      ['site/src/i18n/fr: not an allowed language (ja, zh)']
+      ['site/src/i18n/fr: not an allowed language (ja, zh-hant)']
     );
   });
 

@@ -58,7 +58,7 @@ export function StatusBar({ current }: { current: Page }) {
     <header className="sticky top-0 z-10 pt-[env(safe-area-inset-top)] bg-accent">
       <nav
         aria-label={ui.chapterWindows}
-        className="relative flex items-stretch overflow-x-auto bg-accent font-mono text-[13px] leading-none font-semibold whitespace-nowrap text-paper [scrollbar-width:none]"
+        className="relative flex items-stretch bg-accent font-mono text-[13px] leading-none font-semibold whitespace-nowrap text-paper [scrollbar-width:none]"
       >
         <button
           type="button"
@@ -66,31 +66,33 @@ export function StatusBar({ current }: { current: Page }) {
           aria-label={ui.allChapters}
           aria-expanded={menuOpen}
           aria-controls="chapter-menu"
-          className={`flex min-h-9 cursor-pointer items-center gap-1.5 bg-term-bar px-2.5 text-t-accent sm:px-3 ${focus}`}
+          className={`flex min-h-9 shrink-0 cursor-pointer items-center gap-1.5 bg-term-bar px-2.5 text-t-accent sm:px-3 ${focus}`}
         >
           [tmt]
           <span aria-hidden="true" className="text-[10px]">
             {menuOpen ? "▴" : "▾"}
           </span>
         </button>
-        {windows.map((window) => {
-          const on = window.n === current.window;
-          return (
-            <LocalLink
-              key={window.n}
-              to={window.path}
-              aria-current={on ? "page" : undefined}
-              className={`flex items-center px-2.5 no-underline sm:px-3 ${focus} ${
-                on ? "bg-term-bar text-t-accent" : "text-paper hover:bg-term-bar/15"
-              }`}
-            >
-              {window.n}
-              <span className="hidden sm:inline">:{window.name}</span>
-              <span className="sm:hidden">:</span>
-            </LocalLink>
-          );
-        })}
-        <span className="ml-auto flex items-stretch">
+        <div className="flex min-w-0 items-stretch overflow-x-auto [scrollbar-width:none]">
+          {windows.map((window) => {
+            const on = window.n === current.window;
+            return (
+              <LocalLink
+                key={window.n}
+                to={window.path}
+                aria-current={on ? "page" : undefined}
+                className={`flex items-center px-2.5 no-underline sm:px-3 ${focus} ${
+                  on ? "bg-term-bar text-t-accent" : "text-paper hover:bg-term-bar/15"
+                }`}
+              >
+                {window.n}
+                <span className="hidden sm:inline">:{window.name}</span>
+                <span className="sm:hidden">:</span>
+              </LocalLink>
+            );
+          })}
+        </div>
+        <span className="ml-auto flex shrink-0 items-stretch">
           <span className="hidden sm:flex">
             <LanguageSwitcher variant="bar" />
           </span>
