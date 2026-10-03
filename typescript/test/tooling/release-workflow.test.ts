@@ -335,14 +335,28 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
 
 describe('live main release cuts (release.yml)', () => {
   const release = read('.github/workflows/release.yml');
-  it('cuts hourly with recovery and manual dry run, without a main-push trigger', () => {
-    expect(release.split(/^jobs:/m)[0]).not.toMatch(/^  push:/m);
+  it('cuts on main push with cadence, hourly backup and unchanged manual dry run', () => {
+    expect(release).toMatch(/^  push:\n    branches: \[main\]$/m);
+    expect(release).toContain('Release cut (dry dispatch)');
+    expect(release).toContain('Release cut (live dispatch)');
     expect(release.split(/^jobs:/m)[0]).toContain('workflow_dispatch:');
     expect(release).toContain("- cron: '17 * * * *'");
     expect(release.split(/^jobs:/m)[0]).not.toMatch(/paths(?:-ignore)?:/);
     expect(release).toMatch(/dry_run:\n(?: {8}[^\n]*\n)*? {8}default: true/);
     expect(release).toContain('group: release-cut');
     expect(release).toContain('cancel-in-progress: false');
+  });
+  it('records admission after the gate and skips all cut work on cadence', () => {
+    const cut = job(release, 'cut');
+    expect(cut.indexOf('id: mode')).toBeLessThan(cut.indexOf('name: Admit live release cut'));
+    expect(cut.indexOf('name: Admit live release cut')).toBeLessThan(
+      cut.indexOf('uses: ./.github/actions/setup-tooling')
+    );
+    expect(cut).toContain("if: steps.mode.outputs.live == 'true'");
+    expect(cut).toMatch(
+      /name: Draft immutable source cuts and dispatch their native gates\n        if: steps.mode.outputs.reason != 'cadence'/
+    );
+    expect(cut).toContain("if: always() && steps.mode.outputs.reason != 'cadence'");
   });
   it('captures trusted main with frozen rendering dependencies and bounded REST mutation only', () => {
     const cut = job(release, 'cut');

@@ -1,8 +1,11 @@
 name: Release
+run-name: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run && 'Release cut (dry dispatch)' || 'Release cut (live dispatch)') || format('Release cut ({0})', github.event_name) }}
 
 # Capture one exact main HEAD, then draft and dispatch each released component independently.
 # This workflow creates no tag and publishes nothing; native-release retains every publication gate.
 on:
+  push:
+    branches: [main]
   schedule:
     - cron: '17 * * * *'
   workflow_dispatch:
@@ -49,26 +52,35 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
           fetch-depth: 0
+      - name: Decide whether this run changes anything
+        id: mode
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: node typescript/scripts/release-mode.mjs
+      - name: Admit live release cut
+        if: steps.mode.outputs.live == 'true'
+        run: echo 'Live release cut admitted.'
       - uses: ./.github/actions/setup-tooling
+        if: steps.mode.outputs.reason != 'cadence'
       - name: Install reviewed release parsing and rendering dependencies
+        if: steps.mode.outputs.reason != 'cadence'
         working-directory: typescript
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Install the pinned metadata toolchain
+        if: steps.mode.outputs.reason != 'cadence'
         run: rustup toolchain install 1.97.0 --profile minimal
       - name: Restore dependency cache for locked source acquisition
+        if: steps.mode.outputs.reason != 'cadence'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: rust
           shared-key: native-rust
           save-if: false
-      - name: Decide whether this run changes anything
-        id: mode
-        env:
-          EVENT: ${{ github.event_name }}
-          REF: ${{ github.ref }}
-          DRY_RUN: ${{ inputs.dry_run }}
-        run: node typescript/scripts/release-mode.mjs
       - name: Draft immutable source cuts and dispatch their native gates
+        if: steps.mode.outputs.reason != 'cadence'
         env:
           GH_TOKEN: ${{ github.token }}
           LIVE: ${{ steps.mode.outputs.live }}
@@ -76,7 +88,7 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: node typescript/scripts/release-cut-live.mjs > "$RUNNER_TEMP/release-cut-plan.json"
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && steps.mode.outputs.reason != 'cadence'
         with:
           name: release-cut-plan
           path: ${{ runner.temp }}/release-cut-plan.json

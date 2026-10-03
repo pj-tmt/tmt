@@ -4,7 +4,21 @@ The [architecture](../../../../ARCHITECTURE.md#main-release-cuts) owns the relea
 model; this reference owns the cut/source tooling contract and procedures; the [release skill](../SKILL.md#main-cut-authorization)
 owns authorization.
 
-On the hourly schedule (minute 17 UTC) or a manual dispatch, `release.yml` captures main HEAD, complete
+`release.yml` runs on main pushes, the hourly backup schedule (minute 17 UTC) and
+manual dispatch. Under the serialized `release-cut` group, a push proceeds only
+when no admitted live cut started within the preceding 55 minutes. The gate reads
+`release.yml` run history through bounded, paginated REST requests: schedule and
+live dispatch runs count, as do pushes with the successful `Admit live release cut`
+step. Dry dispatches and cadence-skipped pushes do not count. Dispatch run names
+record dry/live mode because the runs API does not expose dispatch inputs. A
+recent legacy dispatch without mode evidence blocks admission until it ages out.
+The current run and pending runs that have not started are excluded. API errors,
+missing evidence or incomplete pagination fail the push closed with a clear
+message; no draft or native dispatch follows. A recent live cut instead exits
+successfully as `cadence`, reports the skip in the summary and skips cut work.
+Schedule and owner dispatch keep their existing behavior and bypass push cadence.
+
+An admitted run captures main HEAD, complete
 draft/tag allocation metadata and the component map/Cargo graph at that cut. Inspect
 its summary and `release-cut-plan` artifact for proposed tag, notes, linked SHAs,
 cut and skip reason. Missing draft visibility, pagination or history is a
@@ -42,7 +56,7 @@ the private TOML binary separately for ordinary tooling fixtures.
 
 ```bash
 (cd rust && cargo build --locked -p tmt-release-tool --bin release-version && cargo test --locked -p tmt-release-tool --bin release-version)
-(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-version-injection.test.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/repository-layout.test.ts)
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/release-mode.test.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-version-injection.test.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/repository-layout.test.ts)
 (cd typescript && corepack pnpm check:tooling)
 actionlint .github/workflows/release.yml .github/workflows/release-version-injection.yml .github/workflows/native-release.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-upgrade.yml
 ```

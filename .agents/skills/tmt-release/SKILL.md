@@ -53,8 +53,9 @@ reserve numbers but never advance that boundary. Concurrent cuts can therefore
 repeat note items; inherited unpublished migrations remain counted and inherited
 unapproved breaking changes stay held by the existing owner gate.
 
-Cut allocation runs hourly (minute 17 UTC) or by owner dispatch, never on every
-main push. The hourly schedule replaces the daily allocation safety net. New work
+Cut allocation uses cadence-admitted main pushes, an hourly schedule backup and
+owner dispatch. The [main-cut reference](references/main-cuts.md) owns cadence
+admission and its fail-closed history checks. New work
 eligibility uses the newest allocated ancestor cut, whether draft or published:
 no releasable component commit after it means no new cut. Failed drafts reserve
 their content and number without blocking subsequent new component work. Notes,
