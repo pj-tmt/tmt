@@ -94,12 +94,16 @@ jobs:
           TAGLESS_DRAFT_PATHS: ${{ steps.draft.outputs.held_paths }}
         run: |
           set -o pipefail
-          printf 'queue_skipped=false\n' >> "$GITHUB_OUTPUT"
+          printf 'queue_skipped=false\nqueue_blocked=false\n' >> "$GITHUB_OUTPUT"
           dry=" (dry run)"
           if [ "$LIVE" = true ]; then dry=; fi
           for command in release-pr github-release; do
             if [ "$command" = release-pr ]; then
               decision=$(node ../../typescript/scripts/release-please-queue.mjs)
+              if [ "$decision" = blocked ]; then
+                printf 'queue_skipped=true\nqueue_blocked=true\n' >> "$GITHUB_OUTPUT"
+                continue
+              fi
               if [ "$decision" = skip ]; then
                 printf 'queue_skipped=true\n' >> "$GITHUB_OUTPUT"
                 continue
@@ -114,7 +118,7 @@ jobs:
       # Only one release PR is enabled at a time: separate components share the manifest.
       # The merge queue tests current main without rewriting an unchanged PR's CI head.
       - name: Enable auto-merge for one release pull request
-        if: steps.mode.outputs.live == 'true'
+        if: steps.mode.outputs.live == 'true' && steps.release.outputs.queue_blocked != 'true'
         env:
           RELEASE_TOKEN: ${{ steps.app.outputs.token }}
           LIVE: ${{ steps.mode.outputs.live }}
