@@ -801,6 +801,7 @@ fn every_workspace_crate_reviews_new_dev_dependencies() {
         "tmt-driver-protocol",
         "tmt-driver-herdr",
         "tmt-invoke",
+        "tmt-test-support",
         "tmt-remote",
         "tmt-squad",
         "tmt-office",
@@ -829,6 +830,155 @@ fn every_workspace_crate_reviews_new_dev_dependencies() {
             "tmt-core: unreviewed dev dependency tempfile (target=null, rename=null); remove any rename and, after review, add (\"tmt-core\", \"tempfile\", None), // <review reason> to DEV_DEPENDENCIES in rust/crates/tmt-cli/tests/architecture/policy.rs"
         ]
     );
+}
+
+#[test]
+fn fixture_publication_has_exactly_six_dev_consumers_and_no_product_edges() {
+    for owner in [
+        "tmt-adapters",
+        "tmt-cli",
+        "tmt-squad",
+        "tmt-office",
+        "tmt-colab",
+        "tmt-office-command",
+    ] {
+        assert!(
+            policy::dependency_violations(&package(
+                owner,
+                vec![dependency("tmt-test-support", "dev", None, None)]
+            ))
+            .is_empty(),
+            "{owner}"
+        );
+        for (kind, target, rename) in [
+            ("normal", None, None),
+            ("build", None, None),
+            ("dev", Some("cfg(unix)"), None),
+            ("dev", None, Some("fixture_helpers")),
+        ] {
+            assert_eq!(
+                policy::dependency_violations(&package(
+                    owner,
+                    vec![dependency("tmt-test-support", kind, target, rename)]
+                ))
+                .len(),
+                1,
+                "{owner}: {kind} {target:?} {rename:?}"
+            );
+        }
+        assert!(
+            !policy::source_violations(&[syntax(
+                owner,
+                "lib.rs",
+                "use tmt_test_support::write_executable;"
+            )])
+            .is_empty()
+        );
+        assert!(
+            policy::source_violations(&[syntax(
+                owner,
+                "lib.rs",
+                "#[cfg(test)] mod tests { use tmt_test_support::write_executable; }"
+            )])
+            .is_empty()
+        );
+    }
+    for owner in [
+        "tmt-core",
+        "tmt-remote",
+        "tmt-invoke",
+        "tmt-tui",
+        "tmt-office-model",
+        "tmt-office-storage",
+        "tmt-office-pairing",
+        "tmt-office-service",
+        "tmt-colab-model",
+        "tmt-command-output",
+        "tmt-cli-style",
+        "tmt-driver-protocol",
+        "tmt-driver-herdr",
+        "tmt-host-grammar",
+        "tmt-sys",
+        "tmt-test-support",
+    ] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                owner,
+                vec![dependency("tmt-test-support", "dev", None, None)]
+            ))
+            .len(),
+            1,
+            "{owner}"
+        );
+    }
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-test-support",
+            vec![dependency("tmt-invoke", "normal", None, None)]
+        ))
+        .is_empty()
+    );
+    for dependency_name in [
+        "tmt-core",
+        "tmt-adapters",
+        "tmt-cli",
+        "tmt-office",
+        "tmt-squad",
+        "tmt-colab",
+        "tmt-remote",
+    ] {
+        for kind in ["normal", "build", "dev"] {
+            assert_eq!(
+                policy::dependency_violations(&package(
+                    "tmt-test-support",
+                    vec![dependency(dependency_name, kind, None, None)]
+                ))
+                .len(),
+                1
+            );
+        }
+        assert!(
+            !policy::source_violations(&[syntax(
+                "tmt-test-support",
+                "lib.rs",
+                &format!("use {}::Value;", dependency_name.replace('-', "_"))
+            )])
+            .is_empty()
+        );
+    }
+    for kind in ["dev", "build"] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                "tmt-test-support",
+                vec![dependency("tmt-invoke", kind, None, None)]
+            ))
+            .len(),
+            1
+        );
+    }
+}
+
+#[test]
+fn fixture_publication_cannot_be_published_or_distributed() {
+    let valid =
+        json!({"name": "tmt-test-support", "publish": [], "metadata": {"dist": {"dist": false}}});
+    assert!(policy::test_support_package_violations(&valid).is_empty());
+    for publish in [Value::Null, json!(["crates-io"])] {
+        let mut invalid = valid.clone();
+        invalid["publish"] = publish;
+        assert_eq!(
+            policy::test_support_package_violations(&invalid),
+            ["tmt-test-support: publish must be false"]
+        );
+    }
+    for dist in [Value::Null, json!(true)] {
+        let mut invalid = valid.clone();
+        invalid["metadata"]["dist"]["dist"] = dist;
+        assert_eq!(
+            policy::test_support_package_violations(&invalid),
+            ["tmt-test-support: dist must be false"]
+        );
+    }
 }
 
 #[test]

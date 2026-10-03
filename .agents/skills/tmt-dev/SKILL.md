@@ -39,6 +39,10 @@ Read the repository guidance before planning work:
    When replacing implementations, map behavioral assertions, not test counts:
    returned-error rollback is not crash recovery. Preserve resource cleanup
    ordering through the existing child-process owner.
+   Rust executable-fixture changes follow DEVELOPMENT's
+   [three ETXTBSY cases](../../../DEVELOPMENT.md#rust-checks) and the narrowly owned
+   publication boundary in ARCHITECTURE. Verify its exact dev edges with the
+   native architecture test before each Rust push.
    Office-affecting changes follow
    [Office browser verification](../../../DEVELOPMENT.md#office-browser-verification).
 5. Close the bounded review when relevant evidence supports the agreed behavior,

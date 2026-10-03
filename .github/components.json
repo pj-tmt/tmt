@@ -19,7 +19,8 @@
         "extensions/tmt-squad",
         "extensions/tmt-remote",
         "extensions/tmt-colab",
-        "rust/crates/tmt-tui"
+        "rust/crates/tmt-tui",
+        "rust/crates/tmt-test-support"
       ],
       "migrations": ["rust/crates/tmt-adapters/src/storage/migrations.rs"]
     },
@@ -67,6 +68,10 @@
     },
     "remote-client": {
       "owns": ["extensions/tmt-remote/typescript/remote-client"],
+      "release": false
+    },
+    "tmt-test-support": {
+      "owns": ["rust/crates/tmt-test-support"],
       "release": false
     },
     "tmt-tui": {

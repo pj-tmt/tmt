@@ -1118,7 +1118,12 @@ runs it. Production code never retries ETXTBSY.
   so nothing execs the written inode (the `tmt-invoke` and `tmt-adapters` tests).
 - The test writes a stand-in that something else must exec by path, such as a
   fake `tmt` or `tmux` on `PATH`: let a short-lived `sh` write the file, so no
-  test thread holds its descriptor (Squad's `test_support::write_executable`).
+  test thread holds its descriptor. The dev-only
+  `tmt-test-support::write_executable(path, bytes, mode)` owns this publication;
+  preserve the caller's 0700 or 0755 mode. It uses a cleared writer environment,
+  a generous thirty-second hung-writer bound and `tmt-invoke` process-group
+  cleanup, with no retries. Readiness probes and their payload-free branches stay
+  owner-local.
 - The product writes the executable and then execs it, as an installer and its
   verifier do: the fixture waits out the window with a bounded retry of only
   that error (`tmt-office-command`'s `test_support::install_office`,
@@ -1135,8 +1140,15 @@ module's `--write FILE MODE` entry point with bytes on stdin and an absolute
 fixture Node path; this is test infrastructure, not a product runtime dependency.
 
 The opt-in stress test `cargo test -p tmt-office-command text_file_busy_stress
--- --ignored --nocapture` reproduces the race and reports failures with and
-without the retry.
+-- --ignored --nocapture` reproduces the race and reports the in-process writer's failures with and
+without the case-3 retry, plus shared case-2 publication without retries.
+The unretried control remains probabilistic; zero observed failures do not prove
+that the race is absent. Non-ETXTBSY errors fail rather than count as race evidence.
+For publication and dependency changes, also run
+`cargo test --locked -p tmt-test-support` and
+`cargo test --locked -p tmt-cli --test architecture`. The latter checks the exact
+six dev consumers and rejects production/build imports, aliases, unreviewed target
+edges and publishable/distributable support metadata.
 
 For explicit tmux target-resolution errors (#949), run
 `cargo test --locked -p tmt-adapters tmux::io_tests` and

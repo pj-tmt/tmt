@@ -1,35 +1,7 @@
 //! Fixtures shared by Squad's unit tests.
 
-use std::{
-    io::Write,
-    path::Path,
-    process::{Command, Stdio},
-};
-
-/// Writes `script` to `path` as an executable a test can run at once.
-///
-/// `cargo test` runs tests as threads of one process. Had this process opened
-/// the file for writing, another test thread's `fork` would copy that
-/// descriptor into its child, which keeps it until its own `exec`, and until
-/// then the kernel refuses to run the file with ETXTBSY ("Text file busy").
-/// A short-lived `sh` writes the file instead, so no descriptor for it ever
-/// exists in the test process and the first `exec` cannot be refused.
-pub(crate) fn write_executable(path: &Path, script: &str) {
-    let mut writer = Command::new("/bin/sh")
-        .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
-        .arg(path)
-        .stdin(Stdio::piped())
-        .spawn()
-        .expect("start sh to write the executable");
-    writer
-        .stdin
-        .take()
-        .expect("sh stdin")
-        .write_all(script.as_bytes())
-        .expect("send the script to sh");
-    let status = writer.wait().expect("wait for sh");
-    assert!(status.success(), "sh could not write {}", path.display());
-}
+use std::path::Path;
+use tmt_test_support::write_executable;
 
 /// Prewarm a fixture without executing its payload. macOS first-exec assessment
 /// queues fresh files under parallel load; keep it outside production deadlines.
@@ -40,8 +12,11 @@ pub(crate) fn write_ready_executable(path: &Path, script: &str) {
         .expect("shell fixture shebang");
     write_executable(
         path,
-        &format!("#!/bin/sh\nif [ \"$1\" = __tmt_fixture_ready ]; then exit 0; fi\n{payload}"),
-    );
+        format!("#!/bin/sh\nif [ \"$1\" = __tmt_fixture_ready ]; then exit 0; fi\n{payload}")
+            .as_bytes(),
+        0o755,
+    )
+    .expect("publish shell fixture");
     let ready = probe(path, std::time::Duration::from_secs(30))
         .expect("fixture readiness completes within 30 seconds");
     assert!(
@@ -94,7 +69,7 @@ mod tests {
         assert_eq!(output.stdout, b"payload");
         assert_eq!(std::fs::read(&marker).unwrap(), b"called");
         let stalled = dir.join("stalled");
-        write_executable(&stalled, "#!/bin/sh\nexec /bin/sleep 30\n");
+        write_executable(&stalled, b"#!/bin/sh\nexec /bin/sleep 30\n", 0o755).unwrap();
         assert!(matches!(
             probe(&stalled, Duration::from_millis(100)),
             Err(crate::runner::RunError::Timeout)

@@ -38,7 +38,7 @@ layout permission does not change component ownership, CI selection or release p
 | Repository root           | Short entry points, contributor guidance, license and required repository/tool configuration; no product source or generated evidence. |
 | `.agents/`                | Repository contributor procedures.                                                                                                     |
 | `.github/`                | Component ownership, layout allowlist, workflows, shared Actions and isolated release tooling.                                         |
-| `rust/`                   | Native CLI, core, adapters and shared Rust leaves, and the release archive note; extension crates remain under their extension.        |
+| `rust/`                   | Native CLI, core, adapters, shared Rust leaves, fixture publication and the release archive note; extensions retain their own crates.  |
 | `typescript/`             | Private developer tooling, tests and shared fixture support; no product-runtime fallback.                                              |
 | `extensions/<extension>/` | Feature-owned runtimes, contracts, skills, documentation and assets.                                                                   |
 | `contracts/`              | Core public contracts and their normative fixtures.                                                                                    |
@@ -3772,6 +3772,20 @@ Retained tests are organized under `typescript/test/native/`, `typescript/test/e
 their owners. Office real-companion stress cases use `office-*` filenames and the
 component map's stress `selectedBy` glob; retained-release setup uses the private
 installer, while public acquisition refusal stays in the native lifecycle suite.
+`rust/crates/tmt-test-support` owns only fixture-executable publication for
+[DEVELOPMENT's ETXTBSY case 2](DEVELOPMENT.md#rust-checks), not general test utilities.
+Its one `write_executable` helper sends exact bytes and the caller's permission
+mode to a short-lived shell through `tmt-invoke`'s bounded execution and
+process-group cleanup. The test process never opens that executable for writing.
+It adds no retry, readiness policy or fixture-state owner. Every additional helper
+requires its own two-caller justification and architecture review.
+The unpublished, `dist = false` library is a private component, with no release
+consumers. Only Adapters, CLI, Squad, Office, Colab and Office Command may declare
+its canonical untargeted dev-dependency; no production or build edge may consume
+it. The architecture guard checks those exact edges, production references and
+publication metadata. Its only dependency is the neutral `tmt-invoke` leaf.
+Owner-local test modules retain readiness, scenario assertions and case-3 retries.
+
 The CLI's `tests/support` module owns the isolated environment and
 direct-child lifetime shared by its stdin-signal and request-observer fixtures;
 [Development](DEVELOPMENT.md#native-process-and-shared-tests) owns the isolation contract.
