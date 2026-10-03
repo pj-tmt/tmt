@@ -10,6 +10,27 @@ use tmt_core::native_install::{Channel, latest_in_channel};
 const METADATA_LIMIT: usize = 2 * 1024 * 1024;
 const MANIFEST_NAME: &str = "dist-manifest.json";
 
+/// Complete product/channel discovery found no published release. Keep this
+/// distinct from missing files or assets after a release has been selected.
+#[derive(Debug)]
+pub struct ReleaseUnavailable {
+    pub product: super::Product,
+    pub channel: Channel,
+}
+
+impl std::fmt::Display for ReleaseUnavailable {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            output,
+            "No published {} release yet in the {} channel.",
+            self.product.as_str(),
+            self.channel.as_str()
+        )
+    }
+}
+
+impl std::error::Error for ReleaseUnavailable {}
+
 pub(super) struct DownloadedRelease {
     pub version: Version,
     pub manifest: Vec<u8>,
@@ -210,7 +231,7 @@ pub(super) fn discover_latest(
     published.into_iter().next().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::NotFound,
-            "No release is available in the selected native channel.",
+            ReleaseUnavailable { product, channel },
         )
     })
 }

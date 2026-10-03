@@ -272,84 +272,98 @@ fn update_manifest_asset(release: &mut Value, manifest: &[u8]) {
 }
 
 #[test]
-fn office_discovery_ignores_cli_versions_and_uses_its_own_exact_tags() {
-    let (cli, _, _, _) = valid_fixture("99.0.0", TARGET, 400);
-    let (office, manifest, archive, _) =
-        product_fixture(Product::Office, "0.1.0-alpha.1", TARGET, 401);
-    let mut fixture = HttpFixture::default();
-    fixture.releases(&[cli, office.clone()]);
-    register(&mut fixture, &office, &manifest, &archive);
-    let result = super::download_product(
-        Product::Office,
-        Channel::Alpha,
-        None,
-        TARGET,
-        deadline(),
-        |u, a, l, d| fixture.get(u, a, l, d),
-    )
-    .unwrap();
-    assert_eq!(result.version.to_string(), "0.1.0-alpha.1");
-    assert_eq!(
-        fixture
-            .calls
-            .iter()
-            .map(|c| c.url.clone())
-            .collect::<Vec<_>>(),
-        vec![
-            refs_url(Product::Office),
-            format!("{}/tags/tmt-office-v0.1.0-alpha.1", endpoint()),
-            asset_url(4011),
-            asset_url(4012)
-        ]
-    );
-    let artifact = artifact::acquire_bytes(
-        Product::Office,
-        &result.manifest,
-        &result.archive_name,
-        &result.archive,
-        TARGET,
-    )
-    .unwrap();
-    assert!(artifact.files.contains_key("tmt-office"));
-    assert!(!artifact.files.contains_key("tmt"));
-    fixture.calls.clear();
-    let url = format!("{}/tags/tmt-office-v0.1.0-alpha.1", endpoint());
-    fixture.response(url.clone(), serde_json::to_vec(&office).unwrap());
-    super::download_product(
-        Product::Office,
-        Channel::Alpha,
-        Some(&"0.1.0-alpha.1".parse().unwrap()),
-        TARGET,
-        deadline(),
-        |u, a, l, d| fixture.get(u, a, l, d),
-    )
-    .unwrap();
-    assert_eq!(fixture.calls[0].url, url);
+fn extension_discovery_ignores_cli_versions_and_uses_its_own_exact_tags() {
+    for product in [Product::Office, Product::Squad, Product::Remote] {
+        let (cli, _, _, _) = valid_fixture("99.0.0", TARGET, 400);
+        let (extension, manifest, archive, _) =
+            product_fixture(product, "0.1.0-alpha.1", TARGET, 401);
+        let mut fixture = HttpFixture::default();
+        fixture.releases(&[cli, extension.clone()]);
+        register(&mut fixture, &extension, &manifest, &archive);
+        let result = super::download_product(
+            product,
+            Channel::Alpha,
+            None,
+            TARGET,
+            deadline(),
+            |u, a, l, d| fixture.get(u, a, l, d),
+        )
+        .unwrap();
+        assert_eq!(result.version.to_string(), "0.1.0-alpha.1");
+        assert_eq!(
+            fixture
+                .calls
+                .iter()
+                .map(|c| c.url.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                refs_url(product),
+                format!("{}/tags/{}0.1.0-alpha.1", endpoint(), product.tag_prefix()),
+                asset_url(4011),
+                asset_url(4012)
+            ]
+        );
+        let artifact = artifact::acquire_bytes(
+            product,
+            &result.manifest,
+            &result.archive_name,
+            &result.archive,
+            TARGET,
+        )
+        .unwrap();
+        assert!(artifact.files.contains_key(product.executable()));
+        assert!(!artifact.files.contains_key("tmt"));
+        fixture.calls.clear();
+        let url = format!("{}/tags/{}0.1.0-alpha.1", endpoint(), product.tag_prefix());
+        fixture.response(url.clone(), serde_json::to_vec(&extension).unwrap());
+        super::download_product(
+            product,
+            Channel::Alpha,
+            Some(&"0.1.0-alpha.1".parse().unwrap()),
+            TARGET,
+            deadline(),
+            |u, a, l, d| fixture.get(u, a, l, d),
+        )
+        .unwrap();
+        assert_eq!(fixture.calls[0].url, url);
+    }
 }
-
 #[test]
-fn cli_only_releases_are_not_an_office_installation_candidate() {
-    let (cli, _, _, _) = valid_fixture("99.0.0-alpha.1", TARGET, 410);
-    let mut fixture = HttpFixture::default();
-    fixture.releases(&[cli]);
-    let error = super::download_product(
-        Product::Office,
-        Channel::Alpha,
-        None,
-        TARGET,
-        deadline(),
-        |u, a, l, d| fixture.get(u, a, l, d),
-    )
-    .err()
-    .unwrap();
-    assert_eq!(error.kind(), io::ErrorKind::NotFound);
-    assert_eq!(
-        error.to_string(),
-        "No release is available in the selected native channel."
-    );
-    assert_eq!(fixture.calls.len(), 1);
+fn cli_only_releases_are_not_an_extension_installation_candidate() {
+    for (product, expected) in [
+        (
+            Product::Office,
+            "No published office release yet in the alpha channel.",
+        ),
+        (
+            Product::Squad,
+            "No published squad release yet in the alpha channel.",
+        ),
+        (
+            Product::Remote,
+            "No published remote release yet in the alpha channel.",
+        ),
+    ] {
+        let (cli, _, _, _) = valid_fixture("99.0.0-alpha.1", TARGET, 410);
+        let mut fixture = HttpFixture::default();
+        fixture.releases(&[cli]);
+        let error = super::download_product(
+            product,
+            Channel::Alpha,
+            None,
+            TARGET,
+            deadline(),
+            |u, a, l, d| fixture.get(u, a, l, d),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        assert_eq!(error.to_string(), expected);
+        assert!(error.get_ref().unwrap().is::<super::ReleaseUnavailable>());
+        assert_eq!(fixture.calls.len(), 1);
+        assert_eq!(fixture.calls[0].url, refs_url(product));
+    }
 }
-
 #[test]
 fn selects_latest_stable_and_alpha_versions_and_uses_canonical_asset_urls() {
     let (stable_old, _, _, _) = valid_fixture("1.2.3", TARGET, 101);
@@ -461,7 +475,7 @@ fn a_cli_alpha_may_be_a_normal_release_but_extensions_stay_flagged() {
     download_flagged(Product::Cli, "5.0.0-alpha.7", false).unwrap();
     download_flagged(Product::Cli, "5.0.0-alpha.6", true).unwrap();
     assert!(download_flagged(Product::Cli, "5.0.0", true).is_err());
-    for extension in [Product::Office, Product::Squad] {
+    for extension in [Product::Office, Product::Squad, Product::Remote] {
         download_flagged(extension, "0.1.0-alpha.4", true).unwrap();
         assert!(download_flagged(extension, "0.1.0-alpha.4", false).is_err());
     }
@@ -478,6 +492,7 @@ fn the_publication_policy_publishes_flags_the_updater_accepts() {
         (Product::Cli, false),
         (Product::Office, true),
         (Product::Squad, true),
+        (Product::Remote, true),
     ] {
         assert!(
             product.accepts_prerelease_flag(&alpha, published),
@@ -657,7 +672,7 @@ fn interleaved_release_history_does_not_hide_a_product_or_channel_after_300_rele
         for near_top in [true, false] {
             let mut history = (0..600)
                 .map(|n| {
-                    let other = Product::ALL[(n % 3) as usize];
+                    let other = Product::ALL[n as usize % Product::ALL.len()];
                     metadata(other, &format!("1.0.{n}-alpha.1"), false)
                 })
                 .collect::<Vec<_>>();

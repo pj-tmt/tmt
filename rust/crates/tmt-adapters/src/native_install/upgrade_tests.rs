@@ -462,12 +462,12 @@ fn missing_release_preserves_active_files_without_staging() {
 }
 
 #[test]
-fn consent_selected_versions_upgrade_cli_and_squad_without_creating_pins() {
+fn consent_selected_versions_upgrade_products_without_creating_pins() {
     use crate::native_install::{Product, publication::Layout};
     let directory = crate::test_support::TestDirectory::new();
     let prefix = directory.path.join("prefix");
     let target = "aarch64-apple-darwin";
-    for product in [Product::Cli, Product::Squad] {
+    for product in [Product::Cli, Product::Squad, Product::Remote] {
         let (_, manifest, archive, name) = release::product_fixture(product, "1.2.3", target, 41);
         let old =
             super::artifact::acquire_bytes(product, &manifest, &name, &archive, target).unwrap();
@@ -511,8 +511,8 @@ fn consent_selected_versions_upgrade_cli_and_squad_without_creating_pins() {
         assert!(installed.state.pinned_version.is_none());
         assert_eq!(layout.current().unwrap().unwrap().state.version, selected);
     }
-    // Both independently owned active pointers remain valid after the second upgrade.
-    for product in [Product::Cli, Product::Squad] {
+    // Independently owned active pointers remain valid after every upgrade.
+    for product in [Product::Cli, Product::Squad, Product::Remote] {
         assert_eq!(
             super::super::inspect_product(product, &prefix.join("bin").join(product.executable()))
                 .unwrap()

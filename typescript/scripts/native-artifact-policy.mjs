@@ -10,6 +10,7 @@ const executables = {
   cli: 'tmt',
   office: 'tmt-office',
   squad: 'tmt-squad',
+  remote: 'tmt-remote',
   'driver-herdr': 'tmt-driver-herdr',
 };
 /**
@@ -21,7 +22,7 @@ const executables = {
  * here must declare them all (verify-native-artifact.mjs), while published
  * archives from before a companion existed still read.
  */
-const companions = { cli: ['tmt-driver-herdr'], office: [], squad: [], 'driver-herdr': [] };
+const companions = { cli: ['tmt-driver-herdr'], office: [], squad: [], remote: [], 'driver-herdr': [] };
 /** The agent-skills tree an extension archive carries under one directory. */
 const skillsRoot = 'skills';
 const skillFileLimit = 1024 * 1024;

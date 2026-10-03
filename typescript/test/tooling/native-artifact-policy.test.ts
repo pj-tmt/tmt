@@ -17,7 +17,7 @@ const { selectNativeArtifact, withNativeArtifact } = (await import(
     manifestFile: string,
     archiveFile: string,
     target: string,
-    product?: 'cli' | 'office' | 'squad' | 'driver-herdr',
+    product?: 'cli' | 'office' | 'squad' | 'remote' | 'driver-herdr',
     options?: { readonly release?: boolean }
   ) => NativeArtifact;
   withNativeArtifact: <T>(
@@ -29,10 +29,11 @@ const { selectNativeArtifact, withNativeArtifact } = (await import(
 
 const REQUIRED_FILES = ['tmt', 'LICENSE', 'NATIVE-INSTALL.md', 'THIRD-PARTY-NOTICES.txt'];
 /** Product::companions(): executables a product's archive carries beside its own. */
-const COMPANIONS: Record<'cli' | 'office' | 'squad' | 'driver-herdr', readonly string[]> = {
+const COMPANIONS: Record<'cli' | 'office' | 'squad' | 'remote' | 'driver-herdr', readonly string[]> = {
   cli: ['tmt-driver-herdr'],
   office: [],
   squad: [],
+  remote: [],
   'driver-herdr': [],
 };
 const TARGET = 'aarch64-apple-darwin';
@@ -46,7 +47,7 @@ interface NativeArtifact {
 }
 
 interface ArchiveOptions {
-  readonly product?: 'cli' | 'office' | 'squad' | 'driver-herdr';
+  readonly product?: 'cli' | 'office' | 'squad' | 'remote' | 'driver-herdr';
   /** Files under `skills/`, by path relative to it. */
   readonly skills?: Record<string, string>;
   /** Whether the manifest declares the `skills` asset (default: when Squad). */
@@ -93,6 +94,7 @@ async function createArchiveFixture(
     cli: 'tmt',
     office: 'tmt-office',
     squad: 'tmt-squad',
+  remote: 'tmt-remote',
     'driver-herdr': 'tmt-driver-herdr',
   }[options.product ?? 'cli'];
   const companions = COMPANIONS[options.product ?? 'cli'];
@@ -188,6 +190,34 @@ function withArtifactMetadata(sha256: string): NativeArtifact {
 }
 
 describe('native artifact policy', () => {
+  it('verifies Remote without skills or companions and rejects another product or missing executable', async () => {
+    await withSandbox(async (sandbox) => {
+      const remote = await createArchiveFixture(sandbox, { product: 'remote' });
+      await withNativeArtifact(remote.archiveFile, remote.metadata, (root) => {
+        expect(fs.readdirSync(root).sort()).toEqual([
+          'LICENSE',
+          'NATIVE-INSTALL.md',
+          'THIRD-PARTY-NOTICES.txt',
+          'tmt-remote',
+        ]);
+      });
+      for (const product of ['cli', 'office', 'squad'] as const) {
+        expect(() =>
+          selectNativeArtifact(remote.manifestFile, remote.archiveFile, TARGET, product)
+        ).toThrow('Archive must belong to the TMT release');
+      }
+      const missing = await createArchiveFixture(sandbox, {
+        product: 'remote',
+        omit: 'tmt-remote',
+      });
+      await expect(
+        withNativeArtifact(missing.archiveFile, missing.metadata, () => undefined)
+      ).rejects.toThrow('Missing native archive entry:');
+      await expect(
+        createArchiveFixture(sandbox, { product: 'remote', declareSkills: true })
+      ).rejects.toThrow('Manifest must describe exactly the native runtime files');
+    });
+  });
   it('verifies a Squad archive with its declared skills tree and rejects any other tree', async () => {
     await withSandbox(async (sandbox) => {
       const skills = {

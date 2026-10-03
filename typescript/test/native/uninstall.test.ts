@@ -12,6 +12,7 @@ import {
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
+import { createArtifact } from '../support/native-artifact.js';
 
 import {
   CLAUDE_ORIGINAL,
@@ -26,6 +27,28 @@ describe('tmt uninstall on a disposable HOME and prefix', () => {
     await withSandbox(async (sandbox) => {
       const tmt = await setUpMachine(sandbox);
       const { prefix, claudeSettings, codexHooks, userSkill, record } = paths(sandbox);
+      const remote = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'remote');
+      const installed = await runCli(
+        sandbox,
+        [
+          'extension',
+          'install',
+          'remote',
+          '--yes',
+          '--archive',
+          remote.archive,
+          '--manifest',
+          remote.manifest,
+          '--prefix',
+          prefix,
+          '--json',
+        ],
+        { deadlineMs: 15_000 }
+      );
+      expect(installed.status, installed.stdout + installed.stderr).toBe(0);
+      const remoteState = path.join(sandbox.globalDir, 'remote');
+      mkdirSync(remoteState, { recursive: true });
+      writeFileSync(path.join(remoteState, 'machine.key'), 'retained remote key');
       expect(readFileSync(claudeSettings, 'utf8')).toContain('__hook claude');
       expect(existsSync(codexHooks)).toBe(true);
       expect(existsSync(record)).toBe(true);
@@ -73,6 +96,9 @@ describe('tmt uninstall on a disposable HOME and prefix', () => {
         expect(names.filter((name) => name !== 'user-skill')).toEqual([]);
       }
       expect(tree(prefix)).toEqual({});
+      expect(readFileSync(path.join(remoteState, 'machine.key'), 'utf8')).toBe(
+        'retained remote key'
+      );
       expect(existsSync(record)).toBe(false);
       expect(existsSync(path.join(sandbox.globalDir, 'skill-assets'))).toBe(false);
       expect(existsSync(sandbox.globalDir)).toBe(true);

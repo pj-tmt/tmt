@@ -2788,6 +2788,37 @@ embedded skill, unchanged SQLite bytes during installation and the migration of 
 previous release wrote. Its temporary
 prefix/application state is always invocation-owned and removed afterward.
 
+#### Remote installer registration
+
+Core recognizes `remote` separately from archive publication. Test its product
+policy, product-prefixed discovery, receipt and activation with the existing
+native fixtures (from `rust/`):
+
+```sh
+CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-core native_install
+CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters native_install
+CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli extension_install_command
+CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli parser::tests::native_install
+```
+
+For process fixtures, build CLI, Squad and Remote independently in the worktree's
+`rust/target`, then run `extension-install.test.ts` through the native test config.
+The fixture uses the built `tmt-remote`, never a substitute CLI executable. It
+covers consent, repeat/forward install, retained releases and private Remote
+state, plus pinned Remote participation in root upgrade. Synthetic archives
+prove installer behavior, not published archive linkage or runtime versioning.
+
+A registered product may have no published archive yet. Inject empty Remote refs
+or a Remote tag without a published release for that case: assert no asset
+acquisition or prefix creation. The CLI must report `EXTENSION_RELEASE_UNAVAILABLE`
+with "No published remote release yet" rather than an installation-damage hint.
+Malformed published/local archives retain verification errors. Remote uses the
+same prerelease rule as Squad; keep cross-product and immutable-release refusals.
+The [installation architecture](ARCHITECTURE.md#managed-skills-and-native-installation)
+owns namespaces, receipts and the separation from private state. Remote's owner
+and infra provide packaging and release gates; publish the supporting CLI alpha
+before testing public Remote install/upgrade with it.
+
 ### Native curl bootstrap verification
 
 Generate the release-specific script only after final cargo-dist archives and

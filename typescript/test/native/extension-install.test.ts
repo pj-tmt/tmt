@@ -15,9 +15,11 @@ import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/c
 import { createArtifact, type ArtifactFixture } from '../support/native-artifact.js';
 
 const INSTALL_PROCESS_BUDGET_MS = 15_000;
+// Registration precedes publication. Remove Remote here when infra activates its component.
+const registeredBeforePublication = ['remote'];
 
 describe('tmt extension install surface', () => {
-  it('offers exactly the released extension components', async () => {
+  it('offers every released extension and the explicitly registered publication prerequisites', async () => {
     const { components } = JSON.parse(
       readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
     ) as { components: Record<string, { owns: string[]; package?: string; release?: boolean }> };
@@ -45,13 +47,113 @@ describe('tmt extension install surface', () => {
         extensions: { name: string; installed: boolean }[];
       };
       expect(listed.extensions.every((extension) => !extension.installed)).toBe(true);
-      expect(listed.extensions.map((extension) => extension.name).sort()).toEqual(released);
+      expect(listed.extensions.map((extension) => extension.name).sort()).toEqual(
+        [...released, ...registeredBeforePublication].sort()
+      );
       expectError(
         await runCli(sandbox, ['extension', 'install', 'driver-herdr', '--yes', '--json']),
         'EXTENSION_UNKNOWN'
       );
     });
   });
+
+  it.each(registeredBeforePublication)(
+    'lists registered but not yet published %s without acquisition',
+    async (name) => {
+      await withSandbox(async (sandbox) => {
+        const prefix = path.join(sandbox.root, 'absent prefix');
+        const listed = await runCli(sandbox, ['extension', 'ls', '--prefix', prefix, '--json']);
+        expect(listed.status).toBe(0);
+        expect(parseWholeStdout(listed).extensions).toContainEqual({
+          name,
+          installed: false,
+          version: null,
+          channel: null,
+          pinned: null,
+          commands: [`tmt-${name}`],
+          shadowedBy: [],
+        });
+        expect(existsSync(prefix)).toBe(false);
+        expect(existsSync(sandbox.globalDir)).toBe(false);
+      });
+    }
+  );
+
+  it('installs and upgrades Remote without starting its door or modifying its private state', async () => {
+    await withSandbox(async (sandbox) => {
+      const prefix = path.join(sandbox.root, 'remote prefix');
+      const remoteState = path.join(sandbox.globalDir, 'remote');
+      mkdirSync(remoteState, { recursive: true });
+      writeFileSync(path.join(remoteState, 'machine.key'), 'retained key');
+      writeFileSync(path.join(remoteState, 'remote.db'), 'retained grants');
+      const first = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'remote');
+      const cli = (args: string[]) =>
+        runCli(sandbox, [...args, '--json'], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
+      const install = (artifact: ArtifactFixture, yes: boolean) =>
+        cli([
+          'extension',
+          'install',
+          'remote',
+          '--archive',
+          artifact.archive,
+          '--manifest',
+          artifact.manifest,
+          '--prefix',
+          prefix,
+          ...(yes ? ['--yes'] : []),
+        ]);
+      expectError(await install(first, false), 'EXTENSION_CONSENT_REQUIRED');
+      expect(existsSync(prefix)).toBe(false);
+      const installed = await install(first, true);
+      expect(installed.status, installed.stdout + installed.stderr).toBe(0);
+      expect(parseWholeStdout(installed)).toEqual({
+        extension: 'remote',
+        installed: true,
+        changed: true,
+        version: '0.1.0-alpha.1',
+        executable: path.join(realpathSync(prefix), 'bin/tmt-remote'),
+      });
+      expect(readlinkSync(path.join(prefix, 'bin/tmt-remote'))).toBe(
+        '../lib/tmt-remote/current/tmt-remote'
+      );
+      expect(parseWholeStdout(await install(first, true))).toMatchObject({ changed: false });
+      const oldRelease = realpathSync(path.join(prefix, 'lib/tmt-remote/current'));
+      const candidate = await createArtifact(
+        sandbox,
+        '0.1.0-alpha.2',
+        new Uint8Array([1]),
+        'remote'
+      );
+      const upgraded = await install(candidate, true);
+      expect(upgraded.status, upgraded.stdout + upgraded.stderr).toBe(0);
+      expect(parseWholeStdout(upgraded)).toMatchObject({ changed: true, version: '0.1.0-alpha.2' });
+      expect(existsSync(oldRelease)).toBe(true);
+      const listed = await cli(['extension', 'ls', '--prefix', prefix]);
+      expect(parseWholeStdout(listed).extensions).toContainEqual({
+        name: 'remote',
+        installed: true,
+        version: '0.1.0-alpha.2',
+        channel: 'alpha',
+        pinned: null,
+        commands: ['tmt-remote'],
+        shadowedBy: [],
+      });
+      expectError(await install(first, true), 'EXTENSION_INSTALL_FAILED');
+      const removed = await cli(['extension', 'rm', 'remote', '--yes', '--prefix', prefix]);
+      expect(removed.status, removed.stdout + removed.stderr).toBe(0);
+      expect(parseWholeStdout(removed)).toMatchObject({
+        extension: 'remote',
+        installed: false,
+        changed: true,
+      });
+      expect(existsSync(path.join(prefix, 'bin/tmt-remote'))).toBe(false);
+      expect(existsSync(path.join(prefix, 'lib/tmt-remote/releases'))).toBe(true);
+      expect(readFileSync(path.join(remoteState, 'machine.key'), 'utf8')).toBe('retained key');
+      expect(readFileSync(path.join(remoteState, 'remote.db'), 'utf8')).toBe('retained grants');
+      expect(existsSync(path.join(remoteState, 'control.sock'))).toBe(false);
+      expect(existsSync(sandbox.database)).toBe(false);
+    });
+  }, 60_000);
 
   it('installs, lists offline, refuses without consent, and uninstalls squad keeping its releases', async () => {
     await withSandbox(async (sandbox) => {
@@ -122,6 +224,15 @@ describe('tmt extension install surface', () => {
             pinned: null,
             commands: ['tmt-squad', 'tmt-sq'],
             shadowedBy: [path.join(foreign, 'tmt-sq')],
+          },
+          {
+            name: 'remote',
+            installed: false,
+            version: null,
+            channel: null,
+            pinned: null,
+            commands: ['tmt-remote'],
+            shadowedBy: [],
           },
         ],
       });
@@ -483,12 +594,12 @@ describe('tmt extension install surface', () => {
 
 describe('aggregate official upgrades', () => {
   it(
-    'keeps independent CLI/Squad pins and skips frozen Office even with invalid state',
+    'keeps independent CLI/Squad/Remote pins and skips frozen Office even with invalid state',
     { timeout: 60000 },
     async () => {
       await withSandbox(async (sandbox) => {
         const prefix = path.join(sandbox.root, 'native install prefix with spaces');
-        const install = async (artifact: ArtifactFixture, product: 'cli' | 'squad') => {
+        const install = async (artifact: ArtifactFixture, product: 'cli' | 'squad' | 'remote') => {
           const result = await runCli(
             sandbox,
             [
@@ -517,6 +628,10 @@ describe('aggregate official upgrades', () => {
         const cli = await install(cliArtifact, 'cli');
         const squad = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'squad');
         await install(squad, 'squad');
+        const remote = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'remote');
+        await install(remote, 'remote');
+        const remoteReceipt = path.join(prefix, 'lib/tmt-remote/current/receipt.json');
+        const remoteBefore = readFileSync(remoteReceipt);
         const squadReceipt = path.join(prefix, 'lib/tmt-squad/current/receipt.json');
         const before = readFileSync(squadReceipt);
         const managed = { ...sandbox, cli: { executable: cli.executable, args: [] } };
@@ -531,6 +646,11 @@ describe('aggregate official upgrades', () => {
             status: 'skippedPinned',
             hint: 'tmt extension upgrade squad --unpin',
           },
+          {
+            product: 'remote',
+            status: 'skippedPinned',
+            hint: 'tmt extension upgrade remote --unpin',
+          },
         ]);
         writeFileSync(path.join(prefix, 'bin/tmt-office'), 'not a managed installation');
         const skipped = await runCli(managed, ['upgrade', '--yes', '--json'], {
@@ -540,8 +660,10 @@ describe('aggregate official upgrades', () => {
         expect(parseWholeStdout(skipped).products).toMatchObject([
           { product: 'cli', status: 'skippedPinned' },
           { product: 'squad', status: 'skippedPinned' },
+          { product: 'remote', status: 'skippedPinned' },
         ]);
         expect(readFileSync(squadReceipt).equals(before)).toBe(true);
+        expect(readFileSync(remoteReceipt).equals(remoteBefore)).toBe(true);
         expect(existsSync(sandbox.database)).toBe(false);
       });
     }

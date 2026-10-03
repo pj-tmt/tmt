@@ -237,6 +237,170 @@ fn accept_release(_: &std::path::Path, _: &semver::Version) -> io::Result<()> {
     Ok(())
 }
 
+fn remote_fixture(version: &str, payload: &[u8]) -> Fixture {
+    let root = format!("tmux-team-{version}-aarch64-apple-darwin");
+    let mut entries = valid_entries(&root);
+    entries[0] = Entry::File {
+        path: format!("{root}/tmt-remote"),
+        bytes: payload.to_vec(),
+        mode: 0o755,
+    };
+    product_fixture_at(
+        entries,
+        "tmt-remote",
+        &super::Product::Remote.files(),
+        version,
+    )
+}
+
+#[test]
+fn remote_receipt_round_trip_repeat_upgrade_and_removal_leave_cli_and_state_unchanged() {
+    use super::{Product, inspect_product, uninstall_extension};
+    let cli = fixture(valid_entries("tmux-team-1.2.3-aarch64-apple-darwin"));
+    let prefix = cli.directory.path.join("prefix");
+    let cli_report = install_fixture(&cli, &prefix, Product::Cli).unwrap();
+    let state = cli.directory.path.join("data/remote");
+    fs::create_dir_all(&state).unwrap();
+    fs::write(state.join("machine.key"), b"retained machine key").unwrap();
+    fs::write(state.join("remote.db"), b"retained grants").unwrap();
+    let first = remote_fixture("1.2.3", b"remote 1.2.3\n");
+    let report = install_fixture(&first, &prefix, Product::Remote).unwrap();
+    assert!(report.changed);
+    assert_eq!(
+        fs::read_link(&report.executable).unwrap(),
+        PathBuf::from(Product::Remote.link_target())
+    );
+    let installed = inspect_product(Product::Remote, &report.executable).unwrap();
+    assert_eq!(installed.state.version.to_string(), "1.2.3");
+    assert_eq!(
+        installed.state.channel,
+        tmt_core::native_install::Channel::Stable
+    );
+    assert!(installed.state.pinned_version.is_none());
+    for product in [Product::Cli, Product::Office, Product::Squad] {
+        assert!(inspect_product(product, &report.executable).is_err());
+    }
+    let repeat = install_fixture(&first, &prefix, Product::Remote).unwrap();
+    assert!(!repeat.changed);
+    assert_eq!(repeat.active_executable, report.active_executable);
+    let newer = remote_fixture("1.2.4", b"remote 1.2.4\n");
+    assert!(
+        install_fixture(&newer, &prefix, Product::Remote)
+            .unwrap()
+            .changed
+    );
+    assert_eq!(
+        fs::read(&report.active_executable).unwrap(),
+        b"remote 1.2.3\n"
+    );
+    assert_eq!(fs::read(&report.executable).unwrap(), b"remote 1.2.4\n");
+    assert!(install_fixture(&first, &prefix, Product::Remote).is_err());
+    assert!(uninstall_extension(&prefix, Product::Remote).unwrap());
+    assert!(!prefix.join("bin/tmt-remote").exists());
+    assert_eq!(
+        fs::read_dir(prefix.join("lib/tmt-remote/releases"))
+            .unwrap()
+            .count(),
+        2
+    );
+    assert_eq!(
+        inspect_product(Product::Cli, &cli_report.executable)
+            .unwrap()
+            .active_executable,
+        cli_report.active_executable
+    );
+    assert_eq!(
+        fs::read(state.join("machine.key")).unwrap(),
+        b"retained machine key"
+    );
+    assert_eq!(
+        fs::read(state.join("remote.db")).unwrap(),
+        b"retained grants"
+    );
+}
+
+#[test]
+fn remote_rejects_wrong_packages_tampering_and_foreign_command_links() {
+    use super::{Product, inspect_product, uninstall_extension};
+    let remote = remote_fixture("1.2.3", b"remote bytes");
+    let prefix = remote.directory.path.join("prefix");
+    for product in [Product::Cli, Product::Office, Product::Squad] {
+        assert!(install_fixture(&remote, &prefix, product).is_err());
+        assert!(!prefix.exists());
+    }
+    let report = install_fixture(&remote, &prefix, Product::Remote).unwrap();
+    fs::write(&report.active_executable, b"modified bytes").unwrap();
+    assert!(inspect_product(Product::Remote, &report.executable).is_err());
+    assert!(install_fixture(&remote, &prefix, Product::Remote).is_err());
+    fs::remove_file(&report.executable).unwrap();
+    fs::write(&report.executable, b"user-owned command").unwrap();
+    assert!(uninstall_extension(&prefix, Product::Remote).is_err());
+    assert_eq!(fs::read(&report.executable).unwrap(), b"user-owned command");
+}
+
+#[test]
+fn interrupted_remote_activation_retains_the_previous_receipt_and_cleans_staging() {
+    use super::Product;
+    let remote = remote_fixture("1.2.3", b"remote old");
+    let prefix = remote.directory.path.join("prefix");
+    let report = install_fixture(&remote, &prefix, Product::Remote).unwrap();
+    let root = prefix.join(Product::Remote.namespace());
+    let current = fs::read_link(root.join("current")).unwrap();
+    let receipt = fs::read(
+        report
+            .active_executable
+            .parent()
+            .unwrap()
+            .join("receipt.json"),
+    )
+    .unwrap();
+    let newer = remote_fixture("1.2.4", b"remote new");
+    let mut calls = 0;
+    let error = super::install_product(
+        Product::Remote,
+        super::InstallRequest {
+            archive: &newer.archive,
+            manifest: &newer.manifest,
+            prefix: &prefix,
+            target: TARGET,
+            channel: tmt_core::native_install::Channel::Stable,
+            pin: tmt_core::native_install::PinAction::Preserve,
+        },
+        None,
+        || {
+            calls += 1;
+            if calls == 4 {
+                Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"))
+            } else {
+                Ok(())
+            }
+        },
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+    assert_eq!(fs::read_link(root.join("current")).unwrap(), current);
+    assert_eq!(fs::read(&report.executable).unwrap(), b"remote old");
+    assert_eq!(
+        fs::read(
+            report
+                .active_executable
+                .parent()
+                .unwrap()
+                .join("receipt.json")
+        )
+        .unwrap(),
+        receipt
+    );
+    assert_eq!(fs::read_dir(root.join("releases")).unwrap().count(), 1);
+    assert!(!fs::read_dir(&root).unwrap().any(|entry| {
+        entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".staging-")
+    }));
+}
+
 #[test]
 fn office_installation_and_exact_retry_preserve_cli_ownership_and_bytes() {
     let cli = fixture(valid_entries("tmux-team-1.2.3-aarch64-apple-darwin"));

@@ -12,6 +12,7 @@ pub(in crate::grammar) fn extension() -> Command {
         [
             "List official extensions" => "tmt extension ls",
             "Install Squad" => "tmt extension install squad",
+            "Install Remote" => "tmt extension install remote",
         ]
     ))
     .subcommand_required(true)
@@ -59,9 +60,10 @@ pub(in crate::grammar) fn extension() -> Command {
     .subcommand(
         extension_target(general(spec!(
             "install",
-            "Install an official extension (office, squad)",
+            "Install an official extension (squad, remote)",
             [
                 "Install Squad" => "tmt extension install squad",
+                "Install Remote" => "tmt extension install remote",
                 "Install without a prompt" => "tmt extension install squad --yes",
             ]
         )))
