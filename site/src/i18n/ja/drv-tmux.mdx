@@ -1,0 +1,64 @@
+---
+source: site/src/chapters/drv-tmux.mdx
+sourceRevision: bce18dac6f51c59c018cbae56d5003216618c559
+title: tmux：agent の実行場所
+---
+
+import { Cmd, Code } from "../../components/Cmd";
+import { components as Mdx } from "../../components/mdx";
+import { Badge, BadgeBorders, DriverCard } from "../../components/samples";
+
+<DriverCard
+  name="tmux"
+  kind="host driver"
+  spec={[
+    [
+      "識別する情報",
+      "サーバー、ペイン、各ペインで動くプロセスです。binding はペインのメタデータで、配信前に実際のサーバーと照合します。",
+    ],
+    [
+      "配信方法",
+      <>
+        バッファーを貼り付け、待機してから Enter を押します。agent の shell
+        モードが起動しないように、
+        <code>!</code> を <code>！</code> に変換します。
+      </>,
+    ],
+    [
+      "表示",
+      <>
+        任意で有効にできる <Badge name="name" state="running" /> バッジを、自分の{" "}
+        <code>pane-border-format</code> に表示できます。タイトル、レイアウト、テーマは変えません。
+      </>,
+    ],
+    [
+      "設定",
+      <>
+        不要です。バッジを使う場合は <code>tmt config set ui.paneBadge on --global</code>{" "}
+        を実行します。
+      </>,
+    ],
+  ]}
+/>
+
+<Mdx.h3 id="delivery-you-can-trust">配信前の確認</Mdx.h3>
+
+ペインに入力する前に、tmt は同じ tmux サーバー上で、ペインが今も指定した名前に属しているか確認します。送信が一部だけ行われた可能性がある場合（たとえば、テキストは貼り付けられたものの Enter を確認できなかった場合）、tmt は **uncertain** と報告し、自動で再送しません。まず `tmt check <name>` で確認し、その後で判断してください。
+
+<Mdx.h3 id="the-pane-badge">ペインのバッジ</Mdx.h3>
+
+一度有効にすると、名前の付いた各ペインに小さなラベルが付きます。自分のペインの枠に配置できます。
+
+<BadgeBorders />
+
+<Cmd>{`$ tmt config set ui.paneBadge on --global`}</Cmd>
+
+次の断片を、自分の `pane-border-format` の表示したい位置に追加します。
+
+<Code>{`#{?@tmux-team.badge, [#{@tmux-team.badge}],}`}</Code>
+
+既存の設定を使い続けられるように、オプションには tmt の旧名である tmux-team を残しています。tmt はペインのオプションにラベルを公開するだけです。ペインのタイトル、枠の書式、レイアウト、テーマは変えません。バッジの位置は自分で決めます。点は記録されたセッションの状態を示し、agent が作業中かどうかを示すものではありません。
+
+<Mdx.h3 id="when-tmux-says-no">tmux にアクセスできない場合</Mdx.h3>
+
+agent の sandbox によっては、tmux ソケットへのアクセスが制限されます。その場合、tmt はソケットにアクセスできないこと、sandbox が制限している可能性があること、どのペインにも入力が届いていないことを通知します。ペインが見つからないとは報告しません。対応は agent 側で行います。agent 自身の権限昇格機能で同じコマンドを再実行するか、ソケットへのアクセスを許可してください。

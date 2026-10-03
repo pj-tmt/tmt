@@ -1,0 +1,67 @@
+---
+source: site/src/chapters/drv-claude.mdx
+sourceRevision: a9b20d9dd287fd5dd0da493c0642d1a70df12d69
+title: Claude Code
+---
+
+import { Cmd } from "../../components/Cmd";
+import { components as Mdx } from "../../components/mdx";
+import { DriverCard } from "../../components/samples";
+
+<DriverCard
+  name="Claude Code"
+  kind="runtime driver"
+  spec={[
+    [
+      "識別する情報",
+      "各会話の id を、Claude Code の公開仕様にある SessionStart と SessionEnd の hook から取得します。",
+    ],
+    [
+      "再開",
+      <>
+        <code>tmt resume &lt;name&gt;</code> は、この identity
+        に属する会話を同じモデルで再開します。
+        フォルダー内の最新の会話を単に開くわけではありません。
+      </>,
+    ],
+    [
+      "コンテキスト",
+      "開始時に、自分は誰で、何が待っているかという短い概要をセッションに渡します。",
+    ],
+    ["設定", <code>tmt setup claude</code>],
+  ]}
+/>
+
+<Mdx.h3 id="connect-it">接続する</Mdx.h3>
+
+<Cmd>{`
+$ tmt setup claude          # 変更する設定を正確に表示してから確認
+$ tmt run reviewer claude   # reviewer として Claude Code を起動
+$ tmt resume reviewer       # reviewer の会話を再開
+`}</Cmd>
+
+設定時には、tmt 用の Claude Code hook を 3 つ追加します（セッション開始、セッション終了、プロンプト送信）。それ以外の設定は変わりません。hook が Claude Code を止めることはありません。tmt が遅い、または見つからない場合、セッションは概要なしで通常どおり開始します。`tmt setup claude --remove` で hook を削除できます。
+
+<Mdx.h3 id="what-you-get">使える機能</Mdx.h3>
+
+- **再開時に対応する会話を開きます。** 複数の agent が同じフォルダーで作業している場合も同じです。
+- **開始時に短い概要を渡します。** agent の名前、役割、待っている作業が含まれます。
+- `tmt ls` とペインのバッジに **Running または ended** を表示します。
+
+<Mdx.h3 id="message-channel">メッセージチャネル</Mdx.h3>
+
+通常、tmt は agent のペインにリクエストを貼り付けて配信します。Claude Code では、起動時にメッセージチャネルを選ぶこともできます。
+
+<Cmd>{`
+$ tmt run --channel reviewer claude   # オプションは名前の前に置く。--resume とは併用しない
+`}</Cmd>
+
+Claude Code 2.x 系の 2.1.285 以降が必要です。tmt は起動前に確認します。古いバージョンや、起動方法を判断できないコマンドは拒否し、何も起動しません。チャネルを検証していない新しいビルドでは、stderr に通知を出して起動します。Claude も起動時に開発用チャネルについての警告を表示します。tmt がチャネルを追加するのはこの 1 回の起動だけで、Claude の設定は変えません。
+
+- **チャネルに登録したペインには貼り付けません。** すべてのコマンドで同じです。`talk`、返信通知、ペインの直接指定は、チャネルを使うか、処理を停止します。チャネルでリクエストを送れない場合（準備ができていない、接続できない、起動したプロセスが終了した場合）、`talk` は送信も貼り付けも行っていないことを通知し、リクエストは agent の inbox で待機します。
+- **受信の確認はありません。** Claude はチャネルのメッセージを受信したことを確認しません。書き込みに成功すると、`talk` は配信が未確認であると報告し、agent の `tmt reply` を待ち続けます。tmt は再送しません。
+- **起動したプロセスが異常終了すると、記録が残ることがあります。** その Claude がまだペイン内で動いているか判断できない場合、`talk` は貼り付けを拒否し、確認または復旧用の `tmt channel` コマンドを表示します。`tmt channel inspect` は記録が指す対象を表示します。その起動に属する Claude がペイン内に残っていないことを確認してから、表示された `tmt channel recover` を実行してください。削除するのはその記録だけです。プロセスの停止や貼り付けは行わず、記録が指すすべてのプロセスが確実に終了していなければ拒否します。再実行しても安全です。
+
+<Mdx.h3 id="usage-counters">使用量カウンター</Mdx.h3>
+
+`tmt setup claude --usage` はターン終了時の hook を追加し、Claude のコンテキストのサイズと、完了したリクエストで使ったトークン数を記録します。フィールドは[使用量カウンター](/drivers#usage-counters)を参照してください。Claude Code はコンテキストウィンドウを示さないため、`windowTokens` は空のままです。Claude のカウンターは、hook が初めて会話ファイルを見た時点で、その末尾から記録を始めます。以後の各リクエストを 1 回だけ数え、それ以前のターンは数えません。
