@@ -10,6 +10,7 @@ pub(crate) mod notes;
 mod rate;
 mod refresh;
 mod scroll;
+mod settings;
 pub(crate) use crate::tabs;
 mod terminal;
 mod theme_picker;
@@ -354,6 +355,20 @@ fn session(
                         }
                         Err(error) => picker.notice = Some(error.message),
                     }
+                }
+            }
+            Effect::Settings => {
+                let section = app.selected_section();
+                match load_config().and_then(|config| {
+                    config
+                        .settings(app.shown_tab(), effects::tmux_socket().is_some(), section)
+                        .map_err(|error| error.message)
+                }) {
+                    Ok(shown) => {
+                        app.settings = Some(settings::Overlay::new(shown));
+                        app.help = false;
+                    }
+                    Err(error) => app.finished(Err(error)),
                 }
             }
             Effect::PickTheme => {
