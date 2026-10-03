@@ -24,7 +24,7 @@ import type { AcceptanceWorld } from './harness/world.js';
 // isolated build that includes #1517 and #1522; the cases are disabled here only
 // until #1522 is on this branch (NEEDS_CREATE). Two cases stay disabled with a
 // finding: a restarted Remote locks out the paired browser (BLOCKED_RESTART), and
-// the held case needs a hold-grant fixture.
+// the held case waits for a Remote-provided hold fixture.
 //
 // Architecture: no native bridge ledger. The asker's browser calls Remote
 // operations as its paired device and records the ask, its states and the
@@ -244,7 +244,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
     });
   });
 
-  test.fixme(`a held grant shows held until local approval, then accepted (needs a hold-grant fixture for the device)`, async () => {
+  test.fixme(`a held grant shows held until local approval, then accepted (waits for a Remote-provided hold fixture; held is covered by unit tests)`, async () => {
     // Needs a way to give the paired device mode "hold": Remote's own tests
     // seed it directly in Remote storage while serve is stopped (a test-only
     // step this suite has not adopted). Then: Send shows held, the recipient

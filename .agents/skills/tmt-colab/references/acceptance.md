@@ -58,8 +58,9 @@ takes it back). They drive the real Ask UI (`selectInRenderer`, `previewAsk`, `s
 `askEntry`, `askState`). On this branch they are `test.fixme` until #1522 (`page create`) is
 merged; against #1517 and #1522 they pass. Two cases stay `fixme` with a finding: a restarted
 Remote keeps sessions and door cookies in memory, so a paired browser's reload gets Colab's
-private guidance page and an open page stays disconnected with Re-check disabled; and the held
-case needs a hold-grant fixture for the device. Enable a case by making its body pass, never with
+private guidance page and an open page stays disconnected with Re-check disabled (colab-2 is
+fixing it: the guidance page reopens the session once); and the held case waits for a
+Remote-provided hold fixture, with held behavior covered by unit tests. Enable a case by making its body pass, never with
 a stand-in. Assert the recipient's text equals the previewed text, including the
 `[remote: <device>]` line, and that no delivery state is shown (presence only).
 
