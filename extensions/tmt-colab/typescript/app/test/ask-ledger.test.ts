@@ -359,7 +359,7 @@ it('SDK class and code identify session faults; error-shaped objects never cause
   await expect(adapter.result(`req_${id(8)}`)).rejects.toBe(fault);
   refusal = true;
   expect(await adapter.send({ operationId: id(9), agentId: id(6), message: 'exact' })).toEqual({
-    state: 'uncertain',
+    state: 'refused',
     operationId: id(9),
     reason: 'REMOTE_SESSION_ENDED',
   });
@@ -465,5 +465,26 @@ it('transient result refusals preserve accepted state and allow the next read to
   expect(own).toEqual(before);
   remote.result = async (requestId) => ({ state: 'replied', requestId, message: '' });
   expect((await controller.recover(frozen.view.operationId)).reply?.body).toBe('');
+  expect(remote.sends).toHaveLength(1);
+});
+
+it('a verified pre-admission Session refusal stays refused before reconnect notification and cannot resend', async () => {
+  const { store, remote, key } = await setup();
+  const notified = vi.fn();
+  const controller = new AskController({ store, remote, key, selection, sessionEnded: notified });
+  await controller.destinations();
+  const frozen = controller.prepare(destination());
+  remote.send = async (input) => {
+    remote.sends.push(input);
+    return { state: 'refused', operationId: input.operationId, reason: 'REMOTE_SESSION_ENDED' };
+  };
+  const refused = await controller.send(frozen);
+  expect(refused.state).toBe('refused');
+  expect(refused.reason).toBe('REMOTE_SESSION_ENDED');
+  expect(notified).toHaveBeenCalledOnce();
+  expect((await store.view(frozen.view.operationId)).state).toBe('refused');
+  await controller.send(frozen);
+  const next = new AskController({ store, remote, key, selection });
+  expect((await next.recover(frozen.view.operationId)).state).toBe('refused');
   expect(remote.sends).toHaveLength(1);
 });

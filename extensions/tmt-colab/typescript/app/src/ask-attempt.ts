@@ -150,7 +150,9 @@ export class AskController {
           message: decodeText(preview.finalBytes()),
         });
         requireValue(result.operationId === id);
-        sessionEnd = result.state === 'uncertain' && sessionEndedReason(result.reason);
+        sessionEnd =
+          (result.state === 'uncertain' && sessionEndedReason(result.reason)) ||
+          (result.state === 'refused' && result.reason === 'REMOTE_SESSION_ENDED');
         const updated = await store.state(
           id,
           result.state,

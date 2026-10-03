@@ -1126,9 +1126,12 @@ errors. Verified pre-effect Remote refusals preserve `REMOTE_SCOPE_DENIED`,
 `REMOTE_INPUT_INVALID`, `REMOTE_RATE_LIMITED`, `REMOTE_INTENT_CONFLICT`,
 `REMOTE_CLOSED`, `REMOTE_SESSION_ENDED`, `REMOTE_INPUT_TOO_LARGE`,
 `REMOTE_STATE_UNAVAILABLE` or `REMOTE_CORE_UNAVAILABLE`; unknown refusal codes become
-`REMOTE_REFUSED`. A session-end refusal or a typed SDK `sequence_unavailable` outcome becomes
-uncertain (`REMOTE_SESSION_ENDED` or `REMOTE_SEQUENCE_UNAVAILABLE`) and signals
-Registration to reconnect. The adapter never reopens. A session-ending result
+`REMOTE_REFUSED`. A verified pre-admission Send refusal, including session end,
+is definitive: it records refused with the reviewed code. A session-end Send
+refusal then signals Registration to reconnect and requires a fresh preview.
+Adopted Sends never return refused; unknown outcomes remain uncertain. A typed
+SDK `sequence_unavailable` Send outcome becomes uncertain
+(`REMOTE_SEQUENCE_UNAVAILABLE`) and signals Registration to reconnect. The adapter never reopens. A session-ending result
 read leaves the existing accepted record unchanged and stops observation until
 reconnect. Every refused operation/result read leaves the ledger unchanged;
 missing operations do not prove absence. Transient state/core-unavailable refusals

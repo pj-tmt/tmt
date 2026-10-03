@@ -137,12 +137,6 @@ export async function createRemoteClient(
       return 'REMOTE_SEQUENCE_UNAVAILABLE';
     return undefined;
   };
-  const normalize = (value: SendState, id: string): SendState => {
-    const verified = state(value, id);
-    return verified.state === 'refused' && verified.reason === 'REMOTE_SESSION_ENDED'
-      ? { state: 'uncertain', operationId: id, reason: 'REMOTE_SESSION_ENDED' }
-      : verified;
-  };
   const observe = async <T>(action: () => Promise<T>): Promise<T> => {
     try {
       return await action();
@@ -206,7 +200,7 @@ export async function createRemoteClient(
       generatedId(input.operationId);
       coreId(input.agentId);
       try {
-        return normalize(await ops.send(input), input.operationId);
+        return state(await ops.send(input), input.operationId);
       } catch (error) {
         return { state: 'uncertain', operationId: input.operationId, reason: sessionFault(error) };
       }
