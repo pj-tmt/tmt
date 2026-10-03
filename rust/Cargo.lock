@@ -3077,7 +3077,9 @@ dependencies = [
 name = "tmt-test-support"
 version = "5.0.0-alpha.48"
 dependencies = [
+ "serde_json",
  "tmt-invoke",
+ "toml_edit",
 ]
 
 [[package]]

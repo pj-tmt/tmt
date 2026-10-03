@@ -13,5 +13,9 @@ dist = false
 [dependencies]
 tmt-invoke.workspace = true
 
+[dev-dependencies]
+serde_json.workspace = true
+toml_edit.workspace = true
+
 [lints]
 workspace = true

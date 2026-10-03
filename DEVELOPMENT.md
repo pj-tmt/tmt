@@ -1970,7 +1970,7 @@ x64 runtime producer builds the Rust TOML example as a separate
 Run targeted fixture checks, then the tooling quality and affected workflow checks:
 
 ```bash
-(cd rust && cargo build --locked -p tmt-cli --example release-version && cargo test --locked -p tmt-cli --example release-version)
+(cd rust && cargo build --locked -p tmt-test-support --example release-version && cargo test --locked -p tmt-test-support --example release-version)
 (cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/release-cut.test.ts test/tooling/release-version-injection.test.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/repository-layout.test.ts)
 (cd typescript && corepack pnpm check:tooling)
 actionlint .github/workflows/release-cut.yml .github/workflows/release-version-injection.yml .github/workflows/native-release.yml
@@ -1993,8 +1993,8 @@ old-path publications can add evidence but do not gate it. Herdr's independent
 private version boundary is a fixture until the switch enables it for release-cut.
 
 For an authorized local native spike, follow the existing heavy-build/disk rules
-and use one target directory. Build the developer-only Rust `release-version`
-example first; the Node gate finds it under that target's `debug/examples/`
+and use one target directory. Build the developer-only `tmt-test-support`
+`release-version` example first; the Node gate finds it under that target's `debug/examples/`
 (or the default `rust/target`). Invoke `release-version-injection.mjs prepare
 <checkout> <snapshot-outside-checkout> <product> <tag>`, run the full stale-lock
 probe and offline workspace lock update, then `verify <checkout> <snapshot>`.

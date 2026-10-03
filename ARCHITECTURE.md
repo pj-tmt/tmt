@@ -38,7 +38,7 @@ layout permission does not change component ownership, CI selection or release p
 | Repository root           | Short entry points, contributor guidance, license and required repository/tool configuration; no product source or generated evidence. |
 | `.agents/`                | Repository contributor procedures.                                                                                                     |
 | `.github/`                | Component ownership, layout allowlist, workflows, shared Actions and isolated release tooling.                                         |
-| `rust/`                   | Native CLI, core, adapters, shared Rust leaves, fixture publication and the release archive note; extensions retain their own crates.  |
+| `rust/`                   | Native CLI, core, adapters, shared Rust leaves, private fixtures and the release archive note; extensions retain their own crates.     |
 | `typescript/`             | Private developer tooling, tests and shared fixture support; no product-runtime fallback.                                              |
 | `extensions/<extension>/` | Feature-owned runtimes, contracts, skills, documentation and assets.                                                                   |
 | `contracts/`              | Core public contracts and their normative fixtures.                                                                                    |
@@ -3978,7 +3978,7 @@ Retained tests are organized under `typescript/test/native/`, `typescript/test/e
 their owners. Office real-companion stress cases use `office-*` filenames and the
 component map's stress `selectedBy` glob; retained-release setup uses the private
 installer, while public acquisition refusal stays in the native lifecycle suite.
-`rust/crates/tmt-test-support` owns only fixture-executable publication for
+The `rust/crates/tmt-test-support` library owns fixture-executable publication for
 [DEVELOPMENT's ETXTBSY case 2](DEVELOPMENT.md#rust-checks), not general test utilities.
 Its one `write_executable` helper sends exact bytes and the caller's permission
 mode to a short-lived shell through `tmt-invoke`'s bounded execution and
@@ -3989,7 +3989,10 @@ The unpublished, `dist = false` library is a private component, with no release
 consumers. Only Adapters, CLI, Squad, Office, Colab and Office Command may declare
 its canonical untargeted dev-dependency; no production or build edge may consume
 it. The architecture guard checks those exact edges, production references and
-publication metadata. Its only dependency is the neutral `tmt-invoke` leaf.
+publication metadata. Its only production dependency is the neutral `tmt-invoke` leaf.
+Its developer-only `release-version` example owns the release TOML tool described
+[below](#release-cut-shadow), with exact untargeted `serde_json`/`toml_edit` dev edges;
+these dependencies cannot enter the library or become production/build edges.
 Owner-local test modules retain readiness, scenario assertions and case-3 retries.
 
 The CLI's `tests/support` module owns the isolated environment and
@@ -4200,7 +4203,7 @@ discovers Cargo inheritance, edits only the selected version declaration, and
 verifies full offline locked resolution against the tag. All tracked source
 hashes, the exact manifest edit and semantic lock entries are checked; only local
 package versions and their implied qualified dependency references may change.
-The developer-only `tmt-cli` example `release-version` is the single TOML owner:
+The developer-only `tmt-test-support` example `release-version` is the single TOML owner:
 workspace-pinned `toml_edit` parses manifests/locks and preserves formatting and
 comments while editing the version. It is not a shipped product command.
 The Linux x64 runtime producer transfers this example as a separate fixture
