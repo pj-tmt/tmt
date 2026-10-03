@@ -387,7 +387,7 @@ async function wire(
     }
   }
   const otherDevice = '00000000-0000-4000-8000-000000000126';
-  const otherSigner = await crypto.subtle.generateKey('Ed25519', true, ['sign', 'verify']);
+  const otherSigner = await crypto.subtle.generateKey('Ed25519', false, ['sign', 'verify']);
   const otherCertificate = c.certificate.input({
     space: v.space,
     issuerKind: 'member',
