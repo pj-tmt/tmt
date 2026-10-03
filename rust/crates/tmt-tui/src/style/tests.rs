@@ -252,7 +252,6 @@ fn malformed_grid_tracks_sizes_and_conflicts_have_located_errors() {
         "grid grid-cols-[minmax(1fr,2fr)]",
         "grid grid-cols-[minmax(2,3,4)]",
         "grid grid-cols-[minmax(1,minmax(2,3))]",
-        "grid grid-cols-[auto]",
         "col-span-0",
         "line-clamp-0",
         "w-[101%]",
@@ -306,4 +305,37 @@ fn bracket_integers_fail_with_the_canonical_bare_hint() {
             "{error}"
         );
     }
+}
+
+#[test]
+fn auto_grid_tracks_and_each_conflict_have_specific_located_errors() {
+    let style = styled("class='grid grid-cols-[auto_minmax(auto,12)]'");
+    assert_eq!(
+        style.columns[0],
+        GridTrack {
+            min: Breadth::Auto,
+            max: Breadth::Auto
+        }
+    );
+    assert_eq!(
+        style.columns[1],
+        GridTrack {
+            min: Breadth::Auto,
+            max: Breadth::Cells(12)
+        }
+    );
+    let maximum = invalid("class='grid grid-cols-[minmax(2,auto)]'");
+    assert!(maximum.contains("minmax(auto,N)"), "{maximum}");
+    let needs_grid = invalid("class='grid-cols-[2]'");
+    assert!(
+        needs_grid.contains("grid-cols-[2]") && needs_grid.contains("requires grid"),
+        "{needs_grid}"
+    );
+    assert!(!needs_grid.contains("conflicts"));
+    let direction = invalid("class='grid flex-row'");
+    assert!(
+        direction.contains("flex-row") && direction.contains("conflicts with grid"),
+        "{direction}"
+    );
+    assert!(!direction.contains("requires grid"));
 }

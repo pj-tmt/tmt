@@ -85,7 +85,9 @@ fn percent(raw: &str) -> Result<u8, String> {
         .ok_or_else(|| "requires an integer percentage from 0 to 100".into())
 }
 fn breadth(raw: &str) -> Result<Breadth, String> {
-    if raw.ends_with('%') {
+    if raw == "auto" {
+        Ok(Breadth::Auto)
+    } else if raw.ends_with('%') {
         Ok(Breadth::Percent(percent(raw)?))
     } else if let Some(n) = raw.strip_suffix("fr") {
         Ok(Breadth::Fraction(cells(n)?))
@@ -105,6 +107,12 @@ fn tracks(raw: &str) -> Result<Vec<GridTrack>, String> {
                     .ok_or("minmax requires two endpoints")?;
                 let min = breadth(a)?;
                 let max = breadth(b)?;
+                if max == Breadth::Auto {
+                    return Err(
+                        "auto is a bare track or a minmax minimum; use auto or minmax(auto,N)"
+                            .into(),
+                    );
+                }
                 if matches!(min, Breadth::Fraction(_)) {
                     return Err("minmax minimum cannot be fr".into());
                 }
@@ -319,15 +327,14 @@ pub(crate) fn admit(kind: Kind, attrs: &BTreeMap<String, String>) -> Result<Cell
             )
         })?);
     }
-    if (!style.columns.is_empty() && style.display != Display::Grid)
-        || (style.display == Display::Grid && seen.contains_key("direction"))
-    {
+    if !style.columns.is_empty() && style.display != Display::Grid {
         return Err(format!(
-            "{} requires grid; {} conflicts with grid",
-            seen.get("columns").map_or("grid-cols", String::as_str),
-            seen.get("direction")
-                .map_or("flex direction", String::as_str)
+            "{} requires grid",
+            seen.get("columns").expect("admitted columns")
         ));
+    }
+    if style.display == Display::Grid && seen.contains_key("direction") {
+        return Err(format!("{} conflicts with grid", seen["direction"]));
     }
     Ok(style)
 }

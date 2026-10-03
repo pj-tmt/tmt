@@ -28,7 +28,6 @@ const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
     ("tmt-cli-style", "crossterm", None),       // table terminal-style assertions
     ("tmt-cli-style", "insta", None),           // rendering snapshots
     ("tmt-cli-style", "serde_json", None),      // theme serialization assertions
-    ("tmt-squad", "tmt-tui", None),             // test-scoped markup/source parity adapter
     ("tmt-office", "png", None),                // whiteboard image fixtures
     ("tmt-office", "rusqlite", None),           // whiteboard and world SQL oracles
     ("tmt-office", "tmt-office-storage", None), // in-process props fixtures
@@ -203,6 +202,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "tmt-cli-style",
             // Same neutral bounded process owner used by Remote and Colab.
             "tmt-invoke",
+            // Production row geometry and grapheme fitting; no core behavior.
             "tmt-tui",
             "clap",
             "serde_json",
@@ -218,7 +218,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "nix",
         ],
         "tmt-invoke" => &["subprocess", "nix"],
-        // Taffy owns admitted flex/grid geometry; scalar measurement stays injected.
+        // Taffy owns flex/grid geometry; text owns shared grapheme measurement/fitting.
         "tmt-tui" => &[
             "roxmltree",
             "serde_json",

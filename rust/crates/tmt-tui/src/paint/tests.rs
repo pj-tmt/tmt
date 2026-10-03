@@ -263,3 +263,36 @@ fn later_sibling_wins_and_reordering_keeps_semantic_identity() {
         root.children.reverse();
     }
 }
+
+#[test]
+fn aligned_board_text_keeps_graphemes_and_intrinsic_width_upper_bound() {
+    use tmt_cli_style::grid::Align;
+    for (value, width, flow, align, expected) in [
+        (
+            "e\u{301}",
+            4,
+            TextFlow::Truncate,
+            Align::Right,
+            "   e\u{301}",
+        ),
+        ("👩‍💻", 5, TextFlow::Middle, Align::Center, " 👩‍💻  "),
+        ("👩‍💻xyz", 4, TextFlow::Truncate, Align::Right, "👩‍💻x…"),
+        ("文", 1, TextFlow::Truncate, Align::Left, "…"),
+        ("x ", 4, TextFlow::Truncate, Align::Right, "  x "),
+    ] {
+        assert_eq!(text::fit_line(value, width, flow, align), expected);
+    }
+    assert_eq!(
+        text::fit_lines("one two three", 6, TextFlow::Clamp(2), Align::Right),
+        ["   one", "two t…"]
+    );
+    assert_eq!(
+        text::measure("a a a", TextFlow::Wrap, geometry::Space::Cells(4)),
+        [4, 2]
+    );
+    assert_eq!(text::lines("a a a", 4, TextFlow::Wrap), ["a a ", "a   "]);
+    assert_eq!(
+        text::fit_line("abcdef", 0, TextFlow::Truncate, Align::Center),
+        ""
+    );
+}

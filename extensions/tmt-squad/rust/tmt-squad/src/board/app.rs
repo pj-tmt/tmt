@@ -344,7 +344,7 @@ impl App {
     }
 
     /// Section index and row for every row matching the search.
-    fn rows(&self) -> Vec<(usize, &Value)> {
+    pub(super) fn rows(&self) -> Vec<(usize, &Value)> {
         let Some(view) = &self.view else {
             return Vec::new();
         };

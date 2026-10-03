@@ -15,7 +15,6 @@ mod filter;
 mod hook_protocol;
 mod hotkeys;
 mod look;
-#[cfg(test)]
 mod markup;
 mod me;
 mod member_actions;

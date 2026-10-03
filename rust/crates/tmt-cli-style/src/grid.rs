@@ -1,6 +1,6 @@
 //! Shared column widths and bounded cell fitting for aligned views. One
-//! pure solver serves every aligned view: `tmt ls` style lists through
-//! [`crate::table`], and extension boards and their text output directly.
+//! pure solver serves CLI lists through [`crate::table`] and extension text
+//! output. Squad boards use Taffy geometry and the TUI grapheme text owner.
 //!
 //! Widths are display cells: wide characters (CJK, most emoji) count two.
 //! The solver only decides widths; drawing and color belong to the caller.
