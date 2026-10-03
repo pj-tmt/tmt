@@ -324,7 +324,12 @@ tmt squad rm <name>                           # leaves the squad; the agent keep
   failure, re-run it with the same pairs.
 - `tmt squad lead <name>` selects the lead independently of free-text `role`
   and `lead` fields. Setting or clearing either field never changes leadership,
-  and selecting a new lead preserves every member's role text.
+  and selecting a new lead preserves every member's role text and membership.
+  `tmt squad lead --none` clears leadership. Former leads remain members; use
+  `tmt squad rm <name>` separately when they should leave.
+- Repeating `tmt squad add <name>` reports that the member is already in the
+  squad and preserves its state and task. A missing state receives the configured
+  initial value.
 - Legacy members with only `role=lead` still appear as lead until a role write
   would change leadership or `squad lead` records their separate marker. Listing
   and opening the board never perform that conversion. The reserved metadata suffix `lead.marker` is not a
@@ -338,6 +343,8 @@ tmt squad rm <name>                           # leaves the squad; the agent keep
   for use `tmt inbox` and `tmt answer` (or `tmt reply --receipt` when you were
   given a receipt). `tmt squad talk`, `reply` and `replies` were removed and
   only refuse.
+  Without a lead, select one with `tmt squad lead <name> --squad <squad>`, or
+  annotate a particular member with `tmt squad annotate <member> "…" --to member`.
 
 ## Keep your notebook current
 

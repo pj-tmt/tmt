@@ -331,9 +331,11 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
         format!("tab {tab}")
     } else {
         format!(
-            "squad {} · lead {} · layout {}",
+            "squad {} · {} · layout {}",
             cell(&squad["name"]),
-            cell(&squad["lead"]["name"]),
+            squad["lead"]["name"]
+                .as_str()
+                .map_or_else(|| "no lead".to_owned(), |name| format!("lead {name}")),
             cell(&squad["layout"]),
         )
     };
@@ -1111,7 +1113,7 @@ columns = [{ name = "member", width = "20%" },
         );
         assert_eq!(
             text(&product, Terminal::PLAIN),
-            "squad product · lead - · layout crew\n\n\
+            "squad product · no lead · layout crew\n\n\
              MEMBERS 1\n\
              \x20 ○  zed  working  cache room reads\n"
         );
@@ -1122,11 +1124,11 @@ columns = [{ name = "member", width = "20%" },
         let rendered = text(&both, Terminal::PLAIN);
         assert_eq!(
             rendered,
-            "squad product · lead - · layout crew\n\n\
+            "squad product · no lead · layout crew\n\n\
              MEMBERS 1\n\
              \x20 ○  zed  working  cache room reads\n\
              \n\
-             squad reviews · lead - · layout crew\n\n\
+             squad reviews · no lead · layout crew\n\n\
              MEMBERS 1\n\
              \x20 ○  amy  review\n\
              \n◆ needs to know who you are: tmt squad me <name>\n"
