@@ -1103,8 +1103,9 @@ runs it. Production code never retries ETXTBSY.
   test thread holds its descriptor. The dev-only
   `tmt-test-support::write_executable(path, bytes, mode)` owns this publication;
   preserve the caller's 0700 or 0755 mode. It uses a cleared writer environment,
-  a five-second execution bound and `tmt-invoke` process-group cleanup, with no
-  retries. Readiness probes and their payload-free branches stay owner-local.
+  a generous thirty-second hung-writer bound and `tmt-invoke` process-group
+  cleanup, with no retries. Readiness probes and their payload-free branches stay
+  owner-local.
 - The product writes the executable and then execs it, as an installer and its
   verifier do: the fixture waits out the window with a bounded retry of only
   that error (`tmt-office-command`'s `test_support::install_office`,
