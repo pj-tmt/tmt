@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drv-claude.mdx
-sourceRevision: a9b20d9dd287fd5dd0da493c0642d1a70df12d69
+sourceRevision: 44f7c122826138af7e784079ba61766762cba41f
 title: Claude Code
 ---
 
@@ -42,6 +42,12 @@ $ tmt resume reviewer       # reviewer の会話を再開
 `}</Cmd>
 
 設定時には、tmt 用の Claude Code hook を 3 つ追加します（セッション開始、セッション終了、プロンプト送信）。それ以外の設定は変わりません。hook が Claude Code を止めることはありません。tmt が遅い、または見つからない場合、セッションは概要なしで通常どおり開始します。`tmt setup claude --remove` で hook を削除できます。
+
+`CLAUDE_CONFIG_DIR` が設定されている場合、tmt は `~/.claude` の代わりにそのフォルダーを Claude の設定と skill に使い、会話の記録もそこから読み取ります。相対パスは、tmt を実行したフォルダーを基準にします。
+
+設定時には、シンボリックリンクになっている設定ファイルは編集しません。リンクもリンク先もそのままです。tmt の hook を追加するには、まずリンク先のファイルをバックアップしてください。`CLAUDE_CONFIG_DIR` に空のフォルダーを指定して `tmt setup claude` を実行し、そこにある tmt の hook の項目を、実際の設定ファイルへ手動でコピーします。
+
+tmt が認識しない理由でセッションが終了した場合、tmt はそれを終了とは見なさず、Claude のプロセス自体を確認します。
 
 <Mdx.h3 id="what-you-get">使える機能</Mdx.h3>
 
