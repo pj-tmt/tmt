@@ -26,7 +26,8 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   no `check`. A Session fault (SDK `RefusalError` `REMOTE_SESSION_ENDED`, `ClientError`
   `sequence_unavailable`, a verified refused-`REMOTE_SESSION_ENDED` state, an expired
   Session or a changed grant revision) is normalized to `SessionEndedError` or an
-  `uncertain` state with that reason. Registration must rebuild the client and its
+  `uncertain` state with that reason. Other refusals use the nine reviewed
+  `REMOTE_REFUSAL_CODES`; anything else is `REMOTE_REFUSED`. Registration must rebuild the client and its
   controllers when it replaces the Session; an old client never adopts a new one.
 - **`ask-records.ts`.** Record types `ask`, `ask-state`, `ask-reply`, the ledger states and
   `canTransition`. `readAskRecords` (alias `readAskViews`) reads only the admitted
@@ -44,8 +45,11 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   current Remote context. `send` is the only Remote write: recheck context, sign, adopt
   (durable), record `dispatching`, recheck expiry and context again, then `remote.send`; a
   failure after adoption records `uncertain` if the send started, else `failed`.
-  `recover` only calls `operation` and `result`, publishing state and the final
-  as records. `observe` runs while the page is visible, backs off from 2 s up to 30 s, stops
+  `recover` only calls `operation` and `result`, publishing state and the final as records;
+  an interrupted `dispatching` ask becomes `uncertain` (`OBSERVATION_INTERRUPTED`) first, and
+  a missing operation stays `uncertain` and can be abandoned. A refused read is an ephemeral
+  `ReadRefusedError`, never a ledger state; the observer keeps backing off, while a
+  session-ending refusal stops it. `observe` runs while the page is visible, backs off from 2 s up to 30 s, stops
   after two hours and never sends on reload or reconnect. `abandon` applies only to
   `uncertain`, records `MAY_HAVE_BEEN_DELIVERED` and cancels nothing. On a Session fault
   the controller publishes `uncertain` (an `accepted` ask's records stay unchanged), then
