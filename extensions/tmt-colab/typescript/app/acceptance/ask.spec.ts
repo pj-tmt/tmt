@@ -14,7 +14,7 @@ import { test } from '@playwright/test';
 // paired browsers (asker, second viewer), a page with known text created through
 // `tmt colab page write`, and the recipient named and online.
 
-const ASK_UI = 'Ask panel and Ask agent action (colab-1)';
+const ASK_UI = 'Ask panel and Ask agent action (colab-2)';
 const REMOTE_SDK = 'browser operations helper in @tmt/remote-client (#1497)';
 
 test.describe('Ask agent real-binary acceptance (#1110)', () => {
@@ -43,10 +43,12 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
     // request IDs. coreCalls() holds one dispatch.create; recipient has one row.
   });
 
-  test.fixme('remote restart at the pre-dispatch barrier leaves no effect and a same-ID resend delivers once', () => {
-    // Needs: ASK_UI, REMOTE_SDK. world.armBarrier(operationId, 'before'); kill
-    // and restart tmt-remote; no recipient row before the resend; the resend
-    // reuses the operation ID and yields exactly one received row.
+  test.fixme('remote restart at the pre-dispatch barrier stays uncertain with no new dispatch; abandon records MAY_HAVE_BEEN_DELIVERED', () => {
+    // Needs: ASK_UI, REMOTE_SDK. world.armBarrier(operationId, 'before'); kill and
+    // restart tmt-remote. operation.show finds nothing, so the ask stays uncertain:
+    // the page offers only a read-only re-check or abandon, never a resend, and
+    // coreCalls() holds no dispatch.create for it and the recipient has no row.
+    // Explicit abandon records MAY_HAVE_BEEN_DELIVERED without any effect.
   });
 
   test.fixme('colab restart keeps the ask, its state and the reply from the own stream', () => {
