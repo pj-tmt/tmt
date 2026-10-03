@@ -157,7 +157,10 @@ Timeout and interruption end only the observer, never recipient work. A
 retrying. Missing visible output is not permission to resend.
 
 `STORAGE_NOT_WRITABLE` (exit 1) means TMT could not write its named data
-directory; `TMUX_PERMISSION_DENIED` (exit 1) means tmux socket access was denied.
+directory when opening storage, consistently across core commands and `api`;
+other storage failures keep their command-specific codes. `TMUX_PERMISSION_DENIED`
+(exit 1) means tmux socket access was denied. TMT preserves tmux's locale and UTF-8
+handling; localized diagnostic wording does not establish a denial by itself.
 An agent sandbox may need the provider's normal escalation for the same authorized
 command. An identical `reply` retry is safe only when the error says nothing was
 stored; keep the request ID, receipt and body unchanged. Never delete storage or

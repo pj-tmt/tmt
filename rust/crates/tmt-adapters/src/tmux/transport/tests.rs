@@ -372,14 +372,20 @@ fn capture_accepts_maximum_lines_and_a_complete_four_mib_body() {
 }
 
 #[test]
-fn a_denied_socket_before_any_pane_input_reads_as_socket_permission() {
+fn an_unconfirmed_socket_diagnostic_preserves_prepare_failure() {
+    let directory = crate::test_support::TestDirectory::new();
+    let missing = directory.path.join("missing.sock");
     let mut denied = crate::process::CommandError::new(CommandFailure::Exit {
         code: Some(1),
         signal: None,
     });
     denied.output = Some(crate::process::CommandOutput {
         stdout: Vec::new(),
-        stderr: b"error connecting to /tmp/private.sock (Permission denied)\n".to_vec(),
+        stderr: format!(
+            "error connecting to {} (Permission denied)\n",
+            missing.display()
+        )
+        .into_bytes(),
     });
     let tmux = Tmux::new(ScriptedRunner::new([Err(denied), Err(failure(true))]));
 
@@ -387,6 +393,6 @@ fn a_denied_socket_before_any_pane_input_reads_as_socket_permission() {
         .send_with_wait(SOCKET, PANE, "body", Duration::ZERO, |_| {})
         .unwrap_err();
     assert_eq!(error.stage, DeliveryStage::Prepare);
-    assert!(error.socket_permission_denied());
-    assert!(error.cause::<TmuxError>().socket_permission_denied());
+    assert!(!error.socket_permission_denied());
+    assert!(!error.cause::<TmuxError>().socket_permission_denied());
 }

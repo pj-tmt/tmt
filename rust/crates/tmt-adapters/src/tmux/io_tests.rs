@@ -5,42 +5,26 @@ use crate::scripted_runner::{ScriptedRunner, failure};
 const SERVER_ID: &str = "123e4567-e89b-42d3-a456-426614174000";
 
 #[test]
-fn socket_permission_is_typed_without_treating_other_tmux_exits_as_denial() {
-    let failed = |stderr: &str| {
+fn socket_permission_requires_os_evidence_not_diagnostic_words() {
+    let directory = crate::test_support::TestDirectory::new();
+    let missing = directory.path.join("missing.sock");
+    for reason in [
+        "Permission denied",
+        "Operation not permitted",
+        "Permission refusée",
+        "No such file or directory",
+    ] {
         let mut error = CommandError::new(CommandFailure::Exit {
             code: Some(1),
             signal: None,
         });
         error.output = Some(CommandOutput {
             stdout: Vec::new(),
-            stderr: stderr.as_bytes().to_vec(),
+            stderr: format!("error connecting to {} ({reason})\n", missing.display()).into_bytes(),
         });
-        error
-    };
-    let denied = Tmux::new(ScriptedRunner::new([Err(failed(
-        "error connecting to /tmp/private.sock (Permission denied)\n",
-    ))]));
-    assert!(
-        denied
-            .caller_pane(&full_environment())
-            .unwrap_err()
-            .socket_permission_denied()
-    );
-
-    let blocked = Tmux::new(ScriptedRunner::new([Err(failed(
-        "error connecting to /tmp/private.sock (Operation not permitted)\n",
-    ))]));
-    assert!(
-        blocked
-            .caller_pane(&full_environment())
-            .unwrap_err()
-            .socket_permission_denied()
-    );
-
-    let absent = Tmux::new(ScriptedRunner::new([Err(failed(
-        "error connecting to /tmp/private.sock (No such file or directory)\n",
-    ))]));
-    assert!(absent.caller_pane(&full_environment()).unwrap().is_none());
+        let tmux = Tmux::new(ScriptedRunner::new([Err(error)]));
+        assert!(tmux.caller_pane(&full_environment()).unwrap().is_none());
+    }
 }
 
 fn marked_row() -> String {
@@ -596,9 +580,6 @@ fn server_id_requires_valid_readback_after_either_set_outcome() {
 #[test]
 fn server_id_preserves_operational_set_failures_without_readback() {
     use crate::scripted_runner::failure_with_kind;
-    let mut denied = refused_server_id_set();
-    denied.output.as_mut().unwrap().stderr =
-        b"error connecting to /tmp/private.sock (Permission denied)\n".to_vec();
     for error in [
         failure_with_kind(CommandFailure::Timeout, false),
         failure_with_kind(CommandFailure::Spawn, false),
@@ -618,7 +599,6 @@ fn server_id_preserves_operational_set_failures_without_readback() {
             },
             true,
         ),
-        denied,
     ] {
         let expected = error.kind;
         let tmux = Tmux::new(ScriptedRunner::new([Err(unset_server_id()), Err(error)]));
@@ -680,7 +660,7 @@ fn explicit_target_resolution_preserves_execution_failures() {
 }
 
 #[test]
-fn explicit_target_resolution_keeps_missing_success_and_permission_distinct() {
+fn explicit_target_resolution_keeps_success_and_unconfirmed_missing_distinct() {
     for (output, expected) in [("%9\n", Some("%9")), ("", None), ("invalid", None)] {
         let tmux = Tmux::new(ScriptedRunner::new([Ok(output)]));
         assert_eq!(
@@ -690,15 +670,17 @@ fn explicit_target_resolution_keeps_missing_success_and_permission_distinct() {
             expected
         );
     }
-    for (stderr, denied) in [
-        ("can't find window: 10\n", false),
-        (
-            "error connecting to /tmp/private.sock (Permission denied)\n",
-            true,
+    let directory = crate::test_support::TestDirectory::new();
+    let missing = directory.path.join("missing.sock");
+    for stderr in [
+        "can't find window: 10\n".to_owned(),
+        format!(
+            "error connecting to {} (Permission denied)\n",
+            missing.display()
         ),
-        (
-            "error connecting to /tmp/private.sock (Operation not permitted)\n",
-            true,
+        format!(
+            "error connecting to {} (Operation not permitted)\n",
+            missing.display()
         ),
     ] {
         let mut error = CommandError::new(CommandFailure::Exit {
@@ -711,11 +693,7 @@ fn explicit_target_resolution_keeps_missing_success_and_permission_distinct() {
         });
         let tmux = Tmux::new(ScriptedRunner::new([Err(error)]));
         let target = tmux.resolve_target("10.3", OperationOptions::default());
-        if denied {
-            assert!(target.unwrap_err().socket_permission_denied());
-        } else {
-            assert_eq!(target.unwrap(), None);
-        }
+        assert_eq!(target.unwrap(), None);
     }
 }
 

@@ -34,7 +34,12 @@ exactly like the CLI without `--identity`. Anonymous is not an authenticated own
 grants nothing beyond what same-user CLI calls without an identity can already do; both
 or neither is `API_INPUT_INVALID`. Reads name neither. Unknown request fields
 are rejected. Responses reuse existing resource shapes, without a second wrapper.
-Clients must tolerate additive response fields.
+Clients must tolerate additive response fields. Public `tmt api` storage opens,
+including `notes.read`, return `STORAGE_NOT_WRITABLE` (exit 1) only for a confirmed
+OS-denied or read-only data directory. The message names that directory; no API
+operation was performed. Other storage-open failures retain `API_UNAVAILABLE`
+or the resource's existing code. `capabilities` and `storage.root` remain
+independent of storage access.
 
 | Operation                | Input                                                                     | Result                                                                                                                                                            |
 | ------------------------ | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |

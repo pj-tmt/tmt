@@ -37,7 +37,15 @@ pub fn forget(name: &str) -> io::Result<u8> {
 /// Whether a session was forgotten, and the message saying so.
 fn forgotten(name: &str) -> Result<(bool, String), Failure> {
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
-    let mut storage = Storage::open(&paths.database).map_err(storage_failure)?;
+    let mut storage = Storage::open(&paths.database).map_err(|error| {
+        Failure::storage_access(
+            error,
+            &paths.global_dir,
+            "No remembered session was changed.",
+            "IDENTITY_ERROR",
+            "Could not access remembered session state.",
+        )
+    })?;
     let result = (|| {
         let identity = storage
             .find_identity(&normalize_name(name))

@@ -13,7 +13,7 @@ mod skills;
 use crate::{
     config::{ConfigFiles, ConfigPaths},
     skill_installation,
-    storage::Storage,
+    storage::{Storage, StorageError},
 };
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
@@ -51,12 +51,14 @@ const OPS: &[&str] = &[
 pub struct Fault {
     code: &'static str,
     message: std::borrow::Cow<'static, str>,
+    storage_open: Option<StorageError>,
 }
 impl Fault {
     pub fn new(code: &'static str, message: &'static str) -> Self {
         Self {
             code,
             message: message.into(),
+            storage_open: None,
         }
     }
     /// A fault whose message names the specific skill, path or owner.
@@ -64,6 +66,7 @@ impl Fault {
         Self {
             code,
             message: message.into(),
+            storage_open: None,
         }
     }
     pub fn unavailable() -> Self {
@@ -72,6 +75,24 @@ impl Fault {
             "Operation could not be confirmed. For a write, inspect its operation receipt or current revision before retrying.",
         )
     }
+    pub(super) fn with_storage_open(mut self, error: StorageError) -> Self {
+        self.storage_open = Some(error);
+        self
+    }
+
+    /// Public CLI presentation consumes the typed cause; other API consumers
+    /// retain the existing resource-specific fault envelope.
+    pub fn take_storage_open(&mut self) -> Option<StorageError> {
+        self.storage_open.take()
+    }
+
+    pub fn code(&self) -> &'static str {
+        self.code
+    }
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
     pub fn encode(&self) -> Vec<u8> {
         let mut error = json!({"code":self.code,"message":self.message});
         if self.code == "API_VERSION_UNSUPPORTED" {
@@ -297,7 +318,8 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
     } else {
         None
     };
-    let mut storage = Storage::open(&paths.database).map_err(|_| Fault::unavailable())?;
+    let mut storage = Storage::open(&paths.database)
+        .map_err(|error| Fault::unavailable().with_storage_open(error))?;
     let pending = match request {
         Request::Capabilities
         | Request::StorageRoot

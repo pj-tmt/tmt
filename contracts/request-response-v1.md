@@ -3,7 +3,9 @@
 The native CLI stores complete replies in SQLite. `talk` waits for a durable
 reply by default; `--timeout` bounds observation and `--detach` returns after
 sending. Terminal capture and `check` are diagnostics, not authoritative
-completion or full-body retrieval. Identified destinations use a durable Inbox
+completion or full-body retrieval. Socket denial is confirmed with OS permission
+evidence rather than localized error wording; tmux child locales are preserved,
+including UTF-8 character handling for capture and send. Identified destinations use a durable Inbox
 route with one live-delivery attempt. Explicit `talk --inbox` queues without
 that attempt. Neither implies a daemon, remote transport or authentication.
 

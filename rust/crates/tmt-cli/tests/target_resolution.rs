@@ -6,6 +6,7 @@ mod support;
 use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
 use std::{
     fs,
+    os::unix::{fs::PermissionsExt, net::UnixListener},
     path::PathBuf,
     process::{Child, Stdio},
     time::Duration,
@@ -22,6 +23,10 @@ impl Fixture {
             std::env::temp_dir().join(format!("tmt-target-resolution-{}", std::process::id()));
         fs::create_dir(&root).unwrap();
         fs::create_dir(root.join("bin")).unwrap();
+        // Permission evidence belongs to this disposable socket, not stderr.
+        let socket = root.join("private.sock");
+        drop(UnixListener::bind(&socket).unwrap());
+        fs::set_permissions(&socket, fs::Permissions::from_mode(0o000)).unwrap();
         let fixture = Self { root, child: None };
         tmt_test_support::write_executable(
             &fixture.root.join("bin/tmux"),
@@ -31,7 +36,8 @@ printf '%s\n' "$*" >> "$TMT_TEST_TMUX_LOG"
 case "$TMT_TEST_RESOLUTION_MODE" in
   timeout) echo $$ > "$TMT_TEST_TMUX_PID"; exec /bin/sleep 10 ;;
   missing) echo "can't find window: 10" >&2; exit 1 ;;
-  denied) echo 'error connecting to /tmp/private.sock (Permission denied)' >&2; exit 1 ;;
+  denied) printf 'error connecting to %s (Permission denied)\n' "$TMT_TEST_DENIED_SOCKET" >&2; exit 1 ;;
+  unconfirmed) printf 'error connecting to %s (Permission denied)\n' "$TMT_TEST_MISSING_SOCKET" >&2; exit 1 ;;
 esac
 exit 98
 "##,
@@ -48,6 +54,8 @@ exit 98
         command
             .env("PATH", self.root.join("bin"))
             .env("TMT_TEST_RESOLUTION_MODE", mode)
+            .env("TMT_TEST_DENIED_SOCKET", self.root.join("private.sock"))
+            .env("TMT_TEST_MISSING_SOCKET", self.root.join("missing.sock"))
             .env("TMT_TEST_TMUX_LOG", &log)
             .env("TMT_TEST_TMUX_PID", self.root.join("tmux.pid"))
             .stdout(Stdio::piped())
@@ -82,7 +90,13 @@ fn timed_out_resolution_is_unavailable_for_check_and_add() {
             ("timeout", 1, "RECONCILIATION_FAILED"),
             ("missing", 3, "PANE_NOT_FOUND"),
             ("denied", 1, "TMUX_PERMISSION_DENIED"),
+            ("unconfirmed", 3, "PANE_NOT_FOUND"),
         ] {
+            // Root bypasses socket mode bits; the Docker real-server fixture
+            // explicitly runs its denial client as nobody instead.
+            if mode == "denied" && nix::unistd::geteuid().is_root() {
+                continue;
+            }
             let output = fixture.run(args, mode);
             assert_eq!(output.status.code(), Some(status), "{mode}: {output:?}");
             assert!(output.stderr.is_empty(), "{output:?}");
