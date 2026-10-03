@@ -290,7 +290,9 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
     };
     let outcome = match &report {
         Report::Created(result) if result.created => {
-            crate::skill_reminder::Outcome::SavedIdentityCreated
+            crate::skill_reminder::Outcome::SavedIdentityCreated {
+                name: result.identity.name.clone(),
+            }
         }
         _ => crate::skill_reminder::Outcome::None,
     };
