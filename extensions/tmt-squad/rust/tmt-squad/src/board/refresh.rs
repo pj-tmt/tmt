@@ -646,6 +646,11 @@ fn squad_view(
     } else {
         Notes::NotShown
     };
+    let rows = if settings.enabled && !config.has_custom_rows(&squad.name)? {
+        rows.with_usage(settings.windows)
+    } else {
+        rows
+    };
     let view = View {
         home: None,
         token_rate,
@@ -1790,7 +1795,8 @@ esac
                         enabled: true,
                         every: Duration::from_millis(2),
                         reduced_motion: true,
-                        window: crate::config::TokenWindow::Minute,
+                        window: crate::config::TokenWindow::MINUTE,
+                        windows: crate::config::TokenWindow::DEFAULTS,
                     },
                     input: super::super::rate::tests::input(100),
                 });
