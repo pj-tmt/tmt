@@ -3425,6 +3425,32 @@ and foreground process cleanup tests run lifecycle scenarios twice, with no core
 socket traffic. Owner-key temporary cleanup is publication-locked; it preserves
 foreign file names and refuses unsafe matching files.
 
+### Colab page source CLI verification
+
+With existing local page state and serve stopped:
+
+```bash
+PATH="$PWD/rust/target/debug:$PATH" tmt colab page read 10000000-0000-4000-8000-000000000001 --json
+PATH="$PWD/rust/target/debug:$PATH" tmt colab page write 10000000-0000-4000-8000-000000000001 --file page.html --expected-revision 'v1:<token-from-read>' --json
+CARGO_BUILD_JOBS=2 cargo test --manifest-path rust/Cargo.toml --offline --locked -p tmt-colab --test page
+```
+
+Use the actual page UUID and exact revision returned by read. Raw read stdout
+preserves source bytes; head/epoch/token metadata goes to stderr. `--file -` reads
+bounded UTF-8 stdin to EOF. The title is retained. Stale bases return
+`COLAB_STALE_BASE` and exit 1; no replacement is retried against newer content.
+A running serve returns `COLAB_UNAVAILABLE`: stop it before writing. Serving IPC
+and live browser acceptance are the second #1438 slice. No page creation,
+initialization or migrations are performed by these commands.
+
+The real encrypted-state tests verify Unicode/CRLF/NUL/empty source, preserved
+title, scoped signed receipts, reopen and baseline rotation, deterministic
+competing preparations, exact replay after later edits, rollback at receipt
+publication, revoked-writer denial, invalid/capacity input and lifecycle exclusion.
+They use `tests/support::decoder_config`; production keeps Decoder::new and its
+fixed budget. Run the normal Colab Rust gates, docs formatting and layout guard
+before handoff. The first slice changes no browser app.
+
 ### Colab native export verification
 
 After local page state exists, export its admitted source without running HTML:

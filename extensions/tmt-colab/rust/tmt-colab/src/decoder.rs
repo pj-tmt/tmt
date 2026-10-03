@@ -151,6 +151,16 @@ impl Decoder {
         stop: Option<&AtomicBool>,
         deadline: Instant,
     ) -> Result<Decoded, DecodeFault> {
+        self.decode_request(batch, role, None, stop, deadline)
+    }
+    fn decode_request(
+        &mut self,
+        batch: UpdateBatch<'_>,
+        role: Role,
+        source: Option<&str>,
+        stop: Option<&AtomicBool>,
+        deadline: Instant,
+    ) -> Result<Decoded, DecodeFault> {
         if self.blocked {
             return Err(DecodeFault::CleanupBlocked);
         }
@@ -171,6 +181,7 @@ impl Decoder {
         let wire = WireBatch {
             version: 1,
             namespace: batch.namespace,
+            source: source.map(str::to_owned),
             baseline: URL_SAFE_NO_PAD.encode(batch.baseline),
             updates: batch
                 .updates
@@ -198,6 +209,9 @@ impl Decoder {
             return Err(DecodeFault::InvalidOutput);
         }
         validate_projection(batch.namespace, &reply.projection)?;
+        if source.is_some_and(|value| reply.projection["html"].as_str() != Some(value)) {
+            return Err(DecodeFault::InvalidOutput);
+        }
         let merged = binary(&reply.merged, UPDATE_BYTES).map_err(|_| DecodeFault::InvalidOutput)?;
         Ok(Decoded {
             merged,
@@ -205,6 +219,23 @@ impl Decoder {
             memory_limit: reply.memory_limit,
             child_pid: reply.pid,
         })
+    }
+    pub fn prepare(
+        &mut self,
+        batch: UpdateBatch<'_>,
+        source: &str,
+        stop: Option<&AtomicBool>,
+    ) -> Result<Decoded, DecodeFault> {
+        if source.len() > BASELINE_BYTES || batch.namespace != Namespace::Content {
+            return Err(DecodeFault::InvalidInput);
+        }
+        self.decode_request(
+            batch,
+            Role::Editor,
+            Some(source),
+            stop,
+            Instant::now() + self.config.deadline,
+        )
     }
     /// Produces once from a fresh document and checks materialization in the child.
     pub fn produce_baseline(
@@ -339,6 +370,8 @@ fn cleanup_blocks(cleanup: &Cleanup) -> bool {
 #[serde(deny_unknown_fields)]
 struct WireBatch {
     version: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
     namespace: Namespace,
     baseline: String,
     updates: Vec<String>,

@@ -5008,7 +5008,7 @@ successful durable change; the reserved socket route supplies that composition.
 
 ### Foreground composition and owner registration
 
-`main` owns `serve`, read-only `spaces` and plaintext `export`, style/JSON output, signals and one
+`main` owns `serve`, read-only `spaces`, page source read/offline write and plaintext `export`, style/JSON output, signals and one
 foreground service lock. `core` makes one fixed `storage.root` public API call
 through the absolute invoking `TMT_EXECUTABLE` and `tmt-invoke`, with deadline,
 stream caps and cancellation; missing/invalid roots fail before state creation.
@@ -5079,6 +5079,24 @@ The CLI captures mutation IDs, revisions and selections once, checks explicit
 confirmation for widening, and chooses private IPC or the existing
 lifecycle-locked offline service. An uncertain IPC reply never selects a second
 writer. API/runner/signing ownership and management DTOs are unchanged.
+
+### Root-local page source access
+
+`page` composes the existing authenticated Snapshot and isolated Decoder for
+source reads and minimal admitted-struct edits. Only the decoder child generates
+Yjs deltas; the parent signs with a purpose-separated Keyring device certified by
+the revision-1 management member. This local device is not a Remote registration;
+revocation/expiry fail closed. The opaque page token fences head, epoch and all
+namespace positions, since content appends do not advance the membership log.
+
+Preparation releases its read snapshot before the offline lifecycle lock. The
+existing device transaction owns chain, create-only content append and exact
+operation receipt, with a transactional base recheck; Store's append helper is
+shared with opaque sync. `Store::write_existing` creates no state and migrates
+nothing. The first #1438 slice refuses writes while serve holds its lock.
+Serving IPC/live browser acceptance remains the second slice, using management's
+reserved router and lock order. Neither sync nor the service decodes plaintext.
+CLI JSON/errors and token/key derivation are owned by colab-v1.
 
 ### Native plaintext export
 

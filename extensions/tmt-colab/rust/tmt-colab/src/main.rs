@@ -60,6 +60,43 @@ fn grammar() -> Command {
         outputs: OutputModes::HumanAndJson,
         details: "This creates an unencrypted copy of the page. Anyone with these files can read it.\nCreates page.html and manifest.json in a new UUID subdirectory of --dir (default: current directory). The parent must exist; aliases resolve to a canonical path. Created entries cannot be symlinks; parent traversal and overwrite are refused. Discussions are not included. Archived or deleted pages cannot be exported yet.",
     };
+    const PAGE: CommandSpec = CommandSpec {
+        name: "page",
+        summary: "Read and write admitted page source",
+        examples: &[Example {
+            command: "tmt colab page read 10000000-0000-4000-8000-000000000001 --json",
+            note: "Read source and its verified editing base",
+        }],
+        outputs: OutputModes::Human,
+        details: "Root-local page access using existing encrypted state.",
+    };
+    const READ: CommandSpec = CommandSpec {
+        name: "read",
+        summary: "Read exact admitted UTF-8 source",
+        examples: &[Example {
+            command: "tmt colab page read 10000000-0000-4000-8000-000000000001 --json",
+            note: "Read source, title and verified revision",
+        }],
+        outputs: OutputModes::HumanAndJson,
+        details: "Writes source bytes unchanged to stdout, with revision/head/epoch on stderr. JSON contains both. Does not create or migrate state.",
+    };
+    const WRITE: CommandSpec = CommandSpec {
+        name: "write",
+        summary: "Write page source against a verified base",
+        examples: &[Example {
+            command: "tmt colab page write 10000000-0000-4000-8000-000000000001 --file page.html --json",
+            note: "Write a minimal source update while serve is stopped",
+        }],
+        outputs: OutputModes::HumanAndJson,
+        details: "Retains the title and submits a minimal signed content update. Use the opaque revision from page read as --expected-revision. Without it, the base is captured when this command starts; intervening changes still reject. This slice requires serve to be stopped.",
+    };
+    let page_id = || {
+        Arg::new("page").required(true).value_parser(|value: &str| {
+            tmt_colab_model::values::generated_id(value)
+                .map(|_| value.to_owned())
+                .map_err(|error| error.to_string())
+        })
+    };
     cli_grammar::extend(
         tmt_cli_style::command(&ROOT)
             .bin_name("tmt colab")
@@ -78,6 +115,39 @@ fn grammar() -> Command {
                 ),
             )
             .subcommand(tmt_cli_style::command(&SPACES))
+        .subcommand(
+            tmt_cli_style::command(&PAGE)
+                .subcommand_required(true)
+                .subcommand(tmt_cli_style::command(&READ).arg(page_id()))
+                .subcommand(
+                    tmt_cli_style::command(&WRITE)
+                        .arg(page_id())
+                        .arg(
+                            Arg::new("file")
+                                .long("file")
+                                .required(true)
+                                .value_name("path|-")
+                                .value_parser(clap::value_parser!(std::path::PathBuf)),
+                        )
+                        .arg(
+                            Arg::new("expected-revision")
+                                .long("expected-revision")
+                                .value_name("revision")
+                                .value_parser(|value: &str| {
+                                    if value.strip_prefix("v1:").is_some_and(|h| {
+                                        h.len() == 64
+                                            && h.bytes().all(|b| {
+                                                b.is_ascii_digit() || (b'a'..=b'f').contains(&b)
+                                            })
+                                    }) {
+                                        Ok(value.to_owned())
+                                    } else {
+                                        Err("Use the opaque revision returned by page read")
+                                    }
+                                }),
+                        ),
+                ),
+        )
             .subcommand(
                 tmt_cli_style::command(&EXPORT)
                     .arg(Arg::new("page").required(true).value_parser(|value: &str| {
@@ -103,6 +173,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
             signals.push(signal_hook::flag::register(signal, Arc::clone(&stop))?);
         }
         let root = core::data_root(&stop)?;
+        if command == "page" {
+            return page(&root, args);
+        }
         let json_output = args.get_flag("json");
         if command == "spaces" {
             return spaces(&root, json_output);
@@ -224,6 +297,172 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     }
     Ok(())
 }
+fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
+    use tmt_colab::{
+        decoder::Decoder,
+        page::{self, Fault},
+    };
+    let (command, args) = args.subcommand().expect("required page command");
+    let source = if command == "write" {
+        Some(page_source(
+            args.get_one::<std::path::PathBuf>("file")
+                .expect("required file"),
+        )?)
+    } else {
+        None
+    };
+    let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
+    let key = Keyring::read(&layout)?;
+    let store = Store::read(&layout)?;
+    let mut decoder = Decoder::new(std::env::current_exe()?)?;
+    let id = args.get_one::<String>("page").expect("required page");
+    let json_output = args.get_flag("json");
+    let mut output = tmt_cli_style::stream::stdout(json_output);
+    if let Some(source) = source {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis()
+            .try_into()?;
+        let prepared = page::prepare(
+            &store,
+            &key,
+            id,
+            &source,
+            args.get_one::<String>("expected-revision")
+                .map(String::as_str),
+            &mut decoder,
+            now,
+        )?;
+        store.close()?;
+        // Preparation releases its read snapshot before the lifecycle/writer lock.
+        // A running service is explicit refusal until the serving IPC slice lands.
+        let _lock = layout.serve_lock().map_err(|e| {
+            if e.downcast_ref::<tmt_colab::keyring::StateFault>()
+                == Some(&tmt_colab::keyring::StateFault::AlreadyServing)
+            {
+                "Stop serve before writing; serving IPC is pending the second #1438 slice.".into()
+            } else {
+                e
+            }
+        })?;
+        let mut store = Store::write_existing(&layout)?;
+        let committed = page::commit(&mut store, &key, &prepared, now);
+        let closed = store.close();
+        let receipt = committed?.receipt;
+        closed?;
+        if json_output {
+            writeln!(output, "{}", serde_json::to_string(&receipt)?)?;
+        } else {
+            let terminal = output.terminal();
+            tmt_cli_style::detail::write(
+                &mut output,
+                terminal,
+                "PAGE WRITTEN",
+                &[
+                    ("page", receipt.page_id),
+                    ("revision", receipt.revision),
+                    ("epoch", receipt.epoch),
+                    (
+                        "decoder",
+                        serde_json::to_value(receipt.memory_limit)?
+                            .as_str()
+                            .unwrap()
+                            .into(),
+                    ),
+                ],
+            )?;
+        }
+    } else {
+        let value = page::read(&store, &key, id, &mut decoder);
+        let closed = store.close();
+        let value = value?;
+        closed?;
+        if json_output {
+            writeln!(output, "{}", serde_json::to_string(&value)?)?;
+        } else {
+            let mut metadata = tmt_cli_style::stream::stderr();
+            let terminal = metadata.terminal();
+            tmt_cli_style::detail::write(
+                &mut metadata,
+                terminal,
+                "PAGE SOURCE",
+                &[
+                    ("page", value.page_id),
+                    ("revision", value.revision),
+                    ("membership", value.membership_head.revision),
+                    ("head", value.membership_head.statement_hash),
+                    ("epoch", value.epoch),
+                    (
+                        "decoder",
+                        serde_json::to_value(value.memory_limit)?
+                            .as_str()
+                            .unwrap()
+                            .into(),
+                    ),
+                ],
+            )?;
+            output.write_all(value.source.as_bytes())?;
+        }
+    }
+    Ok(())
+}
+fn page_source(path: &std::path::Path) -> Result<String> {
+    use nix::poll::{PollFd, PollFlags, poll};
+    use std::{
+        io::Read,
+        os::fd::AsFd,
+        os::unix::fs::OpenOptionsExt,
+        time::{Duration, Instant},
+    };
+    use tmt_colab::{decoder::BASELINE_BYTES, page::Fault};
+    let mut bytes = Vec::new();
+    if path == std::path::Path::new("-") {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let stdin = std::io::stdin();
+        let input = stdin.lock();
+        let mut chunk = [0; 4096];
+        loop {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .ok_or(Fault::Invalid)?;
+            let mut fds = [PollFd::new(input.as_fd(), PollFlags::POLLIN)];
+            match poll(&mut fds, remaining.as_millis().min(u16::MAX as u128) as u16) {
+                Ok(0) => return Err(Fault::Invalid.into()),
+                Err(nix::errno::Errno::EINTR) => continue,
+                Err(e) => return Err(e.into()),
+                Ok(_) => {}
+            }
+            let size = chunk.len().min(BASELINE_BYTES + 1 - bytes.len());
+            let n = match nix::unistd::read(input.as_fd(), &mut chunk[..size]) {
+                Ok(n) => n,
+                Err(nix::errno::Errno::EINTR) => continue,
+                Err(e) => return Err(e.into()),
+            };
+            if n == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&chunk[..n]);
+            if bytes.len() > BASELINE_BYTES {
+                return Err(Fault::Capacity.into());
+            }
+        }
+    } else {
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(nix::fcntl::OFlag::O_NONBLOCK.bits())
+            .open(path)?;
+        if !file.metadata()?.is_file() {
+            return Err(Fault::Invalid.into());
+        }
+        Read::by_ref(&mut file)
+            .take((BASELINE_BYTES + 1) as u64)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > BASELINE_BYTES {
+            return Err(Fault::Capacity.into());
+        }
+    }
+    String::from_utf8(bytes).map_err(|_| Fault::Invalid.into())
+}
 fn spaces(root: &std::path::Path, json_output: bool) -> Result<()> {
     let space = Layout::existing(root)?
         .map(|layout| {
@@ -296,6 +535,11 @@ fn error_code(error: &(dyn std::error::Error + Send + Sync + 'static)) -> &'stat
         })
         .or_else(|| {
             error
+                .downcast_ref::<tmt_colab::page::Fault>()
+                .map(|e| e.code())
+        })
+        .or_else(|| {
+            error
                 .downcast_ref::<cli_management::ManagementFault>()
                 .map(|e| e.code)
         })
@@ -363,10 +607,7 @@ fn main() -> ExitCode {
         Err(error) => {
             let cli_failure = error.downcast_ref::<cli_management::ManagementFault>();
             let code = error_code(error.as_ref());
-            if matches
-                .subcommand()
-                .is_some_and(|(_, m)| m.get_flag("json"))
-            {
+            if json_output {
                 let mut value = cli_failure
                     .map(|e| e.correlation.clone())
                     .unwrap_or_else(|| json!({}));
