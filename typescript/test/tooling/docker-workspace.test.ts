@@ -95,3 +95,14 @@ it('places the native caller fixture in the Office browser test image', () => {
     "'../../../rust/target/debug/examples/runtime-caller-fixture'"
   );
 });
+
+it('places the native caller fixture in the Docker E2E image', () => {
+  const dockerfile = readFileSync(path.join(root, 'typescript/test/e2e/Dockerfile'), 'utf8');
+  // native-tests copies the runtime-caller-fixture build to /native-artifacts/codex.
+  expect(dockerfile).toContain(
+    'cp target/debug/examples/runtime-caller-fixture /native-artifacts/codex'
+  );
+  expect(dockerfile).toContain(
+    'COPY --from=native-tests /native-artifacts/codex /workspace/rust/target/debug/examples/runtime-caller-fixture'
+  );
+});

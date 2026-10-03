@@ -56,6 +56,8 @@ COPY --from=native-tests /native-artifacts/tmt /workspace/rust/target/debug/tmt
 COPY --from=native-tests /native-artifacts/tmt-office /workspace/rust/target/debug/tmt-office
 COPY --from=native-tests /native-artifacts/tmt-squad /workspace/rust/target/debug/tmt-squad
 COPY --from=native-tests /native-artifacts/tmt-remote /workspace/rust/target/debug/tmt-remote
+# test/support/cli-process launches native scenarios through this neutral caller fixture.
+COPY --from=native-tests /native-artifacts/codex /workspace/rust/target/debug/examples/runtime-caller-fixture
 ENV TMT_TEST_TMUX_PROBE='{"executable":"/opt/tmt-tests/tmux-probe","args":[]}'
 # Run process lifecycle tests under the wrapper's --init, not a build-stage
 # shell that may retain orphan zombies. Both suites share network isolation.
