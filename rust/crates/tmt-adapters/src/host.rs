@@ -61,7 +61,13 @@ impl CallerEnvironment {
     pub fn current() -> Self {
         let driver_env = external::approved()
             .iter()
-            .flat_map(|record| record.capabilities.caller_env.iter())
+            .flat_map(|record| {
+                record
+                    .capabilities
+                    .host()
+                    .into_iter()
+                    .flat_map(|value| value.caller_env.iter())
+            })
             .filter_map(|name| {
                 let value = std::env::var_os(name).filter(|value| !value.is_empty())?;
                 Some((name.clone(), value))
@@ -257,7 +263,7 @@ impl<R: CommandRunner + Clone> Host<R> {
     pub fn for_caller_with_drivers(
         environment: &CallerEnvironment,
         runner: R,
-        records: Vec<external::registry::DriverRecord>,
+        records: Vec<crate::driver_protocol::registry::DriverRecord>,
     ) -> Self {
         let builtin = Self::of(HostKind::Tmux, runner.clone());
         if environment.driver_env.is_empty() || records.is_empty() {
@@ -284,7 +290,10 @@ impl<R: CommandRunner + Clone> Host<R> {
 
     /// The drivers this handle may run for external hosts. The `_with`
     /// constructors approve none, so tests never read the user's registry.
-    pub fn with_drivers(self, records: Vec<external::registry::DriverRecord>) -> Self {
+    pub fn with_drivers(
+        self,
+        records: Vec<crate::driver_protocol::registry::DriverRecord>,
+    ) -> Self {
         let runner = self.external.runner().clone();
         let resolved = self.external.resolved().cloned();
         let caller = self.external.caller().cloned();

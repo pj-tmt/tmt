@@ -19,8 +19,10 @@ and guides link here instead of repeating it.
   `tmt driver install|ls|rm`. Herdr is served only by its first-party driver,
   `tmt-driver-herdr`, which ships in the CLI release (#1082).
 - **Runtime drivers:** the format, the crate's encoding and the conformance
-  harness exist. Core does not run runtime drivers yet: `tmt driver install`
-  refuses any `kind` but `host` (#1266).
+  harness, approval registry and bounded client exist. `tmt driver install|ls|rm`
+  accepts either kind. Runtime approval calls `locations`, validates its write
+  targets and discloses them before consent. Runtime recognition, launch,
+  hooks and setup/detection integration are not wired yet (PR B2 of #1266).
 
 ## Invocation
 
@@ -38,6 +40,8 @@ tmt-driver-<name> __tmt-driver <protocol> <op>
   `TMT_DRIVER_CALL` runs no command except help and `--version`; anything
   else fails with `DRIVER_CALL_REFUSED` before any effect. A driver that runs
   `tmt` can therefore neither recurse into itself nor change TMT's state.
+  Core runs the driver in its own working directory, so relative environment
+  paths resolve against the invoking TMT process's cwd.
   `TMT_DRIVER_CALL` belongs to the call only: a driver must not pass it to a
   process that outlives the call, such as a host server it starts.
 
@@ -333,6 +337,9 @@ Codex's app-server stay built in.
   `[a-z0-9._-]` and starting with a letter or digit. A pane command whose last
   path component equals one of them is this agent. `tmt run` with no command
   starts the first.
+- **`claims`:** optional boolean, default `true`. `false` disables command
+  recognition without changing the declared operations; skills-only drivers
+  use it to avoid claiming a runtime.
 - **`env`:** at most 4 environment variables that `locations` reads, each
   `[A-Z][A-Z0-9_]*` and never `TMT_*`.
 - **`sessionEnv`:** the variable that holds the caller's provider session ID
@@ -482,8 +489,16 @@ Everything in the host [trust boundary](#trust-boundary) applies, and:
 - its declaration is invalid;
 - it uses a built-in driver's name, or another installed driver's;
 - one of its executables is claimed by a built-in driver or by another
-  installed runtime driver. In this protocol a runtime driver cannot take
+  installed runtime driver, when `claims` is true. In this protocol a runtime driver cannot take
   over a command that a built-in driver handles.
+
+Approval also calls `locations` for the current home and declared environment,
+and applies `LocationsResponse::within(home)` before accepting the skills target.
+The shared locations client is the same admission boundary setup must use before
+writing. The consent view lists executables, claims, the direct argv rule, operations,
+hook events, `configDirs`, skills, hook settings, transcript root, declared `env`
+names and `sessionEnv`. It never prints environment values. Approval writes no
+provider files; setup retains its separate consent.
 
 An upgrade that declares more (an executable, an environment variable, a hook
 event, or an operation) reads as `changed` and isn't run

@@ -311,9 +311,9 @@ pub(in crate::grammar) fn learn() -> Command {
 pub(in crate::grammar) fn driver() -> Command {
     general(spec!(
         "driver",
-        "Manage consented host drivers",
+        "Manage consented drivers",
         [
-            "List approved host drivers" => "tmt driver ls",
+            "List approved drivers" => "tmt driver ls",
             "Approve the shipped Herdr driver" => "tmt driver install herdr",
         ]
     ))
@@ -321,7 +321,7 @@ pub(in crate::grammar) fn driver() -> Command {
     .subcommand(
         general(spec!(
             "install",
-            "Approve a host driver after showing what it declares",
+            "Approve a driver after showing what it declares",
             [
                 "Approve the shipped Herdr driver" => "tmt driver install herdr",
                 "Approve a driver executable" => "tmt driver install ./tmt-driver-screen",
@@ -334,9 +334,9 @@ pub(in crate::grammar) fn driver() -> Command {
     .subcommand(
         general(spec!(
             "ls",
-            "List approved host drivers and whether each still runs as approved",
+            "List approved drivers and whether each still runs as approved",
             [
-                "List approved host drivers" => "tmt driver ls",
+                "List approved drivers" => "tmt driver ls",
             ]
         ))
         .alias("list"),

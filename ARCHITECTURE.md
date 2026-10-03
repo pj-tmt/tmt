@@ -2668,8 +2668,15 @@ payload into a `HookObservation` without starting the driver. Measured on the
 #1083 issue, that decode costs about 1 µs, against 0.3 µs for the built-in
 Claude decoder and 1–2 ms (up to 0.5 s for a binary's first exec) for a
 driver process. Only `locations`, `resume` and `usage` run the driver. Core
-does not consume runtime drivers yet: host approval refuses any `kind` but
-`host`, and the adapters' wiring is #1266.
+approves both kinds through `tmt-adapters::driver_protocol`, the shared registry
+and process owner extracted from the host adapter. Its declaration enum stores
+raw capabilities, retaining existing host record bytes; runtime records also
+hold the locations answer disclosed at approval. The runtime client validates
+that answer and calls `within(home)` before admitting write targets. The CLI
+shows claims, executables, argv policy, hooks, paths and environment names before
+consent. Optional `claims: false` permits skills-only declarations without runtime
+recognition. Runtime launch, hooks and setup/detection consumers remain unwired
+until PR B2 of #1266; approval alone writes no provider files.
 
 A host's name, pane-ID prefix and target template (parsing, matching and the
 overlap check between hosts) are defined once in `rust/crates/tmt-host-grammar`,
@@ -2706,7 +2713,8 @@ looks like an option, and it has no `--` separator. A plain
 pane gets single-line input, otherwise the inbox. The driver doesn't declare
 `focus` (Herdr has no command that focuses a pane by ID).
 
-`tmt-adapters::host::external` holds the core side of that boundary:
+`tmt-adapters::driver_protocol` owns shared approval and bounded calls;
+`tmt-adapters::host::external` owns host composition:
 
 - **`registry`:** the approved drivers in `<global>/drivers.json`. Approval
   refuses a declaration that a built-in host or another approved driver would
@@ -2734,23 +2742,25 @@ pane gets single-line input, otherwise the inbox. The driver doesn't declare
   `drivers.json` (approval, removal, adoption) holds `drivers.lock`, and the
   write is a staged file renamed into place.
 - **`tmt driver` (`tmt-cli/src/driver_command.rs`):** the registry's front
-  end. A record is written only with explicit consent, never by install or
-  upgrade. `install <path>`, or `install <name>` for a first-party driver
+  end. A record is written only with explicit consent, never by product install
+  or upgrade. `install <path>`, or `install <name>` for a first-party driver
   (a bare name with no `/`), refuses before asking, then shows a detail view
   (`detail::write`) of the version, protocol, executable, SHA-256,
-  operations and the environment `caller` reads, and asks `Approve host driver <name>? [y/N]` through the
+  operations and the environment `caller` reads for hosts, or the runtime disclosure
+  described above, and asks `Approve <kind> driver <name>? [y/N]` through the
   shared consent prompt. `--yes` skips the question. A run that can't ask
   (no terminal, or `--json`) refuses with `DRIVER_CONSENT_REQUIRED` and writes
-  nothing. `ls` is one `HOST DRIVERS` list section: a row per driver with
+  nothing. `ls` retains `HOST DRIVERS` for host-only lists and uses `DRIVERS` when
+  runtime approvals are present: a row per driver with
   its state mark (`●` ok, `✗` changed, `○` missing), name, version, state
   and path, `tmt driver install <path>` (or `<name>` for a first-party
   one) as the trailing action of a changed or missing one, and a note with
   each such driver's reason (`reason` in JSON). `rm` withdraws an approval without asking; an
   unknown name is `DRIVER_NOT_FOUND`. Bindings on a removed driver's host
   stay stored and read as unavailable.
-- **`DriverProcess`:** runs one operation through the bounded process owner,
+- **`DriverProcess`:** shared by both kinds, runs one operation through the bounded process owner,
   under the operation's deadline and output bound, with `TMT_DRIVER_CALL=1`. It
-  decodes the answer against the driver's grammar.
+  decodes the answer against the host grammar or runtime declaration.
 - **Trust:** `executable_trust` is shared with extension hooks. It checks
   ownership and the stat fingerprint before every call, and the digest once per
   process.
