@@ -30,6 +30,7 @@ pub struct RuntimeDeclaration {
     name: String,
     ops: BTreeSet<Op>,
     executables: Vec<String>,
+    claims: bool,
     env: Vec<String>,
     session_env: Option<String>,
     hooks: Option<Hooks>,
@@ -105,6 +106,7 @@ impl RuntimeDeclaration {
             name: capabilities.name.clone(),
             ops,
             executables: capabilities.executables.clone(),
+            claims: capabilities.claims,
             env: capabilities.env.clone(),
             session_env: capabilities.session_env.clone(),
             hooks: capabilities.hooks.clone(),
@@ -141,7 +143,7 @@ impl RuntimeDeclaration {
     /// declared executable. Pure: no process or file is consulted.
     pub fn claims(&self, command: &str) -> bool {
         let base = command.rsplit('/').next().unwrap_or(command);
-        self.executables.iter().any(|executable| executable == base)
+        self.claims && self.executables.iter().any(|executable| executable == base)
     }
 
     /// Decodes one provider hook's payload. `None` means core ignores it and
@@ -367,6 +369,20 @@ pub(crate) mod tests {
             }
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn claims_can_be_disabled_without_changing_declared_operations() {
+        let mut capabilities = claude_like();
+        assert!(
+            RuntimeDeclaration::new(&capabilities)
+                .unwrap()
+                .claims("/bin/kimi")
+        );
+        capabilities.claims = false;
+        let declaration = RuntimeDeclaration::new(&capabilities).unwrap();
+        assert!(!declaration.claims("/bin/kimi"));
+        assert!(declaration.supports(Op::Resume));
     }
 
     fn declaration() -> RuntimeDeclaration {

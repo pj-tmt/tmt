@@ -14,7 +14,8 @@ use std::{
     process::{Command, Output, Stdio},
 };
 use tmt_adapters::{
-    host::{Host, external::registry},
+    driver_protocol::registry,
+    host::Host,
     process::{
         CommandError, CommandOutput, CommandRequest, CommandRunner, UnixCommandRunner,
         runtime::observe_start,

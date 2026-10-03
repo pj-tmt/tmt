@@ -2,10 +2,8 @@
 //! that answers each operation from a file the test wrote, so approval, the
 //! calls, the trust checks and the bounds run through actual processes.
 
-use super::{
-    CallError, DriverProcess,
-    registry::{self, RegistryError},
-};
+use super::{CallError, DriverProcess};
+use crate::driver_protocol::registry::{self, RegistryError};
 use crate::{
     process::{
         CommandError, CommandFailure, CommandOutput, CommandRequest, CommandRunner,

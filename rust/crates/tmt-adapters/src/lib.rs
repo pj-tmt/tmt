@@ -12,6 +12,8 @@ pub mod core_executable;
 pub mod delivery;
 pub mod dispatch;
 #[cfg(unix)]
+pub mod driver_protocol;
+#[cfg(unix)]
 pub mod drivers;
 pub mod executable_trust;
 pub mod extension_command;

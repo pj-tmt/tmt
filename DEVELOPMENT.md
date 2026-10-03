@@ -1382,6 +1382,14 @@ above, since the host harness also asks every runtime operation:
 (cd rust && cargo test --locked -p tmt-adapters --lib host::external)
 ```
 
+Runtime approval (#1266 PR A) is checked with
+`cargo test --locked -p tmt-cli --test driver_command`. The isolated runtime
+fixture covers disclosure, no-terminal refusal, both kinds in one registry,
+claim/name conflicts, write-target containment, malformed locations and explicit
+re-approval, timeout rollback and registry capacity. `DriverProcess::locations` is the shared `within(home)` admission
+boundary for approval and future setup consumers. Runtime launch/hooks and the
+kill/restart delivery case belong to PR B2, not approval evidence.
+
 The suite covers grammar, configuration-before-effects, identity metadata and
 binding lifecycle, role/preamble, response/receipts, exchanges/attention, inbox listening, talk,
 local Office board grammar/persistence, managed skills and native installation. It uses bounded process budgets,

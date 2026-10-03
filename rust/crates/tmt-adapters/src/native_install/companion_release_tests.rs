@@ -246,7 +246,7 @@ printf '%s' '{"ok":{"protocols":[1],"kind":"host","name":"herdr","version":"0.0.
 
 mod first_party {
     use super::*;
-    use crate::host::external::registry::{self, ApprovalState, DriverSource};
+    use crate::driver_protocol::registry::{self, ApprovalState, DriverSource};
     use crate::native_install::{Companion, active_companion};
 
     /// A 4-file release upgraded to one that ships a working Herdr driver.
@@ -362,6 +362,7 @@ mod first_party {
                 &fs::metadata(path).unwrap(),
             ),
             protocol: 1,
+            locations: None,
             capabilities: serde_json::from_value(serde_json::json!({"protocols":[1],"kind":"host","name":"herdr","version":"0.0.0-test","ops":["snapshot"],"paneId":{"prefix":"term_"},"target":"w{n}:p{n}","callerEnv":[]})).unwrap(),
             approved_at_ms: 1,
             source: DriverSource::FirstParty,
