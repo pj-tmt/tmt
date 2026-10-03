@@ -715,6 +715,16 @@ page. The retained hostile corpus uses a one-second per-case deadline and
 must prove termination/backpressure at those production bounds. #830 established
 process-time containment, not macOS memory containment. Its fixture budgets
 MUST NOT be advertised as measured production limits.
+Semantic tests that do not measure timeout behavior MUST inject a larger bounded
+invocation/readiness budget through the decoder configuration, including callers
+that fold content or produce baselines. Production constructors MUST retain the
+defaults below. Timeout tests MUST retain the production deadline and use a
+controlled blocking child with a readiness signal rather than successful-work
+wall-clock headroom. Output-limit tests MUST distinguish output exhaustion from
+timeout. Successful reuse controls may use the semantic-test budget but MUST
+reuse the same runner without clearing its cleanup fence. The archived hostile
+corpus retains its separate per-case/suite budgets and diagnostic requirements.
+
 Keep the hostile corpus and timeout/cleanup/failure-propagation gates. Minimized
 reproducers should be checked against upstream fixes before submission to yrs;
 this contract does not authorize external reporting by itself.

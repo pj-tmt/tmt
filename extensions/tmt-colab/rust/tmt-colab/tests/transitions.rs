@@ -1,3 +1,4 @@
+mod support;
 use ed25519_dalek::{Signer, SigningKey};
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
@@ -66,7 +67,10 @@ impl Fixture {
             layout,
             key,
             store,
-            engine: Engine::new(env!("CARGO_BIN_EXE_tmt-colab").into()).unwrap(),
+            engine: Engine::with_decoder_config(support::decoder_config(
+                env!("CARGO_BIN_EXE_tmt-colab").into(),
+            ))
+            .unwrap(),
         }
     }
     fn db(&self) -> Connection {
@@ -510,38 +514,42 @@ fn concurrent_appends_during_decoder_work_retry_without_holding_writer_lock() {
             .unwrap();
         assert!(writer.wait().unwrap().success());
         let root = f.root.clone();
-        let thread = std::thread::spawn(move || {
-            let layout = Layout::existing(&root).unwrap().unwrap();
-            let key = Keyring::read(&layout).unwrap();
-            let mut store = Store::open(&layout).unwrap();
-            Engine::new(proxy).unwrap().advance_epoch(
-                &mut store,
-                &key,
-                EpochAdvance {
-                    operation_id: OP,
-                    expected_revision: 2,
-                    page: PAGE,
-                },
-                100,
-            )
-        });
-        let mut previous = first.hash().unwrap();
-        for seq in 2..=changes + 1 {
-            let mut events = [PollFd::new(ready.as_fd(), PollFlags::POLLIN)];
-            let signaled = poll(&mut events, PollTimeout::try_from(5000).unwrap()).unwrap();
-            if signaled != 1 {
-                go.write_all(b"cancel\n").unwrap();
-                let result = thread.join().unwrap();
-                panic!("decoder signal absent: {result:?}");
+        let result = std::thread::scope(|scope| {
+            let thread = scope.spawn(move || {
+                let layout = Layout::existing(&root).unwrap().unwrap();
+                let key = Keyring::read(&layout).unwrap();
+                let mut store = Store::open(&layout).unwrap();
+                Engine::with_decoder_config(support::decoder_config(proxy))
+                    .unwrap()
+                    .advance_epoch(
+                        &mut store,
+                        &key,
+                        EpochAdvance {
+                            operation_id: OP,
+                            expected_revision: 2,
+                            page: PAGE,
+                        },
+                        100,
+                    )
+            });
+            let mut previous = first.hash().unwrap();
+            for seq in 2..=changes + 1 {
+                let mut events = [PollFd::new(ready.as_fd(), PollFlags::POLLIN)];
+                let signaled = poll(&mut events, PollTimeout::try_from(30_000).unwrap()).unwrap();
+                if signaled != 1 {
+                    go.write_all(b"cancel\n").unwrap();
+                    let result = thread.join().unwrap();
+                    panic!("decoder signal absent: {result:?}");
+                }
+                let mut byte = [0];
+                std::io::Read::read_exact(&mut &ready, &mut byte).unwrap();
+                let next = f.object(seq as u64, previous, "update", "own", &[0, 0]);
+                f.append(&next);
+                previous = next.hash().unwrap();
+                go.write_all(b"continue\n").unwrap();
             }
-            let mut byte = [0];
-            std::io::Read::read_exact(&mut &ready, &mut byte).unwrap();
-            let next = f.object(seq as u64, previous, "update", "own", &[0, 0]);
-            f.append(&next);
-            previous = next.hash().unwrap();
-            go.write_all(b"continue\n").unwrap();
-        }
-        let result = thread.join().unwrap();
+            thread.join().unwrap()
+        });
         if changes == 1 {
             result.unwrap();
             assert_eq!(baseline_source(&f, 2), "raced view");
@@ -2358,7 +2366,7 @@ fn scope_is_rechecked_inside_writer_after_baseline_preparation() {
     };
     use std::{
         io::{Read, Write},
-        os::{fd::AsFd, unix::fs::PermissionsExt},
+        os::fd::AsFd,
     };
     let f = Fixture::new();
     let signal = f.root.join("signal");
@@ -2382,60 +2390,63 @@ fn scope_is_rechecked_inside_writer_after_baseline_preparation() {
         f.root.display(),
         env!("CARGO_BIN_EXE_tmt-colab")
     );
-    fs::write(&proxy, script).unwrap();
-    fs::set_permissions(&proxy, fs::Permissions::from_mode(0o700)).unwrap();
+    tmt_test_support::write_executable(&proxy, script.as_bytes(), 0o700).unwrap();
     let root = f.root.clone();
-    let thread = std::thread::spawn(move || {
-        let layout = Layout::existing(&root).unwrap().unwrap();
-        let key = Keyring::read(&layout).unwrap();
-        let mut store = Store::open(&layout).unwrap();
-        Engine::new(proxy).unwrap().apply(
-            &mut store,
-            &key,
-            OwnerRequest {
-                operation_id: &operation(111),
-                expected_revision: 2,
-                action: OwnerAction::Member(MemberAction::Remove {
-                    member_id: MEMBER.into(),
-                }),
-                transport_digest: Some([111; 32]),
-                scope: Some(request_scope(vec![PAGE.into()])),
-            },
-            100,
+    std::thread::scope(|scope| {
+        let thread = scope.spawn(move || {
+            let layout = Layout::existing(&root).unwrap().unwrap();
+            let key = Keyring::read(&layout).unwrap();
+            let mut store = Store::open(&layout).unwrap();
+            Engine::with_decoder_config(support::decoder_config(proxy))
+                .unwrap()
+                .apply(
+                    &mut store,
+                    &key,
+                    OwnerRequest {
+                        operation_id: &operation(111),
+                        expected_revision: 2,
+                        action: OwnerAction::Member(MemberAction::Remove {
+                            member_id: MEMBER.into(),
+                        }),
+                        transport_digest: Some([111; 32]),
+                        scope: Some(request_scope(vec![PAGE.into()])),
+                    },
+                    100,
+                )
+        });
+        let mut events = [PollFd::new(ready.as_fd(), PollFlags::POLLIN)];
+        if poll(&mut events, PollTimeout::try_from(30_000).unwrap()).unwrap() != 1 {
+            go.write_all(b"cancel\n").unwrap();
+            panic!("baseline barrier absent: {:?}", thread.join().unwrap());
+        }
+        let mut byte = [0];
+        ready.read_exact(&mut byte).unwrap();
+        let db = f.db();
+        let bytes: Vec<u8> = db
+            .query_row(
+                "SELECT record FROM recipients WHERE kind='member' AND id=?",
+                [MEMBER],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let mut recipient: Recipient = serde_json::from_slice(&bytes).unwrap();
+        recipient.pages = vec!["10000000-0000-4000-8000-000000000002".into()];
+        db.execute(
+            "UPDATE recipients SET record=? WHERE kind='member' AND id=?",
+            params![serde_json::to_vec(&recipient).unwrap(), MEMBER],
         )
+        .unwrap();
+        go.write_all(b"continue\n").unwrap();
+        assert_eq!(thread.join().unwrap().unwrap_err().code, Code::StaleHead);
+        assert_eq!(revision(&f), 2);
+        assert_eq!(f.counts(), vec![2, 1, 0, 0, 1]);
+        let bytes: Vec<u8> = db
+            .query_row(
+                "SELECT record FROM recipients WHERE kind='member' AND id=?",
+                [MEMBER],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(!serde_json::from_slice::<Recipient>(&bytes).unwrap().revoked);
     });
-    let mut events = [PollFd::new(ready.as_fd(), PollFlags::POLLIN)];
-    if poll(&mut events, PollTimeout::try_from(5000).unwrap()).unwrap() != 1 {
-        go.write_all(b"cancel\n").unwrap();
-        panic!("baseline barrier absent: {:?}", thread.join().unwrap());
-    }
-    let mut byte = [0];
-    ready.read_exact(&mut byte).unwrap();
-    let db = f.db();
-    let bytes: Vec<u8> = db
-        .query_row(
-            "SELECT record FROM recipients WHERE kind='member' AND id=?",
-            [MEMBER],
-            |r| r.get(0),
-        )
-        .unwrap();
-    let mut recipient: Recipient = serde_json::from_slice(&bytes).unwrap();
-    recipient.pages = vec!["10000000-0000-4000-8000-000000000002".into()];
-    db.execute(
-        "UPDATE recipients SET record=? WHERE kind='member' AND id=?",
-        params![serde_json::to_vec(&recipient).unwrap(), MEMBER],
-    )
-    .unwrap();
-    go.write_all(b"continue\n").unwrap();
-    assert_eq!(thread.join().unwrap().unwrap_err().code, Code::StaleHead);
-    assert_eq!(revision(&f), 2);
-    assert_eq!(f.counts(), vec![2, 1, 0, 0, 1]);
-    let bytes: Vec<u8> = db
-        .query_row(
-            "SELECT record FROM recipients WHERE kind='member' AND id=?",
-            [MEMBER],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert!(!serde_json::from_slice::<Recipient>(&bytes).unwrap().revoked);
 }

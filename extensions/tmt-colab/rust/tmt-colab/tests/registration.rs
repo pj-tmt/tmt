@@ -1,4 +1,5 @@
 //! Real SQLite/keyring and mount socket acceptance for owner-key registration.
+mod support;
 use ed25519_dalek::{Signer, SigningKey};
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -43,7 +44,12 @@ impl Fixture {
             root,
             layout,
             service: Some(
-                Registration::new(store, key, env!("CARGO_BIN_EXE_tmt-colab").into()).unwrap(),
+                Registration::with_decoder_config(
+                    store,
+                    key,
+                    support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+                )
+                .unwrap(),
             ),
         }
     }
@@ -56,10 +62,10 @@ impl Fixture {
     fn reopen(&mut self) {
         self.service.take().unwrap().close().unwrap();
         self.service = Some(
-            Registration::new(
+            Registration::with_decoder_config(
                 Store::open(&self.layout).unwrap(),
                 Keyring::read(&self.layout).unwrap(),
-                env!("CARGO_BIN_EXE_tmt-colab").into(),
+                support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
             )
             .unwrap(),
         );

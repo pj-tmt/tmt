@@ -1,4 +1,6 @@
 //! Shared browser/native raw checkpoint bytes; foreign decoding remains in the child.
+mod support;
+
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
 use tmt_colab::decoder::{Decoder, Namespace, Role, UpdateBatch};
@@ -12,7 +14,10 @@ fn shared_checkpoint_preserves_dependencies_and_delete_sets() {
     let bytes = |name: &str| URL_SAFE_NO_PAD.decode(v[name].as_str().unwrap()).unwrap();
     let checkpoint = bytes("checkpoint");
     let tail = bytes("tail");
-    let mut decoder = Decoder::new(env!("CARGO_BIN_EXE_tmt-colab").into()).unwrap();
+    let mut decoder = Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
     let prefix = decoder
         .decode(
             UpdateBatch {

@@ -4922,6 +4922,13 @@ Production identities are fresh; a fixed identity exists only in vector tests.
 The caller persists/distributes that identical update and owns descriptor signing,
 encryption and atomic epoch admission. This does not wire a server transition.
 The caller retains live-log/role/operation admission and owns one runner per page.
+`decoder::Config` carries the executable and invocation deadline through Decoder,
+Engine and Registration. Their ordinary constructors retain the contract's
+production deadline; only test composition injects larger semantic-test budgets.
+Changing a runner's deadline preserves its cleanup fence and exclusive ownership.
+The shared semantic-test budget stays under the extension's `tests/support/`;
+scenario-owned FIFO fixtures supply deterministic readiness. No environment or
+command-line option tunes the production deadline.
 
 The [contract limits](extensions/tmt-colab/contracts/colab-v1.md#decoder-isolation-compaction-and-limits)
 are enforced before decoding and before returning output. Linux sets the pinned
