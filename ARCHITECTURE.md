@@ -3866,21 +3866,41 @@ inventory and executable behavior on matching hosts. CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 
 `project-release.mjs` owns release-to-Project delivery evidence, separately from
-publication. `project-release.yml` runs on completion of `Native release artifacts`,
-daily catch-up and manual replay. All execute on main so the release environment
-can mint a short-lived release-App token scoped to org-project writes and tmt
-repository reads. Direct release-tag events cannot use that main-only environment. It executes main's tooling, never code
-from release tags or artifacts. Automatic runs reconcile the latest ten published
-supported releases under one project-wide concurrency group, recovering replaced
-pending events. The release-please links or same-product compare range identify
-merged PRs; GitHub's paginated `closingIssuesReferences` is the issue authority.
-Only existing issue items in pj-tmt organization project 1 are updated: distinct component/version
-lines append to `Released in`, then Status becomes terminal `Released`. No issue,
-release, membership or earlier status is written. Replays preserve existing text
-and skip completed entries; partial text writes can be retried before status.
-The full read plan precedes bounded batched mutations and a single readback.
-Request/window caps fail visibly with manual replay guidance, never silent
-truncation. DEVELOPMENT owns token setup, budgets and dry-run commands.
+publication. Each daily or explicit main-only dispatch performs a full sweep of
+existing closed issue items in pj-tmt organization project 1. The short-lived
+release App token owns bounded batched Project/closing-PR GraphQL reads and field
+writes; `GITHUB_TOKEN` reads the complete paginated published release catalog.
+Only trusted main tooling executes. A full-history checkout supplies each merged
+closing PR's first-parent changed paths and tags containing its merge commit.
+`ci-scope.ownerOf` and the component map own product attribution, including
+private-leaf `releaseConsumers`; native release policy and version helpers own
+product/tag identities. Notes, commit types and recency windows are not evidence.
+
+For each affected product, the earliest publication whose tag contains all of
+that issue's closing merge commits is the canonical `Released in` entry. Every
+affected product must have such a release before Status is `Released`; otherwise
+it is `Merged`, with available product evidence retained. Private components
+without a native publication policy remain visibly waiting rather than inheriting
+an unrelated product's release. Closed-issue status definitions belong to
+[Project tracking](DEVELOPMENT.md#project-tracking). Issues labeled `epic` are
+excluded from both field writes and listed as skipped: their owning lead retains
+acceptance/dogfood authority. Open issues, PR items, other repositories and project
+membership are not changed. Both owned fields are recomputed, including correction of stale or
+incorrect terminal values and replacement of incorrect historical text.
+
+The complete discovery and dry-run plan precede bounded batched mutations and a
+single Project readback. False terminal states are corrected before replacing
+their evidence; valid release evidence precedes promotion to Released. Partial
+writes converge on the next run. The full sweep is authoritative on every run,
+so built-in close/merge status changes are repaired without manual replay; it
+does not claim atomic exclusion of concurrent external writers. The native
+bundle dispatches only after successful publication read-back and completed
+smoke, accepting success or the reporter's existing classified infrastructure
+failure. Smoke failures remain failures. A dedicated job holds only
+`actions: write`; the daily sweep recovers missed dispatches, other publications
+and genuine smoke failures. All updater runs serialize project-wide. Caps fail
+visibly before mutation on incomplete discovery, never silently truncate.
+DEVELOPMENT owns token setup, request budgets and dry-run review procedures.
 
 The release workflow is a product-selected preparation, verification and publication
 workflow; publication is authorized by the owner: the standing trunk-based alpha authorization
