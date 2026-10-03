@@ -2944,7 +2944,17 @@ known-device revocation and rollback across every authority effect. A nine-page
 join seeds signed/encrypted retained history with fresh Y.Doc identities and
 proves the 64-epoch cap, numeric ordering, 512/64 wrap lists and all-or-none
 rollback on the final page. Fresh operation IDs cannot rotate a revoked device
-again. Links/Reset and browser management requests remain subsequent work.
+again. Browser/CLI device-signed management composition is tracked by #1111;
+sharing/history/retention/archive/delete transitions are tracked by #1160.
+
+Link transition fixtures use real model-derived signing/encryption keys and
+certified device projections. They cover numeric ordering across 512-entry wrap
+lists at the 64-epoch cap, current-only joins without rotation, Reset statement
+order, old-seed/device exclusion, rollback on a late receipt failure and replay
+after reopening. Byte searches over exact committed statements, decoded payloads,
+receipts, projections, wraps and returned outcomes reject raw, base64url and hex
+seed leakage. Link seeds are borrowed owner-local inputs; tests never claim this
+library seam admits unsigned browser management requests.
 
 ### Colab owner registration verification
 

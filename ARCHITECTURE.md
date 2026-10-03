@@ -4434,8 +4434,8 @@ member is included on every page; revoked/expired devices and private-page links
 receive no wrap. Keyring seals baseline objects with the pinned management key;
 that private key never leaves Keyring. Store provides scoped baseline retrieval,
 whose remote caller still owns access/history admission. Decoder batch limits
-fail closed rather than truncating a fold. This library has no management route;
-links/Reset remain the final #1157 slice.
+fail closed rather than truncating a fold. Link transitions share that atomic engine; browser/CLI management composition
+remains #1111 and sharing/history/retention operations remain #1160.
 
 `transitions::membership` shares epoch preparation/commit with explicit advance.
 Member add, remove and role changes use one owner transaction across affected
@@ -4446,6 +4446,18 @@ and receives no earlier wraps. Removal rotates eligible pages and excludes the
 member and its devices; role reductions pin both namespaces without rotating.
 The pinned owner member cannot be removed or re-roled. Writer rechecks also fence
 the page catalog and device projections when there are no affected streams.
+
+`transitions::links` borrows owner-local seeds and derives the pinned public keys;
+seeds are never persisted in statements, projections or replay receipts. The same
+recipient planner commits link add/remove and Reset. Shared link joins use the
+bounded history wraps; current link joins wrap only the existing current epoch,
+without an automatic advance. Removal revokes the link and every certified device,
+then rotates eligible pages with owner baselines and remaining-recipient wraps.
+Reset optionally appends a new link after those advances, in the same transaction.
+The replacement must have a distinct, never-used ID and a seed that does not derive
+the removed link's pinned keys. Removal, advances, replacement and public replay
+outcome either all commit or all roll back. Browser management composition remains
+separate; the caller distributes the borrowed seed only after success.
 
 Known-device revocation commits the local tombstone, owner-signed reduction cuts
 and affected-page rotations together. Grant revision and durable revocation fence
