@@ -72,7 +72,7 @@ process.exitCode = args[0] === 'run' ? Number(process.env.TMT_RUNNER_STATUS) : 0
   );
 
   /** Runs the wrapper against a fake `docker` that logs its argv, with TMT_E2E_FILES set. */
-  async function runWrapper(files: string, adapterTests = '') {
+  async function runWrapper(files: string, adapterTests = '', cargoJobs = '') {
     const sandbox = createSandbox({
       TMT_TEST_CLI: JSON.stringify({
         executable: process.execPath,
@@ -96,6 +96,7 @@ require('node:fs').appendFileSync(process.env.TMT_RUNNER_LOG, JSON.stringify(pro
       delete sandbox.env.TMT_TEST_PEER_CLI;
       sandbox.env.TMT_E2E_FILES = files;
       sandbox.env.TMT_E2E_ADAPTER_TESTS = adapterTests;
+      sandbox.env.CARGO_BUILD_JOBS = cargoJobs;
       const result = await runCli(sandbox, []);
       const calls = fs.existsSync(log)
         ? fs
@@ -163,6 +164,30 @@ require('node:fs').appendFileSync(process.env.TMT_RUNNER_LOG, JSON.stringify(pro
       const { result, calls } = await runWrapper('', flag);
       expect(result.status).toBe(2);
       expect(result.stderr).toContain('TMT_E2E_ADAPTER_TESTS must be 0 or 1');
+      expect(calls).toEqual([]);
+    }
+  );
+
+  it.each([
+    ['2', ['--build-arg', 'CARGO_BUILD_JOBS=2']],
+    ['default', ['--build-arg', 'CARGO_BUILD_JOBS=default']],
+    ['', []],
+  ])(
+    'passes the cargo job limit %j to the image build as one build argument',
+    async (jobs, expected) => {
+      const { result, calls } = await runWrapper('', '', jobs);
+      expect(result).toEqual({ status: 0, signal: null, stdout: '', stderr: '' });
+      expect(calls[0].slice(0, 3)).toEqual(['build', '--tag', calls[1].at(-1)]);
+      expect(calls[0].slice(3, -3)).toEqual(expected);
+    }
+  );
+
+  it.each(['0', '-1', '02', '2 ', 'all', '$HOME', '2;id'])(
+    'rejects the cargo job limit %j before building anything',
+    async (jobs) => {
+      const { result, calls } = await runWrapper('', '', jobs);
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain('CARGO_BUILD_JOBS must be a positive integer or default');
       expect(calls).toEqual([]);
     }
   );

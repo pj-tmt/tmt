@@ -11,6 +11,8 @@ COPY extensions/tmt-remote/rust/ ../extensions/tmt-remote/rust/
 COPY extensions/tmt-colab/rust/ ../extensions/tmt-colab/rust/
 COPY extensions/tmt-colab/contracts/ ../extensions/tmt-colab/contracts/
 ARG TMT_NATIVE_PROFILE=dev
+# Every cargo command below reads this; `pnpm test:e2e` forwards a host value.
+ARG CARGO_BUILD_JOBS=default
 RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture --example claude-hook-fixture --example codex-channel-fixture \
   && case "$TMT_NATIVE_PROFILE" in dev) native_output=debug ;; release) native_output=release ;; *) exit 2 ;; esac \
   && cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-cli \

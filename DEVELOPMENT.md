@@ -1616,7 +1616,9 @@ transport, identity, talk, or cleanup changes:
 `TMT_E2E_FILES="squad.e2e.test.ts"` (space-separated plain file names) limits the run to those
 E2E files (the image passes them to vitest as anchored `test/e2e/<name>` paths, because vitest
 matches a filter by substring and a bare `routing.e2e.test.ts` would also run
-`check-routing.e2e.test.ts` and `session-routing.e2e.test.ts`), and `TMT_E2E_ADAPTER_TESTS=0` skips the Rust adapter tests. CI runs the suite as two
+`check-routing.e2e.test.ts` and `session-routing.e2e.test.ts`), and `TMT_E2E_ADAPTER_TESTS=0` skips the Rust adapter tests. A host `CARGO_BUILD_JOBS` (a
+positive count or `default`) limits the image's cargo builds; unset, they use every CPU of the
+Docker VM. CI runs the suite as two
 shard jobs behind the required `Docker E2E` gate, each with its own file list from
 `typescript/scripts/e2e-shards.mjs`, balanced by the seconds in
 `typescript/test/e2e/shard-weights.json` (refresh them from a full run when the shards drift
