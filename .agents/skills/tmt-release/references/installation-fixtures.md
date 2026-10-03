@@ -22,3 +22,23 @@ After that succeeds, restore only `rust/Cargo.toml` and `rust/Cargo.lock` from t
 captured commit and confirm `git diff --exit-code HEAD --` before running tests.
 Retain the fixture, build time and source-gate evidence in the delivery record;
 never publish this synthetic version. Shared-host Cargo limits still apply.
+
+## Native recording driver
+
+Extension-upgrade proofs use one native recording driver on macOS and Linux.
+Build it before running `test/native/extension-upgrade-proof.test.ts`:
+
+```sh
+cargo build --locked --manifest-path rust/Cargo.toml -p tmt-test-support --example recording-cli-fixture
+(cd typescript && corepack pnpm exec vp test run --config test/native/vitest.config.ts test/native/extension-upgrade-proof.test.ts)
+```
+
+The example is selected from `rust/target/debug/examples/recording-cli-fixture`,
+matching the host architecture (including an x64 Node/Rust pair under Rosetta).
+Both native-process CI scopes build it. The synthetic driver archive's
+`NATIVE-INSTALL.md` contains JSON with absolute `executable` and `log` fixture
+paths; the driver records the first two arguments and replaces itself with the
+selected CLI, preserving argv, stdio, cwd, environment and exit behavior.
+The note is fixture configuration, not shipped installation guidance.
+Publish the built bytes through `writeExecutable`; do not package a shell driver,
+compile during a scenario, relax exact Mach-O inspection or extend its deadline.

@@ -145,7 +145,7 @@ does not authorize publication or replace artifact acceptance.
   published release using the product-specific proof in DEVELOPMENT, not only a
   fresh install. Old CLI/extension receipts must stay readable.
   Synthetic extension-upgrade tests use the private native recording driver on
-  every platform. Follow DEVELOPMENT's [fixture build contract](../../../DEVELOPMENT.md#native-process-and-shared-tests)
+  every platform. Follow the [fixture build contract](references/installation-fixtures.md#native-recording-driver)
   before running them; preserve exact architecture admission and public-command
   assertions rather than substituting a shell executable.
   The pre-publication CLI proof requires installation, migration and real-archive

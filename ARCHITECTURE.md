@@ -33,19 +33,19 @@ entries and current exceptions with their removal issues. Component ownership co
 from [`.github/components.json`](.github/components.json), through `ci-scope.ownerOf`;
 layout permission does not change component ownership, CI selection or release policy.
 
-| Home                      | Responsibility                                                                                                                         |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Repository root           | Short entry points, contributor guidance, license and required repository/tool configuration; no product source or generated evidence. |
-| `.agents/`                | Repository contributor procedures.                                                                                                     |
-| `.github/`                | Component ownership, layout allowlist, workflows, shared Actions and isolated release tooling.                                         |
-| `rust/`                   | Native CLI, core, adapters, shared Rust leaves, private fixtures, release tooling and the release archive note; extensions retain their own crates.     |
-| `typescript/`             | Private developer tooling, tests and shared fixture support; no product-runtime fallback.                                              |
-| `extensions/<extension>/` | Feature-owned runtimes, contracts, skills, documentation and assets.                                                                   |
-| `contracts/`              | Core public contracts and their normative fixtures.                                                                                    |
-| `scripts/`                | Shared root shell/build/development helpers.                                                                                           |
-| `skills/`                 | Canonical bundled user-agent guidance.                                                                                                 |
-| `site/`                   | User handbook and its build. Translated pages: `site/src/i18n/<lang>/`.                                                                |
-| `design/`                 | Shared design tokens and CLI style guidance.                                                                                           |
+| Home                      | Responsibility                                                                                                                                      |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository root           | Short entry points, contributor guidance, license and required repository/tool configuration; no product source or generated evidence.              |
+| `.agents/`                | Repository contributor procedures.                                                                                                                  |
+| `.github/`                | Component ownership, layout allowlist, workflows, shared Actions and isolated release tooling.                                                      |
+| `rust/`                   | Native CLI, core, adapters, shared Rust leaves, private fixtures, release tooling and the release archive note; extensions retain their own crates. |
+| `typescript/`             | Private developer tooling, tests and shared fixture support; no product-runtime fallback.                                                           |
+| `extensions/<extension>/` | Feature-owned runtimes, contracts, skills, documentation and assets.                                                                                |
+| `contracts/`              | Core public contracts and their normative fixtures.                                                                                                 |
+| `scripts/`                | Shared root shell/build/development helpers.                                                                                                        |
+| `skills/`                 | Canonical bundled user-agent guidance.                                                                                                              |
+| `site/`                   | User handbook and its build. Translated pages: `site/src/i18n/<lang>/`.                                                                             |
+| `design/`                 | Shared design tokens and CLI style guidance.                                                                                                        |
 
 Homes of moved guidance:
 
@@ -53,8 +53,8 @@ Core public process and request/response contracts live in `contracts/extension-
 and `contracts/request-response-v1.md`; the Remote channel contract lives in
 `contracts/remote-channel-v1.md`. The local MCP wire is owned by
 `contracts/mcp-v1.md`. CLI style guidance lives in `design/cli-style.md`.
-Release-verification procedures belong to
-[DEVELOPMENT's release section](DEVELOPMENT.md#native-release-verification).
+Release procedures belong to the
+[release skill](.agents/skills/tmt-release/SKILL.md) and its references.
 
 - The handbook owns user guidance. Office documentation and art helpers live in
   `extensions/tmt-office/docs/` and `extensions/tmt-office/scripts/art/`.
