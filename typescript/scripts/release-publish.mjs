@@ -24,11 +24,12 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
   checkLatestTag,
+  isProductReleased,
   productOfTag,
   publishFlags,
   releasePolicy,
 } from './native-release-policy.mjs';
-import { isReleased, parseComponentMap } from './ci-scope.mjs';
+import { parseComponentMap } from './ci-scope.mjs';
 import { BUNDLE_ASSET, FAILURE_ASSET, HOLD_ASSET } from './plan-release-builds.mjs';
 import { ghApi } from './release-draft-assets.mjs';
 import { isAlphaVersion, versionOfTag } from './release-versions.mjs';
@@ -438,7 +439,7 @@ function main(argv, environment) {
       api,
       product: values.product,
       tag: values.tag,
-      released: isReleased(map, values.product),
+      released: isProductReleased(map, values.product),
     });
     report(
       environment,

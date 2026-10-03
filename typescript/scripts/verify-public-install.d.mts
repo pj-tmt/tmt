@@ -32,6 +32,8 @@ export function smokeRelease(input: {
   githubToken?: string;
   /** The directories after the prefix on the isolated PATH; the system's by default. */
   systemPath?: readonly string[];
+  /** Installed-app proof boundary, injected only by verifier fixture tests. */
+  verifyColab?: typeof import('./colab-runtime-proof.mjs').verifyColabApp;
 }): Promise<SmokeResult[]>;
 export function renderSmokeSummary(input: {
   tag: string;

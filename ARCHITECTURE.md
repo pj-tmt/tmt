@@ -4077,6 +4077,11 @@ publication metadata. Its only production dependency is the neutral `tmt-invoke`
 Its developer-only `release-version` example owns the release TOML tool described
 [below](#release-cut-shadow), with exact untargeted `serde_json`/`toml_edit` dev edges;
 these dependencies cannot enter the library or become production/build edges.
+Its separate `colab-runtime-fixture` example is the reviewed native stand-in
+for archive and public-install verifier sensitivity. Embedded tiny app bytes and
+argument-selected defects belong to this executable, with scenario assertions in
+tooling tests. Its `signal-hook` dev-dependency owns fixture SIGTERM cleanup; the
+library's production dependency boundary and publication helper are unchanged.
 Owner-local test modules retain readiness, scenario assertions and case-3 retries.
 
 The CLI's `tests/support` module owns the isolated environment and
@@ -4260,6 +4265,25 @@ release cut (#1399) activates both for its first standalone release. The retaine
 the component existed. No Herdr package or cutoff is added to release-please.
 CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
+
+Colab's native release wiring is prepared but parked (`release: false`, Cargo
+`dist = false`). The builder owns frozen Vite build orchestration and passes a
+stable absolute `TMT_COLAB_APP_DIR` to the Colab-owned build-time embedding
+boundary (#1421). The release-only Cargo wrapper refuses Colab compilation without
+its embedding input. One executable carries the app; its four-file archive has no
+sibling app tree. Vite notices follow target-filtered Rust notices. Core owns the
+product/archive registration (#1423), now implemented. Activation requires a
+published supporting CLI alpha and actual-archive acceptance.
+The shared `colab-runtime-proof.mjs` verifies relocated socket serving, exact
+independent app bytes for archives, representative app delivery for public smoke,
+combined notices and child/socket cleanup with no frontend runtime tooling.
+Cleanup requires direct process exit and confirmed process-group absence before
+removing isolated state; an exiting-group signal denial alone cannot establish cleanup.
+Only Colab verification loads this app proof; other products keep the existing
+minimal native-verifier image dependency closure.
+Its Rust example with a tiny embedded app proves guard sensitivity;
+it does not establish release-artifact acceptance. Expected Vite files are moved
+away from the checkout fallback before the final archive executes.
 
 The artifact builder resolves the taffy-only offline clarification before
 cargo-about runs. `rust/about.toml` owns the clarification's

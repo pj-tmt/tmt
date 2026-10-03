@@ -46,6 +46,7 @@ on:
           - office
           - squad
           - driver-herdr
+          - colab
       tag:
         description: Release to prove, a draft or a published one
         required: true

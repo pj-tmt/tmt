@@ -18,6 +18,7 @@ const { values } = parseArgs({
     skills: { type: 'string' },
     product: { type: 'string', default: 'cli' },
     'source-root': { type: 'string' },
+    'app-dir': { type: 'string' },
   },
 });
 for (const name of [
@@ -28,6 +29,7 @@ for (const name of [
   'license',
   ...(values.product === 'cli' ? ['skill'] : []),
   ...(values.product === 'squad' ? ['skills'] : []),
+  ...(values.product === 'colab' ? ['app-dir'] : []),
 ]) {
   assert(values[name], `--${name} is required`);
 }
@@ -56,6 +58,7 @@ const executable = {
   cli: 'tmt',
   office: 'tmt-office',
   squad: 'tmt-squad',
+  colab: 'tmt-colab',
   'driver-herdr': 'tmt-driver-herdr',
 }[values.product];
 let herdrVersion;
@@ -116,6 +119,8 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
   await verifyNativeRuntime({
     executable: path.join(artifactRoot, executable),
     product: values.product,
+    colabApp: values['app-dir'],
+    notices,
     herdrDriver: values.product === 'cli' ? path.join(artifactRoot, 'tmt-driver-herdr') : undefined,
     herdrVersion,
     target: metadata.target,
@@ -138,6 +143,8 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
         office: 'linkage, exact Office handshake, no application state',
         squad: 'linkage, version, exact skills tree, no application state',
         'driver-herdr': 'linkage, exact capabilities/version, no application state',
+        colab:
+          'linkage, version, relocated embedded app/assets and combined notices, socket cleanup',
       }[values.product]
     }`
   );

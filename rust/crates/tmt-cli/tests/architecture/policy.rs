@@ -43,6 +43,7 @@ const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
     ("tmt-office-command", "png", None),        // whiteboard image fixtures
     ("tmt-office-command", "tar", None),        // release archive fixtures
     ("tmt-office-storage", "png", None),        // stored image fixtures
+    ("tmt-test-support", "signal-hook", None),  // native Colab verifier fixture shutdown
 ];
 
 // These are reviewed layer permissions, not a second version/dependency graph.

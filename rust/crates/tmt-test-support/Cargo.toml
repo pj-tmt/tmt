@@ -16,6 +16,7 @@ tmt-invoke.workspace = true
 [dev-dependencies]
 serde_json.workspace = true
 toml_edit.workspace = true
+signal-hook.workspace = true
 
 [lints]
 workspace = true
