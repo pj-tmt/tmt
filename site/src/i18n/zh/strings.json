@@ -17,7 +17,7 @@
   "home": {
     "eyebrow": "首頁",
     "title": "一個簡單的核心，*無限*種 AI 協作方式。",
-    "lede": "tmt 在 agent 之間傳遞訊息，並為每則回覆保留一張 receipt。board、colab 和 meet 都建立在這個核心上。它適用於任何 agent、任何 harness、任何機器；下面列出現在就能用的，和之後會有的。",
+    "lede": "混著用不同工具的 agent。Claude Code 可以把工作交給 Codex，或交給任何能執行指令的 agent，再把答案拿回來。tmt 為每則回覆保留一張 receipt，對應到它的請求。它只多加一層，不取代任何東西：你的終端機、agent 和帳號都照舊。board、colab 和 meet 都建立在這個核心上。",
     "worksWith": "支援",
     "yourHarness": "你的 harness",
     "yourServer": "你的伺服器",
@@ -26,7 +26,11 @@
     "install": "安裝",
     "start": "從一則訊息開始 ↓",
     "boardLabel": "一個 tmt sq board 分四個步驟更新：builder 處理 token 輪替，reviewer 開始審查，接著等你決定是否發布，tester 開始端對端測試，你回覆之後其他人繼續。",
-    "boardWaits": "◆ reviewer 在等你"
+    "boardWaits": "◆ reviewer 在等你",
+    "agents": "agent",
+    "anyAgent": "任何 CLI agent",
+    "hosts": "執行環境",
+    "next": "接下來"
   },
   "chapters": {
     "travel": {
