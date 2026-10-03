@@ -1057,9 +1057,7 @@ requires consent. Acquisition, receipts, companions, skills trees, repair and th
 upgrade handoff are in the
 [installer architecture reference](.agents/skills/tmt-core-runtime/references/install-architecture.md);
 build, publication and verification procedures are in the
-[tmt-release skill](.agents/skills/tmt-release/SKILL.md). The generated curl
-bootstrap is release tooling around this installer and owns no second target
-catalog, archive parser or manifest.
+[tmt-release skill](.agents/skills/tmt-release/SKILL.md).
 
 ## Squad extension
 
