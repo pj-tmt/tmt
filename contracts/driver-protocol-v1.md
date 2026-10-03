@@ -22,7 +22,7 @@ and guides link here instead of repeating it.
   harness, approval registry and bounded client exist. `tmt driver install|ls|rm`
   accepts either kind. Runtime approval calls `locations`, validates its write
   targets and discloses them before consent. Runtime recognition, launch,
-  hooks and setup/detection integration are not wired yet (PR B2 of #1266).
+  hooks and setup/detection integration are not wired yet (#1266).
 
 ## Invocation
 

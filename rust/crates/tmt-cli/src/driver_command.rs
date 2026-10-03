@@ -64,10 +64,12 @@ fn write_details(
     record: &DriverRecord,
 ) -> io::Result<()> {
     if let Declaration::Runtime(capabilities) = &record.capabilities {
-        let locations = record
-            .locations
-            .as_ref()
-            .expect("runtime approval resolved locations");
+        let locations = record.locations.as_ref().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Runtime locations are not resolved; approve the driver again.",
+            )
+        })?;
         return detail::write(
             output,
             terminal,
@@ -205,7 +207,10 @@ fn install(
                 "Approving {kind} driver {name} requires explicit --yes; nothing changed."
             ),
             question: &format!("Approve {kind} driver {name}"),
-            declined: &format!("{kind} driver {name} was not approved; nothing changed."),
+            declined: &format!(
+                "{} driver {name} was not approved; nothing changed.",
+                if kind == "host" { "Host" } else { "Runtime" }
+            ),
         },
         |error| Failure::new("DRIVER_IO_ERROR", "Could not ask for consent.", 1).caused_by(error),
     )?;
@@ -383,3 +388,25 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     ),
     crate::cli_style_tests::HintSpec::core("tmt driver install {again}", &[""], &[]),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_without_locations_refuses_disclosure_without_panicking() {
+        let record: DriverRecord = serde_json::from_value(json!({
+            "name": "agent", "path": "/tmp/driver", "digest": "test", "protocol": 1,
+            "fingerprint": {"device": 0, "inode": 0, "size": 0, "modifiedNs": 0,
+                "changedNs": 0, "uid": 0, "mode": 0}, "approvedAtMs": 0,
+            "capabilities": {"kind": "runtime", "name": "agent", "version": "test",
+                "protocols": [1], "ops": ["locations"], "executables": ["agent"]}
+        }))
+        .unwrap();
+        let mut output = Vec::new();
+        let error = write_details(&mut output, Terminal::PLAIN, &record).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("approve the driver again"));
+        assert!(output.is_empty());
+    }
+}

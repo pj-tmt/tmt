@@ -594,3 +594,33 @@ fn full_runtime_registry_refuses_growth_without_losing_approvals() {
     }
     panic!("the byte bound must refuse these sixteen large location records");
 }
+
+#[test]
+fn host_refusal_names_the_conflict_and_stale_grammar_does_not_block_approval() {
+    let fixture = Fixture::new("host-stale");
+    let first = fixture.driver("first", &capabilities("first", "aa-", "a{n}"));
+    assert_eq!(
+        fixture
+            .json(&["driver", "install", path(&first), "--yes", "--json"])
+            .0,
+        0
+    );
+    let second = fixture.driver("second", &capabilities("second", "aa-", "a{n}"));
+    let (code, refused) = fixture.json(&["driver", "install", path(&second), "--yes", "--json"]);
+    assert_eq!(code, 1);
+    assert!(
+        refused["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("Host driver second can't be installed beside first:")
+    );
+    let mut document: Value =
+        serde_json::from_slice(&fs::read(fixture.registry()).unwrap()).unwrap();
+    document["drivers"][0]["capabilities"]["paneId"]["prefix"] = serde_json::json!("");
+    fs::write(fixture.registry(), document.to_string()).unwrap();
+    let (code, approved) = fixture.json(&["driver", "install", path(&second), "--yes", "--json"]);
+    assert_eq!(code, 0, "{approved}");
+    let stored: Value = serde_json::from_slice(&fs::read(fixture.registry()).unwrap()).unwrap();
+    assert_eq!(stored["drivers"].as_array().unwrap().len(), 2);
+    assert_eq!(stored["drivers"][0], document["drivers"][0]);
+}

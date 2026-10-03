@@ -19,7 +19,7 @@ use std::{
 };
 use tmt_core::host::MAX_EXTERNAL_HOSTS;
 use tmt_driver_protocol::{
-    Grammar, LocationsRequest, LocationsResponse, PROTOCOL, RuntimeDeclaration,
+    Grammar, LocationsRequest, LocationsResponse, Op, PROTOCOL, RuntimeDeclaration,
 };
 
 pub const REGISTRY_FILE: &str = "drivers.json";
@@ -220,7 +220,7 @@ fn locate(record: &mut DriverRecord, runner: &impl CommandRunner) -> Result<(), 
             process
                 .locations(
                     LocationsRequest { home, env },
-                    std::time::Instant::now() + std::time::Duration::from_secs(1),
+                    std::time::Instant::now() + Op::Locations.bounds().deadline,
                 )
                 .map_err(|error| RegistryError::Refused(error.to_string()))?,
         );
@@ -345,17 +345,27 @@ fn admissible(record: &DriverRecord, drivers: &[DriverRecord]) -> Result<(), Reg
         .collect();
     match &record.capabilities {
         Declaration::Host(value) => {
-            let grammar = Grammar::from_capabilities(value)
-                .map_err(|error| RegistryError::Refused(error.to_string()))?;
+            let grammar = Grammar::from_capabilities(value).map_err(|error| {
+                RegistryError::Refused(format!(
+                    "{} is not a host driver: {error}",
+                    record.path.display()
+                ))
+            })?;
             if let Some(reason) = tmt_core::host::builtin_conflict(grammar.host()) {
-                return Err(RegistryError::Refused(reason));
+                return Err(RegistryError::Refused(format!(
+                    "Host driver {name} can't be installed: {reason}."
+                )));
             }
             for existing in &others {
                 if let Some(value) = existing.capabilities.host() {
-                    let other = Grammar::from_capabilities(value)
-                        .map_err(|error| RegistryError::Invalid(error.to_string()))?;
+                    let Ok(other) = Grammar::from_capabilities(value) else {
+                        continue;
+                    };
                     if let Some(reason) = grammar.conflict(&other) {
-                        return Err(RegistryError::Refused(reason));
+                        return Err(RegistryError::Refused(format!(
+                            "Host driver {name} can't be installed beside {}: {reason}.",
+                            existing.name
+                        )));
                     }
                 }
             }
