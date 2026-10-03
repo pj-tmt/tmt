@@ -95,7 +95,7 @@ fi`
   tool(
     bin,
     'cargo',
-    `if [ '${product}' = colab ]; then test "$TMT_COLAB_APP_DIR" = "$PWD/../extensions/tmt-colab/typescript/app/dist"; test -s "$TMT_COLAB_APP_DIR/index.html"; fi
+    `if [ '${product}' = colab ]; then test "$TMT_NATIVE_PRODUCT" = colab; test "$TMT_COLAB_APP_DIR" = '${root}/extensions/tmt-colab/typescript/app/dist'; test -s "$TMT_COLAB_APP_DIR/index.html"; fi
 if [ "$1" = pkgid ]; then printf 'path+file:///fixture#tmt-${product}@0.1.0-alpha.2\\n'; else
 test "$1 $2 $3 $4 $5 $6" = 'build --locked -p tmt-driver-herdr --bin tmt-driver-herdr'
 mkdir -p target/aarch64-apple-darwin/dist

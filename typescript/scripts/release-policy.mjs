@@ -16,5 +16,5 @@ if (values['check-latest'] !== undefined) {
     `${JSON.stringify({ ...releasePolicy(values.product), flags: releaseFlags(values.product) })}\n`
   );
 } else {
-  throw new Error('Usage: --product <cli|office|squad|colab> | --check-latest <tag>');
+  throw new Error('Usage: --product <cli|office|squad|driver-herdr|colab> | --check-latest <tag>');
 }

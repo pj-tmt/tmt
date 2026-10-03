@@ -48,6 +48,8 @@ TMT_NATIVE_REAL_CARGO=${TMT_NATIVE_REAL_CARGO:-$(command -v cargo)}
 export TMT_NATIVE_REAL_CARGO
 CARGO="$repo/scripts/native-cargo.sh"
 export CARGO
+TMT_NATIVE_PRODUCT=$product
+export TMT_NATIVE_PRODUCT
 if [ "$notices_only" = false ]; then
   package_id=$(cargo pkgid --locked -p "tmt-$product")
   # Cargo emits either #version or #name@version for a resolved package ID.

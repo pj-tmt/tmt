@@ -2848,13 +2848,18 @@ nonempty `THIRD-PARTY-NOTICES.txt`, exports the absolute dist path as
 `TMT_COLAB_APP_DIR`, and keeps that complete dist stable through Cargo compilation.
 Colab's build script owns inventory validation. Native notices append the exact
 Vite notices after cargo-about. No app directory is installed alongside the binary.
+The release Cargo wrapper receives `TMT_NATIVE_PRODUCT=colab` and rejects a build
+without an absolute existing `TMT_COLAB_APP_DIR` before invoking Cargo. Ordinary
+local Cargo builds retain the development fallback; invalid supplied inventories
+fail in Colab's build script.
 
 Run fixture checks without Docker or a release build:
 
 ```sh
-(cd typescript && corepack pnpm@10.33.0 exec vp test run --config vitest.config.ts test/tooling/colab-runtime-proof.test.ts test/tooling/native-artifact-stdout.test.ts test/tooling/native-release-policy.test.ts test/tooling/plan-release-builds.test.ts test/tooling/verify-public-install.test.ts test/tooling/release-workflow.test.ts)
+(cd typescript && corepack pnpm@10.33.0 exec vp test run --config vitest.config.ts test/tooling/colab-runtime-proof.test.ts test/tooling/native-artifact-stdout.test.ts test/tooling/native-cargo.test.ts test/tooling/native-release-policy.test.ts test/tooling/plan-release-builds.test.ts test/tooling/verify-public-install.test.ts test/tooling/release-workflow.test.ts)
 (cd typescript && corepack pnpm@10.33.0 check:tooling)
 sh -n scripts/build-native-artifact.sh
+sh -n scripts/native-cargo.sh
 actionlint .github/workflows/native-release.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-smoke.yml .github/workflows/native-release-upgrade.yml
 ```
 

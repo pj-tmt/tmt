@@ -4217,7 +4217,8 @@ verify exact managed-skill contents and the generated bootstrap.
 Colab's native release wiring is prepared but parked (`release: false`, Cargo
 `dist = false`). The builder owns frozen Vite build orchestration and passes a
 stable absolute `TMT_COLAB_APP_DIR` to the Colab-owned build-time embedding
-boundary (#1421). One executable carries the app; its four-file archive has no
+boundary (#1421). The release-only Cargo wrapper refuses Colab compilation without
+its embedding input. One executable carries the app; its four-file archive has no
 sibling app tree. Vite notices follow target-filtered Rust notices. Core owns the
 product/archive registration (#1423). Activation requires embedding, that
 registration in a published supporting CLI alpha, and actual-archive acceptance.
