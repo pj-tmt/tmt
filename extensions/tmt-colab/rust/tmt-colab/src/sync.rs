@@ -61,17 +61,23 @@ impl From<store::Fault> for Code {
 /// Append receives the exact model-decoded header, never unsigned routing claims.
 pub enum Access<'a> {
     Read,
+    Publish,
     Append(&'a object::Context),
 }
+pub use crate::store::owner::WrapRecipients;
 /// Caller-verified bootstrap metadata. The head comes from owner_head through
 /// the admission implementation. None means this epoch has no reset baseline.
 pub struct CatchupContext {
     pub membership_head: statement::Head,
     pub owner_key: [u8; 32],
+    pub recipients: WrapRecipients,
     /// Exact model baseline descriptor JSON, not reconstructed signing bytes.
     pub baseline: Option<Vec<u8>>,
 }
 pub trait Admission: Send {
+    fn alive(&self, _: &str) -> Result<(), Code> {
+        Ok(())
+    }
     fn catchup_context(
         &self,
         principal: &str,
@@ -100,6 +106,7 @@ struct Peer {
     terminal: Option<Code>,
 }
 struct Catchup {
+    recipients: WrapRecipients,
     positions: HashMap<(String, String), store::NamespaceCursor>,
     head: statement::Head,
     owner: [u8; 32],
@@ -387,11 +394,17 @@ impl<A: Admission> Server<A> {
 impl<A: Admission> State<A> {
     fn recheck(&mut self) {
         for peer in self.peers.values_mut() {
-            if let Some(scope) = &peer.scope
-                && let Err(code) = self
-                    .admission
-                    .authorize(&peer.principal, scope, Access::Read)
-            {
+            let result = self
+                .admission
+                .alive(&peer.principal)
+                .and_then(|()| match &peer.scope {
+                    Some(scope) => self
+                        .admission
+                        .authorize(&peer.principal, scope, Access::Read)
+                        .map(|_| ()),
+                    None => Ok(()),
+                });
+            if let Err(code) = result {
                 peer.end(code);
             }
         }
@@ -417,6 +430,13 @@ impl<A: Admission> State<A> {
         }
         let principal = peer.principal.clone();
         self.admission.authorize(&principal, &scope, Access::Read)?;
+        if matches!(
+            &frame,
+            Frame::Append { .. } | Frame::Chunk { .. } | Frame::Awareness { .. }
+        ) {
+            self.admission
+                .authorize(&principal, &scope, Access::Publish)?;
+        }
         self.peers.get_mut(&id).ok_or(Code::Denied)?.scope = Some(scope.clone());
         let subscribing = matches!(&frame, Frame::Subscribe { .. });
         match frame {
@@ -687,6 +707,7 @@ impl<A: Admission> State<A> {
         peer.subscribed = false;
         peer.catchup = Some(Catchup {
             positions,
+            recipients: context.recipients,
             head: context.membership_head,
             owner: context.owner_key,
             revision: membership.revision,
@@ -743,6 +764,7 @@ impl<A: Admission> State<A> {
                         &peer.principal,
                         &catchup.head,
                         catchup.wrap_offset,
+                        &catchup.recipients,
                     )
                 })
                 .map_err(bootstrap_error)?;

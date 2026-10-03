@@ -539,6 +539,71 @@ App/static responses retain `Cache-Control: no-store`, `Referrer-Policy:
 no-referrer` and `X-Content-Type-Options: nosniff`. Non-app responses retain the
 existing restrictive placeholder/API policy.
 
+### Mounted read-only reader sessions (#1310)
+
+The local socket admits explicitly read-only link and anonymous public sessions.
+They use the [Remote route-mounting contract](../../../contracts/remote-channel-v1.md#extension-channel-api)
+without Remote enrollment. Remote's Route mounting section owns subprotocol
+forwarding, reserved-header stripping and logging policy; Colab owns these
+capabilities and their before-delivery admission. Browser reader UI remains a
+separate integration. These routes never confer owner identity or agent access.
+
+`POST /api/readers/challenge` accepts strict JSON, exactly
+`{kind:"public",space,page}` or `{kind:"link",space,page,chain}`. The chain is
+canonical base64url of the model's exact link-device chain JSON (at most 16 KiB).
+The server resolves the current local page/epoch, public or live assigned-link
+policy, pinned `link.add` keys and statement, certificate lifetime and device
+revocation. A private or deleted page denies readers; archive retains reads.
+The response is exactly `{challengeId,nonce,space,page,epoch,chainDigest,expiresAt}`:
+UUIDv4 challenge ID, nonce32, canonical scope, digest32, and safe-integer UTC
+milliseconds. Public uses zero32 chainDigest. Challenge lifetime is 60 seconds.
+
+`POST /api/readers/session` accepts exactly `{kind:"public",challengeId}` or
+`{kind:"link",challengeId,signature}`. The link device signs exact LP
+(`tmt-colab-reader-session-v1`, `1`, challengeId, nonce32, space, page, epoch,
+chainDigest32, decimal expiresAt). Signature is canonical base64url signature64;
+no bearer seed reaches the server. A proof attempt consumes its challenge;
+expired/replayed challenges cannot issue capabilities. Recheck policy before
+issuance. The existing device transaction persists a verified link-device
+projection without replacing a different binding or tombstone, signing any
+certificate/log statement, or giving the device a write path. Public issues no
+certificate or device projection.
+
+Success returns exactly `{principal,token,space,page,epoch,ownerKey,expiresAt}`.
+The principal is a fresh server UUID distinct from certified writer identities;
+token32 is a random single-upgrade capability, with only its hash retained.
+Lifetime is ten minutes. At most 64 combined challenge/ticket/active entries
+exist; expired unused entries are reclaimed without evicting active readers.
+Malformed requests return 400 `INVALID`; failed authority/proof/replay returns
+403 `DENIED`; expired challenges/tickets/sessions return 403 `EXPIRED`;
+exhaustion returns 503 `CAPACITY`; state faults return 503 `UNAVAILABLE`.
+Errors are JSON `{code}`. HTTP body and header bounds remain unchanged.
+Known availability limitation: unauthenticated challenge requests can occupy all
+64 entries for 60 seconds and deny new readers with `CAPACITY`. The mounted door's
+abuse budgets bound exposure; this seam adds no per-client challenge quota.
+
+Offer `colab-sync-v1` and `colab-reader-v1.<token>` to `/sync`. The server compares
+fixed-size token-hash confirmations through the existing constant-time HMAC
+verifier, consumes the ticket once, and selects only `colab-sync-v1`; it MUST
+NOT echo the reader subprotocol. Tokens MUST NOT enter URLs, logs, renderer
+messages, cookies or owner device context. Disconnection releases the capability;
+reconnect and restart require a fresh challenge/exchange. An owner context does
+not upgrade a supplied reader ticket into owner authority.
+
+Only hello, catchup, subscribe and scoped ack are allowed, on the admitted
+page/epoch. Deny content and own appends, referenced-upload acquisition/chunks
+and awareness publication even for an editor link. Link catchup selects only
+link-addressed wraps; public catchup selects none and obtains published keys
+from signed statements. Owner catchup retains its existing exact bytes.
+All operations, deliveries and pre-hello tunnels recheck session expiry, live
+link/device/page policy and epoch under the sync owner. Revocation, narrowing or
+rotation discards pending delivery and closes access; a surviving link seed
+can still certify a fresh device after individual device revocation. Exclusion
+requires link removal/narrowing plus rotation, never merely deleting a ticket.
+Previously written bytes, keys and plaintext cannot be recalled. Mounted native
+lifecycle tests and deterministic duplex blocked-transfer tests exercise these
+fences; browser reader UI remains a separate integration.
+
 ## Page state, roles and epochs
 
 Each device has one signed append stream per `(space, page, epoch)`. Sequences
@@ -1334,7 +1399,8 @@ and dependent chain/wrap/content admission. Invalid/oversized/interrupted transf
 discard partial bytes without truncating durable statements; payload admission
 remains 768 KiB.
 
-After membership, pages carry `wraps` addressed to this device or its member,
+After membership, pages carry `wraps` addressed to the caller-admitted recipient:
+owner devices/the management member, only the reader's link, or none for public,
 ordered by numeric epoch, kind, recipient and revision. They include retained
 epoch-advance and history-join wraps for the 64 latest retained epochs through
 the requested epoch, and are bounded by 512 entries and 60 KiB encoded bytes per
@@ -1478,10 +1544,9 @@ remote mounts at `/r/<prefix>/x/colab/` (#1039): remote's door owns Host, Origin
 DNS-rebinding and cookie admission, and colab trusts the forwarded
 `tmt-device-context` because only the owner can reach the socket. Its HTTP
 handling uses bounded std-thread workers, workspace tungstenite and strict
-framing. Upgrades need an owner device context today; a link-device proof or an
-explicitly read-only public session is later work. Public does not make
-write/agent upgrades unauthenticated. Unauthenticated upgrades MUST reject
-before effects.
+framing. Upgrades require an active registered owner context or the page-scoped
+[read-only reader ticket](#mounted-read-only-reader-sessions-1310). Public grants
+no write/agent authority; a bare unauthenticated upgrade rejects before effects.
 
 The local space is loopback-only: there is no `--bind`, LAN or other
 non-loopback mode. Other people's machines reach a page only through a cloud

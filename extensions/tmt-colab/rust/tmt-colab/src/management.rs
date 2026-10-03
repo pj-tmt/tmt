@@ -312,7 +312,9 @@ pub fn browser(
             crate::registration::Code::Denied => Code::Denied,
             crate::registration::Code::Expired => Code::Expired,
             crate::registration::Code::Conflict => Code::Conflict,
-            crate::registration::Code::Unavailable => Code::Unavailable,
+            crate::registration::Code::Unavailable | crate::registration::Code::Capacity => {
+                Code::Unavailable
+            }
         })?;
     apply(
         service,

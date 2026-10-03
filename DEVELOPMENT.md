@@ -3479,8 +3479,8 @@ socket/process lifecycle acceptance twice. No real model/account/DB is used.
 
 ## Colab pilot development
 
-The private local-build Colab executable serves an owner-only mounted socket,
-owner-browser registration and stream sync, and lists local-space metadata.
+The private local-build Colab executable serves a mounted socket with
+owner-browser registration, stream sync and read-only reader sessions, and lists local-space metadata.
 Owner requests use the embedded browser app when built with `TMT_COLAB_APP_DIR`,
 or load local checkout output when it is available. Without either, the local
 build shows a build-hint placeholder. Published `tmt-colab` artifacts must embed
@@ -3589,7 +3589,7 @@ response, and 16 WebSocket tunnels closed after 120 seconds without inbound
 bytes. Bounded HTTP bodies carry registration requests; page objects use the
 stream sync path. The stream sync library enforces 64 KiB frames and 8 queued frames with
 `RESYNC_REQUIRED` close for slow subscribers; serve drives the sync library
-over registered-owner upgrades. Real socket
+over registered-owner and read-only reader upgrades. Real socket
 and foreground process cleanup tests run lifecycle scenarios twice, with no core calls from
 socket traffic. Owner-key temporary cleanup is publication-locked; it preserves
 foreign file names and refuses unsafe matching files.
@@ -3890,6 +3890,45 @@ Docker or remote identities. Full two-browser application acceptance is later.
 The transport uses the existing workspace tungstenite 0.30.0 edge in `tmt-colab`
 (default features disabled, handshake enabled). Mounted composition adds no
 dependencies or lockfile resolutions.
+
+### Colab reader verification
+
+Run `CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-colab --lib readers::tests`
+and the focused `--lib mounted_` / `--test socket mounted_public_readers` filters
+from `rust/`. Owner archive publication has the `--test socket archived_owner_pages`
+filter. Fixtures use real private SQLite/keyring state and the built `tmt-colab`
+decoder sibling of the test executable. Build the executable first for a
+standalone library-only run; the complete package test builds it. Mounted tests
+use short isolated `/tmp` roots and unconditional socket shutdown/join/removal.
+No real Remote identity or Docker is involved.
+
+Mounted HTTP challenges, possession exchange, upgrades and subscriptions exercise
+all three narrowing pairs, Reset/removal, rotation, individual device revocation,
+archive/delete, session/certificate expiry and pre-hello cutoff twice. Cutoff
+accepts only close/reset/EOF, never a timeout or more application data. Failed
+narrowing retains reader authority; a successful retry cuts it off. Retained old
+seeds cannot revive removed links or obtain private-epoch wraps; new baselines
+open with the current page key and reject the retained old key. Surviving links
+can reauthenticate after ordinary rotation or certify a fresh device after
+individual revocation. Public keys resolve from signed publication statements;
+link wraps are decrypted against the durable current key. The nonempty owner
+oracle preserves exact wrap bytes. Reader publication denials cover both
+namespaces, referenced uploads/chunks and awareness; archived owner pages retain
+reads and deny publication too.
+
+Blocked-delivery tests issue capabilities through mounted HTTP, then consume
+them under the same sync lock and connect via the existing generic Read/Write
+transport seam on real duplex sockets. Explicit bounded turns and a byte gate
+prove that queued frames and chunk continuations are never flushed after
+narrowing, revocation or expiry; this proof does not depend on kernel buffer
+sizes. One verified chunk may be delivered before cutoff, and previously written
+bytes/keys/plaintext cannot be recalled. These native proofs do not supply browser
+reader UI. Exact request/session carrier rules belong to
+[colab-v1](extensions/tmt-colab/contracts/colab-v1.md#mounted-read-only-reader-sessions-1310).
+The owner discovery endpoints stay owner-only. Readers receive no writes,
+management or agent authority. Reader fixtures reuse the shared `tests/support`
+semantic decoder configuration through Engine and Registration; production keeps
+the default deadline.
 
 ### Colab decoder verification
 
