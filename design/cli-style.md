@@ -292,8 +292,8 @@ The same key means the same thing in every view and overlay.
 | Home/End, g/G  | first or last item                   | first or last line              |
 | Enter          | the row's main action (jump)         | confirm or save                 |
 | Esc            | clear search or selection, else quit | close without changing anything |
-| `?`            | open help                            | close help, or text in a field|
-| `q`            | quit                                 | close, or text in a field     |
+| `?`            | open help                            | close help, or text in a field  |
+| `q`            | quit                                 | close, or text in a field       |
 | ←→             | previous or next tab                 | not used (edit cursor in input) |
 | `/`            | search                               | not used                        |
 | Tab, Shift-Tab | next or previous pane                | next or previous field          |
