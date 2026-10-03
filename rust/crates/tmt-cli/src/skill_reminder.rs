@@ -45,6 +45,7 @@ pub fn eligible_for_drift(parsed: &Parsed) -> bool {
             parsed.invocation,
             Invocation::Extension { .. }
                 | Invocation::Api
+                | Invocation::Mcp { .. }
                 | Invocation::Help(_)
                 | Invocation::Version
                 | Invocation::Completion(_)
@@ -81,6 +82,7 @@ pub fn eligible_for_driver_hint(parsed: &Parsed) -> bool {
             parsed.invocation,
             Invocation::Extension { .. }
                 | Invocation::Api
+                | Invocation::Mcp { .. }
                 | Invocation::Help(_)
                 | Invocation::Version
                 | Invocation::Completion(_)

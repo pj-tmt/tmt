@@ -119,13 +119,28 @@ fn run(request: Invocation) -> Result<(Identity, Report), Failure> {
         }
         _ => unreachable!("answer dispatch only accepts inbox/answer"),
     };
+    run_selected(None, selected, request)
+}
+
+fn run_selected(
+    paths: Option<&ConfigPaths>,
+    selected: identity_context::Selector,
+    request: Invocation,
+) -> Result<(Identity, Report), Failure> {
     // Read the body before storage, as `reply` does.
     let content = match &request {
         Invocation::Answer { input, .. } => Some(body(input.clone())?),
         _ => None,
     };
-    let paths = ConfigPaths::discover().map_err(unavailable)?;
-    let mut storage = open(&paths)?;
+    let discovered;
+    let paths = match paths {
+        Some(paths) => paths,
+        None => {
+            discovered = ConfigPaths::discover().map_err(unavailable)?;
+            &discovered
+        }
+    };
+    let mut storage = open(paths)?;
     let pending = (|| {
         let me = identity_context::resolve(&mut storage, selected)?;
         let report = match request {
@@ -133,7 +148,7 @@ fn run(request: Invocation) -> Result<(Identity, Report), Failure> {
                 let from = from.map(|name| identity(&storage, &name)).transpose()?;
                 let page = RequestService::new(&mut storage, wall_time_ms)
                     .open_requests(&me.id, from.as_ref().map(|from| from.id.as_str()), limit)
-                    .map_err(|error| answer_failure(error, "", &paths))?;
+                    .map_err(|error| answer_failure(error, "", paths))?;
                 let mut names: Vec<(String, Identity)> = Vec::new();
                 for id in page
                     .items
@@ -153,7 +168,7 @@ fn run(request: Invocation) -> Result<(Identity, Report), Failure> {
                 let label = named
                     .as_ref()
                     .map_or(String::new(), |from| from.canonical_name.clone());
-                let fail = |error| answer_failure(error, &label, &paths);
+                let fail = |error| answer_failure(error, &label, paths);
                 let (request_id, proof, originator) =
                     RequestService::new(&mut storage, wall_time_ms)
                         .answer_target(
@@ -324,3 +339,21 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     crate::cli_style_tests::HintSpec::core("tmt answer <name> \"…\"", &[""], &[]),
     crate::cli_style_tests::HintSpec::core("tmt inbox", &[""], &[]),
 ];
+
+pub(crate) fn inbox_document(
+    paths: &ConfigPaths,
+    identity: &str,
+    from: Option<String>,
+    limit: Option<u64>,
+) -> Result<Value, Failure> {
+    run_selected(
+        Some(paths),
+        identity_context::Selector::SavedId(identity.into()),
+        Invocation::Inbox {
+            identity: Some(identity.into()),
+            from,
+            limit,
+        },
+    )
+    .map(|(me, report)| document(&me, &report))
+}

@@ -152,6 +152,16 @@ Extensions can use the public [local process API](contracts/extension-api.md) fo
 structured dispatch, history, conditional room writes and bounded notebook reads.
 Its contract is owned by [architecture](ARCHITECTURE.md#local-extension-api-v1).
 
+Agents may launch `tmt mcp --identity <saved-name-or-uuid>` on redirected stdio.
+The [local MCP contract](contracts/mcp-v1.md) owns the tool schemas and transport
+qualification. Use an isolated application home for native MCP tests:
+`CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-adapters mcp::tests` and
+`CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-cli --test mcp` from
+`rust/`. These tests cover protocol admission, command/resource parity, pinned
+identity scoping and direct-child cleanup without provider credentials or tmux.
+MCP runtime framing stays separate from private channel framing; provider setup,
+writing tools and waiting talk are not part of this slice.
+
 ## Office SPA
 
 Office is frozen for official installation and publication. Existing installations,

@@ -89,6 +89,12 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
             "Answer one JSON request read from stdin" => "tmt api",
         ]
     )));
+    root = root.subcommand(base(spec!(
+        "mcp",
+        "Serve local exchange tools over MCP stdio",
+        details = "The agent launches this server for one existing saved identity. Requests are pulled through inbox tools; this does not enroll a channel or start a network listener.",
+        ["Serve tools for a saved identity" => "tmt mcp --identity reviewer"]
+    )).arg(option("identity").global(false).required(true)));
     root = root.subcommand(rooms::room());
     root.subcommand(
         general(spec!(
