@@ -363,3 +363,21 @@ fn mixed_windows_label_each_observation_and_share_without_reordering_tiles() {
         );
     }
 }
+
+#[test]
+fn oversized_compact_totals_cannot_hide_the_next_window() {
+    let squad = squad("squad");
+    let counts = members();
+    let mut usage = usage(TokenWindow::DEFAULTS);
+    usage.lead[1].as_mut().unwrap().tokens = u128::MAX;
+    let item = TileItem {
+        squad: &squad,
+        members: &counts,
+        usage: Some(usage),
+    };
+    let painted = paint(&[item], 80, Look::default(), None).unwrap();
+    let output = text(&painted.lines).join("");
+    assert!(output.ends_with("    3k"), "{output}");
+    assert!(output.contains('…'));
+    assert_eq!(painted.lines[0].width(), 80);
+}
