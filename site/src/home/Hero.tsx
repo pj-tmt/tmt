@@ -54,7 +54,9 @@ export function Hero() {
                       )}
                       <span
                         className={`border-[1.5px] bg-sheet px-2.5 py-1 ${
-                          chip.note ? "border-dashed border-dim text-muted" : "border-text text-text"
+                          chip.note
+                            ? "border-dashed border-dim text-muted"
+                            : "border-text text-text"
                         }`}
                       >
                         {chip.name}
