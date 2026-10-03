@@ -1578,6 +1578,17 @@ matches, cross-squad memberships, and partial-read failure/recovery evidence.
 User tab validation happens during Config reading, including hidden definitions. `--tab` conflicts
 with `--squad` and `--refresh-fields`; aggregate reads do not run providers.
 
+Notes cursor tests cover source-line mapping through Markdown wrapping and
+unsupported constructs, wrapped continuation paging/click placement, resize,
+content insertion/deletion, duplicate anchors and per-line annotation composer
+cancellation/empty submission. Request projection tests cover bounded escaped
+quotes, sender/current-lead checks and marker removal after an answer. A
+painted-cell regression proves markers cannot clip wrapped content; selection
+covers each wrapped continuation to the pane edge. Display-only annotation
+quotes strip list prefixes and truncate without changing durable source tags. Check the
+focused cursor and sent marker in `tmt`, `tmt-light` and `NO_COLOR`; notes keep
+the shared `Scrolls` viewport owner.
+
 For the completed-request meter, `board::rate`, `board::meter` and the view's
 backend recorder cover four-window bucket boundaries, bounded tab retention,
 no-data/zero/gap aging, key overrides/text inputs, easing and

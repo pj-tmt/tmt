@@ -57,6 +57,41 @@ pub fn tag(squad: &str, row: &str) -> String {
     format!("[{squad} · {row}] ")
 }
 
+/// A readable, bounded source-line quote fits inside core's 160-character preview.
+pub fn note_row(squad: &str, line: usize, text: &str) -> String {
+    let mut quote: String = text.chars().take(40).collect();
+    loop {
+        let row = format!(
+            "notes L{} {}",
+            line + 1,
+            serde_json::to_string(&quote).expect("text quote")
+        );
+        if tag(squad, &row).chars().count() <= 150 || quote.is_empty() {
+            return row;
+        }
+        quote.pop();
+    }
+}
+
+fn note_annotations(room: &Window, me: &str, squad: &str, lead: &str) -> Vec<Value> {
+    let prefix = format!("[{squad} · notes L");
+    room.items
+        .iter()
+        .filter(|item| {
+            open_request(item) && sender(item) == Some(me) && item["recipientId"] == lead
+        })
+        .filter_map(|item| {
+            let preview = item["preview"].as_str()?.strip_prefix(&prefix)?;
+            let (line, rest) = preview.split_once(' ')?;
+            let line = line.parse::<usize>().ok()?.checked_sub(1)?;
+            let mut quote = serde_json::Deserializer::from_str(rest).into_iter::<String>();
+            let text = quote.next()?.ok()?;
+            rest.get(quote.byte_offset()..)?.strip_prefix("] ")?;
+            Some(json!({"requestId": item["requestId"], "line": line, "quote": text}))
+        })
+        .collect()
+}
+
 fn open_request(item: &Value) -> bool {
     item["kind"] == "request" && item["final"]["status"] == "not_submitted"
 }
@@ -139,6 +174,15 @@ pub fn apply(document: &mut Value, squad: &str, me: &str, room: &Window, inbox: 
     let row_names: Vec<String> = names.values().cloned().collect();
     let rows: Vec<&str> = row_names.iter().map(String::as_str).collect();
     let annotations = annotations(room, me, squad, &rows, &names);
+    let lead = document["squad"]["lead"]["id"].as_str().unwrap_or_default();
+    let notes = note_annotations(room, me, squad, lead);
+    if notes.is_empty() {
+        if let Some(squad) = document["squad"].as_object_mut() {
+            squad.remove("noteAnnotations");
+        }
+    } else {
+        document["squad"]["noteAnnotations"] = json!(notes);
+    }
     let waiting = waiting(inbox);
     each_row(document, |row| {
         let name = row["name"].as_str().unwrap_or_default().to_owned();
@@ -320,6 +364,48 @@ mod tests {
             "final": {"status": if done { "submitted" } else { "not_submitted" }},
             "preview": preview, "preparedAtMs": 1,
         })
+    }
+
+    #[test]
+    fn note_annotations_are_quoted_bounded_and_only_open_mine_to_current_lead() {
+        let squad = "abcdefghijklmnopqrstuvwx";
+        let text = "\"] malicious ] \\".repeat(100);
+        let row = note_row(squad, 12, &text);
+        let preview = format!("{}message", tag(squad, &row));
+        assert!(tag(squad, &row).chars().count() <= 150);
+        let room = Window {
+            items: vec![
+                item("mine", "ME", "L", &preview, false),
+                item("answered", "ME", "L", &preview, true),
+                item("other", "OTHER", "L", &preview, false),
+                item("foreign", "ME", "OTHER", &preview, false),
+                item(
+                    "broken",
+                    "ME",
+                    "L",
+                    &format!("[{squad} · notes L3 bad"),
+                    false,
+                ),
+            ],
+            complete: true,
+        };
+        let mut document = json!({"squad": {"lead": {"id": "L", "name": "lead"}}, "sections": []});
+        let inbox = Window {
+            items: Vec::new(),
+            complete: true,
+        };
+        apply(&mut document, squad, "ME", &room, &inbox);
+        let notes = document["squad"]["noteAnnotations"].as_array().unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0]["requestId"], "mine");
+        assert_eq!(notes[0]["line"], 12);
+        assert!(text.starts_with(notes[0]["quote"].as_str().unwrap()));
+        let answered = Window {
+            items: vec![item("mine", "ME", "L", &preview, true)],
+            complete: true,
+        };
+        apply(&mut document, squad, "ME", &answered, &inbox);
+        assert!(document["squad"].get("noteAnnotations").is_none());
     }
 
     #[test]

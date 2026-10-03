@@ -232,6 +232,8 @@ pub struct TitleHit {
 
 #[derive(Default)]
 pub struct App {
+    pub(super) note_cursors: RefCell<BTreeMap<String, super::notes::NotesCursor>>,
+    pub(super) note_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
     pub(super) notebooks: RefCell<super::notes::Notebooks>,
     pub(super) meter: Option<super::meter::Meter>,
     meters: BTreeMap<String, super::meter::Meter>,
@@ -413,6 +415,9 @@ impl App {
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
         self.pinned = snapshot.pinned;
+        self.note_cursors
+            .borrow_mut()
+            .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
         self.meters
             .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
         self.folds
@@ -841,6 +846,9 @@ impl App {
             let loading = self.current.clone().unwrap_or_default();
             return self.say(format!("Loading {loading}…"));
         }
+        if action.verb == Verb::Annotate && self.focused_pane() == Some(Pane::Notes) {
+            return self.annotate_note();
+        }
         match action.verb {
             Verb::Toggle => {
                 let panes: Vec<_> = action
@@ -1084,6 +1092,59 @@ impl App {
         }
     }
 
+    fn annotate_note(&mut self) -> Effect {
+        let Some(view) = &self.view else {
+            return Effect::None;
+        };
+        let Notes::Text(text) = &view.notes else {
+            return self.say("No notebook line to annotate.");
+        };
+        if view.me.is_none() {
+            return self.say("Record yourself with tmt squad me <name> before annotating.");
+        }
+        let Some(to) = view.document["squad"]["lead"]["name"]
+            .as_str()
+            .map(str::to_owned)
+        else {
+            return self.say("This squad has no lead to annotate for.");
+        };
+        let squad = self.current.clone().unwrap_or_default();
+        let (row, prompt) = {
+            let mut cursors = self.note_cursors.borrow_mut();
+            let cursor = cursors.entry(squad.clone()).or_default();
+            cursor.reconcile(text);
+            let source = text.split('\n').nth(cursor.source).unwrap_or_default();
+            (
+                crate::requests::note_row(&squad, cursor.source, source),
+                format!(
+                    "note for {to} · L{} “{}”",
+                    cursor.source + 1,
+                    super::notes::display_quote(source)
+                ),
+            )
+        };
+        self.ask(prompt, Compose::Annotate { to, row }, squad)
+    }
+
+    fn move_note(&self, step: Step) {
+        let (Some(view), Some(key)) = (&self.view, self.shown_tab()) else {
+            return;
+        };
+        let Notes::Text(text) = &view.notes else {
+            return;
+        };
+        let derived = view.derived.borrow();
+        let sources = derived
+            .notes
+            .as_ref()
+            .map_or(&[][..], |notes| notes.sources.as_slice());
+        self.note_cursors
+            .borrow_mut()
+            .entry(key.to_owned())
+            .or_default()
+            .move_by(text, sources, step, self.scrolls.page_lines(Pane::Notes));
+    }
+
     fn input_key(&mut self, key: KeyEvent) -> Effect {
         let Some(input) = &mut self.input else {
             return Effect::None;
@@ -1260,6 +1321,26 @@ impl App {
         {
             return Effect::None;
         }
+        if self.focused_pane() == Some(Pane::Notes) && !self.help {
+            let step = match key.code {
+                KeyCode::Up | KeyCode::Char('k') => Some(Step::Lines(-1)),
+                KeyCode::Down | KeyCode::Char('j') => Some(Step::Lines(1)),
+                KeyCode::PageUp => Some(Step::Pages(-1)),
+                KeyCode::PageDown => Some(Step::Pages(1)),
+                KeyCode::Home | KeyCode::Char('g') => Some(Step::Top),
+                KeyCode::End | KeyCode::Char('G') => Some(Step::Bottom),
+                _ => None,
+            };
+            if let Some(step) = step {
+                if let Some(action) =
+                    event_name(key).and_then(|event| self.bindings().remove(&event))
+                {
+                    return self.perform(&action);
+                }
+                self.move_note(step);
+                return Effect::None;
+            }
+        }
         match key.code {
             KeyCode::Char('q') => return Effect::Quit,
             KeyCode::Esc if self.search.is_empty() && !self.help => return Effect::Quit,
@@ -1421,6 +1502,15 @@ impl App {
                 .filter(|pane| !self.collapsed_panes().contains(pane))
             {
                 self.scrolls.scroll(pane, Step::Lines(lines));
+                if pane == Pane::Notes
+                    && let Some(key) = self.shown_tab()
+                {
+                    self.note_cursors
+                        .borrow_mut()
+                        .entry(key.to_owned())
+                        .or_default()
+                        .follow = false;
+                }
                 if pane == Pane::Rows {
                     self.follow = false;
                 }
@@ -1465,6 +1555,22 @@ impl App {
             return self.toggle_panes(&[pane]);
         }
         self.focus_at(event.column, event.row);
+        if self.focused_pane() == Some(Pane::Notes) {
+            if let (Some(key), Some(view)) = (self.shown_tab(), &self.view)
+                && let Notes::Text(text) = &view.notes
+                && let Some((_, visual)) = self.note_hits.borrow().iter().find(|(area, _)| {
+                    area.contains(ratatui::layout::Position::new(event.column, event.row))
+                })
+            {
+                let mut cursors = self.note_cursors.borrow_mut();
+                let cursor = cursors.entry(key.to_owned()).or_default();
+                if let Some(notes) = &view.derived.borrow().notes {
+                    cursor.select_visual(text, &notes.sources, *visual);
+                    cursor.follow = true;
+                }
+            }
+            return Effect::None;
+        }
         let hit = self.hits.borrow().iter().copied().find(|hit| {
             hit.y == event.row && (hit.x..hit.x.saturating_add(hit.width)).contains(&event.column)
         });

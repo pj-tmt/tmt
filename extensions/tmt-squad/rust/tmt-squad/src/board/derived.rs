@@ -5,9 +5,16 @@ use std::collections::BTreeMap;
 
 #[derive(Default)]
 pub(super) struct Derived {
-    pub notes: Option<(usize, crate::look::Look, Vec<Line<'static>>)>,
+    pub notes: Option<NotebookLines>,
     pub replies: Option<ReplyBodies>,
     pub grid: Option<Grid>,
+}
+
+pub(super) struct NotebookLines {
+    pub width: usize,
+    pub look: crate::look::Look,
+    pub lines: Vec<Line<'static>>,
+    pub sources: Vec<usize>,
 }
 
 pub(super) struct Grid {

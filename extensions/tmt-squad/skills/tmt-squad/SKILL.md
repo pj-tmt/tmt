@@ -106,6 +106,10 @@ cell).
   one section with `title: null` containing every member except the lead. With
   user sections, members that match none follow in a final `title: null`
   section.
+- `squad.noteAnnotations` is optional: open notebook-line requests from the
+  recorded user to the current lead, as `{requestId, line, quote}` with a
+  zero-based source `line` and bounded sanitized `quote`. It is absent when
+  none are observed; the shared bounded history also governs board markers.
 - Each row has `id`, `name`, `lifetime`, `presence` (`active`, `offline` or
   `unknown`), `pane`, `activity` (self-reported status, or null), `state`,
   `pending`, `fields` (the `squad.<name>.*` values except the internal
@@ -344,6 +348,22 @@ tools. The board never creates it: a saved lead without a notebook shows
 `(no notes yet)`, while a temporary lead shows the
 `NOTEBOOK_SAVED_IDENTITY_REQUIRED` failure text.
 
+Click a notebook line in the lead notes pane to focus it and place the cursor.
+Arrow keys or j/k move between displayed lines; PgUp/PgDn page, and
+Home/End or g/G select the first/last line. The cursor follows unchanged source
+text when notes refresh (nearest match for duplicates, clamped after deletion).
+The wheel scrolls independently; moving the cursor brings it back into view.
+Every displayed continuation of the selected source line uses the full-width
+selection appearance, including reverse video with `NO_COLOR`. A fixed two-cell
+gutter holds the sent marker or blanks, so notebook text stays aligned.
+
+In focused notes, the annotate binding (`a` by default) opens a composer addressed
+to the lead, quoting the line number and a bounded excerpt. Enter sends only
+nonempty text; Esc cancels. The line shows `✎` while your request to the current
+lead is open, clearing after the lead answers and the board refreshes. Notes remain
+read-only. The marker uses the nearest matching quoted excerpt after an edit;
+requests outside the bounded room-history window may not be shown.
+
 The detail pane shows the selected member's own notebook after its fields,
 using the same read-only Markdown/plain rendering as lead notes. A saved member
 without a notebook shows `(no notes yet)`; temporary members show
@@ -353,7 +373,7 @@ on selection and board refresh. The leads/all tabs remain rows only.
 Every member should keep a short **Current state** section at the top of their own notebook, with
 **Now / Next / Blocked** in a few lines, because the user reads it on the board.
 Update those lines when the working state changes; keep history below them.
-User annotations remain requests about a row.
+User annotations remain requests about a row or a notebook line.
 
 ## Annotations from the user
 

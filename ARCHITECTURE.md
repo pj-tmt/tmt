@@ -3560,6 +3560,25 @@ every escape sequence, control character and hidden bidi/format character before
 display, since notes are agent-written. `board::markdown` is a thin
 pulldown-cmark view over that sanitized text: it styles headings, lists,
 emphasis, inline code and links, and shows every other construct as its source.
+Its mapped rendering retains each painted line's notebook source line without a
+second Markdown parser. `App` keeps one notes cursor per visible/hidden squad,
+anchored to the complete sanitized source line (nearest match for duplicates,
+clamped position after deletion), with a continuation offset for wrapped lines.
+Cursor movement and click placement reveal the painted line through `Scrolls`;
+wheel scrolling suspends following until cursor movement. Every painted
+continuation of the selected source line uses the existing selection background/reverse fallback across the pane
+width. Only visible lines are decorated; a fixed two-cell gutter holds the sent
+marker or blanks before wrapping, keeping text aligned without clipping.
+Notes annotations reuse the ordinary composer and annotation sender, addressed
+to the current lead and tagged with the source line number and a bounded quoted
+excerpt. Opening, canceling or submitting an empty composer sends nothing.
+The `[<squad> · notes L<one-based line> <JSON quote>] ` tag is the contract
+between the annotation sender and request projection; display quotes are separate.
+`requests::apply` projects only the user's open notes annotations to the current
+lead as optional `squad.noteAnnotations` (`requestId`, zero-based `line`, `quote`),
+using the existing bounded room history. The painter marks the nearest matching
+quoted source line with `✎`; answered requests disappear on the next refresh.
+No additional core read, notebook mutation or acknowledgement is introduced.
 The detail pane appends the selected member's saved-identity notebook after its
 fields. The session requests only a visible, expanded selected detail, accounting
 for effective Board previews, tab focus and the last painted viewport; temporary
