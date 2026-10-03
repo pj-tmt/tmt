@@ -1,8 +1,9 @@
 //! The CLI and board share a validated disposable draft and the existing CAS writer.
 use super::*;
+use crate::split::{Size, Split};
 
 impl Config {
-    fn editable_setting(key: &str, squad: Option<&str>) -> bool {
+    fn setting_key_in_scope(key: &str, squad: Option<&str>) -> bool {
         matches!(key, "board.refresh" | "tabs.order" | "tabs.hide")
             || squad.is_some_and(|name| !crate::tabs::aggregate(name))
                 && (matches!(
@@ -19,8 +20,8 @@ impl Config {
                     .is_some_and(field_name))
     }
 
-    pub fn setting_editable(&self, key: &str, squad: Option<&str>) -> bool {
-        if !Self::editable_setting(key, squad) {
+    pub fn can_edit_setting(&self, key: &str, squad: Option<&str>) -> bool {
+        if !Self::setting_key_in_scope(key, squad) {
             return false;
         }
         if !matches!(key, "board.direction" | "board.sizes" | "board.panes") {
@@ -29,18 +30,13 @@ impl Config {
         squad.is_some_and(|name| {
             self.squad_table(name).ok().flatten().and_then(|s| s.get("board")).and_then(|b| b.get("layout")).is_none()
                 && self.board(name).is_ok_and(|board| {
-                    board.mode == BoardMode::Split && matches!(board.split, crate::split::Split::Group { ref children, .. } if children.iter().all(|(size, child)| matches!(size, crate::split::Size::Percent(_)) && matches!(child, crate::split::Split::Pane(_))))
+                    board.mode == BoardMode::Split && matches!(board.split, Split::Group { ref children, .. } if children.iter().all(|(size, child)| matches!(size, Size::Percent(_)) && matches!(child, Split::Pane(_))))
                 })
         })
     }
 
-    pub fn preview_setting(
-        &self,
-        squad: Option<&str>,
-        key: &str,
-        text: &str,
-    ) -> Result<Self, SquadError> {
-        if !Self::editable_setting(key, squad) {
+    fn setting_path<'a>(squad: Option<&'a str>, key: &'a str) -> Result<Vec<&'a str>, SquadError> {
+        if !Self::setting_key_in_scope(key, squad) {
             return Err(invalid(format!("`{key}` is read-only in this scope.")));
         }
         if let Some(name) = squad
@@ -48,99 +44,68 @@ impl Config {
         {
             return Err(crate::squad::name_invalid(name));
         }
-        if !self.setting_editable(key, squad) {
-            return Err(invalid(
-                "Nested board layouts are read-only; edit the split tree in squad.toml.",
-            ));
-        }
-        let array = matches!(
-            key,
-            "board.sizes" | "board.panes" | "board.hidden_columns" | "tabs.order" | "tabs.hide"
-        );
-        let mut replacement = if array {
-            let parsed: serde_json::Value = serde_json::from_str(text)
-                .map_err(|_| invalid(format!("`{key}` must be a JSON array.")))?;
-            let mut values = toml_edit::Array::new();
-            for item in parsed
-                .as_array()
-                .ok_or_else(|| invalid(format!("`{key}` must be a JSON array.")))?
-            {
-                if let Some(text) = item.as_str() {
-                    values.push(text);
-                } else if let Some(number) = item.as_i64() {
-                    values.push(number);
-                } else {
-                    return Err(invalid(format!(
-                        "`{key}` entries must be strings or whole numbers."
-                    )));
-                }
-            }
-            value(values)
-        } else {
-            value(text)
-        };
-        let global = key.starts_with("tabs.") || squad.is_none();
-        let mut path: Vec<&str> = if global {
-            Vec::new()
-        } else {
-            vec!["squad", squad.unwrap()]
+        let mut path = match squad.filter(|_| !key.starts_with("tabs.")) {
+            Some(name) => vec!["squad", name],
+            None => Vec::new(),
         };
         path.extend(key.split('.'));
-        let mut draft = self.clone();
-        if matches!(key, "board.direction" | "board.sizes" | "board.panes") {
-            let name = squad.unwrap();
-            let board = self.board(name)?;
-            let layout = self.layout(name)?;
-            if draft
-                .document
-                .get("squad")
-                .and_then(|s| s.get(name))
-                .and_then(|s| s.get("layout"))
-                .is_none()
-            {
-                draft.document["squad"][name]["layout"] = value(layout.as_str());
-            }
-            let crate::split::Split::Group {
-                direction,
-                children,
-            } = &board.split
-            else {
-                unreachable!("flat split validated");
-            };
-            let mut panes = toml_edit::Array::new();
-            let mut sizes = toml_edit::Array::new();
-            for (size, pane) in children {
-                let crate::split::Split::Pane(pane) = pane else {
-                    unreachable!("flat split validated");
-                };
-                let crate::split::Size::Percent(size) = size else {
-                    unreachable!("percent split validated");
-                };
-                panes.push(pane.title());
-                sizes.push(i64::from(*size));
-            }
-            for (field, item) in [
-                ("panes", value(panes)),
-                ("sizes", value(sizes)),
-                (
-                    "direction",
-                    value(if *direction == Direction::LeftRight {
-                        "left-right"
-                    } else {
-                        "top-bottom"
-                    }),
-                ),
-            ] {
-                if draft.document["squad"][name]
-                    .get("board")
-                    .and_then(|b| b.get(field))
-                    .is_none()
-                {
-                    draft.document["squad"][name]["board"][field] = item;
-                }
+        Ok(path)
+    }
+
+    fn parse_setting_value(key: &str, text: &str) -> Result<Item, SquadError> {
+        if !matches!(
+            key,
+            "board.sizes" | "board.panes" | "board.hidden_columns" | "tabs.order" | "tabs.hide"
+        ) {
+            return Ok(value(text));
+        }
+        let parsed: serde_json::Value = serde_json::from_str(text)
+            .map_err(|_| invalid(format!("`{key}` must be a JSON array.")))?;
+        let mut values = toml_edit::Array::new();
+        for item in parsed
+            .as_array()
+            .ok_or_else(|| invalid(format!("`{key}` must be a JSON array.")))?
+        {
+            if let Some(text) = item.as_str() {
+                values.push(text);
+            } else if let Some(number) = item.as_i64() {
+                values.push(number);
+            } else {
+                return Err(invalid(format!(
+                    "`{key}` entries must be strings or whole numbers."
+                )));
             }
         }
-        let mut table: &mut dyn TableLike = draft.document.as_table_mut();
+        Ok(value(values))
+    }
+
+    fn materialize_simple_split(&mut self, name: &str) -> Result<(), SquadError> {
+        let board = self.board(name)?;
+        let layout = self.layout(name)?;
+        let configured_layout = self.squad_table(name)?.and_then(|s| s.get("layout"));
+        if configured_layout.is_none() {
+            self.document["squad"][name]["layout"] = value(layout.as_str());
+        }
+        let resolved = split_value(&board.split);
+        for field in ["direction", "panes", "sizes"] {
+            if self.document["squad"][name]
+                .get("board")
+                .and_then(|b| b.get(field))
+                .is_none()
+            {
+                let text = resolved[field]
+                    .as_str()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| resolved[field].to_string());
+                let item = Self::parse_setting_value(&format!("board.{field}"), &text)?;
+                self.insert_setting(&["squad", name, "board", field], item)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn insert_setting(&mut self, path: &[&str], mut replacement: Item) -> Result<(), SquadError> {
+        let mut table: &mut dyn TableLike = self.document.as_table_mut();
         for (index, name) in path[..path.len() - 1].iter().enumerate() {
             if !table.contains_key(name) {
                 let mut child = Table::new();
@@ -165,24 +130,41 @@ impl Config {
             *new.decor_mut() = old.decor().clone();
         }
         table.insert(name, replacement);
+        Ok(())
+    }
+
+    fn validate_setting_draft(&self, squad: Option<&str>, global: bool) -> Result<(), SquadError> {
         // Validate the global layer even if the chosen squad masks it.
-        draft.refresh("")?;
-        draft.tabs()?;
-        let names: Vec<String> = if global {
-            draft
-                .document
-                .get("squad")
-                .and_then(Item::as_table_like)
-                .into_iter()
-                .flat_map(|s| s.iter().map(|(name, _)| name.to_owned()))
-                .collect()
-        } else {
-            vec![squad.unwrap().into()]
-        };
-        draft.settings(squad, false, None)?;
-        for name in names {
-            draft.settings(Some(&name), false, None)?;
+        self.refresh("")?;
+        self.tabs()?;
+        self.settings(squad, false, None)?;
+        if global && let Some(squads) = self.document.get("squad").and_then(Item::as_table_like) {
+            for (name, _) in squads.iter() {
+                self.settings(Some(name), false, None)?;
+            }
         }
+        Ok(())
+    }
+
+    pub fn preview_setting(
+        &self,
+        squad: Option<&str>,
+        key: &str,
+        text: &str,
+    ) -> Result<Self, SquadError> {
+        let path = Self::setting_path(squad, key)?;
+        if !self.can_edit_setting(key, squad) {
+            return Err(invalid(
+                "Nested board layouts are read-only; edit the split tree in squad.toml.",
+            ));
+        }
+        let replacement = Self::parse_setting_value(key, text)?;
+        let mut draft = self.clone();
+        if matches!(key, "board.direction" | "board.sizes" | "board.panes") {
+            draft.materialize_simple_split(squad.unwrap())?;
+        }
+        draft.insert_setting(&path, replacement)?;
+        draft.validate_setting_draft(squad, path.first() != Some(&"squad"))?;
         Ok(draft)
     }
 

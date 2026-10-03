@@ -84,6 +84,12 @@ pub fn run(config: &mut Config, matches: &ArgMatches) -> Result<Value, SquadErro
         .value();
     if let Some(changed) = changed {
         result["changed"] = json!(changed);
+        if matches!(
+            flags.get_one::<String>("key").unwrap().as_str(),
+            "board.direction" | "board.sizes" | "board.panes"
+        ) {
+            result["notices"].as_array_mut().unwrap().push(json!(format!("This edit pins workflow layout {} and the full flat split (direction, panes and sizes) in squad.toml; future preset changes will not replace them.", config.layout(squad.unwrap())?.as_str())));
+        }
     }
     Ok(result)
 }

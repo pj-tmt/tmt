@@ -245,8 +245,10 @@ tmt sq config set board.hidden_columns '["pr_link"]' --squad product
 tmt sq config set tabs.hide '["leads"]'
 ```
 
-Simple split edits retain their workflow preset; nested split trees are read-only
-and must be edited in `squad.toml`. Existing validators reject invalid values
+Editing `board.direction`, `board.sizes` or `board.panes` pins the effective workflow
+layout and full flat split (direction, panes and sizes) in `squad.toml`, preserving
+the untouched geometry. Future preset changes no longer replace these values.
+Nested split trees are read-only and must be edited in `squad.toml`. Existing validators reject invalid values
 before writing. The writer preserves unrelated keys and comments and refuses a
 file changed since reading it. Provider/run commands, patterns, reminders and
 core/provider configuration cannot be edited through this command.

@@ -2,10 +2,12 @@
 //! Named edits pass through one format-preserving writer.
 
 use crate::core::{Core, SquadError};
+use crate::split::{Size, Split};
 use crate::{
     action::{Bindings, parse_bindings, preset},
     filter::{Filter, Row},
 };
+use serde_json::{Value, json};
 use std::{
     fs,
     io::{self, Read, Write},
@@ -23,6 +25,22 @@ pub use states::{Rank, States};
 
 const FILE_LIMIT: u64 = 1024 * 1024;
 const MAX_SECTIONS: usize = 16;
+
+fn split_value(split: &Split) -> Value {
+    match split {
+        Split::Pane(pane) => json!(pane.title()),
+        Split::Group {
+            direction,
+            children,
+        } => json!({
+            "direction": match direction { Direction::LeftRight => "left-right", Direction::TopBottom => "top-bottom" },
+            "sizes": children.iter().map(|(size, _)| match size {
+                Size::Percent(n) => json!(n), Size::Grow(n) => json!(format!("{n}fr")),
+            }).collect::<Vec<_>>(),
+            "panes": children.iter().map(|(_, child)| split_value(child)).collect::<Vec<_>>(),
+        }),
+    }
+}
 
 /// Per-squad observation/reminder policy; enabling never installs hooks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2395,7 +2413,7 @@ mod tests {
     #[test]
     fn settings_edits_use_existing_scopes_and_keep_custom_structure() {
         let path = temp("setting-scopes");
-        fs::write(&path, "[squad.x]\nlayout='crew'\n[squad.x.states.working]\nsort=7 # preserve rank\n[squad.x.columns]\nshow=['member','state','task','pr_link']\npr_link={width=12}\n").unwrap();
+        fs::write(&path, "[squad.x.board]\ndirection='left-right'\n[squad.x.states.working]\nsort=7 # preserve rank\n[squad.x.columns]\nshow=['member','state','task','pr_link']\npr_link={width=12}\n").unwrap();
         let config = Config::read(path.clone()).unwrap();
         let draft = config
             .preview_setting(Some("x"), "board.direction", "top-bottom")
@@ -2412,6 +2430,19 @@ mod tests {
             .split
         );
         assert_eq!(draft.layout("x").unwrap(), Layout::Crew);
+        let mut writer = config.clone();
+        writer
+            .set_setting(Some("x"), "board.direction", "top-bottom")
+            .unwrap();
+        let pinned = Config::read(path.clone()).unwrap();
+        assert_eq!(pinned.board("x").unwrap().split, board.split);
+        assert_eq!(
+            pinned.document["squad"]["x"]["layout"].as_str(),
+            Some("crew")
+        );
+        for key in ["direction", "panes", "sizes"] {
+            assert!(pinned.document["squad"]["x"]["board"].get(key).is_some());
+        }
         let resized = draft
             .preview_setting(Some("x"), "board.sizes", "[70,30]")
             .unwrap()
@@ -2429,6 +2460,7 @@ mod tests {
         let draft = config
             .preview_setting(Some("x"), "states.working.color", "blue")
             .unwrap();
+        assert!(draft.document["squad"]["x"].get("layout").is_none());
         assert!(
             draft
                 .document
@@ -2469,7 +2501,7 @@ mod tests {
         fs::write(&path, "[squad.x.board]\nlayout={direction='left-right',sizes=[60,40],panes=['rows',{direction='top-bottom',sizes=[50,50],panes=['notes','detail']}]}\n").unwrap();
         let config = Config::read(path.clone()).unwrap();
         let before = config.document.to_string();
-        assert!(!config.setting_editable("board.panes", Some("x")));
+        assert!(!config.can_edit_setting("board.panes", Some("x")));
         assert!(
             config
                 .preview_setting(Some("x"), "board.panes", "[\"rows\"]")

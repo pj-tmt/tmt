@@ -306,6 +306,18 @@ o = "run touch ${marker}"
       expect((await runCli(sandbox, ['sq', 'ls', '--squad', 'product'])).stdout).toContain(
         'example.com/keep-hidden'
       );
+      const pinned = await squad(sandbox, [
+        'config',
+        'set',
+        'board.direction',
+        'top-bottom',
+        '--squad',
+        'product',
+      ]);
+      expect(pinned.status).toBe(0);
+      expect(pinned.body.notices.join(' ')).toContain(
+        'pins workflow layout crew and the full flat split'
+      );
       expect(observe(sandbox)).toEqual(before);
     });
   });

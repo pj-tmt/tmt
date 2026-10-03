@@ -5,23 +5,7 @@ use crate::{
     split::{Size, Split},
     tabs,
 };
-use serde_json::{Value, json};
-
-fn split_value(split: &Split) -> Value {
-    match split {
-        Split::Pane(pane) => json!(pane.title()),
-        Split::Group {
-            direction,
-            children,
-        } => json!({
-            "direction": match direction { Direction::LeftRight => "left-right", Direction::TopBottom => "top-bottom" },
-            "sizes": children.iter().map(|(size, _)| match size {
-                Size::Percent(n) => json!(n), Size::Grow(n) => json!(format!("{n}fr")),
-            }).collect::<Vec<_>>(),
-            "panes": children.iter().map(|(_, child)| split_value(child)).collect::<Vec<_>>(),
-        }),
-    }
-}
+use serde_json::json;
 
 fn theme_path(squad: &str, name: &str, source: &str) -> String {
     match source {
@@ -73,7 +57,7 @@ impl Config {
         }
         let scope = context.filter(|key| !tabs::aggregate(key));
         for entry in &mut out.entries {
-            entry.editable = self.setting_editable(&entry.key, scope);
+            entry.editable = self.can_edit_setting(&entry.key, scope);
         }
         Ok(out)
     }
