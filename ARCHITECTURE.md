@@ -4604,7 +4604,7 @@ successful durable change; the reserved socket route supplies that composition.
 
 ### Foreground composition and owner registration
 
-`main` owns `serve` and read-only `spaces`, style/JSON output, signals and one
+`main` owns `serve`, read-only `spaces` and plaintext `export`, style/JSON output, signals and one
 foreground service lock. `core` makes one fixed `storage.root` public API call
 through the absolute invoking `TMT_EXECUTABLE` and `tmt-invoke`, with deadline,
 stream caps and cancellation; missing/invalid roots fail before state creation.
@@ -4638,6 +4638,31 @@ effects. Rename has no local presentation state.
 Socket shutdown closes retained sockets before joining workers and closing the
 registration store. Real SQLite and socket tests prove persistence, retry,
 rollback, admission denial, renewal, ordered revocation and cleanup.
+
+### Native plaintext export
+
+`export::Bundle` captures exact source/title through the existing owner-local
+`fold::Snapshot` and isolated `Decoder`. Its manifest binds that same read
+snapshot's verified owner revision/hash and epoch. It adds no fold, mutation
+planner, signing capability, HTTP plaintext route or core dependency. The
+opaque sync server does not call it. Native export inherits fold admission and
+budget failures, including validation of own roots whose projections are omitted.
+The current fold denies both archive and deletion; this slice reports the
+explicit inactive-page limitation until #1348 splits their read policy.
+
+`Store::read` opens only existing owned 0600 regular state, without creation,
+pragma writes or migration. The CLI uses `Layout::existing`, `Keyring::read`
+and that store seam; missing state never initializes an instance. `export`
+owns its caller-supplied decoder and immutable plaintext bundle. Its filesystem
+adapter resolves the user-selected parent once, admits its canonical path through
+no-follow directory descriptors and rechecks that path identity during publication,
+stages private exclusive files and publishes them with create-only hard links
+into a fresh UUID directory, checking identities and bytes. Manifest publication
+is last. Cleanup removes only checked invocation-owned staging; partial output
+is preserved and reported. It promises returned-error cleanup, not crash recovery.
+The [export contract](extensions/tmt-colab/contracts/colab-v1.md#plaintext-page-export-1309)
+owns the two-file format, disclosure and discussion exclusion. Browser downloads
+remain the next #1309 slice.
 
 ### Stream sync transport
 

@@ -101,6 +101,33 @@ impl Store {
         schema::migrate(&mut connection)?;
         Ok(Self { connection })
     }
+    /// Existing-state reads never create files, change pragmas or run migrations.
+    pub fn read(layout: &Layout) -> Result<Self> {
+        use nix::fcntl::OFlag;
+        use std::{
+            fs::OpenOptions,
+            os::unix::fs::{MetadataExt, OpenOptionsExt},
+        };
+        let path = layout.directory.join("space.db");
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK).bits())
+            .open(&path)?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file()
+            || metadata.uid() != nix::unistd::Uid::effective().as_raw()
+            || metadata.mode() & 0o777 != 0o600
+        {
+            return Err(crate::keyring::StateFault::UnsafeFile.into());
+        }
+        let connection = Connection::open_with_flags(
+            &path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        )?;
+        connection.busy_timeout(Duration::from_secs(2))?;
+        schema::check_version(&connection)?;
+        Ok(Self { connection })
+    }
     pub fn create_page(&self, page: &str) -> StoreResult<()> {
         bounded_id(page)?;
         self.connection
