@@ -12,6 +12,8 @@ pub mod core_executable;
 pub mod delivery;
 pub mod dispatch;
 #[cfg(unix)]
+pub mod driver_protocol;
+#[cfg(unix)]
 pub mod drivers;
 pub mod executable_trust;
 pub mod extension_command;
@@ -27,6 +29,8 @@ pub mod identity_status;
 #[cfg(unix)]
 pub mod interrupt;
 mod json_document;
+#[cfg(unix)]
+pub mod mcp;
 #[cfg(unix)]
 pub mod native_install;
 #[cfg(unix)]

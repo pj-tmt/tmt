@@ -317,6 +317,31 @@ fn serve(
         }
         return;
     }
+    if request.method == "GET"
+        && matches!(request.path.as_str(), "/api/session" | "/api/pages")
+        && !request.upgrade
+    {
+        let result = if request.path == "/api/session" {
+            Registration::session(request.context.as_deref())
+        } else {
+            registration
+                .ok_or(registration::Code::Unavailable)
+                .and_then(|s| {
+                    s.lock()
+                        .map_err(|_| registration::Code::Unavailable)?
+                        .pages(request.context.as_deref())
+                })
+        };
+        let (status, body) = match result {
+            Ok(bytes) => (200, bytes),
+            Err(code) => (
+                code.status(),
+                serde_json::to_vec(&serde_json::json!({"code":code.text()})).expect("error JSON"),
+            ),
+        };
+        let _ = response_as(&mut socket, status, &body, "application/json");
+        return;
+    }
     if request.upgrade {
         let accepted = request.method == "GET"
             && request.body.is_empty()
@@ -771,7 +796,10 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
     }
     request.body = bytes[end..end + size].to_vec();
     request.prefetched = bytes[end + size..].to_vec();
-    if request.path != registration::PATH && request.path != EVENTS {
+    if !matches!(
+        request.path.as_str(),
+        registration::PATH | EVENTS | "/api/session" | "/api/pages"
+    ) {
         request.owner = request.context.as_deref().map(owner_name).transpose()?;
     }
     Ok(request)

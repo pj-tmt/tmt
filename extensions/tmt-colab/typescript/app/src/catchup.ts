@@ -1,6 +1,7 @@
 import { exactKeys, requireValue, strictJson, text } from '@tmt/colab-client';
 import { Admission } from './admission.js';
 import { Objects } from './objects.js';
+import { openBaseline, type BaselineInput, type BaselineObject } from './baseline.js';
 import { UPDATE_BYTES } from './fold-protocol.js';
 
 /** Strict membership-first catchup. Optional content adoption stays behind object admission. */
@@ -9,11 +10,20 @@ export class Catchup {
   #membershipMore = false;
   #complete = false;
   updates: Uint8Array[] = [];
+  baseline: BaselineInput | null = null;
+  #reset: { descriptor: string; object: BaselineObject } | null = null;
   constructor(
     readonly admission: Admission,
     readonly sharing: string,
     readonly objects?: Objects,
   ) {}
+  close() {
+    this.updates.forEach((v) => v.fill(0));
+    this.updates = [];
+    this.baseline?.update.fill(0);
+    this.baseline = null;
+    this.#reset = null;
+  }
   async admit(raw: string): Promise<boolean> {
     return this.admitValue(strictJson(text(raw), 64 * 1024, true));
   }
@@ -41,7 +51,14 @@ export class Catchup {
       throw new Error(`Sync bootstrap rejected: ${value.code}`);
     }
     requireValue(!this.#complete && value.type === 'catchup');
-    for (const key of ['membershipHead', 'baseline', 'membership', 'chains', 'wraps'])
+    for (const key of [
+      'membershipHead',
+      'baseline',
+      'baselineObject',
+      'membership',
+      'chains',
+      'wraps',
+    ])
       if (Object.hasOwn(value, key)) keys.push(key);
     exactKeys(value, keys);
     this.#scope(value);
@@ -61,12 +78,26 @@ export class Catchup {
       await a.membership(value.membershipHead, true);
       this.#membershipMore = (value.membershipHead as { more: boolean }).more;
       if (value.baseline !== null) {
-        // Baseline object retrieval/admission is #1157/#1252, never fall back to old source.
-        throw new Error('Epoch baseline loading is not available yet');
+        requireValue(typeof value.baseline === 'string' && this.objects !== undefined);
+        exactKeys(value.baselineObject, ['envelopeHash', 'envelope']);
+        requireValue(
+          typeof value.baselineObject.envelope === 'string' &&
+            typeof value.baselineObject.envelopeHash === 'string',
+        );
+        this.#reset = {
+          descriptor: value.baseline,
+          object: value.baselineObject as unknown as BaselineObject,
+        };
+      } else {
+        requireValue(!Object.hasOwn(value, 'baselineObject') && a.epoch === '1');
       }
       this.#started = true;
     } else {
-      requireValue(!Object.hasOwn(value, 'membershipHead') && !Object.hasOwn(value, 'baseline'));
+      requireValue(
+        !Object.hasOwn(value, 'membershipHead') &&
+          !Object.hasOwn(value, 'baseline') &&
+          !Object.hasOwn(value, 'baselineObject'),
+      );
       if (this.#membershipMore) {
         requireValue(
           Object.hasOwn(value, 'membership') && value.streams.length === 0 && value.more,
@@ -90,6 +121,10 @@ export class Catchup {
     if (!value.more) {
       requireValue(!this.#membershipMore && a.head !== null);
       a.validatePage(this.sharing);
+      if (this.#reset) {
+        this.baseline = await openBaseline(a, this.#reset.descriptor, this.#reset.object);
+        this.#reset = null;
+      }
       this.#complete = true;
     }
     return this.#complete;

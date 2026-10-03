@@ -136,6 +136,7 @@ pub enum Effect {
     /// Load this squad now (a squad switch).
     Load(String),
     Refresh,
+    Settings,
     PickTheme,
     SaveTheme,
     PickView,
@@ -232,6 +233,8 @@ pub struct TitleHit {
 
 #[derive(Default)]
 pub struct App {
+    pub(super) note_cursors: RefCell<BTreeMap<String, super::notes::NotesCursor>>,
+    pub(super) note_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
     pub(super) notebooks: RefCell<super::notes::Notebooks>,
     pub(super) meter: Option<super::meter::Meter>,
     meters: BTreeMap<String, super::meter::Meter>,
@@ -256,6 +259,7 @@ pub struct App {
     pub menu: Option<Menu>,
     pub(super) view_picker: Option<super::view_picker::Picker>,
     pub(super) theme_picker: Option<super::theme_picker::Picker>,
+    pub(super) settings: Option<super::settings::Overlay>,
     pub input: Option<Input>,
     /// Index of the focused pane (split) or visible tab (tabs).
     pub focus: usize,
@@ -344,7 +348,7 @@ impl App {
     }
 
     /// Section index and row for every row matching the search.
-    fn rows(&self) -> Vec<(usize, &Value)> {
+    pub(super) fn rows(&self) -> Vec<(usize, &Value)> {
         let Some(view) = &self.view else {
             return Vec::new();
         };
@@ -397,6 +401,11 @@ impl App {
         self.clamp();
     }
 
+    /// Tab owning the retained view, even while another tab loads.
+    pub(super) fn shown_tab(&self) -> Option<&str> {
+        self.shown.as_deref()
+    }
+
     /// The view on screen belongs to another squad while a switch loads.
     pub fn loading(&self) -> bool {
         self.view.is_some() && self.shown != self.current
@@ -408,6 +417,9 @@ impl App {
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
         self.pinned = snapshot.pinned;
+        self.note_cursors
+            .borrow_mut()
+            .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
         self.meters
             .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
         self.folds
@@ -795,20 +807,19 @@ impl App {
         Effect::None
     }
 
-    /// The selected row's effective bindings: its section's, over `[bind]`
-    /// and the host preset.
+    pub(super) fn selected_section(&self) -> Option<usize> {
+        self.rows().get(self.selected).map(|(index, _)| *index)
+    }
+
+    /// The selected row's section overrides its tab/global/host bindings.
     pub fn bindings(&self) -> Bindings {
         let Some(view) = &self.view else {
             return Bindings::new();
         };
-        let mut bindings = view.bindings.clone();
-        if let Some(section) = self
+        let section = self
             .rows()
             .get(self.selected)
-            .and_then(|(index, _)| view.section_bindings.get(*index))
-        {
-            bindings.extend(section.clone());
-        }
+            .and_then(|(index, _)| view.section_bindings.get(*index));
         let enabled = view
             .token_rate
             .as_ref()
@@ -817,10 +828,7 @@ impl App {
                 .meter
                 .as_ref()
                 .is_some_and(|meter| meter.settings.enabled);
-        if !enabled {
-            bindings.retain(|_, action| action.verb != Verb::TokenWindow);
-        }
-        bindings
+        crate::action::effective_bindings(view.bindings.clone(), section, enabled)
     }
 
     fn say(&mut self, notice: impl Into<String>) -> Effect {
@@ -835,6 +843,9 @@ impl App {
         if self.loading() && !matches!(action.verb, Verb::NextPane | Verb::Refresh | Verb::Notes) {
             let loading = self.current.clone().unwrap_or_default();
             return self.say(format!("Loading {loading}…"));
+        }
+        if action.verb == Verb::Annotate && self.focused_pane() == Some(Pane::Notes) {
+            return self.annotate_note();
         }
         match action.verb {
             Verb::Toggle => {
@@ -857,6 +868,7 @@ impl App {
                 }
                 return Effect::None;
             }
+            Verb::Settings => return Effect::Settings,
             Verb::Theme => return Effect::PickTheme,
             Verb::View => return Effect::PickView,
             Verb::NextPane => {
@@ -1023,7 +1035,7 @@ impl App {
                 } else {
                     match view.document["squad"]["lead"]["name"].as_str() {
                         Some(lead) => lead.to_owned(),
-                        None => return self.say("This squad has no lead to annotate for."),
+                        None => return self.say(format!("This squad has no lead; set one with tmt squad lead <name> --squad {squad}, or use annotate member.")),
                     }
                 };
                 self.ask(
@@ -1077,6 +1089,59 @@ impl App {
                 )
             }
         }
+    }
+
+    fn annotate_note(&mut self) -> Effect {
+        let Some(view) = &self.view else {
+            return Effect::None;
+        };
+        let Notes::Text(text) = &view.notes else {
+            return self.say("No notebook line to annotate.");
+        };
+        if view.me.is_none() {
+            return self.say("Record yourself with tmt squad me <name> before annotating.");
+        }
+        let Some(to) = view.document["squad"]["lead"]["name"]
+            .as_str()
+            .map(str::to_owned)
+        else {
+            return self.say("This squad has no lead to annotate for.");
+        };
+        let squad = self.current.clone().unwrap_or_default();
+        let (row, prompt) = {
+            let mut cursors = self.note_cursors.borrow_mut();
+            let cursor = cursors.entry(squad.clone()).or_default();
+            cursor.reconcile(text);
+            let source = text.split('\n').nth(cursor.source).unwrap_or_default();
+            (
+                crate::requests::note_row(&squad, cursor.source, source),
+                format!(
+                    "note for {to} · L{} “{}”",
+                    cursor.source + 1,
+                    super::notes::display_quote(source)
+                ),
+            )
+        };
+        self.ask(prompt, Compose::Annotate { to, row }, squad)
+    }
+
+    fn move_note(&self, step: Step) {
+        let (Some(view), Some(key)) = (&self.view, self.shown_tab()) else {
+            return;
+        };
+        let Notes::Text(text) = &view.notes else {
+            return;
+        };
+        let derived = view.derived.borrow();
+        let sources = derived
+            .notes
+            .as_ref()
+            .map_or(&[][..], |notes| notes.sources.as_slice());
+        self.note_cursors
+            .borrow_mut()
+            .entry(key.to_owned())
+            .or_default()
+            .move_by(text, sources, step, self.scrolls.page_lines(Pane::Notes));
     }
 
     fn input_key(&mut self, key: KeyEvent) -> Effect {
@@ -1179,6 +1244,12 @@ impl App {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Effect::Quit;
         }
+        if let Some(overlay) = &mut self.settings {
+            if overlay.key(key) {
+                self.settings = None;
+            }
+            return Effect::None;
+        }
         if let Some(picker) = &mut self.view_picker {
             return match picker.key(key) {
                 super::view_picker::Input::Preview => {
@@ -1254,6 +1325,26 @@ impl App {
             )
         {
             return Effect::None;
+        }
+        if self.focused_pane() == Some(Pane::Notes) && !self.help {
+            let step = match key.code {
+                KeyCode::Up | KeyCode::Char('k') => Some(Step::Lines(-1)),
+                KeyCode::Down | KeyCode::Char('j') => Some(Step::Lines(1)),
+                KeyCode::PageUp => Some(Step::Pages(-1)),
+                KeyCode::PageDown => Some(Step::Pages(1)),
+                KeyCode::Home | KeyCode::Char('g') => Some(Step::Top),
+                KeyCode::End | KeyCode::Char('G') => Some(Step::Bottom),
+                _ => None,
+            };
+            if let Some(step) = step {
+                if let Some(action) =
+                    event_name(key).and_then(|event| self.bindings().remove(&event))
+                {
+                    return self.perform(&action);
+                }
+                self.move_note(step);
+                return Effect::None;
+            }
         }
         match key.code {
             KeyCode::Char('q') => return Effect::Quit,
@@ -1395,6 +1486,10 @@ impl App {
     /// A left click focuses the pane under it and selects the row under it, then runs its `click` binding;
     /// a second click on the same row soon after runs `double-click`.
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
+        if let Some(overlay) = &self.settings {
+            overlay.mouse(event);
+            return Effect::None;
+        }
         if self.view_picker.is_some()
             || self.theme_picker.is_some()
             || self.menu.is_some()
@@ -1416,6 +1511,15 @@ impl App {
                 .filter(|pane| !self.collapsed_panes().contains(pane))
             {
                 self.scrolls.scroll(pane, Step::Lines(lines));
+                if pane == Pane::Notes
+                    && let Some(key) = self.shown_tab()
+                {
+                    self.note_cursors
+                        .borrow_mut()
+                        .entry(key.to_owned())
+                        .or_default()
+                        .follow = false;
+                }
                 if pane == Pane::Rows {
                     self.follow = false;
                 }
@@ -1460,6 +1564,22 @@ impl App {
             return self.toggle_panes(&[pane]);
         }
         self.focus_at(event.column, event.row);
+        if self.focused_pane() == Some(Pane::Notes) {
+            if let (Some(key), Some(view)) = (self.shown_tab(), &self.view)
+                && let Notes::Text(text) = &view.notes
+                && let Some((_, visual)) = self.note_hits.borrow().iter().find(|(area, _)| {
+                    area.contains(ratatui::layout::Position::new(event.column, event.row))
+                })
+            {
+                let mut cursors = self.note_cursors.borrow_mut();
+                let cursor = cursors.entry(key.to_owned()).or_default();
+                if let Some(notes) = &view.derived.borrow().notes {
+                    cursor.select_visual(text, &notes.sources, *visual);
+                    cursor.follow = true;
+                }
+            }
+            return Effect::None;
+        }
         let hit = self.hits.borrow().iter().copied().find(|hit| {
             hit.y == event.row && (hit.x..hit.x.saturating_add(hit.width)).contains(&event.column)
         });
@@ -2027,7 +2147,9 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Char('a'));
         assert_eq!(
             app.notice.as_deref(),
-            Some("This squad has no lead to annotate for.")
+            Some(
+                "This squad has no lead; set one with tmt squad lead <name> --squad product, or use annotate member."
+            )
         );
         assert!(app.input.is_none());
     }

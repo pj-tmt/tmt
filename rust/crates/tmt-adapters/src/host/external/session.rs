@@ -8,7 +8,8 @@
 //! sent to a driver. Input, focus and capture arrive in slice 3b-2b: until
 //! then a send is `Unsupported`, so core uses the inbox.
 
-use super::{CallError, DriverProcess, caller::ExternalCaller, registry::DriverRecord};
+use super::{CallError, DriverProcess, caller::ExternalCaller};
+use crate::driver_protocol::registry::DriverRecord;
 use crate::{
     host::{
         ActionError, DeliveryError, DeliveryStage, HostError, driver::HostDriver,

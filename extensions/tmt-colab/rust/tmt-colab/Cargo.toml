@@ -29,5 +29,8 @@ serde.workspace = true
 tmt-colab-model.workspace = true
 tungstenite.workspace = true
 
+[dev-dependencies]
+tmt-test-support.workspace = true
+
 [lints]
 workspace = true

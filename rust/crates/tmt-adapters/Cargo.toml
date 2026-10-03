@@ -32,6 +32,7 @@ signal-hook.workspace = true
 tmt-sys.workspace = true
 
 [dev-dependencies]
+tmt-test-support.workspace = true
 # Only the legacy prop-pack migration test decodes Office packs.
 tmt-office-model.workspace = true
 

@@ -149,8 +149,10 @@ impl Squad {
     /// `metadata` also reads identity metadata beyond this squad's fields,
     /// for columns bound to `meta.<key>`.
     pub fn members(&self, core: &Core, metadata: bool) -> Result<Vec<Member>, SquadError> {
+        // Reconciliation retires lost temporary identities before the roster snapshot.
+        let listed = core.json(&["ls", "--room", &self.room_id])?;
         let mut members = self.roster_with(core, metadata)?;
-        join_presence(&mut members, &core.json(&["ls", "--room", &self.room_id])?);
+        join_presence(&mut members, &listed);
         Ok(members)
     }
 
@@ -381,6 +383,43 @@ case \"$1\" in\n\
             }
             let _ = std::fs::remove_dir_all(dir);
         }
+    }
+
+    #[test]
+    fn members_reconcile_before_the_roster_and_keep_a_new_join_unknown() {
+        let (core, dir) = roster_core("reconcile-first");
+        crate::test_support::write_ready_executable(
+            &dir.join("tmt"),
+            r#"#!/bin/sh
+root=${0%/*}
+case "$1" in
+  ls) touch "$root/reconciled"; printf '%s\n' '{"identities":[]}' ;;
+  api)
+    cat > /dev/null
+    if [ ! -e "$root/reconciled" ]; then
+      printf '%s\n' '{"members":[{"id":"lost","name":"lost","lifetime":"temporary","metadata":{}}]}'
+    else
+      printf '%s\n' '{"members":[{"id":"new","name":"new","lifetime":"saved","metadata":{}}]}'
+    fi ;;
+esac
+"#,
+        );
+        let squad = Squad {
+            name: "p".into(),
+            room_id: "room".into(),
+        };
+        let members = squad.members(&core, false).unwrap();
+        assert_eq!(members.len(), 1);
+        assert_eq!(
+            members[0].name, "new",
+            "lost temporary must not survive the first read"
+        );
+        assert_eq!(
+            members[0].presence, "unknown",
+            "a concurrent join has no presence evidence"
+        );
+        assert!(members[0].pane.is_null());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

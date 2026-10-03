@@ -1,6 +1,8 @@
 //! Skill, hook and managed-product installation command grammar.
 
-use crate::grammar::{channel_option, extension_target, general, internal, operand, with_options};
+use crate::grammar::{
+    channel_option, extension_target, general, internal, operand, option, with_options,
+};
 use clap::{Arg, ArgAction, Command};
 
 pub(in crate::grammar) fn extension() -> Command {
@@ -71,8 +73,18 @@ pub(in crate::grammar) fn extension() -> Command {
                 .conflicts_with("channel")
                 .help("Restore the exact recorded release; retain the damaged files"),
         )
-        .arg(Arg::new("archive").long("archive").requires("manifest"))
-        .arg(Arg::new("manifest").long("manifest").requires("archive"))
+        .arg(
+            Arg::new("archive")
+                .long("archive")
+                .requires("manifest")
+                .help("Install from a local release archive; requires --manifest"),
+        )
+        .arg(
+            Arg::new("manifest")
+                .long("manifest")
+                .requires("archive")
+                .help("Verify the local archive with this release manifest; requires --archive"),
+        )
         .arg(
             Arg::new("skills")
                 .long("skills")
@@ -90,8 +102,8 @@ pub(in crate::grammar) fn extension() -> Command {
             ]
         )))
         .arg(channel_option())
-        .arg(Arg::new("to").long("to").conflicts_with("unpin"))
-        .arg(Arg::new("unpin").long("unpin").action(ArgAction::SetTrue)),
+        .arg(option("to"))
+        .arg(option("unpin")),
     )
     .subcommand(extension_target(
         general(spec!(
@@ -113,7 +125,7 @@ pub(in crate::grammar) fn extension() -> Command {
             ]
         ))
         .alias("list")
-        .arg(Arg::new("prefix").long("prefix"))
+        .arg(option("prefix"))
         .arg(
             Arg::new("check")
                 .long("check")
@@ -156,6 +168,7 @@ pub(in crate::grammar) fn setup(hooked: Vec<&'static str>) -> Command {
     .arg(
         Arg::new("remove")
             .long("remove")
+            .help("Remove the selected provider's unchanged TMT session hooks")
             .action(ArgAction::SetTrue)
             .requires("provider"),
     )
@@ -173,7 +186,7 @@ pub(in crate::grammar) fn setup(hooked: Vec<&'static str>) -> Command {
             .help("Remove only the turn-end usage hook")
             .conflicts_with("remove"),
     )
-    .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue))
+    .arg(option("yes"))
 }
 
 pub(in crate::grammar) fn hook(hooked: Vec<&'static str>) -> Command {
@@ -199,14 +212,10 @@ pub(in crate::grammar) fn upgrade() -> Command {
         ]
     ))
     .visible_alias("update")
-    .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue))
-    .arg(
-        Arg::new("channel")
-            .long("channel")
-            .value_parser(tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str())),
-    )
-    .arg(Arg::new("to").long("to").conflicts_with("unpin"))
-    .arg(Arg::new("unpin").long("unpin").action(ArgAction::SetTrue))
+    .arg(option("yes"))
+    .arg(channel_option())
+    .arg(option("to"))
+    .arg(option("unpin"))
 }
 
 pub(in crate::grammar) fn uninstall() -> Command {
@@ -224,12 +233,7 @@ pub(in crate::grammar) fn uninstall() -> Command {
             .help("Also delete TMT's data directory")
             .action(ArgAction::SetTrue),
     )
-    .arg(
-        Arg::new("yes")
-            .long("yes")
-            .help("Approve without a prompt")
-            .action(ArgAction::SetTrue),
-    )
+    .arg(option("yes"))
     .arg(
         Arg::new("prefix")
             .long("prefix")
@@ -311,9 +315,9 @@ pub(in crate::grammar) fn learn() -> Command {
 pub(in crate::grammar) fn driver() -> Command {
     general(spec!(
         "driver",
-        "Manage consented host drivers",
+        "Manage consented drivers",
         [
-            "List approved host drivers" => "tmt driver ls",
+            "List approved drivers" => "tmt driver ls",
             "Approve the shipped Herdr driver" => "tmt driver install herdr",
         ]
     ))
@@ -321,7 +325,7 @@ pub(in crate::grammar) fn driver() -> Command {
     .subcommand(
         general(spec!(
             "install",
-            "Approve a host driver after showing what it declares",
+            "Approve a driver after showing what it declares",
             [
                 "Approve the shipped Herdr driver" => "tmt driver install herdr",
                 "Approve a driver executable" => "tmt driver install ./tmt-driver-screen",
@@ -329,14 +333,14 @@ pub(in crate::grammar) fn driver() -> Command {
             ]
         ))
         .arg(operand("path", true))
-        .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue)),
+        .arg(option("yes")),
     )
     .subcommand(
         general(spec!(
             "ls",
-            "List approved host drivers and whether each still runs as approved",
+            "List approved drivers and whether each still runs as approved",
             [
-                "List approved host drivers" => "tmt driver ls",
+                "List approved drivers" => "tmt driver ls",
             ]
         ))
         .alias("list"),

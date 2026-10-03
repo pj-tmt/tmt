@@ -25,6 +25,17 @@ fn field_name(name: &str) -> bool {
 }
 
 impl Template {
+    /// Display the original argument without filling or executing it.
+    pub fn source(&self) -> String {
+        self.0
+            .iter()
+            .map(|part| match part {
+                Part::Text(text) => text.clone(),
+                Part::Field(field) => format!("{{{field}}}"),
+            })
+            .collect()
+    }
+
     /// The text of a template without placeholders.
     pub fn literal(&self) -> Option<&str> {
         match self.0.as_slice() {

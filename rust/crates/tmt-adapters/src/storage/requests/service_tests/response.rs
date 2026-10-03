@@ -300,3 +300,163 @@ fn response_first_settlement_does_not_refund_reserved_cadence() {
     }
     assert_eq!(preamble_count(&fixture.database, &fixture.identity_id), 1);
 }
+
+#[test]
+fn result_prefix_preserves_exact_body_state_and_full_id_lookup() {
+    use super::support::request_snapshot;
+    use tmt_core::request::{ResponseLookup, ResultSelectionRejection};
+    let mut fixture = Fixture::new();
+    let id = "req_a1b2c3d4-1234-4234-8234-123456789abc";
+    let target = endpoint("%10", 110);
+    let input = prepare_input(
+        &fixture,
+        id,
+        target.clone(),
+        true,
+        NOW_MS + 3_600_001,
+        Originator::Explicit(fixture.identity_id.clone()),
+        false,
+    );
+    let attempt = service(&mut fixture)
+        .prepare(input, format!("attempt-{id}"), 7)
+        .unwrap()
+        .attempt_id;
+    service(&mut fixture).begin_send(&attempt).unwrap();
+    let stored = submit(&mut fixture, id, &attempt, target, "\u{feff}exact\r\n\0 🙂").unwrap();
+    let before = request_snapshot(&fixture.database);
+    for selection in [
+        id,
+        "a1b2c3d4",
+        "req_a1b2c3d4",
+        "A1B2C3D4",
+        "a1b2c3d4-1",
+        &id[4..],
+    ] {
+        let (resolved, lookup) = service(&mut fixture)
+            .get_response_by_prefix(selection)
+            .unwrap();
+        assert_eq!(resolved, id);
+        assert_eq!(lookup, ResponseLookup::Available(Box::new(stored.clone())));
+    }
+    assert_eq!(request_snapshot(&fixture.database), before);
+    assert_eq!(
+        service(&mut fixture).get_response(id).unwrap(),
+        ResponseLookup::Available(Box::new(stored))
+    );
+    assert_eq!(
+        service(&mut fixture)
+            .get_response_by_prefix("aaaaaaaa")
+            .unwrap(),
+        ("aaaaaaaa".into(), ResponseLookup::Unavailable)
+    );
+    for short in ["a1b2c3d", "req_a1b2c3d"] {
+        assert!(matches!(
+            service(&mut fixture).get_response_by_prefix(short),
+            Err(RequestError::ResultSelection(
+                ResultSelectionRejection::PrefixTooShort
+            ))
+        ));
+    }
+    let legacy = "request-legacy";
+    let (attempt, target) = prepare_sending(&mut fixture, legacy);
+    let stored = submit(&mut fixture, legacy, &attempt, target, "legacy").unwrap();
+    assert_eq!(
+        service(&mut fixture)
+            .get_response_by_prefix(legacy)
+            .unwrap(),
+        (legacy.into(), ResponseLookup::Available(Box::new(stored)))
+    );
+}
+
+#[test]
+fn result_prefix_ambiguity_is_sorted_capped_and_excludes_logically_expired_rows() {
+    use tmt_core::request::{ResponseLookup, ResultSelectionRejection};
+    let mut fixture = Fixture::new();
+    let ids: Vec<_> = (0..8)
+        .map(|n| format!("req_ffffffff-{n:04x}-4000-8000-000000000000"))
+        .collect();
+    for id in ids.iter().rev() {
+        prepare_sending(&mut fixture, id);
+    }
+    let Err(RequestError::ResultSelection(ResultSelectionRejection::Ambiguous(matches))) =
+        service(&mut fixture).get_response_by_prefix("ffffffff")
+    else {
+        panic!("must be ambiguous");
+    };
+    assert_eq!(matches.ids, ids[..5]);
+    assert_eq!(matches.total, 8);
+    let oracle = rusqlite::Connection::open(&fixture.database).unwrap();
+    // Waiters keep physical expired rows. Filtering after LIMIT would miss the
+    // only live match; expiry must narrow inside the indexed range query.
+    oracle
+        .execute(
+            "UPDATE request_attempts SET retention_expires_at_ms=? WHERE request_id < ?",
+            rusqlite::params![NOW_MS as i64, ids[7]],
+        )
+        .unwrap();
+    let (resolved, lookup) = service(&mut fixture)
+        .get_response_by_prefix("req_ffffffff")
+        .unwrap();
+    assert_eq!(resolved, ids[7]);
+    assert_eq!(lookup, ResponseLookup::Unavailable);
+    assert_eq!(count_rows(&fixture.database, "request_attempts"), 8);
+    prepare_sending(&mut fixture, "req_fffffff0-0000-4000-8000-000000000000");
+    assert_eq!(
+        service(&mut fixture)
+            .get_response_by_prefix("ffffffff-")
+            .unwrap()
+            .0,
+        ids[7]
+    );
+}
+
+#[test]
+fn result_prefix_keeps_late_final_and_announcement_retention_semantics() {
+    use super::support::DAY_MS;
+    use tmt_core::request::{RequestKind, RequestRoute, ResponseLookup};
+    let mut fixture = Fixture::new();
+    let id = "req_12345678-0000-4000-8000-000000000000";
+    let (attempt, target) = prepare_sending(&mut fixture, id);
+    fixture.set_now(NOW_MS + DAY_MS);
+    let stored = submit(&mut fixture, id, &attempt, target, "late final").unwrap();
+    fixture.set_now(NOW_MS + 7 * DAY_MS);
+    assert_eq!(
+        service(&mut fixture)
+            .get_response_by_prefix("12345678")
+            .unwrap()
+            .1,
+        ResponseLookup::Available(Box::new(stored.clone()))
+    );
+    fixture.set_now(stored.response_expires_at_ms);
+    assert_eq!(
+        service(&mut fixture)
+            .get_response_by_prefix("12345678")
+            .unwrap()
+            .1,
+        ResponseLookup::Unavailable
+    );
+    let id = "req_abcdef12-0000-4000-8000-000000000000";
+    let input = PrepareRequest {
+        kind: RequestKind::Announcement,
+        room_id: None,
+        request_id: id.into(),
+        message: "announcement".into(),
+        route: RequestRoute::Inbox {
+            recipient_identity_id: fixture.identity_id.clone(),
+        },
+        wait: false,
+        expires_at_ms: stored.response_expires_at_ms + 10_000,
+        originator: Originator::Unknown,
+        recipient_identity_id: Some(fixture.identity_id.clone()),
+        preamble: None,
+    };
+    service(&mut fixture)
+        .enqueue(input, "announcement-prefix".into(), 7)
+        .unwrap();
+    assert_eq!(
+        service(&mut fixture)
+            .get_response_by_prefix("abcdef12")
+            .unwrap(),
+        (id.into(), ResponseLookup::NotRequired)
+    );
+}

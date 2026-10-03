@@ -215,8 +215,8 @@ mod tests {
     }
 
     /// Opt-in: races a writer against forking threads to show the defect the
-    /// retry removes. It asserts only that the retried arm never fails; the
-    /// unretried arm's count is the evidence to quote and is probabilistic.
+    /// retry removes, alongside case-2 shared publication without a retry.
+    /// Both protected arms must succeed; the unretried count is probabilistic.
     ///
     /// `cargo test -p tmt-office-command text_file_busy_stress -- --ignored --nocapture`
     #[test]
@@ -226,8 +226,16 @@ mod tests {
         const FORKERS: usize = 3;
         let directory = TestDirectory::new();
         let stop = AtomicBool::new(false);
-        let (mut unretried, mut retried, mut retries_used) = (0, 0, 0);
+        let (mut unretried, mut retried, mut retries_used, mut published) = (0, 0, 0, 0);
         thread::scope(|scope| {
+            // Stop before scoped threads are joined, including assertion/publish failures.
+            struct StopForkers<'a>(&'a AtomicBool);
+            impl Drop for StopForkers<'_> {
+                fn drop(&mut self) {
+                    self.0.store(true, Ordering::Relaxed);
+                }
+            }
+            let _stop_forkers = StopForkers(&stop);
             for _ in 0..FORKERS {
                 scope.spawn(|| {
                     while !stop.load(Ordering::Relaxed) {
@@ -238,8 +246,10 @@ mod tests {
             for iteration in 0..ITERATIONS {
                 let fixture = directory.path.join(format!("unretried-{iteration}"));
                 write_executable(&fixture);
-                if run(&fixture).is_err() {
-                    unretried += 1;
+                match run(&fixture) {
+                    Err(error) if is_text_file_busy(&error) => unretried += 1,
+                    Err(error) => panic!("unretried control failed outside ETXTBSY: {error}"),
+                    Ok(()) => {}
                 }
                 let fixture = directory.path.join(format!("retried-{iteration}"));
                 write_executable(&fixture);
@@ -249,16 +259,29 @@ mod tests {
                     run(&fixture)
                 });
                 retries_used += attempts - 1;
-                if result.is_err() {
-                    retried += 1;
+                match result {
+                    Err(error) if is_text_file_busy(&error) => retried += 1,
+                    Err(error) => panic!("retried control failed outside ETXTBSY: {error}"),
+                    Ok(()) => {}
+                }
+                let fixture = directory.path.join(format!("published-{iteration}"));
+                tmt_test_support::write_executable(&fixture, b"#!/bin/sh\nexit 0\n", 0o755)
+                    .unwrap();
+                match run(&fixture) {
+                    Err(error) if is_text_file_busy(&error) => published += 1,
+                    Err(error) => panic!("shared publication failed outside ETXTBSY: {error}"),
+                    Ok(()) => {}
                 }
             }
-            stop.store(true, Ordering::Relaxed);
         });
         eprintln!(
             "text_file_busy_stress: {ITERATIONS} write-then-exec iterations against {FORKERS} forking threads: \
-             {unretried} failed without the retry; {retried} failed with it ({retries_used} retries used)"
+             {unretried} failed without the retry; {retried} failed with it ({retries_used} retries used); {published} failed with shared publication and no retry"
         );
         assert_eq!(retried, 0, "the bounded retry must absorb every ETXTBSY");
+        assert_eq!(
+            published, 0,
+            "shared publication must avoid inherited writers"
+        );
     }
 }

@@ -48,7 +48,12 @@ authorizes manual tagging, release editing or publication.
 
 ## Release queue robustness
 
-The release workflow enables one same-repository main release PR at a time. Keep the
+The release workflow runs `github-release` first, then the fresh tagless-draft REST
+check, queue preparation/dequeue and `release-pr`, then enables at most one
+same-repository main release PR. This clears merged untagged PRs before the pinned
+release-please attempts PR updates; the draft check must include drafts created
+in this run. A failed `github-release` stops the job and reports that `release-pr`
+was not attempted. Keep the
 queue pre-check's `skip`/`run`/`blocked` interface and its live-only `enable` command in
 the single queue owner; complete paginated discovery and head-pinned enabling must fail
 visibly on uncertainty. Skip a queued release PR only when `checkReleaseNotes` accepts
@@ -57,7 +62,7 @@ bounded live dequeue with the release App token, after rechecking the PR identit
 head and queue entry, before release-pr refreshes the notes. Dry runs never dequeue.
 Tagless-draft-held candidates retain their queue entry and existing generation filter.
 Failed or unverified dequeue writes a recovery summary and blocks release-pr and
-queue enabling while github-release and downstream draft processing continue;
+queue enabling after github-release, while downstream draft processing continues;
 initial acquisition errors still fail visibly. Fetch full history and tags with Code quality's
 checkout pattern. Do not enable another component while a release PR is enabled
 or queued. Existing workflow concurrency serializes this policy, not external enqueues.
@@ -69,7 +74,7 @@ Changed release content still needs fresh checks; no queue priority jump is used
 [DEVELOPMENT's queue section](../../../DEVELOPMENT.md#queued-release-pull-requests)
 owns request bounds, failure and recovery details. Tooling tests must cover pagination,
 single-active selection, queued covered/stale notes against main HEAD, dequeue-before-refresh ordering,
-failed dequeue with continued github-release and suppressed queue enabling, identity/head races, dry-run non-mutation, unchanged generated files and original conflict/update behavior.
+failed dequeue after completed github-release and suppressed queue enabling, identity/head races, dry-run non-mutation, unchanged generated files and original conflict/update behavior.
 
 ## Release stall monitoring
 
@@ -94,6 +99,22 @@ REST titles. [DEVELOPMENT's rollout](../../../DEVELOPMENT.md#conventional-pr-tit
 owns the observation day and the separate explicit UTC cutover, 24 hours after
 the report-only PR merges. Keep release-please as the release attribution and
 changelog owner.
+
+## Project release reconciliation
+
+Keep delivery evidence separate from publication: the Project updater derives
+closed-issue fields from merged closing PRs, changed-path product ownership and
+the earliest published containing tag for every affected product. Use the existing
+component map and release policy/version helpers, never notes or a recency window.
+Every sweep is authoritative for eligible issues, including recovery from built-in
+status workflow writes. Exclude epic trackers from both fields; their owning lead
+retains the acceptance/dogfood gate, and the summary lists them as skipped. The post-publication dispatch waits for read-back and smoke completion;
+classified infrastructure failures still reconcile without weakening smoke.
+Retain the daily safety net. Follow [DEVELOPMENT's Project release tracking
+procedure](../../../DEVELOPMENT.md#project-release-tracking) for full dry-run table
+review, request and GraphQL point-cost reporting, exact verification commands and
+activation evidence.
+A tracking dispatch never authorizes publication or a publishing-workflow replay.
 
 ## Promotion and prerelease checks
 

@@ -110,8 +110,9 @@ jobs:
     permissions:
       # Granted to the jobs of the called workflow that upload to the draft, publish it, read its
       # commit and open an issue for a failed check of the published release.
+      # Only the called Project-dispatch job requests actions: write.
       contents: write
-      actions: read
+      actions: write
       pull-requests: read
       checks: read
       issues: write

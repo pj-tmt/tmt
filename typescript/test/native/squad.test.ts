@@ -95,7 +95,10 @@ async function reminderFixture(sandbox: Sandbox) {
   writeFileSync(notebook, 'Current plan');
   const cacheFile = () => {
     const directory = path.join(sandbox.root, 'cache', 'tmt-squad', 'staleness');
-    return path.join(directory, readdirSync(directory).find((name) => name.endsWith('.json'))!);
+    return path.join(
+      directory,
+      readdirSync(directory).find((name) => name.endsWith('.json'))!
+    );
   };
   const age = () => {
     const cache = JSON.parse(readFileSync(cacheFile(), 'utf8'));
@@ -140,6 +143,55 @@ const squadVersion = /^version = "([^"]+)"$/m.exec(
 )?.[1];
 
 describe('squad extension', () => {
+  it('config show reports effective sources without writing or executing configured commands', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'settings-probe');
+      const marker = path.join(sandbox.root, 'must-not-exist');
+      const config = path.join(sandbox.globalDir, 'squad.toml');
+      const original = `# keep my comment
+opaque = "kept"
+[board]
+refresh = "1m"
+[squad.product.board]
+refresh = "off"
+[squad.product.fields.probe]
+run = ["touch", "${marker}"]
+[bind]
+o = "run touch ${marker}"
+`;
+      writeFileSync(config, original);
+      const before = observe(sandbox);
+      const shown = await squad(sandbox, ['config', 'show', '--squad', 'product']);
+      expect(shown.status).toBe(0);
+      expect(shown.stderr).toBe('');
+      expect(shown.body.path).toBe(config);
+      expect(shown.body.entries).toContainEqual({
+        key: 'board.refresh',
+        value: 'off',
+        source: 'squad.product.board.refresh',
+        editable: false,
+      });
+      expect(
+        shown.body.entries.find((entry: { key: string }) => entry.key === 'fields.probe').value.run
+      ).toEqual(['touch', marker]);
+      const text = await runCli(sandbox, ['sq', 'config', 'show', '--squad', 'product']);
+      expect(text.status).toBe(0);
+      expect(text.stdout).toContain('squad.product.board.refresh');
+      expect(text.stdout).toContain('read-only');
+      expect((await squad(sandbox, ['config', 'show', '--tab', 'all'])).status).toBe(0);
+      expect((await squad(sandbox, ['config', 'show', '--tab', 'missing'])).body.error.code).toBe(
+        'SQUAD_TAB_NOT_FOUND'
+      );
+      expect(
+        (await squad(sandbox, ['config', 'show', '--squad', 'product', '--tab', 'all'])).status
+      ).not.toBe(0);
+      expect(readFileSync(config, 'utf8')).toBe(original);
+      expect(existsSync(marker)).toBe(false);
+      expect(observe(sandbox)).toEqual(before);
+    });
+  });
+
   it('lists built-in tabs with their board rows, including hidden and empty squads', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
@@ -1499,6 +1551,79 @@ describe('squad extension', () => {
     });
   });
 
+  it('clears leadership without removing members, and explains leaderless recovery', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      for (const name of ['Ben', 'Sol', 'Rin']) await identity(sandbox, name);
+      await squad(sandbox, ['init', 'product', '--me', 'Ben']);
+      await squad(sandbox, ['lead', 'Sol']);
+      await squad(sandbox, ['set', 'Sol', 'role=lead', 'task=Review']);
+      const before = observe(sandbox);
+      for (const args of [['lead'], ['lead', 'Sol', '--none']]) {
+        expect((await squad(sandbox, args)).status).toBe(2);
+        expect(observe(sandbox)).toEqual(before);
+      }
+      const cleared = await squad(sandbox, ['lead', '--none']);
+      expect(cleared).toMatchObject({ status: 0, body: { lead: null, replaced: ['Sol'] } });
+      const after = observe(sandbox);
+      expect(after.members).toEqual(before.members);
+      expect(after.metadata).toEqual(
+        before.metadata.map((entry) =>
+          entry.key === 'squad.product.lead.marker' ? { ...entry, value: 'false' } : entry
+        )
+      );
+      expect(
+        (await squad(sandbox, ['ls', '--squad', 'product'])).body.sections[0].rows
+      ).toMatchObject([{ name: 'Sol', fields: { role: 'lead', task: 'Review' } }]);
+      expect((await squad(sandbox, ['lead', '--none'])).body.replaced).toEqual([]);
+      expect(observe(sandbox)).toEqual(after);
+      const text = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
+      expect(text.stdout).toContain('squad product · no lead · layout team');
+      expect(text.stdout).not.toContain('hint: tmt squad lead');
+      const refused = await runCli(sandbox, ['sq', 'annotate', 'Sol', 'Review this']);
+      expect(refused.status).toBe(1);
+      expect(refused.stderr).toContain(
+        'hint: Set one with tmt squad lead <name> --squad product, or use --to member'
+      );
+      expect(observe(sandbox)).toEqual(after);
+      const db = new Database(sandbox.database, { readonly: true });
+      try {
+        expect(db.prepare('SELECT COUNT(*) AS n FROM request_attempts').get()).toEqual({ n: 0 });
+      } finally {
+        db.close();
+      }
+      expect(
+        (await squad(sandbox, ['annotate', 'Sol', 'Review this', '--to', 'member'])).body
+      ).toMatchObject({ to: 'Sol', as: 'Ben' });
+      await squad(sandbox, ['lead', 'Rin']);
+      const clearedText = await runCli(sandbox, ['sq', 'lead', '--none']);
+      expect(clearedText.stdout).toBe('✓ Squad product has no lead; Rin remains a member\n');
+      await squad(sandbox, ['init', 'reviews']);
+      expect((await squad(sandbox, ['lead', '--none'])).body.error.code).toBe('SQUAD_AMBIGUOUS');
+      expect((await squad(sandbox, ['lead', '--none', '--squad', 'product'])).status).toBe(0);
+    });
+  });
+
+  it('distinguishes new membership, duplicate operands and unchanged re-adds', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'coder');
+      await squad(sandbox, ['init', 'product']);
+      const added = await squad(sandbox, ['add', 'coder', 'coder']);
+      expect(added.status).toBe(0);
+      expect(added.body.results).toMatchObject([
+        { name: 'coder', added: true, stateSet: 'working' },
+        { name: 'coder', added: false, stateSet: null },
+      ]);
+      await squad(sandbox, ['set', 'coder', 'state=blocked', 'task=Review']);
+      const before = observe(sandbox);
+      expect((await squad(sandbox, ['add', 'coder'])).body.results).toMatchObject([
+        { added: false, stateSet: null },
+      ]);
+      expect(observe(sandbox)).toEqual(before);
+    });
+  });
+
   it('reports lead, add, set and remove as text without --json', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
@@ -1513,7 +1638,7 @@ describe('squad extension', () => {
       });
       expect(await text(['lead', 'Rin'])).toMatchObject({
         status: 0,
-        stdout: '✓ Rin leads squad product (replaces Sol)\n',
+        stdout: '✓ Rin leads squad product (replaces Sol; Sol remains a member)\n',
       });
       // A partial add keeps its successes on stdout and each failure on stderr.
       expect(await text(['add', 'coder', 'ghost'])).toMatchObject({
@@ -1521,7 +1646,7 @@ describe('squad extension', () => {
         stdout: '✓ Added coder to squad product (state working)\n',
         stderr: "error: Could not add ghost: Identity 'ghost' was not found\n",
       });
-      expect((await text(['add', 'coder'])).stdout).toBe('✓ Added coder to squad product\n');
+      expect((await text(['add', 'coder'])).stdout).toBe('coder is already in squad product.\n');
       expect(await text(['set', 'coder', 'state=blocked', 'task=needs review'])).toMatchObject({
         status: 0,
         stdout: '✓ Set state, task on coder\n',
@@ -2200,6 +2325,42 @@ sort = ["-name"]
       );
 
       expect(await notebook(), 'no notebook was created or written').toBe('NOTEBOOK_NOT_FOUND');
+      const projection = async () =>
+        (await squad(sandbox, ['ls', '--squad', 'product'])).body.squad;
+      expect(await projection()).not.toHaveProperty('noteAnnotations');
+      const note = await runCli(sandbox, [
+        'talk',
+        '--identity',
+        'Ben',
+        '--room',
+        'squad-product',
+        '--detach',
+        '--json',
+        '--',
+        'Sol',
+        '[product · notes L5 "- Keep context short."] Review this line.',
+      ]);
+      expect(note.status).toBe(0);
+      const noteId = JSON.parse(note.stdout).requestId;
+      expect((await projection()).noteAnnotations).toEqual([
+        { requestId: noteId, line: 4, quote: '- Keep context short.' },
+      ]);
+      expect(
+        (
+          await runCli(sandbox, [
+            'answer',
+            '--identity',
+            'Sol',
+            '--request',
+            noteId,
+            '--json',
+            '--',
+            'Ben',
+            'done',
+          ])
+        ).status
+      ).toBe(0);
+      expect(await projection()).not.toHaveProperty('noteAnnotations');
       expect(existsSync(path.join(sandbox.root, 'pwned'))).toBe(false);
     });
   });

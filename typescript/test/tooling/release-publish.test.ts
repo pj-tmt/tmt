@@ -10,6 +10,7 @@ import {
   renderVerifySummary,
   reportFailure,
   readSmokeFailures,
+  smokeFailureOutcome,
   verifyPublication,
   type CheckResult,
   type Outcome,
@@ -539,5 +540,27 @@ describe('the failure issue', () => {
     expect(text).toContain('### Published release `v5.0.0-alpha.9`');
     expect(text).toContain('- passed `published`');
     expect(text).toContain('- FAILED `immutable`: v5.0.0-alpha.9 is not immutable');
+  });
+});
+
+describe('smoke failure outcome for downstream reconciliation', () => {
+  it('classifies only a nonempty exclusively rate-limited failure set as infrastructure', () => {
+    const rate: CheckResult = {
+      check: 'install',
+      ok: false,
+      reason: 'rate limited',
+      infrastructure: 'github-api-rate-limit',
+    };
+    expect(smokeFailureOutcome([rate])).toBe('infrastructure');
+    expect(smokeFailureOutcome([{ check: 'other host', ok: true, reason: '' }, rate])).toBe(
+      'infrastructure'
+    );
+    expect(smokeFailureOutcome([])).toBe('failure');
+    expect(
+      smokeFailureOutcome([rate, { check: 'install', ok: false, reason: 'broken release' }])
+    ).toBe('failure');
+    expect(smokeFailureOutcome([{ check: 'evidence', ok: false, reason: 'missing host' }])).toBe(
+      'failure'
+    );
   });
 });

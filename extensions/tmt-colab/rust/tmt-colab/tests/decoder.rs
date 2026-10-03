@@ -9,29 +9,11 @@ use tmt_colab::decoder::{
     BaselineInput, DecodeFault, Decoder, MemoryLimit, Namespace, Role, STREAM_BYTES, UpdateBatch,
 };
 use tmt_invoke::{Cleanup, EnvironmentPolicy, FailureKind, LaunchOptions, Request};
+use tmt_test_support::write_executable;
 use yrs::{
     Array, Doc, GetString, Map, ReadTxn, StateVector, Text, Transact, Update,
     updates::decoder::Decode,
 };
-/// DEVELOPMENT ETXTBSY rule, case 2: something else execs the stand-in by path,
-/// so a short-lived `sh` writes it and no test thread holds its descriptor.
-fn write_executable(path: &std::path::Path, script: &str) {
-    use std::io::Write;
-    let mut writer = std::process::Command::new("/bin/sh")
-        .args(["-c", "cat > \"$1\" && chmod 700 \"$1\"", "sh"])
-        .arg(path)
-        .stdin(std::process::Stdio::piped())
-        .spawn()
-        .expect("start sh to write the executable");
-    writer
-        .stdin
-        .take()
-        .expect("sh stdin")
-        .write_all(script.as_bytes())
-        .expect("send the script to sh");
-    let status = writer.wait().expect("wait for sh");
-    assert!(status.success(), "sh could not write {}", path.display());
-}
 fn program() -> PathBuf {
     env!("CARGO_BIN_EXE_tmt-colab").into()
 }
@@ -368,8 +350,10 @@ impl FixtureProgram {
             .replace('\'', "'\\''");
         write_executable(
             &script,
-            &format!("#!/bin/sh\nprintf '%s\\n' \"$$\" > '{pid_path}'\n{body}\n"),
-        );
+            format!("#!/bin/sh\nprintf '%s\\n' \"$$\" > '{pid_path}'\n{body}\n").as_bytes(),
+            0o700,
+        )
+        .unwrap();
         Self { directory, script }
     }
     fn pid(&self) -> u32 {
@@ -386,7 +370,12 @@ impl FixtureProgram {
     }
     fn actual(&self) {
         let path = program().to_string_lossy().replace('\'', "'\\''");
-        write_executable(&self.script, &format!("#!/bin/sh\nexec '{path}' \"$@\"\n"));
+        write_executable(
+            &self.script,
+            format!("#!/bin/sh\nexec '{path}' \"$@\"\n").as_bytes(),
+            0o700,
+        )
+        .unwrap();
     }
 }
 impl Drop for FixtureProgram {

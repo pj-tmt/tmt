@@ -1,4 +1,4 @@
-//! One call to a consented host driver (`contracts/driver-protocol-v1.md`).
+//! One call to a consented host or runtime driver (`contracts/driver-protocol-v1.md`).
 //!
 //! Before every call the executable must still be the approved one: owned by
 //! the user, writable by no one else, and with the approved metadata
@@ -12,7 +12,7 @@
 //! answer is decoded and checked against the driver's declared grammar before
 //! anything else sees it.
 
-use super::registry::DriverRecord;
+use super::{Declaration, registry::DriverRecord};
 use crate::{
     executable_trust,
     process::{CommandError, CommandRequest, CommandRunner},
@@ -26,8 +26,9 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_driver_protocol::{
-    Answer, CALL_ENV, Capabilities, DecodeError, DriverError, Grammar, Op, PROTOCOL, Request,
-    SUBCOMMAND, decode, decode_capabilities, decode_done,
+    Answer, CALL_ENV, DecodeError, DriverError, Grammar, LocationsRequest, LocationsResponse, Op,
+    PROTOCOL, Request, RuntimeDeclaration, SUBCOMMAND, decode, decode_capabilities, decode_done,
+    decode_runtime_capabilities,
 };
 
 const ENV: &str = "/usr/bin/env";
@@ -50,10 +51,10 @@ impl fmt::Display for CallError {
         match self {
             Self::Untrusted { driver, reason } => write!(
                 output,
-                "Host driver {driver} is not trusted until it is approved again: {reason}"
+                "Driver {driver} is not trusted until it is approved again: {reason}"
             ),
-            Self::Process { driver, error } => write!(output, "Host driver {driver}: {error}"),
-            Self::Decode { driver, error } => write!(output, "Host driver {driver}: {error}"),
+            Self::Process { driver, error } => write!(output, "Driver {driver}: {error}"),
+            Self::Decode { driver, error } => write!(output, "Driver {driver}: {error}"),
         }
     }
 }
@@ -69,28 +70,80 @@ impl std::error::Error for CallError {
 }
 
 /// A consented driver, ready to call.
-pub struct DriverProcess<R> {
+pub struct DriverProcess<R, D = Grammar> {
     record: DriverRecord,
-    grammar: Grammar,
+    grammar: D,
     runner: R,
 }
 
 impl<R: CommandRunner> DriverProcess<R> {
-    /// Checks the record's declaration and the executable, including its
-    /// digest the first time this process opens it.
     pub fn open(record: DriverRecord, runner: R) -> Result<Self, CallError> {
-        let untrusted = |reason: String| CallError::Untrusted {
-            driver: record.name.clone(),
-            reason,
+        let grammar = record
+            .capabilities
+            .host()
+            .ok_or_else(|| untrusted(&record, "not a host driver"))
+            .and_then(|value| {
+                Grammar::from_capabilities(value).map_err(|error| untrusted(&record, error))
+            })?;
+        Self::verified(record, grammar, runner)
+    }
+}
+
+impl<R: CommandRunner> DriverProcess<R, RuntimeDeclaration> {
+    pub fn open_runtime(record: DriverRecord, runner: R) -> Result<Self, CallError> {
+        let Declaration::Runtime(value) = &record.capabilities else {
+            return Err(untrusted(&record, "not a runtime driver"));
         };
-        let grammar = Grammar::from_capabilities(&record.capabilities)
-            .map_err(|error| untrusted(format!("its recorded declaration is invalid: {error}")))?;
-        if grammar.name() != record.name {
+        let declaration =
+            RuntimeDeclaration::new(value).map_err(|error| untrusted(&record, error))?;
+        Self::verified(record, declaration, runner)
+    }
+
+    /// Approval and setup share this admission boundary before using write targets.
+    pub fn locations(
+        &self,
+        mut request: LocationsRequest,
+        deadline: Instant,
+    ) -> Result<LocationsResponse, CallError> {
+        request
+            .env
+            .retain(|name, _| self.grammar.env().contains(name));
+        let answer = self
+            .call::<LocationsResponse>(&request, deadline)?
+            .map_err(|error| untrusted(&self.record, error.message))?;
+        if !answer.within(&request.home) {
             return Err(untrusted(
-                "its recorded name doesn't match its declaration".into(),
+                &self.record,
+                "skills must lie inside configDirs or this home's shared skills root",
             ));
         }
-        verify_digest_once(&record.path, &record.digest).map_err(untrusted)?;
+        Ok(answer)
+    }
+}
+
+fn untrusted(record: &DriverRecord, reason: impl fmt::Display) -> CallError {
+    CallError::Untrusted {
+        driver: record.name.clone(),
+        reason: reason.to_string(),
+    }
+}
+
+impl<R: CommandRunner, D> DriverProcess<R, D> {
+    fn verified(record: DriverRecord, grammar: D, runner: R) -> Result<Self, CallError> {
+        if record.capabilities.name() != record.name {
+            return Err(untrusted(
+                &record,
+                "its recorded name doesn't match its declaration",
+            ));
+        }
+        if !executable_trust::unchanged(&record.path, &record.fingerprint) {
+            return Err(untrusted(
+                &record,
+                "the executable changed or is no longer private",
+            ));
+        }
+        verify_digest_once(&record.path, &record.digest)
+            .map_err(|error| untrusted(&record, error))?;
         Ok(Self {
             record,
             grammar,
@@ -102,7 +155,7 @@ impl<R: CommandRunner> DriverProcess<R> {
         &self.record.name
     }
 
-    pub fn grammar(&self) -> &Grammar {
+    pub fn grammar(&self) -> &D {
         &self.grammar
     }
 
@@ -110,14 +163,14 @@ impl<R: CommandRunner> DriverProcess<R> {
     pub fn supports(&self, op: Op) -> bool {
         self.record
             .capabilities
-            .ops
+            .ops()
             .iter()
             .any(|name| name == op.as_str())
     }
 
     /// Runs one operation: its checked answer, or the error the driver
     /// reported.
-    pub fn call<T: Answer<Declaration = Grammar>>(
+    pub fn call<T: Answer<Declaration = D>>(
         &self,
         body: impl Serialize,
         deadline: Instant,
@@ -176,10 +229,7 @@ const APPROVAL_WAIT: Duration = Duration::from_secs(10);
 /// A candidate driver's `capabilities`, before it is approved: nothing about
 /// it is trusted yet, so this runs it once, under the operation's output
 /// bound and [`APPROVAL_WAIT`].
-pub fn probe(
-    runner: &impl CommandRunner,
-    executable: &Path,
-) -> Result<(Capabilities, Grammar), String> {
+pub fn probe(runner: &impl CommandRunner, executable: &Path) -> Result<Declaration, String> {
     let op = Op::Capabilities;
     let request = serde_json::to_vec(&Request {
         deadline_ms: op.bounds().deadline.as_millis() as u64,
@@ -194,7 +244,19 @@ pub fn probe(
         Instant::now() + APPROVAL_WAIT.max(op.bounds().deadline),
     )
     .map_err(|error| format!("it did not answer capabilities: {error}"))?;
-    decode_capabilities(&output).map_err(|error| error.to_string())
+    // Peek only to select the strict, bounded decoder; never accept the peeked value.
+    let value: serde_json::Value =
+        serde_json::from_slice(&output).map_err(|error| error.to_string())?;
+    match value
+        .pointer("/ok/kind")
+        .and_then(serde_json::Value::as_str)
+    {
+        Some("runtime") => {
+            decode_runtime_capabilities(&output).map(|(value, _)| Declaration::Runtime(value))
+        }
+        _ => decode_capabilities(&output).map(|(value, _)| Declaration::Host(value)),
+    }
+    .map_err(|error| error.to_string())
 }
 
 fn invoke(

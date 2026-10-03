@@ -19,6 +19,10 @@ on:
         description: Published release to install
         required: true
         type: string
+    outputs:
+      outcome:
+        description: Classified smoke failure; empty when the install passed
+        value: ${{ jobs.report.outputs.outcome }}
   workflow_dispatch:
     inputs:
       product:
@@ -91,6 +95,8 @@ jobs:
   # job only turns what they kept, as data, into the issue.
   report:
     name: Report a failed install of ${{ inputs.tag }}
+    outputs:
+      outcome: ${{ steps.report.outputs.outcome }}
     needs: smoke
     if: ${{ !cancelled() && needs.smoke.result == 'failure' }}
     runs-on: ubuntu-24.04
@@ -111,6 +117,7 @@ jobs:
           pattern: smoke-failures-*
           path: ${{ runner.temp }}/smoke-failures
       - name: Open or update the issue
+        id: report
         env:
           GH_TOKEN: ${{ github.token }}
           PRODUCT: ${{ inputs.product }}

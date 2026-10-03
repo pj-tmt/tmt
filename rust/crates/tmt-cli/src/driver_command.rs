@@ -1,6 +1,6 @@
-//! `tmt driver`: approve, list and remove consented host drivers (#570).
+//! `tmt driver`: approve, list and remove consented drivers (#570).
 //! Every check and the registry belong to
-//! `tmt_adapters::host::external::registry`; this is its front end. A driver
+//! `tmt_adapters::driver_protocol::registry`; this is its front end. A driver
 //! is approved only after the user sees what it declares and consents.
 
 use crate::consent;
@@ -11,7 +11,10 @@ use std::io::{self, Write};
 use std::path::Path;
 use tmt_adapters::{
     config::ConfigPaths,
-    host::external::registry::{self, DriverRecord, RegistryError},
+    driver_protocol::{
+        Declaration,
+        registry::{self, DriverRecord, RegistryError},
+    },
     process::UnixCommandRunner,
 };
 use tmt_cli_style::{
@@ -30,16 +33,27 @@ fn failure(error: RegistryError) -> Failure {
 }
 
 fn record_json(record: &DriverRecord) -> serde_json::Value {
-    json!({
+    let mut value = json!({
         "name": record.name,
-        "version": record.capabilities.version,
+        "version": record.capabilities.version(),
         "path": record.path,
         "sha256": record.digest,
         "protocol": record.protocol,
-        "ops": record.capabilities.ops,
-        "callerEnv": record.capabilities.caller_env,
+        "ops": record.capabilities.ops(),
+        "callerEnv": record.capabilities.host().map(|value| &value.caller_env),
         "approvedAtMs": record.approved_at_ms,
-    })
+    });
+    if let Declaration::Runtime(capabilities) = &record.capabilities {
+        value.as_object_mut().unwrap().remove("callerEnv");
+        value["kind"] = json!("runtime");
+        value["executables"] = json!(capabilities.executables);
+        value["claims"] = json!(capabilities.claims);
+        value["env"] = json!(capabilities.env);
+        value["sessionEnv"] = json!(capabilities.session_env);
+        value["hooks"] = json!(capabilities.hooks);
+        value["locations"] = json!(record.locations);
+    }
+    value
 }
 
 /// What the user approves: the executable, its digest, and what TMT will
@@ -49,7 +63,72 @@ fn write_details(
     terminal: Terminal,
     record: &DriverRecord,
 ) -> io::Result<()> {
-    let capabilities = &record.capabilities;
+    if let Declaration::Runtime(capabilities) = &record.capabilities {
+        let locations = record.locations.as_ref().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Runtime locations are not resolved; approve the driver again.",
+            )
+        })?;
+        return detail::write(
+            output,
+            terminal,
+            &format!("Runtime driver {}", record.name),
+            &[
+                ("version", capabilities.version.clone()),
+                ("protocol", record.protocol.to_string()),
+                ("executable", record.path.display().to_string()),
+                ("sha256", record.digest.clone()),
+                ("operations", capabilities.ops.join(", ")),
+                ("executables", capabilities.executables.join(", ")),
+                ("claims", capabilities.claims.to_string()),
+                (
+                    "argv rule",
+                    "Direct launch; argv[0] must be a declared executable, never a shell.".into(),
+                ),
+                ("env", capabilities.env.join(", ")),
+                (
+                    "sessionEnv",
+                    capabilities
+                        .session_env
+                        .clone()
+                        .unwrap_or_else(|| "none".into()),
+                ),
+                (
+                    "hooks",
+                    capabilities
+                        .hooks
+                        .as_ref()
+                        .map(|hooks| {
+                            hooks
+                                .events
+                                .iter()
+                                .map(|event| event.name.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        })
+                        .unwrap_or_else(|| "none".into()),
+                ),
+                ("configDirs", locations.config_dirs.join(", ")),
+                ("skills", locations.skills.clone()),
+                (
+                    "hookSettings",
+                    locations
+                        .hook_settings
+                        .clone()
+                        .unwrap_or_else(|| "none".into()),
+                ),
+                (
+                    "transcriptRoot",
+                    locations
+                        .transcript_root
+                        .clone()
+                        .unwrap_or_else(|| "none".into()),
+                ),
+            ],
+        );
+    }
+    let capabilities = record.capabilities.host().expect("host declaration");
     let reads = if capabilities.caller_env.is_empty() {
         "nothing".to_owned()
     } else {
@@ -110,6 +189,7 @@ fn install(
     }
     .map_err(failure)?;
     let name = &record.name;
+    let kind = record.capabilities.kind();
     let mut output = tmt_cli_style::stream::stdout(mode.json);
     if !mode.json {
         let terminal = output.terminal();
@@ -124,10 +204,13 @@ fn install(
         consent::Consent {
             code: CONSENT_REQUIRED,
             refusal: &format!(
-                "Approving host driver {name} requires explicit --yes; nothing changed."
+                "Approving {kind} driver {name} requires explicit --yes; nothing changed."
             ),
-            question: &format!("Approve host driver {name}"),
-            declined: &format!("Host driver {name} was not approved; nothing changed."),
+            question: &format!("Approve {kind} driver {name}"),
+            declined: &format!(
+                "{} driver {name} was not approved; nothing changed.",
+                if kind == "host" { "Host" } else { "Runtime" }
+            ),
         },
         |error| Failure::new("DRIVER_IO_ERROR", "Could not ask for consent.", 1).caused_by(error),
     )?;
@@ -136,7 +219,8 @@ fn install(
     }
     let record = registry::commit(&paths.global_dir, record).map_err(failure)?;
     let text = format!(
-        "Approved host driver {name}. Remove it with: tmt driver rm {name}",
+        "Approved {kind} driver {name}. Remove it with: tmt driver rm {name}",
+        kind = record.capabilities.kind(),
         name = record.name
     );
     Ok((
@@ -170,6 +254,11 @@ fn list_approved(paths: &ConfigPaths) -> Result<Answer, Failure> {
 
 fn remove(paths: &ConfigPaths, name: &str) -> Result<Answer, Failure> {
     // Withdrawing trust is always safe, so nothing is asked.
+    let kind = registry::read(&paths.global_dir)
+        .map_err(failure)?
+        .into_iter()
+        .find(|record| record.name == name)
+        .map(|record| record.capabilities.kind().to_owned());
     if !registry::remove(&paths.global_dir, name).map_err(failure)? {
         return Err(Failure::new(
             NOT_FOUND,
@@ -177,9 +266,13 @@ fn remove(paths: &ConfigPaths, name: &str) -> Result<Answer, Failure> {
             1,
         ));
     }
-    let text = format!(
-        "Removed host driver {name}. Its bindings stay stored and read as unavailable until it is approved again."
-    );
+    let text = if kind.as_deref() == Some("runtime") {
+        format!("Removed runtime driver {name}.")
+    } else {
+        format!(
+            "Removed host driver {name}. Its bindings stay stored and read as unavailable until it is approved again."
+        )
+    };
     Ok((json!({"removed": name}), Human::Success(text)))
 }
 
@@ -220,7 +313,7 @@ fn write_listing(output: &mut impl Write, terminal: Terminal, rows: &[Listed]) -
         let cells: [Cell; 5] = [
             Cell::styled(mark.symbol(), mark.token()),
             record.name.as_str().into(),
-            record.capabilities.version.as_str().into(),
+            record.capabilities.version().into(),
             state.as_str().into(),
             value::home_path(&record.path, home.as_deref()).into(),
         ];
@@ -239,7 +332,14 @@ fn write_listing(output: &mut impl Write, terminal: Terminal, rows: &[Listed]) -
         output,
         terminal,
         &[list::Section {
-            title: "host drivers",
+            title: if rows
+                .iter()
+                .any(|(record, _, _)| record.capabilities.kind() == "runtime")
+            {
+                "drivers"
+            } else {
+                "host drivers"
+            },
             count: Some(rows.len()),
             rows: table,
             note: reasons.as_deref(),
@@ -282,9 +382,31 @@ pub fn execute(request: DriverRequest, mode: OutputMode) -> io::Result<u8> {
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     crate::cli_style_tests::HintSpec::core(
-        "Approved host driver {name}. Remove it with: tmt driver rm {name}",
+        "Approved {kind} driver {name}. Remove it with: tmt driver rm {name}",
         &[""],
         &[],
     ),
     crate::cli_style_tests::HintSpec::core("tmt driver install {again}", &[""], &[]),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_without_locations_refuses_disclosure_without_panicking() {
+        let record: DriverRecord = serde_json::from_value(json!({
+            "name": "agent", "path": "/tmp/driver", "digest": "test", "protocol": 1,
+            "fingerprint": {"device": 0, "inode": 0, "size": 0, "modifiedNs": 0,
+                "changedNs": 0, "uid": 0, "mode": 0}, "approvedAtMs": 0,
+            "capabilities": {"kind": "runtime", "name": "agent", "version": "test",
+                "protocols": [1], "ops": ["locations"], "executables": ["agent"]}
+        }))
+        .unwrap();
+        let mut output = Vec::new();
+        let error = write_details(&mut output, Terminal::PLAIN, &record).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("approve the driver again"));
+        assert!(output.is_empty());
+    }
+}

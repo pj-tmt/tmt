@@ -138,3 +138,63 @@ test('prepared edits never leak through a later committed projection', async ({ 
   });
   expect(result).toBe('initial saved');
 });
+
+test('baseline vectors reset exact struct identities and reject digest, title and commitment mismatch', async ({
+  page,
+}) => {
+  const { readFileSync } = await import('node:fs');
+  const vectors = JSON.parse(
+    readFileSync(new URL('../../../contracts/vectors/baseline-v1.json', import.meta.url), 'utf8'),
+  );
+  await page.goto('/');
+  const result = await page.evaluate(async (vectors) => {
+    const foldPath = '/src/fold.ts';
+    const { Fold } = await import(foldPath);
+    const binary = (s: string) =>
+      Uint8Array.from(atob(s.replaceAll('-', '+').replaceAll('_', '/')), (c) => c.charCodeAt(0));
+    let rejected = 0;
+    for (const v of vectors) {
+      const command = {
+        type: 'baseline',
+        update: binary(v.update),
+        title: v.title,
+        sourceDigest: binary(v.sourceDigest),
+        commitment: binary(v.commitment),
+      };
+      const a = new Fold(),
+        b = new Fold();
+      try {
+        const one = await a.run(command),
+          two = await b.run(command);
+        if (one.source !== v.source || two.source !== v.source || one.title !== v.title)
+          throw new Error('Baseline vector projection');
+        const edit = await a.run({ type: 'prepare', source: v.source + 'later' });
+        const left = await a.run({ type: 'apply', updates: [edit.update] }),
+          right = await b.run({ type: 'apply', updates: [edit.update] });
+        if (left.source !== right.source) throw new Error('Baseline struct identity differs');
+      } finally {
+        a.close();
+        b.close();
+      }
+      for (const change of [
+        { sourceDigest: new Uint8Array(32) },
+        { commitment: new Uint8Array(32) },
+        { title: 'mismatch' },
+      ]) {
+        const fold = new Fold();
+        try {
+          await fold.run({ ...command, ...change }).then(
+            () => {
+              throw new Error('Accepted invalid baseline');
+            },
+            () => rejected++,
+          );
+        } finally {
+          fold.close();
+        }
+      }
+    }
+    return rejected;
+  }, vectors);
+  expect(result).toBe(vectors.length * 3);
+});

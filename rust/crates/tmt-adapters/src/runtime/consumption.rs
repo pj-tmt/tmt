@@ -6,9 +6,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
-    io::{Read, Seek, SeekFrom},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom},
     os::unix::fs::MetadataExt,
     path::Path,
+    time::Instant,
 };
 use tmt_core::limits::is_valid_js_safe_integer;
 
@@ -184,6 +185,18 @@ struct Message {
 /// Ok(None) is a foreign, sidechain or synthetic record; Err means a main
 /// assistant record cannot establish its consumption safely.
 fn claude_message(line: &str) -> Result<Option<Message>, ()> {
+    // Without an assistant value or any escapes this cannot be a main
+    // record. Validate syntax without constructing its (often large) content:
+    // malformed foreign records must still gap, just as candidate records do.
+    if !line.contains("\"assistant\"")
+        && !line.contains('\\')
+        // RawValue does not enforce Value's recursion limit. A conservative
+        // delimiter count keeps deeply nested evidence on the existing path.
+        && line.bytes().filter(|b| matches!(b, b'{' | b'[')).take(128).count() < 128
+    {
+        serde_json::from_str::<&serde_json::value::RawValue>(line).map_err(|_| ())?;
+        return Ok(None);
+    }
     let entry: Value = serde_json::from_str(line).map_err(|_| ())?;
     if entry["type"] != "assistant"
         || entry["isSidechain"] == true
@@ -222,7 +235,23 @@ fn claude_message(line: &str) -> Result<Option<Message>, ()> {
 
 /// First observation baselines at EOF, without replaying historical requests.
 /// A lost cursor also baselines at EOF, explicitly marked as a gap.
-pub fn claude(root: &Path, path: &Path, previous: Option<&State>, now: u64) -> Option<State> {
+pub fn claude(
+    root: &Path,
+    path: &Path,
+    previous: Option<&State>,
+    now: u64,
+    deadline: Instant,
+) -> Option<State> {
+    claude_until(root, path, previous, now, || Instant::now() >= deadline)
+}
+
+fn claude_until(
+    root: &Path,
+    path: &Path,
+    previous: Option<&State>,
+    now: u64,
+    mut expired: impl FnMut() -> bool,
+) -> Option<State> {
     if now == 0 || !is_valid_js_safe_integer(now) {
         return None;
     }
@@ -266,43 +295,80 @@ pub fn claude(root: &Path, path: &Path, previous: Option<&State>, now: u64) -> O
         return None;
     }
     let cursor = previous.cursor.as_ref()?;
-    if cursor.dev != metadata.dev()
-        || cursor.ino != metadata.ino()
-        || end < cursor.offset
-        || end - cursor.offset > transcript::TAIL_LIMIT
-    {
+    if cursor.dev != metadata.dev() || cursor.ino != metadata.ino() || end < cursor.offset {
         return Some(baseline(true));
     }
-    file.seek(SeekFrom::Start(cursor.offset)).ok()?;
-    let mut bytes = Vec::new();
-    file.take(end - cursor.offset)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    if bytes.is_empty() {
+    if end == cursor.offset {
         return Some(previous.clone());
     }
+    file.seek(SeekFrom::Start(cursor.offset)).ok()?;
+    let mut reader = BufReader::with_capacity(8192, file.take(end - cursor.offset));
+    // A record (including its newline) retains the old one-MiB bound, but
+    // the appended range can contain arbitrarily many records until deadline.
+    let mut raw = Vec::with_capacity(transcript::TAIL_LIMIT as usize);
     let mut next = previous.clone();
-    let mut consumed = 0;
-    for raw in bytes.split_inclusive(|byte| *byte == b'\n') {
-        if raw.last() != Some(&b'\n') {
-            break;
+    let mut consumed = 0u64;
+    let mut read = 0u64;
+    let complete = loop {
+        if consumed == end - cursor.offset {
+            break true;
         }
-        consumed += raw.len();
-        if next.cursor.as_ref()?.discard {
-            next.cursor.as_mut()?.discard = false;
+        if expired() {
+            break false;
+        }
+        let available = reader.fill_buf().ok()?;
+        if expired() {
+            break false;
+        }
+        if available.is_empty() {
+            if read != end - cursor.offset {
+                return None;
+            }
+            break false;
+        }
+        let size = available
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(available.len(), |index| index + 1);
+        if raw.len() + size > transcript::TAIL_LIMIT as usize {
+            return Some(baseline(true));
+        }
+        raw.extend_from_slice(&available[..size]);
+        reader.consume(size);
+        read += size as u64;
+        if raw.last() != Some(&b'\n') {
             continue;
         }
-        let Ok(line) = std::str::from_utf8(raw) else {
+        if next.cursor.as_ref()?.discard {
+            consumed = read;
+            next.cursor.as_mut()?.discard = false;
+            raw.clear();
+            continue;
+        }
+        let Ok(line) = std::str::from_utf8(&raw) else {
             return Some(baseline(true));
         };
         if line.trim().is_empty() {
+            consumed = read;
+            raw.clear();
             continue;
         }
-        let message = match claude_message(line) {
+        if expired() {
+            break false;
+        }
+        let parsed = claude_message(line);
+        raw.clear();
+        // Checkpoint only after validation, even if parsing crossed the
+        // deadline. The next iteration checks time before reading more.
+        let message = match parsed {
             Ok(Some(message)) => message,
-            Ok(None) => continue,
+            Ok(None) => {
+                consumed = read;
+                continue;
+            }
             Err(()) => return Some(baseline(true)),
         };
+        consumed = read;
         let cursor = next.cursor.as_mut()?;
         if cursor.last.as_ref() == Some(&message.id) {
             if cursor.request != message.request || cursor.counts != Some(message.counts) {
@@ -317,12 +383,11 @@ pub fn claude(root: &Path, path: &Path, previous: Option<&State>, now: u64) -> O
         cursor.last = Some(message.id);
         cursor.request = message.request;
         cursor.counts = Some(message.counts);
-    }
-    let complete = consumed == bytes.len();
+    };
     if consumed == 0 && complete == previous.value.complete {
         return Some(previous.clone());
     }
-    next.cursor.as_mut()?.offset += consumed as u64;
+    next.cursor.as_mut()?.offset += consumed;
     next.value.complete = complete;
     next.value.gap = false;
     next.value.advance(now)?;

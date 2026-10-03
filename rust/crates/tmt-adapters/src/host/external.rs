@@ -4,12 +4,11 @@
 //! under the protocol's bounds and checks every answer.
 
 mod caller;
-mod process;
-pub mod registry;
+use crate::driver_protocol::registry;
 mod session;
 
+pub use crate::driver_protocol::process::{CallError, DriverProcess};
 pub use caller::ExternalCaller;
-pub use process::{CallError, DriverProcess};
 pub use session::{Drivers, ExternalDriver, Session};
 
 use crate::config::ConfigPaths;
@@ -24,7 +23,7 @@ pub fn register_approved() {
     let grammars = approved()
         .into_iter()
         .filter_map(|record| {
-            Grammar::from_capabilities(&record.capabilities)
+            Grammar::from_capabilities(record.capabilities.host()?)
                 .ok()
                 .filter(|grammar| grammar.name() == record.name)
                 .map(|grammar| grammar.host().clone())
@@ -45,13 +44,16 @@ pub fn approved() -> Vec<registry::DriverRecord> {
     records
         .into_iter()
         .filter_map(|record| match record.source {
-            registry::DriverSource::Path => Some(record),
-            registry::DriverSource::FirstParty => registry::current_first_party(
-                &paths.global_dir,
-                &record,
-                tmt.as_deref()?,
-                &crate::process::UnixCommandRunner,
-            ),
+            registry::DriverSource::Path => record.capabilities.host().is_some().then_some(record),
+            registry::DriverSource::FirstParty if record.capabilities.host().is_some() => {
+                registry::current_first_party(
+                    &paths.global_dir,
+                    &record,
+                    tmt.as_deref()?,
+                    &crate::process::UnixCommandRunner,
+                )
+            }
+            _ => None,
         })
         .collect()
 }

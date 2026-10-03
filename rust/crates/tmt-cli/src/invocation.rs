@@ -18,6 +18,10 @@ pub enum Invocation {
     Help(Vec<String>),
     Version,
     Api,
+    /// Agent-facing local stdio MCP tools bound to one saved identity.
+    Mcp {
+        identity: String,
+    },
     Completion(Option<String>),
     Complete(Vec<std::ffi::OsString>),
     Learn {

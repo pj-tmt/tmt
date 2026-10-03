@@ -19,7 +19,8 @@
         "extensions/tmt-squad",
         "extensions/tmt-remote",
         "extensions/tmt-colab",
-        "rust/crates/tmt-tui"
+        "rust/crates/tmt-tui",
+        "rust/crates/tmt-test-support"
       ],
       "migrations": ["rust/crates/tmt-adapters/src/storage/migrations.rs"]
     },
@@ -69,6 +70,10 @@
       "owns": ["extensions/tmt-remote/typescript/remote-client"],
       "release": false
     },
+    "tmt-test-support": {
+      "owns": ["rust/crates/tmt-test-support"],
+      "release": false
+    },
     "tmt-tui": {
       "owns": ["rust/crates/tmt-tui"],
       "releaseConsumers": ["squad"],
@@ -99,7 +104,7 @@
     {
       "id": "prose",
       "consumers": [],
-      "why": "Prose read only by prettier in Code quality, which always runs; no test or build input reads it (guarded by ci-scope.test.ts).",
+      "why": "Prose read only by the formatter in Code quality, which always runs; no test or build input reads it (guarded by ci-scope.test.ts).",
       "paths": [
         "AGENTS.md",
         "ARCHITECTURE.md",

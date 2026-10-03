@@ -1,6 +1,7 @@
 //! Local-build colab pilot. The server stores ciphertext and never decodes Yjs.
 pub mod core;
 pub mod decoder;
+pub mod export;
 pub mod fold;
 pub mod keyring;
 pub mod limits;

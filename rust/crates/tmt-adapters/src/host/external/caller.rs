@@ -41,8 +41,10 @@ impl<R: CommandRunner> Drivers<R> {
         let mut chain = None;
         let mut found = Vec::new();
         for record in self.records() {
-            let env: BTreeMap<String, String> = record
-                .capabilities
+            let Some(capabilities) = record.capabilities.host() else {
+                continue;
+            };
+            let env: BTreeMap<String, String> = capabilities
                 .caller_env
                 .iter()
                 .filter_map(|name| {

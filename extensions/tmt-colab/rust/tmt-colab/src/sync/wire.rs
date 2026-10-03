@@ -52,7 +52,7 @@ macro_rules! frames {
     };
 }
 frames! {
-    Hello { device: String, cursors: List<SyncCursor, 256> },
+    Hello { device: String, membership_revision: String, cursors: List<SyncCursor, 256> },
     Subscribe { cursors: List<SyncCursor, 256> },
     Append { stream_id: String, seq: String, envelope_hash: String, envelope: Payload },
     Chunk { object_id: String, envelope_hash: String, index: usize, count: usize, bytes: String },

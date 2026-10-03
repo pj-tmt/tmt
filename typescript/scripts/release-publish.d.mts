@@ -100,3 +100,5 @@ export function ghPublishApi(input: {
     options: object
   ) => { error?: Error; status: number | null; stdout: string; stderr: string };
 }): PublishApi & PublishedApi & IssueApi;
+
+export function smokeFailureOutcome(results: readonly CheckResult[]): 'infrastructure' | 'failure';

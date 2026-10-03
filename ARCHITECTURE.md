@@ -38,20 +38,21 @@ layout permission does not change component ownership, CI selection or release p
 | Repository root           | Short entry points, contributor guidance, license and required repository/tool configuration; no product source or generated evidence. |
 | `.agents/`                | Repository contributor procedures.                                                                                                     |
 | `.github/`                | Component ownership, layout allowlist, workflows, shared Actions and isolated release tooling.                                         |
-| `rust/`                   | Native CLI, core, adapters and shared Rust leaves, and the release archive note; extension crates remain under their extension.        |
+| `rust/`                   | Native CLI, core, adapters, shared Rust leaves, fixture publication and the release archive note; extensions retain their own crates.  |
 | `typescript/`             | Private developer tooling, tests and shared fixture support; no product-runtime fallback.                                              |
 | `extensions/<extension>/` | Feature-owned runtimes, contracts, skills, documentation and assets.                                                                   |
 | `contracts/`              | Core public contracts and their normative fixtures.                                                                                    |
 | `scripts/`                | Shared root shell/build/development helpers.                                                                                           |
 | `skills/`                 | Canonical bundled user-agent guidance.                                                                                                 |
-| `site/`                   | User handbook and its build; handbook text remains owned by tmt-lead. Translated pages: `site/src/i18n/<lang>/`.                       |
+| `site/`                   | User handbook and its build; handbook text remains owned by tmt-design-lead. Translated pages: `site/src/i18n/<lang>/`.                |
 | `design/`                 | Shared design tokens and CLI style guidance.                                                                                           |
 
 Homes of moved guidance:
 
 Core public process and request/response contracts live in `contracts/extension-api.md`
 and `contracts/request-response-v1.md`; the Remote channel contract lives in
-`contracts/remote-channel-v1.md`. CLI style guidance lives in `design/cli-style.md`.
+`contracts/remote-channel-v1.md`. The local MCP wire is owned by
+`contracts/mcp-v1.md`. CLI style guidance lives in `design/cli-style.md`.
 Release-verification procedures belong to
 [DEVELOPMENT's release section](DEVELOPMENT.md#native-release-verification).
 
@@ -100,8 +101,11 @@ specs reach the tooling-owned SQLite oracle through `typescript/test/support`.
 Vite+ owns workspace test and Office/addon/Colab Vite build, dev and preview entry points.
 It supplies one Vitest runner and aliased Vite core. Each suite keeps its separate
 configuration; the override also supplies that core to the existing plugins. Site and release
-tooling remain outside this workspace lockfile. Compiler, lint and formatter
-commands retain their existing owners.
+tooling remain outside this workspace lockfile. Vite+ also supplies the bundled
+Oxfmt formatter. Each package explicitly selects its existing Vite/Vitest config's
+`fmt` block; `typescript/scripts/format-workspace.mjs` owns the separate tooling
+code and docs selections and expands them to absolute paths before invoking Vite+.
+Compiler and lint commands retain their existing owners.
 Rust, root shell launchers, shared contracts and canonical skills remain outside
 that boundary. `contracts/` holds core contracts only; Office contracts, vectors
 and the Office skill sources live under `extensions/tmt-office/`; the proposed
@@ -888,15 +892,14 @@ Text measurement and painting share its recorded integer width; fractional
 spare cells are styled blanks inside hits; alignment uses the recorded width.
 A cut grid cell preserves its logical width/height, exposes at least four visible
 cells or hides whole; painting fits each visual line to the clip with end/middle
-ellipsis. Squad owns priority selection before geometry, not Taffy; production
-adoption remains later slices. Markup percentages use CSS content-box shares
-with gaps in addition. The
-existing board/list solver retains its after-gap percentage base and largest-
-remainder rounding until board adoption (#774); no percent adapter or correction
-loop joins the models. The guard permits XML parsing, borrowed JSON, shared style,
+ellipsis. Squad owns priority selection before geometry, not Taffy: optional
+tracks fit their mapped minimums whole or step aside; only non-priority overflow
+can cut. Markup and board percentages use CSS content-box shares with gaps in
+addition. CLI lists retain their after-gap percentage base and largest-remainder
+rounding; no percent adapter or correction loop joins these surface policies. The guard permits XML parsing, borrowed JSON, shared style,
 private Taffy geometry and Ratatui buffer painting, never core, adapters, CLI or
 extension behavior.
-`text` owns markup-only grapheme measurement and fitting; `paint` consumes geometry
+`text` owns markup and board grapheme measurement and fitting; `paint` consumes geometry
 preorder into a caller-owned Ratatui buffer. Both use `Cell::text_width`, never the
 rounded spare cell. Cuts ellipsize already measured lines without rewrapping;
 wide graphemes crossing clip edges leave styled blanks. Theme/Depth are injected,
@@ -905,11 +908,16 @@ the complete selected-role style: Squad's Look remains the selection policy owne
 Hits borrow scoped IDs and semantic row IDs, inherit identity, intersect visible
 buffer clips, omit zero areas and resolve in reverse paint order. No input dispatch,
 terminal lifecycle, markdown or provider acquisition lives in this leaf.
-Squad is the sole reviewed product edge, with a test-scoped adapter until the
-row-track compiler adopts it. In #774, the board moves to this grapheme fitter and
-retires its scalar `grid::fit/fit_lines` path; existing CLI lists keep that path.
-The two fitters must not coexist as production policies for the board. Existing
-board and list production paths remain unchanged; `tmt-cli-style::grid` remains the sole row sizing policy.
+Squad is the sole reviewed product edge, through a normal dependency. Its row
+compiler binds already projected display values into bounded admitted cells,
+without acquiring or formatting sources. Occurrence IDs contain tab, authored
+section slot, source squad and member UUID, followed by static line/column keys;
+member order is never identity. `App::shown_tab` supplies the retained view owner
+while another tab loads; resize/search never substitutes the requested tab.
+UUID-free display rows have no actionable IDs.
+Taffy is the board's only row sizing owner and `text` its only scalar fitter;
+`grid::fit/fit_lines` remain only for CLI lists. Squad retains styled row spans,
+selection, scrolling and actions; full markup paint/hit adoption is still #776.
 The private component has no release; its inherited version/lock entry follows
 the workspace, while product notices include only their actual dependency graph.
 
@@ -1196,7 +1204,9 @@ shares option-value boundaries with error-mode recovery, so `-h`/`--help` can by
 required operands without interpreting payload data as flags. Public help and
 completion use command-owned options, not inherited placement-only options. The
 public projection preserves command-owned supplemental help instead of adding
-per-command presentation branches. Help
+per-command presentation branches. Every public core option has a nonblank,
+single-line description, checked recursively against that projection; extension-owned
+grammars retain their own review boundary. Help
 for core commands never enters runtime dispatch or skill-drift inspection; JSON
 core help remains unsupported.
 
@@ -1284,6 +1294,30 @@ Inspection does not acknowledge work or renew retention. Dispatch operation IDs
 recover immutable acceptance; replay never wakes again. Clients must recover a
 receipt or current room revision after interrupted writes, not invent a new
 operation ID and resend. See [extension API usage](contracts/extension-api.md).
+Its [dispatch readiness and input-safety section](contracts/extension-api.md#dispatch-readiness-and-input-safety)
+owns the public safety limits: observations grant no input lease, core owns send-time evidence,
+enrolled uncertainty never permits paste, and legacy pane input has no universal typing gate.
+Remote consumes this process/JSON contract without importing host adapters or inferring readiness
+from pane buffers. Direct-default grants and opt-in hold remain Remote's admission policy.
+
+### Local MCP (v1)
+
+`tmt mcp --identity <saved-name-or-uuid>` is an agent-launched stdio read interface
+for the existing exchange. The [MCP contract](contracts/mcp-v1.md) owns its wire,
+schemas, bounds and qualified protocol revisions. `tmt-adapters::mcp` owns typed
+admission, lifecycle and bounded framing; `tmt-cli::mcp_command` pins one saved
+identity UUID and application data root, then composes the existing identity,
+inbox, incoming X, result and API dispatch-receipt command owners in-process.
+The same JSON encoders serve the CLI and tools. Identity selection is local
+attribution, not same-user authentication; incoming reads retain participant
+scope. No MCP-only exchange state, persistence, dependency or retry semantics
+is introduced. There are no writing tools or provider setup in this slice.
+
+This process is separate from the private Claude channel server, whose framing
+and behavior remain unchanged. It provides no runtime enrollment, push wake,
+network listener or remote authentication. Native channels and the proposed
+remote door retain their own owners. Each call closes storage before publishing;
+EOF and framing failure end only this stdio invocation.
 
 ### Extension hooks (v1)
 
@@ -1404,7 +1438,11 @@ started local Office, or terminal-only managed-skill drift. Repeated no-op
 commands do not create a discovery transition; `TMT_HINTS=off` disables optional
 transition hints without hiding error recovery or managed-skill drift. This
 owner does not add fields to JSON, alter raw stdout, persist cooldown state or
-scan tmux for discovery. Saved inactive target recovery remains a targeted
+scan tmux for discovery. Identity creation outcomes carry the stored display name
+from the successful command result. Hints quote that name as a shell word: only
+temporary identities receive save guidance, while saved identities receive a named
+listen command. Saving by name also works when the new binding belongs to another
+pane. Saved inactive target recovery remains a targeted
 `NAME_NOT_FOUND` suggestion in the existing error presenter.
 
 `output::table` is the single plain human-table renderer for binding, identity,
@@ -1637,8 +1675,9 @@ only for usage numbers:
   (`~/.claude/projects`, or `$CODEX_HOME/sessions`);
 - it is opened without following a final symlink and without blocking;
 - context usage reads at most the last MiB, skipping a line cut by that window;
-- consumption reads at most one additional MiB (plus a boundary byte), from the
-  appended Claude cursor or the latest Codex tail. No polling is introduced.
+- Codex consumption reads at most one additional MiB from its latest tail;
+- Claude consumption streams from its appended cursor once per Stop hook under
+  the deadline and record bound below (plus a boundary byte). There is no polling.
 
 Unusable context usage writes nothing for that value. A start that changes the context
 (startup, clear, compact) drops usage; a resumed Claude start records the
@@ -1666,9 +1705,31 @@ not expected and may count again: exact historical-ID dedup is deliberately
 outside the bounded one-KiB contract. In-place rewrites that retain inode and
 do not shrink also violate the append-only assumption. A partial final line
 waits for its newline, with `complete=false` and `gap=false`. Cursor loss, shrink,
-replacement, a scan over one MiB, invalid main records or overflow starts a new
+replacement, record-limit exhaustion, invalid main records or overflow starts a new
 epoch at current EOF with `gap=true` and `complete=false`; a cut fragment is
 discarded through its next newline, and history is never recounted.
+
+Claude's incremental scan (#887) receives the hook owner's absolute `Instant`
+through `RuntimeLifecycle::turn_state`. After the existing context-tail read,
+it allocates half the remaining hook time to consumption, leaving the other
+half for state handling and the existing commit guard. There is no independent
+scan-duration or aggregate-byte constant: the two-second hook worker budget is
+the authority. An 8 KiB buffered reader stops at the captured end, reusing one
+line buffer capped at the existing one-MiB `TAIL_LIMIT` (including newline).
+Memory is independent of appended-range size; candidate JSON allocations are
+also bounded by that single-record cap. Clearly foreign unescaped lines receive
+syntax validation without constructing their JSON values; assistant candidates,
+escapes and deeply nested/ambiguous evidence use the existing full validation.
+Malformed foreign records still cause gaps. Time is checked around bounded reads
+and candidate validation. If time expires with records still pending, validated
+counts and the last complete-record cursor are retained in the same epoch with
+`complete=false` and `gap=false`. Buffered but unvalidated bytes are reread on
+the next Stop; contiguous-message deduplication carries across these checkpoints.
+Successive Stops can catch up without new appends, and validating the captured
+EOF marks the scan complete. No-progress retries retain the existing observation
+once it is already incomplete. Real evidence loss still resets at EOF as above.
+A single bounded parse or filesystem operation can cross the cooperative scan
+deadline; the hook supervisor remains the hard termination/cleanup owner.
 
 Codex's first observation baselines at the provider's cumulative totals.
 Unterminated final records wait for a newline with complete=false; an invalid
@@ -2183,6 +2244,16 @@ of non-delivery. Final bodies are immutable: identical retries are idempotent,
 conflicting second finals fail, and terminal text is never used as completion
 evidence. `talk` waits for a stored final unless detached or timed out;
 `result` reads by request, while identity-owned `x` exposes outstanding attention.
+CLI result selection also accepts a unique UUID prefix with at least eight hex
+characters, optionally prefixed by `req_`. `RequestService::get_response_by_prefix`
+resolves and reads under one transaction and clock sample; exact service reads
+used by observers and receipt-based submission remain unchanged. The narrow
+`RequestRecords::retained_request_ids` port uses the existing request-ID index
+for a half-open range with a bounded sample. It filters logical metadata expiry
+before limiting, counts the same range only on sample overflow, and returns at
+most five ordered ambiguity candidates plus the total. CLI maps short and
+ambiguous prefixes to `USAGE_ERROR`; unknown prefixes keep unavailable-result
+semantics. No schema, acknowledgment or retention-renewal policy changes.
 Reads do not acknowledge. `ackall` acknowledges one snapshot, so a later final
 becomes unread again. Acknowledgment means handled, not successful or cancelled.
 Retention is frozen per attempt; bounded lazy housekeeping must respect active
@@ -2675,8 +2746,15 @@ payload into a `HookObservation` without starting the driver. Measured on the
 #1083 issue, that decode costs about 1 µs, against 0.3 µs for the built-in
 Claude decoder and 1–2 ms (up to 0.5 s for a binary's first exec) for a
 driver process. Only `locations`, `resume` and `usage` run the driver. Core
-does not consume runtime drivers yet: host approval refuses any `kind` but
-`host`, and the adapters' wiring is #1266.
+approves both kinds through `tmt-adapters::driver_protocol`, the shared registry
+and process owner extracted from the host adapter. Its declaration enum stores
+raw capabilities, retaining existing host record bytes; runtime records also
+hold the locations answer disclosed at approval. The runtime client validates
+that answer and calls `within(home)` before admitting write targets. The CLI
+shows claims, executables, argv policy, hooks, paths and environment names before
+consent. Optional `claims: false` permits skills-only declarations without runtime
+recognition. Runtime launch, hooks and setup/detection consumers remain unwired
+until PR B2 of #1266; approval alone writes no provider files.
 
 A host's name, pane-ID prefix and target template (parsing, matching and the
 overlap check between hosts) are defined once in `rust/crates/tmt-host-grammar`,
@@ -2713,7 +2791,8 @@ looks like an option, and it has no `--` separator. A plain
 pane gets single-line input, otherwise the inbox. The driver doesn't declare
 `focus` (Herdr has no command that focuses a pane by ID).
 
-`tmt-adapters::host::external` holds the core side of that boundary:
+`tmt-adapters::driver_protocol` owns shared approval and bounded calls;
+`tmt-adapters::host::external` owns host composition:
 
 - **`registry`:** the approved drivers in `<global>/drivers.json`. Approval
   refuses a declaration that a built-in host or another approved driver would
@@ -2741,23 +2820,25 @@ pane gets single-line input, otherwise the inbox. The driver doesn't declare
   `drivers.json` (approval, removal, adoption) holds `drivers.lock`, and the
   write is a staged file renamed into place.
 - **`tmt driver` (`tmt-cli/src/driver_command.rs`):** the registry's front
-  end. A record is written only with explicit consent, never by install or
-  upgrade. `install <path>`, or `install <name>` for a first-party driver
+  end. A record is written only with explicit consent, never by product install
+  or upgrade. `install <path>`, or `install <name>` for a first-party driver
   (a bare name with no `/`), refuses before asking, then shows a detail view
   (`detail::write`) of the version, protocol, executable, SHA-256,
-  operations and the environment `caller` reads, and asks `Approve host driver <name>? [y/N]` through the
+  operations and the environment `caller` reads for hosts, or the runtime disclosure
+  described above, and asks `Approve <kind> driver <name>? [y/N]` through the
   shared consent prompt. `--yes` skips the question. A run that can't ask
   (no terminal, or `--json`) refuses with `DRIVER_CONSENT_REQUIRED` and writes
-  nothing. `ls` is one `HOST DRIVERS` list section: a row per driver with
+  nothing. `ls` retains `HOST DRIVERS` for host-only lists and uses `DRIVERS` when
+  runtime approvals are present: a row per driver with
   its state mark (`●` ok, `✗` changed, `○` missing), name, version, state
   and path, `tmt driver install <path>` (or `<name>` for a first-party
   one) as the trailing action of a changed or missing one, and a note with
   each such driver's reason (`reason` in JSON). `rm` withdraws an approval without asking; an
   unknown name is `DRIVER_NOT_FOUND`. Bindings on a removed driver's host
   stay stored and read as unavailable.
-- **`DriverProcess`:** runs one operation through the bounded process owner,
+- **`DriverProcess`:** shared by both kinds, runs one operation through the bounded process owner,
   under the operation's deadline and output bound, with `TMT_DRIVER_CALL=1`. It
-  decodes the answer against the driver's grammar.
+  decodes the answer against the host grammar or runtime declaration.
 - **Trust:** `executable_trust` is shared with extension hooks. It checks
   ownership and the stat fingerprint before every call, and the digest once per
   process.
@@ -3087,10 +3168,10 @@ reached through the external command contract as `tmt squad` and, through a
 `tmt-sq` link to the same file, `tmt sq`. Its command name is fixed, never taken
 from argv[0], so both spellings share one help text, error set and completion.
 It is a workspace member for the shared lockfile and toolchain only. Its reviewed
-runtime TMT dependencies are the neutral leaves `tmt-cli-style` and `tmt-invoke`.
-Its `tmt-tui` dev dependency supplies a test-scoped binding adapter borrowing acquired `Member`
-values and reusing `ColumnSource`/`Format`, with no core/provider acquisition or sorting.
-`tmt-tui` becomes a normal dependency when production adopts it (#774/#776).
+runtime TMT dependencies are the neutral leaves `tmt-cli-style`, `tmt-invoke`
+and `tmt-tui`. The production row compiler binds projected display values; the
+test-only source adapter still borrows acquired `Member` values and reuses
+`ColumnSource`/`Format`. Neither compiler acquires core/provider data or sorts.
 No TMT crate depends on Squad; the architecture guard enforces both directions
 for Cargo dependencies and source references. Squad reaches TMT
 through `TMT_EXECUTABLE` (or `tmt` on PATH), using public `--json` commands and
@@ -3120,13 +3201,19 @@ a squad-wide conversion. New additions need no marker unless their existing
 metadata would make them lead; in that case `add` writes `false` before joining.
 `squad lead` preflights the core metadata capacity for every required marker
 before any write, records `true` before joining the new lead, then sets previous
-leads to `false`, preserving all role text. A concurrent metadata write after
+leads to `false`, preserving all role text and squad membership. Clearing with
+`squad lead --none` preflights and clears those markers without selecting or
+joining anyone. Former leads remain members until explicitly removed with
+`squad rm`. A concurrent metadata write after
 preflight can still split this sequence; it is not a transaction. Removal clears the reserved key with the
 rest of that squad's namespace. A required new marker at the identity metadata
 capacity limit returns the existing core error before the role pairs or join,
 rather than silently changing leadership. Reads never convert state.
 `ls` (alias `status`) joins
-one `rooms.roster` snapshot with `ls --room` presence. It always returns one
+one `rooms.roster` snapshot with `ls --room` presence. Presence is read first so
+core reconciliation retires dead temporary identities before the roster snapshot;
+a member joining between reads has unknown presence until the next load. It
+always returns one
 `sections` shape: without user-defined sections, a single untitled section.
 User-defined sections (`[[squad.<name>.section]]`: title, filter, sort) replace
 the single list, and rows that match none follow in one untitled section so
@@ -3174,20 +3261,22 @@ row's `failed` list after a failed run. Readers never run providers: `ls` reads
 the cache (`--refresh-fields` runs what is due first), and the board hands each
 load's members to one fetcher thread that runs due work off the paint path and
 again at the shortest `every`; a save moves the cache directory's stamp, which
-`board::changes` watches, so the board reloads early. The board sizes it with `tmt-cli-style`'s one solver
-(`grid::solve`, `grid::span`, `grid::fit`, `grid::fit_lines`). `rows::Column`
-uses `grid::Basis` for cell or percent widths; bounds stay in cells. `rows::Rows`
-owns positional coverage: cells start at track zero, so the maximum line span
-covers a prefix, including empty cells. `Rows::solve` passes only that prefix to
-the shared solver and pads uncovered trailing positions with `None`, retaining
-span indices. Uncovered columns remain projection sources; their JSON metadata
+`board::changes` watches, so the board reloads early. `markup::Grid` compiles the board's covered tracks
+and configured spans through TUI admission and one Taffy grid computation.
+Squad resolves configured CSS clamp bases and selects priority tracks before
+sizing; growing tracks reuse `rows::NARROWEST` as their default minimum.
+The grid retains geometry's logical text widths and clips for fitting; no
+arithmetic span solver or scalar `grid::fit/fit_lines` remains in the board.
+`rows::Column` still uses `grid::Basis` for cell/percent configuration, with
+cell bounds. `rows::Rows` owns prefix coverage, including empty cells; original
+span positions survive hiding. Uncovered columns remain projection sources; their JSON metadata
 adds optional `valueOnly: true`, omitted for covered columns. `Column::display`
 ignores their sizing settings so flat text lists retain natural values. No shared
-solver or all-covered output contract changes. The solver
-resolves percentages against data width after marks/borders/gaps, rounds by
-largest remainder, clamps cell bounds (percent columns default to a four-cell minimum, capped by an explicit max), then grows. Hiding recomputes the shown set.
-`grid::fit_lines` owns escaped, exact-cell-width bounded wrapping, with a final
-end ellipsis. Column metadata preserves percent strings and adds `overflow`
+CLI solver contract changes. Lists keep after-gap percentages, largest-remainder
+rounding, cell bounds and growth; their hiding recomputes the shown set.
+`grid::fit_lines` remains the list wrapping owner. The board's immutable-view
+width/search cache retains admitted projected row cells and geometry together;
+selection-only frames change styles without rebuilding templates or sizing. Column metadata preserves percent strings and adds `overflow`
 and wrap `max_lines` only when opted in; full row values never change.
 `rows::ListSizing` chooses the text sizing policy once from shown column
 settings: without percent/overflow it keeps legacy list sizing and complete
@@ -3337,6 +3426,19 @@ no second worker or arrangement resolver is introduced. The built-in leads/all
 tabs keep their opening rows-only Board throughout picker preview, save and
 cancel; they offer all-boards scope, which affects real squad tabs only.
 
+Squad's `settings` projection reads the existing Config readers and annotates
+resolved values with their setting paths or preset/default sources. `config show`
+and the bindable `settings` overlay (comma by default) share that projection;
+all entries are read-only, including provider argv and run bindings. Inspection
+never runs configured programs. `Config::bindings_for_tab`,
+`action::effective_bindings` and `tab_view::rows` keep inspection and the board's
+loaded tab/selected-section rules together. The overlay has its own instance of
+the shared scroll owner, blocks underlying input, and retains its opening snapshot
+while board data refreshes. It changes no config or member state; close/reopen
+reads the configuration again. Aggregate tabs expose their fixed grids and global
+appearance, without inventing per-squad panes or providers. CLI `config show`
+without a scope inspects board defaults; `--squad` and `--tab` are exclusive.
+
 Squad's `theme` command module registers `theme ls` (hidden `list` alias),
 `set` and `rm`; bare `theme` lists. Lists and the board picker consume names and
 descriptions from `tmt-cli-style::Base`, never a Squad palette. The effective
@@ -3482,23 +3584,29 @@ whole table, additional provider names retain `pr`, and reminder keys override
 individually. The nested board requires a full `layout` or `panes` override;
 partial `direction`/`sizes` overrides are rejected. Model reads the existing
 session projection, and providers remain on the existing fetcher path.
-`split` owns how panes sit: a tree of row and column
-splits whose children have a percentage or a grow share (ratatui `Percentage`
-and `Fill`), nested up to three levels; `layout` is its full form and the
-`direction`/`panes`/`sizes` keys its one-level form, and split solves either
-by one recursive walk before the board draws the resulting panes. The tree's reading order is the focus order, skipping folded panes. `split::Split::solve` receives
-an explicit runtime fold set: vertical folded children reserve one title line,
-horizontal folded children reserve a compact title-width column, and a fully
-folded subtree propagates its title footprint. Expanded siblings divide the
-remaining space by their configured percentage/grow shares. An empty fold set
-uses the original constraints. The configured Board/Split never changes during
+`split` owns validated row/column trees up to three levels and reading/focus order,
+not geometry. `board::composition` admits an embedded version-1 XML scaffold before
+raw mode, then instantiates its named prototypes from the validated Board/Split
+and runtime folds. Folded panes reserve one stacked title line or compact side-by-side
+title width; fully folded groups propagate that footprint. Expanded siblings share
+the remainder through typed percent/grow styles and one Taffy flex computation. Named
+rectangles dispatch to the existing rich pane painters; notes/replies retain
+Markdown, wrapping and interaction owners. Tabs reserve a shrinkable one-line
+bar above a focused pane with a one-line minimum. No runtime file loader or
+alternate composition solver exists. The immutable-view cache keys viewport,
+effective Board, folds and tabs focus; row selection does not rebuild geometry.
+Nested percentages use raw fractional parents, then cumulative edge rounding:
+a 60% Team parent split in half at body height 21 gives Detail/Replies 6/7,
+rather than 7/6 from halving an already rounded parent. Rows/Notes and widths
+remain unchanged. The tree's reading order remains focus order, skipping folds.
+The configured Board/Split never changes during
 a toggle. `Config::board` strictly validates the initial `collapsed` pane list
 for split mode, plus `fold_below = { width, panes }` with width 1–1000 and
 panes present in the resolved layout. Team sets width 100 for detail and replies.
 `App` resolves the effective fold set from board body width and immutable defaults;
 per-pane user overrides win at either width. The terminal draw owner supplies the
 full-width body measurement before rendering; the view only passes the resulting
-set to `Split::solve`. `App` owns bounded per-tab session overrides, preserving them
+set to `board::composition`. `App` owns bounded per-tab session overrides, preserving them
 through unchanged refreshes and cached switches, resetting them on changed board
 configuration, and dropping removed tabs. Restarting uses config again. The
 existing `action` parser/dispatcher owns `toggle <pane>...`, accepting one or
@@ -3529,6 +3637,25 @@ every escape sequence, control character and hidden bidi/format character before
 display, since notes are agent-written. `board::markdown` is a thin
 pulldown-cmark view over that sanitized text: it styles headings, lists,
 emphasis, inline code and links, and shows every other construct as its source.
+Its mapped rendering retains each painted line's notebook source line without a
+second Markdown parser. `App` keeps one notes cursor per visible/hidden squad,
+anchored to the complete sanitized source line (nearest match for duplicates,
+clamped position after deletion), with a continuation offset for wrapped lines.
+Cursor movement and click placement reveal the painted line through `Scrolls`;
+wheel scrolling suspends following until cursor movement. Every painted
+continuation of the selected source line uses the existing selection background/reverse fallback across the pane
+width. Only visible lines are decorated; a fixed two-cell gutter holds the sent
+marker or blanks before wrapping, keeping text aligned without clipping.
+Notes annotations reuse the ordinary composer and annotation sender, addressed
+to the current lead and tagged with the source line number and a bounded quoted
+excerpt. Opening, canceling or submitting an empty composer sends nothing.
+The `[<squad> · notes L<one-based line> <JSON quote>] ` tag is the contract
+between the annotation sender and request projection; display quotes are separate.
+`requests::apply` projects only the user's open notes annotations to the current
+lead as optional `squad.noteAnnotations` (`requestId`, zero-based `line`, `quote`),
+using the existing bounded room history. The painter marks the nearest matching
+quoted source line with `✎`; answered requests disappear on the next refresh.
+No additional core read, notebook mutation or acknowledgement is introduced.
 The detail pane appends the selected member's saved-identity notebook after its
 fields. The session requests only a visible, expanded selected detail, accounting
 for effective Board previews, tab focus and the last painted viewport; temporary
@@ -3625,7 +3752,11 @@ headers and prompts are assembled each frame so ages stay current without
 reparsing Markdown. View replacement discards the cache. Replies keep the shared
 `Scrolls` owner, including overflow indicators, wheel and keyboard paging.
 Membership commands are sequences of idempotent core commands, not one
-transaction; each reports what it applied, and a re-run converges. `squad.toml`,
+transaction; each reports what it applied, and a re-run converges. `add` reports
+`added: false` for an existing member, including a repeated name in one call,
+and preserves its state and task; only a missing state receives the configured
+initial value. `lead --none` reports a null lead and the former leads in
+`replaced`, retaining their membership. `squad.toml`,
 beside the global config that `tmt config show` reports, is the user's file.
 `Config::write` owns format-preserving replacement for `me`/`me_id`, tab order,
 board views and theme bases. It checks the original bytes, edits a cloned document,
@@ -3679,6 +3810,20 @@ Retained tests are organized under `typescript/test/native/`, `typescript/test/e
 their owners. Office real-companion stress cases use `office-*` filenames and the
 component map's stress `selectedBy` glob; retained-release setup uses the private
 installer, while public acquisition refusal stays in the native lifecycle suite.
+`rust/crates/tmt-test-support` owns only fixture-executable publication for
+[DEVELOPMENT's ETXTBSY case 2](DEVELOPMENT.md#rust-checks), not general test utilities.
+Its one `write_executable` helper sends exact bytes and the caller's permission
+mode to a short-lived shell through `tmt-invoke`'s bounded execution and
+process-group cleanup. The test process never opens that executable for writing.
+It adds no retry, readiness policy or fixture-state owner. Every additional helper
+requires its own two-caller justification and architecture review.
+The unpublished, `dist = false` library is a private component, with no release
+consumers. Only Adapters, CLI, Squad, Office, Colab and Office Command may declare
+its canonical untargeted dev-dependency; no production or build edge may consume
+it. The architecture guard checks those exact edges, production references and
+publication metadata. Its only dependency is the neutral `tmt-invoke` leaf.
+Owner-local test modules retain readiness, scenario assertions and case-3 retries.
+
 The CLI's `tests/support` module owns the isolated environment and
 direct-child lifetime shared by its stdin-signal and request-observer fixtures;
 [Development](DEVELOPMENT.md#native-process-and-shared-tests) owns the isolation contract.
@@ -3816,21 +3961,41 @@ inventory and executable behavior on matching hosts. CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 
 `project-release.mjs` owns release-to-Project delivery evidence, separately from
-publication. `project-release.yml` runs on completion of `Native release artifacts`,
-daily catch-up and manual replay. All execute on main so the release environment
-can mint a short-lived release-App token scoped to org-project writes and tmt
-repository reads. Direct release-tag events cannot use that main-only environment. It executes main's tooling, never code
-from release tags or artifacts. Automatic runs reconcile the latest ten published
-supported releases under one project-wide concurrency group, recovering replaced
-pending events. The release-please links or same-product compare range identify
-merged PRs; GitHub's paginated `closingIssuesReferences` is the issue authority.
-Only existing issue items in pj-tmt organization project 1 are updated: distinct component/version
-lines append to `Released in`, then Status becomes terminal `Released`. No issue,
-release, membership or earlier status is written. Replays preserve existing text
-and skip completed entries; partial text writes can be retried before status.
-The full read plan precedes bounded batched mutations and a single readback.
-Request/window caps fail visibly with manual replay guidance, never silent
-truncation. DEVELOPMENT owns token setup, budgets and dry-run commands.
+publication. Each daily or explicit main-only dispatch performs a full sweep of
+existing closed issue items in pj-tmt organization project 1. The short-lived
+release App token owns bounded batched Project/closing-PR GraphQL reads and field
+writes; `GITHUB_TOKEN` reads the complete paginated published release catalog.
+Only trusted main tooling executes. A full-history checkout supplies each merged
+closing PR's first-parent changed paths and tags containing its merge commit.
+`ci-scope.ownerOf` and the component map own product attribution, including
+private-leaf `releaseConsumers`; native release policy and version helpers own
+product/tag identities. Notes, commit types and recency windows are not evidence.
+
+For each affected product, the earliest publication whose tag contains all of
+that issue's closing merge commits is the canonical `Released in` entry. Every
+affected product must have such a release before Status is `Released`; otherwise
+it is `Merged`, with available product evidence retained. Private components
+without a native publication policy remain visibly waiting rather than inheriting
+an unrelated product's release. Closed-issue status definitions belong to
+[Project tracking](DEVELOPMENT.md#project-tracking). Issues labeled `epic` are
+excluded from both field writes and listed as skipped: their owning lead retains
+acceptance/dogfood authority. Open issues, PR items, other repositories and project
+membership are not changed. Both owned fields are recomputed, including correction of stale or
+incorrect terminal values and replacement of incorrect historical text.
+
+The complete discovery and dry-run plan precede bounded batched mutations and a
+single Project readback. False terminal states are corrected before replacing
+their evidence; valid release evidence precedes promotion to Released. Partial
+writes converge on the next run. The full sweep is authoritative on every run,
+so built-in close/merge status changes are repaired without manual replay; it
+does not claim atomic exclusion of concurrent external writers. The native
+bundle dispatches only after successful publication read-back and completed
+smoke, accepting success or the reporter's existing classified infrastructure
+failure. Smoke failures remain failures. A dedicated job holds only
+`actions: write`; the daily sweep recovers missed dispatches, other publications
+and genuine smoke failures. All updater runs serialize project-wide. Caps fail
+visibly before mutation on incomplete discovery, never silently truncate.
+DEVELOPMENT owns token setup, request budgets and dry-run review procedures.
 
 The release workflow is a product-selected preparation, verification and publication
 workflow; publication is authorized by the owner: the standing trunk-based alpha authorization
@@ -3843,9 +4008,11 @@ bundle, `verification-failed.json` parks a failed draft), so a replaced or cance
 loses nothing and a known-bad commit is not rebuilt. `release.yml` runs release-please
 (the CLI pinned in `.github/release-please`, configured by the generated
 `release-please-config.json`) on every push to `main`, documentation included: it
-opens one release pull request per component, enables auto-merge on at most one (through
-required checks and the merge queue), creates the draft release for a merged
-one, and starts the per-product run for each product that has a draft without a bundle. A
+reconciles merged release PRs through `github-release` first, checks fresh REST
+draft evidence (including drafts created in this run), prepares/dequeues stale
+queued candidates, then refreshes one release PR per unheld component and enables
+auto-merge on at most one (through required checks and the merge queue). It starts
+the per-product run for each product that has a draft without a bundle. A
 GitHub App token, created only in that job and only in a live run on `main`, is what lets
 the release pull requests run the required checks; the job runs in the `release`
 Environment and the App credentials are secrets of that Environment, restricted to `main`.
@@ -3854,11 +4021,11 @@ Until they exist every push is a dry run that opens, merges, creates and starts 
 single-active auto-merge selection under the workflow's existing concurrency group.
 The pre-check completes discovery and skips `release-pr` only when the queued
 candidates' head-matched REST notes pass `checkReleaseNotes` against fetched
-`origin/main`, preserving the candidate and continuing `github-release`. Proven invalid or incomplete
+`origin/main`, preserving the candidate after `github-release` has run. Proven invalid or incomplete
 notes require the queue owner to recheck the observed PR identity, head and queue entry,
 then dequeue it once with the release App token before regeneration. A failed or
 unverified dequeue skips generation and auto-merge enabling with a visible recovery
-summary, while `github-release` and downstream draft processing continue. Dry runs
+summary after `github-release`, while downstream draft processing continues. Dry runs
 only report the planned dequeue. Acquisition and metadata failures during initial
 coverage discovery remain visible failures. Full checkout history and tags support the
 shared safety owner; the queue owner has no second coverage policy. Complete discovery precedes
@@ -3888,7 +4055,8 @@ before verifying their title/repository/base metadata and current notes in the
 cumulative pending range. Ordinary PR metadata mismatches do not fail this gate.
 Body/title edits do not restart full PR CI; the merge-group REST read gates the current body.
 Missing or inconsistent anchors, notes, queue data and bounded discovery fail visibly.
-The same owner checks every manifest component version before release-please:
+The same owner checks every manifest component version after `github-release`
+and before `release-pr`, using fresh REST reads:
 a visible matching draft without an exact git tag holds only its manifest path.
 The workflow passes held paths to the pinned wrapper, whose ManifestPlugin hook
 filters those path-aware candidates before separate PRs are emitted or updated.
@@ -4239,10 +4407,17 @@ Its writer persists exact envelopes before send and retries those frozen bytes
 across interruption. The socket and Worker share one bounded executor; referenced
 objects have one bounded assembly and an absolute deadline. Last-subscriber release
 closes socket, Worker and relay; reconnect reconstructs a fresh verified fold.
-Absent wraps, invalid registration/pins, checkpoints, own-namespace data and reset
-baselines remain visible blocking states. Catchup has a 200-update/256 KiB plaintext
-budget; the live reader retains at most 4,096 sequence hashes. #1264 owns history,
-compaction/ledger proofs and reset adoption; rotated pages remain blocked until then.
+Before a reset page is published, the parent binds its descriptor to the verified
+`epoch.advance`, verifies the management-member-signed sequence-zero baseline
+object and passes its exact update to the Worker. The Worker checks the source
+digest, commitment and exact source/title projection before initializing a fresh
+content document; tails are restricted to that epoch. Baseline objects share the
+bounded assembly owner with updates but use the model's non-update envelope cap.
+Native bootstrap delivers the exact scoped baseline object; signed browser
+fixtures do not establish native mounted browser E2E. Absent wraps, invalid registration/
+pins, checkpoints and own-namespace data remain visible blocking states. Catchup has a 200-update/256 KiB plaintext
+budget; the live reader retains at most 4,096 sequence hashes. #1280 owns interleaved namespace chains and paired checkpoint loading; own grammar
+and folding remain deferred to #1110.
 The native placeholder is unchanged: #1248/#1250/#1253 own bootstrap/refresh/assets.
 
 The content-only Yjs decoder lives in a dedicated Worker. It accepts bounded
@@ -4253,6 +4428,23 @@ The source UI rejects a stale editing base instead of overwriting unseen changes
 The parent independently checks projections and terminates the Worker on failure
 or deadline. No keys or transport capabilities enter it; this is resource
 containment, not a security sandbox.
+The app's `ask-intent` owner captures an already-admitted selection/destination,
+freezes exact UTF-8 and scoped LP signing inputs, and uses the existing opaque
+extension key; it neither infers member/grant authority nor reads live source
+while signing. `ask-preview` is a minimal trusted-parent component, independent
+of renderer messaging and not yet wired to production selection/threads.
+`ask-attempt` owns one explicit attempt and immutable draft adoption using the
+existing IndexedDB transaction/Web Lock boundary. A stored draft prevents a
+second send and preserves uncertainty. It stores only signed input and signature;
+the input binds a message digest, and plaintext message bytes stay in memory.
+This metadata is not the native bridge ledger or encrypted own-stream publication.
+`ask-remote` is only the contract-shaped injected port. The production app has no live
+operation adapter: #1055 and later L5 slices own runtime adoption, native
+ledger/fencing, reply attribution/publication and real-binary acceptance.
+Test-only deterministic ports/browser mounting stay under the app's test home,
+while independent send vectors/oracle stay under the Colab contract. No schema,
+Remote/core behavior dependency or public native command is added.
+
 The trusted parent owns routing, source display and render lifecycle; only captured
 HTML enters an opaque `allow-scripts` iframe. Its default browser canvas is opaque
 white with a light color scheme, independent of the surrounding chrome theme;
@@ -4343,9 +4535,12 @@ Its statement-signing and wrap-sealing methods call the model without exporting
 the root key. The caller owns request and transition authorization.
 
 `store::Store` owns real SQLite ciphertext, durable create-only stream receipts,
-conflict freezing and epoch fencing. Namespace checkpoints prune only their
-covered prefix and superseded unpinned checkpoint payloads in the same
-transaction; receipts and concurrent tails survive. New checkpoint prefixes
+conflict freezing and epoch fencing. Checkpoint publication prunes a shared
+stream prefix only when every namespace with updates there has a committed
+checkpoint at the same sequence/hash head. Unpaired checkpoints retain the full
+prefix and the prior pair. Pair completion atomically prunes both namespaces and
+superseded unpinned checkpoints; receipts, pinned cuts and the full concurrent
+tail survive. New checkpoint prefixes
 advance monotonically; exact retries never republish pruned bytes. The
 `pin_checkpoint` seam preserves authority-cut ciphertext for the later verified
 owner-log caller.
@@ -4396,8 +4591,8 @@ member is included on every page; revoked/expired devices and private-page links
 receive no wrap. Keyring seals baseline objects with the pinned management key;
 that private key never leaves Keyring. Store provides scoped baseline retrieval,
 whose remote caller still owns access/history admission. Decoder batch limits
-fail closed rather than truncating a fold. This library has no management route;
-links/Reset remain the final #1157 slice.
+fail closed rather than truncating a fold. Link transitions share that atomic engine; browser/CLI management composition
+remains #1111 and sharing/history/retention operations remain #1160.
 
 `transitions::membership` shares epoch preparation/commit with explicit advance.
 Member add, remove and role changes use one owner transaction across affected
@@ -4409,6 +4604,18 @@ member and its devices; role reductions pin both namespaces without rotating.
 The pinned owner member cannot be removed or re-roled. Writer rechecks also fence
 the page catalog and device projections when there are no affected streams.
 
+`transitions::links` borrows owner-local seeds and derives the pinned public keys;
+seeds are never persisted in statements, projections or replay receipts. The same
+recipient planner commits link add/remove and Reset. Shared link joins use the
+bounded history wraps; current link joins wrap only the existing current epoch,
+without an automatic advance. Removal revokes the link and every certified device,
+then rotates eligible pages with owner baselines and remaining-recipient wraps.
+Reset optionally appends a new link after those advances, in the same transaction.
+The replacement must have a distinct, never-used ID and a seed that does not derive
+the removed link's pinned keys. Removal, advances, replacement and public replay
+outcome either all commit or all roll back. Browser management composition remains
+separate; the caller distributes the borrowed seed only after success.
+
 Known-device revocation commits the local tombstone, owner-signed reduction cuts
 and affected-page rotations together. Grant revision and durable revocation fence
 replays independently of operation ID. Unknown IDs use the registration tombstone
@@ -4419,7 +4626,7 @@ successful durable change; the reserved socket route supplies that composition.
 
 ### Foreground composition and owner registration
 
-`main` owns `serve` and read-only `spaces`, style/JSON output, signals and one
+`main` owns `serve`, read-only `spaces` and plaintext `export`, style/JSON output, signals and one
 foreground service lock. `core` makes one fixed `storage.root` public API call
 through the absolute invoking `TMT_EXECUTABLE` and `tmt-invoke`, with deadline,
 stream caps and cancellation; missing/invalid roots fail before state creation.
@@ -4454,6 +4661,31 @@ Socket shutdown closes retained sockets before joining workers and closing the
 registration store. Real SQLite and socket tests prove persistence, retry,
 rollback, admission denial, renewal, ordered revocation and cleanup.
 
+### Native plaintext export
+
+`export::Bundle` captures exact source/title through the existing owner-local
+`fold::Snapshot` and isolated `Decoder`. Its manifest binds that same read
+snapshot's verified owner revision/hash and epoch. It adds no fold, mutation
+planner, signing capability, HTTP plaintext route or core dependency. The
+opaque sync server does not call it. Native export inherits fold admission and
+budget failures, including validation of own roots whose projections are omitted.
+The current fold denies both archive and deletion; this slice reports the
+explicit inactive-page limitation until #1348 splits their read policy.
+
+`Store::read` opens only existing owned 0600 regular state, without creation,
+pragma writes or migration. The CLI uses `Layout::existing`, `Keyring::read`
+and that store seam; missing state never initializes an instance. `export`
+owns its caller-supplied decoder and immutable plaintext bundle. Its filesystem
+adapter resolves the user-selected parent once, admits its canonical path through
+no-follow directory descriptors and rechecks that path identity during publication,
+stages private exclusive files and publishes them with create-only hard links
+into a fresh UUID directory, checking identities and bytes. Manifest publication
+is last. Cleanup removes only checked invocation-owned staging; partial output
+is preserved and reported. It promises returned-error cleanup, not crash recovery.
+The [export contract](extensions/tmt-colab/contracts/colab-v1.md#plaintext-page-export-1309)
+owns the two-file format, disclosure and discussion exclusion. Browser downloads
+remain the next #1309 slice.
+
 ### Stream sync transport
 
 `sync::Server` owns opaque append admission and bounded live subscriber queues
@@ -4467,7 +4699,12 @@ The server checks exact model envelope/header/hash/signature bindings before
 calling the existing create-only Store; it never decrypts or invokes the decoder.
 An exact retry returns the same receipt without rebroadcast. Awareness is ephemeral.
 
-Each connection has at most eight outbound frames, including its blocked frame;
+After hello, each outbound application frame consumes one of eight credits;
+a scoped valid ack resolves retained cursors and returns exactly one credit.
+Empty cursors support metadata/partial chunks; unsolicited acks cannot bank
+credit. Consecutive lazy transfers may span credit releases, with no partial
+object admission. Pre-hello live-only subscriptions retain their original flow.
+Each connection also has at most eight queued deliveries, including its blocked frame;
 frames/messages are at most 64 KiB. Queue overflow closes with `RESYNC_REQUIRED`.
 A blocked write expires after one second when the caller drives the timer. If a
 close would flush stalled ciphertext, the connection drops the stream instead;
@@ -4478,8 +4715,20 @@ No cookie or unsigned frame establishes the caller's principal.
 The #1166 extension remains in this same transport owner. Store owns scoped
 transactional namespace/cursor reads and refuses unknown or pruned cursors;
 receipts survive pruning. Admission supplies the verified retained owner head
-through `Store::owner_head` and an optional scoped baseline descriptor. Baseline production and scoped persistence/retrieval belong to the owner-local epoch engine; remote admission/composition remain caller-owned. Catchup emits metadata once,
-then one checkpoint/tail object per lazy page and a final empty page. Each page
+through `Store::owner_head` and an optional scoped baseline descriptor. Baseline production and scoped persistence/retrieval belong to the owner-local epoch engine; remote admission/composition remain caller-owned. Catchup pins its retained head and pages exact membership envelopes from the
+client's verified revision before device/member wraps and stream objects. Owner
+root discovery, scoped author-chain reads and retained-epoch wrap reads stay in
+Store's existing owner snapshots; no new schema or secret export is introduced.
+Mounted read-only session/pages endpoints expose forwarded owner identity and
+local page existence with signed-log policy, never content titles. Unknown
+membership revisions resync; byte/count caps reject rather than truncate.
+A non-null first-page baseline descriptor includes its exact encrypted
+`baselineObject`, inline or through the same consecutive lazy chunk transfer.
+Store checks descriptor/object lengths before copying; transport binds the stored
+descriptor, envelope hash, scope, kind and revision. No baseline replaces stream
+position. Catchup selects the latest paired checkpoint prefix, emits checkpoints
+before tails, and merges both namespace tails in each stream's shared sequence
+order. It emits one checkpoint/tail object per lazy page and a final empty page. Each page
 rescans namespace positions; the final page and live subscription commit under
 the server lock so appends during paging are not missed. Inventory is bounded
 to 256 stream/namespace pairs; excess returns capacity without eviction.
@@ -4498,7 +4747,8 @@ without writer reservation or repeated signatures; Append additionally fences th
 membership revision and namespace and supplies the registered signing key. The
 pinned management member represents the owner across local pages. Catchup uses
 `Store::owner_head` and the exact persisted baseline descriptor through
-`Store::baseline`, after live admission. Socket workers own
+`Store::baseline`, after live admission. Sync delivers the
+matching scoped stored baseline object. Socket workers own
 readiness, idle timers, retained handles and revocation/shutdown cleanup.
 
 ### Isolated Colab decoder

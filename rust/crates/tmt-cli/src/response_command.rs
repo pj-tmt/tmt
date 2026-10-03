@@ -22,7 +22,7 @@ use tmt_core::{
     exact_text::{MAX_EXCHANGE_TEXT_BYTES, validate_exact_text},
     request::{
         FinalResponse, RequestError, RequestService, ResponseLookup, ResponseRejection,
-        SubmitResponse,
+        ResultSelectionRejection, SubmitResponse,
     },
 };
 
@@ -74,6 +74,24 @@ pub(crate) fn response_failure(
         }
         other => other,
     };
+    if let RequestError::ResultSelection(reason) = &error {
+        let message = match reason {
+            ResultSelectionRejection::PrefixTooShort => error.to_string(),
+            ResultSelectionRejection::Ambiguous(matches) => {
+                let more = matches.total.saturating_sub(matches.ids.len() as u64);
+                format!(
+                    "Request-ID prefix is ambiguous: {}{}",
+                    matches.ids.join(", "),
+                    if more > 0 {
+                        format!("; …and {more} more")
+                    } else {
+                        String::new()
+                    }
+                )
+            }
+        };
+        return Failure::new("USAGE_ERROR", message, 1).caused_by(error);
+    }
     let RequestError::Response(reason) = &error else {
         return unavailable(error);
     };
@@ -118,6 +136,10 @@ pub(crate) fn body(input: ContentInput) -> Result<String, Failure> {
 }
 
 fn run(request: Invocation) -> Result<Report, Failure> {
+    run_at(None, request)
+}
+
+fn run_at(paths: Option<&ConfigPaths>, request: Invocation) -> Result<Report, Failure> {
     // A prepared input is not a parallel service request: use the core owner.
     let (request_id, submission) = match request {
         Invocation::Reply {
@@ -139,7 +161,14 @@ fn run(request: Invocation) -> Result<Report, Failure> {
         Invocation::Result { request_id } => (request_id, None),
         _ => unreachable!("response dispatch only accepts reply/result"),
     };
-    let paths = ConfigPaths::discover().map_err(unavailable)?;
+    let discovered;
+    let paths = match paths {
+        Some(paths) => paths,
+        None => {
+            discovered = ConfigPaths::discover().map_err(unavailable)?;
+            &discovered
+        }
+    };
     let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::storage_access(
             error,
@@ -169,17 +198,17 @@ fn run(request: Invocation) -> Result<Report, Failure> {
             })
         }
         None => RequestService::new(&mut storage, wall_time_ms)
-            .get_response(&request_id)
+            .get_response_by_prefix(&request_id)
             .map_err(|error| response_failure(error, &paths.global_dir, false))
-            .and_then(|record| match record {
+            .and_then(|(resolved_id, record)| match record {
                 ResponseLookup::Available(response) => Ok(Report::Completed(*response)),
-                ResponseLookup::NotRequired => Ok(Report::NotRequired(request_id.clone())),
+                ResponseLookup::NotRequired => Ok(Report::NotRequired(resolved_id.clone())),
                 ResponseLookup::Unavailable => Err(Failure::new(
                     "RESPONSE_NOT_AVAILABLE",
-                    format!("Response for request '{request_id}' is not available."),
+                    format!("Response for request '{resolved_id}' is not available."),
                     3,
                 )
-                .with_request(request_id.clone(), Some("unavailable"))),
+                .with_request(resolved_id, Some("unavailable"))),
             }),
     };
     after_cleanup(pending, || storage.close()).map_err(|error| {
@@ -199,32 +228,10 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
     let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     let terminal = stdout.terminal();
     match report {
-        Report::NotRequired(request_id) if mode.json => writeln!(
-            stdout,
-            "{}",
-            json!({"status": "not_required", "requestId": request_id})
-        )?,
+        report if mode.json => writeln!(stdout, "{}", document(&report))?,
         Report::NotRequired(request_id) => writeln!(
             stdout,
             "Announcement '{request_id}' does not require a response."
-        )?,
-        Report::Submitted(record, notification) if mode.json => {
-            let mut value = json!({
-                "status": "submitted", "requestId": record.request_id,
-                "bodyBytes": record.body_bytes, "submittedAtMs": record.submitted_at_ms
-            });
-            if let Some(notification) = notification {
-                value["notification"] = json!(notification.as_str());
-            }
-            writeln!(stdout, "{value}")?;
-        }
-        Report::Completed(record) if mode.json => writeln!(
-            stdout,
-            "{}",
-            json!({
-                "status": "completed", "requestId": record.request_id, "response": record.body,
-                "bodyBytes": record.body_bytes, "submittedAtMs": record.submitted_at_ms
-            })
         )?,
         Report::Submitted(record, notification) => tmt_cli_style::message::success(
             &mut stdout,
@@ -247,4 +254,29 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
 /// the responder's exact text, so it is never styled or escaped.
 fn write_result(output: &mut impl Write, request_id: &str, body: &str) -> io::Result<()> {
     writeln!(output, "Response for request '{request_id}':\n{body}")
+}
+
+fn document(report: &Report) -> serde_json::Value {
+    match report {
+        Report::NotRequired(request_id) => {
+            json!({"status": "not_required", "requestId": request_id})
+        }
+        Report::Submitted(record, notification) => {
+            let mut value = json!({"status":"submitted", "requestId":record.request_id, "bodyBytes":record.body_bytes, "submittedAtMs":record.submitted_at_ms});
+            if let Some(notification) = notification {
+                value["notification"] = json!(notification.as_str());
+            }
+            value
+        }
+        Report::Completed(record) => {
+            json!({"status":"completed", "requestId":record.request_id, "response":record.body, "bodyBytes":record.body_bytes, "submittedAtMs":record.submitted_at_ms})
+        }
+    }
+}
+
+pub(crate) fn result_document(
+    paths: &ConfigPaths,
+    request_id: String,
+) -> Result<serde_json::Value, Failure> {
+    run_at(Some(paths), Invocation::Result { request_id }).map(|report| document(&report))
 }

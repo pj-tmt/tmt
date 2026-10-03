@@ -89,6 +89,12 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
             "Answer one JSON request read from stdin" => "tmt api",
         ]
     )));
+    root = root.subcommand(base(spec!(
+        "mcp",
+        "Serve local exchange tools over MCP stdio",
+        details = "The agent launches this server for one existing saved identity. Requests are pulled through inbox tools; this does not enroll a channel or start a network listener.",
+        ["Serve tools for a saved identity" => "tmt mcp --identity reviewer"]
+    )).arg(option("identity").global(false).required(true)));
     root = root.subcommand(rooms::room());
     root.subcommand(
         general(spec!(
@@ -206,13 +212,14 @@ fn with_options(mut command: Command, ids: &[&'static str]) -> Command {
 fn extension_target(command: Command) -> Command {
     command
         .arg(operand("name", true))
-        .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue))
-        .arg(Arg::new("prefix").long("prefix"))
+        .arg(option("yes"))
+        .arg(option("prefix"))
 }
 
 fn channel_option() -> Arg {
     Arg::new("channel")
         .long("channel")
+        .help("Select the release channel")
         .value_parser(tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str()))
 }
 
@@ -317,6 +324,10 @@ fn option(id: &'static str) -> Arg {
     };
     match id {
         "json" => flag("Output one JSON document"),
+        "yes" => flag("Approve without a prompt"),
+        "prefix" => value("The extension installation prefix (default: ~/.local)"),
+        "to" => value("Install and pin an exact version").conflicts_with("unpin"),
+        "unpin" => flag("Remove the version pin and resume channel updates"),
         "force" => {
             flag("Authorize the command's documented protected replacement or removal").short('f')
         }

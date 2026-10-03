@@ -27,6 +27,19 @@ macro_rules! spec {
     };
 }
 
+pub const CONFIG: &CommandSpec = spec!(
+    "config", "Inspect effective Squad board settings",
+    ["Inspect board defaults and their sources" => "tmt squad config show"]
+);
+pub const CONFIG_SHOW: &CommandSpec = spec!(
+    "show", "Show effective board settings and where they come from",
+    details = "Read-only. Configured commands are displayed, never executed.",
+    [
+        "Inspect one squad" => "tmt squad config show --squad product",
+        "Inspect an aggregate tab as JSON" => "tmt squad config show --tab all --json",
+    ]
+);
+
 pub const ROOT: &CommandSpec = spec!(
     "squad",
     "Leads, members and one board for a team of agents (alias: tmt sq)",
@@ -60,10 +73,11 @@ talk, reply, annotate and replies act as the pane's identity. It follows tmt mv.
 
 pub const LEAD: &CommandSpec = spec!(
     "lead",
-    "Make a saved identity the squad's lead",
+    "Choose a saved lead or clear leadership; former leads stay members",
     [
         "Make sol the lead" => "tmt squad lead sol",
         "Choose the squad when several exist" => "tmt squad lead sol --squad product",
+        "Clear leadership without removing the former lead" => "tmt squad lead --none",
     ]
 );
 

@@ -623,7 +623,7 @@ fn squad_view(
         derived: Default::default(),
         rows,
         render: config.notes_render(&squad.name)?,
-        bindings: config.bindings(tmux, &board.panes)?,
+        bindings: config.bindings_for_tab(&squad.name, tmux, &board.panes)?,
         section_bindings: sections.into_iter().map(|section| section.bind).collect(),
         opener: config.program("opener")?,
         clipboard: config.program("clipboard")?,
@@ -666,7 +666,7 @@ fn member_view(
     // The cross-squad tabs have no squad table: the global theme alone.
     let (theme, theme_notice) = config.theme("")?;
     let loaded = tab_view::load(core, config, squads, tabs, me.as_ref(), key)?;
-    let mut bindings = config.bindings(tmux, &[])?;
+    let bindings = config.bindings_for_tab(key, tmux, &[])?;
     let tab = settings
         .user
         .iter()
@@ -677,7 +677,6 @@ fn member_view(
             .map(|section| section.bind.clone())
             .collect()
     });
-    bindings.extend(tab.map_or(settings.leads.clone(), |tab| tab.selection.bind.clone()));
     let view = View {
         token_rate: None,
         derived: Default::default(),
@@ -719,19 +718,7 @@ fn all_view(
     // The cross-squad tabs have no squad table: the global theme alone.
     let (theme, theme_notice) = config.theme("")?;
     let loaded = tab_view::load(core, config, squads, tabs, me.as_ref(), ALL)?;
-    let mut bindings = crate::action::parse_bindings(
-        [
-            ("enter", Some("tab")),
-            ("double-click", Some("tab")),
-            ("ctrl-r", Some("refresh")),
-            ("T", Some("theme")),
-            ("l", Some("view")),
-        ]
-        .into_iter(),
-        "tabs.all",
-    )
-    .expect("the all tab's preset");
-    bindings.extend(settings.all);
+    let bindings = config.bindings_for_tab(ALL, false, &[])?;
     let view = View {
         token_rate: None,
         derived: Default::default(),

@@ -17,6 +17,72 @@ fn every_listing_command_uses_ls_with_the_list_alias() {
     assert!(report.is_empty(), "{}", report.join("\n"));
 }
 
+fn option_description_gaps(command: &clap::Command, path: &str) -> Vec<String> {
+    let mut gaps = Vec::new();
+    for option in command.get_arguments().filter(|arg| !arg.is_positional()) {
+        let description = option
+            .get_help()
+            .map(ToString::to_string)
+            .unwrap_or_default();
+        if description.trim().is_empty() || description.contains(['\n', '\r']) {
+            gaps.push(format!(
+                "{path}: {} needs a one-line description",
+                option.get_id()
+            ));
+        }
+    }
+    for child in command.get_subcommands() {
+        // Office is mounted by core but its grammar belongs to the extension.
+        if path == "tmt" && child.get_name() == "office" {
+            continue;
+        }
+        gaps.extend(option_description_gaps(
+            child,
+            &format!("{path} {}", child.get_name()),
+        ));
+    }
+    gaps
+}
+
+#[test]
+fn every_public_core_option_has_a_one_line_description() {
+    let public = crate::grammar::public_grammar(&crate::grammar::grammar(), true);
+    let gaps = option_description_gaps(&public, "tmt");
+    assert!(gaps.is_empty(), "{}", gaps.join("\n"));
+}
+
+#[test]
+fn option_description_guard_checks_nested_core_options_only() {
+    use clap::{Arg, Command};
+    let grammar = Command::new("tmt")
+        .subcommand(
+            Command::new("core").subcommand(
+                Command::new("nested")
+                    .arg(Arg::new("operand"))
+                    .arg(Arg::new("good").long("good").help("One line"))
+                    .arg(Arg::new("missing").short('m'))
+                    .arg(Arg::new("blank").long("blank").help("  "))
+                    .arg(Arg::new("multiline").long("multiline").help("Two\nlines"))
+                    .arg(Arg::new("hidden").long("hidden").hide(true)),
+            ),
+        )
+        .subcommand(Command::new("office").arg(Arg::new("external").long("external")))
+        .subcommand(
+            Command::new("internal")
+                .hide(true)
+                .arg(Arg::new("private").long("private")),
+        );
+    let public = crate::grammar::public_grammar(&grammar, true);
+    assert_eq!(
+        option_description_gaps(&public, "tmt"),
+        [
+            "tmt core nested: missing needs a one-line description",
+            "tmt core nested: blank needs a one-line description",
+            "tmt core nested: multiline needs a one-line description",
+        ]
+    );
+}
+
 #[path = "cli_style_allowlist.rs"]
 mod allowlist;
 

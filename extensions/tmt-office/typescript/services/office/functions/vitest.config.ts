@@ -1,6 +1,16 @@
 import { defineConfig } from 'vite-plus';
 
 export default defineConfig({
+  fmt: {
+    semi: true,
+    singleQuote: true,
+    trailingComma: 'es5',
+    printWidth: 100,
+    tabWidth: 2,
+    ignorePatterns: ['dist/**', 'node_modules/**'],
+    sortImports: false,
+    sortPackageJson: false,
+  },
   test: {
     clearMocks: false,
     include: ['test/**/*.test.ts'],

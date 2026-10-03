@@ -10,7 +10,7 @@ describe('first-time CLI discovery', () => {
       expect(created.status).toBe(0);
       expect(created.stdout).toContain("Created saved identity 'Team Lead'");
       expect(created.stderr).toBe(
-        'hint: receive work for this saved identity with tmt x listen --identity <name>\n'
+        "hint: receive work for this saved identity with tmt x listen --identity='Team Lead'\n"
       );
 
       const repeat = await runCli(sandbox, ['identity', 'create', 'Team Lead']);

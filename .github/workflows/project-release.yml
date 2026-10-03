@@ -3,16 +3,8 @@ name: Project release tracking
 on:
   schedule:
     - cron: '23 4 * * *'
-  workflow_run:
-    workflows: [Native release artifacts]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
     inputs:
-      tag:
-        description: Published tag to replay
-        required: true
-        type: string
       dry_run:
         description: Read and report without changing the release project
         required: true
@@ -23,8 +15,8 @@ permissions:
   contents: read
   pull-requests: read
 
-# Pending runs can be replaced. Every automatic run reconciles the last ten
-# published releases rather than relying on just one event surviving the queue.
+# Pending dispatches can be replaced: every run sweeps all existing closed issues.
+# Daily recovery also covers missed dispatches and manual publications.
 concurrency:
   group: project-release-tracking
   cancel-in-progress: false
@@ -60,6 +52,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+          fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -68,6 +62,5 @@ jobs:
         env:
           RELEASE_APP_TOKEN: ${{ steps.app.outputs.token }}
           GITHUB_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: node typescript/scripts/project-release.mjs

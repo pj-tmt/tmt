@@ -47,6 +47,13 @@ unless the owner gave it a cross-cutting mandate recorded in #606, such as the
 refactor squad fixing what it finds. Such a change still needs the owning
 squad lead's review.
 
+Within its owned paths and contracts, a squad lead decides on its own, including
+architecture and design choices, staffing within the recorded limits, and
+releases of its components. The architecture owner (the core lead) keeps
+decisions that change core paths or core contracts, seams between squads, and
+the product's guiding principles; bring only those decisions to it. Status and
+progress reports go to the project manager rather than the architecture owner.
+
 Record the reviewed commit, affected boundaries, findings and their disposition,
 and verification evidence in the PR and GitHub issue. If there are no findings,
 state what was inspected rather than merely saying "LGTM". Review later changes

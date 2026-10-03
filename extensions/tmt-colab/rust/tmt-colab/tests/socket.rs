@@ -419,7 +419,10 @@ fn receive(peer: &mut WebSocket<UnixStream>) -> Value {
 fn hello(server: &Running, peer: &mut WebSocket<UnixStream>, id: &str) -> Vec<Value> {
     send(
         peer,
-        server.frame("hello", json!({"device":id,"cursors":[]})),
+        server.frame(
+            "hello",
+            json!({"membershipRevision":"0","device":id,"cursors":[]}),
+        ),
     );
     let first = receive(peer);
     assert_eq!(first["type"], "catchup");
@@ -430,15 +433,20 @@ fn hello(server: &Running, peer: &mut WebSocket<UnixStream>, id: &str) -> Vec<Va
         .unwrap()
         .unwrap();
     assert_eq!(
-        first["membershipHead"],
-        json!({"revision":head.revision.to_string(),"statementHash":values::encode_binary(&head.hash)})
+        first["membershipHead"]["statementHash"],
+        json!(values::encode_binary(&head.hash))
     );
     assert_eq!(first["baseline"], Value::Null);
+    send(peer, server.frame("ack", json!({"cursors":[]})));
     let mut pages = vec![first];
     for _ in 0..8 {
         let page = receive(peer);
         assert_eq!(page["type"], "catchup");
         let more = page["more"].as_bool().unwrap();
+        send(peer, server.frame("ack", json!({"cursors":[]})));
+        if page.get("wraps").is_some() && more {
+            continue;
+        }
         pages.push(page);
         if !more {
             return pages;
@@ -688,12 +696,27 @@ fn strict_device_events_close_live_and_prehello_tunnels_only_after_durable_revok
     assert!(denied.starts_with("HTTP/1.1 403"));
     // Epoch-1 subscriptions lose admission; the surviving identity can reopen.
     let mut reopened = server.peer(OTHER);
-    let hello = server.frame("hello", json!({"device":OTHER,"cursors":[],"epoch":"2"}));
+    let hello = server.frame(
+        "hello",
+        json!({"membershipRevision":"0","device":OTHER,"cursors":[],"epoch":"2"}),
+    );
     send(&mut reopened, hello);
     let first = receive(&mut reopened);
     assert_eq!(first["membershipHead"]["revision"], "3");
     assert_eq!(first["baseline"], values::encode_binary(&saved.descriptor));
-    assert_eq!(receive(&mut reopened)["more"], false);
+    // The real mounted admission now supplies the stored reset descriptor;
+    // native bootstrap must deliver its matching encrypted object as well.
+    assert_eq!(
+        first["baselineObject"]["envelopeHash"],
+        values::encode_binary(&baseline.hash().unwrap())
+    );
+    assert_eq!(
+        first["baselineObject"]["envelope"],
+        values::encode_binary(&saved.envelope)
+    );
+    let final_page = receive(&mut reopened);
+    assert!(final_page.get("baselineObject").is_none());
+    assert_eq!(final_page["more"], false);
     reopened.send(Message::Ping(vec![3].into())).unwrap();
     assert!(matches!(reopened.read().unwrap(), Message::Pong(_)));
 }
@@ -881,7 +904,10 @@ fn upgrade_read_ahead_reaches_sync_and_equal_revoke_has_no_tunnel_effect() {
     let server = Running::start(Tunnels::PRODUCT);
     let mut socket = server.connect();
     let hello = server
-        .frame("hello", json!({"device":DEVICE,"cursors":[]}))
+        .frame(
+            "hello",
+            json!({"membershipRevision":"0","device":DEVICE,"cursors":[]}),
+        )
         .to_string()
         .into_bytes();
     assert!(hello.len() < 65536);
@@ -933,4 +959,390 @@ fn rotation_rows(db: &rusqlite::Connection) -> Vec<i64> {
             .unwrap()
     })
     .collect()
+}
+
+#[test]
+fn owner_discovery_and_paged_log_bootstrap_use_exact_signed_bytes() {
+    let server = Running::start(Tunnels::PRODUCT);
+    for path in ["/api/session", "/api/pages"] {
+        let denied = server.request(&Running::get(path, ""));
+        assert!(denied.starts_with("HTTP/1.1 403"));
+        assert_eq!(
+            denied.split("\r\n\r\n").nth(1).unwrap(),
+            "{\"code\":\"DENIED\"}"
+        );
+        let mut nonowner: Value = serde_json::from_str(&context(DEVICE)).unwrap();
+        nonowner["owner"] = false.into();
+        let denied = server.request(&Running::get(
+            path,
+            &format!("tmt-device-context: {nonowner}\r\n"),
+        ));
+        assert!(denied.starts_with("HTTP/1.1 403"));
+    }
+    let response = server.request(&Running::get(
+        "/api/session",
+        &format!("{}\r\n", owner(DEVICE)),
+    ));
+    let session: Value = serde_json::from_str(response.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    let c: Value = serde_json::from_str(&context(DEVICE)).unwrap();
+    assert_eq!(
+        session,
+        json!({"deviceId":DEVICE,"publicKey":c["publicKey"],"grantRevision":"1","name":c["name"]})
+    );
+    let layout = Layout::open(&server.root).unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    let mut store = Store::open(&layout).unwrap();
+    let mut expected = Vec::new();
+    for n in 2..=130 {
+        let head = store
+            .owner_head(&server.space, &key.owner_public())
+            .unwrap()
+            .unwrap();
+        let body = serde_json::to_vec(
+            &json!({"pageId":PAGE,"mode":if n==130 {"current"} else {"shared"}}),
+        )
+        .unwrap();
+        let envelope = key
+            .sign_statement(Some(&head), "page.history", &body)
+            .unwrap();
+        let bytes = envelope.to_json().unwrap();
+        expected.push(bytes.clone());
+        store
+            .owner_transaction(
+                &server.space,
+                &key.owner_public(),
+                tmt_colab::store::owner::Mutation {
+                    operation_id: &format!("00000000-0000-4000-8000-{n:012}"),
+                    digest: [n as u8; 32],
+                    expected_revision: n - 1,
+                },
+                |tx| {
+                    tx.append_statement(&envelope)?;
+                    Ok(bytes)
+                },
+            )
+            .unwrap();
+    }
+    let response = server.request(&Running::get(
+        "/api/pages",
+        &format!("{}\r\n", owner(DEVICE)),
+    ));
+    let pages: Value = serde_json::from_str(response.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    assert_eq!(
+        pages,
+        json!({"spaceId":server.space,"ownerKey":values::encode_binary(&key.owner_public()),"revision":"130",
+        "pages":[{"pageId":PAGE,"epoch":"1","sharing":"private","history":"current","archived":false}]})
+    );
+    let mut peer = server.peer(DEVICE);
+    send(
+        &mut peer,
+        server.frame(
+            "hello",
+            json!({"device":DEVICE,"membershipRevision":"1","cursors":[]}),
+        ),
+    );
+    let first = receive(&mut peer);
+    assert_eq!(
+        first["membershipHead"]["statements"]
+            .as_array()
+            .unwrap()
+            .len(),
+        64
+    );
+    assert_eq!(first["membershipHead"]["more"], true);
+    let mut received = first["membershipHead"]["statements"]
+        .as_array()
+        .unwrap()
+        .clone();
+    send(&mut peer, server.frame("ack", json!({"cursors":[]})));
+    for count in [64, 1] {
+        let frame = receive(&mut peer);
+        assert_eq!(
+            frame["membership"]["statements"].as_array().unwrap().len(),
+            count
+        );
+        assert!(frame["streams"].as_array().unwrap().is_empty());
+        received.extend(
+            frame["membership"]["statements"]
+                .as_array()
+                .unwrap()
+                .clone(),
+        );
+        send(&mut peer, server.frame("ack", json!({"cursors":[]})));
+    }
+    assert_eq!(
+        received
+            .iter()
+            .map(|v| values::binary(v.as_str().unwrap(), 65536).unwrap())
+            .collect::<Vec<_>>(),
+        expected
+    );
+    assert_eq!(receive(&mut peer)["more"], false);
+    // A hole is unknown history, never silently truncated or skipped.
+    server
+        .oracle()
+        .execute(
+            "DELETE FROM membership_log WHERE revision=?",
+            [format!("{:020}", 100)],
+        )
+        .unwrap();
+    let mut peer = server.peer(DEVICE);
+    send(
+        &mut peer,
+        server.frame(
+            "hello",
+            json!({"device":DEVICE,"membershipRevision":"100","cursors":[]}),
+        ),
+    );
+    assert_eq!(receive(&mut peer)["code"], "RESYNC_REQUIRED");
+}
+
+#[test]
+fn retained_device_and_member_wraps_are_scoped_paged_and_ordered() {
+    use tmt_colab_model::{crypto, wrap};
+    let server = Running::start(Tunnels::PRODUCT);
+    let layout = Layout::open(&server.root).unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    let member = key.management_member().unwrap();
+    let mut store = Store::open(&layout).unwrap();
+    let head = store
+        .owner_head(&server.space, &key.owner_public())
+        .unwrap()
+        .unwrap();
+    let change = key
+        .sign_statement(
+            Some(&head),
+            "page.history",
+            &serde_json::to_vec(&json!({"pageId":PAGE,"mode":"shared"})).unwrap(),
+        )
+        .unwrap();
+    let mut expected = Vec::new();
+    store
+        .owner_transaction(
+            &server.space,
+            &key.owner_public(),
+            tmt_colab::store::owner::Mutation {
+                operation_id: OTHER,
+                digest: [13; 32],
+                expected_revision: 1,
+            },
+            |tx| {
+                tx.append_statement(&change)?;
+                for epoch in 1..=65 {
+                    tx.put_epoch_secret(PAGE, epoch, &[epoch as u8; 32])?;
+                    for (kind, id) in [
+                        ("device", DEVICE),
+                        ("device", OTHER),
+                        ("member", member.id.as_str()),
+                    ] {
+                        let envelope = key.seal_wrap(
+                            &wrap::Header {
+                                space: server.space.clone(),
+                                page: PAGE.into(),
+                                epoch: epoch.to_string(),
+                                recipient_kind: kind.into(),
+                                recipient_id: id.into(),
+                                recipient_key: member.encryption_key,
+                                signer_key: key.owner_public(),
+                                membership_revision: "2".into(),
+                            },
+                            &[epoch as u8; 32],
+                        )?;
+                        tx.put_wrap(&envelope)?;
+                        if epoch >= 2 && id != OTHER {
+                            expected.push(values::encode_binary(&envelope.to_json()?));
+                        }
+                    }
+                }
+                Ok(Vec::new())
+            },
+        )
+        .unwrap();
+    server
+        .oracle()
+        .execute("UPDATE pages SET epoch='65' WHERE page=?", [PAGE])
+        .unwrap();
+    let mut peer = server.peer(DEVICE);
+    let mut hello = server.frame(
+        "hello",
+        json!({"device":DEVICE,"membershipRevision":"0","cursors":[]}),
+    );
+    hello["epoch"] = "65".into();
+    send(&mut peer, hello);
+    let first = receive(&mut peer);
+    let ack = |peer: &mut WebSocket<UnixStream>| {
+        let mut frame = server.frame("ack", json!({"cursors":[]}));
+        frame["epoch"] = "65".into();
+        send(peer, frame);
+    };
+    ack(&mut peer);
+    let mut actual = Vec::new();
+    let mut count = 0;
+    loop {
+        let page = receive(&mut peer);
+        assert!(page["streams"].as_array().unwrap().is_empty());
+        let wraps = page["wraps"].as_array().unwrap();
+        assert!(wraps.len() <= 512);
+        assert!(page.to_string().len() <= 65536);
+        actual.extend(wraps.iter().map(|v| v.as_str().unwrap().to_owned()));
+        count += 1;
+        ack(&mut peer);
+        if page["more"] == false {
+            break;
+        }
+    }
+    assert!(count > 1);
+    assert_eq!(actual, expected);
+    let root = values::binary(first["membershipHead"]["ownerKey"].as_str().unwrap(), 32).unwrap();
+    assert_eq!(
+        crypto::space_id(root.as_slice().try_into().unwrap()).unwrap(),
+        server.space
+    );
+}
+#[test]
+fn revoked_author_chain_is_verifiable_but_signed_log_denies_its_objects() {
+    use tmt_colab_model::{certificate, payload, statement};
+    let server = Running::start(Tunnels::PRODUCT);
+    let mut writer = server.peer(DEVICE);
+    hello(&server, &mut writer, DEVICE);
+    let (frame, _, _) = server.append(DEVICE, 1, [0; 32]);
+    send(&mut writer, frame);
+    receive(&mut writer);
+    receive(&mut writer);
+    let layout = Layout::open(&server.root).unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    let mut store = Store::open(&layout).unwrap();
+    let head = store
+        .owner_head(&server.space, &key.owner_public())
+        .unwrap()
+        .unwrap();
+    let revoke = key
+        .sign_statement(
+            Some(&head),
+            "device.revoke",
+            &serde_json::to_vec(&json!({"deviceId":DEVICE,"cuts":[]})).unwrap(),
+        )
+        .unwrap();
+    store
+        .owner_transaction(
+            &server.space,
+            &key.owner_public(),
+            tmt_colab::store::owner::Mutation {
+                operation_id: OTHER,
+                digest: [15; 32],
+                expected_revision: 1,
+            },
+            |tx| {
+                tx.append_statement(&revoke)?;
+                Ok(Vec::new())
+            },
+        )
+        .unwrap();
+    let mut reader = server.peer(OTHER);
+    let frames = hello(&server, &mut reader, OTHER);
+    let mut verified = None;
+    let mut revoked = Vec::new();
+    let mut issuer = None;
+    for raw in frames[0]["membershipHead"]["statements"]
+        .as_array()
+        .unwrap()
+    {
+        let bytes = values::binary(raw.as_str().unwrap(), 65536).unwrap();
+        let envelope = statement::Envelope::from_json(&bytes).unwrap();
+        let next = envelope
+            .verify_next(&server.space, &key.owner_public(), verified.as_ref())
+            .unwrap();
+        if next.head.revision == 1 {
+            issuer = Some(next.head.clone());
+        }
+        if let payload::Payload::DeviceRevoke(p) = next.payload {
+            revoked.push(p.device_id);
+        }
+        verified = Some(next.head);
+    }
+    let page = frames
+        .iter()
+        .find(|p| p["streams"].as_array().is_some_and(|v| !v.is_empty()))
+        .unwrap();
+    let bytes = values::binary(page["chains"][0]["chain"].as_str().unwrap(), 16384).unwrap();
+    let chain = certificate::Chain::from_json(&bytes).unwrap();
+    let cert = chain.certificate().unwrap();
+    let issuer = issuer.unwrap();
+    chain
+        .verify(&issuer.hash, &cert, &issuer.owner_member.signing_key)
+        .unwrap();
+    let entry = &page["streams"][0]["tail"][0];
+    let object = object::Envelope::from_json(
+        &values::binary(entry["envelope"].as_str().unwrap(), 65536).unwrap(),
+    )
+    .unwrap();
+    tmt_colab_model::crypto::verify_signature(
+        cert.signing_key,
+        &object.signature_input().unwrap(),
+        object.signature(),
+    )
+    .unwrap();
+    // Positive chain/signature control passes; current verified revocation alone
+    // denies this author, exactly the consumer's admission requirement.
+    assert_eq!(cert.device_id, DEVICE);
+    assert!(revoked.iter().any(|id| id == cert.device_id));
+}
+
+#[test]
+fn oversized_membership_statement_returns_capacity_without_truncation() {
+    let server = Running::start(Tunnels::PRODUCT);
+    let layout = Layout::open(&server.root).unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    let mut store = Store::open(&layout).unwrap();
+    let head = store
+        .owner_head(&server.space, &key.owner_public())
+        .unwrap()
+        .unwrap();
+    let descriptor = json!({"pageId":PAGE,"epoch":"2","sourceDigest":values::encode_binary(&[1;32]),"baselineCommitment":values::encode_binary(&[2;32]),
+        "title":"x".repeat(40*1024),"objectEnvelopeHash":values::encode_binary(&[3;32]),"membershipRevision":"2"});
+    let statement = key
+        .sign_statement(
+            Some(&head),
+            "epoch.advance",
+            &serde_json::to_vec(
+                &json!({"pageId":PAGE,"epoch":"2","cuts":[],"baseline":descriptor,"wraps":[]}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let bytes = statement.to_json().unwrap();
+    assert!(bytes.len() > 44 * 1024);
+    store
+        .owner_transaction(
+            &server.space,
+            &key.owner_public(),
+            tmt_colab::store::owner::Mutation {
+                operation_id: OTHER,
+                digest: [14; 32],
+                expected_revision: 1,
+            },
+            |tx| {
+                tx.append_statement(&statement)?;
+                Ok(Vec::new())
+            },
+        )
+        .unwrap();
+    let mut peer = server.peer(DEVICE);
+    send(
+        &mut peer,
+        server.frame(
+            "hello",
+            json!({"device":DEVICE,"membershipRevision":"0","cursors":[]}),
+        ),
+    );
+    assert_eq!(receive(&mut peer)["code"], "CAPACITY");
+    let stored: Vec<u8> = server
+        .oracle()
+        .query_row(
+            "SELECT envelope FROM membership_log WHERE revision=?",
+            [format!("{:020}", 2)],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored, bytes);
 }

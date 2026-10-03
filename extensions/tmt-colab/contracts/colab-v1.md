@@ -603,6 +603,16 @@ remaining recipients. If sharing continues, explicit owner `link.add` creates a
 NEW link identity/seed distributed only to intended holders. Reset link MUST
 perform this removal/rotation, not just change a URL or hide an edge record.
 
+The owner-local engine commits `link.remove`, affected-page `epoch.advance`
+statements and an optional replacement `link.add`, in that order, in one owner
+transaction. The replacement ID must never have been used, and its seed must not
+reproduce the removed link's pinned keys under the old ID. Seeds are borrowed for
+model derivation and never stored in statements, projections or public replay
+outcomes. The owner caller retains/distributes a replacement seed only after
+success. A current-mode link add wraps the existing current epoch only; Reset
+creates the fresh baseline/epoch before joining its optional replacement. Shared
+joins and replacements use the same bounded history wrap lists as members.
+
 Private pages admit named members only. Link pages additionally admit
 link-certified devices at the link role. Public mode is loopback-only in v1;
 Firestore and Cloudflare MUST reject public mode and key publication. Going
@@ -700,10 +710,18 @@ others' updates. A checkpoint covers seq 1..n and embeds the authenticated updat
 hash at n, preserving namespace-specific updates and dependencies without
 advancing the update chain. A namespace checkpoint covers that namespace's
 subset within the shared sequence prefix; the signed descriptor binds the
-prefix head. Commit the checkpoint before deleting only covered updates of its namespace.
-Retain the update hash/receipt ledger needed to verify interleaved namespaces
-and exact retries after payload prune; never delete another namespace's payload
-solely because its sequence falls in the prefix.
+prefix head. Namespace-specific plaintext remains raw merged Yjs update-v1.
+
+Store may prune payloads through shared head `n` only when every namespace with
+updates in that prefix has a committed checkpoint at exactly `n`, each binding
+the same update hash in its signed previous-hash field. An unpaired checkpoint
+is retained without pruning and is not selected for bootstrap. Completing the
+pair atomically prunes both covered prefixes and superseded unpinned checkpoints.
+Retain the existing update hash/receipt ledger, pinned checkpoints and the full
+tail from `n+1` in both namespaces for chain verification and exact retries.
+Never delete another namespace's payload solely because its sequence falls in
+the prefix. A failed partner publication leaves the prior pair and updates
+intact; this rule needs no new ledger or checkpoint schema.
 Crash before deletion retains replay-safe redundant data; concurrent tail
 updates survive. A gone device's stream remains as signed data within quotas.
 There is no cross-writer compaction checkpoint in v1; the epoch baseline above
@@ -870,6 +888,54 @@ The grant mode comes from the remote trust grant: `direct` (the default)
 dispatches right after the fence, `hold` keeps the send held for local
 `approve`.
 
+### Implemented browser preview foundation (#1312)
+
+The private app exports a trusted-parent `AskPreview` component over a
+`FrozenAsk` admitted-selection input. The caller still owns page/role,
+source/render, same-member and current machine/grant admission; neither a
+renderer message nor a claimed member is admitted by this primitive. The
+production page has no selection/threads entry point or agent send wiring yet.
+The component is exercised through a test-only browser entry, never a sample
+agent route in the production application.
+
+Capture copies the selection/message IDs and destination, strips the URL
+fragment, refuses credentialed/non-HTTP URLs and invalid Unicode, formats one
+exact message, and enforces the composed core request bound (1 MiB, or a lower
+caller-supplied bound). The final preview includes page title/link, quote and
+comment; controls and Unicode formatting characters have a separate escaped
+view. The original UTF-8 is unchanged. Capture allocates one operation UUID
+unless the caller supplies an already-frozen one. Signing uses the field order
+above with sorted unique message IDs, the exact final digest, an explicit grant
+reference and a one-hour default / 24-hour maximum validity. Grant references
+are supplied by the caller, not inferred from Remote's client ID. The existing
+non-extractable extension key and strict signature primitives are reused.
+
+`AskAttempt` permits one explicit attempt through a caller-injected, contract-
+shaped `RemoteClient` port. There is no live adapter or Remote keyring access.
+Without a port, Send is disabled and signing/storage never starts. With a test
+port, trusted Send persists an immutable local draft in the existing Colab
+IndexedDB store under the device/operation key before calling it. A Web Lock
+serializes adoption across tabs. The stored record contains only signed input
+and signature; the input binds the message digest. Quote, comment and final
+message bytes stay in memory and are never written to this store. Identical
+signed metadata returns the existing draft; changed input or signature is
+`INTENT_CONFLICT`. An existing draft yields uncertain without another send,
+including after reload. This metadata is not the native bridge ledger or
+encrypted own-stream publication, and no schema/version
+migration is introduced. Storage failure or expiry before the port call has no
+send effect. Repeated clicks share one promise; a lost or miscorrelated response
+becomes uncertain. There is no retry, local approval or result publication path.
+
+Delivery labels come only from the caller's Remote delivery projection;
+missing evidence remains unavailable. Held is distinct from accepted, and
+accepted is not an agent final. Closing the component ends its observation,
+not recipient work. The browser component requires a trusted click; page messages
+and programmatic DOM clicks never start it. This foundation does not satisfy L5:
+#1055 owns the operation runtime/SDK, and later Colab slices own the native
+ledger/fence, own streams, live integration and real-binary acceptance.
+Independent bytes/signatures are frozen in `vectors/send-preview-v1.json`;
+`vectors/send-preview-reference.py` owns regeneration.
+
 ### Member machines
 
 A member with commenter or editor role may Ask agent, but only agents on a
@@ -991,17 +1057,17 @@ upgrade cannot establish authorship. Removed access terminates live subscription
 space, page and epoch. The backend moves bytes, not Yjs state vectors. The wire
 operations are:
 
-| Type        | Additional fields / behavior                                                                                        |
-| ----------- | ------------------------------------------------------------------------------------------------------------------- |
-| `hello`     | `device, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                   |
-| `catchup`   | `membershipHead, baseline, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail |
-| `subscribe` | `cursors`; observe only the admitted page/current epoch                                                             |
-| `append`    | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                   |
-| `receipt`   | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                              |
-| `broadcast` | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                     |
-| `ack`       | `cursors`; scoped delivery positions only                                                                           |
-| `awareness` | `device, data`; bounded ephemeral presence, never persisted or authority                                            |
-| `error`     | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                      |
+| Type        | Additional fields / behavior                                                                                                                 |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hello`     | `device, membershipRevision, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                        |
+| `catchup`   | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail |
+| `subscribe` | `cursors`; observe only the admitted page/current epoch                                                                                      |
+| `append`    | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                            |
+| `receipt`   | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                       |
+| `broadcast` | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                              |
+| `ack`       | `cursors`; scoped delivery positions only                                                                                                    |
+| `awareness` | `device, data`; bounded ephemeral presence, never persisted or authority                                                                     |
+| `error`     | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                               |
 
 ### Implemented stream subset (#1156, #1166)
 
@@ -1015,14 +1081,14 @@ Every client message is one UTF-8 JSON object with exactly the common fields
 Epoch is a positive canonical decimal string. Duplicate/unknown fields, nulls,
 wrong types, noncanonical values and unsupported operations reject.
 
-| Client type | Exact additional fields                       | Implemented behavior                                                                                            |
-| ----------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `hello`     | `device, cursors`                             | Device matches principal; one successful hello per connection starts server-driven catchup, then live delivery. |
-| `subscribe` | `cursors`                                     | Empty list starts live delivery; nonempty list resolves cursors and starts catchup, then live delivery.         |
-| `append`    | `streamId, seq, envelopeHash, envelope`       | Inline update or object reference; verify complete exact bytes and durably append before receipt.               |
-| `chunk`     | `objectId, envelopeHash, index, count, bytes` | Complete the connection's pending referenced append; no standalone upload or partial append.                    |
-| `ack`       | `cursors`                                     | Resolve retained scoped positions; no deletion, core acknowledgment or application authority.                   |
-| `awareness` | `device, data`                                | Device matches principal; at most 4 KiB canonical base64url bytes, ephemeral.                                   |
+| Client type | Exact additional fields                       | Implemented behavior                                                                                                       |
+| ----------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `hello`     | `device, membershipRevision, cursors`         | Device matches principal; one successful hello per connection starts server-driven catchup, then live delivery.            |
+| `subscribe` | `cursors`                                     | Empty list starts live delivery; nonempty list resolves cursors and starts catchup, then live delivery.                    |
+| `append`    | `streamId, seq, envelopeHash, envelope`       | Inline update or object reference; verify complete exact bytes and durably append before receipt.                          |
+| `chunk`     | `objectId, envelopeHash, index, count, bytes` | Complete the connection's pending referenced append; no standalone upload or partial append.                               |
+| `ack`       | `cursors`                                     | Resolve retained scoped positions and release one frame credit; no deletion, core acknowledgment or application authority. |
+| `awareness` | `device, data`                                | Device matches principal; at most 4 KiB canonical base64url bytes, ephemeral.                                              |
 
 `cursors` has at most 256 strict objects `{streamId, namespace, seq, envelopeHash}`,
 unique by stream/namespace. Sequence zero is an explicit bootstrap sentinel and
@@ -1030,7 +1096,7 @@ requires zero32 hash; an omitted namespace also bootstraps. A nonzero cursor mus
 match an exact retained update or checkpoint in that namespace. Unknown, wrong-
 namespace, hash-substituted and pruned cursors return `RESYNC_REQUIRED`; a retained
 receipt alone is insufficient after its payload is pruned. A client restarts with
-zero/omitted cursors to receive the latest namespace checkpoint and retained tail.
+zero/omitted cursors to receive the latest paired prefix checkpoint and retained tail.
 If compaction invalidates a cursor during catchup, catchup stops with
 `RESYNC_REQUIRED` instead of silently skipping data. Store preserves the durable
 receipt ledger, so pruning never permits accepting a sequence again.
@@ -1053,31 +1119,102 @@ and reason `INVALID`. Capacity never evicts accepted receipts or payloads.
 
 ### Implemented catchup and chunk protocol
 
-Catchup is server-driven. One hello produces a first `catchup` page with
-`membershipHead, baseline, streams, more`. `membershipHead` is exactly
-`{revision, statementHash}`: positive decimal revision and canonical base64url
-hash32 of the highest locally retained verified owner statement. The Admission
-implementation supplies it through `Store::owner_head`; sync cannot manufacture
-membership authority. `baseline` is null when the epoch has no reset baseline yet,
-or canonical base64url of exact model baseline-descriptor JSON, bounded to 8 KiB.
-The descriptor's page/epoch must match and its membership revision cannot exceed
-the retained head. The caller verifies its signed-log binding. The owner engine produces and persists
-reset baselines; mounted owner catchup reads the exact descriptor through
-`Store::baseline`. Scoped encrypted object retrieval remains caller-owned.
+Owner discovery on the mounted socket uses read-only `GET /api/session` and
+`GET /api/pages`. Missing or non-owner context returns 403 JSON `{code:"DENIED"}`.
+Session returns exactly `{deviceId, publicKey, grantRevision, name}`; revision
+is decimal text. It works before Colab extension-key registration and forwards
+no credential. Pages returns exactly `{spaceId, ownerKey, revision, pages}`;
+`pages` is sorted by page ID, at most 1,000 entries, each exactly
+`{pageId, epoch, sharing, history, archived}`. Local creation/epoch records own
+existence; sharing/history/archive/delete derive from verified owner statements.
+Absent sharing/history mean private/shared. Deleted pages are excluded. Titles
+are encrypted content and never returned here. `revision:"0"` means no owner log
+has been initialized yet. State faults return 503 JSON `{code:"UNAVAILABLE"}`.
 
-The first page has empty `streams` and `more:true`. Later pages contain only
-`streams, more` in addition to common fields. Each stream entry is exactly
+Catchup is server-driven. Strict hello additionally requires decimal
+`membershipRevision` (`"0"` means no verified log). Its first page carries
+`membershipHead, baseline, streams, more`. The exact head DTO is
+`{revision, statementHash, ownerKey, statements, more}`. Statements are canonical
+base64url of exact stored statement-envelope JSON after the client's revision,
+at most 64 per page. While head/membership `more` is true, later pages carry
+`membership:{statements,more}` before stream objects or wraps. The pinned retained
+head is the target for this catchup; unknown, missing or above-head revisions
+return `RESYNC_REQUIRED`. Clients independently verify owner signatures, chain,
+root pin and target hash; a client-side fork cannot be detected from the unsigned
+revision alone. Whole statements must fit one 64 KiB frame: pages use at most
+60 KiB of encoded statement data (less on the first page to reserve its baseline
+fields), an individual stored envelope at most 44 KiB;
+oversized statements fail `CAPACITY`, never truncate. Chunked membership statements are deferred to #1285.
+
+After membership, pages carry `wraps` addressed to this device or its member,
+ordered by numeric epoch, kind, recipient and revision. They include retained
+epoch-advance and history-join wraps for the 64 latest retained epochs through
+the requested epoch, and are bounded by 512 entries and 60 KiB encoded bytes per
+page. An empty list means no wraps exist. Each stream-object page carries
+`chains:[{deviceId,chain}]` with exact chain transport as canonical base64url for
+its author if not already sent on the connection (at most 64 per page). Retained
+revoked-author chains can be delivered: clients must reject them using the
+verified log before applying objects. A chain never grants current authority.
+
+`baseline` is null or canonical base64url of exact model baseline-descriptor
+JSON, bounded to 8 KiB. Its scope/revision must match the admitted page/epoch and
+retained head. The caller verifies its exact signed `epoch.advance` binding.
+The owner engine produces and persists reset baselines; mounted owner catchup
+reads the exact descriptor through `Store::baseline`. Native sync delivers the
+matching scoped stored encrypted object after caller admission.
+When `baseline` is non-null, the first page MUST also contain exactly
+`baselineObject: {envelopeHash, envelope}`. When `baseline` is null that field MUST
+be absent. `envelopeHash` is canonical base64url hash32 and MUST equal the signed
+descriptor's `objectEnvelopeHash`; `envelope` is the existing exact inline
+base64url envelope or `{objectId}` followed immediately by consecutive chunk frames. Later pages MUST NOT
+repeat either baseline field. The first page still has empty streams; baseline
+retrieval does not advance any device stream or cursor. Missing stored objects or
+descriptor mismatches resync; malformed or hash/scope/kind/revision mismatches
+reject, never substitute old-epoch source. The same frame credit and
+complete-object admission rules apply.
+
+Before publishing a reset view, the browser MUST finish owner-log verification,
+match every descriptor field to the signed epoch transition, obtain the admitted
+new-epoch wrap, and verify the exact baseline envelope hash, management-member
+signature and `html/content` sequence-zero context. Its author is the pinned owner
+management member, not a device certificate; its revision equals the descriptor's
+revision. Plaintext is strict JSON with only `source` and `update` as specified in
+[current-view baseline](#current-view-baseline-and-history-modes). The dedicated
+Worker verifies the source digest, LP commitment and exact source/title projection
+from that identical update before initializing a fresh content document. Apply
+current-epoch tails only after that initialization; publish nothing on any failure.
+Old-epoch envelopes and a missing baseline for a reset epoch MUST reject. The
+browser implementation is tested with signed fixtures; those fixtures do not
+establish native mounted browser E2E.
+
+The first page has empty `streams` and `more:true`. Later pages carry
+`streams, more` and the applicable membership, wraps or chains fields. Each stream entry is exactly
 `{streamId, namespace, checkpoint, tail}`. A checkpoint is null or
 `{seq, envelopeHash, envelope}`; tail is a list of those same entries. A page
-contains at most one object: either the latest namespace checkpoint for bootstrap,
-or the next update after the resolved cursor/checkpoint. The final page has
+contains at most one object: either the latest paired prefix checkpoint for
+bootstrap, or the next update after the resolved cursor/checkpoint. All bootstrap
+checkpoints precede tails. Each stream's tail merges both `content` and `own`
+namespaces in shared sequence order; updates from either namespace are required
+to verify the signed previous-hash chain. The final page has
 empty streams and `more:false`. Clients do not re-request pages. Clients verify
 all log, envelope and chain/namespace bindings before applying an object; a page
 or receipt is not that verification. A stream sequences namespaces together,
 so namespace-tail sequence numbers may interleave rather than being consecutive.
 
-Pages are generated only when that peer's outbound queue is empty and its buffered
-write is complete. Store reads use a transaction, current-epoch fencing, SQL-side
+After hello, every server-to-client application frame (metadata, chunks, final
+page, receipt, broadcast, awareness and errors) consumes one frame credit. At
+most eight frames are outstanding; each valid scoped client `ack` resolves its
+cursors and releases exactly one credit. Empty/unchanged cursors are valid for
+metadata and partial chunks; they grant no object admission. An ack with no
+outstanding frame is `INVALID`, so credits cannot be banked. No frame is sent
+while credit is exhausted, even if the socket is writable. The reference and
+all chunks stay consecutive across credit releases, with no interleaved receipt
+or live frame; clients admit only the fully reconstructed object. Live frames
+awaiting credit use the existing bounded queue and overflow still resyncs.
+Pre-hello live-only subscribe remains available without the hello credit flow.
+
+Pages are generated only when that peer's outbound queue is empty, its buffered
+write is complete and frame credit is available. Store reads use a transaction, current-epoch fencing, SQL-side
 payload-length checks and a bounded inventory of at most 256 stream/namespace
 pairs per page scope. A larger inventory returns `CAPACITY`, without eviction.
 Every page rescans the inventory: appends to already visited namespaces and newly
@@ -1093,7 +1230,13 @@ and exactly `{objectId, envelopeHash, index, count, bytes}`. Envelope JSON over
 32 KiB uses chunks. Raw `bytes` are canonical base64url, nonempty and at most
 32 KiB; every nonfinal chunk is exactly 32 KiB. `index` and `count` are JSON
 integers: consecutive zero-based index, positive bounded count, index below count.
-Transfer scope, object ID, envelope hash and count cannot change. Consumers retain
+Transfer scope, object ID, envelope hash and count cannot change.
+Baseline transfers use the model's non-update envelope ceiling (16 MiB plaintext
+plus authentication tag, framed header and base64/JSON overhead), exposed by the
+browser model as `MAX_ENVELOPE_JSON`; their chunk-count ceiling is that serialized
+bound divided by 32 KiB, rounded up. This does not raise the update ceiling below.
+The same one-transfer rule, absolute two-second deadline and queue bounds apply;
+a maximum accepted size is not a delivery-time promise. Consumers retain
 only one bounded incomplete object and apply nothing until exact reassembly,
 model hash/signature and application admission succeed; abnormal close discards it.
 
@@ -1127,8 +1270,8 @@ list. Append additionally requires the current membership revision and an allowe
 namespace, and returns the registered extension signing key for model signature
 verification. Upgrade verifies the full remote binding and device chain; repeated
 Read checks do not redo signatures or reserve the SQLite writer. Catchup takes its
-head from `Store::owner_head`; the optional reset baseline remains absent until
-#1157. Workers preserve upgrade read-ahead, drive silent transfer/write deadlines,
+head from `Store::owner_head` and the exact persisted reset descriptor through
+`Store::baseline` when one exists. Workers preserve upgrade read-ahead, drive silent transfer/write deadlines,
 apply the tunnel cap/idle bound, and close retained sockets before shutdown joins.
 
 The #830 fixture used 64 KiB frames/messages, queue 8, receipt/tail capacity 64,
@@ -1204,6 +1347,72 @@ operations so concurrent browser/CLI edits merge. Comment never dispatches.
 Space home/CLI management expose sharing, threads, anchors, conversations,
 members, snapshots, activity/expiry and held/uncertain sends. Enrollment, member
 management and local-agent grants remain distinct controls.
+
+## Plaintext page export (#1309)
+
+The native export v1 emits exactly `page.html` and `manifest.json` from one
+owner-authenticated read snapshot and the existing isolated decoder. HTML is the
+exact admitted UTF-8 source, including CR/LF, Unicode and NUL; export MUST NOT
+inject renderer CSP/bootstrap, normalize source or execute it. The title, epoch
+and verified membership head MUST belong to that same snapshot. A later write
+cannot change an already captured bundle. This head is locally verified, not a
+claim of globally current membership.
+
+The manifest is UTF-8 JSON with these fields:
+
+| Field            | Value / meaning                                                            |
+| ---------------- | -------------------------------------------------------------------------- |
+| `format`         | `tmt-colab-page-export`                                                    |
+| `version`        | JSON integer `1`                                                           |
+| `spaceId`        | Pinned space ID                                                            |
+| `pageId`         | Exported page UUID                                                         |
+| `title`          | Exact admitted title                                                       |
+| `exportedAtMs`   | Safe-integer UTC milliseconds                                              |
+| `membershipHead` | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256       |
+| `epoch`          | Current snapshot epoch as canonical positive decimal text                  |
+| `plaintext`      | `true`                                                                     |
+| `discussions`    | `not-included`                                                             |
+| `files`          | `[{name:"page.html", sizeBytes, sha256}]`; bytes and lowercase hex SHA-256 |
+
+The manifest MUST NOT list its own digest: that would be circular. The CLI result
+lists both files with their byte sizes and SHA-256. Export contains no roots,
+wraps, bearer seeds, sessions or private keys. It is a readable copy, not an
+import/backup format; referenced assets, retained history and snapshots are not
+promised as portable files. Discussion export is deferred until own-namespace
+folding exists (#1110 / #1264 slice C); native fold validation of own updates
+still applies, but their projections are not included.
+
+`tmt colab export <page> [--dir <destination>] [--json]` reads existing local
+state only. It MUST NOT initialize missing state or run migrations. The
+current native fold refuses inactive pages, so archived and deleted pages fail
+with `COLAB_EXPORT_INACTIVE` and the explanation "archived or deleted pages
+cannot be exported yet". After the archive/delete read-policy split (#1348),
+archived exports are enabled separately; deleted pages remain denied.
+
+The destination names an existing parent directory, defaulting to the current
+directory. Export creates a fresh UUID-named 0700 subdirectory with regular
+0600 files. The user-selected parent may contain symlink aliases: resolve it
+once to a canonical directory, then use no-follow descriptors and report that
+canonical path. Created entries MUST NOT follow symlinks or replace existing
+entries; parent traversal is refused and source/title MUST NOT choose paths.
+Private staging uses exclusive files, byte/digest checks and sync before
+descriptor-relative, create-only
+publication into an exclusively reserved directory. `manifest.json` publishes
+last. Publication rechecks the canonical destination path and directory/file
+identities and MUST NOT use a replacing rename or follow symlinks. On failure, clean only this invocation's
+checked staging; preserve foreign entries and any partial output. Report the
+original canonical partial destination in the human error and JSON
+`error.partialDirectory`; if an ancestor moved, the reported path is where
+publication began, not a claim that the files remain reachable there.
+A returned success means both files were published and staging was removed;
+this is not a crash-recovery guarantee.
+
+The CLI human disclosure and successful JSON `disclosure` say exactly:
+"This creates an unencrypted copy of the page. Anyone with these files can read it."
+The browser download surface is the subsequent #1309 slice. Its two downloads
+MUST freeze one admitted bundle, live only in trusted parent chrome, use and
+revoke parent-owned Blob URLs, show partial-download state and the same
+disclosure, and expose no download capability to the renderer.
 
 ## Conformance and acceptance gates
 

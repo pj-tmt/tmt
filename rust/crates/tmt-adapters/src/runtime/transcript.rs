@@ -2,7 +2,8 @@
 //! usage numbers (#519). The path comes from hook input, so it is trusted only
 //! as a regular `.jsonl` file under the driver's own tree, opened without
 //! following a final symlink or blocking on a FIFO. Tail and incremental reads
-//! share this trust boundary and each have a fixed byte bound. The formats
+//! share this trust boundary. Tails have a byte bound; Claude incremental
+//! scans have a deadline and a single-record byte bound. The formats
 //! are unofficial: anything unexpected
 //! yields nothing, never a guess.
 

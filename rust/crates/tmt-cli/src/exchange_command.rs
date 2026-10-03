@@ -61,7 +61,15 @@ fn request_failure(error: RequestError<StorageError>) -> Failure {
 fn run(identity: Option<String>, operation: ExchangeOperation) -> Result<Report, Failure> {
     let selector = identity_context::required(identity.as_deref())?;
     let paths = ConfigPaths::discover().map_err(unavailable)?;
-    let mut storage = Storage::open(paths.database).map_err(unavailable)?;
+    run_selected(&paths, selector, operation)
+}
+
+fn run_selected(
+    paths: &ConfigPaths,
+    selector: identity_context::Selector,
+    operation: ExchangeOperation,
+) -> Result<Report, Failure> {
+    let mut storage = Storage::open(&paths.database).map_err(unavailable)?;
     let pending = (|| {
         let identity = identity_context::resolve(&mut storage, selector).map_err(|error| {
             if error.code == "IDENTITY_ERROR" {
@@ -157,3 +165,19 @@ pub(crate) use listen::PRINTED_HINTS as LISTEN_HINTS;
 
 #[cfg(test)]
 pub(crate) use presentation::PRINTED_HINTS as PRESENTATION_HINTS;
+
+pub(crate) fn request_document(
+    paths: &ConfigPaths,
+    identity: &str,
+    request_id: String,
+) -> Result<serde_json::Value, Failure> {
+    run_selected(
+        paths,
+        identity_context::Selector::SavedId(identity.into()),
+        ExchangeOperation::Show {
+            request_id,
+            incoming: true,
+        },
+    )
+    .map(|report| presentation::document(&report))
+}

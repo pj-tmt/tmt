@@ -1,6 +1,15 @@
 import { defineConfig } from 'vite-plus';
 
 export default defineConfig({
+  fmt: {
+    semi: true,
+    singleQuote: true,
+    trailingComma: 'es5',
+    printWidth: 100,
+    tabWidth: 2,
+    sortImports: false,
+    sortPackageJson: false,
+  },
   test: {
     clearMocks: false,
     pool: 'threads',

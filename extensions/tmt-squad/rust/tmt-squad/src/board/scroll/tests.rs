@@ -45,11 +45,11 @@ fn overflow_reserves_a_line_for_what_is_above_and_below() {
     let scrolls = Scrolls::default();
     let screen = draw(&scrolls, Pane::Notes, 10, 4);
     assert_eq!(&screen[..3], ["line 0", "line 1", "line 2"]);
-    assert_eq!(screen[3].trim(), "↓ 7");
+    assert_eq!(screen[3].trim(), "7 more ↓");
     scrolls.scroll(Pane::Notes, Step::Lines(3));
     let screen = draw(&scrolls, Pane::Notes, 10, 4);
     assert_eq!(&screen[..3], ["line 3", "line 4", "line 5"]);
-    assert_eq!(screen[3].trim(), "↑ 3  ↓ 4");
+    assert_eq!(screen[3].trim(), "↑ 3  4 more ↓");
     scrolls.scroll(Pane::Notes, Step::Bottom);
     let screen = draw(&scrolls, Pane::Notes, 10, 4);
     assert_eq!(&screen[..3], ["line 7", "line 8", "line 9"]);
@@ -121,7 +121,7 @@ fn indicator_uses_the_resolved_token_without_extra_dimming() {
             Scrolls::default().show(frame, Pane::Notes, frame.area(), lines(10), dim);
         })
         .unwrap();
-    let marker = &terminal.backend().buffer()[(17, 3)];
+    let marker = &terminal.backend().buffer()[(19, 3)];
     assert_eq!(marker.symbol(), "↓");
     assert_eq!(Some(marker.fg), dim.fg);
     assert!(!marker.modifier.contains(ratatui::style::Modifier::DIM));

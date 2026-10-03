@@ -10,6 +10,10 @@ attachment/active-turn proof and 0.160.0 attach/queue/durable-reply proof are
 accepted; product routing and lifecycle gates are independent evidence described
 below.
 
+The [public dispatch readiness and input-safety contract](extension-api.md#dispatch-readiness-and-input-safety)
+owns the extension-facing admission/wake boundary. Native readiness and queue acceptance here
+do not grant an input-readiness lease or prove request completion.
+
 ## Default launch policy
 
 The [shared launcher policy](claude-channel-v1.md#opt-in-and-the-launch-lease)
@@ -157,13 +161,13 @@ advisory. This does not qualify them: the owned initialize
 handshake remains authoritative and accepts only the exact supported builds.
 Untested 0.160.x patches are refused at both boundaries.
 
-| Provider build | Binary preflight | Owned initialize | Live qualification |
-| --- | --- | --- | --- |
-| 0.159.2 | Accepted | Accepted | Isolated native queue observations in #329; no accepted foreground continuity claim for this build. |
-| 0.159.3 | Accepted | Accepted | Accepted foreground attachment and active-turn continuity proof in #739. |
-| 0.160.0 | Accepted | Accepted | Active-turn foreground attachment, idle/busy queue correlation and durable reply in #1043; fresh zero-turn attachment fails (#1198). |
-| Later 0.159 patches | Unavailable: unqualified-build advisory | Refused | Unqualified. |
-| Other builds, including later 0.160 patches | Refused | Refused | Unqualified. |
+| Provider build                              | Binary preflight                        | Owned initialize | Live qualification                                                                                                                   |
+| ------------------------------------------- | --------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| 0.159.2                                     | Accepted                                | Accepted         | Isolated native queue observations in #329; no accepted foreground continuity claim for this build.                                  |
+| 0.159.3                                     | Accepted                                | Accepted         | Accepted foreground attachment and active-turn continuity proof in #739.                                                             |
+| 0.160.0                                     | Accepted                                | Accepted         | Active-turn foreground attachment, idle/busy queue correlation and durable reply in #1043; fresh zero-turn attachment fails (#1198). |
+| Later 0.159 patches                         | Unavailable: unqualified-build advisory | Refused          | Unqualified.                                                                                                                         |
+| Other builds, including later 0.160 patches | Refused                                 | Refused          | Unqualified.                                                                                                                         |
 
 The initialize format is source-backed at the pinned revision above, in
 `request_processors/initialize_processor.rs` and

@@ -2682,7 +2682,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-adapters"
-version = "5.0.0-alpha.45"
+version = "5.0.0-alpha.46"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -2702,6 +2702,7 @@ dependencies = [
  "tmt-driver-protocol",
  "tmt-office-model",
  "tmt-sys",
+ "tmt-test-support",
  "toml_edit",
  "tungstenite",
  "ureq",
@@ -2710,7 +2711,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-cli"
-version = "5.0.0-alpha.45"
+version = "5.0.0-alpha.46"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2729,12 +2730,13 @@ dependencies = [
  "tmt-driver-protocol",
  "tmt-office-command",
  "tmt-office-model",
+ "tmt-test-support",
  "toml_edit",
 ]
 
 [[package]]
 name = "tmt-cli-style"
-version = "5.0.0-alpha.45"
+version = "5.0.0-alpha.46"
 dependencies = [
  "anstream",
  "anstyle",
@@ -2766,6 +2768,7 @@ dependencies = [
  "tmt-cli-style",
  "tmt-colab-model",
  "tmt-invoke",
+ "tmt-test-support",
  "tungstenite",
  "yrs",
 ]
@@ -2788,7 +2791,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-command-output"
-version = "5.0.0-alpha.45"
+version = "5.0.0-alpha.46"
 dependencies = [
  "serde_json",
  "tmt-adapters",
@@ -2798,7 +2801,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-core"
-version = "5.0.0-alpha.45"
+version = "5.0.0-alpha.46"
 dependencies = [
  "icu_casemap",
  "icu_locale_core",
@@ -2811,7 +2814,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-driver-herdr"
-version = "5.0.0-alpha.45"
+version = "5.0.0-alpha.46"
 dependencies = [
  "semver",
  "serde_json",
@@ -2821,7 +2824,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-driver-protocol"
-version = "5.0.0-alpha.45"
+version = "5.0.0-alpha.46"
 dependencies = [
  "serde",
  "serde_json",
@@ -2830,11 +2833,11 @@ dependencies = [
 
 [[package]]
 name = "tmt-host-grammar"
-version = "5.0.0-alpha.45"
+version = "5.0.0-alpha.46"
 
 [[package]]
 name = "tmt-invoke"
-version = "5.0.0-alpha.45"
+version = "5.0.0-alpha.46"
 dependencies = [
  "nix",
  "subprocess",
@@ -2858,6 +2861,7 @@ dependencies = [
  "tmt-office-pairing",
  "tmt-office-service",
  "tmt-office-storage",
+ "tmt-test-support",
  "uuid",
 ]
 
@@ -2877,12 +2881,13 @@ dependencies = [
  "tmt-core",
  "tmt-office-model",
  "tmt-office-service",
+ "tmt-test-support",
  "uuid",
 ]
 
 [[package]]
 name = "tmt-office-model"
-version = "5.0.0-alpha.45"
+version = "5.0.0-alpha.46"
 dependencies = [
  "base64 0.22.1",
  "png",
@@ -2897,7 +2902,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-pairing"
-version = "5.0.0-alpha.45"
+version = "5.0.0-alpha.46"
 dependencies = [
  "apple-native-keyring-store",
  "base64 0.22.1",
@@ -2916,7 +2921,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-service"
-version = "5.0.0-alpha.45"
+version = "5.0.0-alpha.46"
 dependencies = [
  "nix",
  "serde",
@@ -2928,7 +2933,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-storage"
-version = "5.0.0-alpha.45"
+version = "5.0.0-alpha.46"
 dependencies = [
  "base64 0.22.1",
  "nix",
@@ -2966,7 +2971,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-squad"
-version = "0.1.0-alpha.13"
+version = "0.1.0-alpha.14"
 dependencies = [
  "clap",
  "nix",
@@ -2978,6 +2983,7 @@ dependencies = [
  "subprocess",
  "tmt-cli-style",
  "tmt-invoke",
+ "tmt-test-support",
  "tmt-tui",
  "toml_edit",
  "unicode-width",
@@ -2985,14 +2991,21 @@ dependencies = [
 
 [[package]]
 name = "tmt-sys"
-version = "5.0.0-alpha.45"
+version = "5.0.0-alpha.46"
 dependencies = [
  "libc",
 ]
 
 [[package]]
+name = "tmt-test-support"
+version = "5.0.0-alpha.46"
+dependencies = [
+ "tmt-invoke",
+]
+
+[[package]]
 name = "tmt-tui"
-version = "5.0.0-alpha.45"
+version = "5.0.0-alpha.46"
 dependencies = [
  "ratatui",
  "roxmltree",

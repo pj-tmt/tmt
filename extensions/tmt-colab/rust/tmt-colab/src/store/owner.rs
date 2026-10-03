@@ -1,5 +1,6 @@
 //! Owner authority persistence, not session or transition-policy admission.
 //! All mutations use one writer transaction; exact results survive lost replies.
+mod bootstrap;
 pub(crate) mod epoch;
 pub use epoch::{Cut, StoredBaseline};
 

@@ -25,8 +25,11 @@ import {
   type RootSecret,
 } from './crypto.js';
 import { strictJson } from './json.js';
-const SUITE = 'aes256gcm-hkdfsha256-ed25519-v1',
-  MAX = 16 * 1024 * 1024;
+const SUITE = 'aes256gcm-hkdfsha256-ed25519-v1';
+/** Non-update plaintext ceiling, matching the Rust model. */
+export const MAX_PLAINTEXT = 16 * 1024 * 1024;
+/** Serialized envelope ceiling: plaintext/tag/header and canonical base64 JSON overhead. */
+export const MAX_ENVELOPE_JSON = Math.floor(((MAX_PLAINTEXT + 2048) * 4) / 3) + 2048;
 const CONTEXT = [
   'space',
   'page',
@@ -109,7 +112,8 @@ export function decodeHeader(raw: Uint8Array): { context: Context; objectId: str
   requireValue(equal(header(context, objectId), raw));
   return { context, objectId };
 }
-const ceiling = (h: Uint8Array) => (decodeHeader(h).context.kind === 'update' ? 256 * 1024 : MAX);
+const ceiling = (h: Uint8Array) =>
+  decodeHeader(h).context.kind === 'update' ? 256 * 1024 : MAX_PLAINTEXT;
 export async function signatureInput(h: Uint8Array, ct: Uint8Array): Promise<Bytes> {
   const bytes = copy(h),
     cipher = copy(ct);
@@ -126,7 +130,7 @@ export class Envelope {
     this.#signature = copy(sig, 64);
   }
   static fromJson(raw: Uint8Array): Envelope {
-    const value = strictJson(raw, ((MAX + 2048) * 4) / 3 + 2048);
+    const value = strictJson(raw, MAX_ENVELOPE_JSON);
     exactKeys(value, ['header', 'nonce', 'ciphertext', 'signature']);
     const h = binary(value.header, 1024);
     const max = ceiling(h);

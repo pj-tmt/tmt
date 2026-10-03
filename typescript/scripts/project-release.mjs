@@ -1,13 +1,15 @@
-// Published-release evidence -> existing Project items. No release or issue mutation.
+// Repository state -> existing Project items. No release, issue or membership mutation.
 import { appendFileSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { productOfTag, archivePrefix } from './native-release-policy.mjs';
+import { productOfTag, archivePrefix, releasePolicy } from './native-release-policy.mjs';
 import { compareVersions, versionOfTag } from './release-versions.mjs';
+import { ownerOf, parseComponentMap } from './ci-scope.mjs';
 
 export const PROJECT_ID = 'PVT_kwDOFBKkD84BlZ_A';
-export const LIMITS = { graphql: 60, rest: 250, pages: 10, releases: 10, prs: 250, batch: 25 };
-const replay = 'Replay the affected published tag with project-release.yml (dry-run first).';
+export const LIMITS = { graphql: 200, rest: 20, pages: 20, prs: 2000, batch: 25 };
+const recovery =
+  'Run a full project-release.yml dry run; resolve incomplete evidence before retrying.';
 const chunks = (rows, size = LIMITS.batch) =>
   Array.from({ length: Math.ceil(rows.length / size) }, (_, i) =>
     rows.slice(i * size, (i + 1) * size)
@@ -16,27 +18,15 @@ const quote = JSON.stringify;
 
 export function releaseIdentity(tag) {
   const product = productOfTag(tag);
-  if (!product || (product === 'cli' && !tag.startsWith('v5.'))) return undefined;
+  if (!product) return undefined;
   const version = versionOfTag(tag, product);
   try {
     compareVersions(version, version);
+    if (product === 'cli' && compareVersions(version, '5.0.0-alpha.0') < 0) return undefined;
   } catch {
     return undefined;
   }
   return { product, version, label: `${archivePrefix(product)} ${version}` };
-}
-
-/** Only same-repository release-please links; /issues links may actually be PRs. */
-export function noteReferences(body, repository) {
-  const allowed = new Set([repository.toLowerCase()]);
-  if (repository === 'pj-tmt/tmt') allowed.add('wkh237/tmt'); // Pre-transfer release notes.
-  return [
-    ...new Set(
-      [...body.matchAll(/https:\/\/github\.com\/([^/\s)]+\/[^/\s)]+)\/(?:pull|issues)\/(\d+)\b/g)]
-        .filter((match) => allowed.has(match[1].toLowerCase()))
-        .map((match) => Number(match[2]))
-    ),
-  ].sort((a, b) => a - b);
 }
 
 /** A hard budget counts requests, including failed calls; no retries or polling. */
@@ -47,9 +37,11 @@ export function githubApi({ appToken, readToken, repository, spawn = spawnSync }
     );
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error('Invalid repository.');
   const counts = { graphql: 0, rest: 0 };
+  const points = { cost: 0, remaining: null };
   const invoke = (kind, endpoint, input) => {
-    if (++counts[kind] > LIMITS[kind])
-      throw new Error(`${kind} request budget exceeded. ${replay}`);
+    if (counts[kind] >= LIMITS[kind])
+      throw new Error(`${kind} request budget exceeded. ${recovery}`);
+    counts[kind]++;
     const args = ['api', endpoint, ...(input ? ['--input', '-'] : [])];
     const result = spawn('gh', args, {
       input: input ? JSON.stringify(input) : undefined,
@@ -67,24 +59,38 @@ export function githubApi({ appToken, readToken, repository, spawn = spawnSync }
     } catch {
       /* Transport errors may have no JSON body. */
     }
+    const rateLimit = kind === 'graphql' ? data?.data?.rateLimit : undefined;
+    const validRateLimit =
+      Number.isSafeInteger(rateLimit?.cost) &&
+      rateLimit.cost >= 0 &&
+      Number.isSafeInteger(rateLimit?.remaining) &&
+      rateLimit.remaining >= 0;
+    // Preserve reported cost even when GitHub also returns a partial-query error.
+    if (validRateLimit) {
+      points.cost += rateLimit.cost;
+      points.remaining = rateLimit.remaining;
+    }
     if (data?.errors?.length) {
       throw new Error(
-        `GitHub GraphQL rejected the request: ${data.errors.map((error) => error.message).join('; ')}. ${replay}`
+        `GitHub GraphQL rejected the request: ${data.errors.map((error) => error.message).join('; ')}. ${recovery}`
       );
     }
     if (result.error || result.status !== 0 || data === undefined)
       throw new Error(
-        `GitHub ${kind} request failed for ${endpoint}; no automatic retry. ${replay}`
+        `GitHub ${kind} request failed for ${endpoint}; no automatic retry. ${recovery}`
       );
+    if (kind === 'graphql' && input.query.startsWith('query') && !validRateLimit)
+      throw new Error('GraphQL read omitted valid rate-limit cost/remaining evidence.');
     return kind === 'graphql' ? data.data : data;
   };
   return {
     counts,
+    points,
     rest: (path) => invoke('rest', `repos/${repository}/${path}`),
     graphql: (query) => invoke('graphql', 'graphql', { query }),
     reserve: (requests) => {
       if (counts.graphql + requests > LIMITS.graphql)
-        throw new Error(`Insufficient GraphQL budget before writes. ${replay}`);
+        throw new Error(`Insufficient GraphQL budget before writes. ${recovery}`);
     },
   };
 }
@@ -97,165 +103,26 @@ function nextCursor(connection) {
   return connection.pageInfo.endCursor;
 }
 
-export function publishedWindow(releases, eventName, event, tag) {
-  const published = releases
-    .filter((r) => !r.draft && r.published_at && releaseIdentity(r.tag_name))
-    .sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at));
-  if (eventName === 'workflow_dispatch') {
-    const release = published.find((r) => r.tag_name === tag);
-    if (!release) throw new Error('Manual replay requires an existing supported published tag.');
-    return [release];
-  }
-  const selected = published.slice(0, LIMITS.releases);
-  if (eventName === 'workflow_run') {
-    const run = event.workflow_run;
-    if (
-      run?.name !== 'Native release artifacts' ||
-      run.head_branch !== 'main' ||
-      run.event !== 'workflow_dispatch'
-    )
-      throw new Error('Unexpected publishing workflow provenance.');
-    const since = Date.parse(run.created_at);
-    if (!Number.isFinite(since)) throw new Error('Publishing run has no valid start time.');
-    if (published.slice(LIMITS.releases).some((r) => Date.parse(r.published_at) >= since))
-      throw new Error(`Publishing run exceeds the ${LIMITS.releases}-release window. ${replay}`);
-  } else if (eventName !== 'schedule') throw new Error('Unsupported updater event.');
-  return selected;
-}
-
+/** Read every published release, without a recency or notes-based selection window. */
 export function readReleases(api) {
   const releases = [];
   for (let page = 1; page <= LIMITS.pages; page++) {
     const rows = api.rest(`releases?per_page=100&page=${page}`);
-    releases.push(...rows);
-    if (rows.length < 100) return releases;
-  }
-  throw new Error(`Release pagination cap reached. ${replay}`);
-}
-
-/** Resolve references in batches, including every closing-issue page. Plain issues are not PRs. */
-export function resolveClosingIssues(api, repository, numbers) {
-  const unique = [...new Set(numbers)];
-  if (unique.length > LIMITS.prs) throw new Error(`PR reference cap reached. ${replay}`);
-  const [owner, name] = repository.split('/');
-  const resolved = new Map();
-  for (const batch of chunks(unique)) {
-    let pending = batch.map((number) => ({ number, cursor: null }));
-    for (let page = 0; pending.length && page < LIMITS.pages; page++) {
-      const fields = pending
-        .map(
-          ({ number, cursor }, i) =>
-            `p${i}:issueOrPullRequest(number:${number}){__typename ... on PullRequest{number merged closingIssuesReferences(first:100,after:${quote(cursor)}){nodes{id number url} pageInfo{hasNextPage endCursor}}}}`
-        )
-        .join('\n');
-      const data = api.graphql(
-        `query{repository(owner:${quote(owner)},name:${quote(name)}){${fields}}}`
+    if (!Array.isArray(rows)) throw new Error('Incomplete releases response.');
+    for (const row of rows) {
+      if (row.draft || !releaseIdentity(row.tag_name)) continue;
+      if (!row.published_at || !Number.isFinite(Date.parse(row.published_at)))
+        throw new Error(`Missing publication time for ${row.tag_name}.`);
+      releases.push(row);
+    }
+    if (rows.length < 100)
+      return releases.sort(
+        (a, b) =>
+          Date.parse(a.published_at) - Date.parse(b.published_at) ||
+          a.tag_name.localeCompare(b.tag_name)
       );
-      const more = [];
-      pending.forEach(({ number }, i) => {
-        const pr = data.repository?.[`p${i}`];
-        if (!pr) throw new Error(`Reference #${number} could not be resolved.`);
-        if (pr.__typename !== 'PullRequest' || !pr.merged) {
-          resolved.set(number, null);
-          return;
-        }
-        const issues = resolved.get(number) || new Map();
-        const cursor = nextCursor(pr.closingIssuesReferences);
-        for (const issue of pr.closingIssuesReferences.nodes) {
-          if (!issue?.id) throw new Error(`Incomplete closing issue for PR #${number}.`);
-          issues.set(issue.id, issue);
-        }
-        resolved.set(number, issues);
-        if (cursor) more.push({ number, cursor });
-      });
-      pending = more;
-    }
-    if (pending.length) throw new Error(`Closing-issue pagination cap reached. ${replay}`);
   }
-  return resolved;
-}
-
-function comparePrs(api, release, releases) {
-  if (releases.length === 1) releases = readReleases(api);
-  const identity = releaseIdentity(release.tag_name);
-  const previous = releases
-    .filter(
-      (r) => !r.draft && r.published_at && releaseIdentity(r.tag_name)?.product === identity.product
-    )
-    .filter(
-      (r) => compareVersions(versionOfTag(r.tag_name, identity.product), identity.version) < 0
-    )
-    .sort((a, b) =>
-      compareVersions(
-        versionOfTag(b.tag_name, identity.product),
-        versionOfTag(a.tag_name, identity.product)
-      )
-    )[0];
-  if (!previous)
-    throw new Error(`No PR notes or previous release for ${release.tag_name}. ${replay}`);
-  const commits = [];
-  for (let page = 1; page <= LIMITS.pages; page++) {
-    const data = api.rest(
-      `compare/${encodeURIComponent(previous.tag_name)}...${encodeURIComponent(release.tag_name)}?per_page=100&page=${page}`
-    );
-    if (!['ahead', 'identical'].includes(data.status))
-      throw new Error('Release comparison is not an ancestor range.');
-    commits.push(...data.commits);
-    if (commits.length === data.total_commits) break;
-    if (page === LIMITS.pages || !data.commits.length)
-      throw new Error(`Incomplete release compare range. ${replay}`);
-  }
-  const prs = new Set();
-  for (const commit of commits) {
-    for (let page = 1; page <= LIMITS.pages; page++) {
-      const rows = api.rest(`commits/${commit.sha}/pulls?per_page=100&page=${page}`);
-      for (const pr of rows)
-        if (
-          pr.merged_at &&
-          pr.base?.repo?.full_name?.toLowerCase() === release.repository.toLowerCase()
-        )
-          prs.add(pr.number);
-      if (rows.length < 100) break;
-      if (page === LIMITS.pages) throw new Error(`Commit PR pagination cap reached. ${replay}`);
-    }
-  }
-  return [...prs];
-}
-
-export function releaseIssues(api, repository, selected, releases) {
-  const references = new Map(
-    selected.map((r) => [r.tag_name, noteReferences(r.body || '', repository)])
-  );
-  let resolved = resolveClosingIssues(api, repository, [...references.values()].flat());
-  const fallbacks = new Map();
-  for (const release of selected) {
-    if (!references.get(release.tag_name).some((number) => resolved.get(number))) {
-      fallbacks.set(release.tag_name, comparePrs(api, { ...release, repository }, releases));
-    }
-  }
-  if (fallbacks.size) {
-    const extra = resolveClosingIssues(api, repository, [...fallbacks.values()].flat());
-    resolved = new Map([...resolved, ...extra]);
-  }
-  const issues = new Map();
-  const sources = [];
-  for (const release of selected) {
-    const numbers = fallbacks.get(release.tag_name) || references.get(release.tag_name);
-    const label = releaseIdentity(release.tag_name).label;
-    const prs = numbers.filter((number) => resolved.get(number));
-    sources.push({
-      tag: release.tag_name,
-      method: fallbacks.has(release.tag_name) ? 'compare' : 'notes',
-      prs,
-    });
-    for (const number of prs)
-      for (const issue of resolved.get(number).values()) {
-        const row = issues.get(issue.id) || { ...issue, labels: new Set() };
-        row.labels.add(label);
-        issues.set(issue.id, row);
-      }
-  }
-  return { issues, sources };
+  throw new Error(`Release pagination cap reached. ${recovery}`);
 }
 
 export function readProject(api, projectId = PROJECT_ID) {
@@ -264,167 +131,387 @@ export function readProject(api, projectId = PROJECT_ID) {
   let fields;
   for (let page = 0; page < LIMITS.pages; page++) {
     const data = api.graphql(
-      `query{node(id:${quote(projectId)}){... on ProjectV2{id fields(first:100){nodes{... on ProjectV2Field{id name dataType} ... on ProjectV2SingleSelectField{id name options{id name}}} pageInfo{hasNextPage endCursor}} items(first:100,after:${quote(cursor)}){nodes{id content{... on Issue{id number url}} status:fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}} released:fieldValueByName(name:"Released in"){... on ProjectV2ItemFieldTextValue{text}}} pageInfo{hasNextPage endCursor}}}}}`
+      `query{rateLimit{cost remaining} node(id:${quote(projectId)}){... on ProjectV2{id fields(first:100){nodes{... on ProjectV2Field{id name dataType} ... on ProjectV2SingleSelectField{id name options{id name}}} pageInfo{hasNextPage endCursor}} items(first:100,after:${quote(cursor)}){nodes{id content{__typename ... on Issue{id number url state repository{nameWithOwner} labels(first:20){nodes{name} pageInfo{hasNextPage endCursor}}}} status:fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}} released:fieldValueByName(name:"Released in"){... on ProjectV2ItemFieldTextValue{text}}} pageInfo{hasNextPage endCursor}}}}}`
     );
     if (!data.node || nextCursor(data.node.fields))
       throw new Error('Missing project or incomplete field schema.');
     fields = data.node.fields.nodes;
     const connection = data.node.items;
     cursor = nextCursor(connection);
-    for (const row of connection.nodes) if (row.content?.id) items.set(row.content.id, row);
+    for (const row of connection.nodes) {
+      if (!row?.id) throw new Error('Incomplete Project item.');
+      if (row.content?.__typename === 'Issue') {
+        if (
+          !row.content.id ||
+          !row.content.url ||
+          !row.content.repository?.nameWithOwner ||
+          !['OPEN', 'CLOSED'].includes(row.content.state)
+        )
+          throw new Error('Incomplete Project issue.');
+        if (
+          nextCursor(row.content.labels) ||
+          row.content.labels.nodes.some((label) => typeof label?.name !== 'string')
+        )
+          throw new Error('Incomplete issue labels; refusing to risk updating an epic tracker.');
+        items.set(row.content.id, row);
+      }
+    }
     if (!cursor) {
       const status = fields.find((f) => f.name === 'Status' && f.options);
       const released = fields.find((f) => f.name === 'Released in' && f.dataType === 'TEXT');
-      const option = status?.options.find((o) => o.name === 'Released');
-      if (!status || !released || !option)
-        throw new Error('Project requires Status=Released and a Released in text field.');
+      const options = Object.fromEntries((status?.options || []).map((o) => [o.name, o.id]));
+      if (!status || !released || ['Merged', 'Released', 'Done'].some((name) => !options[name]))
+        throw new Error(
+          'Project requires Status= Merged, Released, Done and a Released in text field.'
+        );
       return {
         projectId,
         items,
         statusId: status.id,
         releasedId: released.id,
-        optionId: option.id,
+        options,
         pages: page + 1,
       };
     }
   }
-  throw new Error(`Project pagination cap reached. ${replay}`);
+  throw new Error(`Project pagination cap reached. ${recovery}`);
 }
 
-export function planUpdates(issues, project) {
-  const changes = [],
-    skipped = [];
-  for (const issue of issues.values()) {
-    const item = project.items.get(issue.id);
-    if (!item) {
-      skipped.push(issue.url);
-      continue;
-    }
-    if (
-      item.status?.name &&
-      !['Todo', 'In Progress', 'In Review', 'Merged', 'Released'].includes(item.status.name)
-    ) {
-      throw new Error(`Unknown status for ${issue.url}; refusing to replace it.`);
-    }
-    const old = item.released?.text || '';
-    const lines = new Set(
-      old
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-    );
-    const added = [...issue.labels].filter((label) => !lines.has(label)).sort();
-    const text = added.length
-      ? old + (old && !old.endsWith('\n') ? '\n' : '') + added.join('\n')
-      : old;
-    if (text.length > 10_000) throw new Error(`Released in text limit reached for ${issue.url}.`);
-    if (added.length || item.status?.name !== 'Released')
-      changes.push({
-        itemId: item.id,
-        issue: issue.url,
-        text,
-        writeText: !!added.length,
-        writeStatus: item.status?.name !== 'Released',
+/** GitHub's closing relationship is authoritative, not notes, titles or issue text. */
+export function readClosingPrs(api, items, repository) {
+  const issues = new Map();
+  const prs = new Map();
+  for (const batch of chunks(items)) {
+    let pending = batch.map((item) => ({ id: item.content.id, cursor: null }));
+    for (let page = 0; pending.length && page < LIMITS.pages; page++) {
+      const fields = pending
+        .map(
+          ({ id, cursor }, i) =>
+            `i${i}:node(id:${quote(id)}){... on Issue{id state closedByPullRequestsReferences(first:10,after:${quote(cursor)},includeClosedPrs:true){nodes{id number merged mergeCommit{oid} repository{nameWithOwner}} pageInfo{hasNextPage endCursor}}}}`
+        )
+        .join('\n');
+      const data = api.graphql(`query{rateLimit{cost remaining} ${fields}}`);
+      const more = [];
+      pending.forEach(({ id }, i) => {
+        const issue = data[`i${i}`];
+        if (issue?.id !== id || issue.state !== 'CLOSED')
+          throw new Error('Issue disappeared or reopened during discovery; rerun the sweep.');
+        const connection = issue.closedByPullRequestsReferences;
+        const cursor = nextCursor(connection);
+        const closing = issues.get(id) || new Set();
+        for (const pr of connection.nodes) {
+          if (!pr?.id || typeof pr.merged !== 'boolean') throw new Error('Incomplete closing PR.');
+          if (!pr.merged) continue;
+          if (
+            pr.repository?.nameWithOwner.toLowerCase() !== repository.toLowerCase() ||
+            !/^[a-f0-9]{40}$/.test(pr.mergeCommit?.oid || '')
+          )
+            throw new Error(`Missing same-repository merge evidence for closing PR #${pr.number}.`);
+          prs.set(pr.id, pr);
+          closing.add(pr.id);
+        }
+        issues.set(id, closing);
+        if (cursor) more.push({ id, cursor });
       });
+      if (prs.size > LIMITS.prs) throw new Error(`Closing PR cap reached. ${recovery}`);
+      pending = more;
+    }
+    if (pending.length) throw new Error(`Closing PR pagination cap reached. ${recovery}`);
   }
-  return { changes, skipped };
+  return { issues, prs };
+}
+
+/** Local full-history git supplies merged paths and ancestry; no per-commit API fan-out. */
+export function gitEvidence({ cwd = process.cwd(), spawn = spawnSync } = {}) {
+  const git = (args, input) => {
+    const result = spawn('git', args, {
+      cwd,
+      input,
+      encoding: 'utf8',
+      timeout: 30_000,
+      maxBuffer: 32 * 1024 * 1024,
+    });
+    if (result.error || result.status !== 0)
+      throw new Error(`Git evidence failed: git ${args.join(' ')}`);
+    return result.stdout;
+  };
+  if (git(['rev-parse', '--is-shallow-repository']).trim() !== 'false')
+    throw new Error('Release tracking requires full git history and tags.');
+  return {
+    validateTags: (tags) => {
+      if (!tags.length) return;
+      const objects = git(
+        ['cat-file', '--batch-check=%(objectname) %(objecttype)'],
+        tags.map((tag) => `refs/tags/${tag}^{commit}\n`).join('')
+      )
+        .trim()
+        .split('\n');
+      if (
+        objects.length !== tags.length ||
+        objects.some((object) => !/^[a-f0-9]{40} commit$/.test(object))
+      )
+        throw new Error('Git evidence failed: a published tag does not resolve to a commit.');
+    },
+    paths: (sha) => {
+      if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error('Invalid merge commit.');
+      // First-parent delta is the change actually merged, including both sides of renames.
+      return git(['diff', '--name-only', '--no-renames', '-z', `${sha}^1`, sha, '--'])
+        .split('\0')
+        .filter(Boolean);
+    },
+    containingTags: (sha) => {
+      if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error('Invalid merge commit.');
+      return new Set(git(['tag', '--contains', sha]).split('\n').filter(Boolean));
+    },
+  };
+}
+
+export function affectedProducts(paths, map) {
+  const products = new Set(),
+    unpublished = new Set();
+  for (const path of paths) {
+    const name = ownerOf(path, map);
+    const component = map.components.find((entry) => entry.name === name);
+    if (!component) throw new Error(`No component owns ${path}.`);
+    // Consumers come from the same map used by release-please, never from CI selection rules.
+    const owners = component.releaseConsumers.length ? component.releaseConsumers : [name];
+    for (const owner of owners) {
+      try {
+        releasePolicy(owner);
+        products.add(owner);
+      } catch {
+        unpublished.add(owner);
+      }
+    }
+  }
+  return { products: [...products].sort(), unpublished: [...unpublished].sort() };
+}
+
+export function deriveEvidence(items, closing, releases, git, map) {
+  git.validateTags(releases.map((r) => r.tag_name));
+  const merged = new Map();
+  for (const [id, pr] of closing.prs) {
+    const sha = pr.mergeCommit.oid;
+    const paths = git.paths(sha);
+    merged.set(id, { ...affectedProducts(paths, map), tags: git.containingTags(sha) });
+  }
+  const evidence = new Map();
+  for (const item of items) {
+    const ids = [...closing.issues.get(item.content.id)];
+    const requirements = new Map(),
+      waiting = new Set();
+    for (const id of ids) {
+      const pr = merged.get(id);
+      for (const owner of pr.unpublished) waiting.add(`No publication policy: ${owner}`);
+      if (!pr.products.length && !pr.unpublished.length) waiting.add('Merge has no changed paths');
+      for (const product of pr.products) {
+        const tags = requirements.get(product) || [];
+        tags.push(pr.tags);
+        requirements.set(product, tags);
+      }
+    }
+    const labels = [];
+    for (const [product, contains] of [...requirements].sort(([a], [b]) => a.localeCompare(b))) {
+      const first = releases.find(
+        (r) =>
+          releaseIdentity(r.tag_name).product === product &&
+          contains.every((tags) => tags.has(r.tag_name))
+      );
+      if (first) labels.push(releaseIdentity(first.tag_name).label);
+      else waiting.add(`Awaiting ${product}`);
+    }
+    evidence.set(item.content.id, {
+      status: !ids.length ? 'Done' : waiting.size ? 'Merged' : 'Released',
+      text: labels.join('\n'),
+      prs: ids.map((id) => closing.prs.get(id).number),
+      waiting: [...waiting].sort(),
+    });
+  }
+  return evidence;
+}
+
+/** Recompute both owned fields, including incorrect existing terminal values. */
+export function planUpdates(evidence, project) {
+  const rows = [];
+  for (const [id, planned] of evidence) {
+    const item = project.items.get(id);
+    if (!item) throw new Error(`Project item disappeared: ${id}.`);
+    const current = { status: item.status?.name || '', text: item.released?.text || '' };
+    if (current.status && !project.options[current.status])
+      throw new Error(`Unknown status for ${item.content.url}.`);
+    if (planned.text.length > 10_000) throw new Error('Released in text limit reached.');
+    rows.push({
+      itemId: item.id,
+      issue: item.content.url,
+      current,
+      ...planned,
+      writeText: current.text !== planned.text,
+      writeStatus: current.status !== planned.status,
+    });
+  }
+  return { rows, changes: rows.filter((row) => row.writeText || row.writeStatus) };
 }
 
 export function applyUpdates(api, project, plan, dryRun) {
-  const text = plan.changes.filter((c) => c.writeText);
-  const status = plan.changes.filter((c) => c.writeStatus);
+  const status = plan.changes.filter((row) => row.writeStatus);
   const batches = [
-    ...chunks(text).map((rows) => ({ rows, fieldId: project.releasedId, field: 'text' })),
-    ...chunks(status).map((rows) => ({
+    // Correct false Released claims before replacing their evidence.
+    ...chunks(status.filter((row) => row.status !== 'Released')).map((rows) => ({
       rows,
-      fieldId: project.statusId,
-      field: 'singleSelectOptionId',
+      field: 'status',
+    })),
+    ...chunks(plan.changes.filter((row) => row.writeText)).map((rows) => ({ rows, field: 'text' })),
+    ...chunks(status.filter((row) => row.status === 'Released')).map((rows) => ({
+      rows,
+      field: 'status',
     })),
   ];
-  api.reserve(batches.length + (plan.changes.length ? project.pages : 0)); // Include one bounded verification readback.
+  api.reserve(batches.length + (plan.changes.length ? LIMITS.pages : 0));
   if (dryRun) return;
-  // Publish evidence first. A partial failure leaves retryable text, never a false terminal state.
-  for (const { rows, fieldId, field } of batches) {
+  for (const { rows, field } of batches) {
     const mutations = rows
-      .map(
-        (row, i) =>
-          `u${i}:updateProjectV2ItemFieldValue(input:{projectId:${quote(project.projectId)},itemId:${quote(row.itemId)},fieldId:${quote(fieldId)},value:{${field}:${quote(field === 'text' ? row.text : project.optionId)}}}){projectV2Item{id}}`
-      )
+      .map((row, i) => {
+        const common = `projectId:${quote(project.projectId)},itemId:${quote(row.itemId)},fieldId:${quote(field === 'text' ? project.releasedId : project.statusId)}`;
+        if (field === 'text' && !row.text)
+          return `u${i}:clearProjectV2ItemFieldValue(input:{${common}}){projectV2Item{id}}`;
+        const value =
+          field === 'text'
+            ? `text:${quote(row.text)}`
+            : `singleSelectOptionId:${quote(project.options[row.status])}`;
+        return `u${i}:updateProjectV2ItemFieldValue(input:{${common},value:{${value}}}){projectV2Item{id}}`;
+      })
       .join('\n');
-    api.graphql(`mutation{${mutations}}`);
+    const result = api.graphql(`mutation{${mutations}}`);
+    rows.forEach((row, i) => {
+      if (result[`u${i}`]?.projectV2Item?.id !== row.itemId)
+        throw new Error('Incomplete Project mutation response.');
+    });
   }
 }
 
 export function reconcile({
   api,
   repository,
-  eventName,
-  event,
-  tag,
   dryRun,
   projectId = PROJECT_ID,
+  git = gitEvidence(),
+  map = parseComponentMap(
+    readFileSync(new URL('../../.github/components.json', import.meta.url), 'utf8')
+  ),
 }) {
-  const releases =
-    eventName === 'workflow_dispatch'
-      ? [api.rest(`releases/tags/${encodeURIComponent(tag || '')}`)]
-      : readReleases(api);
-  const selected = publishedWindow(releases, eventName, event, tag);
-  const { issues, sources } = releaseIssues(api, repository, selected, releases);
-  if (!issues.size) {
-    return {
-      dryRun,
-      releases: sources,
-      issues: 0,
-      changed: [],
-      outsideProject: [],
-      requests: api.counts,
-    };
-  }
+  const releases = readReleases(api);
   const project = readProject(api, projectId);
-  const plan = planUpdates(issues, project);
+  const closed = [...project.items.values()].filter(
+    (item) =>
+      item.content.state === 'CLOSED' &&
+      item.content.repository.nameWithOwner.toLowerCase() === repository.toLowerCase()
+  );
+  const epics = closed.filter((item) =>
+    item.content.labels.nodes.some(({ name }) => name.toLowerCase() === 'epic')
+  );
+  const epicIds = new Set(epics.map((item) => item.id));
+  const items = closed.filter((item) => !epicIds.has(item.id));
+  const closing = readClosingPrs(api, items, repository);
+  const evidence = deriveEvidence(items, closing, releases, git, map);
+  const plan = planUpdates(evidence, project);
   applyUpdates(api, project, plan, dryRun);
   if (!dryRun && plan.changes.length) {
-    const remaining = planUpdates(issues, readProject(api, projectId));
-    if (remaining.changes.length)
-      throw new Error(`Project readback did not match the release plan. ${replay}`);
+    const readback = readProject(api, projectId);
+    for (const item of items)
+      if (readback.items.get(item.content.id)?.content.state !== 'CLOSED')
+        throw new Error('Issue reopened during reconciliation; inspect the readback.');
+    if (planUpdates(evidence, readback).changes.length)
+      throw new Error(`Project readback did not match the plan. ${recovery}`);
   }
   return {
     dryRun,
-    releases: sources,
-    issues: issues.size,
+    releases: releases.map((r) => r.tag_name),
+    issues: closed.length,
+    rows: [
+      ...plan.rows,
+      ...epics.map((item) => {
+        const current = { status: item.status?.name || '', text: item.released?.text || '' };
+        return {
+          itemId: item.id,
+          issue: item.content.url,
+          current,
+          ...current,
+          prs: [],
+          waiting: ['skipped: epic tracker'],
+          writeText: false,
+          writeStatus: false,
+        };
+      }),
+    ],
     changed: plan.changes,
-    outsideProject: plan.skipped,
-    requests: api.counts,
+    requests: { ...api.counts },
+    points: { ...api.points },
   };
 }
 
+function renderPoints(points) {
+  return `GraphQL points: ${points.cost} (reported reads); last remaining: ${points.remaining ?? 'unavailable'}.`;
+}
+
+export function renderFailure(error, api) {
+  return `Project release tracking failed: ${error.message}\nRequests: ${JSON.stringify(api.counts)}\n${renderPoints(api.points)}\n`;
+}
+
+export function renderSummary(result) {
+  const cell = (value) =>
+    String(value)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('|', '&#124;')
+      .replace(/\r?\n/g, '<br>');
+  return [
+    `### Project release tracking${result.dryRun ? ' (dry run)' : ''}`,
+    '',
+    `${result.issues} closed issues; ${result.changed.length} changes; REST ${result.requests.rest}/${LIMITS.rest}; GraphQL ${result.requests.graphql}/${LIMITS.graphql}.`,
+    '',
+    renderPoints(result.points),
+    '',
+    '| Item | Status: current → planned | Released in: current → planned | Waiting |',
+    '| --- | --- | --- | --- |',
+    ...result.rows.map(
+      (row) =>
+        `| ${cell(row.issue)} | ${cell(row.current.status)} → ${cell(row.status)} | ${cell(row.current.text || '—')} → ${cell(row.text || '—')} | ${cell(row.waiting.join('; '))} |`
+    ),
+    '',
+    'The full sweep is authoritative for eligible issues; epic tracker fields remain owner-managed. Built-in close/merge events cannot cause permanent drift: the next full sweep repairs it.',
+    '',
+  ].join('\n');
+}
+
 export function main(env = process.env) {
+  if (!['workflow_dispatch', 'schedule'].includes(env.GITHUB_EVENT_NAME))
+    throw new Error('Unsupported updater event.');
   const api = githubApi({
     appToken: env.RELEASE_APP_TOKEN,
     readToken: env.GITHUB_TOKEN,
     repository: env.GITHUB_REPOSITORY,
   });
-  const event = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, 'utf8'));
-  const dryRun = env.GITHUB_EVENT_NAME === 'workflow_dispatch' ? env.DRY_RUN !== 'false' : false;
-  const result = reconcile({
-    api,
-    repository: env.GITHUB_REPOSITORY,
-    eventName: env.GITHUB_EVENT_NAME,
-    event,
-    tag: env.RELEASE_TAG || '',
-    dryRun,
-  });
-  const summary = `### Project release tracking${dryRun ? ' (dry run)' : ''}\n\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\n`;
-  process.stdout.write(summary);
-  if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, summary);
+  try {
+    const result = reconcile({
+      api,
+      repository: env.GITHUB_REPOSITORY,
+      dryRun: env.GITHUB_EVENT_NAME === 'workflow_dispatch' ? env.DRY_RUN !== 'false' : false,
+    });
+    const summary = renderSummary(result);
+    process.stdout.write(summary);
+    if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, summary);
+  } catch (error) {
+    const message = renderFailure(error, api);
+    if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, message);
+    throw new Error(message);
+  }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     main();
   } catch (error) {
-    const message = `Project release tracking failed: ${error.message}\n`;
-    process.stderr.write(message);
-    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, message);
+    process.stderr.write(`${error.message}\n`);
     process.exitCode = 1;
   }
 }

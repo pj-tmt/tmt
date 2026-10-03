@@ -1,5 +1,6 @@
 //! Root-local owner transitions; request/socket composition remains separate.
 mod epoch;
+mod links;
 mod membership;
 use crate::{
     Result,
@@ -11,6 +12,7 @@ use crate::{
         owner::{Mutation, OwnerFault},
     },
 };
+pub use links::{LinkAction, LinkRequest, LinkSpec};
 pub use membership::{DeviceRevoke, MemberAction, MemberRequest};
 use std::{collections::BTreeMap, path::PathBuf};
 use tmt_colab_model::{crypto, framing, values};

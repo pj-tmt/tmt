@@ -1,4 +1,4 @@
-use clap::Command;
+use clap::{Arg, Command};
 use serde_json::json;
 use std::{
     io::Write,
@@ -45,11 +45,35 @@ fn grammar() -> Command {
         outputs: OutputModes::HumanAndJson,
         details: "Uses only the extension subtree of core's reported data directory.",
     };
+    const EXPORT: CommandSpec = CommandSpec {
+        name: "export",
+        summary: "Export a page as unencrypted HTML and a manifest",
+        examples: &[Example {
+            command: "tmt colab export 10000000-0000-4000-8000-000000000001 --json",
+            note: "Create a private UUID-named export directory",
+        }],
+        outputs: OutputModes::HumanAndJson,
+        details: "This creates an unencrypted copy of the page. Anyone with these files can read it.\nCreates page.html and manifest.json in a new UUID subdirectory of --dir (default: current directory). The parent must exist; aliases resolve to a canonical path. Created entries cannot be symlinks; parent traversal and overwrite are refused. Discussions are not included. Archived or deleted pages cannot be exported yet.",
+    };
     tmt_cli_style::command(&ROOT)
         .bin_name("tmt colab")
         .subcommand_required(true)
         .subcommand(tmt_cli_style::command(&SERVE))
         .subcommand(tmt_cli_style::command(&SPACES))
+        .subcommand(
+            tmt_cli_style::command(&EXPORT)
+                .arg(Arg::new("page").required(true).value_parser(|value: &str| {
+                    tmt_colab_model::values::generated_id(value)
+                        .map(|_| value.to_owned())
+                        .map_err(|error| error.to_string())
+                }))
+                .arg(
+                    Arg::new("dir")
+                        .long("dir")
+                        .value_name("destination")
+                        .value_parser(clap::value_parser!(std::path::PathBuf)),
+                ),
+        )
 }
 fn run(matches: &clap::ArgMatches) -> Result<()> {
     let (command, args) = matches.subcommand().expect("required subcommand");
@@ -63,6 +87,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         let json_output = args.get_flag("json");
         if command == "spaces" {
             return spaces(&root, json_output);
+        }
+        if command == "export" {
+            return export(&root, args);
         }
         let layout = Layout::open(&root)?;
         let _lock = layout.serve_lock()?;
@@ -115,6 +142,60 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         signal_hook::low_level::unregister(signal);
     }
     result
+}
+fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
+    use tmt_colab::export::{Bundle, DISCLOSURE, Fault};
+    let layout = Layout::existing(root)?.ok_or(Fault::MissingState)?;
+    let keyring = Keyring::read(&layout)?;
+    let store = Store::read(&layout)?;
+    let mut decoder = tmt_colab::decoder::Decoder::new(std::env::current_exe()?)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis()
+        .try_into()?;
+    let bundle = Bundle::capture(
+        &store,
+        &keyring,
+        args.get_one::<String>("page").expect("required page"),
+        &mut decoder,
+        now,
+    );
+    let closed = store.close();
+    let bundle = bundle?;
+    closed?;
+    let json_output = args.get_flag("json");
+    if !json_output {
+        let mut warning = tmt_cli_style::stream::stderr();
+        let terminal = warning.terminal();
+        tmt_cli_style::detail::write(
+            &mut warning,
+            terminal,
+            "PLAINTEXT EXPORT",
+            &[("disclosure", DISCLOSURE.into())],
+        )?;
+    }
+    let parent = args
+        .get_one::<std::path::PathBuf>("dir")
+        .cloned()
+        .unwrap_or(std::env::current_dir()?);
+    let published = bundle.publish(&parent)?;
+    let mut output = tmt_cli_style::stream::stdout(json_output);
+    if json_output {
+        writeln!(output, "{}", serde_json::to_string(&published)?)?;
+    } else {
+        let terminal = output.terminal();
+        tmt_cli_style::detail::write(
+            &mut output,
+            terminal,
+            "PAGE EXPORTED",
+            &[
+                ("directory", published.directory.display().to_string()),
+                ("files", "page.html, manifest.json".into()),
+                ("discussions", "not included".into()),
+            ],
+        )?;
+    }
+    Ok(())
 }
 fn spaces(root: &std::path::Path, json_output: bool) -> Result<()> {
     let space = Layout::existing(root)?
@@ -223,6 +304,11 @@ fn main() -> ExitCode {
                         .downcast_ref::<tmt_colab::socket::SocketFault>()
                         .map(|e| e.code())
                 })
+                .or_else(|| {
+                    error
+                        .downcast_ref::<tmt_colab::export::Fault>()
+                        .map(|e| e.code())
+                })
                 .unwrap_or_else(|| {
                     if matches!(
                         error.downcast_ref::<tmt_colab::store::Fault>(),
@@ -237,11 +323,14 @@ fn main() -> ExitCode {
                 .subcommand()
                 .is_some_and(|(_, m)| m.get_flag("json"))
             {
-                let _ = writeln!(
-                    tmt_cli_style::stream::stdout(true),
-                    "{}",
-                    json!({"error":{"code":code,"message":error.to_string()}})
-                );
+                let mut value = json!({"error":{"code":code,"message":error.to_string()}});
+                if let Some(path) = error
+                    .downcast_ref::<tmt_colab::export::Fault>()
+                    .and_then(|fault| fault.partial_directory())
+                {
+                    value["error"]["partialDirectory"] = json!(path);
+                }
+                let _ = writeln!(tmt_cli_style::stream::stdout(true), "{}", value);
             } else {
                 let mut output = tmt_cli_style::stream::stderr();
                 let terminal = output.terminal();
