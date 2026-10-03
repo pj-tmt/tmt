@@ -342,3 +342,61 @@ fn unknown_session_end_is_no_observation_and_known_end_still_decodes() {
             .is_some()
     );
 }
+
+#[test]
+fn resumed_start_attaches_first_session_to_admitted_process_only() {
+    let process = ProcessIncarnation::new(42, "child").unwrap();
+    let owner = ProcessIncarnation::new(41, "owner").unwrap();
+    let admitted = BindingSessionState::default()
+        .admit_launched(
+            ObservedSessionKey {
+                incarnation: process.clone(),
+                provider_session: None,
+            },
+            owner.clone(),
+            SessionTransition::Started,
+            RuntimeLiveness::Alive,
+            RuntimeLiveness::Alive,
+        )
+        .unwrap();
+    let start = event(true, SessionTransition::Resumed, "resumed-session");
+    let attached = start
+        .propose(&admitted, &process, RuntimeLiveness::Alive)
+        .unwrap();
+    assert_eq!(
+        attached.key.as_ref().unwrap().provider_session.as_ref(),
+        Some(&start.session)
+    );
+    assert_eq!(attached.launch_owner, Some(owner));
+    assert_eq!(attached.state, RuntimeState::Running);
+    assert!(
+        event(true, SessionTransition::Resumed, "stale-session")
+            .propose(&attached, &process, RuntimeLiveness::Alive)
+            .is_none()
+    );
+    let mut ended = admitted.clone();
+    ended.state = RuntimeState::Ended;
+    assert!(
+        start
+            .propose(&ended, &process, RuntimeLiveness::Alive)
+            .is_none()
+    );
+    let other = ProcessIncarnation::new(43, "other").unwrap();
+    assert!(
+        start
+            .propose(&admitted, &other, RuntimeLiveness::Alive)
+            .is_none()
+    );
+    assert!(
+        start
+            .propose(&admitted, &other, RuntimeLiveness::Unknown)
+            .is_none()
+    );
+    for transition in [SessionTransition::Cleared, SessionTransition::Compacted] {
+        assert!(
+            event(true, transition, "resumed-session")
+                .propose(&admitted, &process, RuntimeLiveness::Alive)
+                .is_none()
+        );
+    }
+}
