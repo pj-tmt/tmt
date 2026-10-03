@@ -12,6 +12,7 @@ import type { Admission } from './admission.js';
 import { Catchup } from './catchup.js';
 import { Fold } from './fold.js';
 import type { Projection } from './fold-protocol.js';
+import type { PageView } from './transport.js';
 import { Frames } from './frames.js';
 import { Objects, position, UPDATE_ENVELOPE_BYTES, type ObjectEntry } from './objects.js';
 import { text as strings } from './strings.js';
@@ -28,6 +29,7 @@ export class Connection {
   #tasks = Promise.resolve();
   #queued = 0;
   #complete = false;
+  #projection: Projection = { source: '', title: '' };
   #stopped = false;
   #receipts = new Map<
     string,
@@ -45,7 +47,7 @@ export class Connection {
     readonly admission: Admission,
     mount: URL,
     sharing: string,
-    readonly publish: (value: Projection) => void,
+    readonly publish: (value: PageView) => void,
     readonly failed: (error: Error) => void,
   ) {
     this.objects = new Objects(admission);
@@ -122,12 +124,19 @@ export class Connection {
     requireValue(text(raw).length <= 64 * 1024 && this.#socket.bufferedAmount <= 1024 * 1024);
     this.#socket.send(raw);
   }
+  #emit(projection: Projection) {
+    this.#projection = projection;
+    this.publish({ ...projection, ownData: this.objects.ownData });
+  }
   async #apply(stream: string, entry: ObjectEntry) {
     const update = await this.objects.admit(stream, entry);
-    if (!update) return;
+    if (!update) {
+      if (!this.#stopped) this.#emit(this.#projection);
+      return;
+    }
     try {
       const projection = await this.fold.run({ type: 'apply', updates: [update] });
-      if (!this.#stopped) this.publish(projection);
+      if (!this.#stopped) this.#emit(projection);
     } finally {
       update.fill(0);
     }
@@ -171,7 +180,7 @@ export class Connection {
         requireValue(!this.#stopped);
         this.#complete = true;
         clearTimeout(this.#timer);
-        this.publish(projection);
+        this.#emit(projection);
         this.#resolve(projection);
       } finally {
         this.#catchup.baseline?.update.fill(0);

@@ -120,6 +120,7 @@ export class Catchup {
     }
     if (!value.more) {
       requireValue(!this.#membershipMore && a.head !== null);
+      this.objects?.finish();
       a.validatePage(this.sharing);
       if (this.#reset) {
         this.baseline = await openBaseline(a, this.#reset.descriptor, this.#reset.object);

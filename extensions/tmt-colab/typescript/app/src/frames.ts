@@ -111,11 +111,15 @@ export class Frames {
       let count = 0;
       for (const stream of frame.streams) {
         exactKeys(stream, ['streamId', 'namespace', 'checkpoint', 'tail']);
-        if (stream.namespace !== 'content' || stream.checkpoint !== null)
-          throw new Error('Checkpoint or own-namespace loading is not available yet');
+        requireValue(['content', 'own'].includes(stream.namespace as string));
         requireValue(Array.isArray(stream.tail) && stream.tail.length <= 256);
-        count += stream.tail.length;
+        count += stream.tail.length + (stream.checkpoint === null ? 0 : 1);
         requireValue(count <= 1);
+        if (stream.checkpoint !== null) {
+          exactKeys(stream.checkpoint, ['seq', 'envelopeHash', 'envelope']);
+          target = stream.checkpoint;
+          limit = MAX_ENVELOPE_JSON;
+        }
         if (stream.tail.length) target = stream.tail[0] as Record<string, unknown>;
       }
     }

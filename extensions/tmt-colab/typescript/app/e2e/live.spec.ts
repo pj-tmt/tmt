@@ -11,6 +11,7 @@ const mount = '/r/abcd/x/colab/';
 async function wire(
   context: BrowserContext,
   reset?: { source: string; invalid?: 'commitment' | 'source' | 'descriptor' | 'oldEpoch' },
+  compacted?: { invalid?: 'prefix' | 'n' | 'namespace' | 'body' | 'gap' },
 ) {
   const epoch = reset ? '2' : '1';
   const signer = await crypto.subtle.importKey(
@@ -235,6 +236,101 @@ async function wire(
   });
   const entries = [await entry(initial)],
     peers = new Set<WebSocketRoute>();
+  const checkpoints: { namespace: string; row: (typeof entries)[number] }[] = [];
+  if (compacted) {
+    const cp = JSON.parse(
+      readFileSync(
+        new URL('../../../contracts/vectors/checkpoint-v1.json', import.meta.url),
+        'utf8',
+      ),
+    );
+    const writer = new Y.Doc();
+    Y.applyUpdate(writer, c.binary(cp.checkpoint, 256 * 1024));
+    const before = Y.encodeStateVector(writer);
+    writer.getText('html').insert(writer.getText('html').length, 'x'.repeat(40_000));
+    const padding = Y.encodeStateAsUpdate(writer, before);
+    writer.destroy();
+    entries.length = 0;
+    let previous = new Uint8Array(32);
+    const prefixUpdates = [
+      c.binary(cp.contentUpdates[0], 256 * 1024),
+      new Uint8Array([255]),
+      Y.mergeUpdates([c.binary(cp.contentUpdates[1], 256 * 1024), padding]),
+      new Uint8Array([255]),
+    ];
+    for (let index = 0; index < 4; index++) {
+      const env = await c.Envelope.seal(
+        {
+          space: v.space,
+          page: v.page,
+          epoch,
+          kind: 'update',
+          namespace: index % 2 === 0 ? 'content' : 'own',
+          authorDevice: v.device,
+          membershipRevision: '2',
+          streamSeq: String(index + 1),
+          prevHash: previous,
+        },
+        hex(v.epochKey),
+        signer,
+        new Uint8Array(prefixUpdates[index]),
+      );
+      entries.push(await entry(env));
+      previous = await env.hash();
+    }
+    for (const namespace of ['content', 'own']) {
+      const env = await c.Envelope.seal(
+        {
+          space: v.space,
+          page: v.page,
+          epoch,
+          kind: 'checkpoint',
+          namespace:
+            compacted.invalid === 'namespace' && namespace === 'own'
+              ? 'content'
+              : (namespace as 'content' | 'own'),
+          authorDevice: v.device,
+          membershipRevision: '2',
+          streamSeq: compacted.invalid === 'n' && namespace === 'own' ? '3' : '4',
+          prevHash:
+            compacted.invalid === 'prefix' && namespace === 'own'
+              ? new Uint8Array(32).fill(7)
+              : previous,
+        },
+        hex(v.epochKey),
+        signer,
+        namespace === 'content'
+          ? compacted.invalid === 'body'
+            ? new Uint8Array([255])
+            : new Uint8Array(Y.mergeUpdates([c.binary(cp.checkpoint, 256 * 1024), padding]))
+          : new Uint8Array([255]),
+      );
+      checkpoints.push({ namespace, row: await entry(env) });
+    }
+    for (const [namespace, bytes] of [
+      ['content', c.binary(cp.tail, 256 * 1024)],
+      ['own', new Uint8Array([255])],
+    ] as const) {
+      const env = await c.Envelope.seal(
+        {
+          space: v.space,
+          page: v.page,
+          epoch,
+          kind: 'update',
+          namespace,
+          authorDevice: v.device,
+          membershipRevision: '2',
+          streamSeq: String(entries.length + 1),
+          prevHash: previous,
+        },
+        hex(v.epochKey),
+        signer,
+        bytes,
+      );
+      entries.push(await entry(env));
+      previous = await env.hash();
+    }
+  }
   const scope = { version: 1, space: v.space, page: v.page, epoch };
   let queue = Promise.resolve(),
     drop = false,
@@ -285,8 +381,17 @@ async function wire(
     socket.onMessage((message) => {
       const frame = JSON.parse(String(message));
       if (frame.type === 'ack') {
-        for (const cursor of frame.cursors)
-          expect(entries[Number(cursor.seq) - 1].envelopeHash).toBe(cursor.envelopeHash);
+        for (const cursor of frame.cursors) {
+          const checkpoint = checkpoints.find(
+            (x) =>
+              x.namespace === cursor.namespace &&
+              x.row.seq === cursor.seq &&
+              x.row.envelopeHash === cursor.envelopeHash,
+          );
+          expect(checkpoint?.row.envelopeHash ?? entries[Number(cursor.seq) - 1].envelopeHash).toBe(
+            cursor.envelopeHash,
+          );
+        }
         const state = outgoing.get(socket);
         if (state) {
           state.waiting = false;
@@ -353,18 +458,35 @@ async function wire(
             streams: [],
             more: true,
           });
-          for (const row of entries) {
+          const objects = [
+            ...checkpoints.map((x) => ({ row: x.row, namespace: x.namespace, checkpoint: true })),
+            ...entries.slice(compacted ? (compacted.invalid === 'gap' ? 5 : 4) : 0).map((row) => ({
+              row,
+              namespace: c.decodeHeader(
+                c.Envelope.fromJson(c.binary(row.envelope, 400 * 1024)).header(),
+              ).context.namespace,
+              checkpoint: false,
+            })),
+          ];
+          for (const { row, namespace, checkpoint } of objects) {
             const bytes = c.binary(row.envelope, 400 * 1024),
               id = c.decodeHeader(c.Envelope.fromJson(bytes).header()).objectId;
             send(socket, 'catchup', {
               streams: [
                 {
                   streamId: v.device,
-                  namespace: 'content',
-                  checkpoint: null,
-                  tail: [
-                    { ...row, envelope: bytes.length > 32768 ? { objectId: id } : row.envelope },
-                  ],
+                  namespace,
+                  checkpoint: checkpoint
+                    ? { ...row, envelope: bytes.length > 32768 ? { objectId: id } : row.envelope }
+                    : null,
+                  tail: checkpoint
+                    ? []
+                    : [
+                        {
+                          ...row,
+                          envelope: bytes.length > 32768 ? { objectId: id } : row.envelope,
+                        },
+                      ],
                 },
               ],
               more: true,
@@ -451,7 +573,7 @@ async function wire(
     resync() {
       for (const peer of peers) send(peer, 'error', { code: 'RESYNC_REQUIRED' });
     },
-    async unsupportedOwn() {
+    async ownUpdate() {
       const env = await c.Envelope.seal(
         {
           space: v.space,
@@ -469,6 +591,7 @@ async function wire(
         new Uint8Array([0]),
       );
       const row = await entry(env);
+      entries.push(row);
       for (const peer of peers) deliver(peer, 'broadcast', row, { streamId: v.device });
     },
     get connections() {
@@ -549,13 +672,16 @@ test('two same-device tabs edit one durable stream, chunk, reload and retry exac
   await expect(
     other.frameLocator('iframe').getByRole('heading', { name: 'After reload' }),
   ).toBeVisible();
-  await f.unsupportedOwn();
+  await f.ownUpdate();
   for (const tab of [page, other]) {
-    await expect(tab.getByRole('alert')).toContainText('own-namespace loading is not available');
-    await expect(tab.locator('iframe')).toHaveCount(0);
-    await expect(tab.getByRole('textbox')).toHaveJSProperty('readOnly', true);
+    await expect(tab.getByRole('status')).toContainText('Comments and activity are not displayed');
+    await expect(tab.locator('iframe')).toHaveCount(1);
+    await expect(tab.getByRole('textbox')).toHaveJSProperty('readOnly', false);
   }
-  await expect.poll(() => f.connections).toBe(0);
+  await page.getByRole('textbox').fill('<h1>Across own</h1>');
+  await page.getByRole('button', { name: 'Save source' }).click();
+  await expect(other.getByRole('textbox')).toHaveValue('<h1>Across own</h1>');
+  expect(f.entries.at(-1)!.seq).toBe('7');
   await Promise.all(
     [page, other].map((tab) => tab.getByRole('link', { name: 'Space home' }).click()),
   );
@@ -615,4 +741,67 @@ for (const invalid of ['commitment', 'source', 'descriptor', 'oldEpoch'] as cons
         ),
       )
       .toBe(0);
+  });
+
+test('paired checkpoints precede an authenticated interleaved tail, preserve edits and reload', async ({
+  page,
+  context,
+}) => {
+  const f = await wire(context, undefined, {});
+  await page.goto(mount);
+  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await expect(page.getByRole('heading', { name: 'Checkpoint', exact: true })).toBeVisible();
+  await expect(page.getByRole('status')).toContainText('Comments and activity are not displayed');
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.getByRole('textbox')).toHaveValue('<p>after tail</p>' + 'x'.repeat(40_000));
+  await page.getByRole('textbox').fill('<h1>After compacted reload</h1>');
+  await page.getByRole('button', { name: 'Save source' }).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'After compacted reload' }),
+  ).toBeVisible();
+  expect(f.entries.at(-1)!.seq).toBe('7');
+  f.dropNext();
+  await page.getByRole('textbox').fill('<h1>Frozen retry after prune</h1>');
+  await page.getByRole('button', { name: 'Save source' }).click();
+  await expect(page.getByRole('alert')).toContainText('edit was not saved');
+  await page.reload();
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.getByRole('textbox')).toHaveValue('<h1>Frozen retry after prune</h1>');
+  await page.getByRole('textbox').fill('<h1>After compacted reload</h1>');
+  await page.getByRole('button', { name: 'Save source' }).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'After compacted reload' }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save source' })).toBeDisabled();
+  await f.settled();
+  expect(f.retries).toBe(1);
+  expect(f.entries.at(-1)!.seq).toBe('9');
+  const before = f.hellos;
+  f.resync();
+  await expect.poll(() => f.hellos).toBe(before + 1);
+  await page.reload();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'After compacted reload' }),
+  ).toBeVisible();
+  await page.getByRole('link', { name: 'Space home' }).click();
+  await expect.poll(() => f.connections).toBe(0);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async () =>
+          (await navigator.locks.query()).held?.filter((l) => l.name?.startsWith('writer:')).length,
+      ),
+    )
+    .toBe(0);
+});
+for (const invalid of ['prefix', 'n', 'namespace', 'body', 'gap'] as const)
+  test(`compacted catchup rejects ${invalid} without a partial content projection`, async ({
+    page,
+    context,
+  }) => {
+    await wire(context, undefined, { invalid });
+    await page.goto(mount);
+    await page.getByRole('link', { name: new RegExp(v.page) }).click();
+    await expect(page.getByRole('alert')).toBeVisible();
+    await expect(page.locator('iframe')).toHaveCount(0);
   });
