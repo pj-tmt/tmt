@@ -8,7 +8,7 @@ use ratatui::{
 };
 use serde_json::{Value, json};
 use std::{cell::RefCell, collections::BTreeMap};
-use tmt_cli_style::{Role, mark::Mark, table::escape};
+use tmt_cli_style::{Role, grid::Align, mark::Mark, table::escape};
 use tmt_tui::{
     binding::Schema,
     components::{ListRow, PickerField},
@@ -44,8 +44,24 @@ impl SettingNotice {
             mark: Mark::Failed,
         }
     }
-    fn text(&self) -> String {
-        format!("{} {}", self.mark.symbol(), self.message)
+    fn display(&self, width: u16, path: &str) -> String {
+        // Keep the controller's complete diagnostic; only its terminal projection
+        // abbreviates the known config path and budgets its leading word.
+        let file = std::path::Path::new(path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("squad.toml");
+        let message = self.message.replace(path, file);
+        let split = message.find(char::is_whitespace).unwrap_or(message.len());
+        let first = &message[..split];
+        // Leave the following word boundary inside the shared wrap budget, too.
+        let budget = width.saturating_sub(self.mark.symbol().width() as u16 + 2);
+        if escape(first).width() <= usize::from(budget) {
+            return format!("{} {message}", self.mark.symbol());
+        }
+        let first =
+            tmt_tui::text::fit_line(first, budget, tmt_tui::style::TextFlow::Middle, Align::Left);
+        format!("{} {first}{}", self.mark.symbol(), &message[split..])
     }
 }
 
@@ -432,7 +448,7 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
         let status = overlay
             .notice
             .as_ref()
-            .map(SettingNotice::text)
+            .map(|notice| notice.display(width, &overlay.settings.path))
             .unwrap_or_else(|| format!("{} valid", Mark::Done.symbol()));
         let height = tmt_tui::text::lines(&status, width, tmt_tui::style::TextFlow::Wrap)
             .len()
@@ -517,7 +533,7 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
     }
     let template = &cache.as_ref().unwrap().template;
     let mut state = overlay.surface.borrow_mut();
-    state.render(FILE, template, json!({"rows":rows, "query":format!("{} {} · {}",overlay.settings.context.as_deref().unwrap_or("board defaults"), overlay.settings.host, overlay.display_path), "notes":overlay.settings.notices.iter().enumerate().map(|(index,text)| json!({"id":format!("notice:{index}"),"text":text})).collect::<Vec<_>>(), "status":overlay.notice.as_ref().map(SettingNotice::text).unwrap_or_default(), "footer":"↑↓ select · Enter edit · PgUp/PgDn page · Esc close", "tracks":[key_width,source_width], "role":notice_role(overlay.notice.as_ref())}), frame, look, body);
+    state.render(FILE, template, json!({"rows":rows, "query":format!("{} {} · {}",overlay.settings.context.as_deref().unwrap_or("board defaults"), overlay.settings.host, overlay.display_path), "notes":overlay.settings.notices.iter().enumerate().map(|(index,text)| json!({"id":format!("notice:{index}"),"text":text})).collect::<Vec<_>>(), "status":overlay.notice.as_ref().map(|notice| notice.display(width as u16, &overlay.settings.path)).unwrap_or_default(), "footer":"↑↓ select · Enter edit · PgUp/PgDn page · Esc close", "tracks":[key_width,source_width], "role":notice_role(overlay.notice.as_ref())}), frame, look, body);
     if let Some(map) = &state.frame {
         for hit in &map.hits {
             let Some(entry) = hit.row_id.as_ref().and_then(|id| {
@@ -885,6 +901,51 @@ mod tests {
                 look.role(role).fg.unwrap_or_default()
             );
         }
+    }
+    #[test]
+    fn narrow_notices_keep_mark_with_short_file_or_long_leading_word() {
+        let mut f = fixture("narrow-notice", "");
+        edit(&mut f.app, "notes.render", "plain");
+        let concurrent = format!("{}\n# external writer retained\n", f.original);
+        std::fs::write(&f.path, &concurrent).unwrap();
+        assert!(!f.app.settings.as_mut().unwrap().save());
+        assert!(
+            f.app
+                .settings
+                .as_ref()
+                .unwrap()
+                .notice
+                .as_ref()
+                .unwrap()
+                .message
+                .contains(f.path.to_str().unwrap())
+        );
+        for width in [80, 24] {
+            let overlay = f.app.settings.as_ref().unwrap();
+            let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
+            terminal
+                .draw(|frame| render(frame, overlay, f.app.look(), frame.area()))
+                .unwrap();
+            let state = overlay.prompt.borrow();
+            let area = state.frame.as_ref().unwrap().areas.status;
+            let line: String = (area.x..area.right())
+                .map(|x| terminal.backend().buffer()[(x, area.y)].symbol())
+                .collect();
+            assert!(line.starts_with("✗ squad.toml"), "{line:?}");
+            assert!(!line.contains("/private/"));
+        }
+        let notice = SettingNotice {
+            message: format!("{} needs attention", "unbreakable".repeat(20)),
+            mark: Mark::Warning,
+        };
+        for width in [76, 20] {
+            let display = notice.display(width, f.path.to_str().unwrap());
+            let lines = tmt_tui::text::lines(&display, width, tmt_tui::style::TextFlow::Wrap);
+            assert!(lines[0].starts_with("! unbreak"));
+            assert!(lines[0].contains('…'));
+            assert!(lines.join(" ").contains("needs attention"));
+        }
+        assert_eq!(std::fs::read_to_string(&f.path).unwrap(), concurrent);
     }
     #[test]
     fn each_supported_area_previews_without_writing_and_cancel_restores_it() {
