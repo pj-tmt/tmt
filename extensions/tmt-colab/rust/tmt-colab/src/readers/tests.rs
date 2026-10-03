@@ -230,10 +230,10 @@ fn bounded_sessions_and_restart_drop_capabilities_without_eviction() {
     f.service.lock().unwrap().release_reader(&id);
     assert_eq!(f.read(&id, &scope), Err(crate::sync::Code::Denied));
     let layout = crate::keyring::Layout::open(&f.root).unwrap();
-    let mut restarted = Registration::new(
+    let mut restarted = Registration::with_decoder_config(
         Store::open(&layout).unwrap(),
         Keyring::read(&layout).unwrap(),
-        std::env::current_exe().unwrap(),
+        decoder_config(std::env::current_exe().unwrap()),
     )
     .unwrap();
     let token = values::binary(s["token"].as_str().unwrap(), 32)

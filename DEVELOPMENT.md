@@ -3399,7 +3399,7 @@ socket/process lifecycle acceptance twice. No real model/account/DB is used.
 
 ## Colab pilot development
 
-The private local-build Colab executable serves an owner-only mounted socket,
+The private local-build Colab executable serves a mounted socket with
 owner-browser registration, stream sync and read-only reader sessions, and lists local-space metadata.
 Owner requests use the embedded browser app when built with `TMT_COLAB_APP_DIR`,
 or load local checkout output when it is available. Without either, the local
@@ -3509,7 +3509,7 @@ response, and 16 WebSocket tunnels closed after 120 seconds without inbound
 bytes. Bounded HTTP bodies carry registration requests; page objects use the
 stream sync path. The stream sync library enforces 64 KiB frames and 8 queued frames with
 `RESYNC_REQUIRED` close for slow subscribers; serve drives the sync library
-over registered-owner upgrades. Real socket
+over registered-owner and read-only reader upgrades. Real socket
 and foreground process cleanup tests run lifecycle scenarios twice, with no core calls from
 socket traffic. Owner-key temporary cleanup is publication-locked; it preserves
 foreign file names and refuses unsafe matching files.
@@ -3846,8 +3846,9 @@ bytes/keys/plaintext cannot be recalled. These native proofs do not supply brows
 reader UI. Exact request/session carrier rules belong to
 [colab-v1](extensions/tmt-colab/contracts/colab-v1.md#mounted-read-only-reader-sessions-1310).
 The owner discovery endpoints stay owner-only. Readers receive no writes,
-management or agent authority. Decoder production-deadline failures under machine
-load are failures, tracked by #1311, never counted as passes.
+management or agent authority. Reader fixtures reuse the shared `tests/support`
+semantic decoder configuration through Engine and Registration; production keeps
+the default deadline.
 
 ### Colab decoder verification
 

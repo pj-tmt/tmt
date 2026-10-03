@@ -10,7 +10,6 @@ pub mod keyring;
 pub mod limits;
 pub mod management;
 pub mod page;
-
 pub mod readers;
 pub mod registration;
 pub mod socket;
@@ -19,3 +18,7 @@ pub mod sync;
 pub mod transitions;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+// Reuse the integration-test decoder budget in owner-local unit fixtures.
+#[cfg(test)]
+extern crate self as tmt_colab;

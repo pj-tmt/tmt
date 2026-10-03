@@ -1,4 +1,6 @@
 use super::*;
+#[path = "../../tests/support/mod.rs"]
+mod decoder_support;
 use crate::{
     registration::{OwnerAdmission, Registration},
     store::owner::{Mutation, Recipient},
@@ -7,6 +9,7 @@ use crate::{
         Engine, LinkAction, LinkSpec, OwnerAction, OwnerRequest, Publication, ShareMode,
     },
 };
+pub(crate) use decoder_support::decoder_config;
 use ed25519_dalek::{Signer, SigningKey};
 use std::{
     fs,
@@ -48,16 +51,18 @@ impl Fixture {
         let clock = Arc::new(AtomicU64::new(1000));
         let c = clock.clone();
         let service = Arc::new(Mutex::new(
-            Registration::new(
+            Registration::with_decoder_config(
                 Store::open(&layout).unwrap(),
                 Keyring::read(&layout).unwrap(),
-                std::env::current_exe()
-                    .unwrap()
-                    .parent()
-                    .unwrap()
-                    .parent()
-                    .unwrap()
-                    .join("tmt-colab"),
+                decoder_config(
+                    std::env::current_exe()
+                        .unwrap()
+                        .parent()
+                        .unwrap()
+                        .parent()
+                        .unwrap()
+                        .join("tmt-colab"),
+                ),
             )
             .unwrap()
             .with_reader_clock(move || Ok(c.load(Ordering::SeqCst))),
@@ -70,7 +75,7 @@ impl Fixture {
             root,
             key,
             store,
-            engine: Engine::new(
+            engine: Engine::with_decoder_config(decoder_config(
                 std::env::current_exe()
                     .unwrap()
                     .parent()
@@ -78,7 +83,7 @@ impl Fixture {
                     .parent()
                     .unwrap()
                     .join("tmt-colab"),
-            )
+            ))
             .unwrap(),
             service,
             server,

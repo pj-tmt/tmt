@@ -999,7 +999,6 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             | management::PATH
             | management::LOCAL_PATH
             | crate::page::ipc::PATH
-
             | crate::readers::CHALLENGE_PATH
             | crate::readers::SESSION_PATH
     ) {

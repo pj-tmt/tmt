@@ -5189,8 +5189,8 @@ or generates caller-selected baselines, cuts, wraps or epoch keys. Caller-held l
 seeds are transient local inputs and require encryption to the owner before relay
 transport. Member/link/epoch and page-policy actions use the same owner runner;
 loopback publication is selected by this trusted socket composition.
-Exact DTOs, limits and failure codes live in colab-v1. Public CLI commands,
-browser controls and reader admission are separately tracked by #1307, #1308 and #1310.
+Exact DTOs, limits and failure codes live in colab-v1. Browser management controls
+remain separately tracked by #1308.
 
 `cli_grammar` and `cli_management` compose root-local management commands in the
 executable: v1 includes ls/show, audience mode and viewer-link management only.
@@ -5273,6 +5273,8 @@ Subsequent live edits never change an open bundle. Blocked bindings disable and
 close the panel; archived export remains deferred with the current admission
 policy. The renderer's handshake and source injection remain unchanged.
 
+### Reader admission
+
 `readers::Sessions` owns at most 64 ephemeral challenges/tickets/active readers
 inside Registration, using an injected server clock. Public readers are page-
 and epoch-scoped anonymous capabilities; link readers prove possession of a
@@ -5320,7 +5322,7 @@ The #1166 extension remains in this same transport owner. Store owns scoped
 transactional namespace/cursor reads and refuses unknown or pruned cursors;
 receipts survive pruning. Admission supplies the verified retained owner head
 through `Store::owner_head` and an optional scoped baseline descriptor. Baseline production and scoped persistence/retrieval belong to the owner-local epoch engine; remote admission/composition remain caller-owned. Catchup pins its retained head and pages exact membership envelopes from the
-client's verified revision before device/member wraps and stream objects. Owner
+client's verified revision before caller-admitted wraps and stream objects. Owner
 root discovery, scoped author-chain reads and retained-epoch wrap reads stay in
 Store's existing owner snapshots; no new schema or secret export is introduced.
 Mounted read-only session/pages endpoints expose forwarded owner identity and
@@ -5350,8 +5352,9 @@ one frame per turn from immutable shared bytes. Revocation/drop clears partial
 state and pending transfer bytes; clients verify reassembled data before applying.
 The exact grammar/budgets live in colab-v1, with timers and socket workers still
 caller-owned. The foreground socket composes `registration::OwnerAdmission`, including the
-read-only session owner, with a Store connection and this shared Server. Upgrade verifies remote binding
-and the registered chain. Rechecks read a durable owner/device/issuer/epoch snapshot
+read-only session owner, with a Store connection and this shared Server. Upgrade verifies
+remote owner binding and the registered chain or consumes a scoped reader ticket.
+Rechecks read a durable owner/device/issuer/epoch snapshot
 without writer reservation or repeated signatures; Append additionally fences the
 membership revision and namespace and supplies the registered signing key. The
 pinned management member represents the owner across local pages. Catchup uses

@@ -2521,25 +2521,27 @@ impl Running {
                 },
             )
             .unwrap();
-        Engine::new(env!("CARGO_BIN_EXE_tmt-colab").into())
-            .unwrap()
-            .apply(
-                &mut store,
-                &key,
-                OwnerRequest {
-                    operation_id: "40000000-0000-4000-8000-000000000002",
-                    expected_revision: head.revision + 1,
-                    action: OwnerAction::Share {
-                        page: PAGE,
-                        mode: ShareMode::Public,
-                        publication: Publication::Loopback,
-                    },
-                    transport_digest: None,
-                    scope: None,
+        Engine::with_decoder_config(support::decoder_config(
+            env!("CARGO_BIN_EXE_tmt-colab").into(),
+        ))
+        .unwrap()
+        .apply(
+            &mut store,
+            &key,
+            OwnerRequest {
+                operation_id: "40000000-0000-4000-8000-000000000002",
+                expected_revision: head.revision + 1,
+                action: OwnerAction::Share {
+                    page: PAGE,
+                    mode: ShareMode::Public,
+                    publication: Publication::Loopback,
                 },
-                now(),
-            )
-            .unwrap();
+                transport_digest: None,
+                scope: None,
+            },
+            now(),
+        )
+        .unwrap();
     }
     fn reader_session(&self) -> Value {
         let response = self.event(
@@ -2635,6 +2637,41 @@ fn mounted_public_readers_catch_up_and_cannot_publish_or_claim_owner_context_twi
                 .query_row("SELECT count(*) FROM receipts", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
             count
+        );
+        let revision = server
+            .oracle()
+            .query_row("SELECT count(*) FROM membership_log", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap();
+        let management = management_body(
+            &server,
+            "40000000-0000-4000-8000-000000000003",
+            revision as u64,
+            "page.archive",
+            json!({"pageId":PAGE}),
+            DEVICE,
+            now(),
+        );
+        let denial = server.event(
+            tmt_colab::management::PATH,
+            &format!(
+                "Sec-WebSocket-Protocol: colab-reader-v1.{}\r\n",
+                s["token"].as_str().unwrap()
+            ),
+            &management,
+        );
+        assert!(
+            denial.starts_with("HTTP/1.1 403") && denial.ends_with("DENIED"),
+            "{denial}"
+        );
+        assert_eq!(
+            server
+                .oracle()
+                .query_row("SELECT count(*) FROM membership_log", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            revision
         );
         for path in ["/api/session", "/api/pages"] {
             assert!(
