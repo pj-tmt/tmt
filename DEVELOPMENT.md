@@ -1884,6 +1884,24 @@ not publication authorization. Ordinary changes use the focused checks above.
 The runtime smoke matrix remains part of native PR verification; raw executables
 are not proof of release archives or public installation.
 
+### Packed verifier process cleanup
+
+For changes to `typescript/scripts/packed-command.mjs`, run its process fixtures
+and the release-note consumer that exercises rapid Git subprocess teardown:
+
+```bash
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/packed-command.test.ts test/tooling/release-pr-safety.test.ts)
+(cd typescript && corepack pnpm check:tooling)
+```
+
+The pinned release-please install described above is required by the consumer.
+The fixtures cover exact output and diagnostics, timeout descendant cleanup,
+closed-child EPERM with independently observed group absence, and live or
+uninspectable groups. Keep the negative controls and the original subprocess
+deadlines. The [release boundary](ARCHITECTURE.md#release-boundary) owns the
+termination contract. These synthetic processes do not replace matching-host
+archive, installer or bootstrap acceptance when those artifacts change.
+
 ### Native Rust release archives
 
 #### Explicit multi-platform release preparation

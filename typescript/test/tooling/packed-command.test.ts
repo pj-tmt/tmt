@@ -1,9 +1,11 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const { runPackedCommand } = (await import(
@@ -60,7 +62,165 @@ async function waitForProcessExit(pid: number, timeoutMs: number): Promise<void>
   }
 }
 
+async function stopFixtureGroup(group: number): Promise<void> {
+  try {
+    process.kill(-group, 'SIGKILL');
+  } catch (error) {
+    if (!['ESRCH', 'EPERM'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+  }
+  const deadline = performance.now() + 3_000;
+  for (;;) {
+    try {
+      process.kill(-group, 0);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ESRCH') return;
+      if (code !== 'EPERM') throw error;
+    }
+    if (performance.now() >= deadline) throw new Error('Fixture group absence was not confirmed.');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 describe('packed command verifier', () => {
+  it('excuses signal EPERM only after direct termination and a real ESRCH group probe', () => {
+    const root = createFixture();
+    const kill = process.kill.bind(process);
+    const denied = Object.assign(new Error('Simulated signal exit race'), { code: 'EPERM' });
+    let group = 0;
+    let signals = 0;
+    let absent = false;
+    const signal = vi.spyOn(process, 'kill').mockImplementation((pid, operation) => {
+      if (operation === 'SIGKILL') {
+        group = -pid;
+        signals++;
+        throw denied;
+      }
+      try {
+        return kill(pid, operation);
+      } catch (error) {
+        absent = pid === -group && (error as NodeJS.ErrnoException).code === 'ESRCH';
+        throw error;
+      }
+    });
+    try {
+      const output = runNode(root, 'process.stdout.write(String(process.pid));');
+      expect(group).toBe(Number(output));
+      expect(signals).toBe(1);
+      expect(absent).toBe(true);
+      expect(() => kill(group, 0)).toThrow(expect.objectContaining({ code: 'ESRCH' }));
+    } finally {
+      signal.mockRestore();
+      removeFixture(root);
+    }
+  });
+
+  it.each(['live', 'EPERM', 'EIO'])(
+    'preserves signal EPERM when the group probe reports %s',
+    async (observation) => {
+      const root = createFixture();
+      const marker = path.join(root, 'ready.json');
+      const kill = process.kill.bind(process);
+      const denied = Object.assign(new Error('Simulated signal denial'), { code: 'EPERM' });
+      const descendant = 'process.send("ready"); setInterval(() => {}, 1000);';
+      const parent = [
+        "const { spawn } = require('node:child_process');",
+        `const child = spawn(process.execPath, ['--eval', ${JSON.stringify(descendant)}], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });`,
+        `child.once('message', () => { require('node:fs').writeFileSync(${JSON.stringify(marker)}, JSON.stringify({group:process.pid, child:child.pid})); process.exit(0); });`,
+      ].join('\n');
+      let signals = 0;
+      let probes = 0;
+      const signal = vi.spyOn(process, 'kill').mockImplementation((pid, operation) => {
+        const group = existsSync(marker) ? JSON.parse(readFileSync(marker, 'utf8')).group : 0;
+        if (pid === -group && operation === 'SIGKILL') {
+          signals++;
+          throw denied;
+        }
+        if (pid === -group && operation === 0) {
+          probes++;
+          if (observation !== 'live')
+            throw Object.assign(new Error('Simulated group inspection failure'), {
+              code: observation,
+            });
+        }
+        return kill(pid, operation);
+      });
+      try {
+        expect(() => runNode(root, parent)).toThrow(denied);
+        const { child, group } = JSON.parse(readFileSync(marker, 'utf8'));
+        expect(signals).toBe(1);
+        expect(probes).toBe(1);
+        expect(kill(child, 0)).toBe(true);
+        expect(kill(-group, 0)).toBe(true);
+      } finally {
+        signal.mockRestore();
+        if (existsSync(marker)) {
+          const { group } = JSON.parse(readFileSync(marker, 'utf8'));
+          await stopFixtureGroup(group);
+        }
+        removeFixture(root);
+      }
+    }
+  );
+
+  it('does not excuse EPERM without a terminated direct-child result', () => {
+    const root = createFixture();
+    const spawn = childProcess.spawnSync;
+    const incomplete = vi.spyOn(childProcess, 'spawnSync').mockImplementation((...args) => {
+      const result = spawn(...args);
+      return { ...result, status: null, signal: null };
+    });
+    syncBuiltinESMExports();
+    const denied = Object.assign(new Error('Simulated signal denial'), { code: 'EPERM' });
+    const signal = vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw denied;
+    });
+    try {
+      expect(() => runNode(root, '')).toThrow(denied);
+      expect(signal).toHaveBeenCalledTimes(1);
+      expect(signal.mock.calls[0][1]).toBe('SIGKILL');
+    } finally {
+      signal.mockRestore();
+      incomplete.mockRestore();
+      syncBuiltinESMExports();
+      removeFixture(root);
+    }
+  });
+
+  it('preserves the execution timeout after excusing cleanup EPERM on an absent group', () => {
+    const root = createFixture();
+    const kill = process.kill.bind(process);
+    const signal = vi.spyOn(process, 'kill').mockImplementation((pid, operation) => {
+      if (operation === 'SIGKILL')
+        throw Object.assign(new Error('Simulated signal exit race'), { code: 'EPERM' });
+      return kill(pid, operation);
+    });
+    try {
+      expect(() => runNode(root, 'setInterval(() => {}, 1000);', { timeoutMs: 250 })).toThrow(
+        /ETIMEDOUT|timed out/i
+      );
+      expect(signal.mock.calls.map(([, operation]) => operation)).toEqual(['SIGKILL', 0]);
+    } finally {
+      signal.mockRestore();
+      removeFixture(root);
+    }
+  });
+
+  it('preserves non-permission signal failures without probing the group', () => {
+    const root = createFixture();
+    const failure = Object.assign(new Error('Simulated signal failure'), { code: 'EIO' });
+    const signal = vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw failure;
+    });
+    try {
+      expect(() => runNode(root, '')).toThrow(failure);
+      expect(signal).toHaveBeenCalledTimes(1);
+    } finally {
+      signal.mockRestore();
+      removeFixture(root);
+    }
+  });
+
   it('returns exact UTF-8 stdout, including complete JSON and empty output', () => {
     const root = createFixture();
     try {

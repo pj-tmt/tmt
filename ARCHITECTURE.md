@@ -4042,6 +4042,15 @@ explicit rather than becoming inferred delivery decisions.
 
 ## Release boundary
 
+`typescript/scripts/packed-command.mjs` owns synchronous, bounded verifier
+subprocesses and their isolated process groups. A terminated `spawnSync` result
+establishes direct-child termination. A teardown signal's EPERM is excused only
+when that result is followed by an ESRCH group probe; a live or uninspectable
+group, an unconfirmed direct result and other signal failures retain the original
+error. This does not relax command status, signal, stream or execution-deadline
+checks. Its focused fixtures own and stop their real descendants; they do not
+invoke a release or alter the native sandbox's separate lifetime owner.
+
 `dist-workspace.toml`, `scripts/build-native-artifact.sh`,
 `scripts/native-cargo.sh`, `typescript/scripts/native-artifact-policy.mjs` and
 `typescript/scripts/verify-native-artifact.mjs` are developer/release tooling. The
