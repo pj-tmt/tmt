@@ -309,19 +309,22 @@ fn claude_until(
     let mut next = previous.clone();
     let mut consumed = 0u64;
     let mut read = 0u64;
-    loop {
+    let complete = loop {
+        if consumed == end - cursor.offset {
+            break true;
+        }
         if expired() {
-            return Some(baseline(true));
+            break false;
         }
         let available = reader.fill_buf().ok()?;
         if expired() {
-            return Some(baseline(true));
+            break false;
         }
         if available.is_empty() {
             if read != end - cursor.offset {
                 return None;
             }
-            break;
+            break false;
         }
         let size = available
             .iter()
@@ -336,8 +339,8 @@ fn claude_until(
         if raw.last() != Some(&b'\n') {
             continue;
         }
-        consumed = read;
         if next.cursor.as_ref()?.discard {
+            consumed = read;
             next.cursor.as_mut()?.discard = false;
             raw.clear();
             continue;
@@ -346,22 +349,26 @@ fn claude_until(
             return Some(baseline(true));
         };
         if line.trim().is_empty() {
+            consumed = read;
             raw.clear();
             continue;
         }
         if expired() {
-            return Some(baseline(true));
+            break false;
         }
         let parsed = claude_message(line);
         raw.clear();
-        if expired() {
-            return Some(baseline(true));
-        }
+        // Checkpoint only after validation, even if parsing crossed the
+        // deadline. The next iteration checks time before reading more.
         let message = match parsed {
             Ok(Some(message)) => message,
-            Ok(None) => continue,
+            Ok(None) => {
+                consumed = read;
+                continue;
+            }
             Err(()) => return Some(baseline(true)),
         };
+        consumed = read;
         let cursor = next.cursor.as_mut()?;
         if cursor.last.as_ref() == Some(&message.id) {
             if cursor.request != message.request || cursor.counts != Some(message.counts) {
@@ -376,8 +383,7 @@ fn claude_until(
         cursor.last = Some(message.id);
         cursor.request = message.request;
         cursor.counts = Some(message.counts);
-    }
-    let complete = consumed == end - cursor.offset;
+    };
     if consumed == 0 && complete == previous.value.complete {
         return Some(previous.clone());
     }

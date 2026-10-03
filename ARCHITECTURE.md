@@ -1676,7 +1676,7 @@ not expected and may count again: exact historical-ID dedup is deliberately
 outside the bounded one-KiB contract. In-place rewrites that retain inode and
 do not shrink also violate the append-only assumption. A partial final line
 waits for its newline, with `complete=false` and `gap=false`. Cursor loss, shrink,
-replacement, scan deadline/record-limit exhaustion, invalid main records or overflow starts a new
+replacement, record-limit exhaustion, invalid main records or overflow starts a new
 epoch at current EOF with `gap=true` and `complete=false`; a cut fragment is
 discarded through its next newline, and history is never recounted.
 
@@ -1692,7 +1692,13 @@ also bounded by that single-record cap. Clearly foreign unescaped lines receive
 syntax validation without constructing their JSON values; assistant candidates,
 escapes and deeply nested/ambiguous evidence use the existing full validation.
 Malformed foreign records still cause gaps. Time is checked around bounded reads
-and candidate validation; any accumulated counts are discarded on exhaustion.
+and candidate validation. If time expires with records still pending, validated
+counts and the last complete-record cursor are retained in the same epoch with
+`complete=false` and `gap=false`. Buffered but unvalidated bytes are reread on
+the next Stop; contiguous-message deduplication carries across these checkpoints.
+Successive Stops can catch up without new appends, and validating the captured
+EOF marks the scan complete. No-progress retries retain the existing observation
+once it is already incomplete. Real evidence loss still resets at EOF as above.
 A single bounded parse or filesystem operation can cross the cooperative scan
 deadline; the hook supervisor remains the hard termination/cleanup owner.
 

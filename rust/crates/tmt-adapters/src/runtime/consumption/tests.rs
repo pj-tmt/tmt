@@ -469,37 +469,84 @@ fn prefilter_preserves_escaped_keys_missing_usage_and_malformed_foreign_evidence
 }
 
 #[test]
-fn deadline_exhaustion_discards_all_scan_progress_and_recovers_at_captured_eof() {
-    for expire_at in [0, 1, 4, 20] {
+fn deadline_before_validation_keeps_the_cursor_and_can_retry_without_new_bytes() {
+    for expire_at in [0, 1, 2] {
         let (root, path, first) = claude_file();
-        append(&path, CLAUDE);
-        append(&path, "partial");
-        let end = fs::metadata(&path).unwrap().len();
+        let record = CLAUDE.lines().nth(1).unwrap();
+        append(&path, &format!("{record}\n"));
         let mut checks = 0;
-        let gap = claude_until(&root.path, &path, Some(&first), NOW + 1, || {
+        let pending = claude_until(&root.path, &path, Some(&first), NOW + 1, || {
             let expired = checks >= expire_at;
             checks += 1;
             expired
         })
         .unwrap();
-        assert!(gap.value.gap && !gap.value.complete);
-        assert_ne!(gap.value.epoch, first.value.epoch);
-        assert_eq!(gap.value.counts(), Counts::default());
-        assert_eq!(gap.cursor.as_ref().unwrap().offset, end);
+        assert!(!pending.value.gap && !pending.value.complete);
+        assert_eq!(pending.value.epoch, first.value.epoch);
+        assert_eq!(pending.value.counts(), first.value.counts());
+        assert_eq!(pending.cursor, first.cursor, "buffered is not validated");
+        assert_eq!(pending.value.sequence, first.value.sequence + 1);
         assert_eq!(
-            claude(&root.path, &path, Some(&gap), NOW + 2),
-            Some(gap.clone())
+            claude_until(&root.path, &path, Some(&pending), NOW + 2, || true),
+            Some(pending.clone())
         );
-        let record = CLAUDE.lines().nth(1).unwrap();
-        append(&path, &format!(" remainder\n{record}\n"));
-        let next = claude(&root.path, &path, Some(&gap), NOW + 3).unwrap();
-        assert!(next.value.complete && !next.value.gap);
-        assert_eq!(next.value.epoch, gap.value.epoch);
+        let complete = claude(&root.path, &path, Some(&pending), NOW + 3).unwrap();
+        assert!(complete.value.complete && !complete.value.gap);
+        assert_eq!(complete.value.epoch, first.value.epoch);
         assert_eq!(
-            next.value.counts(),
+            complete.value.counts(),
             claude_message(record).unwrap().unwrap().counts
         );
     }
+}
+
+#[test]
+fn deadline_progress_catches_up_across_stops_without_recounting_a_message_group() {
+    let (root, path, first) = claude_file();
+    let records: Vec<_> = CLAUDE.lines().skip(1).take(3).collect();
+    for record in &records {
+        append(&path, &format!("{record}\n"));
+    }
+    let group = claude_message(records[0]).unwrap().unwrap();
+    assert_eq!(group.id, claude_message(records[1]).unwrap().unwrap().id);
+    let last = claude_message(records[2]).unwrap().unwrap();
+    assert_ne!(group.id, last.id);
+    let totals = [
+        group.counts,
+        group.counts,
+        group.counts.add(last.counts).unwrap(),
+    ];
+    let mut state = first.clone();
+    let mut offset = first.cursor.as_ref().unwrap().offset;
+    for (index, record) in records.iter().enumerate() {
+        // Permit one short record's read and validation, then expire before
+        // the next record. Completed captured EOF needs no further work.
+        let mut checks = 0;
+        let next = claude_until(
+            &root.path,
+            &path,
+            Some(&state),
+            NOW + index as u64 + 1,
+            || {
+                checks += 1;
+                checks > 3
+            },
+        )
+        .unwrap();
+        offset += record.len() as u64 + 1;
+        assert_eq!(next.cursor.as_ref().unwrap().offset, offset);
+        assert_eq!(next.value.counts(), totals[index]);
+        assert_eq!(next.value.epoch, first.value.epoch);
+        assert_eq!(next.value.sequence, state.value.sequence + 1);
+        assert!(!next.value.gap);
+        assert_eq!(next.value.complete, index == 2);
+        state = next;
+    }
+    assert_eq!(offset, fs::metadata(&path).unwrap().len());
+    assert_eq!(
+        claude(&root.path, &path, Some(&state), NOW + 4),
+        Some(state)
+    );
 }
 
 #[test]
@@ -572,16 +619,19 @@ fn streaming_scan_measurement() {
         next.value.gap,
         next.value.complete
     );
-    assert_eq!(
-        next.cursor.unwrap().offset,
-        fs::metadata(path).unwrap().len()
-    );
-    if !next.value.gap {
+    let offset = next.cursor.unwrap().offset;
+    let end = fs::metadata(path).unwrap().len();
+    assert!(!next.value.gap);
+    assert_eq!(next.value.epoch, first.value.epoch);
+    assert!(offset <= end);
+    if next.value.complete {
+        assert_eq!(offset, end);
         assert_eq!(
             next.value.counts(),
             claude_message(&candidate).unwrap().unwrap().counts
         );
-        assert!(next.value.complete);
+    } else {
+        assert!(offset < end, "deadline retains a checkpoint before EOF");
     }
 }
 
