@@ -15,7 +15,7 @@ function fixture(mode = 'exit', output = 'ignore') {
   writeExecutable(
     script,
     `
-    import { spawn } from 'node:child_process';
+    import { execFileSync, spawn } from 'node:child_process';
     import fs from 'node:fs';
     if (process.argv[2] === 'child') {
       process.send('ready');
@@ -25,7 +25,8 @@ function fixture(mode = 'exit', output = 'ignore') {
         stdio: ['ignore', '${output}', '${output}', 'ipc'],
       });
       child.once('message', () => {
-        fs.writeFileSync(process.argv[2], JSON.stringify({ child: child.pid, group: process.pid }));
+        const group = Number(execFileSync('/bin/ps', ['-o', 'pgid=', '-p', String(process.pid)], { encoding: 'utf8' }).trim());
+        fs.writeFileSync(process.argv[2], JSON.stringify({ child: child.pid, group }));
         if (process.argv[3] === 'exit') process.exit(0);
         if (process.argv[3] === 'overflow') process.stdout.write('over the limit');
       });
@@ -254,6 +255,65 @@ it('asynchronous spawn failure preserves the error and disposes the sandbox', as
     await expect(runCli({ ...sandbox, cli }, [])).rejects.toMatchObject({ code: 'ENOENT' });
   });
   expect(fs.existsSync(root)).toBe(false);
+});
+
+it('runs beneath a PID-1-owned supervisor and preserves argv, stdin and both streams', async () => {
+  await withSandbox(async (sandbox) => {
+    const script = path.join(sandbox.root, 'observe-parent.mjs');
+    writeExecutable(
+      script,
+      `import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+const grandparent = Number(execFileSync('/bin/ps', ['-o', 'ppid=', '-p', String(process.ppid)], { encoding: 'utf8' }).trim());
+process.stdout.write(JSON.stringify({ grandparent, args: process.argv.slice(2), stdin: fs.readFileSync(0, 'utf8') }));
+process.stderr.write('diagnostic 雪');
+process.exit(17);
+`,
+      0o644
+    );
+    const result = await runCli(
+      { ...sandbox, cli: { executable: process.execPath, args: [script, 'prefix with spaces'] } },
+      ['quote\"; $HOME', '雪'],
+      { stdin: 'input\0雪\n' }
+    );
+    expect(result).toMatchObject({ status: 17, signal: null, stderr: 'diagnostic 雪' });
+    expect(JSON.parse(result.stdout)).toEqual({
+      grandparent: 1,
+      args: ['prefix with spaces', 'quote\"; $HOME', '雪'],
+      stdin: 'input\0雪\n',
+    });
+  });
+});
+
+it('relays a selected CLI signal rather than converting it to an exit code', async () => {
+  await withSandbox(async (sandbox) => {
+    const result = await runCli(
+      { ...sandbox, cli: { executable: '/bin/sh', args: ['-c', 'kill -TERM $$'] } },
+      []
+    );
+    expect(result).toEqual({ status: null, signal: 'SIGTERM', stdout: '', stderr: '' });
+  });
+});
+
+it('deadline termination stops the supervisor, CLI and descendants before disposal', async () => {
+  const f = fixture('hold');
+  let root = '';
+  try {
+    await withSandbox(async (sandbox) => {
+      root = sandbox.root;
+      // Observe a live CLI and descendant before timeout, so startup failure
+      // cannot satisfy the deadline-cleanup assertions.
+      const pending = runCli({ ...sandbox, cli: f.cli }, [], { deadlineMs: 1000 });
+      await until(() => fs.existsSync(f.marker));
+      await expect(pending).rejects.toThrow('exceeded the 1000 millisecond test bound');
+      const { child, group } = JSON.parse(fs.readFileSync(f.marker, 'utf8'));
+      expect(alive(child)).toBe(false);
+      expect(alive(-group)).toBe(false);
+    });
+    expect(fs.existsSync(root)).toBe(false);
+  } finally {
+    await cleanup(f.marker);
+  }
 });
 
 it('output overflow stops the complete group and preserves its bound error', async () => {

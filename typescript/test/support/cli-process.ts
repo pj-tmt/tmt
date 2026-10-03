@@ -12,10 +12,13 @@ import {
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { Readable } from 'node:stream';
+import { fileURLToPath } from 'node:url';
 import { resolveCliExecutables, type CliExecutable } from './cli-executable.mjs';
 
 // The container's test-owned Secret Service is reached through its explicit session bus.
 const runtimeConnectionEnvironmentKeys = ['DBUS_SESSION_BUS_ADDRESS'] as const;
+const neutralParent = fileURLToPath(new URL('./neutral-parent.mjs', import.meta.url));
 
 const lifecycleKey = Symbol('sandbox process lifetime');
 interface ActiveRun {
@@ -146,13 +149,17 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
   const result = new Promise<CliResult>((resolve, reject) => {
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(sandbox.cli.executable, [...sandbox.cli.args, ...args], {
-        cwd: sandbox.cwd,
-        env: sandbox.env,
-        detached: true,
-        stdio: [hasStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-      });
+      child = spawn(
+        process.execPath,
+        [neutralParent, 'relay', sandbox.cli.executable, ...sandbox.cli.args, ...args],
+        {
+          cwd: sandbox.cwd,
+          env: sandbox.env,
+          detached: true,
+          stdio: [hasStdin ? 'pipe' : 'ignore', 'pipe', 'pipe', 'pipe'],
+          windowsHide: true,
+        }
+      );
     } catch (error) {
       // Synchronous argument rejection creates no process to dispose.
       cleaned();
@@ -170,6 +177,16 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
     let stderr = '';
     let outputBytes = 0;
     let failure: Error | undefined;
+    let control = '';
+    const controlStream = child.stdio[3]! as Readable;
+    controlStream.setEncoding('utf8');
+    controlStream.on('data', (chunk: string) => {
+      control += chunk;
+      if (Buffer.byteLength(control) > 16384) {
+        failure ??= new Error('Neutral-parent control exceeded its bound.');
+        beginCleanup();
+      }
+    });
     let cleanupError: Error | undefined;
     let cleanupPermissionDenied = false;
     let inspectionError: unknown;
@@ -201,6 +218,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
         child.stdin?.destroy();
         stdoutStream.destroy();
         stderrStream.destroy();
+        controlStream.destroy();
         reject(
           failure
             ? new AggregateError([failure, error], `${failure.message} ${error.message}`)
@@ -298,6 +316,37 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
     // Descendants can keep inherited pipes open after the direct child exits.
     child.once('exit', beginCleanup);
     child.on('close', (status, signal) => {
+      if (!failure) {
+        try {
+          const report: unknown = JSON.parse(control);
+          if (typeof report !== 'object' || report === null)
+            throw new Error('Missing launcher result.');
+          if ('error' in report) {
+            const error = report.error;
+            if (
+              typeof error !== 'object' ||
+              error === null ||
+              !('message' in error) ||
+              typeof error.message !== 'string' ||
+              !('code' in error) ||
+              typeof error.code !== 'string'
+            )
+              throw new Error('Invalid launcher error.');
+            failure = Object.assign(new Error(error.message), { code: error.code });
+          } else if (
+            !('status' in report) ||
+            report.status !== status ||
+            !('signal' in report) ||
+            report.signal !== signal
+          ) {
+            throw new Error('Launcher exit did not match the selected CLI result.');
+          }
+        } catch (error) {
+          failure = new Error('Could not establish neutral-parent CLI completion.', {
+            cause: error,
+          });
+        }
+      }
       closed = { status, signal };
       beginCleanup();
     });

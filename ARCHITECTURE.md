@@ -4015,6 +4015,16 @@ Synthetic shell installers invoke the same writer. Scenario callers retain their
 bytes and explicit executable or deliberately non-executable modes.
 
 `typescript/test/support/cli-process.ts` owns each native sandbox's active child runs.
+Its test-only `neutral-parent.mjs` launcher owns reparenting before CLI spawn:
+only a PID-1-adopted supervisor starts the selected executable, removing the
+agent runtime from its ancestry without a product guard override. The direct
+relay remains the harness's child and process-group leader; the supervisor, CLI
+and ordinary descendants share that group. Inherited stdin/stdout/stderr preserve
+CLI bytes, while a separate bounded completion descriptor conveys errors and
+checks the relayed exit code or signal. Reparenting and spawn are inside the
+existing execution deadline; an unknown adopter fails visibly. Native caller
+isolation tests retain real shared-host guard positive controls. This boundary
+does not alter Rust fixtures or Docker's intentional runtime ancestry.
 It also owns `TMUX_TMPDIR` under the sandbox, so ancestor discovery cannot reach
 the host's default tmux server after caller variables are cleared. Native process
 fixtures do not start default-socket servers; real tmux scenarios belong to Docker.

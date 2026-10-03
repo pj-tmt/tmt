@@ -38,7 +38,10 @@ Read the repository guidance before planning work:
    gates. Record the reviewed revision, findings, dispositions and exact verification evidence.
    When replacing implementations, map behavioral assertions, not test counts:
    returned-error rollback is not crash recovery. Preserve resource cleanup
-   ordering through the existing child-process owner.
+   ordering through the existing child-process owner. Native CLI scenarios use
+   the shared sandbox runner's ancestry isolation, documented in DEVELOPMENT;
+   keep direct runtime-caller positive controls fenced rather than adding
+   scenario skips or production guard overrides.
    Rust executable-fixture changes follow DEVELOPMENT's
    [three ETXTBSY cases](../../../DEVELOPMENT.md#rust-checks) and the narrowly owned
    publication boundary in ARCHITECTURE. Verify its exact dev edges with the

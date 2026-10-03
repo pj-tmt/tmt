@@ -355,7 +355,7 @@ jobs:
         working-directory: rust
         run: |
           cargo build --locked -p tmt-squad
-          cargo build --locked --example storage-probe
+          cargo build --locked --example storage-probe --example runtime-caller-fixture
           cargo build --locked --release -p tmt-cli -p tmt-driver-herdr --bins
       - name: Build Squad process fixtures
         if: needs.changes.outputs.native_scope == 'squad'

@@ -1346,7 +1346,16 @@ fixtures can reach the container-owned Secret Service without inheriting HOME,
 XDG runtime paths or unrelated parent variables. Executable selectors are resolved
 separately; scenario-local environment changes remain explicit.
 These fixtures do not inherit caller/provider markers, driver recursion flags or
-color settings. Environment isolation does not remove process ancestry.
+color settings. Environment isolation does not remove process ancestry. Native
+TypeScript `runCli` also isolates CLI ancestry through the test-only
+`test/support/neutral-parent.mjs`; [testing boundaries](ARCHITECTURE.md#testing-and-evidence-boundaries)
+own its reparenting, completion, deadline and cleanup contract. The native
+`caller-isolation.test.ts` keeps a direct shared-runtime positive
+control fenced before and after isolation, with the same provider marker on both
+paths. Build its existing process-shape fixture with
+`cargo build --locked --manifest-path rust/Cargo.toml --example runtime-caller-fixture`
+before the native suite, as the native CI worker does. Docker caller scenarios
+deliberately retain their process ancestry.
 
 The native process selector resolves the repository build at
 `rust/target/debug/tmt` by default and fails if it is absent. An explicit
