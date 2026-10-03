@@ -26,68 +26,35 @@ of native schema and application state.
 
 ## Repository layout
 
-This section owns the repository layout map; the infra squad reviews layout changes.
-The machine-readable top-level allowlist is
-[`.github/repository-layout.json`](.github/repository-layout.json). It lists permanent
-entries and current exceptions with their removal issues. Component ownership comes
-from [`.github/components.json`](.github/components.json), through `ci-scope.ownerOf`;
-layout permission does not change component ownership, CI selection or release policy.
+Infra reviews the layout map and its machine-readable allowlist,
+[`.github/repository-layout.json`](.github/repository-layout.json). Component
+ownership comes separately from [`.github/components.json`](.github/components.json).
 
-| Home                      | Responsibility                                                                                                                                      |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Repository root           | Short entry points, contributor guidance, license and required repository/tool configuration; no product source or generated evidence.              |
-| `.agents/`                | Repository contributor procedures.                                                                                                                  |
-| `.github/`                | Component ownership, layout allowlist, workflows, shared Actions and isolated release tooling.                                                      |
-| `rust/`                   | Native CLI, core, adapters, shared Rust leaves, private fixtures, release tooling and the release archive note; extensions retain their own crates. |
-| `typescript/`             | Private developer tooling, tests and shared fixture support; no product-runtime fallback.                                                           |
-| `extensions/<extension>/` | Feature-owned runtimes, contracts, skills, documentation and assets.                                                                                |
-| `contracts/`              | Core public contracts and their normative fixtures.                                                                                                 |
-| `scripts/`                | Shared root shell/build/development helpers.                                                                                                        |
-| `skills/`                 | Canonical bundled user-agent guidance.                                                                                                              |
-| `site/`                   | User handbook and its build. Translated pages: `site/src/i18n/<lang>/`.                                                                             |
-| `design/`                 | Shared design tokens and CLI style guidance.                                                                                                        |
+| Home                      | Responsibility                                                                       |
+| ------------------------- | ------------------------------------------------------------------------------------ |
+| Repository root           | Entry points, contributor guidance, license and required configuration               |
+| `.agents/`                | Contributor skills and their area references                                         |
+| `.github/`                | Ownership/layout maps, workflows, shared Actions and isolated release tooling        |
+| `rust/`                   | CLI, core, adapters, neutral leaves, private fixtures/release tools and archive note |
+| `typescript/`             | Private developer tooling, tests and shared fixtures                                 |
+| `extensions/<extension>/` | Product-owned runtimes, contracts, skills, docs and assets                           |
+| `contracts/`              | Core public contracts and normative fixtures                                         |
+| `scripts/`                | Shared shell/build/development helpers                                               |
+| `skills/`                 | Canonical bundled user-agent guidance                                                |
+| `site/`                   | User handbook and translations                                                       |
+| `design/`                 | Shared visual tokens and CLI style guidance                                          |
 
-Homes of moved guidance:
+New homes or exceptions need infra review and coordinated map/allowlist changes;
+ignored local outputs are outside the tracked-file map. The
+[layout skill](.agents/skills/tmt-layout/SKILL.md) owns add/move procedures and the
+tracked-file guard. Handbook language exceptions belong to
+[AGENTS](AGENTS.md#repository-content-language) and the allowlist.
 
-Core public process and request/response contracts live in `contracts/extension-api.md`
-and `contracts/request-response-v1.md`; the Remote channel contract lives in
-`contracts/remote-channel-v1.md`. The local MCP wire is owned by
-`contracts/mcp-v1.md`. CLI style guidance lives in `design/cli-style.md`.
-Release procedures belong to the
-[release skill](.agents/skills/tmt-release/SKILL.md) and its references.
-
-- The handbook owns user guidance. Office documentation and art helpers live in
-  `extensions/tmt-office/docs/` and `extensions/tmt-office/scripts/art/`.
-- `rust/archive/NATIVE-INSTALL.md` is the short offline note that every release
-  archive carries under the entry name `NATIVE-INSTALL.md`; the archive inventory
-  is part of the installer contract, so the name stays. Runtime performance probes
-  are in [DEVELOPMENT](DEVELOPMENT.md#optional-performance-probes). No top-level
-  exception remains.
-
-The infra-owned Rust paths include `rust/crates/tmt-release-tool`, the private
-release-version TOML binary. It is excluded from CLI release roots and has its own
-non-released component entry, like `rust/crates/tmt-test-support`.
-
-New homes or exceptions require an infra-reviewed proposal with a component owner
-and bounded responsibility. Update this map and the JSON allowlist together;
-remove an exception when its last tracked entry moves or is deleted. The tooling
-layout test checks every tracked file's component owner and that tracked top-level
-entries are a subset of the allowlist, and rejects temporary exceptions with no
-tracked entry; ignored local outputs are outside that map. Handbook translations
-are the one place repository prose may be non-English
-([AGENTS](AGENTS.md#repository-content-language)). The allowlist's optional
-`languageExceptions` key maps each language directory under `site/src/i18n/` to
-its HTML language tag; a language's entry lands with its first tracked translation.
-The layout test owns the closed set of allowed languages and fails a listed
-directory with no tracked file, a tag that does not match its directory, and a
-tracked file under `site/src/i18n/` outside a listed directory.
-For add/move review and rename hygiene, use the
-[layout procedure](.agents/skills/tmt-layout/SKILL.md).
-
-Shared visual tokens have one owner: `design/tokens/tokens.json`, maintained by
-the design lead. `design/tokens/tokens-plugin.ts` projects them into CSS for Vite
-consumers without a runtime or package dependency. The handbook imports that
-source; Rust CLI theme tests check its built-in palette against the same file.
+Shared visual tokens have one owner, `design/tokens/tokens.json`, maintained by
+the design lead. Its Vite projection and Rust CLI theme tests consume the same
+source. Release procedures belong to the
+[release skill](.agents/skills/tmt-release/SKILL.md), including the archive's
+product-neutral `rust/archive/NATIVE-INSTALL.md`.
 
 ## TypeScript workspace boundary
 
@@ -650,112 +617,26 @@ runtime SDK, identity registry or alternate exchange engine.
 
 ### CI selection and worker model
 
-`.github/components.json` is the one component map: who owns the CLI, Office and Squad
-paths, and the ordered rules that say which CI consumers a path selects and why.
-`typescript/scripts/ci-scope.mjs` reads it and owns conservative affected-area
-selection and final gate validation. Native source/skill changes, Office's Rust crates,
-core test suites and shared or unknown paths retain full native verification; Office-only
-app/docs paths avoid native matrices, and unread prose selects nothing beyond `Code quality`.
-Frozen Office verification follows component ownership, Office docs and Office-specific
-workflow/emulator machinery only. Shared dependencies and unknown paths do not select it.
-Weekly/manual runs cover Office; merge groups and main pushes never run Office web,
-local-service or companion-dependent native jobs. Workspace Rust clippy/test/build still
-include the Office members. The explicit remote-Rust rule retains full workspace coverage
-independently of private release ownership. Full Rust checks reject
-empty remote test discovery before executing all workspace tests, including the
-remote lifecycle tests and core architecture guards. Diffs include deletions and both
-sides of renames. The selector writes
-a per-path evidence table (owner, rule, selection, map digest) to the run summary. When
-every path that selects native work is owned by Squad, the native scope is `squad`: the
-same job names run Squad's Cargo checks and architecture guard, its native tests and its
-E2E file, while the CLI runtime builds, packed installs and tooling unit tests are skipped
-because the CLI is unchanged (Squad cannot affect core: the architecture guard rejects any
-dependency in either direction). `Native package matrix` expects exactly that set of results
-for the scope; anything shared, CLI-owned or unrecognized runs the full set. `Docker E2E`, the
-required check, is a gate over two shard jobs that split the E2E scenario files by the committed
-weights in `typescript/test/e2e/shard-weights.json` (the first shard also runs the Rust adapter
-tests): it requires both shards when native work is selected, the first alone for a scoped
-component and neither when nothing native is selected, so a skipped, cancelled or missing
-selected shard fails it, and a guard proves every scenario file is in exactly one shard. Existing required check names
-remain; `Code quality` gates selected Office verification and `Native package
-matrix` gates all selected native jobs. Selected skipped, cancelled or failed
-jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
-`Native Rust contracts` aggregates independent fmt/Clippy, workspace test/build,
-Office local-service and native process workers, plus an MSRV worker that reads
-`rust/Cargo.toml` and checks every workspace target. Full scope requires all except Office;
-the Office worker also requires explicit `native_office=true`. Squad skips Office, and
-none skips the aggregate. Missing, failed,
-cancelled or unexpectedly skipped workers fail closed. The native process worker
-consumes the Office fixture producer's SHA-256-checked local-service executable only
-when Office is selected. Otherwise it excludes Office-owned native suites and requires
-no companion artifact, while keeping nonempty core discovery and independent fixtures. The Office check worker consumes the same embedded SPA; other
-fixtures remain independently built in the native worker.
+[`.github/components.json`](.github/components.json) is the one component map:
+`owns`/`excludes` define path roots, `selectedBy` overrides ownership for scattered
+files, and ordered rules select CI consumers independently. `release:false`
+excludes a component from automatic cuts/publication. Only non-released components
+may declare `releaseStatus:never` (never shipped) or `releaseStatus:parked`
+(explicitly deferred); absence means awaiting activation. `releaseConsumers` names
+packaged consumers of private components. Registration alone never authorizes activation.
 
-Rust dependency caches (`Swatinem/rust-cache`, pinned by commit SHA) have one
-main-only writer per key: workspace tests write the shared dev dependency cache,
-MSRV writes its toolchain-specific cache, and each native runtime target writes
-its own cache. Every writer uses the single seed-event classification (`verify=false`)
-and the main ref; PR and merge-group runs only restore. Other workers restore
-the shared cache without saving. Dev debug
-information and incremental compilation are disabled across CI; release profiles
-retain their manifest policy. Main cache seeding runs on selected Cargo/workflow
-changes, weekly and manually; feature-branch dispatches only restore. A seeding
-run has no diff and takes full native scope. Its Rust aggregate still checks the
-workers; the outer verification gates remain skipped.
+`typescript/scripts/ci-scope.mjs` owns map validation, path ownership, conservative
+CI selection and final gate validation. Its `releasedComponentsForPath` is the
+shared release-attribution owner: released roots plus each binary's transitive
+Cargo normal/build workspace dependencies; dev edges do not count. Explicit
+private non-Rust consumers are additive. `cargo-workspace.mjs` supplies resolved
+Cargo metadata; version inheritance/editing has its own private release-tool owner.
+CI scope, ownership, binary consumption and version inheritance are separate contracts.
 
-`ci.yml` owns all four required checks: Code quality, Unit tests, Docker E2E and
-Native package matrix. Both pull requests and `merge_group` candidates run those
-checks. Merge groups select paths from the common ancestor of fetched
-`origin/main` and `merge_group.head_sha` through that queue head. Under HEADGREEN,
-the event's `base_sha` can be a preceding queued commit; using it would omit earlier
-pending changes and let a prose-only tip skip their checks. PRs retain merge-base (`...`)
-selection. Both use the same component-map rules, scopes and E2E partitions;
-empty or unreadable merge-group diffs fall back to full native verification with
-Office still unselected. The changes job fetches full history, and missing commit objects
-cannot yield a successful empty selection.
-
-The changes job also owns the `macos` classification: false only for
-`merge_group`. Separate macOS raw-runtime build and packed-install jobs consume
-that output, sharing their verification steps with Linux through YAML anchors.
-The native aggregate requires a valid classification and exact `skipped` macOS
-results when false; full-scope PRs require success. Missing, failed or unexpected
-results never pass. All selected Linux rows remain required. Release builds and
-archive verification retain macOS before publication. Both macOS targets build
-on arm64; Intel verification selects an x64 Node and uses
-`scripts/run-native-verification.sh` to apply `arch -x86_64` to the whole verifier
-process tree, including installer and upgrade children. The shared runtime
-proof owns exact Mach-O architecture inspection reused by archive, installed
-bootstrap, upgrade and public smoke checks. Node's architecture alone cannot
-establish executable identity. The advisory weekly/manual native Intel workflow
-retains native runtime and public installer/upgrade evidence; its PR self-test
-is scoped only to its own workflow path. DEVELOPMENT owns the
-[acceptance policy and commands](DEVELOPMENT.md#runtime-smoke-matrix). Advisory
-Office browser
-checks remain separate; the repository owner controls merge-queue rulesets.
-
-The advisory Office browser workflow has a separate ownership-based PR flag,
-`office_browser`: Office-owned component paths and the browser
-verification machinery select its emulator/image work. The selector owns the
-Office-specific workflow/emulator and Docker context exceptions so that machinery
-exercises itself. Shared dependency/selector/generic fixture changes, ordinary
-core product dependencies and unknown paths do not select
-browser PR work while Office is parked. Scheduled/manual runs cover all twelve
-partitions, including the emulator; the existing native/local PR pauses remain.
-Required native CI keeps conservative selection; the Rust gate validates the explicit
-Office selection and exact worker results in both states.
-`tmt-infra-lead` owns triage of red weekly/manual Office runs, records follow-up issues,
-and routes product failures to the Office owner; freezing does not leave the safety net unowned.
-
-The advisory Colab browser workflow is separate from `ci.yml` and its required
-aggregates; `ci-scope.mjs` owns its `colab_harness` PR selection. Commands are in the
-[tmt-colab skill](.agents/skills/tmt-colab/SKILL.md).
-
-The same component map feeds release attribution through the shared Cargo metadata
-owner and released-root lookup. CI selection, path ownership, production binary
-consumption and version inheritance remain separate contracts. Native version
-fixtures consume Cargo-resolved versions from that owner rather than parsing TOML
-again. The [release boundary](#release-boundary) owns cut and publication behavior;
-[Development](DEVELOPMENT.md#revive-office) owns parked-product revival.
+Selected missing, failed, cancelled or unexpectedly skipped work cannot satisfy a
+required gate; empty test discovery never passes. Selection, worker, cache and
+advisory-browser details live in the
+[CI reference](.agents/skills/tmt-release/references/ci-selection.md).
 
 ## Browser add-on shell
 
@@ -4186,437 +4067,70 @@ release's skills tree.
 
 ## Testing and evidence boundaries
 
-Office's opt-in `playwright.visual.config.ts` reuses the local HTTP fixture and
-real browser renderer for reviewed platform/furniture/HUD pixel baselines. Its
-scenario-local read-only world is not a native admission or persistence oracle.
-The browser partition verifier keeps these tests separate from standard CI and
-capacity diagnostics; [Development](DEVELOPMENT.md#personal-office-milestone-acceptance)
-owns execution, platform-specific baselines and explicit visual-review updates.
-Geometry, gesture history and native durability retain their existing test owners.
+Rust tests stay beside their owners. TypeScript native, E2E, tooling and stress
+suites share `test/support`, which imports no suite; native and E2E import neither
+each other nor tooling. Scenarios retain assertions; helpers own fixture
+mechanics. Frozen inputs and independent SQL/schema oracles must not derive
+expected results from the implementation under test.
 
-Retained tests are organized under `typescript/test/native/`, `typescript/test/e2e/`,
-`typescript/test/tooling/`, `typescript/test/stress/` and `typescript/test/support/`, with Rust unit/integration tests beside
-their owners. Office real-companion stress cases use `office-*` filenames and the
-component map's stress `selectedBy` glob; retained-release setup uses the private
-installer, while public acquisition refusal stays in the native lifecycle suite.
-The `rust/crates/tmt-test-support` library owns fixture-executable publication for
-[DEVELOPMENT's ETXTBSY case 2](DEVELOPMENT.md#rust-checks), not general test utilities.
-Its one `write_executable` helper sends exact bytes and the caller's permission
-mode to a short-lived shell through `tmt-invoke`'s bounded execution and
-process-group cleanup. The test process never opens that executable for writing.
-It adds no retry, readiness policy or fixture-state owner. Every additional helper
-requires its own two-caller justification and architecture review.
-The unpublished, `dist = false` library is a private component, with no release
-consumers. Only Adapters, CLI, Squad, Office, Colab and Office Command may declare
-its canonical untargeted dev-dependency; no production or build edge may consume
-it. The architecture guard checks those exact edges, production references and
-publication metadata. Its only production dependency is the neutral `tmt-invoke` leaf.
-Its separate `colab-runtime-fixture` example is the reviewed native stand-in
-for archive and public-install verifier sensitivity. Embedded tiny app bytes and
-argument-selected defects belong to this executable, with scenario assertions in
-tooling tests. Its `signal-hook` dev-dependency owns fixture SIGTERM cleanup; the
-library's production dependency boundary and publication helper are unchanged.
-Its `recording-cli-fixture` example is the native driver for synthetic
-extension-upgrade archives on every platform. Its `serde_json` dev-dependency
-parses fixture configuration; release TOML edits belong to `tmt-release-tool`.
-The scenario owns absolute
-delegate/log configuration in its synthetic `NATIVE-INSTALL.md`; the example
-records the first two argv values and execs the selected CLI without changing
-process or environment ownership. Executable publication and exact macOS
-architecture admission retain their existing owners. This example adds no
-library API, crate or dependency edge.
-Owner-local test modules retain readiness, scenario assertions and case-3 retries.
+Tests select an explicit task-owned native executable or the checkout build;
+a missing build fails, with no host CLI or retired-runtime fallback. State,
+provider roots, prefixes, sockets and processes remain fixture-owned. Native
+process fixtures isolate caller ancestry and host tmux discovery; Docker supplies
+network-isolated private tmux and deterministic peers. No host tmux server,
+provider installation or global environment mutation is test evidence.
 
-The CLI's `tests/support` module owns the isolated environment and
-direct-child lifetime shared by its stdin-signal and request-observer fixtures;
-[Development](DEVELOPMENT.md#native-process-and-shared-tests) owns the isolation contract.
-They use independent SQL/schema oracles for SQLite behavior and
-frozen fixtures from `typescript/test/fixtures/storage-history/`; implementation reads
-must not generate their own expected results. Native process tests use absolute
-task-owned executables, bounded subprocesses and cleanup that stops, reaps and
-only then removes fixture state. Signals are sent only to task-owned child
-processes. No host tmux server, provider installation or global environment
-mutation is test evidence.
+Cleanup confirms owned child/group absence before deleting fixture state;
+unknown inspection, leaks and false positives fail. Signals target only verified
+owned processes. Runtime tests prove CLI behavior, Docker proves transport and
+lifecycle, and release tooling proves actual archives and public installation;
+one layer's success cannot substitute for another's evidence.
 
-`typescript/test/support/executable-fixture.mjs` owns publication of test-written
-executable and interpreter fixture bytes across all three TypeScript suites. A
-short-lived Node writer stages, fsyncs and closes the file before chmod and atomic
-rename; the parent waits for writer exit before spawning. Test workers never open
-those bytes for writing, so concurrent forks cannot inherit a writable descriptor.
-Synthetic shell installers invoke the same writer. Scenario callers retain their
-bytes and explicit executable or deliberately non-executable modes.
-
-`typescript/test/support/cli-process.ts` owns each native sandbox's active child runs.
-The test-only `runtime-caller-fixture` native example owns reparenting before CLI spawn:
-only a PID-1-adopted supervisor starts the selected executable, removing the
-agent runtime from its ancestry without a product guard override. The direct
-setup child leads the launcher group and exits after starting the supervisor,
-whose inherited descriptors keep the harness's pipes open. The supervisor
-starts a second group whose bootstrap reports its PID and waits for the harness
-to acknowledge ownership before executing the selected CLI in place. The CLI
-therefore leads its own group, preserving hooks' local deadline contract. The
-harness stops and verifies both groups, including readiness arriving during
-cleanup. Closing the acknowledgement connection cancels an unstarted bootstrap.
-The harness owns a private per-run Unix socket directory under `/tmp`, keeping
-nested sandboxes below macOS's socket path bound. Socket records convey ownership,
-errors and the supervisor's observed CLI exit. The bootstrap consumes the exact
-acknowledgement, then maps that connection to stdin; input survives setup exit
-without carrying protocol bytes into the CLI. No-input uses `/dev/null`.
-Inherited stdout/stderr preserve CLI bytes. Rust-owned sockets close on exec,
-except the input clone mapped to fd 0; Rust's exec retains PATH lookup and errno
-behavior without an interpreter startup. Setup close and socket drain are
-independent events. The harness waits for both, and closes connections, server
-and private directory before resolving cleanup, including cancellation before spawn.
-Reparenting and spawn are inside the
-existing execution deadline; an unknown adopter fails visibly. Native caller
-isolation tests retain real shared-host guard positive controls. This boundary
-does not alter product code or Docker's intentional runtime ancestry.
-It also owns `TMUX_TMPDIR` under the sandbox, so ancestor discovery cannot reach
-the host's default tmux server after caller variables are cleared. Native process
-fixtures do not start default-socket servers; real tmux scenarios belong to Docker.
-Descriptor clones share that lifetime. The selected CLI's completion starts owned-group
-cleanup even when descendants retain output pipes. Success requires direct
-close and confirmed absence of both groups. A SIGKILL or initial group-probe permission
-error is tolerated only after direct-child close and a subsequent ESRCH group
-probe; live or unknown
-groups still fail within the cleanup bound. An unconfirmed group is never
-signalled; other initial probe or signal errors remain failures. Cleanup failure
-is bounded and retains fixture files for diagnosis. Sandbox disposal cancels outstanding runs before
-removing files. After registered-run cleanup, one post-callback guard reads
-inspectable same-user processes' cwd through Linux `/proc`; discovery skips
-permission-denied entries. This guard is skipped on macOS and other platforms.
-A live cwd inside the canonical sandbox root fails the test, including a service
-in a separate group.
-The guard re-verifies cwd before signalling each resident and confirms absence
-before deleting files. Failed inspection of a verified resident or unconfirmed
-cleanup retains the fixture; callback and cleanup failures remain visible together. This is not
-containment of descendants that leave the sandbox cwd, and does not replace the
-separate Docker harness or release verifier.
-
-Real-companion native scenarios live in Office-owned `office-*.test.ts` suites;
-core-only uninstall, legacy skill recovery and hook cases stay in their core suites.
-Shared setup lives in `test/support`, while assertions remain in the scenarios.
-
-The native process suite proves parser, configuration, identity, notes,
-response, exchange, talk, installation and skill contracts through the real executable.
-Docker E2E supplies private tmux, caller, lifecycle, transport and cross-process
-evidence. The Office command and terminal-inspection scenarios are associated with Office
-through the component map's `selectedBy` entries; retained-release setup uses the private installer, while
-frozen public acquisition refusal is covered by the native Office lifecycle suite. Storage adapter tests prove migrations, transaction rollback,
-contention, crash cleanup, retention, acknowledgment and late-final behavior.
-Tooling tests prove release-script policy and bounded command wrappers; they do
-not count as native runtime or release-archive proof.
-The public-install smoke keeps short issue reasons and separate bounded command
-diagnostics in its run log and result artifact; the packed runner owns stream capture.
-`.github/actions/public-install-smoke` owns tag data checkout, Node setup,
-architecture wrappers and verifier execution. It supplies the workflow's read-only
-`GITHUB_TOKEN` through env only. The verifier passes it only to bootstrap/native
-acquisition processes, redacts diagnostics and checks isolated installed state for
-credential persistence. The existing native HTTPS client owns API-only authorization
-and its bounded retry; public asset downloads receive no token. All failed acquisitions,
-including exhausted rate limits, report ordinary failures. The only smoke retry is the
-bounded older-alpha latest-installer lag read. A PR-only four-host workflow reuses the
-shared action against an existing published CLI without publication or issue writes.
-
-Docker E2E `harness.ts` retains scenario imports; `harness/fixture.ts` owns
-fixture resources and process registries.
-Its synchronous tmux client calls have a five-second SIGKILL bound, so a stuck
-wrapper cannot block the scenario timer. The suite-local tmux tracer refuses a
-second installation before replacing its delegate; scenarios reuse and clear
-one trace per fixture. Tooling regressions verify refusal, wrapper preservation
-and termination of a nonresponsive client without starting host tmux.
-`harness/readiness.ts` observes caller-supplied events, panes and process state;
-`harness/cleanup.ts` stops and checks owned process groups and clients. Unknown
-group inspection remains pending within the one-second cleanup bound; unresolved
-inspection or surviving groups fail cleanup. The fixture retains cleanup ordering
-and error precedence. `harness/types.ts` owns
-their suite-local result, event and option shapes; the helpers do not own a second
-fixture lifetime.
-
-`typescript/test/tooling/architecture.test.ts` guards literal test import directions:
-shared support imports no suite; native and E2E import neither each other nor tooling;
-harness helpers do not import the fixture, and root/extension E2E scenarios enter the
-root harness through `harness.ts`. Focused tooling tests may import suite-local helpers.
-The shared `test/support/source-imports.ts` AST extractor includes no-substitution
-literal templates and the first argument of dynamic imports with options; computed
-loaders stay outside this static guard. TypeScript module resolution uses the root
-compiler options for these test boundaries.
-
-Within Docker E2E, `cli-assertions.ts` owns the repeated strict success envelope
-(zero exit, empty stderr, defined parsed JSON), not domain validation or command
-execution. Scenario-specific payload projections and assertions stay local;
-sharing a type must not turn required fields into optional ones. A different
-stderr or parsing contract is not an interchangeable helper. The native-process
-assertions in `typescript/test/support/cli-process.ts` retain their own process-result shape.
-
-All public-command E2E scenarios use `typescript/test/support/cli-executable.mjs` through
-the harness. There is no separate product-only native selector; explicit
-`TMT_TEST_CLI`/peer descriptors still exercise override and nested-reply behavior.
-`tmux-adapter` and `transport-adapter` deliberately select the test-only tmux
-probe, not the public CLI. Their evidence cannot replace public command tests.
-Feature ownership and deliberate overlap are mapped in DEVELOPMENT.md.
-
-The six required runtime smoke environments are macOS x64/arm64, Linux glibc
-x64/arm64 and Linux musl x64/arm64. Four raw native builds feed these checks;
-the static Linux musl binaries are reused for both Linux environments. The
-historical `Packed install (<environment>)` check names and
-`Native package matrix` final blocking aggregator remain for CI
-compatibility, but their step descriptions must identify them as native runtime
-smoke checks, not npm-package checks. macOS x64 runs under Rosetta with
-supplementary weekly native Intel public installation and upgrade coverage.
-Smoke runs outside the checkout with
-isolated HOME/state, no Node/Rust on the product PATH, exact embedded skill
-checks, managed skill installation and SQLite reopen/persistence.
-
-Executable selection is checked positively and negatively: a selected native executable
-must run, and a missing default native build must fail clearly. No Rust coverage
-percentage is compared with the retired TypeScript source or reported as a
-zero-file success.
-
-`typescript/scripts/merge-queue-metrics.mjs` is read-only developer tooling,
-not a CI selector or queue controller. It owns bounded REST evidence collection,
-local cache reuse and metric calculation, using the existing bounded command
-process owner. Its tests own deterministic API/timeline fixtures; production
-job and step evidence stays in local report artifacts. The reporting definitions,
-limits and invocation belong to [DEVELOPMENT](DEVELOPMENT.md#merge-queue-metrics).
-It never changes workflows, rulesets or PR state; unknown causes/inclusion remain
-explicit rather than becoming inferred delivery decisions.
+Helper ownership, fixture publication and lifecycle details live in the
+[E2E references](.agents/skills/tmt-e2e/references/test-boundaries.md); shared
+commands remain in [DEVELOPMENT](DEVELOPMENT.md#native-process-and-shared-tests).
 
 ## Release boundary
 
-`typescript/scripts/packed-command.mjs` owns synchronous, bounded verifier
-subprocesses and their isolated process groups. A terminated `spawnSync` result
-establishes direct-child termination. A teardown signal's EPERM is excused only
-when that result is followed by an ESRCH group probe; a live or uninspectable
-group, an unconfirmed direct result and other signal failures retain the original
-error. This does not relax command status, signal, stream or execution-deadline
-checks. Its focused fixtures own and stop their real descendants; they do not
-invoke a release or alter the native sandbox's separate lifetime owner.
-
-`dist-workspace.toml`, `scripts/build-native-artifact.sh`,
-`scripts/native-cargo.sh`, `typescript/scripts/native-artifact-policy.mjs` and
-`typescript/scripts/verify-native-artifact.mjs` are developer/release tooling. The
-workflow builds the four supported cargo-dist targets, creates target-filtered
-third-party notices (including Vite's bundled frontend inventory for Office), and verifies runtime bytes, linkage, checksums, archive
-inventory and executable behavior on matching hosts. `driver-herdr` selects only
-the independently versioned driver package, notices and archive; its tags are
-`tmt-driver-herdr-v<semver>` and its prereleases never become repository latest.
-The component owns its Cargo version and lock entry, and CLI release paths exclude
-it. The component is parked with `release:false` and Cargo `dist=false`;
-release cut (#1399) activates both for its first standalone release. The retained
-`bootstrapSha` is that cut's first-release history boundary, the last commit before
-the component existed. Herdr remains excluded from live release planning until owner-authorized activation.
-CLI runs additionally
-verify exact managed-skill contents and the generated bootstrap.
-
-Remote and Colab are independent native products. The builder passes an absolute
-`TMT_COLAB_APP_DIR` to Colab's embedding boundary; core owns native registration.
-`colab-runtime-proof.mjs` verifies the relocated socket, app bytes and child cleanup;
-only Colab verification loads it. Publication requires a supporting CLI and actual-archive
-acceptance under the [release skill](.agents/skills/tmt-release/SKILL.md).
-
-The artifact builder resolves the taffy-only offline clarification before
-cargo-about runs. `rust/about.toml` owns the clarification's
-upstream provenance and checksum; `rust/licenses/taffy-0.7.7/LICENSE.md` preserves
-the exact upstream text missing from that crate's registry archive. The builder
-checks the locked version and vendored bytes, then writes a config with an absolute
-local file path. It never alters registry contents or fetches license text.
-Cargo-about retains target filtering and `--offline --locked --fail`; the final
-artifact verifier still rejects placeholder attribution.
+Release tooling consumes cargo-dist's manifest and product-owned archives; it
+shares the native runtime/linkage proof across archive, installer, upgrade and
+public smoke verification. Raw executables do not prove archives or public
+installation. The candidate-owned installer handoff contract is
+[`contracts/native-install-handoff-v1.md`](contracts/native-install-handoff-v1.md).
+Archive, installer, verifier and publication procedures belong to
+[tmt-release](.agents/skills/tmt-release/SKILL.md).
 
 ### Main release cuts
 
-A release is a product-prefixed tag on a main commit X. `release.yml` evaluates
-released components hourly or on manual dispatch, with recovery in the hourly run; main's crates retain fixed
-development versions. `release-cut.mjs` is the pure cut planner, and
-`release-cut-live.mjs` owns bounded REST draft creation and native dispatch. The
-adapter captures main HEAD once, exports tracked X, warms its locked dependencies
-with the pinned acquisition toolchain, then reads its component map and offline
-Cargo graph, and rechecks the release catalog immediately before each component
-mutation. Missing history or incomplete metadata fails closed.
+A release is a product-prefixed tag on a main commit. Hourly allocation captures
+main once and reserves each released component's next alpha number from drafts
+and tags; each allocated tag owns an independent pipeline. New work is measured
+from the newest allocated ancestor cut, whether draft or published. Failed drafts
+stay unpublished and do not hold later cuts or merges.
 
-Attribution adds product binary transitive normal/build workspace dependencies to
-the shared released-root membership rule; dev dependencies do not count. Private
-non-Rust consumers remain additive. CI selection is unchanged. Pinned conventional
-parser/renderer dependencies produce notes for the releasable first-parent commits
-across the shared range below; linked SHAs equal that set by construction.
-A short serialized allocation section counts existing drafts and Git tags to
-reserve the next alpha number; each allocated tag then owns its independent pipeline. Explicit owner-selected
-versions must advance it; first release requires a map-owned reviewed bootstrap and seed.
-Cut, injection and Project evidence share the native policy's component-to-product mapping.
-Authorization belongs to the [release skill](.agents/skills/tmt-release/SKILL.md).
+The release version is injected at build through the private `tmt-release-tool`:
+only the selected version declaration and implied Cargo lock entries may differ
+from the captured source. Build metadata and executable versions must agree;
+nothing is committed back to main. Main retains development versions.
 
-`cargo-workspace.mjs::readCargoWorkspace` is the shared Cargo reader: callers
-supply a repository root directory, exporting an immutable ref when needed. It
-performs offline locked format-version-1 metadata acquisition without Git logic
-or manifest parsing. It exposes resolved package versions, manifest paths and
-directories, binary targets, dist metadata and workspace edges by dependency
-kind, with a cycle-safe closure operation and injectable command runner. Version
-inheritance and editing stay with the Rust `release-version` tool (`toml_edit`).
+Notes, migration comparison and breaking authorization share one boundary: the
+component's newest published ancestor. Drafts and failed/running pipelines never
+advance it. Publication creates an immutable tag on the captured commit only
+after every gate passes. CLI latest converges to its highest published version;
+extensions never change latest.
 
-Each releasable cut gets one tagless draft targeting X and one tag-keyed native
-pipeline. A component needs releasable commits after its newest allocated ancestor
-(draft or published) before another cut; unrelated main movement does not repeat
-failed content. Notes, migrations and breaking authorization cover (newest published ancestor, X]. Existing drafts, running pipelines
-and failed cuts never prevent new component work from being cut; failed drafts stay unpublished. Automatic allocation at an already-cut product/X is idempotent; a later X remains
-independent. Concurrent cuts may have overlapping notes until publication advances
-the shared ancestor boundary. CLI publication converges GitHub latest to the highest published CLI version;
-extensions never change latest. Ordering gates and owner operations belong to the release skill.
-No release PR, merge-queue release hold or version commit mediates a cut. Publication
-creates its tag on X after every gate passes.
-
-`release-version-injection.mjs` owns the checkout version contract. It discovers
-Cargo inheritance, edits only the selected version declaration, and verifies full
-offline locked resolution. Every tracked source hash, exact manifest bytes and
-semantic lock entry is checked; only local versions and their implied qualified
-dependency references may change. Already-versioned reruns require byte-identical source and lock. Tagless
-preparation follows the non-publishing synthetic-version contract in the release
-skill and passes the same source, artifact and installation gates. Build, assembly, archive proof
-and upgrade proof including CLI adapter acceptance each recheck this contract;
-dist plan, build manifest and extracted binary must agree with the captured tag.
-
-The infra-owned private `rust/crates/tmt-release-tool` crate supplies
-`release-version`, the single TOML parsing and formatting-preserving edit owner.
-It depends only on `serde_json` and `toml_edit`, is neither published nor
-distributed, and no product crate may depend on it in any dependency kind. The
-Linux runtime producer transfers it separately to tooling fixtures. The persistent
-four-host PR workflow reuses the production injection action without release
-secrets or publishing privileges. Herdr and other parked products remain private;
-activation and first alpha belong to #1418 and require owner authorization.
-
-Historical comparison fixtures retain public release bodies, source maps and the
-historical release PR parent cuts for CLI alpha.44→45/45→46 and Squad alpha.12→13.
-Those parents are fixture provenance only; production ancestry uses main tags.
-Procedures belong to the [release skill](.agents/skills/tmt-release/SKILL.md)
-and its [main-cut reference](.agents/skills/tmt-release/references/main-cuts.md).
+Automatic publication covers authorized existing alpha products only. Ben retains
+stable, breaking, version-line changes and manual publication authorization.
+New product activation needs separate approval. Exact gates and owner recovery
+operations belong to the [release skill](.agents/skills/tmt-release/SKILL.md) and
+[main-cut reference](.agents/skills/tmt-release/references/main-cuts.md).
 
 ### Release-to-Project tracking
 
-`project-release.mjs` owns release-to-Project delivery evidence, separately from
-publication. Each daily or explicit main-only dispatch performs a full sweep of
-existing closed issue items in pj-tmt organization project 1. The short-lived
-release App token owns bounded batched Project/closing-PR GraphQL reads and field
-writes; `GITHUB_TOKEN` reads the complete paginated published release catalog.
-Only trusted main tooling executes. A full-history checkout supplies each merged
-closing PR's first-parent changed paths and tags containing its merge commit.
-The updater exports today's main HEAD once and reads its component map and Cargo
-graph once for the entire sweep. Product attribution reuses the shared membership
-rule described in [Main release cuts](#main-release-cuts), including normal/build
-linked dependencies and explicit non-Rust consumers. Historical closing commits
-supply paths and ancestry, not historical attribution rules. Native release policy
-and version helpers own product/tag identities. Notes, commit types and recency
-windows are not evidence.
-
-For each affected product, the earliest publication whose tag contains all of
-that issue's closing merge commits is the canonical `Released in` entry. Every
-affected product must have such a release before Status is `Released`; otherwise
-it is `Merged`, with available product evidence retained. Private components
-without a native publication policy remain visibly waiting rather than inheriting
-an unrelated product's release. A `release:false` component may explicitly declare
-`releaseStatus:"never"` (no release contains it) or `releaseStatus:"parked"` (Office).
-Never-shipped leaves have no consumers and require no release; changes confined to
-them reconcile to Done. Only waits confined to parked products reconcile to Done with
-one `ships with the first <product> release` line per waited-on product
-(`Office` today); any other wait keeps Merged. Available published
-evidence is retained. Unactivated Herdr waits; Remote and Colab require containing tags.
-`colab-app` and bundled `colab-client` declare consumer `tmt-colab`;
-`remote-client` declares its embedding product `tmt-remote`. Private
-consumers may name a packaged product awaiting activation, but never a never-shipped one. Closed-issue status definitions belong to
-[Project tracking](DEVELOPMENT.md#project-tracking). Issues labeled `epic` are
-excluded from both field writes and listed as skipped: their owning lead retains
-acceptance/dogfood authority. Open issues, PR items, other repositories and project
-membership are not changed. Both owned fields are recomputed, correcting stale
-terminal values and historical text.
-
-The complete discovery and dry-run plan precede bounded batched mutations and a
-single Project readback. False terminal states are corrected before replacing
-their evidence; valid release evidence precedes promotion to Released. Partial
-writes converge on the next run. The full sweep is authoritative on every run,
-so built-in close/merge status changes are repaired without manual replay; it
-does not claim atomic exclusion of concurrent external writers. The native
-bundle dispatches only after successful publication read-back and completed
-smoke, requiring success. Authenticated acquisition errors remain failed smoke checks. A dedicated job holds only
-`actions: write`; the daily sweep recovers missed dispatches, other publications
-and genuine smoke failures. All updater runs serialize project-wide. Caps fail
-visibly before mutation on incomplete discovery, never silently truncate.
-DEVELOPMENT owns token setup, request budgets and dry-run review procedures.
-
-`native-release.yml` serializes a complete run per product and calls the bundle
-pipeline for drafts lacking verification or awaiting publication. Draft assets
-carry durable state: `release-publication.json` marks a complete bundle,
-`verification-failed.json` parks a failed build and `publication-held.json` records
-a gate hold. Replaced or cancelled runs recover from this state without rebuilding
-known failures. All existing build, archive, installation, upgrade, immutable-tag
-readback and public smoke gates remain required.
-
-`pr-title-check.mjs` independently reports conventional merge-group squash-title
-syntax through the bounded cumulative subject reader. Findings and unavailable
-evidence go to stdout and the job summary with zero exit status, including summary
-write failures. [Development](DEVELOPMENT.md#conventional-pr-title-rollout) owns the
-separate enforcement cutover. Title reporting neither restarts ordinary PR CI nor
-owns release attribution.
-
-`release.yml` never publishes. `native-release-upgrade.yml` proves, for a draft or
-published release, its upgrade from the last published release of the same product on the
-four matching hosts. It only reads releases: a write-token job on `main`'s code fetches the
-assets, and read-only jobs normally run the release commit's scripts on them. A held-draft
-`rerun` instead uses the dispatch's current main commit for Node scripts and their locked dependencies,
-with a separate release-SHA checkout for CLI expected skills, migration counts and
-adapter acceptance code. Draft archives, manifest, version and recorded digests
-remain unchanged. The existing planner
-shares held-draft validation with `hold`, but rerun skips no gate; failed reruns preserve
-the marker and finish validates its tag, SHA and gate before clearing it after all gates pass.
-Each CLI `prove` host additionally selects the adapter-owned real-archive upgrade
-acceptance test over the same digest-checked archives after its installer/migration
-proof. Release tooling compiles the adapter lib-test binary and rejects empty
-discovery or execution. Acquisition is injected; real old/new executables supply
-managed skills and conflict/repair behavior. Identical skill text skips only
-differential content-transition evidence. On an owner-authorized rerun, the
-release-source checkout owns historical applicability and adapter execution:
-source predating the post-#575 release-gate test form (including the #563 unequal-text
-variant) reports `predates; not applicable`. Current main's repaired tooling compiles
-applicable release sources from their own Rust workspace and toolchain pin.
-This exception leaves installer/migration and public smoke gates intact.
-DEVELOPMENT owns invocation, compilation bounds and logs.
-The [release skill](.agents/skills/tmt-release/SKILL.md#automated-alpha-publication) owns rerun authorization. When a draft's bundle is
-attached the pipeline evaluates the publication gates (channel, commit, immutability,
-monotonic, migration, upgrade) in write-token jobs that run `main`'s code and only read the release
-commit's data; a failed gate leaves `publication-held.json` on the draft. A draft that
-passes them is published by `typescript/scripts/release-publish.mjs` in a write-token job on
-`main`'s code (it reads the draft again and refuses a version that is not an alpha, a
-component with `release: false`, a draft without the bundle and one with a hold or failure
-marker, and the planner leaves the drafts of such a component alone; one `gh release edit` applies the product policy's explicit draft,
-prerelease and latest flags), and a job without write access to contents reads the release back: public, immutable,
-the policy's flags, the tag on the release commit and GitHub's attestation for the release and
-every asset. A failed check opens an issue and fails the run; nothing is rolled back.
-A read-only `native-release-smoke.yml` then installs the published release as a user does,
-on the four hosts in an isolated environment: the public installer and `tmt upgrade` for
-the CLI, the newest published CLI's extension install for an extension, or its
-driver path approval against a checksum-verified standalone public archive. Driver
-upgrade proof similarly uses previous/candidate driver archives under the current
-published CLI, preserving executable bytes and checking consent and durable approval.
-Named driver acquisition and the compatibility gate remain separate work. Its real failures
-are reported on the same issue by a separate job, including exhausted authenticated
-rate limits. Install legs retain read-only contents access and authenticate native
-API acquisition with the workflow token; the separate issue writer does not execute
-the installed product. There is no deferred smoke-retry workflow. Historical anonymous
-rate-limit issues remain visible to the monitor; no current failure is downgraded or
-made green. The Project dispatch retains successful-smoke gating and removes the obsolete
-infrastructure-only exception; release evidence still follows publication.
-CLI, Office, Squad, Remote, Colab and Herdr driver runs
-share the four-target cargo-dist build and
-archive verifier, while keeping product-qualified bundles, independent versions and separate
-immutable tags.
-Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill
-bootstrap proof. Archives, their product-specific manifest/checksums and notices,
-plus the CLI bootstrap where applicable, are verified before any public
-publication. Raw PR executables do not prove cargo-dist archive correctness.
-The runtime/linkage proof, including exact macOS executable architecture, is
-shared through `typescript/scripts/native-runtime-proof.mjs` and
-`typescript/scripts/verify-native-runtime.mjs`. Installer, bootstrap, extension
-upgrade and public smoke reuse that architecture guard before executing newly
-installed bytes and after CLI upgrade; do not reintroduce a second archive
-builder or proof implementation.
+Delivery and publication evidence are separate. Release reconciliation rules and
+procedures live in [tmt-release](.agents/skills/tmt-release/SKILL.md#project-release-reconciliation);
+shared issue lifecycle definitions stay in
+[DEVELOPMENT](DEVELOPMENT.md#project-tracking).
 
 ## Maintenance contract
 

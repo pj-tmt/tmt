@@ -9,6 +9,11 @@ in [AGENTS.md](AGENTS.md), architecture ownership in
 [ARCHITECTURE.md](ARCHITECTURE.md), and style in [CONVENTIONS.md](CONVENTIONS.md).
 Use this guide for reproducible commands and evidence.
 
+CI selection and worker procedures live in the
+[release reference](.agents/skills/tmt-release/references/ci-selection.md); test-helper
+ownership and cleanup details live in the
+[E2E reference](.agents/skills/tmt-e2e/references/test-boundaries.md).
+
 ## Setup
 
 This section is for contributors, not end users. Rust/Cargo builds the product.
