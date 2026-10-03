@@ -1,22 +1,42 @@
 //! Disposable theme preview. The opening Config is the save baseline;
 //! refresh snapshots update the board, never this unsaved draft.
 
+use super::picker_surface;
 use crate::{config::Config, core::SquadError, look::Look, theme::ThemeScope};
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent},
+    crossterm::event::{Event, KeyCode},
     layout::Rect,
-    style::Modifier,
-    text::{Line, Span},
-    widgets::{Block, Borders, Clear, Padding, Paragraph},
 };
-use tmt_cli_style::{Base, Role};
+use serde_json::json;
+use std::{cell::RefCell, sync::OnceLock};
+use tmt_cli_style::Base;
+use tmt_tui::components::{ListRow, PickerEvent, PickerField, PickerInput, surface};
+
+const FILE: &str = "squad.theme-picker.xml";
+const MARKUP: &str = r#"<tmt-view version="1"><tmt-modal id="theme-picker" title="theme · all boards" placement="center" class="w-72"><tmt-scroll id="choices-body"><tmt-table id="choices" bind="$.rows"><tmt-row class="grid grid-cols-[10_1fr] gap-1"><tmt-cell bind="row.name" token="text"/><tmt-cell bind="row.description" wrap="true" token="text"/></tmt-row></tmt-table><tmt-repeat each="$.notes" as="note"><tmt-text bind="note.text" token="muted" wrap="true"/></tmt-repeat></tmt-scroll><tmt-text id="scope" slot="query" bind="$.query" token="accent"/><tmt-text slot="status" bind="$.status" token="blocked"/><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#;
+fn template(squad: bool) -> &'static surface::Template<()> {
+    static BOARD: OnceLock<surface::Template<()>> = OnceLock::new();
+    static SQUAD: OnceLock<surface::Template<()>> = OnceLock::new();
+    let template = if squad { &SQUAD } else { &BOARD };
+    template.get_or_init(|| {
+        picker_surface::compile(
+            FILE,
+            &if squad {
+                MARKUP.replace("theme · all boards", "theme · this squad")
+            } else {
+                MARKUP.into()
+            },
+            picker_surface::schema(&["name", "description"]),
+        )
+    })
+}
 
 pub(super) struct Picker {
     config: Config,
     squad: Option<String>,
     pub scope: ThemeScope,
-    pub selected: Base,
+    pub(super) surface: RefCell<picker_surface::State>,
     pub notice: Option<String>,
     preview: tmt_cli_style::Theme,
 }
@@ -41,7 +61,17 @@ impl Picker {
             config,
             squad,
             scope,
-            selected,
+            surface: RefCell::new(picker_surface::State::new(
+                None,
+                Base::ALL
+                    .into_iter()
+                    .map(|base| ListRow {
+                        id: base.name().into(),
+                        disabled: false,
+                    })
+                    .collect(),
+                Some(selected.name()),
+            )),
             notice: None,
             preview,
         })
@@ -73,130 +103,98 @@ impl Picker {
         ))
     }
 
-    pub fn key(&mut self, key: KeyEvent) -> Input {
-        self.notice = None;
-        let previous = (self.scope.clone(), self.selected);
-        let position = Base::ALL
-            .iter()
-            .position(|base| *base == self.selected)
-            .expect("built-in base");
-        match key.code {
-            KeyCode::Esc | KeyCode::Char('q') => return Input::Cancel,
-            KeyCode::Enter => return Input::Save,
-            KeyCode::Up | KeyCode::Char('k') => {
-                self.selected = Base::ALL[position.saturating_sub(1)]
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.selected = Base::ALL[(position + 1).min(Base::ALL.len() - 1)]
-            }
-            KeyCode::Tab => {
-                if let Some(name) = &self.squad {
-                    self.scope = match self.scope {
-                        ThemeScope::Board => ThemeScope::Squad(name.clone()),
-                        ThemeScope::Squad(_) => ThemeScope::Board,
-                    };
-                }
-            }
-            _ => {}
+    pub fn selected(&self) -> Base {
+        Base::parse(
+            self.surface
+                .borrow()
+                .picker
+                .list
+                .selected()
+                .expect("theme choice"),
+        )
+        .expect("built-in base")
+    }
+    #[cfg(test)]
+    pub fn key(&mut self, key: ratatui::crossterm::event::KeyEvent) -> Input {
+        self.input(&Event::Key(key)).unwrap_or(Input::Preview)
+    }
+    pub fn input(&mut self, event: &Event) -> Option<Input> {
+        if matches!(event, Event::Key(_)) {
+            self.notice = None;
         }
-        if previous != (self.scope.clone(), self.selected) {
+        let previous = (self.scope.clone(), self.selected());
+        if matches!(event, Event::Key(key) if key.code == KeyCode::Tab) {
+            if let Some(name) = &self.squad {
+                self.scope = match self.scope {
+                    ThemeScope::Board => ThemeScope::Squad(name.clone()),
+                    ThemeScope::Squad(_) => ThemeScope::Board,
+                };
+            }
+        } else {
+            let input = self.surface.borrow_mut().input(event, PickerField::List);
+            if input.is_none() && !matches!(event, Event::Key(_)) {
+                return None;
+            }
+            match input {
+                Some(PickerInput::Event(PickerEvent::Cancel)) => return Some(Input::Cancel),
+                Some(PickerInput::Event(PickerEvent::Confirm(_))) => return Some(Input::Save),
+                _ => {}
+            }
+        }
+        if previous != (self.scope.clone(), self.selected()) {
             self.preview = self
                 .config
                 .preview_theme_base(
                     &self.scope,
-                    self.selected,
+                    self.selected(),
                     self.squad.as_deref().unwrap_or(""),
                 )
                 .expect("opening validates the layers and built-in bases are valid");
         }
-        Input::Preview
+        Some(Input::Preview)
     }
 
     pub fn save(&mut self) -> Result<bool, SquadError> {
-        self.config.set_theme_base(&self.scope, self.selected)
+        self.config.set_theme_base(&self.scope, self.selected())
     }
 
     pub fn saved_message(&self, changed: bool) -> String {
         format!(
             "{} theme {} for {} (board only)",
             if changed { "Set" } else { "Kept" },
-            self.selected.name(),
+            self.selected().name(),
             self.scope.label()
         )
     }
 }
 
 pub(super) fn render(frame: &mut Frame, picker: &Picker, look: Look, body: Rect) {
-    let width = body.width.min(72);
-    let height = (Base::ALL.len() as u16
-        + 8
-        + u16::from(picker.masked().is_some())
-        + u16::from(picker.notice.is_some()))
-    .min(body.height);
-    let area = Rect {
-        x: body.x + (body.width - width) / 2,
-        y: body.y + (body.height - height) / 2,
-        width,
-        height,
-    };
-    let active = look.role(Role::Accent).add_modifier(Modifier::BOLD);
-    let inactive = look.role(Role::Muted);
-    let mut scope = vec![Span::styled(
-        "all boards",
-        if picker.scope == ThemeScope::Board {
-            active
-        } else {
-            inactive
-        },
-    )];
-    if picker.squad.is_some() {
-        scope.extend([
-            Span::styled(" · ", inactive),
-            Span::styled(
-                "this squad",
-                if picker.scope != ThemeScope::Board {
-                    active
-                } else {
-                    inactive
-                },
-            ),
-        ]);
-    }
-    let mut lines = vec![Line::from(scope), Line::default()];
-    for base in Base::ALL {
-        let text = format!("{:<10} {}", base.name(), base.description());
-        let text = super::view::fit(&text, usize::from(width.saturating_sub(4)));
-        let style = if base == picker.selected {
-            look.selection()
-        } else {
-            look.role(Role::Muted)
-        };
-        lines.push(Line::styled(text, style));
-    }
-    lines.push(Line::default());
+    let mut notes =
+        vec![json!({"id":"board-only", "text":"Board only; CLI colors stay unchanged"})];
     if let Some(masked) = picker.masked() {
-        lines.push(Line::styled(masked, inactive));
+        notes.insert(0, json!({"id":"masked", "text":masked}));
     }
-    lines.push(Line::styled(
-        "Board only; CLI colors stay unchanged",
-        inactive,
-    ));
-    if let Some(notice) = &picker.notice {
-        lines.push(Line::styled(notice.as_str(), look.role(Role::Waiting)));
-    }
-    lines.push(Line::styled(
-        "Enter save · Esc cancel · Tab scope",
-        inactive,
-    ));
-    frame.render_widget(Clear, area);
-    frame.render_widget(
-        Paragraph::new(lines).block(
-            Block::new()
-                .borders(Borders::ALL)
-                .padding(Padding::horizontal(1))
-                .title(" theme "),
-        ),
-        area,
+    let query = if picker.squad.is_some() {
+        if picker.scope == ThemeScope::Board {
+            "all boards · Tab: this squad"
+        } else {
+            "this squad · Tab: all boards"
+        }
+    } else {
+        "all boards"
+    };
+    let value = json!({
+        "rows": Base::ALL.into_iter().map(|base| json!({"id":base.name(), "disabled":false,"name":base.name(),"description":base.description()})).collect::<Vec<_>>(),
+        "query":query, "notes":notes, "status":picker.notice.as_deref().unwrap_or(""),
+        "footer":"Enter save · Esc cancel · Tab scope",
+    });
+    picker.surface.borrow_mut().render(
+        FILE,
+        template(picker.scope != ThemeScope::Board),
+        value,
+        frame,
+        look,
+        body,
     );
 }
 
@@ -204,12 +202,14 @@ pub(super) fn render(frame: &mut Frame, picker: &Picker, look: Look, body: Rect)
 mod tests {
     use super::*;
     use crate::board::app::{App, Effect};
+    use ratatui::style::Modifier;
     use ratatui::{
         Terminal,
         backend::TestBackend,
-        crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
+        crossterm::event::{KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
     };
     use serde_json::json;
+    use tmt_cli_style::Role;
 
     fn fixture(name: &str, text: &str) -> (std::path::PathBuf, Config) {
         let directory =
@@ -230,7 +230,7 @@ mod tests {
         use tmt_cli_style::{Depth, theme::background::Background};
         let (path, config) = fixture("auto", "# keep me\n");
         let mut picker = Picker::open(config, None).unwrap();
-        assert_eq!(picker.selected, Base::Auto);
+        assert_eq!(picker.selected(), Base::Auto);
         assert_eq!(Base::ALL[0], Base::Auto);
         assert_eq!(
             Base::Auto.description(),
@@ -384,7 +384,7 @@ mod tests {
         let error = picker.save().unwrap_err();
         assert_eq!(error.code, "SQUAD_CONFIG_CHANGED");
         assert!(error.message.contains("retry"));
-        assert_eq!(picker.selected, Base::TmtLight);
+        assert_eq!(picker.selected(), Base::TmtLight);
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             "# newer file\n[board.theme]\nbase = \"mono\"\n"

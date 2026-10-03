@@ -1314,8 +1314,12 @@ and names. Optional `heading-token` (existing theme role, default `muted`),
 `heading-bold` (`true`/`false`, default `false`) and `section-gap` (0–4096 lines,
 default 0) style headings and add space only between sections.
 Use `placement="body"` for references, `"center"` for small overlays,
-or `"docked"` for prompts. `surface::render` accepts caller-owned ScrollState,
-body Rect/Buffer, RenderStyle (Theme/Depth) and selection styling. It returns
+or `"docked"` for prompts.
+Authored `h-N` sets modal height demand within placement bounds; body references
+still fill the body. Wrapped footer/status text reserves its measured lines
+before the scroll viewport; nowrap slots retain their one-line default.
+`surface::render` accepts caller-owned ScrollState, body Rect/Buffer,
+RenderStyle (Theme/Depth) and selection styling. It returns
 visible scoped hits; route current input through `app::route` before base handlers.
 The caller performs effects, routes editable fields, invalidates old hits on
 resize/data changes, and may keep component state behind one RefCell for an
@@ -1833,6 +1837,12 @@ shared staleness after reload, including the disabled no-publication path; captu
 normal and narrow editor/refusal states from isolated HOME/TMUX_TEAM_HOME and a
 private tmux socket. The [Squad architecture](ARCHITECTURE.md#squad-extension) owns the
 preview and writer contracts.
+
+Board picker regressions cover shared query/list focus, identity retention on
+refresh, consumed close, scoped preview/save/cancel and stale-file refusal. Check
+clipped mouse maps after resize/model replacement and semantic attention styles
+under background and reverse selection; captures follow the same isolated
+160/100/80, dark/light/NO_COLOR contract as help above.
 
 Native Squad tests verify leadership selection and clearing without membership
 or role loss, repeated additions without overwriting state, and explicit recovery

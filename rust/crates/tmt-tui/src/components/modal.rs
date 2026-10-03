@@ -33,6 +33,17 @@ impl Modal {
     /// Body is supplied by the application, excluding its base header/footer.
     /// Footer/status space is reserved before content gets a viewport.
     pub fn areas(&self, body: Rect, demand: [u16; 2], footer: bool, status: bool) -> ModalAreas {
+        self.areas_with_lines(body, demand, u16::from(footer), u16::from(status))
+    }
+
+    /// Fixed text is measured by the surface before reserving its visible lines.
+    pub(crate) fn areas_with_lines(
+        &self,
+        body: Rect,
+        demand: [u16; 2],
+        footer_lines: u16,
+        status_lines: u16,
+    ) -> ModalAreas {
         let outer = if self.placement == Placement::Body {
             body
         } else {
@@ -60,8 +71,8 @@ impl Modal {
             inner.width.saturating_sub(2),
             inner.height,
         );
-        let footer_height = u16::from(footer && inset.height > 0);
-        let status_height = u16::from(status && inset.height > footer_height);
+        let footer_height = footer_lines.min(inset.height);
+        let status_height = status_lines.min(inset.height.saturating_sub(footer_height));
         let position_height = u16::from(inset.height > footer_height + status_height);
         let content = Rect {
             height: inset

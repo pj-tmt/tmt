@@ -927,7 +927,10 @@ unhandled modal keys/mouse are captured, closing events never replay into the ba
 and Ctrl-C returns a quit effect. The caller retains item cursors, data, effects
 and terminal lifecycle. `components` owns opaque square-border modal chrome,
 fixed footer/status/position slots, visual-line scroll/clamp/reveal and typed
-key-help sections. Its surface compiler lowers component markup into the existing
+key-help sections. Wrapped fixed text is measured by the existing text owner
+before the scroll viewport is reserved; nowrap slots keep their one-line default.
+Authored modal cell height controls demand within placement bounds; body
+references still fill the application body. Its surface compiler lowers component markup into the existing
 bounded primitive binding and geometry pipeline; generated templates are checked
 against the same depth/node limits. Component IDs are static scoped IDs outside
 repeats in this first API. Key help measures one display-cell label column across
@@ -3703,6 +3706,29 @@ no second worker or arrangement resolver is introduced. The built-in leads/all
 tabs retain their fixed home/leads composition throughout picker preview, save
 and cancel; they offer all-boards scope, which affects real squad tabs only.
 
+`board::app::overlay_event` is the shared modal input adapter for help, settings,
+theme/view pickers and the switcher. It synchronizes their controller identities
+with one caller-owned `FocusStack` and routes key/mouse events through
+`tmt-tui::app::route` before base dispatch. Controllers retain save, rollback
+and worker effects; close is consumed, unhandled modal events stay captured and
+Ctrl-C returns Quit. Pane cursors and scrolls remain in their existing owners.
+
+`board::picker_surface` retains caller-owned shared Picker state, admitted scenes
+and current clipped frame maps for settings, theme/view previews and the tab switcher.
+Theme/view controllers derive the selected choice from stable component identity;
+they retain scope, opening Config, preview and persistence. Their selection-only
+field keeps Tab's scope action. The switcher registers query and list fields:
+printable navigation/close keys remain query text, Tab moves between those fields,
+and query edits reset to the first match. Refresh follows the selected complete
+tab key; resize/model replacement invalidates hits. Its semantic attention spans
+use shared hit geometry and Squad's existing tab-color/selection policy. These
+surfaces use shared modal chrome, wrapping, scrolling and inside footers.
+Settings use grouped stable-key list rows for the reference and an admitted
+docked prompt for edits. The existing Config controller retains raw edit text,
+validation, disposable preview, stale-file refusal and persistence; edit cancellation
+restores the retained list selection and scroll. Group headings are disabled rows;
+read-only settings remain selectable so Enter can explain their restriction.
+
 Squad's `settings` coordinator delegates to arrangement, rows, notebook/state,
 meter, theme and tab/program area projections. Source-bearing Config reader
 results own provenance; presentation does not inspect TOML or resolve values.
@@ -3736,9 +3762,9 @@ The admitted help surface uses body placement and shared opaque modal chrome,
 one all-section key column, wrapping and a fixed inside footer. Shared key-help
 heading and spacing properties let help select bold text and one blank line
 between sections without changing the theme palette. Its caller-owned
-scroll and focus state routes keys and mouse before board actions; close is
-consumed, Ctrl-C quits, and base cursors and scrolls remain with their existing
-owners. Refresh replaces help data and clamps the shared viewport without
+scroll state and the common App focus adapter route keys and mouse before board
+actions; close is consumed, Ctrl-C quits, and base cursors and scrolls remain
+with their existing owners. Refresh replaces help data and clamps the shared viewport without
 performing reads or actions in paint.
 
 `config::edit` owns the shared settings edit policy and disposable validated

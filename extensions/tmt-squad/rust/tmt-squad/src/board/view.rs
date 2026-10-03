@@ -391,39 +391,6 @@ fn tab_label(
     Line::from(spans).style(style)
 }
 
-/// Fit the shared label through the grid owner, preserving the styles of the
-/// retained prefix. Widths elsewhere come from this same rendered Line::width.
-fn fit_tab_label(mut line: Line<'static>, width: usize) -> Line<'static> {
-    if line.width() <= width {
-        line.spans
-            .push(Span::styled(" ".repeat(width - line.width()), line.style));
-        return line;
-    }
-    let text = line.to_string();
-    let fitted = fit(&text, width);
-    let mut retained: usize = text
-        .chars()
-        .zip(fitted.chars())
-        .take_while(|(original, shown)| original == shown)
-        .map(|(original, _)| original.len_utf8())
-        .sum();
-    let prefix = retained;
-    let mut spans = Vec::new();
-    for span in line.spans {
-        let kept = retained.min(span.content.len());
-        if kept > 0 {
-            spans.push(Span::styled(span.content[..kept].to_owned(), span.style));
-            retained -= kept;
-        }
-        if retained == 0 {
-            break;
-        }
-    }
-    spans.push(Span::styled(fitted[prefix..].to_owned(), line.style));
-    Line::from(spans).style(line.style)
-}
-
-/// Selection covers the entire tab; attention decorates only its marks.
 fn tab(
     look: crate::look::Look,
     name: &str,
@@ -844,57 +811,78 @@ pub fn render(frame: &mut Frame, app: &App) {
 /// The quick switcher: the query, then the matching tabs with their counts
 /// and state colors; hidden ones are marked.
 fn render_switcher(frame: &mut Frame, app: &App, switcher: &Switcher, body: Rect) {
+    use std::sync::OnceLock;
+    use tmt_tui::components::surface;
+    const FILE: &str = "squad.switcher.xml";
+    const MARKUP: &str = r#"<tmt-view version="1"><tmt-picker id="switcher" title="switch" placement="center" class="w-48"><tmt-text id="query" slot="query" bind="$.query" token="text"/><tmt-list id="choices" bind="$.rows" empty="(no matching tab)"><tmt-row class="flex-row gap-1"><tmt-cell id="mark" bind="row.mark" class="w-1 shrink-0"/><tmt-cell bind="row.label" class="truncate-middle"/><tmt-cell bind="row.count" class="shrink-0"/><tmt-cell id="blocked" bind="row.blocked" class="shrink-0"/></tmt-row></tmt-list><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-picker></tmt-view>"#;
+    static TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
+    let template = TEMPLATE.get_or_init(|| {
+        super::picker_surface::compile(
+            FILE,
+            MARKUP,
+            super::picker_surface::schema(&["mark", "label", "count", "blocked"]),
+        )
+    });
     let look = app.look();
     let keys = app.switchable();
-    let found = super::tabs::matching(&keys, &switcher.query);
+    let query = switcher.query();
+    let found = super::tabs::matching(&keys, &query);
+    let rows: Vec<_> = found.into_iter().map(|key| {
+        let attention = app.attention.get(key).copied().unwrap_or_default();
+        let (mark, count) = if attention.waiting > 0 { (Mark::Decision.symbol(), attention.waiting) }
+            else if attention.blocked > 0 { (Mark::Failed.symbol(), attention.blocked) } else { (" ",0) };
+        let label = if app.hidden.contains(key) { format!("{} (hidden)", super::tabs::label(key)) } else { super::tabs::label(key).into() };
+        serde_json::json!({"id":key,"disabled":false,"mark":mark,"label":label,"count":if count > 0 { count.to_string() } else { String::new() },
+            "blocked":if attention.waiting > 0 && attention.blocked > 0 { format!("{}{}", Mark::Failed.symbol(), attention.blocked) } else { String::new() }})
+    }).collect();
+    let mut surface = switcher.surface.borrow_mut();
+    let query_width = tmt_tui::components::Modal {
+        title: "switch".into(),
+        placement: tmt_tui::components::Placement::Center,
+    }
+    .areas(body, [48, body.height], true, false)
+    .content
+    .width;
+    let query = format!(
+        "› {}",
+        surface
+            .picker
+            .query_visible(query_width.saturating_sub(2))
+            .unwrap_or_default()
+    );
+    let value = serde_json::json!({"rows":rows,"query":query,"footer":"↑↓ choose · Enter opens · Esc closes","status":"","notes":[]});
+    surface.render(FILE, template, value, frame, look, body);
     let default = TabColors::default();
     let colors = app.view.as_ref().map_or(&default, |view| &view.tab_colors);
-    let width = body.width.min(48);
-    let height = (found.len() as u16 + 3)
-        .clamp(4, body.height.max(4))
-        .min(body.height);
-    let area = Rect {
-        x: body.x + (body.width - width) / 2,
-        y: body.y + (body.height - height) / 2,
-        width,
-        height,
-    };
-    let inner = usize::from(width.saturating_sub(2));
-    let shown = usize::from(height.saturating_sub(3));
-    let first = switcher.selected.saturating_sub(shown.saturating_sub(1));
-    let mut lines = vec![Line::from(format!(" › {}▏", switcher.query))];
-    if found.is_empty() {
-        lines.push(Line::from(Span::styled(
-            " (no matching tab)",
-            look.role(Role::Dim),
-        )));
+    if let Some(map) = &surface.frame {
+        for hit in &map.hits {
+            let Some(key) = hit.row_id.as_deref() else {
+                continue;
+            };
+            let attention = app.attention.get(key).copied().unwrap_or_default();
+            let color = match hit.id.last().map(String::as_str) {
+                Some("mark") if attention.waiting > 0 => &colors.waiting,
+                Some("mark") if attention.blocked > 0 => &colors.blocked,
+                Some("blocked") if attention.waiting > 0 && attention.blocked > 0 => {
+                    &colors.blocked
+                }
+                _ => continue,
+            };
+            // The component owns clipped span geometry and selection. Squad's
+            // existing tab-color policy decorates only those semantic mark spans.
+            let selected = surface.picker.list.selected() == Some(key);
+            let mark = look.named(color).add_modifier(Modifier::BOLD);
+            let style = if selected {
+                look.selection().patch(look.row_span(true, mark, true))
+            } else {
+                Style {
+                    fg: Some(mark.fg.unwrap_or_default()),
+                    ..mark
+                }
+            };
+            frame.buffer_mut().set_style(hit.rect, style);
+        }
     }
-    for (index, key) in found.iter().enumerate().skip(first).take(shown) {
-        let attention = app.attention.get(*key).copied().unwrap_or_default();
-        let name = if app.hidden.contains(*key) {
-            format!("{} (hidden)", super::tabs::label(key))
-        } else {
-            super::tabs::label(key).to_owned()
-        };
-        let style = if index == switcher.selected {
-            Style::new().add_modifier(Modifier::REVERSED)
-        } else {
-            Style::new()
-        };
-        lines.push(fit_tab_label(
-            tab_label(look, &name, attention, colors, style),
-            inner,
-        ));
-    }
-    frame.render_widget(Clear, area);
-    frame.render_widget(
-        Paragraph::new(lines).block(
-            Block::new()
-                .borders(Borders::ALL)
-                .title(" switch · Enter opens, Esc closes "),
-        ),
-        area,
-    );
 }
 
 /// Split mode tiles the configured panes; tabs mode shows the focused pane
@@ -3765,10 +3753,7 @@ lines = [
         assert_eq!(selected.width(), "◆ product 2 ✗1 ".width());
         assert_eq!(selected.style.fg, None);
         assert!(draw(&app, 60, 8)[0].contains("◆ product 2 ✗1"));
-        app.switcher = Some(Switcher {
-            query: "product".into(),
-            selected: 0,
-        });
+        app.switcher = Some(Switcher::new("product".into()));
         assert!(
             draw(&app, 60, 8)
                 .iter()
@@ -3852,51 +3837,75 @@ lines = [
 
     #[test]
     fn switcher_fitting_keeps_mark_styles_alignment_and_its_selected_row() {
-        let look = crate::look::Look::default();
-        let style = Style::new().add_modifier(Modifier::REVERSED);
-        let colors = TabColors {
-            waiting: "review".into(),
-            blocked: "link".into(),
-        };
         for name in ["product", "wide-界界界界界界", "literal…name"] {
-            let label = tab_label(
-                look,
-                name,
-                Attention {
-                    waiting: 1,
-                    blocked: 2,
-                },
-                &colors,
-                style,
-            );
-            for width in [0, 1, 2, 8, 12, 40] {
-                let fitted = fit_tab_label(label.clone(), width);
-                assert_eq!(fitted.width(), width);
-                assert_eq!(fitted.to_string(), fit(&label.to_string(), width));
-                if width == 0 {
-                    continue;
-                }
-                let mut terminal = Terminal::new(TestBackend::new(width as u16, 1)).unwrap();
-                terminal
-                    .draw(|frame| frame.render_widget(Paragraph::new(fitted), frame.area()))
-                    .unwrap();
-                let buffer = terminal.backend().buffer();
-                let mut x = 0;
-                while x < width as u16 {
-                    let cell = &buffer[(x, 0)];
-                    assert!(cell.modifier.contains(Modifier::REVERSED));
-                    // The next cell of a wide glyph is a backend placeholder.
-                    x += cell.symbol().width().max(1) as u16;
-                }
-                if width > 1 {
-                    assert_eq!(buffer[(0, 0)].symbol(), Mark::Decision.symbol());
-                    assert_eq!(buffer[(0, 0)].fg, look.role(Role::Review).fg.unwrap());
-                }
-                if width == 40 {
-                    assert_eq!(buffer[(2, 0)].symbol(), &name[..1]);
-                    let blocked = label.width() as u16 - 2;
-                    assert_eq!(buffer[(blocked, 0)].symbol(), Mark::Failed.symbol());
-                    assert_eq!(buffer[(blocked, 0)].fg, look.role(Role::Link).fg.unwrap());
+            for width in [1, 2, 8, 12, 40, 80, 160] {
+                for depth in [tmt_cli_style::Depth::TrueColor, tmt_cli_style::Depth::None] {
+                    let mut app = board(json!([{ "title": null, "rows": [] }]));
+                    app.tabs = vec![name.into()];
+                    app.hidden.clear();
+                    let view = app.view.as_mut().unwrap();
+                    view.look.depth = depth;
+                    view.tab_colors = TabColors {
+                        waiting: "review".into(),
+                        blocked: "link".into(),
+                    };
+                    app.attention.insert(
+                        name.into(),
+                        Attention {
+                            waiting: 1,
+                            blocked: 2,
+                        },
+                    );
+                    app.switcher = Some(Switcher::default());
+                    let look = app.look();
+                    let mut terminal = Terminal::new(TestBackend::new(width, 20)).unwrap();
+                    terminal
+                        .draw(|frame| {
+                            render_switcher(
+                                frame,
+                                &app,
+                                app.switcher.as_ref().unwrap(),
+                                frame.area(),
+                            )
+                        })
+                        .unwrap();
+                    let buffer = terminal.backend().buffer();
+                    let surface = app.switcher.as_ref().unwrap().surface.borrow();
+                    let geometry = &surface
+                        .frame
+                        .as_ref()
+                        .unwrap()
+                        .list
+                        .as_ref()
+                        .unwrap()
+                        .geometry;
+                    for row in geometry {
+                        if row.visible.width == 0 || row.visible.height == 0 {
+                            continue;
+                        }
+                        for x in [row.visible.x, row.visible.right() - 1] {
+                            let cell = &buffer[(x, row.visible.y)];
+                            assert_eq!(cell.bg, look.selection().bg.unwrap_or_default());
+                            assert_eq!(
+                                cell.modifier.contains(Modifier::REVERSED),
+                                look.selection().add_modifier.contains(Modifier::REVERSED)
+                            );
+                        }
+                    }
+                    for cell in &buffer.content {
+                        let role = match cell.symbol() {
+                            "◆" => Role::Review,
+                            "✗" => Role::Link,
+                            _ => continue,
+                        };
+                        assert!(cell.modifier.contains(Modifier::BOLD));
+                        let expected = if look.selection().bg.is_some() {
+                            look.role(role).fg.unwrap_or_default()
+                        } else {
+                            look.role(Role::Text).fg.unwrap_or_default()
+                        };
+                        assert_eq!(cell.fg, expected);
+                    }
                 }
             }
         }
@@ -4117,10 +4126,16 @@ lines = [
         );
         let press = |app: &mut App, code| app.key(KeyEvent::new(code, KeyModifiers::NONE));
         press(&mut app, KeyCode::Char('s'));
-        let screen = draw(&app, 60, 12);
+        let mut screen = draw(&app, 60, 12);
+        // The guideline caps centered overlays at 80% of the body. Verify
+        // every offered tab by scrolling the shared viewport, not a taller box.
+        for _ in 0..app.switchable().len() {
+            press(&mut app, KeyCode::Down);
+            screen.extend(draw(&app, 60, 12));
+        }
         let body = screen.join("\n");
         for expected in [
-            "switch · Enter opens",
+            "Enter opens · Esc closes",
             " product",
             "◆ reviews 1",
             " leads",
@@ -4138,7 +4153,16 @@ lines = [
             .map(str::trim)
             .filter(|line| !line.is_empty())
             .collect();
-        assert_eq!(listed, ["› qt▏", "quiet (hidden)"], "{screen:#?}");
+        assert_eq!(
+            listed,
+            [
+                "› qt▏",
+                "quiet (hidden)",
+                "1–1 of 1",
+                "↑↓ choose · Enter opens · Esc closes"
+            ],
+            "{screen:#?}"
+        );
         // Enter shows the hidden squad; the switcher closes.
         assert_eq!(
             press(&mut app, KeyCode::Enter),
