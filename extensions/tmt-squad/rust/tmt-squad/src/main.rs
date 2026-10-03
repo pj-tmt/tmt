@@ -14,6 +14,7 @@ mod effects;
 mod filter;
 mod hook_protocol;
 mod hotkeys;
+mod links;
 mod look;
 mod markup;
 mod me;

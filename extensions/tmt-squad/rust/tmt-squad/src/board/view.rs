@@ -786,6 +786,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     let look = app.look();
     app.hits.borrow_mut().clear();
     app.note_hits.borrow_mut().clear();
+    app.link_hits.borrow_mut().clear();
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
     app.title_hits.borrow_mut().clear();
@@ -807,6 +808,18 @@ pub fn render(frame: &mut Frame, app: &App) {
         Line::from(format!("/{}▏", app.search))
     } else if let Some(notice) = &app.notice {
         Line::from(Span::styled(notice.as_str(), look.role(Role::Waiting)))
+    } else if let Some(link) = app
+        .selected_link()
+        .filter(|_| app.focused_pane() == Some(Pane::Notes))
+    {
+        Line::from(Span::styled(
+            format!(
+                "{} · {} · Enter/click to activate",
+                link.kind.label(),
+                link.target
+            ),
+            look.role(Role::Link),
+        ))
     } else if let Some(error) = &app.error {
         Line::from(Span::styled(error.as_str(), look.role(Role::Blocked)))
     } else {
@@ -1107,10 +1120,10 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
         .as_ref()
         .is_none_or(|notes| notes.width != width || notes.look != look);
     if rebuilt {
-        let (lines, sources) = match &view.notes {
+        let (lines, sources, links, hits) = match &view.notes {
             Notes::Text(text) if view.render == NotesRender::Markdown => {
-                let mapped = markdown::render_mapped(text, width, look);
-                (mapped.lines, mapped.sources)
+                let mapped = markdown::render_links(text, width, look, &view.links);
+                (mapped.lines, mapped.sources, mapped.links, mapped.hits)
             }
             Notes::Text(text) => {
                 let mut lines = Vec::new();
@@ -1121,10 +1134,12 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
                         sources.push(source);
                     }
                 }
-                (lines, sources)
+                (lines, sources, Vec::new(), Vec::new())
             }
             _ => (
                 notebook_lines(&view.notes, width, look, view.render),
+                Vec::new(),
+                Vec::new(),
                 Vec::new(),
             ),
         };
@@ -1133,10 +1148,16 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
             look,
             lines,
             sources,
+            links,
+            hits,
         });
     }
     let notes = derived.notes.as_ref().expect("prepared notes");
     let (lines, sources) = (&notes.lines, &notes.sources);
+    let selected_link = notes
+        .links
+        .iter()
+        .position(|link| app.note_link.as_ref() == Some(&(link.target.clone(), link.offset)));
     let mut selected = None;
     let mut marked = std::collections::BTreeSet::new();
     if let (Some(key), Notes::Text(text)) = (app.shown_tab(), &view.notes) {
@@ -1146,9 +1167,20 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
             cursor.reconcile(text);
         }
         if app.focused_pane() == Some(Pane::Notes) {
-            selected = Some(cursor.source);
+            selected = selected_link
+                .map(|id| notes.links[id].source)
+                .or(Some(cursor.source));
+            let visual = selected_link
+                .and_then(|id| {
+                    notes
+                        .hits
+                        .iter()
+                        .find(|hit| hit.link == id)
+                        .map(|hit| hit.line)
+                })
+                .or_else(|| cursor.visual(sources));
             if cursor.follow
-                && let Some(line) = cursor.visual(sources)
+                && let Some(line) = visual
             {
                 app.scrolls
                     .reveal_range(Pane::Notes, line..line + 1, area, lines.len());
@@ -1182,6 +1214,21 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
         look.role(Role::Dim),
         |at, line| {
             let mut line = line.clone();
+            let mut cell = 0;
+            for span in &mut line.spans {
+                let end = cell + span.width();
+                if notes.hits.iter().any(|hit| {
+                    hit.line == at
+                        && Some(hit.link) == selected_link
+                        && hit.start < end
+                        && hit.end > cell
+                }) {
+                    span.style = look
+                        .row_span(true, span.style, false)
+                        .add_modifier(Modifier::BOLD);
+                }
+                cell = end;
+            }
             let is_selected = sources.get(at).copied() == selected && selected.is_some();
             if is_selected {
                 line.style = look.selection();
@@ -1205,6 +1252,23 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
             }
             line
         },
+    );
+    app.link_hits.borrow_mut().extend(
+        notes
+            .hits
+            .iter()
+            .filter(|hit| hit.line >= offset && hit.line < offset + viewport && hit.start < width)
+            .map(|hit| {
+                (
+                    Rect {
+                        x: area.x.saturating_add(2 + hit.start as u16),
+                        y: area.y + (hit.line - offset) as u16,
+                        width: hit.end.min(width).saturating_sub(hit.start) as u16,
+                        height: 1,
+                    },
+                    hit.link,
+                )
+            }),
     );
     app.note_hits
         .borrow_mut()
@@ -1779,8 +1843,10 @@ mod tests {
                 render: crate::config::NotesRender::Markdown,
                 bindings: crate::action::preset(true, &[]),
                 section_bindings: Vec::new(),
+                configured_bindings: Default::default(),
                 opener: None,
                 clipboard: None,
+                links: Default::default(),
                 tab_colors: Default::default(),
                 look: Default::default(),
                 theme_notice: None,
@@ -2443,8 +2509,10 @@ columns = [{ name = "member", width = "30%" },
                 render: NotesRender::Markdown,
                 bindings,
                 section_bindings: Vec::new(),
+                configured_bindings: Default::default(),
                 opener: None,
                 clipboard: None,
+                links: Default::default(),
                 tab_colors: Default::default(),
                 look: Default::default(),
                 theme_notice: None,
@@ -4248,6 +4316,53 @@ lines = [
             matches!(effect, crate::board::app::Effect::Act(_)),
             "{effect:?}"
         );
+    }
+
+    #[test]
+    fn notebook_links_preview_before_click_and_honor_explicit_bindings() {
+        use crate::board::app::{Effect, Request};
+        let mut app = paned(
+            split(
+                Direction::LeftRight,
+                vec![Pane::Rows, Pane::Notes],
+                vec![50, 50],
+            ),
+            Notes::Text("[界 wide words](https://example.com) [other](tmt:back)".into()),
+        );
+        draw(&app, 60, 15);
+        let (hit, _) = app.link_hits.borrow()[0];
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: hit.x,
+            row: hit.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        assert_eq!(app.mouse(click, std::time::Instant::now()), Effect::None);
+        assert_eq!(app.focused_pane(), Some(Pane::Notes));
+        assert!(
+            draw(&app, 60, 15)
+                .last()
+                .unwrap()
+                .contains("https://example.com")
+        );
+        assert!(
+            matches!(app.mouse(click, std::time::Instant::now()), Effect::Act(Request::Open { link, .. }) if link == "https://example.com")
+        );
+        app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(app.selected_link().unwrap().target, "tmt:back");
+        app.key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
+        assert_eq!(app.selected_link().unwrap().target, "https://example.com");
+        app.view.as_mut().unwrap().configured_bindings = crate::action::parse_bindings(
+            [("tab", Some("next-pane")), ("enter", Some("copy {name}"))].into_iter(),
+            "bind",
+        )
+        .unwrap();
+        assert!(matches!(
+            app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            Effect::Act(Request::Copy { .. })
+        ));
+        app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(app.focused_pane(), Some(Pane::Rows));
     }
 
     #[test]

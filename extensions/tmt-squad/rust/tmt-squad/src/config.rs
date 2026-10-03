@@ -879,6 +879,7 @@ impl Config {
         config.me_id()?;
         config.validate_views()?;
         config.tabs()?;
+        config.links()?;
         Ok(config)
     }
 
@@ -889,9 +890,7 @@ impl Config {
     /// The host preset's bindings, overridden by top-level `[bind]`.
     pub fn bindings(&self, tmux: bool, panes: &[Pane]) -> Result<Bindings, SquadError> {
         let mut bindings = preset(tmux, panes);
-        if let Some(item) = self.document.get("bind") {
-            bindings.extend(bindings_table(item, "bind")?);
-        }
+        bindings.extend(self.configured_bindings()?);
         Ok(bindings)
     }
 
@@ -922,6 +921,14 @@ impl Config {
         Ok(bindings)
     }
 
+    pub fn configured_bindings(&self) -> Result<Bindings, SquadError> {
+        self.document
+            .get("bind")
+            .map(|item| bindings_table(item, "bind"))
+            .transpose()
+            .map(Option::unwrap_or_default)
+    }
+
     /// Top-level `opener` and `clipboard`: programs that replace the system
     /// opener and the built-in clipboard route.
     pub fn program(&self, key: &str) -> Result<Option<Vec<String>>, SquadError> {
@@ -929,6 +936,37 @@ impl Config {
             .get(key)
             .map(|item| program(item, key))
             .transpose()
+    }
+
+    /// Programs authorized only by the user's `[links]` table.
+    pub fn links(&self) -> Result<crate::links::Handlers, SquadError> {
+        let mut handlers = crate::links::Handlers::new();
+        if let Some(item) = self.document.get("links") {
+            let table = item
+                .as_table_like()
+                .ok_or_else(|| invalid("`links` must be a table."))?;
+            if table.len() > 32 {
+                return Err(invalid("`links` allows at most 32 handlers."));
+            }
+            for (name, value) in table.iter() {
+                if !crate::links::scheme(name) || ["http", "https", "file", "tmt"].contains(&name) {
+                    return Err(invalid(format!("`links.{name}` is not a custom scheme.")));
+                }
+                let action = value
+                    .as_str()
+                    .ok_or_else(|| invalid(format!("`links.{name}` must be a run binding.")))?;
+                let action = crate::action::Action::parse(action).map_err(invalid)?;
+                if action.verb != crate::action::Verb::Run {
+                    return Err(invalid(format!("`links.{name}` must use run.")));
+                }
+                // Only {path} is available; reject misspelled/row placeholders at load.
+                action
+                    .argv(&serde_json::json!({"fields":{"path":"example"}}))
+                    .map_err(invalid)?;
+                handlers.insert(name.to_owned(), action);
+            }
+        }
+        Ok(handlers)
     }
 
     /// `[tmux]`: the prefix keys that open the board as a popup (default `S`)
@@ -2066,6 +2104,30 @@ fn publish(path: &Path, bytes: &[u8]) -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::split::Split;
+
+    #[test]
+    fn link_handlers_are_explicit_validated_run_bindings() {
+        let path = temp("links");
+        fs::write(&path, "[links]\ngh='run gh issue view {path}'").unwrap();
+        assert!(
+            Config::read(path.clone())
+                .unwrap()
+                .links()
+                .unwrap()
+                .contains_key("gh")
+        );
+        for value in [
+            "gh='open {path}'",
+            "tmt='run tmt {path}'",
+            "gh='run {path}'",
+            "gh='run gh {name}'",
+            "gh=42",
+        ] {
+            fs::write(&path, format!("[links]\n{value}")).unwrap();
+            assert!(Config::read(path.clone()).is_err(), "{value}");
+        }
+        fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn reminders_are_per_squad_team_enabled_by_default_and_bounded() {
