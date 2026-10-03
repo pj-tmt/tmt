@@ -16,6 +16,7 @@ use std::{
 use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 
 mod settings;
+mod sourced;
 mod states;
 pub use states::{Rank, States};
 
