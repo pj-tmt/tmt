@@ -131,17 +131,17 @@ for added modules/fixtures. Keep run evidence in the issue/PR.
 Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 and `transport` have no I/O, clock, storage or `CoreClient` access):
 
-| Module                              | Owns                                                                                                                  |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `main`, `core`                      | Foreground composition and the two startup calls; `CoreClient` runs only fixed public `api`/`ls` via `TMT_EXECUTABLE` |
-| `http`, `routes`, `site`, `limits`  | Loopback door framing and bounds, `/r/` binding routes, route dispatch; every bound is named in `limits`              |
-| `wire`, `canonical`, `crypto`       | Strict JSON admission with exact payload bytes, framing/fingerprint codecs, signature and HMAC verification           |
-| `session`, `admission`, `transport` | `session.open`, one normal message in flight per session, durable sequence consumption, envelope hand-off             |
-| `journal`, `budgets`, `audit`       | Metadata streams and recovery ownership, persisted budgets, audit written in the owning transaction                   |
-| `operations`, `approval`            | Dispatch/read operations over the public core API; local held-operation confirmation on the control socket            |
-| `authority`, `store`, `state`       | Typed grants, `remote.db` and schema history, layout/machine key/serve lock                                           |
-| `pairing`, `control`, `devices`     | One pairing offer per run, owner-only control socket, device list/revoke/rename                                       |
-| `mount`, `pages`                    | Extension mounts (allowlisted extensions only) and the pairing page/SDK assets                                        |
+| Module                              | Owns                                                                                                                                                                           |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `main`, `core`                      | Foreground composition and the two startup calls; `CoreClient` runs only fixed public `api`, `list --json`, `identity list --json`, `check <name> --json` via `TMT_EXECUTABLE` |
+| `http`, `routes`, `site`, `limits`  | Loopback door framing and bounds, `/r/` binding routes, route dispatch; every bound is named in `limits`                                                                       |
+| `wire`, `canonical`, `crypto`       | Strict JSON admission with exact payload bytes, framing/fingerprint codecs, signature and HMAC verification                                                                    |
+| `session`, `admission`, `transport` | `session.open`, one normal message in flight per session, durable sequence consumption, envelope hand-off                                                                      |
+| `journal`, `budgets`, `audit`       | Metadata streams and recovery ownership, persisted budgets, audit written in the owning transaction                                                                            |
+| `operations`, `approval`            | Dispatch/read operations over the public core API; local held-operation confirmation on the control socket                                                                     |
+| `authority`, `store`, `state`       | Typed grants, `remote.db` and schema history, layout/machine key/serve lock                                                                                                    |
+| `pairing`, `control`, `devices`     | One pairing offer per run, owner-only control socket, device list/revoke/rename                                                                                                |
+| `mount`, `pages`                    | Extension mounts (allowlisted extensions only) and the pairing page/SDK assets                                                                                                 |
 
 Rules that are easy to get wrong:
 

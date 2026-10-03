@@ -1109,8 +1109,9 @@ leaf neither discovers roots nor accesses core state or provider configuration.
 ## Remote extension pilot
 
 `extensions/tmt-remote` is a separate executable run as `tmt remote`. It reaches
-core only through the public process/JSON API (fixed `api`/`ls` subprocesses of
-the supplied absolute `TMT_EXECUTABLE`, run by `tmt-invoke`) and owns the private
+core only through the public process/JSON API (fixed `api`, `list --json`,
+`identity list --json` and `check <name> --json` subprocesses of the supplied
+absolute `TMT_EXECUTABLE`, run by `tmt-invoke`) and owns the private
 `<dataRoot>/remote/` subtree through the
 [shared extension state layout](#shared-extension-state-layout). Core never owns a
 listener or Remote state and only registers Remote as an installable product; its
