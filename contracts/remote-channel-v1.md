@@ -381,11 +381,14 @@ Remote narrows supported operations/authority before core calls.
 
 `agents.list`, `check`, `operation.show` and `result` are adapter helpers over ordinary public JSON
 commands, not new core API operations. SDK `api(op,input)` cannot reach local management/argv
-through an invented operation. Delivery status is the read-only `delivery` projection that core
-owns in its public `ls`/API JSON: `channel` (enrolled native channel ready), `paste` (ordinary paste
+through an invented operation. The proposed read-only `delivery` projection belongs to core's
+public `ls`/API JSON: `channel` (enrolled native channel ready), `paste` (ordinary paste
 delivery), `not_ready` (enrolled but not ready, with core's local recovery hint) or `not_running`.
 Remote forwards it unchanged and never infers it from panes; until core publishes that projection,
-`agents.list` reports presence only.
+`agents.list` reports presence only. This projection is advisory, not an input-readiness lease;
+the [public dispatch readiness and input-safety contract](extension-api.md#dispatch-readiness-and-input-safety)
+owns the shipped guarantees and limits. Diagnostic `check` capture and presence never prove
+safe input.
 
 Helper payloads are `agents.list:{}`, `check:{agentId,lines?}`, `operation.show:{operationId}` and
 `result:{requestId}`. `dispatch.create` payload is exactly
@@ -430,8 +433,10 @@ authentication, grant/scope/sequence checks and durable adoption, remote durably
 `dispatching` and calls existing `dispatch.create`. Remote adds no readiness or typing inference of
 its own: core owns idempotency, acceptance, the one-shot advisory wake and its ordinary delivery
 protections, including native-channel delivery, never pasting into an enrolled pane and the `!`
-transport protection. The earlier [readiness contract](https://github.com/wkh237/tmt/issues/600)
-does not gate this path.
+transport protection. The [public dispatch contract](extension-api.md#dispatch-readiness-and-input-safety)
+states those protections and the legacy-pane/typing limits; remote never reads pane buffers to
+infer readiness. The earlier [readiness issue](https://github.com/pj-tmt/tmt/issues/600) does not
+gate this path or reinstate mandatory hold.
 
 Under a `hold` grant, append stores ownership, exact core envelope/hash and `held` state before
 returning `{state:"held",operationId}`. **There is no core requestId yet.** Approval is only local
