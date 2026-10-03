@@ -490,6 +490,13 @@ jobs:
         with:
           name: runtime-x86_64-unknown-linux-musl
           path: rust/target/debug
+      - name: Download the Rust TOML helper for injection fixtures
+        uses: actions/download-artifact@v4
+        with:
+          name: release-version-fixture
+          path: rust/target/debug/examples
+      - name: Make the Rust TOML helper executable
+        run: chmod +x rust/target/debug/examples/release-version
       - name: Run retained developer tooling tests
         working-directory: typescript
         # The deleted TypeScript source coverage denominator is not Rust coverage.
@@ -599,6 +606,18 @@ jobs:
           started=$SECONDS
           cargo build --locked --release --target '${{ matrix.target }}' -p tmt-cli -p tmt-driver-herdr --bins
           echo "Built native runtime in $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Build the Rust TOML helper for tooling fixtures
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        working-directory: rust
+        run: cargo build --locked -p tmt-cli --example release-version
+      - name: Share the Rust TOML helper with tooling tests
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-version-fixture
+          path: rust/target/debug/examples/release-version
+          if-no-files-found: error
+          retention-days: 1
       - name: Record the Cargo-owned version
         working-directory: rust
         run: |

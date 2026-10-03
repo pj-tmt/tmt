@@ -4201,6 +4201,8 @@ package versions and their implied qualified dependency references may change.
 The developer-only `tmt-cli` example `release-version` is the single TOML owner:
 workspace-pinned `toml_edit` parses manifests/locks and preserves formatting and
 comments while editing the version. It is not a shipped product command.
+The Linux x64 runtime producer transfers this example as a separate fixture
+artifact to ordinary tooling tests; product runtime artifacts retain their existing shape.
 The dist plan, build manifest and extracted binary must agree with the tag. The
 four-host PR workflow builds fixture versions without committing, tagging,
 dispatching or publishing. The independently versioned private Herdr fixture stays unchanged.

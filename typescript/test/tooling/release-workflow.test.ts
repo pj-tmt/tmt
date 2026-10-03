@@ -26,6 +26,23 @@ describe('release-cut shadow workflow boundaries', () => {
     );
     expect(run).toContain("run-name: 'Native release: ${{ inputs.product }}'");
   });
+  it('builds and transfers the Rust TOML helper before ordinary tooling injection fixtures', () => {
+    const ci = read('.github/workflows/ci.yml');
+    const build = job(ci, 'native-runtime-build');
+    const tests = job(ci, 'unit-tests');
+    expect(tests).toContain('needs: [changes, native-runtime-build]');
+    expect(build).toContain('cargo build --locked -p tmt-cli --example release-version');
+    expect(build).toContain("if: matrix.target == 'x86_64-unknown-linux-musl'");
+    expect(build).toContain('name: release-version-fixture');
+    expect(build).toContain('path: rust/target/debug/examples/release-version');
+    expect(build).toContain('if-no-files-found: error');
+    expect(tests).toContain('name: release-version-fixture');
+    expect(tests).toContain('path: rust/target/debug/examples');
+    expect(tests).toContain('chmod +x rust/target/debug/examples/release-version');
+    expect(tests.indexOf('chmod +x rust/target/debug/examples/release-version')).toBeLessThan(
+      tests.indexOf('pnpm test:run')
+    );
+  });
   it('keeps native injection on pinned PR heads and all four hosts, with no publishing privileges', () => {
     const injection = read('.github/workflows/release-version-injection.yml');
     expect(injection).toContain('github.event.pull_request.head.sha || github.sha');

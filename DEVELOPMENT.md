@@ -1962,6 +1962,10 @@ inheritance discovery only; it cannot establish the stale-lock gate. A failure i
 the version/source/lock gate is a failure, not permission to broaden its allowed
 diff. Review `release-injection-<product>-<target>` artifacts and job summaries.
 No release secrets or publication privileges enter these PR jobs.
+The ordinary Unit tests job also runs the injection fixtures. Its existing Linux
+x64 runtime producer builds the Rust TOML example as a separate
+`release-version-fixture` artifact; the tooling job downloads it to
+`rust/target/debug/examples` and restores executable permission before tests.
 
 Run targeted fixture checks, then the tooling quality and affected workflow checks:
 
