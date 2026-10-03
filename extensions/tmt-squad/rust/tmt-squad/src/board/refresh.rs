@@ -137,7 +137,19 @@ impl Worker {
                                     .api("notes.read", serde_json::json!({"identityId": identity})),
                             ),
                         },
-                        Deferred::Usage(input) => {
+                        Deferred::Usage(MeterRead::Home) => {
+                            let input = reader
+                                .json(&["ls"])
+                                .ok()
+                                .filter(|listed| listed["identities"].is_array())
+                                .map(|listed| super::rate::Input::resumes(&listed))
+                                .ok_or(());
+                            super::BoardEvent::HomeUsage {
+                                cancellation: cancellation.clone(),
+                                input,
+                            }
+                        }
+                        Deferred::Usage(MeterRead::Squad(input)) => {
                             let sample = reader
                                 .json(&["ls", "--room", &input.room])
                                 .ok()
@@ -235,8 +247,14 @@ impl Loaded {
 enum Deferred {
     Attention(Box<AttentionJob>),
     Cron(Box<super::cronboard::Fetch>),
-    Usage(super::rate::Input),
+    Usage(MeterRead),
     Notebook { identity: String, revision: u64 },
+}
+
+#[derive(Clone)]
+enum MeterRead {
+    Squad(super::rate::Input),
+    Home,
 }
 
 /// Other tabs' attention follows the shown snapshot on the same worker.
@@ -333,7 +351,7 @@ fn serve(
     // The squad last loaded, whether it reloads automatically, and the
     // stamp taken just before that load.
     let mut last: Option<(Reload, bool, Stamp)> = None;
-    let mut sampling: Option<(super::rate::Input, Duration, Instant)> = None;
+    let mut sampling: Option<(MeterRead, Duration, Instant)> = None;
     loop {
         let wait = sampling.as_ref().map_or(check_every, |(_, _, next)| {
             check_every.min(next.saturating_duration_since(Instant::now()))
@@ -418,10 +436,25 @@ fn serve(
             .filter(|rate| rate.settings.enabled)
             .map(|rate| {
                 (
-                    rate.input.clone(),
+                    MeterRead::Squad(rate.input.clone()),
                     rate.settings.every,
                     Instant::now() + rate.settings.every,
                 )
+            })
+            .or_else(|| {
+                if snapshot.squad.as_deref() != Some(ALL) {
+                    return None;
+                }
+                snapshot
+                    .view
+                    .as_ref()
+                    .ok()?
+                    .home_rate
+                    .values()
+                    .filter(|rate| rate.settings.enabled)
+                    .map(|rate| rate.settings.every)
+                    .min()
+                    .map(|every| (MeterRead::Home, every, Instant::now() + every))
             });
         if !publish(snapshot, wanted.generation) {
             break;
@@ -649,6 +682,7 @@ fn squad_view(
     let view = View {
         home: None,
         token_rate,
+        home_rate: Default::default(),
         derived: Default::default(),
         rows,
         render: config.notes_render(&squad.name)?,
@@ -712,6 +746,7 @@ fn member_view(
     let view = View {
         ask_lead: config.ask_lead("")?,
         token_rate: None,
+        home_rate: Default::default(),
         home: None,
         derived: Default::default(),
         rows: loaded.rows,
@@ -753,11 +788,12 @@ fn all_view(
     let settings = config.tabs()?;
     // The cross-squad tabs have no squad table: the global theme alone.
     let (theme, theme_notice) = config.theme("")?;
-    let (loaded, home) = super::home::load(core, config, squads, tabs, me.as_ref())?;
+    let (loaded, home, home_rate) = super::home::load(core, config, squads, tabs, me.as_ref())?;
     let bindings = config.bindings_for_tab(ALL, false, &[])?;
     let view = View {
         ask_lead: config.ask_lead("")?,
         token_rate: None,
+        home_rate,
         home: Some(home),
         derived: Default::default(),
         rows: loaded.rows,
@@ -1760,6 +1796,63 @@ esac
         std::fs::remove_file(executable).unwrap();
     }
     #[test]
+    fn home_sampling_requires_the_open_home_tab_and_an_enabled_policy() {
+        let (sender, pending) = mpsc::channel();
+        let reload = |squad: &str| {
+            Work::Reload(Reload {
+                preview_panes: false,
+                squad: Some(squad.into()),
+                generation: 0,
+            })
+        };
+        sender.send(reload(ALL)).unwrap();
+        let published = std::cell::Cell::new(0);
+        let mut samples = 0;
+        serve(
+            &pending,
+            |_, _| {
+                let count = published.get() + 1;
+                published.set(count);
+                match count {
+                    1 => sender.send(reload("product")).unwrap(),
+                    2 => sender.send(reload(ALL)).unwrap(),
+                    _ => {}
+                }
+                true
+            },
+            Duration::from_millis(1),
+            &AtomicU64::new(0),
+            |_| Stamp::cursor(1),
+            |wanted, _, _| {
+                let mut snapshot =
+                    crate::board::app::tests::snapshot(wanted.as_deref().unwrap(), json!([]));
+                let view = snapshot.view.as_mut().unwrap();
+                view.refresh = None;
+                // Even a retained HOME template must not schedule HOME reads on another tab.
+                view.home_rate.insert(
+                    "product".into(),
+                    super::super::app::RateView {
+                        settings: crate::config::TokenRate {
+                            enabled: published.get() > 0,
+                            every: Duration::from_millis(2),
+                            ..Default::default()
+                        },
+                        input: super::super::rate::tests::input(100),
+                    },
+                );
+                Loaded::only(snapshot)
+            },
+            |job, _| {
+                assert_eq!(published.get(), 3);
+                assert!(matches!(job, Deferred::Usage(MeterRead::Home)));
+                samples += 1;
+                false
+            },
+        );
+        assert_eq!(samples, 1);
+    }
+
+    #[test]
     fn meter_only_sampling_uses_the_selected_roster_after_queued_full_loads() {
         let (sender, pending) = mpsc::channel();
         for name in ["old", "new"] {
@@ -1798,7 +1891,7 @@ esac
                 Loaded::only(snapshot)
             },
             |job, generation| {
-                let Deferred::Usage(input) = job else {
+                let Deferred::Usage(MeterRead::Squad(input)) = job else {
                     panic!("unexpected attention work")
                 };
                 assert_eq!(generation, 0);
