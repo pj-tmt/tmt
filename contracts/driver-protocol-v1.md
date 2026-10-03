@@ -420,8 +420,15 @@ these operations, as from any operation but `prompt`.
 Every path is absolute, at most 1024 bytes of text, with no `.` or `..`
 component. `configDirs` holds 1 to 4 paths.
 
-- **`hookSettings`:** required when `hooks` is declared, otherwise `null`.
+- **`hookSettings`:** required when `hooks` is declared, otherwise `null`. It
+  lies inside one of `configDirs`.
+- **`skills`:** lies inside one of `configDirs`, or is the skills root that
+  agents share, `<home>/.agents/skills` (Codex, Gemini CLI and OpenCode read
+  that one).
 - **`transcriptRoot`:** required when `usage` is declared, otherwise `null`.
+
+`tmt setup` writes to `skills` and `hookSettings`, so a driver can point it
+only at the agent's own directories or the shared skills root.
 
 Core uses each one:
 

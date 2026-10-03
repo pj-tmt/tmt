@@ -138,7 +138,15 @@ pub fn check_runtime(
         },
     );
     let transcript_root = match locations {
-        Some(Ok(locations)) => locations.transcript_root,
+        Some(Ok(locations)) => {
+            if !locations.within(&fixture.home) {
+                run.found(
+                    Op::Locations.as_str(),
+                    "skills must lie inside configDirs or be the shared skills root",
+                );
+            }
+            locations.transcript_root
+        }
         Some(Err(error)) => {
             run.found(
                 Op::Locations.as_str(),
@@ -595,6 +603,7 @@ mod tests {
         resumes_through_a_shell: bool,
         reads_a_missing_transcript: bool,
         forgets_the_transcript_root: bool,
+        installs_skills_anywhere: bool,
     }
 
     impl crate::RuntimeHandler for Agent {
@@ -608,7 +617,11 @@ mod tests {
             let home = request.body.home;
             Ok(LocationsResponse {
                 config_dirs: vec![format!("{home}/.kimi")],
-                skills: format!("{home}/.kimi/skills"),
+                skills: if self.installs_skills_anywhere {
+                    format!("{home}/.ssh")
+                } else {
+                    format!("{home}/.kimi/skills")
+                },
                 hook_settings: Some(format!("{home}/.kimi/settings.json")),
                 transcript_root: (!self.forgets_the_transcript_root)
                     .then(|| format!("{home}/.kimi/sessions")),
@@ -686,6 +699,13 @@ mod tests {
         assert_eq!(
             runtime_checks(Agent {
                 forgets_the_transcript_root: true,
+                ..Agent::default()
+            }),
+            ["locations"]
+        );
+        assert_eq!(
+            runtime_checks(Agent {
+                installs_skills_anywhere: true,
                 ..Agent::default()
             }),
             ["locations"]

@@ -382,9 +382,31 @@ impl Answer for LocationsResponse {
             "hookSettings is required with hooks, and null without",
         )?;
         require(
+            self.hook_settings
+                .as_deref()
+                .is_none_or(|path| self.in_config_dir(path)),
+            "hookSettings must lie inside one of configDirs",
+        )?;
+        require(
             self.transcript_root.is_some() == declaration.supports(Op::Usage),
             "transcriptRoot is required with usage, and null without",
         )
+    }
+}
+
+impl LocationsResponse {
+    /// `tmt setup` writes to `skills`: it lies inside one of `configDirs`, or
+    /// is the skills root agents share under the `home` that was asked about.
+    pub fn within(&self, home: &str) -> bool {
+        let shared = format!("{}/.agents/skills", home.trim_end_matches('/'));
+        self.skills == shared || self.in_config_dir(&self.skills)
+    }
+
+    fn in_config_dir(&self, path: &str) -> bool {
+        self.config_dirs.iter().any(|directory| {
+            path.strip_prefix(directory.trim_end_matches('/'))
+                .is_some_and(|rest| rest.len() > 1 && rest.starts_with('/'))
+        })
     }
 }
 
@@ -537,11 +559,24 @@ mod tests {
             ("skills", json!("relative")),
             ("skills", json!("/h/../etc")),
             ("hookSettings", json!(null)),
+            ("hookSettings", json!("/h/.bashrc")),
+            ("hookSettings", json!("/h/.kimi")),
+            ("hookSettings", json!("/h/.kimix/settings.json")),
             ("transcriptRoot", json!(null)),
         ] {
             let mut answer = good.clone();
             answer[field] = value;
             assert!(locations(answer).is_err(), "{field}");
+        }
+        let skills = |path: &str| {
+            let mut answer = good.clone();
+            answer["skills"] = json!(path);
+            let answer: LocationsResponse = locations(answer).unwrap().unwrap();
+            answer.within("/h")
+        };
+        assert!(skills("/h/.kimi/skills") && skills("/h/.agents/skills"));
+        for outside in ["/h/.ssh", "/h/.agents", "/other/.agents/skills", "/h/.kimi"] {
+            assert!(!skills(outside), "{outside}");
         }
         let without_hooks = RuntimeDeclaration::new(&{
             let mut capabilities = claude_like();
