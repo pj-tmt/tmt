@@ -396,6 +396,13 @@ The mapping runs before `turn_state`, so usage scans receive the actual remainde
 It applies equally to fresh and exact-resume channel launches; the source-confirmed
 alpha.41 server/foreground equality gap is recorded on #1198.
 
+Channel lifecycle/activity hooks are expected to execute in the owned app-server.
+A channel locator on an independently classified foreground hook does not grant
+that server proof and produces no channel activity/context update. Plain hooks
+without a channel locator retain the observed process through the default path.
+UserPromptSubmit emits context only for incoming attention or extension
+contributions; a verified prompt with neither produces empty stdout.
+
 A verified main-thread Stop hook means common Idle activity while the runtime
 remains Running. A queue receipt means queued only; only a durable `tmt reply`
 settles a TMT request. A timeout never cancels, resends, pastes or infers

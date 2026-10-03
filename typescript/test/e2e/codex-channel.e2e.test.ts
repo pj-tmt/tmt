@@ -185,7 +185,7 @@ async function assertTurnActivity(
   const prompt = events(s, 'prompt-hook')[0];
   expect(prompt.ok).toBe(true);
   expect(prompt.stderr).toBe('');
-  expect(JSON.parse(prompt.stdout as string).hookSpecificOutput.additionalContext).toContain(name);
+  expect(prompt.stdout).toBe('');
   const working = snapshot();
   expect(JSON.parse(working.driver_state).activity.state).toBe('working');
   expect(working.runtime_state).toBe('running');
