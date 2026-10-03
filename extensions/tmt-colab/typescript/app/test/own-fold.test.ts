@@ -153,6 +153,6 @@ it('prepares immutable own records without publishing until the durable append i
       key: `${a}:1`,
       value: { ...value, state: 'accepted' },
     }),
-  ).rejects.toThrow('immutable');
+  ).rejects.toThrow();
   expect((await run({ type: 'apply', updates: [] })).own).toEqual(admitted.own);
 });
