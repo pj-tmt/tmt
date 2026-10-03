@@ -4753,15 +4753,14 @@ browser with a real `tmt remote serve` and checks the cookie, the forwarded
 device context, both certificate purposes and silent session reopening, then verifies that
 revocation removes owner context and refuses reopening while retained signatures remain valid.
 
-The separately owned #1055 E acceptance feature uses E2EFixture through `harness.ts`.
-Its proposed `remote-device` peer is test-only, pinned to independent Python/WebCrypto
+The #1055 acceptance suite uses E2EFixture through `harness.ts`.
+Its `remote-device` peer is test-only, pinned to independent Python/WebCrypto
 vectors and imports no SDK. `remote-owner` consumes fixture coordinates and owns selected
 real core/Remote binaries, isolated HOME/XDG/private tmux, HTTP and joined process teardown.
 Its transparent test-only `TMT_EXECUTABLE` wrapper forwards exact argv/stdin/actual output;
 grants may be seeded only in Remote's database after serve and owned core children stop,
 never in core storage. Integrated acceptance is limited to #1055's six bullets plus one
-permitted/refused read scenario, and remains pending the separate E PR and booked Docker
-verification.
+permitted/refused read scenario.
 
 ## Colab extension proposal
 
