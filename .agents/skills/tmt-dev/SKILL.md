@@ -34,7 +34,7 @@ Read the repository guidance before planning work:
    per-worktree image tag and cleanup in DEVELOPMENT's
    [disk section](../../../DEVELOPMENT.md#keep-local-development-from-filling-the-disk).
    Verify the changed layers using DEVELOPMENT and CONVENTIONS. Shared markup
-   changes follow DEVELOPMENT's internal TUI admission, geometry/paint and parity
+   changes follow the [tmt-tui](../tmt-tui/SKILL.md) admission, geometry/paint and parity
    gates. Record the reviewed revision, findings, dispositions and exact verification evidence.
    When replacing implementations, map behavioral assertions, not test counts:
    returned-error rollback is not crash recovery. Preserve resource cleanup
@@ -47,8 +47,6 @@ Read the repository guidance before planning work:
    [three ETXTBSY cases](../../../DEVELOPMENT.md#rust-checks) and the narrowly owned
    publication boundary in ARCHITECTURE. Verify its exact dev edges with the
    native architecture test before each Rust push.
-   Office-affecting changes follow
-   [Office browser verification](../../../DEVELOPMENT.md#office-browser-verification).
 5. Close the bounded review when relevant evidence supports the agreed behavior,
    correctness/security blockers and confirmed duplicate responsibilities in
    scope are resolved, and deferred risks are explicit. A broad audit is not a
@@ -69,11 +67,11 @@ modules under scripts and test directories are developer tooling. Keep Office,
 native process, Docker and tooling checks distinct,
 and never substitute obsolete TypeScript coverage percentages for native
 verification. A raw-binary platform smoke does not replace the release archive,
-bootstrap or upgrade gates. Independently released drivers use DEVELOPMENT’s
-product-specific archive and approval proof using the current published CLI. Keep the shared
+bootstrap or upgrade gates. Independently released drivers use the
+[tmt-release](../tmt-release/SKILL.md) product-specific archive and approval proof using the current published CLI. Keep the shared
 runtime proof in one owner. Process/archive fixture producers must build both
 `tmt-cli` and `tmt-driver-herdr`; transferring only the CLI leaves the independently
-owned companion unavailable. See DEVELOPMENT’s native fixture build contract.
+owned companion unavailable. See DEVELOPMENT's native fixture build contract.
 
 Formatter migrations preserve DEVELOPMENT's per-owner options and separate
 code/docs selections, with mechanical output isolated from configuration changes.
@@ -97,3 +95,7 @@ triggers apply, record why in the PR/GitHub issue; a checkbox alone is not
 evidence. Keep architecture rules in `ARCHITECTURE.md`, style rules in
 `CONVENTIONS.md`, and command guidance in `DEVELOPMENT.md` rather than copying
 them into this skill.
+
+## References
+
+- [references/focused-checks.md](references/focused-checks.md): model-free focused commands for Codex driver, reply-notice, request-ID, target, host and completion checks.

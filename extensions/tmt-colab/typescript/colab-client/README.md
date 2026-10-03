@@ -49,7 +49,7 @@ Unit tests use the workspace-pinned Vite+ runner and explicitly select
 `vitest.config.ts`; lint, formatting and the three-engine harness retain their
 separate tools.
 
-See [Colab browser verification](../../../../DEVELOPMENT.md#colab-browser-verification)
+See [Colab browser verification](../../../../.agents/skills/tmt-colab/references/development.md#app-and-browser-client)
 for library checks, unit tests, engine installation, harness commands and local
 binary/report options. The default `test:browser` requires all three engines;
 append `--engines chromium` for a Chromium-only diagnostic (or a comma-separated

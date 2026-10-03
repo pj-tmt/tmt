@@ -84,8 +84,7 @@ and the Office skill sources live under `extensions/tmt-office/`; the proposed
 colab contract lives under `extensions/tmt-colab/contracts/` (see the
 [Colab extension](#colab-extension)). The Office SPA build must finish before building the embedded
 native companion, followed by installed-browser acceptance; ordinary CLI builds
-remain independent. [DEVELOPMENT.md](DEVELOPMENT.md#office-browser-verification)
-owns the direct commands and their order. Read
+remain independent. Read
 [Office architecture](extensions/tmt-office/docs/architecture.md) for current SPA ownership,
 the chosen React/Vite/TanStack/Jotai stack and the
 [Office design](extensions/tmt-office/docs/design.md) for planned trust/lifecycle semantics.

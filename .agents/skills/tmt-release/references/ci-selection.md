@@ -51,7 +51,7 @@ every selected native result and validates the event's `macos` classification:
 false only for merge groups, where both macOS build/smoke results must be exactly
 `skipped`; full-scope PRs require success. Linux rows remain required. Release
 verification still includes macOS. Follow the
-[runtime smoke matrix](../../../../DEVELOPMENT.md#runtime-smoke-matrix) for the
+[runtime smoke matrix](../../tmt-e2e/references/runtime-smoke-matrix.md) for the
 Rosetta process wrapper, exact installed-byte architecture admission and advisory
 native Intel coverage.
 

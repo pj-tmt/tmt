@@ -1,3 +1,4 @@
+// Invariant: locale variables are never changed by production tmux execution.
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';

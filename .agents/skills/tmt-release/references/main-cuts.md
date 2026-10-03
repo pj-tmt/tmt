@@ -271,43 +271,5 @@ CLI selection, the completeness marker, release attestation and every downloaded
 asset's attestation. A failed readback needs diagnosis; never republish immutable
 assets or move a public tag.
 
-## Packed verifier cleanup
-
-Packed verifiers use bounded synchronous subprocesses and own their isolated process
-groups. A terminated `spawnSync` result establishes direct-child termination. Cleanup
-signals the owned group before temporary-state deletion. A teardown `EPERM` is tolerable
-only after direct termination and a subsequent group probe reports `ESRCH`; a live or
-unknown group or another signal error preserves the original failure. Never relax status,
-signal, stream or deadline assertions. Negative fixtures own and clean their descendants;
-this policy remains separate from the native sandbox's asynchronous cleanup protocol.
-
-For `typescript/scripts/packed-command.mjs` changes run
-`test/tooling/packed-command.test.ts` and `test/tooling/release-cut-live.test.ts` through `vp test run --config vitest.config.ts`, then
-`pnpm check:tooling`. Keep the negative controls, confirmed-absence proof and original subprocess deadlines.
-
-## Project release tracking
-
-`project-release.mjs` owns delivery evidence separately from publication. Follow
-[DEVELOPMENT's procedure](../../../../DEVELOPMENT.md#project-release-tracking)
-for token setup, request bounds, dry-run review and focused verification.
-
-Each sweep executes trusted main tooling, exports current main once and reads its map and
-Cargo graph once. Full-history closing merges supply changed paths and containing-tag
-ancestry, not historical attribution rules. Native release policy/version helpers own
-product identities; notes, commit types and recency windows are not release evidence.
-For each affected product choose the earliest publication whose tag contains every closing
-merge. Only complete product coverage permits `Released`; otherwise retain available
-publication evidence and `Merged`. Private components await their consumers' releases.
-Only never-shipped work or waits confined to parked products reconcile to `Done`, with
-`ships with the first <product> release` for each parked wait. An absent status marker
-preserves activation waits; private consumers cannot name a never-shipped product.
-
-Leave open issues, PR items, other repositories and project membership unchanged.
-Recompute both owned fields, correcting stale terminal states and historical text. Complete
-discovery and the dry-run plan precede bounded batched mutations and one Project readback.
-Correct false terminal status before replacing evidence; write valid release evidence before
-promoting to `Released`. Partial writes converge on the next authoritative full sweep,
-including recovery from built-in close/merge workflow writes. Runs serialize project-wide
-but do not claim atomic exclusion of external writers. Discovery caps fail before writes,
-never silently truncate. The daily sweep recovers missed dispatches and genuine smoke
-failures without authorizing publication or a publishing-workflow replay.
+Packed-verifier cleanup and Project release tracking are in
+[native-release.md](native-release.md#packed-verifier-cleanup).

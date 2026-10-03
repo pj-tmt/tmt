@@ -6,13 +6,13 @@ restate them.
 
 ## Layout
 
-| Path (under `extensions/tmt-colab/`) | Owns |
-| --- | --- |
-| `rust/tmt-colab-model` | Pure codecs, fixed crypto and the Rust side of the vectors. No I/O, core or Remote. |
-| `rust/tmt-colab` | The executable: CLI, owner-only socket, SQLite store, keyring, sync server, owner transitions, isolated Yjs decoder. |
-| `typescript/colab-client` | WebCrypto primitives mirroring the model, tested against the shared vectors. |
-| `typescript/app` | React/Vite app: trusted parent chrome, renderer, Worker fold, writer, Ask modules and the `acceptance/` suite. |
-| `contracts/` | colab-v1 and the frozen vectors with their independent Python oracles. |
+| Path (under `extensions/tmt-colab/`) | Owns                                                                                                                 |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `rust/tmt-colab-model`               | Pure codecs, fixed crypto and the Rust side of the vectors. No I/O, core or Remote.                                  |
+| `rust/tmt-colab`                     | The executable: CLI, owner-only socket, SQLite store, keyring, sync server, owner transitions, isolated Yjs decoder. |
+| `typescript/colab-client`            | WebCrypto primitives mirroring the model, tested against the shared vectors.                                         |
+| `typescript/app`                     | React/Vite app: trusted parent chrome, renderer, Worker fold, writer, Ask modules and the `acceptance/` suite.       |
+| `contracts/`                         | colab-v1 and the frozen vectors with their independent Python oracles.                                               |
 
 ## Gotchas
 
