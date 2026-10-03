@@ -4525,8 +4525,8 @@ consumers may name a packaged product awaiting activation, but never a never-shi
 [Project tracking](DEVELOPMENT.md#project-tracking). Issues labeled `epic` are
 excluded from both field writes and listed as skipped: their owning lead retains
 acceptance/dogfood authority. Open issues, PR items, other repositories and project
-membership are not changed. Both owned fields are recomputed, including correction of stale or
-incorrect terminal values and replacement of incorrect historical text.
+membership are not changed. Both owned fields are recomputed, correcting stale
+terminal values and historical text.
 
 The complete discovery and dry-run plan precede bounded batched mutations and a
 single Project readback. False terminal states are corrected before replacing
