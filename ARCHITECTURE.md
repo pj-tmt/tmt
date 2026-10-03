@@ -4225,11 +4225,13 @@ stable absolute `TMT_COLAB_APP_DIR` to the Colab-owned build-time embedding
 boundary (#1421). The release-only Cargo wrapper refuses Colab compilation without
 its embedding input. One executable carries the app; its four-file archive has no
 sibling app tree. Vite notices follow target-filtered Rust notices. Core owns the
-product/archive registration (#1423). Activation requires embedding, that
-registration in a published supporting CLI alpha, and actual-archive acceptance.
+product/archive registration (#1423), now implemented. Activation requires a
+published supporting CLI alpha and actual-archive acceptance.
 The shared `colab-runtime-proof.mjs` verifies relocated socket serving, exact
 independent app bytes for archives, representative app delivery for public smoke,
 combined notices and child/socket cleanup with no frontend runtime tooling.
+Cleanup requires direct process exit and confirmed process-group absence before
+removing isolated state; an exiting-group signal denial alone cannot establish cleanup.
 Only Colab verification loads this app proof; other products keep the existing
 minimal native-verifier image dependency closure.
 Its Rust example with a tiny embedded app proves guard sensitivity;

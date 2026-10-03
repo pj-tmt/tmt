@@ -1,7 +1,8 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import { verifyColabApp } from '../../scripts/colab-runtime-proof.mjs';
 import { colabFixtureBinary } from '../support/colab-runtime-fixture.js';
 
@@ -37,6 +38,57 @@ const proof = (variant = 'valid', combined = notices) =>
   });
 
 describe('relocated native Colab app proof', () => {
+  it('excuses an exiting-group denial only after confirming group absence', async () => {
+    const kill = process.kill.bind(process);
+    let group = 0;
+    let denied = false;
+    let absent = false;
+    const signal = vi.spyOn(process, 'kill').mockImplementation((pid, operation) => {
+      if (operation === 'SIGTERM') group = pid;
+      if (pid === group && !denied && (operation === 0 || operation === 'SIGKILL')) {
+        denied = true;
+        throw Object.assign(new Error('Simulated exiting-group denial'), { code: 'EPERM' });
+      }
+      try {
+        return kill(pid, operation);
+      } catch (error) {
+        if (pid === group && operation === 0 && (error as NodeJS.ErrnoException).code === 'ESRCH')
+          absent = true;
+        throw error;
+      }
+    });
+    try {
+      await proof();
+      expect(denied).toBe(true);
+      expect(absent).toBe(true);
+    } finally {
+      signal.mockRestore();
+    }
+  });
+
+  it('fails cleanup and retains state when exiting-group absence cannot be confirmed', async () => {
+    const kill = process.kill.bind(process);
+    const directories = vi.spyOn(fs, 'mkdtempSync');
+    let group = 0;
+    const signal = vi.spyOn(process, 'kill').mockImplementation((pid, operation) => {
+      if (operation === 'SIGTERM') group = pid;
+      if (pid === group && (operation === 0 || operation === 'SIGKILL'))
+        throw Object.assign(new Error('Simulated inspection denial'), { code: 'EPERM' });
+      return kill(pid, operation);
+    });
+    let state = '';
+    try {
+      const attempt = proof();
+      state = directories.mock.results[0].value;
+      await expect(attempt).rejects.toThrow('process group absence was not confirmed');
+      expect(fs.existsSync(state)).toBe(true);
+    } finally {
+      signal.mockRestore();
+      directories.mockRestore();
+      if (state) rmSync(state, { recursive: true, force: true });
+    }
+  });
+
   it('runs a native fixture with exact embedded HTML, assets and notices through the shared archive proof', async () => {
     await verifyNativeRuntime({
       executable: path.join(root, 'colab-fixture'),

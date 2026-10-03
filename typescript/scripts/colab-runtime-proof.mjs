@@ -80,7 +80,9 @@ function requestAsset(socket, route, owner = true) {
       3_000
     );
     request.once('close', () => clearTimeout(timeout));
-    request.on('error', reject);
+    request.on('error', (error) =>
+      reject(new Error(`Colab asset request failed (${route}): ${error.message}`, { cause: error }))
+    );
     request.end();
   });
 }
@@ -138,12 +140,33 @@ function exited(child) {
 async function cleanupChild(child) {
   if (!child?.pid) return;
   const stopped = exited(child);
+  let signalError;
   try {
+    // Do not signal a group after observing its absence, including graceful exit.
+    process.kill(-child.pid, 0);
     process.kill(-child.pid, 'SIGKILL');
   } catch (error) {
-    if (error.code !== 'ESRCH') throw error;
+    if (error.code !== 'ESRCH') signalError = error;
   }
   await stopped;
+  const deadline = performance.now() + 3_000;
+  for (;;) {
+    try {
+      process.kill(-child.pid, 0);
+    } catch (error) {
+      if (error.code === 'ESRCH') {
+        // Darwin can deny a signal to an exiting group. Direct exit alone is
+        // insufficient: only this subsequent absence observation excuses EPERM.
+        if (signalError && signalError.code !== 'EPERM') throw signalError;
+        return;
+      }
+      if (error.code !== 'EPERM') throw error;
+      signalError ??= error;
+    }
+    if (performance.now() >= deadline)
+      throw new Error('Colab process group absence was not confirmed', { cause: signalError });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
 }
 
 /** One installed-app proof shared by archive verification and public-install smoke. */

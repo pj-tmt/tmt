@@ -2840,9 +2840,9 @@ prove installer lifecycle, not that embedding or installed SPA serving.
 
 Colab selection is prepared with tag `tmt-colab-v<version>`, prerelease publication
 and `latest=false`. It remains `release:false` / `dist=false`; neither preparation
-nor publication accepts it. The app embedding boundary from #1421 is implemented.
-Activation belongs to the infra lead after #1423 registers the product in a
-published supporting CLI alpha and real archive acceptance passes. The wiring
+nor publication accepts it. App embedding (#1421) and core registration (#1423)
+are implemented. Activation belongs to the infra lead after a supporting CLI alpha
+is published and real archive acceptance passes. The wiring
 tests use a native tiny-app fixture, not a released Colab binary.
 
 `scripts/build-native-artifact.sh <target> colab` installs frozen dependencies with
@@ -2874,6 +2874,8 @@ defects by `--fixture-variant`; they never compile during execution. Positive
 and mutated binaries exercise exact embedded bytes, placeholder/startup rejection,
 combined-notice omissions and graceful process/socket cleanup. This is proof of
 the verifier, not Colab's app/crypto/browser acceptance.
+Cleanup-denial tests require a subsequent group-absence observation before
+excusing a macOS exit race; unconfirmed absence fails and retains isolated state.
 
 Only Colab verification loads its app proof. The raw CLI verifier's minimal musl
 image retains its existing copied inputs; `native-runtime-proof.test.ts` reproduces
