@@ -54,6 +54,7 @@ Assert the recipient's text equals the previewed text, including the `[remote: <
 line, and that no delivery state is shown (presence only).
 
 `tabs.spec.ts` pins a Remote contract the Ask design depends on: Remote keeps one session per
-device, so a newer `session.open` ends the older session and its tunnels. Two tabs of one
-paired browser are one device; they must share a single session, or each tab's reopen ends the
-other's. The two-tab Ask case in `ask.spec.ts` asserts the product behavior.
+device, so a newer `session.open` ends the older session and its tunnels. Two tabs of one paired
+browser are one device, so v1 allows one active tab with explicit takeover: a newer tab takes the
+session, the older shows a notice and a "Use here" button and makes no Remote calls. The
+two-tab Ask case in `ask.spec.ts` asserts that behavior.

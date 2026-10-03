@@ -199,14 +199,34 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
     });
   });
 
-  test.fixme(`two tabs of one paired browser stay live, share asks, and a Colab restart in one does not end the other's Remote session (needs ${PENDING} and one Remote session shared between tabs)`, async () => {
-    // Remote allows one session per device (tabs.spec.ts pins it), so tabs must
-    // share a single session; today each tab opens its own and they end each
-    // other's. Steps: open the page in tab A and tab B of the same paired
-    // browser; send an ask in A and see its entry (same operation ID) in B;
-    // restart tmt-colab; both tabs reconnect; B can still send a second ask
-    // accepted by Remote (its session was not ended by A's reconnect), and
-    // the recipient has exactly two received rows.
+  test.fixme(`two tabs of one paired browser: the newer tab takes the session, the older shows the notice, and "Use here" takes it back with no duplicate wake (needs ${PENDING} and colab-2's takeover)`, async () => {
+    await withWorld(async (world) => {
+      const s = await scenario(world);
+      // The scenario's tab is A. Tab B is a second tab of the same paired browser.
+      const tabA = s.askerPage;
+      const tabB = await openPage(world, s.door, s.asker, s.pageId);
+      // Remote keeps one session per device (tabs.spec.ts): B took it, so A stops
+      // reconnecting and says so, with no automatic ping-pong.
+      await expect(tabA.getByText('Colab is open in another tab')).toBeVisible();
+      await expect(tabB.getByText('Colab is open in another tab')).toHaveCount(0);
+      // An ask sent in the active tab B is accepted by Remote.
+      await selectInRenderer(tabB, '#quote');
+      const ask = await previewAsk(tabB, s.recipient.id, 'Sent from the active tab');
+      await send(tabB);
+      await expect(askState(tabB, ask.operationId)).toHaveAttribute('data-state', 'accepted');
+      await until(() => s.recipient.received().length === 1, 'recipient received the ask');
+      // "Use here" in A takes the session back; the ask made in B is visible in A,
+      // and B now shows the notice instead.
+      await tabA.getByRole('button', { name: 'Use here' }).click();
+      await expect(askEntry(tabA, ask.operationId)).toBeVisible();
+      await expect(tabB.getByText('Colab is open in another tab')).toBeVisible();
+      await expect(askEntry(tabA, ask.operationId).getByTestId('ask-reply')).toHaveText(
+        replyBody(ask.previewText),
+      );
+      // Takeover never resends: one wake, one dispatch.
+      expect(s.recipient.received()).toHaveLength(1);
+      expect(dispatches(world)).toHaveLength(1);
+    });
   });
 
   test.fixme(`a held grant shows held until local approval, then accepted (needs ${PENDING} and a hold grant fixture for the device)`, async () => {
