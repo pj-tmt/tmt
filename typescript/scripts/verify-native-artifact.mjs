@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { selectNativeArtifact, withNativeArtifact } from './native-artifact-policy.mjs';
 import { assertNativeTarget, verifyNativeRuntime } from './native-runtime-proof.mjs';
@@ -16,6 +17,7 @@ const { values } = parseArgs({
     license: { type: 'string' },
     skills: { type: 'string' },
     product: { type: 'string', default: 'cli' },
+    'source-root': { type: 'string' },
   },
 });
 for (const name of [
@@ -50,7 +52,25 @@ const officeSkill =
       )
     : undefined;
 const notices = fs.readFileSync(values.notices, 'utf8');
-const executable = { cli: 'tmt', office: 'tmt-office', squad: 'tmt-squad' }[values.product];
+const executable = {
+  cli: 'tmt',
+  office: 'tmt-office',
+  squad: 'tmt-squad',
+  'driver-herdr': 'tmt-driver-herdr',
+}[values.product];
+let herdrVersion;
+if (values.product === 'cli') {
+  const source = values['source-root'] ?? fileURLToPath(new URL('../../', import.meta.url));
+  const declaration = fs
+    .readFileSync(path.join(source, 'rust/crates/tmt-driver-herdr/Cargo.toml'), 'utf8')
+    .split(/\n\[/)[0];
+  const explicit = /^version\s*=\s*"([^"]+)"$/m.exec(declaration)?.[1];
+  assert(
+    explicit || /^version\.workspace\s*=\s*true$/m.test(declaration),
+    'Herdr version declaration is missing'
+  );
+  herdrVersion = explicit ?? metadata.version;
+}
 
 /** Every regular file under `root`, by relative path; links fail. */
 function tree(root) {
@@ -97,6 +117,7 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
     executable: path.join(artifactRoot, executable),
     product: values.product,
     herdrDriver: values.product === 'cli' ? path.join(artifactRoot, 'tmt-driver-herdr') : undefined,
+    herdrVersion,
     target: metadata.target,
     version: metadata.version,
     skill,
@@ -116,6 +137,7 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
         cli: 'linkage, version, skill bundle, Herdr driver, managed install, SQLite persistence',
         office: 'linkage, exact Office handshake, no application state',
         squad: 'linkage, version, exact skills tree, no application state',
+        'driver-herdr': 'linkage, exact capabilities/version, no application state',
       }[values.product]
     }`
   );
