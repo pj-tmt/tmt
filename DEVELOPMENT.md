@@ -1873,7 +1873,11 @@ reset/earliest retry time ...` cause may retry its failed acquisition step: at m
 attempts, waiting until the diagnostic's UTC epoch plus one second, with a five-minute
 wait limit. Missing timing, a reset beyond the limit or a repeated limit fails clearly with
 `github-api-rate-limit` infrastructure data. Any other failure (including a bare 403/429,
-a stale latest installer, mixed diagnostics or a real error after retry) fails immediately.
+mixed diagnostics or a real error after retry) fails immediately. Separately, the CLI
+latest-installer read may retry only when it embeds an older alpha than the just-published
+tag (three reads, two 20-second waits); unchanged lag still fails, while a newer or
+malformed version and download errors fail immediately. A tooling contract test pins the
+Rust diagnostic format, UTC epoch representation and reasons consumed by smoke.
 The smoke job has a 25-minute bound. Infrastructure-only failures open a separate
 `Release <tag> public install blocked by GitHub API rate limit` issue; they do not claim a
 broken release. Mixed or real failures retain the post-publication failure issue. Both

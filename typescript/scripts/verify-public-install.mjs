@@ -196,11 +196,18 @@ export async function smokeRelease({
 
   let installer = '';
   const fetched = await check('public installer', async () => {
-    installer = await read(installerUrl(repository));
-    const embedded = /^\s*version='([^']+)'$/m.exec(installer)?.[1];
-    if (!embedded) throw new Error('the installer names no version');
-    if (isCli && embedded !== version)
-      throw new Error(`the latest installer is for ${embedded}, not ${version}`);
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      installer = await read(installerUrl(repository));
+      const embedded = /^\s*version='([^']+)'$/m.exec(installer)?.[1];
+      if (!embedded) throw new Error('the installer names no version');
+      if (!isCli || embedded === version) break;
+      const mismatch = `the latest installer is for ${embedded}, not ${version}`;
+      // The published latest entry can briefly lag. Only an older alpha is that condition;
+      // download errors, malformed data and an unexpected newer version fail immediately.
+      const lagging = isAlphaVersion(embedded) && compareVersions(embedded, version) < 0;
+      if (!lagging || attempt === 3) throw new Error(mismatch);
+      await wait(20_000);
+    }
     return `embeds ${/^\s*version='([^']+)'$/m.exec(installer)[1]}`;
   });
   if (!fetched) return results;

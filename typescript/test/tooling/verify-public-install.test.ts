@@ -117,6 +117,8 @@ function run(
     source?: Record<string, string>;
     fetches?: string[];
     systemPath?: string[];
+    installerVersions?: string[];
+    fetchError?: string;
   } = {}
 ) {
   const root = path.join(base, `run-${(counter += 1)}`);
@@ -146,7 +148,18 @@ function run(
       ...(options.systemPath ? { systemPath: options.systemPath } : {}),
       fetch: async (url: string) => {
         fetched.push(url);
-        return installerText(fake);
+        if (options.fetchError) throw new Error(options.fetchError);
+        return installerText({
+          ...fake,
+          ...(options.installerVersions
+            ? {
+                version:
+                  options.installerVersions[
+                    Math.min(fetched.length - 1, options.installerVersions.length - 1)
+                  ],
+              }
+            : {}),
+        });
       },
       wait: async (milliseconds: number) => {
         waits.push(milliseconds);
@@ -223,7 +236,7 @@ describe('the public installer smoke of a CLI release', () => {
     expect(elsewhere.at(-1)?.reason).toContain('not');
   });
 
-  it('fails a stale latest installer without retrying a non-rate-limit failure', async () => {
+  it('bounds the specifically classified previous-version latest-installer lag', async () => {
     const attempt = run({ version: '5.0.0-alpha.11' }, { tag: 'v5.0.0-alpha.12' });
     const results = await attempt.results;
     expect(results).toEqual([
@@ -233,8 +246,43 @@ describe('the public installer smoke of a CLI release', () => {
         reason: 'the latest installer is for 5.0.0-alpha.11, not 5.0.0-alpha.12',
       },
     ]);
+    expect(attempt.fetched).toHaveLength(3);
+    expect(attempt.waits).toEqual([20_000, 20_000]);
+  });
+
+  it('recovers when latest catches up, without retrying a newer or malformed installer', async () => {
+    const attempt = run({}, { installerVersions: ['5.0.0-alpha.11', '5.0.0-alpha.12'] });
+    expect(failed(await attempt.results)).toEqual([]);
+    expect(attempt.fetched).toHaveLength(2);
+    expect(attempt.waits).toEqual([20_000]);
+    for (const version of ['5.0.0-alpha.13', 'invalid']) {
+      const other = run({ version });
+      expect(failed(await other.results)).toHaveLength(1);
+      expect(other.fetched).toHaveLength(1);
+      expect(other.waits).toEqual([]);
+    }
+  });
+
+  it('does not retry an installer download error merely because latest reads allow lag recovery', async () => {
+    const attempt = run({}, { fetchError: 'HTTP 403' });
+    expect(failed(await attempt.results)).toEqual([
+      { check: 'public installer', ok: false, reason: 'HTTP 403' },
+    ]);
     expect(attempt.fetched).toHaveLength(1);
     expect(attempt.waits).toEqual([]);
+  });
+
+  it('pins the native diagnostic format, timing representation and reasons consumed by smoke', () => {
+    const rust = readFileSync(
+      new URL('../../../rust/crates/tmt-adapters/src/release_http.rs', import.meta.url),
+      'utf8'
+    );
+    expect(rust.match(/"GitHub API rate limit:[^"\n]+"/)?.[0]).toBe(
+      '"GitHub API rate limit: reset/earliest retry time {reset}; {reason}. Retry later or optionally set GITHUB_TOKEN."'
+    );
+    expect(rust).toContain('format!("{date} (UTC epoch {epoch})")');
+    expect(rust).toContain('Some("the single retry was exhausted")');
+    expect(rust).toContain('Some("the required wait exceeds the remaining deadline")');
   });
 
   it('fails an installer that exits nonzero, a missing tmt and a version that is not the installer’s', async () => {

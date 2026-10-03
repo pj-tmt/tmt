@@ -3675,7 +3675,9 @@ diagnostics in its run log and result artifact; the packed runner owns stream ca
 and retains structured failed-command streams for classification. The smoke owner alone
 recognizes native acquisition JSON rate-limit causes and applies bounded reset-time retries
 to the failed step; status codes, unrelated diagnostics and validation failures are not retry
-signals. Exhaustion remains a failed job with typed infrastructure evidence.
+signals. A separate bounded read retry recognizes only an older-alpha latest-installer
+lag after publication. Tooling tests pin the consumed Rust diagnostic text and timing
+representation. Exhaustion remains a failed job with typed infrastructure evidence.
 
 Docker E2E `harness.ts` retains scenario imports; `harness/fixture.ts` owns
 fixture resources and process registries.
