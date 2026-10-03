@@ -770,13 +770,17 @@ release-please attributes a commit to a package by the files it touches under th
 path and can only drop paths, so the CLI's `exclude-paths` lists everything under each
 extension root except the crates the CLI links (today the Office model, command and service
 crates), and a change to those crates counts toward the CLI release as well as Office's. The
-reverse direction has no release-please config option. The map's private TUI leaf declares
+reverse direction has no release-please config option. The map's private TUI, CLI style and invoke leaves declare
 `releaseConsumers: ["squad"]`. `release-please-run.mjs` wraps the pinned public commit iterator
 and adds a consumer-root marker to each matching commit's in-memory file list before the normal
 split, excludes and per-product release cutoff. Original files and ordering are preserved;
 no source file, private-leaf version or release manifest entry is created. TUI-only fixes therefore
-propose Squad, while the CLI remains excluded. Other shared leaves retain package-root attribution;
-expanding consumption requires a separate ownership review.
+propose Squad, while the CLI remains excluded. Style-only and invoke-only fixes propose both
+Squad and CLI; their original package-root attribution to CLI and other consumers is preserved.
+The config generator uses its existing Cargo metadata graph to require declared attribution for
+every external production workspace dependency, including transitive links, of a release consumer.
+Expanding consumption requires a separate ownership review; private leaves remain unpublished
+and retain their existing version and lockfile owners.
 `.release-please-manifest.json` holds the last published versions and belongs to
 release-please after its first release pull request. The CLI is pinned with a lockfile in
 `.github/release-please/`, outside the `typescript` workspace. Only the release job and CI jobs running
@@ -4120,9 +4124,12 @@ release App token owns bounded batched Project/closing-PR GraphQL reads and fiel
 writes; `GITHUB_TOKEN` reads the complete paginated published release catalog.
 Only trusted main tooling executes. A full-history checkout supplies each merged
 closing PR's first-parent changed paths and tags containing its merge commit.
-`ci-scope.ownerOf` and the component map own product attribution, including
-private-leaf `releaseConsumers`; native release policy and version helpers own
-product/tag identities. Notes, commit types and recency windows are not evidence.
+`ci-scope.ownerOf` and the component map own product attribution. Private-leaf
+`releaseConsumers` add consumers to the released packaged roots returned by
+`ci-scope.releasedComponentsForPath`, which matches `owns`/`excludes` independently
+of CI `selectedBy`. Style and invoke therefore retain CLI membership alongside
+Squad; the explicitly CLI-excluded TUI leaf belongs only to Squad. Native release
+policy and version helpers own product/tag identities. Notes, commit types and recency windows are not evidence.
 
 For each affected product, the earliest publication whose tag contains all of
 that issue's closing merge commits is the canonical `Released in` entry. Every

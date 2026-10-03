@@ -123,6 +123,17 @@ function componentMap() {
 
 const within = (root, path) => root === '.' || path === root || path.startsWith(`${root}/`);
 
+/** Released product roots containing a path; CI selectedBy and longest ownership do not replace membership. */
+export function releasedComponentsForPath(path, map = componentMap()) {
+  return map.components.filter(
+    (component) =>
+      component.package &&
+      component.release !== false &&
+      component.owns.some((root) => within(root, path)) &&
+      !component.excludes.some((root) => within(root, path))
+  );
+}
+
 /**
  * Whether a component is released: `release: false` parks it (release-please skips it, and the
  * release pipeline plans and publishes nothing for it). An unknown component is an error.

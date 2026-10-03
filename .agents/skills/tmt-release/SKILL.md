@@ -20,9 +20,14 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
 
 ## Private-leaf attribution
 
-The component map's `releaseConsumers` currently attributes private TUI changes to Squad.
+The component map's `releaseConsumers` attributes private TUI, CLI style and invoke changes to Squad.
 The release workflow's small `release-please-run.mjs` wrapper adds only in-memory consumer paths
 before release-please's splitter and cutoffs; 17.11.2 has no `additional-paths` config option.
+Style and invoke retain CLI attribution; TUI retains its CLI exclusion. Project release evidence
+uses `ci-scope.releasedComponentsForPath` to retain released-root membership alongside leaf consumers.
+The generator requires
+reviewed consumption declarations for all external production workspace links of a declared consumer,
+using its existing Cargo metadata graph, including transitive dependencies.
 Keep its pinned API shape verified by tooling tests loading the release job's isolated install.
 Follow DEVELOPMENT's generator and real-candidate checks before changing this consumption rule
 or upgrading release-please. This does not change publication authorization or private-leaf version ownership.

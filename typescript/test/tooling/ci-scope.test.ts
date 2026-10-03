@@ -23,6 +23,7 @@ import {
   nativeGatePasses,
   ownerOf,
   parseComponentMap,
+  releasedComponentsForPath,
   readChangedCiAreas,
   renderSelectionEvidence,
   runCiScope,
@@ -262,6 +263,23 @@ describe('component map', () => {
     expect(() => isReleased(map, 'nothing')).toThrow('Unknown component nothing.');
   });
 
+  it.each([
+    ['rust/crates/tmt-cli-style', ['cli']],
+    ['rust/crates/tmt-cli-style/src/lib.rs', ['cli']],
+    ['rust/crates/tmt-invoke/src/lib.rs', ['cli']],
+    ['rust/crates/tmt-tui/src/lib.rs', []],
+    ['rust/crates/tmt-tui-other/src/lib.rs', ['cli']],
+    ['extensions/tmt-squad/rust/src/lib.rs', ['squad']],
+    ['extensions/tmt-squad-other/rust/src/lib.rs', ['cli']],
+    ['extensions/tmt-office/src/lib.rs', []],
+    ['extensions/tmt-colab/rust/src/lib.rs', []],
+    ['rust/crates/tmt-test-support/src/lib.rs', []],
+    ['typescript/test/native/squad.test.ts', ['cli']],
+  ])('finds released root membership independently of CI ownership for %s', (file, names) => {
+    expect(releasedComponentsForPath(file, map).map((component) => component.name)).toEqual(names);
+    expect(releasedComponentsForPath(file).map((component) => component.name)).toEqual(names);
+  });
+
   it('matches globs by whole path, with ** across directories and newlines', () => {
     expect(globToRegExp('rust/**').test('rust/crates/tmt-core/src/lib.rs')).toBe(true);
     expect(globToRegExp('rust/**').test('rustic/lib.rs')).toBe(false);
@@ -359,6 +377,8 @@ describe('component map', () => {
     [['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'new-owner/file.ts'], 'full'],
     [['extensions/tmt-squad-other/file.rs'], 'full'],
     [['rust/crates/tmt-core/src/lib.rs'], 'full'],
+    [['rust/crates/tmt-cli-style/src/lib.rs'], 'full'],
+    [['rust/crates/tmt-invoke/src/lib.rs'], 'full'],
     [['extensions/tmt-office/rust/tmt-office/src/main.rs'], 'full'],
     [['ARCHITECTURE.md', 'DEVELOPMENT.md'], 'none'],
     [['extensions/tmt-office/typescript/apps/office/src/main.tsx'], 'none'],
