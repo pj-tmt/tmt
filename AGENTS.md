@@ -12,47 +12,45 @@ discrepancy within scope before relying on it; do not invent a convention.
 
 ## Context and evidence budget
 
-- Reuse completely read, unchanged guidance within a task unless a higher-priority
-  instruction requires rereading. Record paths, revision and completed reads at
-  handoff; verify provenance and changes before reuse. Reread when uncertain.
-- Locate relevant source and reference sections first. Read required instructions
-  completely, using bounded chunks to avoid truncation and repeated loading.
-- Keep bulk inventories and logs in artifacts. Request concise findings with
-  actionable risks and evidence locations; inspect original excerpts as needed.
-  Verify published text with equality or a focused diff against its source.
-- Keep handoffs to decisions, unresolved risks and evidence. While awaiting a
-  gate, research only the next dependencies and decisions, not a full new feature.
+- Read required instructions completely once per task, in bounded chunks. Reread
+  them only when they may have changed or you are unsure.
+- Locate the relevant source and guide sections before reading broadly. Keep bulk
+  inventories and logs in files or artifacts, and verify published text with an
+  equality check or a focused diff against its source.
+- Hand off decisions, unresolved risks and evidence locations, not transcripts.
+  While waiting on a gate, prepare only the next step.
 
-These limits reduce repeated input, not required primary review or verification.
+These limits reduce repeated input; they never replace required review or verification.
 
 ## Architecture ownership and primary review
 
-The primary agent owns the architectural model, design tradeoffs, decomposition,
-integration, and final review. Delegation transfers implementation work, not
-accountability. Before accepting delegated work, the primary must personally
-read every changed file's diff and surrounding implementation, relevant callers,
-contracts, and tests. Assess dependency direction, module responsibility, reuse,
-compatibility, state/failure behavior, readability, and test validity—not only
-whether the ticket or CI is green. Apply the same gate to primary-authored work;
-an independent reviewer is supplementary, not a replacement.
+The owner splits the work into squads; the pinned team issue (#606) records each
+squad's lead, owned paths and contracts, and how squads communicate and merge.
+The core lead owns the architecture: core paths and contracts, the seams between
+squads, and the product's guiding principles. Within its owned paths and
+contracts, a squad lead decides on its own, including architecture and design
+choices, staffing within the recorded limits, and alpha releases of its
+components. Stable releases, breaking changes and any other publishing
+authorization stay with the owner.
+Bring only decisions that change core paths, core contracts or a seam between
+squads to the core lead.
 
-When the owner splits the work into squads, the squad structure is recorded in
-the pinned team issue (#606). Each squad lead is the primary reviewer for pull
-requests confined to the paths its squad owns, with the same obligations as
-above. A change to shared paths needs review from the lead of every squad it
-affects: contracts, `.github/`, `AGENTS.md`, guide index sections, workspace
+A squad lead is the primary reviewer for pull requests confined to its squad's
+paths. Members implement; the reviewing lead keeps the design and stays
+accountable. Before accepting any work, including its own, the primary reviewer
+personally reads every changed file's diff and surrounding implementation,
+relevant callers, contracts, and tests. Assess dependency direction, module
+responsibility, reuse, compatibility, state/failure behavior, readability, and
+test validity—not only whether the ticket or CI is green. An independent
+reviewer is supplementary, not a replacement.
+
+A change to shared paths needs review from the lead of every squad it affects:
+contracts, `.github/`, `AGENTS.md`, guide index sections, workspace
 configuration and lockfiles, and any change to another squad's paths. A squad
 does not edit another squad's paths directly; it files an issue for that squad,
 unless the owner gave it a cross-cutting mandate recorded in #606, such as the
 refactor squad fixing what it finds. Such a change still needs the owning
 squad lead's review.
-
-Within its owned paths and contracts, a squad lead decides on its own, including
-architecture and design choices, staffing within the recorded limits, and
-releases of its components. The architecture owner (the core lead) keeps
-decisions that change core paths or core contracts, seams between squads, and
-the product's guiding principles; bring only those decisions to it. Status and
-progress reports go to the project manager rather than the architecture owner.
 
 Record the reviewed commit, affected boundaries, findings and their disposition,
 and verification evidence in the PR and GitHub issue. If there are no findings,
@@ -71,11 +69,11 @@ Before editing code or guidance, inspect relevant architecture, helpers, fixture
 and conventions for reusable patterns, duplicate responsibility and conflicts.
 Keep inspection proportional; record material findings and resolve them within scope.
 
-Delegate only when the saved work or independent coverage exceeds coordination
-and review cost. Prefer `gpt-5.6-luna` for bounded scans and simple, verifiable work;
-keep tightly coupled design and integration with the primary. Assign explicit
-ownership and verification, prevent overlapping edits, and keep read-only audits
-free of mutations. Delegation never expands authorization.
+Give each member one bounded topic with an explicit owner, done condition and
+verification; prevent overlapping edits and keep read-only audits free of
+mutations. Keep decisions that span topics with the reviewing lead. Model choice
+is a staffing decision recorded with the team, not a repository rule.
+Delegation never expands authorization.
 
 ## Repository content language
 
@@ -121,8 +119,10 @@ ask when resolution would require an undecided product or authorization choice.
   synchronized in GitHub. Do not mark work done before its delivery state supports it.
 - Keep the issue's Project fields, tracker parentage and Status current as defined in
   [Project tracking](DEVELOPMENT.md#project-tracking).
-- Every Codex-created commit includes `Co-authored-by: Codex <codex@openai.com>`.
-  Preserve the user's authorship and signing configuration.
+- Every agent-created commit ends with its provider's co-author trailer, such as
+  `Co-authored-by: Codex <codex@openai.com>` or
+  `Co-Authored-By: Claude <noreply@anthropic.com>`, plus any session trailer its
+  harness requires. Preserve the user's authorship and signing configuration.
 - Merge only when authorized and all required CI has passed on the reviewed head.
   Never bypass protection or lower checks to deliver. Publishing, releases and
   destructive operations require their own applicable authorization.
