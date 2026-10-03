@@ -163,9 +163,8 @@ function run(
       tag: options.tag ?? 'v5.0.0-alpha.12',
       source,
       repository: 'wkh237/tmt',
-      target: nativeTarget(),
       root: path.join(root, 'work'),
-      target: options.target,
+      target: options.target ?? nativeTarget(),
       inspectArchitecture: (executable, target, settings) => {
         assertMacOsArchitecture(executable, target, settings, (_command, args) => {
           if (args[0] === '--find') return '/selected/lipo';
@@ -626,6 +625,56 @@ describe('renderSmokeSummary', () => {
 });
 
 describe('public standalone driver smoke', () => {
+  it('inspects the upgraded public CLI and driver archive before Intel approval', async () => {
+    const target = 'x86_64-apple-darwin';
+    const fixtureRoot = mkdtempSync(path.join(base, 'driver-intel-oracle-'));
+    const archiveName = `tmt-driver-herdr-${target}.tar.gz`;
+    const artifact = await createArtifact(
+      { root: fixtureRoot },
+      '0.1.0-alpha.0',
+      new Uint8Array(),
+      'driver-herdr',
+      undefined,
+      {},
+      archiveName
+    );
+    // This orchestration fixture's byte oracle supplies architecture; real lipo has its own tests.
+    const manifest = JSON.parse(readFileSync(artifact.manifest, 'utf8'));
+    manifest.artifacts[archiveName].target_triples = [target];
+    writeFileSync(artifact.manifest, JSON.stringify(manifest));
+    const smoke = (architectures: string[]) =>
+      run(
+        {
+          driverExecutable: path.resolve('../rust/target/debug/tmt'),
+        },
+        {
+          product: 'driver-herdr',
+          tag: 'tmt-driver-herdr-v0.1.0-alpha.0',
+          target,
+          architectures,
+          download: async (url) =>
+            readFileSync(
+              url.endsWith('/dist-manifest.json') ? artifact.manifest : artifact.archive
+            ),
+        }
+      );
+    const control = smoke(['x86_64', 'x86_64', 'x86_64']);
+    expect(failed(await control.results)).toEqual([]);
+    expect(control.inspected.map((file) => path.basename(file))).toEqual([
+      'tmt',
+      'tmt',
+      'tmt-driver-herdr',
+    ]);
+    for (const [architectures, check] of [
+      [['x86_64', 'arm64'], 'current public CLI'],
+      [['x86_64', 'x86_64', 'arm64'], 'driver public archive and approval'],
+    ] as const) {
+      const wrong = smoke([...architectures]);
+      expect((await wrong.results).at(-1)).toMatchObject({ check, ok: false });
+      expect((await wrong.results).at(-1)?.reason).toContain('exactly x86_64');
+    }
+  });
+
   it('verifies the public archive and durable approval through the current CLI, reusing classified retry', async () => {
     const fixtureRoot = mkdtempSync(path.join(base, 'driver-archive-'));
     const archiveName = `tmt-driver-herdr-${nativeTarget()}.tar.gz`;

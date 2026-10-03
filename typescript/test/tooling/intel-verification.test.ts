@@ -267,6 +267,14 @@ describe('Intel workflow coverage', () => {
     );
     expect(publicSmoke).toContain('scripts/run-native-verification.sh "$TARGET"');
     expect(publicSmoke).toContain('warm-xcrun');
+    const driverSetup = publicSmoke
+      .split('    - name: Set up driver archive verification tooling')[1]
+      .split('    - name: Install driver archive verification dependencies')[0];
+    expect(driverSetup).toContain("if: inputs.product == 'driver-herdr'");
+    expect(driverSetup).toContain('uses: ./.github/actions/setup-tooling');
+    expect(driverSetup).toContain(
+      "architecture: ${{ inputs.target == 'x86_64-apple-darwin' && 'x64' || '' }}"
+    );
     for (const name of ['native-release-smoke.yml', 'native-release-smoke-retry.yml']) {
       expect(read(`.github/workflows/${name}`), name).not.toContain('macos-15-intel');
       expect(read(`.github/workflows/${name}`), name).toContain(

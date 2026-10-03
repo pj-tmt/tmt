@@ -333,6 +333,7 @@ export async function smokeRelease({
             { wait, now, retry }
           )
         );
+        inspect(binary);
         if (
           resolved(report.executable) !== resolved(binary) ||
           report.pathWarning ||
@@ -367,6 +368,7 @@ export async function smokeRelease({
         throw new Error(`Driver manifest version is ${metadata.version}, not ${version}`);
       await withNativeArtifact(archive, metadata, async (extracted) => {
         const executable = path.join(extracted, 'tmt-driver-herdr');
+        inspect(executable);
         const report = JSON.parse(tmt(['driver', 'install', executable, '--yes', '--json']));
         if (report.approved?.name !== 'herdr' || report.approved?.version !== version)
           throw new Error('Driver approval did not record the published capabilities');
