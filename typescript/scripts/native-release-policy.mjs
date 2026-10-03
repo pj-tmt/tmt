@@ -40,7 +40,15 @@ export function isProductReleased(map, product) {
 export function releasePolicy(product) {
   const policy = PRODUCTS[product];
   if (!policy) throw new Error(`Unknown native product: ${product}`);
-  return { product, ...policy };
+  // Publication markers are immutable wire data; proof policy is not a marker field.
+  const { tagPrefix, prerelease, latest } = policy;
+  return { product, tagPrefix, prerelease, latest };
+}
+
+/** The exact CLI source covered by the upgrade proof; other products prove only their previous release. */
+export function upgradeSupportFloor(product) {
+  releasePolicy(product);
+  return PRODUCTS[product].upgradeFloor ?? null;
 }
 
 /** The archive name prefix of a product's bundle: `tmt-cli-<target>.tar.gz`, `tmt-office-...`. */

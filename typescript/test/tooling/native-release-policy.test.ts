@@ -12,6 +12,7 @@ const {
   releaseFlags,
   releasePolicy,
   isProductReleased,
+  upgradeSupportFloor,
 } = (await import(
   pathToFileURL(path.join(repositoryRoot, 'scripts', 'native-release-policy.mjs')).href
 )) as {
@@ -22,12 +23,12 @@ const {
   releasePolicy: (product: string) => {
     latest: boolean;
     prerelease: boolean;
-    upgradeFloor?: string;
   };
   isProductReleased: (
     map: { components: { name: string; release?: boolean }[] },
     product: string
   ) => boolean;
+  upgradeSupportFloor: (product: string) => string | null;
 };
 
 describe('native release publication policy', () => {
@@ -75,9 +76,16 @@ describe('native release publication policy', () => {
   );
 
   it('declares a single CLI upgrade support floor while extensions retain last-published proof', () => {
-    expect(releasePolicy('cli').upgradeFloor).toBe('v5.0.0-alpha.36');
+    expect(upgradeSupportFloor('cli')).toBe('v5.0.0-alpha.36');
+    expect(releasePolicy('cli')).toEqual({
+      product: 'cli',
+      tagPrefix: 'v',
+      prerelease: false,
+      latest: true,
+    });
     for (const product of ['office', 'squad', 'driver-herdr'])
-      expect(releasePolicy(product).upgradeFloor).toBeUndefined();
+      expect(upgradeSupportFloor(product)).toBeNull();
+    expect(() => upgradeSupportFloor('unknown')).toThrow('Unknown native product');
   });
 
   it('makes only the CLI the latest release', () => {

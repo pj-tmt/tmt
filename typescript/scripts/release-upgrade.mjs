@@ -32,7 +32,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { runPackedCommand } from './packed-command.mjs';
-import { archivePrefix, releasePolicy } from './native-release-policy.mjs';
+import { archivePrefix, upgradeSupportFloor } from './native-release-policy.mjs';
 import { ghApi } from './release-draft-assets.mjs';
 import { compareVersions, publishedReleases, versionOfTag } from './release-versions.mjs';
 
@@ -61,7 +61,7 @@ export function selectPrevious({ releases, product, candidateTag }) {
 
 /** Historical candidates at/below the floor retain their original single-source proof. */
 export function selectSupportFloor({ releases, product, candidateTag }) {
-  const floor = releasePolicy(product).upgradeFloor;
+  const floor = upgradeSupportFloor(product);
   if (
     !floor ||
     compareVersions(versionOfTag(candidateTag, product), versionOfTag(floor, product)) <= 0
@@ -192,7 +192,7 @@ function stagedUpgrade({ directory, product, tag, target }) {
   if (plan.product !== product || plan.tag !== tag) {
     throw new Error(`The staged assets are for ${plan.tag}, not for ${tag}.`);
   }
-  const floorTag = releasePolicy(product).upgradeFloor;
+  const floorTag = upgradeSupportFloor(product);
   if (
     floorTag &&
     compareVersions(versionOfTag(tag, product), versionOfTag(floorTag, product)) > 0
@@ -416,7 +416,7 @@ export function proveArchiveAcceptance({
         'Expected exactly one passing executed real-archive upgrade acceptance test.'
       );
     report(
-      `Real-archive adapter acceptance: passed (${source === before ? previous : releasePolicy(product).upgradeFloor} -> ${tag}, ${target}); acquisition injected, real old/new binaries executed; ${Math.ceil((performance.now() - started) / 1000)} seconds.`
+      `Real-archive adapter acceptance: passed (${source === before ? previous : upgradeSupportFloor(product)} -> ${tag}, ${target}); acquisition injected, real old/new binaries executed; ${Math.ceil((performance.now() - started) / 1000)} seconds.`
     );
   }
   return { outcome: 'proved' };
