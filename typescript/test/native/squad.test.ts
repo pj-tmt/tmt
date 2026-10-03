@@ -1527,7 +1527,7 @@ describe('squad extension', () => {
       expect(observe(sandbox)).toEqual(after);
       const text = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
       expect(text.stdout).toContain('squad product · no lead · layout team');
-      expect(text.stdout).toContain('hint: tmt squad lead <name> --squad product');
+      expect(text.stdout).not.toContain('hint: tmt squad lead');
       const refused = await runCli(sandbox, ['sq', 'annotate', 'Sol', 'Review this']);
       expect(refused.status).toBe(1);
       expect(refused.stderr).toContain(

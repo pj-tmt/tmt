@@ -340,14 +340,6 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
         )
     };
     let _ = writeln!(output, "{}\n", terminal.paint(Token::Dim, &escape(&header)));
-    if document.get("tab").is_none() && squad["lead"].is_null() {
-        let _ = tmt_cli_style::message::hint(
-            output,
-            terminal,
-            &format!("tmt squad lead <name> --squad {}", cell(&squad["name"])),
-        );
-        let _ = writeln!(output);
-    }
     if let Some(stale) = crate::staleness::label(&squad["notesStaleness"]) {
         let _ = writeln!(
             output,
@@ -1122,7 +1114,6 @@ columns = [{ name = "member", width = "20%" },
         assert_eq!(
             text(&product, Terminal::PLAIN),
             "squad product · no lead · layout crew\n\n\
-             hint: tmt squad lead <name> --squad product\n\n\
              MEMBERS 1\n\
              \x20 ○  zed  working  cache room reads\n"
         );
@@ -1134,12 +1125,10 @@ columns = [{ name = "member", width = "20%" },
         assert_eq!(
             rendered,
             "squad product · no lead · layout crew\n\n\
-             hint: tmt squad lead <name> --squad product\n\n\
              MEMBERS 1\n\
              \x20 ○  zed  working  cache room reads\n\
              \n\
              squad reviews · no lead · layout crew\n\n\
-             hint: tmt squad lead <name> --squad reviews\n\n\
              MEMBERS 1\n\
              \x20 ○  amy  review\n\
              \n◆ needs to know who you are: tmt squad me <name>\n"
