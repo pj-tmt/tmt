@@ -132,6 +132,9 @@ describe('conventional cut notes', () => {
 describe('historical shadow comparison (fixture-only release PR parents)', () => {
   it.each(history.cases)('reproduces $tag at the immutable historical cut', async (fixture) => {
     const componentMap = parseComponentMap(JSON.stringify(fixture.map));
+    expect(nextAlphaVersion(versionOfTag(fixture.previousTag, fixture.product))).toBe(
+      versionOfTag(fixture.tag, fixture.product)
+    );
     const result = await renderCutNotes({
       commits: attributeCutCommits(fixture.commits, componentMap, fixture.product),
       repository: history.provenance.repository,
