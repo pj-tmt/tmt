@@ -4969,7 +4969,8 @@ permitted/refused read scenario.
 ## Colab extension
 
 Colab (`extensions/tmt-colab/`: `tmt-colab`, `tmt-colab-model`, `@tmt/colab-client`,
-`@tmt/colab-app`) is a private, parked extension (`release: false`, Cargo `dist = false`).
+`@tmt/colab-app`) is an extension whose release is prepared and not yet activated
+(`release: false`, Cargo `dist = false`).
 [colab-v1](extensions/tmt-colab/contracts/colab-v1.md) is the normative contract; the
 [tmt-colab skill](.agents/skills/tmt-colab/SKILL.md) holds module knowledge and procedures.
 
