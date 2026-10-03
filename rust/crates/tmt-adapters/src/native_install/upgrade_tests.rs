@@ -505,6 +505,7 @@ fn consent_selected_versions_upgrade_products_without_creating_pins() {
                 };
                 Ok(bytes.into())
             },
+            crate::native_install::test_support::install_downloaded,
         )
         .unwrap();
         assert!(report.installation.changed);

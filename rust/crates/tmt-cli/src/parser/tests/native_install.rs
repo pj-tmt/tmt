@@ -130,3 +130,57 @@ fn internal_extension_upgrade_is_hidden_and_rejects_ambiguous_modes() {
             .is_none()
     );
 }
+
+#[test]
+fn versioned_installer_handoff_is_disjoint_from_offline_arguments() {
+    for probe in [false, true] {
+        let mut args = vec!["__native-install", "--handoff-version", "1", "--json"];
+        if probe {
+            args.push("--probe");
+        }
+        assert_eq!(
+            parsed(&args).invocation,
+            Invocation::NativeInstallHandoff { probe }
+        );
+    }
+    for args in [
+        vec![
+            "__native-install",
+            "--handoff-version",
+            "2",
+            "--probe",
+            "--json",
+        ],
+        vec!["__native-install", "--probe", "--json"],
+        vec![
+            "__native-install",
+            "--handoff-version",
+            "1",
+            "--archive",
+            "archive.tar.gz",
+        ],
+        vec!["__native-install", "--handoff-version", "1", "--pin"],
+        vec![
+            "__native-install",
+            "--handoff-version",
+            "1",
+            "--product",
+            "office",
+        ],
+    ] {
+        assert_eq!(parse_error(&args).code, "USAGE_ERROR");
+    }
+}
+
+#[test]
+fn managed_skill_refresh_is_explicit() {
+    for (args, managed) in [
+        (vec!["__native-refresh-skills", "--json"], false),
+        (vec!["__native-refresh-skills", "--managed", "--json"], true),
+    ] {
+        assert_eq!(
+            parsed(&args).invocation,
+            Invocation::NativeRefreshSkills { managed }
+        );
+    }
+}

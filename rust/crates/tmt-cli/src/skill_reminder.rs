@@ -64,7 +64,8 @@ pub fn eligible_for_drift(parsed: &Parsed) -> bool {
                 | Invocation::ProviderHook { .. }
                 | Invocation::Upgrade { .. }
                 | Invocation::NativeInstall { .. }
-                | Invocation::NativeRefreshSkills
+                | Invocation::NativeInstallHandoff { .. }
+                | Invocation::NativeRefreshSkills { .. }
                 | Invocation::NativeUpgradeExtensions { .. }
                 | Invocation::Office { .. }
                 | Invocation::Identity(_)
@@ -96,7 +97,8 @@ pub fn eligible_for_driver_hint(parsed: &Parsed) -> bool {
                 | Invocation::Driver(_)
                 | Invocation::ProviderHook { .. }
                 | Invocation::NativeInstall { .. }
-                | Invocation::NativeRefreshSkills
+                | Invocation::NativeInstallHandoff { .. }
+                | Invocation::NativeRefreshSkills { .. }
                 | Invocation::NativeUpgradeExtensions { .. }
         )
 }
@@ -340,7 +342,7 @@ mod tests {
                 unpin: false,
                 yes: false,
             },
-            Invocation::NativeRefreshSkills,
+            Invocation::NativeRefreshSkills { managed: false },
             Invocation::NativeUpgradeExtensions { plan: true },
             Invocation::NativeInstall {
                 product: tmt_core::native_install::Product::Cli,
@@ -384,7 +386,7 @@ mod tests {
             Invocation::Version,
             Invocation::Help(Vec::new()),
             Invocation::Complete(Vec::new()),
-            Invocation::NativeRefreshSkills,
+            Invocation::NativeRefreshSkills { managed: false },
         ] {
             parsed.invocation = invocation;
             assert!(!eligible_for_driver_hint(&parsed));

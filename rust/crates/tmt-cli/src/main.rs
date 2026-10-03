@@ -313,14 +313,17 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::NativeUpgradeExtensions { plan } => {
             return extension_install_command::upgrade_all::execute(plan, parsed.mode);
         }
-        Invocation::NativeRefreshSkills => {
-            return skill_refresh_command::execute(parsed.mode);
+        Invocation::NativeRefreshSkills { managed } => {
+            return skill_refresh_command::execute(managed, parsed.mode);
         }
         Invocation::Uninstall { purge, yes, prefix } => {
             return uninstall_command::execute(purge, yes, prefix.as_deref(), parsed.mode);
         }
         Invocation::Office { prefix, operation } => {
             return office_facade::execute(prefix, operation, parsed.mode);
+        }
+        Invocation::NativeInstallHandoff { probe } => {
+            return native_install_command::handoff(probe, parsed.mode);
         }
         Invocation::NativeInstall {
             product,

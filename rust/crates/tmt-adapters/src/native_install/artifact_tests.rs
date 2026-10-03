@@ -1074,3 +1074,32 @@ fn installing_over_an_alpha_6_receipt_under_the_pre_rename_repository_succeeds()
     );
     assert!(install_fixture(&again, &prefix, super::Product::Cli).is_err());
 }
+
+#[test]
+fn transport_does_not_apply_the_running_installers_companion_policy() {
+    let root = "tmux-team-1.2.3-aarch64-apple-darwin";
+    let mut entries = valid_entries(root);
+    entries.push(Entry::File {
+        path: format!("{root}/tmt-driver-herdr"),
+        bytes: b"candidate-owned non-executable asset".to_vec(),
+        mode: 0o644,
+    });
+    let files = FILES
+        .into_iter()
+        .chain(["tmt-driver-herdr"])
+        .collect::<Vec<_>>();
+    let fixture = product_fixture(entries, "tmt-cli", &files);
+    let manifest = fs::read(&fixture.manifest).unwrap();
+    let archive = fs::read(&fixture.archive).unwrap();
+    let candidate =
+        artifact::acquire_candidate(&manifest, &fixture.name, &archive, TARGET).unwrap();
+    assert!(candidate.files.contains_key("tmt-driver-herdr"));
+    assert!(!candidate.executable_files.contains("tmt-driver-herdr"));
+    // The current installer still requires its declared companion to execute.
+    assert!(
+        artifact::acquire(&fixture.manifest, &fixture.archive, TARGET)
+            .unwrap_err()
+            .to_string()
+            .contains("safe permissions")
+    );
+}
