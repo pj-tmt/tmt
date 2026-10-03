@@ -4755,7 +4755,12 @@ follow the channel contract's device enrollment, receipt-proof and fingerprint r
 encryption profile are specified. Core never owns a listener or remote state. Core recognizes Remote as an
 official installation product; archive publication and cargo-dist activation
 remain separate gates. Its private component owner excludes
-remote versions from real-product releases; cargo-dist excludes this pilot binary.
+remote versions from real-product releases. Cargo-dist packages `tmt-remote` as an
+independent native archive containing the executable, `LICENSE`,
+`NATIVE-INSTALL.md` and `THIRD-PARTY-NOTICES.txt`, with no companions or skills.
+The pairing page, device SDK and fingerprint wordlist are embedded in the binary.
+Archive publication remains gated separately from packaging; enabling cargo-dist
+does not publish a release or start the foreground door.
 For shell ownership, see the [browser add-on shell](#browser-add-on-shell).
 
 The private [`remote-client`](extensions/tmt-remote/typescript/remote-client/README.md)

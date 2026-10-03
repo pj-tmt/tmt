@@ -8,9 +8,15 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 
-# Local pilot only; official product registration is a later owner-approved slice.
+# Packaged independently under tmt-remote-v<version>; publication has separate gates.
 [package.metadata.dist]
-dist = false
+dist = true
+# A package list replaces the workspace list, so it repeats the shared files.
+include = [
+    "../../../../LICENSE",
+    "../../../../rust/archive/NATIVE-INSTALL.md",
+    "../../../../rust/target/native-notices/THIRD-PARTY-NOTICES.txt",
+]
 
 [dependencies]
 ed25519-dalek.workspace = true
