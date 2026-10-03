@@ -259,8 +259,9 @@ gates, the markers and the procedures; this section owns who may publish what.
   consume the report owner's infrastructure outcome and explicitly dispatch the smoke-retry
   workflow (completion events from token-dispatched native runs are suppressed). Its planner
   verifies the main source run, attempt and matching tag/target evidence through REST.
-  Keep both host jobs on the shared `public-install-smoke` action, including architecture
-  wrappers, and pin source/retry target and runner parity in fixtures.
+  Keep both host jobs on the shared `public-install-smoke` action, including target-specific
+  Node, macOS warm-up and complete process wrappers; both Intel rows use macos-15
+  with x64 Node and Rosetta. Pin source/retry target and runner parity in fixtures.
   Keep its 60-minute reset bound and one acquisition attempt. Complete original and retry evidence is required before the issue owner
   comments with both runs and closes an infrastructure issue. Neither a failed original
   job nor a failed retry becomes green, and real failure issues stay open. Keep the

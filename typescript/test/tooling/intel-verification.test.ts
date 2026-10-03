@@ -124,6 +124,69 @@ describe('target-specific verification process tree', () => {
 });
 
 describe('Intel workflow coverage', () => {
+  it.each(['false', 'true'])(
+    'retains upgrade and adapter arguments with current tooling=%s',
+    (current) => {
+      const workflow = read('.github/workflows/native-release-upgrade.yml');
+      const root = mkdtempSync(path.join(os.tmpdir(), 'intel-upgrade-arguments-'));
+      try {
+        const record = path.join(root, 'arguments');
+        writeExecutable(
+          path.join(root, 'node'),
+          '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$RECORD_FILE"\n'
+        );
+        for (const [name, mode] of [
+          ['Upgrade from the last published release', 'prove'],
+          ['Prove the real-archive CLI upgrade adapter', 'acceptance'],
+        ]) {
+          const step = workflow.split(`      - name: ${name}\n`)[1].split('\n      - name:')[0];
+          const body = step.split('        run: |\n')[1].replace(/^          /gm, '');
+          const script = path.join(root, 'step.bash');
+          writeFileSync(script, body);
+          runPackedCommand('/bin/bash', ['-euo', 'pipefail', script], {
+            cwd: repository,
+            env: {
+              PATH: `${root}:/usr/bin:/bin`,
+              RECORD_FILE: record,
+              PRODUCT: 'cli',
+              RELEASE_TAG: 'v5.0.0-alpha.47',
+              TARGET: 'aarch64-apple-darwin',
+              CURRENT_TOOLING: current,
+              GITHUB_WORKSPACE: root,
+              RUNNER_TEMP: root,
+              GITHUB_STEP_SUMMARY: path.join(root, 'summary'),
+            },
+            expectedStatus: 0,
+            timeoutMs: 5000,
+          });
+          expect(readFileSync(record, 'utf8').trim().split('\n')).toEqual([
+            'typescript/scripts/release-upgrade.mjs',
+            mode,
+            '--product',
+            'cli',
+            '--tag',
+            'v5.0.0-alpha.47',
+            '--target',
+            'aarch64-apple-darwin',
+            '--directory',
+            path.join(root, 'upgrade'),
+            ...(mode === 'prove'
+              ? [
+                  '--skill',
+                  current === 'true'
+                    ? path.join(root, 'release-source/skills/tmux-team/SKILL.md')
+                    : 'skills/tmux-team/SKILL.md',
+                ]
+              : []),
+            ...(current === 'true' ? ['--source-root', path.join(root, 'release-source')] : []),
+          ]);
+        }
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  );
+
   it('summarizes only the existing upgrade infrastructure class while retaining a failed job', () => {
     const workflow = read('.github/workflows/native-intel.yml');
     const summaryStep = workflow
@@ -186,12 +249,7 @@ describe('Intel workflow coverage', () => {
   });
 
   it('moves all ordinary Intel rows to arm64 with an x64 Node and a whole-step execution preference', () => {
-    for (const name of [
-      'ci.yml',
-      'native-release-bundle.yml',
-      'native-release-upgrade.yml',
-      'native-release-smoke.yml',
-    ]) {
+    for (const name of ['ci.yml', 'native-release-bundle.yml', 'native-release-upgrade.yml']) {
       const workflow = read(`.github/workflows/${name}`);
       expect(workflow, name).not.toContain('macos-15-intel');
       expect(workflow, name).toMatch(
@@ -203,6 +261,22 @@ describe('Intel workflow coverage', () => {
     expect(read('.github/actions/setup-tooling/action.yml')).toContain(
       'architecture: ${{ inputs.architecture }}'
     );
+    const publicSmoke = read('.github/actions/public-install-smoke/action.yml');
+    expect(publicSmoke).toContain(
+      "architecture: ${{ inputs.target == 'x86_64-apple-darwin' && 'x64' || '' }}"
+    );
+    expect(publicSmoke).toContain('scripts/run-native-verification.sh "$TARGET"');
+    expect(publicSmoke).toContain('warm-xcrun');
+    for (const name of ['native-release-smoke.yml', 'native-release-smoke-retry.yml']) {
+      expect(read(`.github/workflows/${name}`), name).not.toContain('macos-15-intel');
+      expect(read(`.github/workflows/${name}`), name).toContain(
+        'uses: ./.github/actions/public-install-smoke'
+      );
+    }
+    const upgrade = read('.github/workflows/native-release-upgrade.yml');
+    const acceptance = upgrade.split('      - name: Prove the real-archive CLI upgrade adapter')[1];
+    expect(acceptance).toContain('scripts/run-native-verification.sh "$TARGET"');
+    expect(acceptance).toContain('release-upgrade.mjs acceptance');
   });
 
   it('fails closed for candidate checkouts without Rosetta tooling and names the owner remedy', () => {

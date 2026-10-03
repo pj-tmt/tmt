@@ -1904,11 +1904,11 @@ For Intel workflow/tooling edits, run the focused structural, process-wrapper,
 architecture and public-install fixtures before the full retained tooling suite:
 
 ```sh
-(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/intel-verification.test.ts test/tooling/native-runtime-proof.test.ts test/tooling/verify-public-install.test.ts test/tooling/xcrun-warmup.test.ts test/tooling/release-workflow.test.ts test/tooling/ci-scope.test.ts)
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/intel-verification.test.ts test/tooling/native-runtime-proof.test.ts test/tooling/verify-public-install.test.ts test/tooling/public-install-retry.test.ts test/tooling/xcrun-warmup.test.ts test/tooling/release-workflow.test.ts test/tooling/ci-scope.test.ts)
 (cd typescript && corepack pnpm check:tooling)
 sh -n scripts/run-native-verification.sh
 shellcheck scripts/run-native-verification.sh
-actionlint .github/workflows/ci.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-upgrade.yml .github/workflows/native-release-smoke.yml .github/workflows/native-intel.yml
+actionlint .github/workflows/ci.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-upgrade.yml .github/workflows/native-release-smoke.yml .github/workflows/native-release-smoke-retry.yml .github/workflows/native-intel.yml
 ```
 
 Capture job and step durations from REST for the reviewed PR head and compare
@@ -2161,7 +2161,10 @@ One Linux job waits until the last selected reset plus one second, bounded at 60
 each selected target then repeats the public install on its matching host with `--retry`,
 which allows one acquisition attempt without another rate-limit retry. Source and retry
 install jobs share `.github/actions/public-install-smoke`: it owns the tag data
-checkout, Node setup and verifier invocation, including any host architecture wrapper.
+checkout, target-specific Node setup, macOS toolchain warm-up and complete verifier
+process wrapper. Both Intel rows use `macos-15` with x64 Node and `arch -x86_64`,
+including their installers and upgrade children; installed bytes still require
+exact x86_64 inspection under the runtime acceptance policy above.
 For Herdr, that shared action also installs archive-verification dependencies.
 Only its `current public CLI` classified acquisition failure is retryable; standalone
 archive HTTP failures and mixed failures retain their original failure conclusions.
