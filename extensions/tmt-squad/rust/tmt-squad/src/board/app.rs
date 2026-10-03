@@ -1127,7 +1127,7 @@ impl App {
     }
 
     fn move_note(&self, step: Step) {
-        let (Some(view), Some(key)) = (&self.view, &self.current) else {
+        let (Some(view), Some(key)) = (&self.view, self.shown_tab()) else {
             return;
         };
         let Notes::Text(text) = &view.notes else {
@@ -1140,7 +1140,7 @@ impl App {
             .map_or(&[][..], |notes| notes.sources.as_slice());
         self.note_cursors
             .borrow_mut()
-            .entry(key.clone())
+            .entry(key.to_owned())
             .or_default()
             .move_by(text, sources, step, self.scrolls.page_lines(Pane::Notes));
     }
@@ -1503,11 +1503,11 @@ impl App {
             {
                 self.scrolls.scroll(pane, Step::Lines(lines));
                 if pane == Pane::Notes
-                    && let Some(key) = &self.current
+                    && let Some(key) = self.shown_tab()
                 {
                     self.note_cursors
                         .borrow_mut()
-                        .entry(key.clone())
+                        .entry(key.to_owned())
                         .or_default()
                         .follow = false;
                 }
@@ -1556,14 +1556,14 @@ impl App {
         }
         self.focus_at(event.column, event.row);
         if self.focused_pane() == Some(Pane::Notes) {
-            if let (Some(key), Some(view)) = (&self.current, &self.view)
+            if let (Some(key), Some(view)) = (self.shown_tab(), &self.view)
                 && let Notes::Text(text) = &view.notes
                 && let Some((_, visual)) = self.note_hits.borrow().iter().find(|(area, _)| {
                     area.contains(ratatui::layout::Position::new(event.column, event.row))
                 })
             {
                 let mut cursors = self.note_cursors.borrow_mut();
-                let cursor = cursors.entry(key.clone()).or_default();
+                let cursor = cursors.entry(key.to_owned()).or_default();
                 if let Some(notes) = &view.derived.borrow().notes {
                     cursor.select_visual(text, &notes.sources, *visual);
                     cursor.follow = true;

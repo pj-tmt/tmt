@@ -1115,9 +1115,9 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
     let (lines, sources) = (&notes.lines, &notes.sources);
     let mut selected = None;
     let mut marked = std::collections::BTreeSet::new();
-    if let (Some(key), Notes::Text(text)) = (&app.current, &view.notes) {
+    if let (Some(key), Notes::Text(text)) = (app.shown_tab(), &view.notes) {
         let mut cursors = app.note_cursors.borrow_mut();
-        let cursor = cursors.entry(key.clone()).or_default();
+        let cursor = cursors.entry(key.to_owned()).or_default();
         if rebuilt {
             cursor.reconcile(text);
         }
@@ -4295,6 +4295,11 @@ lines = [
         assert_eq!(app.note_cursors.borrow()["product"].source, 4);
         app.key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
         assert_eq!(app.note_cursors.borrow()["product"].source, 0);
+        app.current = Some("loading".into());
+        draw(&app, 60, 15);
+        app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        draw(&app, 60, 15);
+        assert!(!app.note_cursors.borrow().contains_key("loading"));
     }
 
     #[test]
