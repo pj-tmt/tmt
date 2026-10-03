@@ -10,7 +10,7 @@ pub(crate) fn release_verifier(
 ) -> Option<tmt_adapters::native_install::ReleaseVerifier<'static>> {
     use tmt_core::native_install::Product;
     match product {
-        Product::Cli | Product::Squad | Product::Remote => None,
+        Product::Cli | Product::Squad | Product::Remote | Product::Colab => None,
         Product::Office => Some(&tmt_office_command::verify_release),
     }
 }

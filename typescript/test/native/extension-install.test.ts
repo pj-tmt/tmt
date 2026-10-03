@@ -15,8 +15,8 @@ import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/c
 import { createArtifact, type ArtifactFixture } from '../support/native-artifact.js';
 
 const INSTALL_PROCESS_BUDGET_MS = 15_000;
-// Registration precedes publication. Remove Remote here when infra activates its component.
-const registeredBeforePublication = ['remote'];
+// Registration precedes publication. Remove each entry here when infra activates its component.
+const registeredBeforePublication = ['remote', 'colab'];
 
 describe('tmt extension install surface', () => {
   it('offers every released extension and the explicitly registered publication prerequisites', async () => {
@@ -79,81 +79,85 @@ describe('tmt extension install surface', () => {
     }
   );
 
-  it('installs and upgrades Remote without starting its door or modifying its private state', async () => {
-    await withSandbox(async (sandbox) => {
-      const prefix = path.join(sandbox.root, 'remote prefix');
-      const remoteState = path.join(sandbox.globalDir, 'remote');
-      mkdirSync(remoteState, { recursive: true });
-      writeFileSync(path.join(remoteState, 'machine.key'), 'retained key');
-      writeFileSync(path.join(remoteState, 'remote.db'), 'retained grants');
-      const first = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'remote');
-      const cli = (args: string[]) =>
-        runCli(sandbox, [...args, '--json'], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
-      const install = (artifact: ArtifactFixture, yes: boolean) =>
-        cli([
-          'extension',
-          'install',
-          'remote',
-          '--archive',
-          artifact.archive,
-          '--manifest',
-          artifact.manifest,
-          '--prefix',
-          prefix,
-          ...(yes ? ['--yes'] : []),
-        ]);
-      expectError(await install(first, false), 'EXTENSION_CONSENT_REQUIRED');
-      expect(existsSync(prefix)).toBe(false);
-      const installed = await install(first, true);
-      expect(installed.status, installed.stdout + installed.stderr).toBe(0);
-      expect(parseWholeStdout(installed)).toEqual({
-        extension: 'remote',
-        installed: true,
-        changed: true,
-        version: '0.1.0-alpha.1',
-        executable: path.join(realpathSync(prefix), 'bin/tmt-remote'),
+  it.each(['remote', 'colab'] as const)(
+    'installs and upgrades %s without starting it or modifying its private state',
+    async (name) => {
+      await withSandbox(async (sandbox) => {
+        const prefix = path.join(sandbox.root, `${name} prefix`);
+        const extensionState = path.join(sandbox.globalDir, name);
+        mkdirSync(extensionState, { recursive: true });
+        writeFileSync(path.join(extensionState, 'machine.key'), 'retained key');
+        writeFileSync(path.join(extensionState, `${name}.db`), 'retained grants');
+        const first = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), name);
+        const cli = (args: string[]) =>
+          runCli(sandbox, [...args, '--json'], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
+        const install = (artifact: ArtifactFixture, yes: boolean) =>
+          cli([
+            'extension',
+            'install',
+            name,
+            '--archive',
+            artifact.archive,
+            '--manifest',
+            artifact.manifest,
+            '--prefix',
+            prefix,
+            ...(yes ? ['--yes'] : []),
+          ]);
+        expectError(await install(first, false), 'EXTENSION_CONSENT_REQUIRED');
+        expect(existsSync(prefix)).toBe(false);
+        const installed = await install(first, true);
+        expect(installed.status, installed.stdout + installed.stderr).toBe(0);
+        expect(parseWholeStdout(installed)).toEqual({
+          extension: name,
+          installed: true,
+          changed: true,
+          version: '0.1.0-alpha.1',
+          executable: path.join(realpathSync(prefix), `bin/tmt-${name}`),
+        });
+        expect(readlinkSync(path.join(prefix, `bin/tmt-${name}`))).toBe(
+          `../lib/tmt-${name}/current/tmt-${name}`
+        );
+        expect(parseWholeStdout(await install(first, true))).toMatchObject({ changed: false });
+        const oldRelease = realpathSync(path.join(prefix, `lib/tmt-${name}/current`));
+        const candidate = await createArtifact(sandbox, '0.1.0-alpha.2', new Uint8Array([1]), name);
+        const upgraded = await install(candidate, true);
+        expect(upgraded.status, upgraded.stdout + upgraded.stderr).toBe(0);
+        expect(parseWholeStdout(upgraded)).toMatchObject({
+          changed: true,
+          version: '0.1.0-alpha.2',
+        });
+        expect(existsSync(oldRelease)).toBe(true);
+        const listed = await cli(['extension', 'ls', '--prefix', prefix]);
+        expect(parseWholeStdout(listed).extensions).toContainEqual({
+          name,
+          installed: true,
+          version: '0.1.0-alpha.2',
+          channel: 'alpha',
+          pinned: null,
+          commands: [`tmt-${name}`],
+          shadowedBy: [],
+        });
+        expectError(await install(first, true), 'EXTENSION_INSTALL_FAILED');
+        const removed = await cli(['extension', 'rm', name, '--yes', '--prefix', prefix]);
+        expect(removed.status, removed.stdout + removed.stderr).toBe(0);
+        expect(parseWholeStdout(removed)).toMatchObject({
+          extension: name,
+          installed: false,
+          changed: true,
+        });
+        expect(existsSync(path.join(prefix, `bin/tmt-${name}`))).toBe(false);
+        expect(existsSync(path.join(prefix, `lib/tmt-${name}/releases`))).toBe(true);
+        expect(readFileSync(path.join(extensionState, 'machine.key'), 'utf8')).toBe('retained key');
+        expect(readFileSync(path.join(extensionState, `${name}.db`), 'utf8')).toBe(
+          'retained grants'
+        );
+        expect(existsSync(path.join(extensionState, 'control.sock'))).toBe(false);
+        expect(existsSync(sandbox.database)).toBe(false);
       });
-      expect(readlinkSync(path.join(prefix, 'bin/tmt-remote'))).toBe(
-        '../lib/tmt-remote/current/tmt-remote'
-      );
-      expect(parseWholeStdout(await install(first, true))).toMatchObject({ changed: false });
-      const oldRelease = realpathSync(path.join(prefix, 'lib/tmt-remote/current'));
-      const candidate = await createArtifact(
-        sandbox,
-        '0.1.0-alpha.2',
-        new Uint8Array([1]),
-        'remote'
-      );
-      const upgraded = await install(candidate, true);
-      expect(upgraded.status, upgraded.stdout + upgraded.stderr).toBe(0);
-      expect(parseWholeStdout(upgraded)).toMatchObject({ changed: true, version: '0.1.0-alpha.2' });
-      expect(existsSync(oldRelease)).toBe(true);
-      const listed = await cli(['extension', 'ls', '--prefix', prefix]);
-      expect(parseWholeStdout(listed).extensions).toContainEqual({
-        name: 'remote',
-        installed: true,
-        version: '0.1.0-alpha.2',
-        channel: 'alpha',
-        pinned: null,
-        commands: ['tmt-remote'],
-        shadowedBy: [],
-      });
-      expectError(await install(first, true), 'EXTENSION_INSTALL_FAILED');
-      const removed = await cli(['extension', 'rm', 'remote', '--yes', '--prefix', prefix]);
-      expect(removed.status, removed.stdout + removed.stderr).toBe(0);
-      expect(parseWholeStdout(removed)).toMatchObject({
-        extension: 'remote',
-        installed: false,
-        changed: true,
-      });
-      expect(existsSync(path.join(prefix, 'bin/tmt-remote'))).toBe(false);
-      expect(existsSync(path.join(prefix, 'lib/tmt-remote/releases'))).toBe(true);
-      expect(readFileSync(path.join(remoteState, 'machine.key'), 'utf8')).toBe('retained key');
-      expect(readFileSync(path.join(remoteState, 'remote.db'), 'utf8')).toBe('retained grants');
-      expect(existsSync(path.join(remoteState, 'control.sock'))).toBe(false);
-      expect(existsSync(sandbox.database)).toBe(false);
-    });
-  }, 60_000);
+    },
+    60_000
+  );
 
   it('installs, lists offline, refuses without consent, and uninstalls squad keeping its releases', async () => {
     await withSandbox(async (sandbox) => {
@@ -232,6 +236,15 @@ describe('tmt extension install surface', () => {
             channel: null,
             pinned: null,
             commands: ['tmt-remote'],
+            shadowedBy: [],
+          },
+          {
+            name: 'colab',
+            installed: false,
+            version: null,
+            channel: null,
+            pinned: null,
+            commands: ['tmt-colab'],
             shadowedBy: [],
           },
         ],
@@ -594,12 +607,15 @@ describe('tmt extension install surface', () => {
 
 describe('aggregate official upgrades', () => {
   it(
-    'keeps independent CLI/Squad/Remote pins and skips frozen Office even with invalid state',
+    'keeps independent CLI/Squad/Remote/Colab pins and skips frozen Office even with invalid state',
     { timeout: 60000 },
     async () => {
       await withSandbox(async (sandbox) => {
         const prefix = path.join(sandbox.root, 'native install prefix with spaces');
-        const install = async (artifact: ArtifactFixture, product: 'cli' | 'squad' | 'remote') => {
+        const install = async (
+          artifact: ArtifactFixture,
+          product: 'cli' | 'squad' | 'remote' | 'colab'
+        ) => {
           const result = await runCli(
             sandbox,
             [
@@ -626,14 +642,18 @@ describe('aggregate official upgrades', () => {
         const version = (await runCli(sandbox, ['--version'])).stdout.trim();
         const cliArtifact = await createArtifact(sandbox, version);
         const cli = await install(cliArtifact, 'cli');
-        const squad = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'squad');
-        await install(squad, 'squad');
-        const remote = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'remote');
-        await install(remote, 'remote');
-        const remoteReceipt = path.join(prefix, 'lib/tmt-remote/current/receipt.json');
-        const remoteBefore = readFileSync(remoteReceipt);
-        const squadReceipt = path.join(prefix, 'lib/tmt-squad/current/receipt.json');
-        const before = readFileSync(squadReceipt);
+        const extensionReceipts = new Map<string, Buffer>();
+        for (const product of ['squad', 'remote', 'colab'] as const) {
+          const artifact = await createArtifact(
+            sandbox,
+            '0.1.0-alpha.1',
+            new Uint8Array(),
+            product
+          );
+          await install(artifact, product);
+          const receipt = path.join(prefix, `lib/tmt-${product}/current/receipt.json`);
+          extensionReceipts.set(receipt, readFileSync(receipt));
+        }
         const managed = { ...sandbox, cli: { executable: cli.executable, args: [] } };
         const first = await runCli(managed, ['upgrade', '--yes', '--json'], {
           deadlineMs: INSTALL_PROCESS_BUDGET_MS,
@@ -651,6 +671,11 @@ describe('aggregate official upgrades', () => {
             status: 'skippedPinned',
             hint: 'tmt extension upgrade remote --unpin',
           },
+          {
+            product: 'colab',
+            status: 'skippedPinned',
+            hint: 'tmt extension upgrade colab --unpin',
+          },
         ]);
         writeFileSync(path.join(prefix, 'bin/tmt-office'), 'not a managed installation');
         const skipped = await runCli(managed, ['upgrade', '--yes', '--json'], {
@@ -661,9 +686,11 @@ describe('aggregate official upgrades', () => {
           { product: 'cli', status: 'skippedPinned' },
           { product: 'squad', status: 'skippedPinned' },
           { product: 'remote', status: 'skippedPinned' },
+          { product: 'colab', status: 'skippedPinned' },
         ]);
-        expect(readFileSync(squadReceipt).equals(before)).toBe(true);
-        expect(readFileSync(remoteReceipt).equals(remoteBefore)).toBe(true);
+        for (const [receipt, before] of extensionReceipts) {
+          expect(readFileSync(receipt).equals(before)).toBe(true);
+        }
         expect(existsSync(sandbox.database)).toBe(false);
       });
     }

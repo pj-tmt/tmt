@@ -2,7 +2,7 @@
 source: crates/tmt-cli/src/uninstall_command.rs
 expression: "String::from_utf8(output).unwrap()"
 ---
-REMOVE 10
+REMOVE 12
   command  /prefix/bin/tmt-office
   files    /prefix/lib/tmt-office
   command  /prefix/bin/tmt-squad
@@ -10,6 +10,8 @@ REMOVE 10
   files    /prefix/lib/tmt-squad
   command  /prefix/bin/tmt-remote
   files    /prefix/lib/tmt-remote
+  command  /prefix/bin/tmt-colab
+  files    /prefix/lib/tmt-colab
   command  /prefix/bin/tmt
   command  /prefix/bin/tmux-team
   files    /prefix/lib/tmux-team

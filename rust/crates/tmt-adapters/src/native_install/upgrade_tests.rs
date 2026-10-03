@@ -467,7 +467,12 @@ fn consent_selected_versions_upgrade_products_without_creating_pins() {
     let directory = crate::test_support::TestDirectory::new();
     let prefix = directory.path.join("prefix");
     let target = "aarch64-apple-darwin";
-    for product in [Product::Cli, Product::Squad, Product::Remote] {
+    for product in [
+        Product::Cli,
+        Product::Squad,
+        Product::Remote,
+        Product::Colab,
+    ] {
         let (_, manifest, archive, name) = release::product_fixture(product, "1.2.3", target, 41);
         let old =
             super::artifact::acquire_bytes(product, &manifest, &name, &archive, target).unwrap();
@@ -512,7 +517,12 @@ fn consent_selected_versions_upgrade_products_without_creating_pins() {
         assert_eq!(layout.current().unwrap().unwrap().state.version, selected);
     }
     // Independently owned active pointers remain valid after every upgrade.
-    for product in [Product::Cli, Product::Squad, Product::Remote] {
+    for product in [
+        Product::Cli,
+        Product::Squad,
+        Product::Remote,
+        Product::Colab,
+    ] {
         assert_eq!(
             super::super::inspect_product(product, &prefix.join("bin").join(product.executable()))
                 .unwrap()

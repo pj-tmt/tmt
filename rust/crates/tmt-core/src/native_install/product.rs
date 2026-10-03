@@ -1,5 +1,5 @@
 //! Fixed artifact identities for the CLI and its official extensions (Office,
-//! Squad and Remote). The table is reviewed code; archive data never adds a product.
+//! Squad, Remote and Colab). The table is reviewed code; archive data never adds a product.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Product {
@@ -7,6 +7,7 @@ pub enum Product {
     Office,
     Squad,
     Remote,
+    Colab,
 }
 
 impl Product {
@@ -16,6 +17,7 @@ impl Product {
             Self::Office => "tmt-office-v",
             Self::Squad => "tmt-squad-v",
             Self::Remote => "tmt-remote-v",
+            Self::Colab => "tmt-colab-v",
         }
     }
 
@@ -29,11 +31,17 @@ impl Product {
         let pre_release = !version.pre.is_empty();
         match self {
             Self::Cli => pre_release || !flagged,
-            Self::Office | Self::Squad | Self::Remote => flagged == pre_release,
+            Self::Office | Self::Squad | Self::Remote | Self::Colab => flagged == pre_release,
         }
     }
 
-    pub const ALL: [Self; 4] = [Self::Cli, Self::Office, Self::Squad, Self::Remote];
+    pub const ALL: [Self; 5] = [
+        Self::Cli,
+        Self::Office,
+        Self::Squad,
+        Self::Remote,
+        Self::Colab,
+    ];
 
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -41,6 +49,7 @@ impl Product {
             Self::Office => "office",
             Self::Squad => "squad",
             Self::Remote => "remote",
+            Self::Colab => "colab",
         }
     }
 
@@ -56,6 +65,7 @@ impl Product {
             Self::Office => "tmt-office",
             Self::Squad => "tmt-squad",
             Self::Remote => "tmt-remote",
+            Self::Colab => "tmt-colab",
         }
     }
 
@@ -65,6 +75,7 @@ impl Product {
             Self::Office => "tmt-office",
             Self::Squad => "tmt-squad",
             Self::Remote => "tmt-remote",
+            Self::Colab => "tmt-colab",
         }
     }
 
@@ -74,6 +85,7 @@ impl Product {
             Self::Office => "lib/tmt-office",
             Self::Squad => "lib/tmt-squad",
             Self::Remote => "lib/tmt-remote",
+            Self::Colab => "lib/tmt-colab",
         }
     }
 
@@ -83,6 +95,7 @@ impl Product {
             Self::Office => &["tmt-office"],
             Self::Squad => &["tmt-squad", "tmt-sq"],
             Self::Remote => &["tmt-remote"],
+            Self::Colab => &["tmt-colab"],
         }
     }
 
@@ -94,7 +107,7 @@ impl Product {
     /// publication. Native installation refuses such a product without one.
     pub const fn requires_release_verifier(self) -> bool {
         match self {
-            Self::Cli | Self::Squad | Self::Remote => false,
+            Self::Cli | Self::Squad | Self::Remote | Self::Colab => false,
             Self::Office => true,
         }
     }
@@ -106,7 +119,7 @@ impl Product {
     pub const fn companions(self) -> &'static [&'static str] {
         match self {
             Self::Cli => &["tmt-driver-herdr"],
-            Self::Office | Self::Squad | Self::Remote => &[],
+            Self::Office | Self::Squad | Self::Remote | Self::Colab => &[],
         }
     }
 

@@ -49,7 +49,9 @@ describe('legacy extension skill lifecycle (#957)', () => {
             status: 'partiallyRemoved',
             hint: expect.stringContaining('extension rm office --yes'),
           },
-          {},
+          { name: 'squad', installed: false },
+          { name: 'remote', installed: false },
+          { name: 'colab', installed: false },
         ],
       });
       const removed = await runCli(sandbox, [

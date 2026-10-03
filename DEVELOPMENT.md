@@ -2788,9 +2788,9 @@ embedded skill, unchanged SQLite bytes during installation and the migration of 
 previous release wrote. Its temporary
 prefix/application state is always invocation-owned and removed afterward.
 
-#### Remote installer registration
+#### Remote and Colab installer registration
 
-Core recognizes `remote` separately from archive publication. Test its product
+Core recognizes `remote` and `colab` separately from archive publication. Test their product
 policy, product-prefixed discovery, receipt and activation with the existing
 native fixtures (from `rust/`):
 
@@ -2801,11 +2801,13 @@ CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli extension_install_command
 CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli parser::tests::native_install
 ```
 
-For process fixtures, build CLI, Squad and Remote independently in the worktree's
+For process fixtures, build CLI, Squad, Remote and Colab independently in the worktree's
 `rust/target`, then run `extension-install.test.ts` through the native test config.
-The fixture uses the built `tmt-remote`, never a substitute CLI executable. It
+The fixture uses the built `tmt-remote` and `tmt-colab`, never a substitute CLI executable. It
 covers consent, repeat/forward install, retained releases and private Remote
-state, plus pinned Remote participation in root upgrade. Synthetic archives
+and Colab state, plus independent pinned participation in root upgrade and root
+uninstall cleanup. Frozen Office and legacy skill fixtures keep their assertions
+while listing both new registrations. Synthetic archives
 prove installer behavior, not published archive linkage or runtime versioning.
 
 A registered product may have no published archive yet. Inject empty Remote refs
@@ -2815,9 +2817,10 @@ with "No published remote release yet" rather than an installation-damage hint.
 Malformed published/local archives retain verification errors. Remote uses the
 same prerelease rule as Squad; keep cross-product and immutable-release refusals.
 The [installation architecture](ARCHITECTURE.md#managed-skills-and-native-installation)
-owns namespaces, receipts and the separation from private state. Remote's owner
-and infra provide packaging and release gates; publish the supporting CLI alpha
-before testing public Remote install/upgrade with it.
+owns namespaces, receipts and the separation from private state. Remote/Colab owners and infra provide packaging and release gates; publish the
+supporting CLI alpha before testing either public install/upgrade with it.
+Colab's #1421 embeds the built app in its executable; these synthetic fixtures
+prove installer lifecycle, not that embedding or installed SPA serving.
 
 ### Native curl bootstrap verification
 
@@ -3378,7 +3381,9 @@ socket/process lifecycle acceptance twice. No real model/account/DB is used.
 The private local-build Colab executable serves an owner-only mounted socket,
 owner-browser registration and stream sync, and lists local-space metadata.
 Owner requests load the built browser app when its local output is available.
-No installer exists. Rust builds and tests do not require a browser build.
+Core registers Colab with the shared installer; #1421 owns app embedding, and
+packaging/publication remain separate gates. Rust builds and tests do not require
+a browser build. See [installer registration](#remote-and-colab-installer-registration).
 Build and verify it from the repository root:
 
 ```bash

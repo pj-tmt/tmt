@@ -273,7 +273,12 @@ fn update_manifest_asset(release: &mut Value, manifest: &[u8]) {
 
 #[test]
 fn extension_discovery_ignores_cli_versions_and_uses_its_own_exact_tags() {
-    for product in [Product::Office, Product::Squad, Product::Remote] {
+    for product in [
+        Product::Office,
+        Product::Squad,
+        Product::Remote,
+        Product::Colab,
+    ] {
         let (cli, _, _, _) = valid_fixture("99.0.0", TARGET, 400);
         let (extension, manifest, archive, _) =
             product_fixture(product, "0.1.0-alpha.1", TARGET, 401);
@@ -342,6 +347,10 @@ fn cli_only_releases_are_not_an_extension_installation_candidate() {
         (
             Product::Remote,
             "No published remote release yet in the alpha channel.",
+        ),
+        (
+            Product::Colab,
+            "No published colab release yet in the alpha channel.",
         ),
     ] {
         let (cli, _, _, _) = valid_fixture("99.0.0-alpha.1", TARGET, 410);
@@ -475,7 +484,12 @@ fn a_cli_alpha_may_be_a_normal_release_but_extensions_stay_flagged() {
     download_flagged(Product::Cli, "5.0.0-alpha.7", false).unwrap();
     download_flagged(Product::Cli, "5.0.0-alpha.6", true).unwrap();
     assert!(download_flagged(Product::Cli, "5.0.0", true).is_err());
-    for extension in [Product::Office, Product::Squad, Product::Remote] {
+    for extension in [
+        Product::Office,
+        Product::Squad,
+        Product::Remote,
+        Product::Colab,
+    ] {
         download_flagged(extension, "0.1.0-alpha.4", true).unwrap();
         assert!(download_flagged(extension, "0.1.0-alpha.4", false).is_err());
     }
@@ -493,6 +507,7 @@ fn the_publication_policy_publishes_flags_the_updater_accepts() {
         (Product::Office, true),
         (Product::Squad, true),
         (Product::Remote, true),
+        (Product::Colab, true),
     ] {
         assert!(
             product.accepts_prerelease_flag(&alpha, published),

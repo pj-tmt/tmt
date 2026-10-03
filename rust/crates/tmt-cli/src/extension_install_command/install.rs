@@ -126,21 +126,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn missing_published_remote_release_is_availability_not_installation_damage() {
-        let error = installation_failure(io::Error::new(
-            io::ErrorKind::NotFound,
-            native_install::ReleaseUnavailable {
-                product: Product::Remote,
-                channel: Channel::Alpha,
-            },
-        ));
-        assert_eq!(error.code, "EXTENSION_RELEASE_UNAVAILABLE");
-        assert_eq!(error.status, 1);
-        assert_eq!(
-            error.message,
-            "No published remote release yet in the alpha channel. No installation was created or changed."
-        );
-        assert!(!error.message.contains("Inspect with"));
+    fn missing_published_extension_release_is_availability_not_installation_damage() {
+        for product in [Product::Remote, Product::Colab] {
+            let error = installation_failure(io::Error::new(
+                io::ErrorKind::NotFound,
+                native_install::ReleaseUnavailable {
+                    product,
+                    channel: Channel::Alpha,
+                },
+            ));
+            assert_eq!(error.code, "EXTENSION_RELEASE_UNAVAILABLE");
+            assert_eq!(error.status, 1);
+            assert_eq!(
+                error.message,
+                format!(
+                    "No published {} release yet in the alpha channel. No installation was created or changed.",
+                    product.as_str()
+                )
+            );
+            assert!(!error.message.contains("Inspect with"));
+        }
     }
 
     #[test]

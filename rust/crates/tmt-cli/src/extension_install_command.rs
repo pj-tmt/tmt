@@ -47,7 +47,7 @@ use tmt_cli_style::{
 const CONSENT: &str = "EXTENSION_CONSENT_REQUIRED";
 
 // Historical products stay recognizable for receipt recovery and removal.
-const INSTALLABLE_EXTENSIONS: &[Product] = &[Product::Squad, Product::Remote];
+const INSTALLABLE_EXTENSIONS: &[Product] = &[Product::Squad, Product::Remote, Product::Colab];
 
 pub(crate) fn require_installable(product: Product) -> Result<(), Failure> {
     if INSTALLABLE_EXTENSIONS.contains(&product) {
@@ -508,6 +508,7 @@ mod tests {
     fn only_official_extensions_are_named_and_the_cli_is_not_one() {
         assert_eq!(extension("squad").unwrap(), Product::Squad);
         assert_eq!(extension("remote").unwrap(), Product::Remote);
+        assert_eq!(extension("colab").unwrap(), Product::Colab);
         assert_eq!(extension("office").unwrap(), Product::Office);
         for name in ["cli", "tmt", "sq", "unknown"] {
             let error = extension(name).unwrap_err();
@@ -515,7 +516,7 @@ mod tests {
             assert!(
                 error
                     .message
-                    .ends_with("Official extensions: squad, remote.")
+                    .ends_with("Official extensions: squad, remote, colab.")
             );
         }
     }
