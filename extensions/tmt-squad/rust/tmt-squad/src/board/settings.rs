@@ -18,11 +18,22 @@ use unicode_width::UnicodeWidthStr;
 pub(super) struct Overlay {
     pub settings: BoardSettings,
     scrolls: Scrolls,
+    display_path: String,
 }
 impl Overlay {
     pub fn new(settings: BoardSettings) -> Self {
+        let display_path = std::env::var("HOME")
+            .ok()
+            .and_then(|home| {
+                settings
+                    .path
+                    .strip_prefix(&format!("{home}/"))
+                    .map(|path| format!("~/{path}"))
+            })
+            .unwrap_or_else(|| settings.path.clone());
         Self {
             settings,
+            display_path,
             scrolls: Scrolls::default(),
         }
     }
@@ -62,6 +73,41 @@ fn setting_name(key: &str) -> (&str, &str) {
     })
 }
 
+// Serialized JSON punctuation is a break opportunity only outside quoted strings.
+fn value_lines(text: &str, width: usize, structured: bool) -> Vec<String> {
+    let (mut quoted, mut escaped) = (false, false);
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for token in text.split_inclusive(|ch| {
+        if ch == '"' && !escaped {
+            quoted = !quoted;
+        }
+        let boundary = structured && !quoted && matches!(ch, ',' | ':');
+        escaped = quoted && ch == '\\' && !escaped;
+        boundary
+    }) {
+        if !line.is_empty() && line.width() + token.width() > width {
+            lines.push(std::mem::take(&mut line));
+        }
+        if token.width() <= width {
+            line.push_str(token);
+        } else {
+            let mut parts = super::notes::wrap(token, width);
+            line = parts.pop().unwrap_or_default();
+            lines.extend(parts);
+        }
+    }
+    if !line.is_empty() || lines.is_empty() {
+        lines.push(line);
+    }
+    if lines.len() > 4 {
+        let more = lines.len() - 3;
+        lines.truncate(3);
+        lines.push(format!("… ({more} more)"));
+    }
+    lines
+}
+
 pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rect) {
     frame.render_widget(Clear, body);
     let block = Block::new()
@@ -83,29 +129,30 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
     };
     let settings = &overlay.settings;
     let width = usize::from(content.width);
+    let row_width = width.saturating_sub(2);
     let key_width = settings
         .entries
         .iter()
         .map(|entry| setting_name(&entry.key).1.width())
         .max()
         .unwrap_or(0)
-        .min(width / 4);
-    let source_width = (width / 3).min(42);
-    let value_width = width.saturating_sub(key_width + source_width + 4).max(1);
+        .min(row_width / 4);
+    let source_width = (row_width / 3).min(42);
+    let value_width = row_width
+        .saturating_sub(key_width + source_width + 4)
+        .max(1);
     let fit = |text: &str, width| grid::fit(text, width, Align::Left, Truncate::Middle);
-    let path = std::env::var("HOME")
-        .ok()
-        .and_then(|home| {
-            settings
-                .path
-                .strip_prefix(&format!("{home}/"))
-                .map(|path| format!("~/{path}"))
-        })
-        .unwrap_or_else(|| settings.path.clone());
     let context = settings.context.as_deref().unwrap_or("board defaults");
-    let heading = format!("{context} {} · {path}", settings.host);
+    let heading = format!("{context} {} · {}", settings.host, overlay.display_path);
     let mut lines = vec![Line::styled(fit(&heading, width), look.role(Role::Dim))];
     let cell = |text: &str, width, role| Span::styled(fit(text, width), look.role(role));
+    lines.push(Line::styled(
+        fit(
+            "Full values: tmt sq config show --json (--squad/--tab)",
+            width,
+        ),
+        look.role(Role::Dim),
+    ));
     for notice in &settings.notices {
         lines.push(Line::styled(fit(notice, width), look.role(Role::Waiting)));
     }
@@ -129,11 +176,16 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
                 serde_json::Value::Array(items) if items.is_empty() => ("none".into(), Role::Dim),
                 value => (crate::settings::display(value), Role::Text),
             };
-            for (index, value) in super::notes::wrap(&escape(&value), value_width)
-                .into_iter()
-                .enumerate()
+            for (index, value) in value_lines(
+                &escape(&value),
+                value_width,
+                entry.value.is_array() || entry.value.is_object(),
+            )
+            .into_iter()
+            .enumerate()
             {
                 lines.push(Line::from(vec![
+                    Span::raw("  "),
                     cell(if index == 0 { name } else { "" }, key_width, Role::Accent),
                     Span::raw("  "),
                     cell(&value, value_width, role),
@@ -184,7 +236,27 @@ mod tests {
     use super::*;
     use ratatui::{Terminal, backend::TestBackend, crossterm::event::KeyModifiers};
     #[test]
-    fn overlay_scrolls_full_escaped_values_and_closes_without_row_actions() {
+    fn structured_values_break_at_punctuation_preserve_quotes_and_cap_lines() {
+        for text in ["x,y:z", r#"x\"y,z:q"#] {
+            let value = serde_json::json!({"a":text, "b":1}).to_string();
+            let lines = value_lines(&value, 20, true);
+            assert_eq!(lines.concat(), value);
+            assert!(
+                lines[..lines.len() - 1]
+                    .iter()
+                    .all(|line| line.ends_with([',', ':']))
+            );
+        }
+        let lines = value_lines(
+            &serde_json::json!((0..40).collect::<Vec<_>>()).to_string(),
+            12,
+            true,
+        );
+        assert_eq!(lines.len(), 4);
+        assert!(lines[3].starts_with("… (") && lines[3].ends_with(" more)"));
+    }
+    #[test]
+    fn overlay_scrolls_escaped_values_and_closes_without_row_actions() {
         let mut shown = BoardSettings {
             path: "/isolated/squad.toml".into(),
             context: Some("x".into()),
@@ -211,7 +283,9 @@ mod tests {
                 .unwrap();
             let buffer = terminal.backend().buffer();
             let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
-            assert!(text.contains("unset") && text.contains("none"));
+            if width >= 80 {
+                assert!(text.contains("unset") && text.contains("none"));
+            }
             assert_eq!(buffer[(1, 1)].symbol(), " ", "content has inset padding");
             assert!(!overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
             overlay.key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));

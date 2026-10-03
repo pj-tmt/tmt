@@ -4949,7 +4949,7 @@ columns = [{ name = "member", width = "30%" },
         assert!(
             help_lines(&app)
                 .iter()
-                .any(|line| line.trim_end() == "d           refresh")
+                .any(|line| line.trim_end() == "d             refresh")
         );
     }
     #[test]
