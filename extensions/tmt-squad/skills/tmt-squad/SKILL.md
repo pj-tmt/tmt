@@ -235,9 +235,12 @@ switcher, and `/` searches. Home has no r/R reply shortcut or numeric navigation
 
 ## Inspect board settings
 
-Press `,` to open read-only settings for the shown squad or tab; `settings` is
-bindable. Scroll with arrows/j/k, PgUp/PgDn, Home/End or the wheel, and close
-with Esc. Each value shows its preset/default or configuration setting source
+Press `,` to open settings for the shown squad or tab; `settings` is bindable.
+Select with arrows/j/k, PgUp/PgDn or Home/End; the wheel scrolls. Press Enter on
+an editable entry to open its value. Type a scalar or JSON array, or use Ctrl-U
+to clear it. Valid input previews live behind the prompt; Enter saves, and Esc
+cancels the edit without writing. A second Esc closes settings. Entries marked
+`*`, including provider argv and run bindings, are read-only. Each value shows its preset/default or configuration setting source
 and the path of `squad.toml`. Configured provider argv and run bindings are
 shown without executing them. Close and reopen to read later config edits.
 
@@ -245,11 +248,12 @@ shown without executing them. Close and reopen to read later config edits.
 squad or `--tab all` (also `leads` or a configured tab name) for an aggregate
 view, and `--json` for full values and source paths. These scope flags are
 exclusive. Inspection changes no configuration or member state. JSON marks the
-settings supported by `config set`; the board overlay remains read-only.
+settings supported by `config set`; the board uses the same validation and writer.
 
 Use `tmt sq config set KEY VALUE [--squad NAME]` for validated edits. Squad scope
 is required for `layout`, `board.panes`, `board.direction`, `board.sizes`,
-`board.hidden_columns`, `notes.render`, and `states.STATE.color`. `board.refresh`
+`board.hidden_columns`, `notes.render`, `states.STATE.color`, `reminders.enabled`
+and `reminders.stale_after`. `board.refresh`
 uses the squad layer with `--squad`, otherwise the global Squad board layer.
 `tabs.order` and `tabs.hide` always edit global Squad tab policy. Arrays use JSON;
 other values are unquoted scalar arguments. Examples:
@@ -266,8 +270,18 @@ layout and full flat split (direction, panes and sizes) in `squad.toml`, preserv
 the untouched geometry. Future preset changes no longer replace these values.
 Nested split trees are read-only and must be edited in `squad.toml`. Existing validators reject invalid values
 before writing. The writer preserves unrelated keys and comments and refuses a
-file changed since reading it. Provider/run commands, patterns, reminders and
-core/provider configuration cannot be edited through this command.
+file changed since reading it. A conflicting board save keeps the prompt and
+explains the refusal; cancel, close and reopen to load the newer file. Refreshes
+retain the current valid preview and the newest roster data. Provider/run commands,
+patterns and core/provider configuration remain read-only.
+
+For the selected squad, set `reminders.enabled` to `true` or `false`, and
+`reminders.stale_after` to whole s/m/h units from 1m to 24h (for example `30m`).
+The settings view shows effective defaults and their sources. Preview reclassifies
+known observed ages without observing or sending reminders; unknown stays unknown.
+After saving, ordinary reload uses the new policy. Disabled reminders produce no
+stale marks or reminder work. These edits install no provider hook and grant no
+extension consent.
 
 ## Choose a board view
 

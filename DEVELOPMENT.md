@@ -1768,6 +1768,14 @@ scrolling at 160/100/80 columns. Verify real private-tmux captures in `tmt`,
 TMUX_TEAM_HOME and XDG cache. Settings tests retain raw binding JSON while
 checking shared description metadata.
 
+Settings editor coverage exercises live preview, refreshed data retention, focus
+and age-evidence restoration on cancel, persisted values/sources, invalid input,
+read-only command entries and stale-file refusal. Native settings edits verify
+shared staleness after reload, including the disabled no-publication path; capture
+normal and narrow editor/refusal states from isolated HOME/TMUX_TEAM_HOME and a
+private tmux socket. The [Squad architecture](ARCHITECTURE.md#squad-extension) owns the
+preview and writer contracts.
+
 Native Squad tests verify leadership selection and clearing without membership
 or role loss, repeated additions without overwriting state, and explicit recovery
 from a squad without a lead. The Docker Squad lifecycle test kills temporary and

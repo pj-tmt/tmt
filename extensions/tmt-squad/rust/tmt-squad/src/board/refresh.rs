@@ -432,6 +432,7 @@ fn load(
         Ok(squads) => squads,
         Err(error) => {
             return Loaded::only(Snapshot {
+                squad_keys: Vec::new(),
                 tabs: Vec::new(),
                 hidden: Vec::new(),
                 pinned: 0,
@@ -484,6 +485,7 @@ fn load(
     };
     let Some(key) = chosen else {
         return Loaded::only(Snapshot {
+            squad_keys: names,
             tabs,
             hidden,
             pinned,
@@ -531,6 +533,7 @@ fn load(
         });
     Loaded {
         snapshot: Snapshot {
+            squad_keys: names,
             tabs,
             hidden,
             pinned,
@@ -568,7 +571,7 @@ fn squad_view(
         reminders,
         &providers,
         crate::observe::Mode::Read(crate::observe::Reads {
-            metadata: rows.reads_metadata(),
+            metadata: preview_panes || rows.reads_metadata(),
             notes: shows_notes,
         }),
     )?;

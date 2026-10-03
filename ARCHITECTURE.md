@@ -3635,12 +3635,22 @@ Squad's `settings` coordinator delegates to arrangement, rows, notebook/state,
 meter, theme and tab/program area projections. Source-bearing Config reader
 results own provenance; presentation does not inspect TOML or resolve values.
 `config show` and the bindable inspection overlay (comma by default) share those
-results. Provider argv, run bindings, state patterns and reminders are read-only;
+results. Provider argv, run bindings and state patterns are read-only;
 inspection and edit validation never execute configured programs. Existing
 `Config::bindings_for_tab`, `action::effective_bindings` and `tab_view::rows` keep
 inspection and loaded tab/selected-section rules together. The overlay owns its
 scroll position, blocks underlying input and retains its opening snapshot during
-board refresh; close/reopen reads later configuration. It remains read-only.
+board refresh; close/reopen reads later configuration. Editable entries open a
+local input prompt. Each valid value calls `Config::preview_setting`; the app
+applies the disposable board, rows, notes mode, state colors, interval and tab
+policy to the newest acquired data. The loader retains raw core squad order so
+clearing tab order previews the same fallback as reload. Invalid input has no draft; Esc restores the
+opening configuration and focus without discarding refreshed rows. Enter saves
+only through `Config::set_setting`, then refreshes the values and sources. File
+conflicts remain in the prompt and never replace concurrent edits. Provider/run
+entries and nested split structures stay read-only. The ordinary loader acquires
+preview notes/replies and metadata through its existing cancellation fence while
+the overlay is open; closing returns to resolved-pane acquisition.
 Aggregate tabs expose fixed grids and global appearance without squad providers.
 CLI `config show` without scope inspects board defaults; `--squad` and `--tab`
 are exclusive.
@@ -3662,7 +3672,14 @@ performing reads or actions in paint.
 `config::edit` owns the shared settings edit policy and disposable validated
 Config draft. `sq config set KEY VALUE` accepts only layout preset, flat split
 panes/direction/sizes, refresh, notes mode, hidden tracks, exact state colors and
-global tabs order/hide. Arrays use JSON syntax. Nested split-tree structural edits
+global tabs order/hide, plus selected-squad reminder enable/threshold controls.
+Reminder booleans use true/false and thresholds reuse `Config::reminders` whole
+s/m/h validation (1m–24h). The board retains the newest `staleness::Snapshot`
+evidence and reclassifies only known ages in memory through that owner; disabled
+previews remove marks and unknown ages remain unknown. Preview does no observation,
+cache publication or reminder claim. Confirmed edits reach the shared observer on
+ordinary reload; its disabled path performs no reminder work. Edits never install
+provider hooks or grant extension consent. Arrays use JSON syntax. Nested split-tree structural edits
 refuse rather than flattening a custom or factory tree. Partial flat edits retain
 the workflow preset and seed missing flat split keys from the resolved arrangement.
 The draft uses the existing area validators before `Config::set_setting` calls

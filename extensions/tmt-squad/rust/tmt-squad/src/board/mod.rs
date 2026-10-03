@@ -344,7 +344,11 @@ fn session(
             Effect::Refresh => {
                 revision += 1;
                 requested = None;
-                request(app.current.clone(), false, app.view_picker.is_some());
+                request(
+                    app.current.clone(),
+                    false,
+                    app.view_picker.is_some() || app.settings.is_some(),
+                );
                 refreshed = Instant::now();
             }
             Effect::PickView => {
@@ -354,7 +358,11 @@ fn session(
                     Ok(()) => {
                         revision += 1;
                         requested = None;
-                        request(app.current.clone(), true, app.view_picker.is_some());
+                        request(
+                            app.current.clone(),
+                            true,
+                            app.view_picker.is_some() || app.settings.is_some(),
+                        );
                         refreshed = Instant::now();
                     }
                     Err(error) => app.finished(Err(error)),
@@ -383,18 +391,32 @@ fn session(
                 }
             }
             Effect::Settings => {
-                let section = app.selected_section();
-                match load_config().and_then(|config| {
-                    config
-                        .settings(app.shown_tab(), effects::tmux_socket().is_some(), section)
-                        .map_err(|error| error.message)
-                }) {
-                    Ok(shown) => {
-                        app.settings = Some(settings::Overlay::new(shown));
-                        app.help = false;
+                match load_config()
+                    .and_then(|config| app.open_settings(config).map_err(|error| error.message))
+                {
+                    Ok(()) => {
+                        revision += 1;
+                        requested = None;
+                        request(app.current.clone(), true, true);
+                        refreshed = Instant::now();
                     }
                     Err(error) => app.finished(Err(error)),
                 }
+            }
+            Effect::SaveSetting => {
+                if app.settings.as_mut().is_some_and(|overlay| overlay.save()) {
+                    app.settings_preview();
+                    revision += 1;
+                    requested = None;
+                    request(app.current.clone(), true, true);
+                    refreshed = Instant::now();
+                }
+            }
+            Effect::CancelSettings => {
+                revision += 1;
+                requested = None;
+                request(app.current.clone(), true, false);
+                refreshed = Instant::now();
             }
             Effect::PickTheme => {
                 let squad = app.current.clone().filter(|name| !tabs::aggregate(name));
@@ -425,7 +447,11 @@ fn session(
                             app.finished(Ok(message));
                             revision += 1;
                             requested = None;
-                            request(app.current.clone(), false, app.view_picker.is_some());
+                            request(
+                                app.current.clone(),
+                                false,
+                                app.view_picker.is_some() || app.settings.is_some(),
+                            );
                             refreshed = Instant::now();
                         }
                         Err(error) => picker.notice = Some(error.message),
@@ -444,7 +470,11 @@ fn session(
                 if sends {
                     revision += 1;
                     requested = None;
-                    request(app.current.clone(), false, app.view_picker.is_some());
+                    request(
+                        app.current.clone(),
+                        false,
+                        app.view_picker.is_some() || app.settings.is_some(),
+                    );
                     refreshed = Instant::now();
                 }
             }
@@ -454,7 +484,11 @@ fn session(
         if reload_interval(app).is_some_and(|interval| refreshed.elapsed() >= interval) {
             revision += 1;
             requested = None;
-            request(app.current.clone(), false, app.view_picker.is_some());
+            request(
+                app.current.clone(),
+                false,
+                app.view_picker.is_some() || app.settings.is_some(),
+            );
             refreshed = Instant::now();
         }
     }

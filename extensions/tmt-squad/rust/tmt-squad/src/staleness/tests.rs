@@ -881,3 +881,46 @@ fn only_authoritative_idle_after_the_update_is_retained_for_the_roster_only_hook
         json!([])
     );
 }
+
+#[test]
+fn settings_preview_reclassifies_retained_evidence_without_inventing_unknown_ages() {
+    let known = json!({"state":"fresh", "ageMs":120000, "unchangedSinceMs":500, "activityAfterUpdate":true, "reasons":["pending"]});
+    let mut document = json!({"squad":{"lead":{"id":"lead", "staleness":known}, "notesStaleness":known},
+        "sections":[{"rows":[{"id":"member", "staleness":known}, {"id":"unknown", "staleness":unavailable("disabled")}]},
+                    {"rows":[{"id":"member", "staleness":known}]}]});
+    let retained = Snapshot::for_preview(&document);
+    let enabled = Reminders {
+        enabled: true,
+        stale_after: std::time::Duration::from_secs(60),
+    };
+    retained.apply_preview(&mut document, enabled);
+    assert_eq!(document["squad"]["lead"]["staleness"]["state"], "stale");
+    assert_eq!(
+        document["sections"][0]["rows"][0]["staleness"],
+        document["sections"][1]["rows"][0]["staleness"]
+    );
+    assert_eq!(
+        document["sections"][0]["rows"][1]["staleness"],
+        unavailable("unknown")
+    );
+    retained.apply_preview(
+        &mut document,
+        Reminders {
+            enabled: false,
+            ..enabled
+        },
+    );
+    assert_eq!(document["squad"]["notesStaleness"], unavailable("disabled"));
+    assert_eq!(
+        document["sections"][0]["rows"][0]["staleness"],
+        unavailable("disabled")
+    );
+    retained.apply_preview(
+        &mut document,
+        Reminders {
+            stale_after: std::time::Duration::from_secs(1800),
+            ..enabled
+        },
+    );
+    assert_eq!(document["squad"]["notesStaleness"], known);
+}

@@ -14,6 +14,8 @@ impl Config {
                         | "board.panes"
                         | "board.hidden_columns"
                         | "notes.render"
+                        | "reminders.enabled"
+                        | "reminders.stale_after"
                 ) || key
                     .strip_prefix("states.")
                     .and_then(|name| name.strip_suffix(".color"))
@@ -53,6 +55,12 @@ impl Config {
     }
 
     fn parse_setting_value(key: &str, text: &str) -> Result<Item, SquadError> {
+        if key == "reminders.enabled" {
+            return text
+                .parse::<bool>()
+                .map(value)
+                .map_err(|_| invalid("`reminders.enabled` must be true or false."));
+        }
         if !matches!(
             key,
             "board.sizes" | "board.panes" | "board.hidden_columns" | "tabs.order" | "tabs.hide"
