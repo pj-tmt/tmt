@@ -77,7 +77,10 @@ fn layout_keeps_partial_and_nondefault_labels_and_steps_aside() {
         &input(100),
         now,
     );
-    assert!(meter.layout(100).is_none());
+    let empty = meter.layout(100).unwrap();
+    assert!(!empty.spark);
+    assert_eq!(empty.label.as_deref(), Some("1m"));
+    assert_eq!(meter.empty_text(), "(no covered consumption)");
     meter.sample(Ok(&input(100)), now + Duration::from_secs(10));
     let full = meter.layout(100).unwrap();
     assert!(full.spark);

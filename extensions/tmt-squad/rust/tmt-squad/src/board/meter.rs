@@ -173,8 +173,15 @@ impl Meter {
     }
 
     pub fn label(&self) -> Option<String> {
-        self.reading?;
         Some(self.window.label())
+    }
+
+    pub fn empty_text(&self) -> &'static str {
+        if self.rate.reporting() {
+            "(no covered consumption)"
+        } else {
+            "(no consumption data)"
+        }
     }
 
     /// Board-only display fields; callers preserve the public status document.
@@ -221,10 +228,22 @@ impl Meter {
 
     /// Step aside without dropping the window label.
     pub fn layout(&self, available: usize) -> Option<Layout> {
-        if !self.settings.enabled || self.digits()?.chars().count() > NUMBER_WIDTH {
+        if !self.settings.enabled {
             return None;
         }
         let label = self.label()?;
+        let Some(digits) = self.digits() else {
+            let width = self.empty_text().len() + label.len() + 1;
+            return (width <= available).then_some(Layout {
+                label: Some(label),
+                spark: false,
+                unit: "",
+                width,
+            });
+        };
+        if digits.chars().count() > NUMBER_WIDTH {
+            return None;
+        }
         let make = |spark: bool, short: bool| Layout {
             label: Some(label.clone()),
             spark,

@@ -343,6 +343,10 @@ impl Rate {
         self.members.get(id).is_some_and(|member| member.reporter)
     }
 
+    pub fn reporting(&self) -> bool {
+        self.members.values().any(|member| member.reporter)
+    }
+
     /// Eight bucket-aligned totals, from the same UUID rings as member readings.
     pub fn trend(&self, now: u64, window: TokenWindow) -> [Option<f64>; 8] {
         let bar_slots = (window.milliseconds() / SLOT_MS).div_ceil(8);
