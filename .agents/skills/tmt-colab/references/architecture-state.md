@@ -33,6 +33,20 @@ Only this recovery script is public; the rest of the app stays owner-gated. Veri
 private-guidance CSP and pairing failure/reload guard alongside the app lifecycle tests
 (`served.spec.ts`, `session-recovery.test.ts`).
 
+## Restart recovery
+
+Remote keeps sessions and door cookies in memory, so after a restart a paired browser's
+reload receives Colab's private guidance page. That page loads the public `assets/recovery.js`
+(`src/guidance.ts`), which takes over the tab claim (`ActiveTab`, Web Lock) before Remote's
+SDK checks its paired key and calls `reopenSession()`, then reloads. A session-storage marker
+(`colab-recovery:<mount path>`, `src/session-recovery.ts`) spans that reload so a second
+guidance response cannot loop; authenticated boot (`mounted.ts`) clears it. A failed or
+refused reopen, or unavailable session storage, leaves plain pairing guidance and never
+retries an Ask. An open page whose sync drops shows "Sync disconnected" with the explicit
+Reconnect button, which uses the same `recoverSession` helper through `Live.reconnect` (it
+closes the page socket, Ask and observer first). Acceptance drives this through `reconnect(page)`
+in `acceptance/ask.spec.ts`.
+
 ## Persistence layout
 
 - The data root comes from one fixed `storage.root` API call through the absolute

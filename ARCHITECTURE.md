@@ -4965,15 +4965,12 @@ Colab (`extensions/tmt-colab/`: `tmt-colab`, `tmt-colab-model`, `@tmt/colab-clie
   architecture guard enforces the dependency set, that only `tmt-colab` consumes the model,
   and that only `decoder/child.rs` imports `yrs`.
 - **Seams.** With Remote: the mount socket, `tmt-device-context`, the device-events callback
-  and the browser SDK; Ask agent (#1110) sends through its operations helper (#1497) as the
-  paired owner device, with no native bridge, ledger or migration. With core: `Product::Colab`
-  registers the executable with the installer, and the app is served from `serve --app-dir`,
-  else bytes embedded from `TMT_COLAB_APP_DIR`, else the checkout's Vite output.
-- **Restart recovery.** Private guidance serves one public, build-owned recovery entry;
-  all other app assets remain owner-gated. It uses the existing tab claim and Web Lock
-  before Remote's SDK checks its paired key and reopens. A session-storage marker
-  spans the recovery reload until authenticated boot clears it; failed recovery
-  shows pairing guidance. Disconnected active tabs offer the same explicit recovery.
+  and the browser SDK; the Ask agent sends through Remote's SDK operations helper as the
+  paired owner device, with no native bridge, ledger or migration. After a Remote restart,
+  Colab's public recovery entry reopens the paired device's session once, through the same
+  tab claim; all other app assets stay owner-gated. With core: `Product::Colab` registers
+  the executable with the installer, and the app is served from `serve --app-dir`, else
+  bytes embedded from `TMT_COLAB_APP_DIR`, else the checkout's Vite output.
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
