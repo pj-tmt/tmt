@@ -10,6 +10,9 @@ changes use the focused checks in
 stated. Raw runtime proof is in the
 [smoke matrix](../../tmt-e2e/references/runtime-smoke-matrix.md); raw executables do not
 prove archives or public installation.
+Archive, installer, upgrade and public smoke verifiers share `native-runtime-proof.mjs`
+for linkage, exact embedded skills and SQLite reopen behavior; each caller retains
+its independent inventory/checksum/notices and failure/cleanup checks.
 
 ## Native pipeline
 
@@ -26,13 +29,45 @@ the Rosetta tooling. The wrapper reports whether `uname -m` or Node
 architecture. Check the caller's x64 `setup-tooling` selection; version injection
 keeps that Node unchanged.
 
+## Archive inventory and install facts
+
+Every native product archive carries its executable, `LICENSE`, `NATIVE-INSTALL.md`
+and `THIRD-PARTY-NOTICES.txt`. The CLI may also carry optional companion executables;
+Squad additionally carries its skills tree. The installer enforces inventory in
+`tmt-core`'s `native_install/product.rs`: adding, renaming or dropping an entry
+changes the installer contract and needs upgrade proof.
+
+`rust/archive/NATIVE-INSTALL.md` supplies the archive note through
+`dist-workspace.toml` and extension includes. Keep it short, product-neutral and
+version-free; the handbook owns user guidance, and onboarding tests execute its
+PATH block in Bash and Zsh.
+
+Targets are macOS x64/arm64 (deployment target 11.0) and static-musl Linux x64/arm64.
+For macOS x64 follow the [runtime acceptance policy](../../tmt-e2e/references/runtime-smoke-matrix.md):
+arm64 cross-build, complete Rosetta verifier process trees with exact installed-byte
+architecture checks, plus weekly native Intel public installation/upgrade coverage.
+A deployment target is not evidence of testing every macOS version; report tested hosts.
+
+Manifest SHA-256 checksums detect corruption, not a compromised origin. Local
+checksums are not signatures; only published immutable releases carry GitHub
+attestations. The generated `install.sh` fixes the initial version/channel, checks
+manifest/archive sizes and digests before temporary execution, then delegates
+permanent writes to the native installer. It requires POSIX shell, curl, tar/gzip,
+standard utilities and `sha256sum` or `shasum`, edits no shell profile and touches
+no SQLite. Receipts record local archive verification, not independent attestation.
+Human success names `<requested-prefix>/bin/tmt` even through a symlinked prefix
+ancestor; validation, receipts and JSON retain canonical paths.
+
 ## Building and verifying archives
 
 Install the pinned tools into a chosen directory: cargo-dist 0.32.0 (`cargo install --locked`)
 and cargo-about 0.9.2 (`cargo install --locked --features cli`). Fetch locked dependencies
 before the offline notice step. The taffy license clarification in `rust/about.toml` resolves
 to `rust/licenses/taffy-0.7.7/LICENSE.md`; the builder fails if its bytes or the locked taffy
-version change (review the clarification on a taffy upgrade). Select the CLI explicitly with
+version change (review the clarification on a taffy upgrade). Generate the offline config
+with `scripts/build-native-artifact.sh --notices-only <target> <product>` before calling
+cargo-about directly: use its `rust/target/native-notices/about.toml`, retain `--fail`
+and the archive verifier's placeholder rejection. Select the CLI explicitly with
 `--tag v<CLI-version>` for direct `dist plan`/`dist build` calls. Build targets sequentially in
 one checkout (distribution directory and notice input are per checkout), retaining each
 manifest, archive and notices before the next build:
@@ -46,8 +81,8 @@ node typescript/scripts/verify-native-artifact.mjs --manifest "$native_manifest"
   --skill skills/tmux-team/SKILL.md --notices rust/target/native-notices/THIRD-PARTY-NOTICES.txt --license LICENSE
 ```
 
-The verifier bounds inputs (64 MiB compressed, 128 MiB expanded), requires exactly the four
-runtime files, runs the extracted executable with no Node/Rust/tmux on `PATH` and checks
+The verifier bounds inputs (64 MiB compressed, 128 MiB expanded), enforces the product
+inventory above, runs the extracted executable with no Node/Rust/tmux on `PATH` and checks
 SQLite persistence; macOS needs `otool` and `lipo` through `xcrun` (10 s bound), so every
 workflow job that runs it on macOS first runs `.github/actions/warm-xcrun` (a guard test
 fails otherwise); Linux needs `readelf`. A generated notice file is not legal certification.
@@ -106,7 +141,13 @@ application state.
 ## Upgrade and installer verification
 
 Installation and upgrade tests build their fixtures as described in
-[installation-fixtures.md](installation-fixtures.md).
+[installation-fixtures.md](installation-fixtures.md). Every released product must
+upgrade from its newest lower published version, preserving candidate > previous,
+downgrade rejection and readable old receipts. Standalone drivers use the current
+published CLI's path approval surface. Keep ownership in the installation prefix,
+not application-state selectors; verify pin policy, old executable preservation,
+partial command-link finalization and unchanged data. The internal installer is
+not permission to replace a user or package-manager installation.
 
 `tmt upgrade [--channel stable|alpha] [--to <version> | --unpin] [--json]` and `tmt update`
 share one grammar. Use task-owned managed prefixes; an unmanaged checkout binary fails before
@@ -195,9 +236,50 @@ archive (inject empty refs or a tag without a release) must report `EXTENSION_RE
 archives prove installer behavior, not published linkage or runtime versioning. Publish the
 supporting CLI alpha before testing a public install or upgrade.
 
+## CLI upgrade proof
+
+`native-release-policy.mjs::upgradeSupportFloor` declares the exact published CLI
+floor (alpha.36). For candidates above it, `release-upgrade.mjs` stages both the
+floor and newest published source below the candidate, deduplicating identical sources, and the candidate
+`install.sh`; every archive, manifest and bootstrap must retain its recorded
+GitHub digest. Candidates at or below the floor keep their historical single-source proof.
+
+Candidate `native_install/handoff.rs::VERSION` owns probe applicability. Protocol-1
+sources require the exact successful candidate probe in
+[the handoff contract](../../../../contracts/native-install-handoff-v1.md); malformed,
+failed or unsupported probes cannot become legacy evidence. Each source creates
+its own receipt and application state. An offline source installer that rejects
+added inventory must emit its actual `NATIVE_INSTALL_FAILED` / `Unexpected native
+archive asset inventory.` error and preserve the complete installation and SQLite.
+The actual candidate bootstrap then recovers with only curl acquisition replaced
+by the exact staged versioned assets, retaining old bytes and migrating state cleanly.
+Offline installation remains strict and does not prove self-upgrade delegation.
+
+Every distinct source also passes the existing managed lifecycle/migration checks
+and actual-archive adapter acceptance. Compile the candidate's adapter lib tests
+once per host; require exactly one discovered ignored test and one passing execution
+per source. Acquisition is injected; production candidate delegation and real
+candidate execution are exercised by the candidate adapter. Public downloads and
+`tmt upgrade` remain the separate post-publication smoke.
+
+Keep each prove job's ten-minute timeout, read-only dependency cache and per-source
+bootstrap/adapter plus compile durations. For tooling changes, use a PR-only,
+read-only/no-secrets four-host rehearsal against a pinned real main source and
+actual cargo-dist archives; remove temporary rehearsal machinery before readiness.
+Do not dispatch a publishing workflow to obtain proof.
+
+Focused checks from the repository root:
+
+```sh
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/release-upgrade.test.ts test/tooling/native-upgrade-proof.test.ts test/tooling/native-release-policy.test.ts test/tooling/native-bootstrap.test.ts test/tooling/intel-verification.test.ts test/tooling/xcrun-warmup.test.ts test/tooling/release-workflow.test.ts test/tooling/repository-layout.test.ts)
+(cd typescript && corepack pnpm check:tooling)
+actionlint .github/workflows/native-release-upgrade.yml
+```
+
 ## Curl bootstrap
 
-Generate the script only after final archives and their independent runtime verification; the
+Generate the script only after final cargo-dist archives and their independent runtime verification; use
+the existing native publisher, never a competing stock installer. The
 manifest, not a hand-kept version table, owns the facts:
 
 ```sh
@@ -212,6 +294,8 @@ live GitHub or cross-target evidence. The Dockerfile above carries it too (`--en
 `test/tooling/native-bootstrap.test.ts` covers negative paths with a stub that is never
 publication evidence. An authorized release uploads the exact verified manifest, archives and
 script and verifies the public download before the README advertises it.
+Replacing npm/pnpm is a fresh installation without data-transfer machinery; never
+delete old state or silently uninstall another manager.
 
 ## Packed verifier cleanup
 
@@ -245,7 +329,8 @@ clock-dependent flip or ruleset edit. Verify with
 
 ## Project release tracking
 
-`project-release.mjs` owns delivery evidence separately from publication.
+`project-release.mjs` owns delivery evidence separately from publication. Epic trackers
+retain their owning lead's acceptance/dogfood gate and appear as skipped in the summary.
 
 Each sweep executes trusted main tooling, exports current main once and reads its map and
 Cargo graph once. Full-history closing merges supply changed paths and containing-tag
