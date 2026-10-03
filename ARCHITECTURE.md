@@ -3474,8 +3474,8 @@ The existing Reload request carries `preview_panes` only while the picker is
 open, acquiring missing notes/replies through the same loader and cancellation
 fence. Closing it preempts preview reads and returns to resolved-pane acquisition;
 no second worker or arrangement resolver is introduced. The built-in leads/all
-tabs keep their opening rows-only Board throughout picker preview, save and
-cancel; they offer all-boards scope, which affects real squad tabs only.
+tabs retain their fixed home/leads composition throughout picker preview, save
+and cancel; they offer all-boards scope, which affects real squad tabs only.
 
 Squad's `settings` coordinator delegates to arrangement, rows, notebook/state,
 meter, theme and tab/program area projections. Source-bearing Config reader
@@ -3557,9 +3557,10 @@ occurrence of a member UUID and `squad.notesStaleness`; text labels derive from
 those objects. The board draws a stale row in the `dim` token with its label at
 the row's right edge, reserving that room only when no column would be hidden,
 and adds the notes' label to the notes pane title in `waiting`; the label text
-carries the meaning without color. The leads and all tabs read rosters without
-an observer and show no marks. Content age is unrelated to `App::loading`, the
-previous squad's frame while a switch loads.
+carries the meaning without color. The leads tab reads rosters without an
+observer and shows no marks; the home model observes squads for blocked-member
+ages. Content age is unrelated to `App::loading`, the previous squad's frame
+while a switch loads.
 
 The private observation cache under `$XDG_CACHE_HOME/tmt-squad/staleness`
 is bounded to 512 KiB and 128 members per room, namespaced by the absolute
@@ -3621,11 +3622,11 @@ Both callers receive the same projected rows, attention and row-grid metadata;
 `failures`; a failed inbox read retains available roster fields. Both cases set
 `partial`, with a board summary indicator and text warnings, and clear on the
 next successful read. Member views join one global `ls` read for presence. Its rows carry their squad, so talk goes to that
-squad's room and a jump is the ordinary `tmt focus`. The all tab's rows are
-squads, not members: their `tab` action opens the squad's tab, and member
-bindings don't apply there. `jump lead` (`L` in the tmux preset) resolves a
+squad's room and a jump is the ordinary `tmt focus`. The public all document
+retains one row per squad; its board-only home composition also includes
+attention members. `jump lead` (`L` in the tmux preset) resolves a
 lead name in `App::lead`: the document's `squad.lead` on a squad tab, the
-selected row on the leads tab, the row's `lead` field on the all tab; it then
+selected row on the leads tab, and the selected entry's lead on home; it then
 takes the ordinary jump request, so the popup closes and `back` returns.
 
 `board::home` retains a board-only summary, shared-filter attention sections and
@@ -3637,8 +3638,25 @@ one for every squad before its roster read and records afterward, writing its
 observation cache under the held per-squad lock when enabled and available.
 It respects the reminders policy without extra core commands. Request ages
 use shared-inbox timestamps; pending-only rows have no age. The source aggregate
-document and `ls --tab all` JSON/text remain unchanged. The retained model does
-not yet change board painting or actions.
+document and `ls --tab all` JSON/text remain unchanged. The home painter uses
+the existing summary band and a flat body, bypassing
+ordinary pane composition for the shown immutable home view. It keeps one
+`App.selected` cursor, reconciled by section/squad/member identity across refresh
+and search. Attention precedes squads; future replies and cron targets insert
+between them. Hits, paging and overflow reuse `Scrolls`. Enter jumps to a
+member or opens a squad; Tab traverses attention/squads, and `a` opens the real
+request picker or an annotation to the selected squad’s lead. The composer
+retains and revalidates sender, target, lead and open request before public
+`tmt answer` or annotation dispatch. Questions stay inside the picker. No
+tiles, replies feed, cron data or model/token totals are synthesized.
+
+Planned section ownership after #1292: `tmt-tiles-oai` owns the ③ tiles
+painter/controller strip (#1293); `tmt-cronboard-oai` owns the ⑤ summary strip
+(#1319). Tiles return pure lines and local entry/x/width/start/end placements;
+home translates them into the shared cursor, paging, reveal and clipped hits.
+Cron supplies a pure one-line summary and an explicit stable clock-key target,
+not a squad target. Both reuse `App.selected` and `Scrolls`; their acquisition
+and list/lifecycle owners stay outside paint, with shared hunks coordinated.
 
 Moving a tab (Shift+←/→, or a drag on the tab
 line) saves `[tabs] order` through `Config::write`, the same compare-and-set,
@@ -3766,8 +3784,9 @@ No additional core read, notebook mutation or acknowledgement is introduced.
 The detail pane appends the selected member's saved-identity notebook after its
 fields. The session requests only a visible, expanded selected detail, accounting
 for effective Board previews, tab focus and the last painted viewport; temporary
-identities show `(temporary identity: no notebook)` without a read. Leads/all
-remain rows-only. `board::refresh::Deferred::Notebook` runs public `notes.read`
+identities show `(temporary identity: no notebook)` without a read. Leads/home
+never show member detail notebooks. `board::refresh::Deferred::Notebook` runs
+public `notes.read`
 with the same bounded cancellable reader and 1 MiB API notebook limit as lead
 notes, never creating a file. Full reloads take priority; queued selection jobs
 collapse to the latest. Events retain the existing generation cancellation and a

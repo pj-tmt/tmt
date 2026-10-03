@@ -325,10 +325,12 @@ pub fn effective_bindings(
     bindings
 }
 
-/// The overview has squad rows, so member bindings never apply.
+/// Home actions resolve against the selected attention member or squad.
 pub fn all_preset() -> Bindings {
     parse_bindings(
         [
+            ("tab", Some("next-pane")),
+            ("a", Some("annotate lead")),
             ("enter", Some("tab")),
             ("double-click", Some("tab")),
             ("ctrl-r", Some("refresh")),

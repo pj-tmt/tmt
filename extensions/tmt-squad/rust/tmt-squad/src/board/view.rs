@@ -75,6 +75,9 @@ fn toggle_label(app: &App, action: &crate::action::Action) -> Option<String> {
 
 /// The footer names what the most used keys do for the selected row.
 fn hints(app: &App, width: usize) -> String {
+    if app.view.as_ref().is_some_and(|view| view.home.is_some()) {
+        return super::home::hints(width);
+    }
     let bindings = app.bindings();
     let mut hints: Vec<String> = [
         ("enter", "⏎"),
@@ -136,10 +139,19 @@ fn hints(app: &App, width: usize) -> String {
 
 /// Fixed keys, then every binding for the selected row.
 fn help_lines(app: &App) -> Vec<String> {
-    let mut lines: Vec<String> = KEYS.iter().map(|line| (*line).to_owned()).collect();
+    let mut lines: Vec<String> = if app.view.as_ref().is_some_and(|view| view.home.is_some()) {
+        super::home::HELP
+            .iter()
+            .map(|line| (*line).to_owned())
+            .collect()
+    } else {
+        KEYS.iter().map(|line| (*line).to_owned()).collect()
+    };
+    let base_len = lines.len();
+    // Keep the ordinary help's binding and refresh metadata.
     if let Some(view) = &app.view {
         lines.insert(
-            KEYS.len() - 1,
+            base_len.saturating_sub(1),
             match view.refresh {
                 Some(every) => format!("reload      automatically every {}s", every.as_secs()),
                 None => "reload      automatic reload is off".to_owned(),
@@ -356,6 +368,15 @@ pub(super) fn time_marks(app: &App, now: u64) -> Vec<String> {
     let Some(view) = &app.view else {
         return Vec::new();
     };
+    if let Some(home) = &view.home {
+        return home
+            .sections
+            .iter()
+            .flat_map(|section| &section.rows)
+            .filter_map(|row| row.age.as_ref())
+            .map(|age| super::home::age_label(age, now))
+            .collect();
+    }
     let board = app.effective_board().expect("loaded view has a board");
     let visible = match board.mode {
         BoardMode::Split => {
@@ -799,7 +820,16 @@ pub fn render(frame: &mut Frame, app: &App) {
     ])
     .areas(frame.area());
     frame.render_widget(Paragraph::new(tab_line(app, tabs)), tabs);
-    frame.render_widget(Paragraph::new(summary_line(app)), summary);
+    let summary_text = app
+        .view
+        .as_ref()
+        .filter(|_| !app.loading())
+        .and_then(|view| view.home.as_ref())
+        .map_or_else(
+            || summary_line(app),
+            |home| super::home::summary(home, summary.width, look),
+        );
+    frame.render_widget(Paragraph::new(summary_text), summary);
     render_meter(frame, app, summary);
     render_body(frame, app, body);
     let mut footer_line = if let Some(input) = &app.input {
@@ -957,6 +987,10 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
         render_rows(frame, app, area);
         return;
     };
+    if view.home.is_some() {
+        super::home::render(frame, app, area);
+        return;
+    }
     let board = app.effective_board().expect("loaded view has a board");
     let focused = app.focused_pane();
     let pane_block = |pane: Pane| {
