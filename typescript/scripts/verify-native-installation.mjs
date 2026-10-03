@@ -14,6 +14,11 @@ import {
 } from './migrated-state.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 import { assertMacOsArchitecture } from './native-runtime-proof.mjs';
+import {
+  hasInstallerHandoff,
+  proveSourceBootstrap,
+  requireInstallerProtocol,
+} from './native-upgrade-proof.mjs';
 
 const { values } = parseArgs({
   options: Object.fromEntries(
@@ -25,6 +30,7 @@ const { values } = parseArgs({
       'target',
       'skill',
       'source-root',
+      'bootstrap',
     ].map((name) => [name, { type: 'string' }])
   ),
 });
@@ -71,6 +77,25 @@ await withNativeArtifact(values.archive, current, async (source) => {
       const installer = path.join(source, 'tmt');
       assertMacOsArchitecture(installer, values.target, options);
       assertMacOsArchitecture(path.join(oldSource, 'tmt'), values.target, options);
+      if (values.bootstrap) {
+        if (hasInstallerHandoff(sourceRoot)) requireInstallerProtocol(installer, options);
+        else
+          console.log(
+            'Candidate source predates installer handoff; protocol gate not applicable (historical proof).'
+          );
+        proveSourceBootstrap({
+          root: path.join(root, 'source proof'),
+          source: path.join(oldSource, 'tmt'),
+          current,
+          previous,
+          bootstrap: values.bootstrap,
+          archive: values.archive,
+          manifest: values.manifest,
+          previousArchive: values['previous-archive'],
+          previousManifest: values['previous-manifest'],
+          expectedMigrations: expectedMigrations(sourceRoot),
+        });
+      }
       assert.equal(runPackedCommand(installer, ['--version'], options).trim(), current.version);
       assert.equal(
         runPackedCommand(path.join(oldSource, 'tmt'), ['--version'], options).trim(),

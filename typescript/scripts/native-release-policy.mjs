@@ -13,7 +13,9 @@ import { isReleased, parseComponentMap } from './ci-scope.mjs';
 // and in the Rust native_install/release_tests.rs; change all three together.
 
 const PRODUCTS = {
-  cli: { tagPrefix: 'v', prerelease: false, latest: true },
+  // Covers the reported pre-companion installation in #1454. Older receipt
+  // readability is not a claim that every older release has an upgrade proof.
+  cli: { tagPrefix: 'v', prerelease: false, latest: true, upgradeFloor: 'v5.0.0-alpha.36' },
   office: { tagPrefix: 'tmt-office-v', prerelease: true, latest: false },
   squad: { tagPrefix: 'tmt-squad-v', prerelease: true, latest: false },
   'driver-herdr': { tagPrefix: 'tmt-driver-herdr-v', prerelease: true, latest: false },
@@ -38,7 +40,15 @@ export function isProductReleased(map, product) {
 export function releasePolicy(product) {
   const policy = PRODUCTS[product];
   if (!policy) throw new Error(`Unknown native product: ${product}`);
-  return { product, ...policy };
+  // Publication markers are immutable wire data; proof policy is not a marker field.
+  const { tagPrefix, prerelease, latest } = policy;
+  return { product, tagPrefix, prerelease, latest };
+}
+
+/** The exact CLI source covered by the upgrade proof; other products prove only their previous release. */
+export function upgradeSupportFloor(product) {
+  releasePolicy(product);
+  return PRODUCTS[product].upgradeFloor ?? null;
 }
 
 /** The archive name prefix of a product's bundle: `tmt-cli-<target>.tar.gz`, `tmt-office-...`. */

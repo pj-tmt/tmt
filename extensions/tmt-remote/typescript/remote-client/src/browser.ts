@@ -1,3 +1,13 @@
+export { operations, ClientError, RefusalError } from './operations.js';
+export type {
+  ClientErrorCode,
+  RemoteRefusalCode,
+  RemoteOperations,
+  RemoteAgent,
+  SendInput,
+  SendState,
+  ResultState,
+} from './operations.js';
 import wordlist from '../../../rust/tmt-remote/assets/bip39-english.txt?raw';
 import { fingerprintIndexes } from './canonical-bytes.js';
 import {
