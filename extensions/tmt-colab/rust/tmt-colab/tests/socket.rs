@@ -1289,7 +1289,7 @@ fn revoked_author_chain_is_verifiable_but_signed_log_denies_its_objects() {
 }
 
 #[test]
-fn oversized_membership_statement_returns_capacity_without_truncation() {
+fn large_membership_statement_bootstraps_with_exact_chunks_and_frame_credit() {
     let server = Running::start(Tunnels::PRODUCT);
     let layout = Layout::open(&server.root).unwrap();
     let key = Keyring::read(&layout).unwrap();
@@ -1299,7 +1299,7 @@ fn oversized_membership_statement_returns_capacity_without_truncation() {
         .unwrap()
         .unwrap();
     let descriptor = json!({"pageId":PAGE,"epoch":"2","sourceDigest":values::encode_binary(&[1;32]),"baselineCommitment":values::encode_binary(&[2;32]),
-        "title":"x".repeat(40*1024),"objectEnvelopeHash":values::encode_binary(&[3;32]),"membershipRevision":"2"});
+        "title":"x".repeat(250*1024),"objectEnvelopeHash":values::encode_binary(&[3;32]),"membershipRevision":"2"});
     let statement = key
         .sign_statement(
             Some(&head),
@@ -1311,7 +1311,8 @@ fn oversized_membership_statement_returns_capacity_without_truncation() {
         )
         .unwrap();
     let bytes = statement.to_json().unwrap();
-    assert!(bytes.len() > 44 * 1024);
+    assert!(bytes.len() > 64 * 1024);
+    assert!(bytes.len().div_ceil(limits::CHUNK_BYTES) > limits::SEND_QUEUE_FRAMES);
     store
         .owner_transaction(
             &server.space,
@@ -1327,15 +1328,134 @@ fn oversized_membership_statement_returns_capacity_without_truncation() {
             },
         )
         .unwrap();
-    let mut peer = server.peer(DEVICE);
-    send(
-        &mut peer,
-        server.frame(
-            "hello",
-            json!({"device":DEVICE,"membershipRevision":"0","cursors":[]}),
-        ),
-    );
-    assert_eq!(receive(&mut peer)["code"], "CAPACITY");
+    let second_head = store
+        .owner_head(&server.space, &key.owner_public())
+        .unwrap()
+        .unwrap();
+    let successor = key
+        .sign_statement(
+            Some(&second_head),
+            "page.history",
+            &serde_json::to_vec(&json!({"pageId":PAGE,"mode":"current"})).unwrap(),
+        )
+        .unwrap();
+    store
+        .owner_transaction(
+            &server.space,
+            &key.owner_public(),
+            tmt_colab::store::owner::Mutation {
+                operation_id: "00000000-0000-4000-8000-000000000006",
+                digest: [15; 32],
+                expected_revision: 2,
+            },
+            |tx| {
+                tx.append_statement(&successor)?;
+                Ok(Vec::new())
+            },
+        )
+        .unwrap();
+    let genesis_bytes: Vec<u8> = server
+        .oracle()
+        .query_row(
+            "SELECT envelope FROM membership_log WHERE revision=?",
+            [format!("{:020}", 1)],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let genesis = tmt_colab_model::statement::Envelope::from_json(&genesis_bytes).unwrap();
+    let initial = genesis
+        .verify_next(&server.space, &key.owner_public(), None)
+        .unwrap()
+        .head;
+    // Fresh and resumed clients exercise a reference in later and first pages.
+    for revision in ["0", "1"] {
+        let mut peer = server.peer(DEVICE);
+        send(
+            &mut peer,
+            server.frame(
+                "hello",
+                json!({"device":DEVICE,"membershipRevision":revision,"cursors":[]}),
+            ),
+        );
+        let first = receive(&mut peer);
+        assert_eq!(first["membershipHead"]["revision"], "3");
+        assert_eq!(
+            first["membershipHead"]["statementHash"],
+            values::encode_binary(&successor.hash().unwrap())
+        );
+        let reference = if revision == "0" {
+            assert_eq!(
+                first["membershipHead"]["statements"],
+                json!([values::encode_binary(&genesis.to_json().unwrap())])
+            );
+            receive(&mut peer)
+        } else {
+            first
+        };
+        let membership = if revision == "0" {
+            &reference["membership"]
+        } else {
+            &reference["membershipHead"]
+        };
+        let hash = values::encode_binary(&statement.hash().unwrap());
+        assert_eq!(membership["statements"], json!([{"statementHash":hash}]));
+        assert_eq!(membership["more"], true);
+        let count = bytes.len().div_ceil(limits::CHUNK_BYTES);
+        let mut joined = Vec::new();
+        let mut outstanding = if revision == "0" { 2 } else { 1 };
+        for index in 0..count {
+            let chunk = receive(&mut peer);
+            assert_eq!(chunk["type"], "chunk");
+            assert_eq!(chunk.as_object().unwrap().len(), 9);
+            assert_eq!(chunk["space"], server.space);
+            assert_eq!(chunk["page"], PAGE);
+            assert_eq!(chunk["epoch"], "1");
+            assert_eq!(chunk["statementHash"], hash);
+            assert_eq!(chunk["index"], index);
+            assert_eq!(chunk["count"], count);
+            let part =
+                values::binary(chunk["bytes"].as_str().unwrap(), limits::CHUNK_BYTES).unwrap();
+            assert!(!part.is_empty());
+            if index + 1 < count {
+                assert_eq!(part.len(), limits::CHUNK_BYTES);
+            }
+            joined.extend(part);
+            outstanding += 1;
+            if outstanding == limits::SEND_QUEUE_FRAMES {
+                peer.get_mut()
+                    .set_read_timeout(Some(Duration::from_millis(100)))
+                    .unwrap();
+                assert!(
+                    matches!(peer.read(), Err(tungstenite::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut))
+                );
+                peer.get_mut()
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                for _ in 0..outstanding {
+                    send(&mut peer, server.frame("ack", json!({"cursors":[]})));
+                }
+                outstanding = 0;
+            }
+        }
+        assert_eq!(joined, bytes);
+        let decoded = tmt_colab_model::statement::Envelope::from_json(&joined).unwrap();
+        assert_eq!(decoded.hash().unwrap(), statement.hash().unwrap());
+        let verified = decoded
+            .verify_next(&server.space, &key.owner_public(), Some(&initial))
+            .unwrap();
+        assert_eq!(verified.head, second_head);
+        for _ in 0..outstanding {
+            send(&mut peer, server.frame("ack", json!({"cursors":[]})));
+        }
+        let next = receive(&mut peer);
+        assert_eq!(
+            next["membership"]["statements"],
+            json!([values::encode_binary(&successor.to_json().unwrap())])
+        );
+        assert_eq!(next["membership"]["more"], false);
+        send(&mut peer, server.frame("ack", json!({"cursors":[]})));
+        assert_eq!(receive(&mut peer)["more"], false);
+    }
     let stored: Vec<u8> = server
         .oracle()
         .query_row(
@@ -1345,4 +1465,64 @@ fn oversized_membership_statement_returns_capacity_without_truncation() {
         )
         .unwrap();
     assert_eq!(stored, bytes);
+}
+
+#[test]
+fn membership_transfer_refuses_sql_oversize_before_loading_bytes() {
+    let server = Running::start(Tunnels::PRODUCT);
+    // Keep genesis intact so registered-owner admission remains a positive control.
+    let layout = Layout::open(&server.root).unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    let mut store = Store::open(&layout).unwrap();
+    let head = store
+        .owner_head(&server.space, &key.owner_public())
+        .unwrap()
+        .unwrap();
+    let statement = key
+        .sign_statement(
+            Some(&head),
+            "page.history",
+            &serde_json::to_vec(&json!({"pageId":PAGE,"mode":"current"})).unwrap(),
+        )
+        .unwrap();
+    store
+        .owner_transaction(
+            &server.space,
+            &key.owner_public(),
+            tmt_colab::store::owner::Mutation {
+                operation_id: OTHER,
+                digest: [16; 32],
+                expected_revision: 1,
+            },
+            |tx| {
+                tx.append_statement(&statement)?;
+                Ok(Vec::new())
+            },
+        )
+        .unwrap();
+    server
+        .oracle()
+        .execute(
+            "UPDATE membership_log SET envelope=zeroblob(?) WHERE revision=?",
+            rusqlite::params![(limits::STATEMENT_BYTES + 1) as i64, format!("{:020}", 2)],
+        )
+        .unwrap();
+    let mut peer = server.peer(DEVICE);
+    send(
+        &mut peer,
+        server.frame(
+            "hello",
+            json!({"device":DEVICE,"membershipRevision":"0","cursors":[]}),
+        ),
+    );
+    assert_eq!(receive(&mut peer)["code"], "CAPACITY");
+    let size: i64 = server
+        .oracle()
+        .query_row(
+            "SELECT length(envelope) FROM membership_log WHERE revision=?",
+            [format!("{:020}", 2)],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(size, (limits::STATEMENT_BYTES + 1) as i64);
 }

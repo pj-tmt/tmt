@@ -4477,7 +4477,11 @@ scoped signatures, owner-author chains and contiguous hash-linked sequences befo
 folding. One lifetime Web Lock owns each device stream; other tabs relay updates.
 Its writer persists exact envelopes before send and retries those frozen bytes
 across interruption. The socket and Worker share one bounded executor; referenced
-objects have one bounded assembly and an absolute deadline. Last-subscriber release
+objects and membership statements share one bounded assembly and an absolute deadline.
+Statement references bind exact stored envelopes to the model membership hash;
+Admission stages signature/payload/chain and target checks, commits the exact log
+under the existing durable-prefix lock, then publishes its head. Partial or invalid
+transfers publish no head or dependent view. Last-subscriber release
 closes socket, Worker and relay; reconnect reconstructs a fresh verified fold.
 Before a reset page is published, the parent binds its descriptor to the verified
 `epoch.advance`, verifies the management-member-signed sequence-zero baseline
@@ -4821,6 +4825,11 @@ Store's existing owner snapshots; no new schema or secret export is introduced.
 Mounted read-only session/pages endpoints expose forwarded owner identity and
 local page existence with signed-log policy, never content titles. Unknown
 membership revisions resync; byte/count caps reject rather than truncate.
+Large membership entries reference their model statement hash and reuse the lazy
+transfer queue, frame credit and single client assembly. The stored statement
+cap is checked before loading; complete bytes pass owner-log verification before
+head advancement or persistence. A first-page baseline, inline or referenced,
+finishes before any statement reference is delivered on a later membership page.
 A non-null first-page baseline descriptor includes its exact encrypted
 `baselineObject`, inline or through the same consecutive lazy chunk transfer.
 Store checks descriptor/object lengths before copying; transport binds the stored
