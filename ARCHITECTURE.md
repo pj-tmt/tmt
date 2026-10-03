@@ -4025,7 +4025,9 @@ to acknowledge ownership before executing the selected CLI in place. The CLI
 therefore leads its own group, preserving hooks' local deadline contract. The
 harness stops and verifies both groups, including readiness arriving during
 cleanup. Closing the acknowledgement descriptor cancels an unstarted bootstrap.
-Inherited stdin/stdout/stderr preserve CLI bytes, while separate bounded control
+CLI input uses an extra inherited descriptor mapped to stdin by the supervisor;
+it survives Node's automatic stdin closure when the setup child exits. Inherited
+stdout/stderr preserve CLI bytes, while separate bounded control
 descriptors convey ownership, errors and the supervisor's observed CLI exit; exec
 closes them before product execution. The bootstrap resolves executable names
 against the scenario's PATH and checks access before exec, preserving structured

@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const [mode, ...args] = process.argv.slice(2);
+const [mode, inputMode, ...args] = process.argv.slice(2);
 const script = import.meta.filename;
 const nodeArgs = ['--disable-warning=ExperimentalWarning', script];
 
@@ -47,9 +47,9 @@ function executablePath(executable) {
 if (mode === 'detach') {
   const supervisor = spawn(
     process.execPath,
-    [...nodeArgs, 'supervise', String(process.pid), ...args],
+    [...nodeArgs, 'supervise', inputMode, String(process.pid), ...args],
     {
-      stdio: ['inherit', 'inherit', 'inherit', 3, 4],
+      stdio: ['inherit', 'inherit', 'inherit', 3, 4, ...(inputMode === 'input' ? [5] : [])],
     }
   );
   supervisor.once('error', reportError);
@@ -64,9 +64,9 @@ if (mode === 'detach') {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   if (process.ppid !== 1) reportError(new Error('Neutral parent requires adoption by PID 1.'));
-  const child = spawn(process.execPath, [...nodeArgs, 'execute', ...command], {
+  const child = spawn(process.execPath, [...nodeArgs, 'execute', inputMode, ...command], {
     detached: true,
-    stdio: ['inherit', 'inherit', 'inherit', 3, 4],
+    stdio: [inputMode === 'input' ? 5 : 'inherit', 'inherit', 'inherit', 3, 4],
   });
   child.once('error', reportError);
   // The selected CLI leads this second owned group. Exec preserves its PID,

@@ -1349,7 +1349,7 @@ These fixtures do not inherit caller/provider markers, driver recursion flags or
 color settings. Environment isolation does not remove process ancestry. Native
 TypeScript `runCli` also isolates CLI ancestry through the test-only
 `test/support/neutral-parent.mjs`; [testing boundaries](ARCHITECTURE.md#testing-and-evidence-boundaries)
-own its reparenting, completion, deadline and cleanup contract. The native
+own its reparenting, input descriptor, completion, deadline and cleanup contract. The native
 `caller-isolation.test.ts` keeps a direct shared-runtime positive
 control fenced before and after isolation, with the same provider marker on both
 paths. Build its existing process-shape fixture with

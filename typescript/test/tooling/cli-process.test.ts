@@ -288,6 +288,36 @@ process.exit(17);
   });
 });
 
+it('keeps buffered and open stdin alive after setup exits', async () => {
+  await withSandbox(async (sandbox) => {
+    const script = path.join(sandbox.root, 'read-input.mjs');
+    const marker = path.join(sandbox.root, 'input-ready');
+    writeExecutable(
+      script,
+      `import fs from 'node:fs';
+fs.writeFileSync(process.argv[2], 'ready');
+process.stdout.write(String(fs.readFileSync(0).length));
+`,
+      0o644
+    );
+    const selected = { ...sandbox, cli: { executable: process.execPath, args: [script, marker] } };
+    expect(await runCli(selected, [], { stdin: Buffer.alloc(1024 * 1024, 97) })).toEqual({
+      status: 0,
+      signal: null,
+      stdout: String(1024 * 1024),
+      stderr: '',
+    });
+    fs.unlinkSync(marker);
+    const pending = runCli(selected, [], {
+      stdin: 'partial',
+      closeStdin: false,
+      deadlineMs: 1000,
+    });
+    await until(() => fs.existsSync(marker));
+    await expect(pending).rejects.toThrow('exceeded the 1000 millisecond test bound');
+  });
+});
+
 it('resolves a scenario executable on its declared PATH and preserves access errors', async () => {
   await withSandbox(async (sandbox) => {
     const bin = path.join(sandbox.root, 'bin');

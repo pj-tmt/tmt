@@ -151,12 +151,21 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
     try {
       child = spawn(
         process.execPath,
-        [neutralParent, 'detach', sandbox.cli.executable, ...sandbox.cli.args, ...args],
+        [
+          neutralParent,
+          'detach',
+          hasStdin ? 'input' : 'ignore',
+          sandbox.cli.executable,
+          ...sandbox.cli.args,
+          ...args,
+        ],
         {
           cwd: sandbox.cwd,
           env: sandbox.env,
           detached: true,
-          stdio: [hasStdin ? 'pipe' : 'ignore', 'pipe', 'pipe', 'pipe', 'pipe'],
+          // Node destroys child.stdin on setup exit. Keep CLI input on an extra
+          // descriptor until the adopted supervisor maps it to selected fd 0.
+          stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe', hasStdin ? 'pipe' : 'ignore'],
           windowsHide: true,
         }
       );
@@ -183,6 +192,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
     let cliGroup: number | undefined;
     const groups = new Set(child.pid === undefined ? [] : [child.pid]);
     const acknowledgement = child.stdio[4]! as Duplex;
+    const input = child.stdio[5] as Duplex | null;
     acknowledgement.on('error', () => undefined);
     const controlStream = child.stdio[3]! as Readable;
     controlStream.setEncoding('utf8');
@@ -288,7 +298,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
       if (error) {
         cleanupFailed(error);
         child.unref();
-        child.stdin?.destroy();
+        input?.destroy();
         stdoutStream.destroy();
         stderrStream.destroy();
         controlStream.destroy();
@@ -378,15 +388,15 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
       };
     stdoutStream.on('data', readOutput('stdout'));
     stderrStream.on('data', readOutput('stderr'));
-    if (child.stdin) child.stdin.on('error', () => undefined);
+    input?.on('error', () => undefined);
     child.on('error', (error) => {
       failure ??= error;
       beginCleanup();
     });
     try {
-      if (hasStdin && child.stdin) {
-        if (options.closeStdin === false) child.stdin.write(options.stdin);
-        else child.stdin.end(options.stdin);
+      if (hasStdin && input) {
+        if (options.closeStdin === false) input.write(options.stdin);
+        else input.end(options.stdin);
       }
     } catch (error) {
       failure = new Error('Could not write CLI stdin.', { cause: error });

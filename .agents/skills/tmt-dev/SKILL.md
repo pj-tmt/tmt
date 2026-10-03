@@ -39,7 +39,8 @@ Read the repository guidance before planning work:
    When replacing implementations, map behavioral assertions, not test counts:
    returned-error rollback is not crash recovery. Preserve resource cleanup
    ordering through the existing child-process owner. Native CLI scenarios use
-   the shared sandbox runner's ancestry isolation, documented in DEVELOPMENT;
+   the shared sandbox runner's ancestry and input descriptor isolation,
+   documented in DEVELOPMENT;
    keep direct runtime-caller positive controls fenced rather than adding
    scenario skips or production guard overrides.
    Rust executable-fixture changes follow DEVELOPMENT's
