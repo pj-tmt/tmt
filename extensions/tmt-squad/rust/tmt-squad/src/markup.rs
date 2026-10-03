@@ -507,19 +507,23 @@ fn hidden_tracks_shrink_spans_and_show_restores_the_original_grid() {
             Cell {
                 field: Some("member".into()),
                 span: 1,
+                token: None,
             },
             Cell {
                 field: Some("state".into()),
                 span: 1,
+                token: None,
             },
             Cell {
                 field: Some("task".into()),
                 span: 2,
+                token: None,
             },
         ],
         vec![Cell {
             field: Some("member".into()),
             span: 4,
+            token: None,
         }],
     ];
     let original = rows.clone();
