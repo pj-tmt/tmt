@@ -1614,7 +1614,9 @@ kill/restart delivery case belong to PR B2, not approval evidence.
 
 `test/native/storage-denial.test.ts` covers denied-directory storage opens across
 core command families and API notebook reads, with byte/mode preservation,
-corrupt/non-database controls and writable recovery. `check-routing` uses a private
+corrupt/non-database controls and writable recovery. A CLI-created seed is copied
+into each command's isolated sandbox so each denial/recovery check has its own
+bounded test deadline. `check-routing` uses a private
 real socket under a foreign parent locale and proves byte-identical UTF-8 capture
 before and after denial. Its Docker-only root case drops the refusing CLI to
 `nobody`; the fixture retains ownership and cleanup of the server. Locale variables
