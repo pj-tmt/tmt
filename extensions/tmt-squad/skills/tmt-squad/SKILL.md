@@ -523,11 +523,14 @@ apply them.
 
 The selected named squad shows tokens from completed requests observed by this
 board, in **1m / 5m / 60m windows**. The default member grid adds the current
-session model and those three totals. Custom row grids stay unchanged; board-only
-`tok_1`, `tok_2`, `tok_3` fields are available for explicit custom columns.
-One-shot `tmt sq ls` has no window history and its JSON stays unchanged.
+session model and those three totals, declared in the TEAM/crew preset rows.
+Custom grids opt in with `from = "usage.w1"`, `"usage.w2"`, or `"usage.w3"` on a
+column. Default headers follow `tok`; an explicit `title` stays as configured.
+One-shot `tmt sq ls` has no window history. JSON keeps column descriptors without
+usage values; text omits columns whose source is board-only.
 On narrow default member grids, PR steps aside first, then the longest, middle
-and shortest configured windows, and finally MODEL.
+and shortest configured windows, and finally MODEL. MODEL follows its content
+up to 14 cells and truncates longer names.
 
 Input and output count once; cached input is already included in input, and
 normalized reasoning in output. Mixed providers sum reported token units, not

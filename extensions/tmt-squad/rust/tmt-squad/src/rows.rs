@@ -235,45 +235,6 @@ impl Rows {
         ])
     }
 
-    /// Board-only observation columns; public ls grids and custom grids stay intact.
-    pub fn with_usage(mut self, windows: [crate::config::TokenWindow; 3]) -> Self {
-        if let Some(link) = self
-            .columns
-            .iter_mut()
-            .find(|c| matches!(c.field.as_str(), "pr" | "pr_link"))
-        {
-            link.priority = Some(6);
-        }
-        if let Some(model) = self.columns.iter_mut().find(|c| c.field == "model") {
-            model.priority = Some(2);
-        }
-        if !self.columns.iter().any(|c| c.field == "model") {
-            let mut model = Column::sized("model", "MODEL", Some(Basis::Cells(10)));
-            model.from = ColumnSource::parse("session.model", field_name, |_| false);
-            model.priority = Some(2);
-            self.lines[0].push(Cell {
-                field: Some("model".into()),
-                span: 1,
-                token: None,
-            });
-            self.columns.push(model);
-        }
-        for (i, window) in windows.into_iter().enumerate() {
-            let field = format!("tok_{}", i + 1);
-            let mut column = Column::sized(&field, &window.label(), Some(Basis::Cells(7)));
-            column.min = Some(5);
-            column.align = Align::Right;
-            column.priority = Some((3 + i) as u16);
-            self.lines[0].push(Cell {
-                field: Some(field),
-                span: 1,
-                token: None,
-            });
-            self.columns.push(column);
-        }
-        self
-    }
-
     /// The built-in leads tab (#507): each squad's lead on one line.
     pub fn leads() -> Self {
         Self::with_one_line(vec![
@@ -555,6 +516,14 @@ fn width_value(width: Option<Basis>) -> Value {
 /// `[squad.<name>.rows]` when present, else the older `columns` table, else
 /// the preset. Setting both is refused rather than guessed.
 pub fn read(squad: Option<&dyn TableLike>, name: &str) -> Result<Rows, SquadError> {
+    read_with_windows(squad, name, crate::config::TokenWindow::DEFAULTS)
+}
+
+pub fn read_with_windows(
+    squad: Option<&dyn TableLike>,
+    name: &str,
+    windows: [crate::config::TokenWindow; 3],
+) -> Result<Rows, SquadError> {
     let rows = squad.and_then(|table| table.get("rows"));
     let columns = squad.and_then(|table| table.get("columns"));
     let mut result = match (rows, columns) {
@@ -569,7 +538,7 @@ pub fn read(squad: Option<&dyn TableLike>, name: &str) -> Result<Rows, SquadErro
                     .and_then(Item::as_table_like)
                     .is_some_and(|fields| fields.contains_key(field))
             };
-            read_rows(rows, &format!("squad.{name}.rows"), &provided)
+            read_rows(rows, &format!("squad.{name}.rows"), &provided, windows)
         }
         (None, Some(columns)) => read_legacy(columns, &format!("squad.{name}.columns")),
         (None, None) => Ok(Rows::preset()),
@@ -625,6 +594,7 @@ fn read_rows(
     item: &Item,
     place: &str,
     provided: &dyn Fn(&str) -> bool,
+    windows: [crate::config::TokenWindow; 3],
 ) -> Result<Rows, SquadError> {
     let table = item
         .as_table_like()
@@ -661,7 +631,12 @@ fn read_rows(
     for (index, entry) in list.into_iter().enumerate() {
         let here = format!("{place}.columns[{index}]");
         let settings = entry.ok_or_else(|| invalid(format!("`{here}` must be a table.")))?;
-        let column = read_column(settings, &here, provided)?;
+        let mut column = read_column(settings, &here, provided)?;
+        if settings.get("title").is_none()
+            && let Some(index) = column.from.as_ref().and_then(ColumnSource::window)
+        {
+            column.title = windows[index].label();
+        }
         if columns.iter().any(|known| known.field == column.field) {
             return Err(invalid(format!(
                 "`{here}.name` repeats the column `{}`.",

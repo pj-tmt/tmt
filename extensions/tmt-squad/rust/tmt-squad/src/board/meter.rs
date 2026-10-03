@@ -178,24 +178,11 @@ impl Meter {
     }
 
     /// Board-only display fields; callers preserve the public status document.
-    pub fn member_fields(&self, id: &str, now: Instant) -> [String; 3] {
-        self.settings.windows.map(|window| {
-            self.rate
-                .member(id, self.milliseconds(now), window)
-                .map_or_else(
-                    || "—".into(),
-                    |r| {
-                        let text = crate::source::render_value(
-                            &serde_json::json!(r.tokens as f64),
-                            crate::source::Format::Tokens,
-                            0,
-                        )
-                        .expect("finite count");
-                        format!("{}{text}", if r.partial { "~" } else { "" })
-                    },
-                )
-        })
+    pub fn member(&self, id: &str, index: usize, now: Instant) -> Option<Reading> {
+        self.rate
+            .member(id, self.milliseconds(now), self.settings.windows[index])
     }
+
     pub fn model(&self, id: &str) -> Option<&str> {
         self.rate.model(id)
     }
