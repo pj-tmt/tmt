@@ -4988,7 +4988,10 @@ This metadata is not the native bridge ledger or encrypted own-stream publicatio
 operation adapter: #1055 and later L5 slices own runtime adoption, native
 ledger/fencing, reply attribution/publication and real-binary acceptance.
 Test-only deterministic ports/browser mounting stay under the app's test home,
-while independent send vectors/oracle stay under the Colab contract. No schema,
+while independent send vectors/oracle stay under the Colab contract.
+The app's `l5/` directory owns the real-binary Ask agent acceptance: it spawns the
+built `tmt`, `tmt-remote` and `tmt-colab` itself, adds no production seam and keeps
+its recipient, core-barrier wrapper and world teardown inside that directory. No schema,
 Remote/core behavior dependency or public native command is added.
 
 The trusted parent owns routing, source display and render lifecycle; only captured

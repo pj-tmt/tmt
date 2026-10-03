@@ -3664,6 +3664,34 @@ an already subscribed tab, a chunked update renders, a browser edit invalidates 
 old CLI token, and offline writing works after serve stops. Teardown verifies the
 serve process and socket disappear and removes only its generated state.
 
+### Colab Ask agent L5 acceptance (#1110)
+
+`extensions/tmt-colab/typescript/app/l5/` holds the real-binary acceptance for Ask
+agent. It needs no Docker: build `tmt`, `tmt-remote` and `tmt-colab` (and the app
+for Ask cases), point `TMT_L5_BIN_DIR` at the directory holding them (default
+`rust/target/debug`), then run from `typescript/`:
+
+```bash
+(cd rust && CARGO_BUILD_JOBS=2 cargo build --locked -p tmt-cli -p tmt-remote -p tmt-colab --bins)
+corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build
+corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match test:l5
+```
+
+Each scenario gets one world under a short `/tmp` root: private HOME/XDG roots, a
+private tmux server reached only through a `-L` wrapper, the real `tmt-remote` door
+with the real `tmt-colab` mounted, a deterministic recipient pane and one Chromium
+profile per paired browser device. The recipient appends a durable `received` row
+before it answers through the real `tmt reply`; scenarios count work from those rows,
+never from terminal echo. A wrapper around the real core records every Remote/Colab
+core launch and can park one `dispatch.create` before or after the core acts, so a
+scenario kills and restarts a process at that point. Teardown stops every process
+group, closes the browsers, kills the tmux server and fails the test if any process
+naming the root or tmux socket, or any other socket, remains, including after a
+failed scenario. `harness.spec.ts` proves the harness and the sensitivity of that
+check; `ask.spec.ts` lists the Ask cases. A case that needs code that has not landed
+is `test.fixme` with its dependency, never a passing stand-in. Set `TMT_L5_KEEP=1` to
+keep a world's root for diagnosis. Run the suite twice for lifecycle acceptance.
+
 ### Colab native export verification
 
 After local page state exists, export its admitted source without running HTML:
