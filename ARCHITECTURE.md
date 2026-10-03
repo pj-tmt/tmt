@@ -4030,9 +4030,12 @@ release App token owns bounded batched Project/closing-PR GraphQL reads and fiel
 writes; `GITHUB_TOKEN` reads the complete paginated published release catalog.
 Only trusted main tooling executes. A full-history checkout supplies each merged
 closing PR's first-parent changed paths and tags containing its merge commit.
-`ci-scope.ownerOf` and the component map own product attribution, including
-private-leaf `releaseConsumers`; native release policy and version helpers own
-product/tag identities. Notes, commit types and recency windows are not evidence.
+`ci-scope.ownerOf` and the component map own product attribution. Private-leaf
+`releaseConsumers` add consumers to the released packaged roots returned by
+`ci-scope.releasedComponentsForPath`, which matches `owns`/`excludes` independently
+of CI `selectedBy`. Style and invoke therefore retain CLI membership alongside
+Squad; the explicitly CLI-excluded TUI leaf belongs only to Squad. Native release
+policy and version helpers own product/tag identities. Notes, commit types and recency windows are not evidence.
 
 For each affected product, the earliest publication whose tag contains all of
 that issue's closing merge commits is the canonical `Released in` entry. Every

@@ -3482,8 +3482,11 @@ Each run discovers all published supported releases and all Project items within
 explicit bounds. GitHub's paginated `closedByPullRequestsReferences`, including
 closed PRs, supplies merged closing PRs. Local git reads the first-parent merge
 delta (including deleted paths and both sides of renames) and tag containment.
-The existing component owner map assigns products; its private-leaf consumers
-are reused. Existing historical Office tags remain evidence even while Office
+The existing component owner map assigns products. Private-leaf consumers add
+attribution to existing released-root membership through
+`ci-scope.releasedComponentsForPath`, using `owns`/`excludes` rather than CI
+`selectedBy`. Style and invoke require CLI and Squad release evidence; TUI
+requires only Squad evidence. Existing historical Office tags remain evidence even while Office
 publication is parked. Components without a native publication policy stay
 Merged with an explicit waiting reason. For each affected product, the first
 publication containing all relevant closing merge commits becomes the sole
