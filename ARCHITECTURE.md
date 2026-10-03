@@ -1300,6 +1300,8 @@ while another squad loads. The default named-squad grid adds usage columns throu
 `Rows::with_usage`; custom grids stay unchanged. One-shot `ls` has no window
 history and its JSON and grids remain unchanged. Observation policy changes
 start fresh history rather than inventing earlier coverage.
+The default usage grid hides PR before the longest-to-shortest windows, then
+model, using existing grid priorities without changing PR sizing.
 
 `board::meter` owns cubic counting digits (600 ms, 250 ms frame spacing and an
 exact final frame), smooth retargeting and immediate window switches/reduced
