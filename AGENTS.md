@@ -29,7 +29,9 @@ squad's lead, owned paths and contracts, and how squads communicate and merge.
 The core lead owns the architecture: core paths and contracts, the seams between
 squads, and the product's guiding principles. Within its owned paths and
 contracts, a squad lead decides on its own, including architecture and design
-choices, staffing within the recorded limits, and releases of its components.
+choices, staffing within the recorded limits, and alpha releases of its
+components. Stable releases, breaking changes and any other publishing
+authorization stay with the owner.
 Bring only decisions that change core paths, core contracts or a seam between
 squads to the core lead.
 
