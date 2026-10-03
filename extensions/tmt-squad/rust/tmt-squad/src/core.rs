@@ -187,6 +187,22 @@ impl Core {
             _ => Err(unavailable("tmt failed without a structured error.")),
         }
     }
+
+    /// A write explicitly attributes its originator, including anonymous clocks.
+    pub fn api_write(
+        &self,
+        operation: &str,
+        input: Value,
+        identity: Option<&str>,
+    ) -> Result<Value, SquadError> {
+        let mut request = json!({"version": 1, "operation": operation, "input": input});
+        if let Some(identity) = identity {
+            request["identity"] = json!(identity);
+        } else {
+            request["originator"] = json!("anonymous");
+        }
+        self.call(&["api".into()], request.to_string().as_bytes())
+    }
 }
 
 fn executable(path: &Path) -> bool {

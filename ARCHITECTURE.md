@@ -3344,8 +3344,9 @@ rest of that squad's namespace. A required new marker at the identity metadata
 capacity limit returns the existing core error before the role pairs or join,
 rather than silently changing leadership. Reads never convert state.
 
-The package also exposes a Squad-owned `cron` library; command and clock callers
-are not connected yet. `cron::schedule` owns positive elapsed intervals, fixed
+The package exposes a Squad-owned `cron` library. `cron_command` composes the
+management grammar/output through one `cron_service` shared with future clock and
+board callers. `cron::schedule` owns positive elapsed intervals, fixed
 local times and five-field cron parsing/next-slot math. Named time zones use
 Jiff's system/zoneinfo database without a bundled database. Fixed local times
 skip DST gaps and choose the first occurrence in a fold; elapsed intervals keep
@@ -3363,6 +3364,33 @@ a directory-sync error after rename reports an uncertain commit for rereading.
 New directories/files use 0700/0600 permissions. Invalid existing state fails
 explicitly rather than resetting counters or overwriting it. No cron data goes
 into `squad.toml` or the core database.
+
+`cron_service` owns list_jobs/show_job/apply, explicit recorded/verified CronActor admission and
+room/owner/revision revalidation. Existing mutations retain a JobKey (squad name,
+room UUID, c-id) and expected revision; add retains its selected room UUID.
+Admission and stored comparisons run inside the stable jobs lock. A user or the
+current squad lead may write; an identified ordinary member never falls back to
+the user. Reads do not require that permission. Manual and scheduled send callers
+obtain admitted immutable jobs through the same locked path, with anonymous
+scheduled admission requiring an on job and active owner membership. No dispatch
+runs under the jobs lock; core roster/identity state can still change after that
+snapshot, and core owns final dispatch admission. `Core::api_write` reuses the
+bounded process owner with an explicit identity or anonymous envelope.
+
+Owner hook registration (`identityHooks`, consumer `squad-cron`) precedes job
+publication; a failed publication can leave a harmless unused reference. List,
+show and apply process one pending retirement page of at most 16 hooks. Future
+clock ticks call that same drain. A still-matching room/job/owner reference becomes
+paused/no owner with a new revision before hook acknowledgment; obsolete hooks
+are acknowledged without editing a reassigned or removed job. Add/edit/pause/
+resume/remove notify the owner; reassign notifies old/new owners, with the message
+for the new owner. The actor's own notice is suppressed; retirement notifies the
+current lead anonymously. These post-commit announcements use deterministic
+room/job/revision/action/recipient operation UUIDs. Failures are returned as
+warnings, without rollback, outbox or recovery journal. Interruption can lose a
+notice. Reassignment retains a pause; resume requires a current owner. Read
+projections exclude jobs belonging to retired/replaced rooms while preserving
+their records and counters. No clock commands or board integration ship here.
 
 `ls` (alias `status`) joins
 one `rooms.roster` snapshot with `ls --room` presence. Presence is read first so

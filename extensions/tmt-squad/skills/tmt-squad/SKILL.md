@@ -233,6 +233,39 @@ The composer refuses changed targets/requests/leads and missing sender/lead;
 Esc cancels and empty text sends nothing. Left/right switch tabs, `s` opens the
 switcher, and `/` searches. Home has no r/R reply shortcut or numeric navigation.
 
+## Manage recurring jobs
+
+`tmt sq cron ls [--squad NAME]` lists jobs across all active squads, including
+hidden boards. `show <squad> <id>` shows the exact message, pause attribution and
+up to three future slots. All management commands take `--json`.
+
+```sh
+tmt sq cron add product worker --every 30m "Review the queue"
+tmt sq cron add product worker --at 09:00 --on weekdays "Review the queue"
+tmt sq cron add product worker --cron "0 */3 * * *" "Review the queue"
+tmt sq cron edit product c1 --message "Review pending changes"
+tmt sq cron pause product c1
+tmt sq cron resume product c1
+tmt sq cron reassign product c1 reviewer
+tmt sq cron rm product c1
+```
+
+Writes require the recorded user or that squad's current lead. `--identity`
+selects an explicit actor; otherwise the verified caller wins, then the recorded
+user only when no caller exists. An ordinary identified member cannot fall back
+to the user. Add accepts `--paused`; edit accepts the same schedule flags or
+`--message`. Reassignment clears no owner but retains its pause; resume separately.
+
+Messages must be nonempty and are retained exactly, without substitution. Jobs
+live under the extension's own storage, separate from `squad.toml`. IDs are never
+reused. Fixed local times skip daylight-saving gaps and use the first repeated
+time; intervals keep elapsed duration. Schedule edits retain the stored zone.
+Change notices are best-effort announcements to the owner; reassignment notifies
+old/new owners, and the actor's own notice is suppressed. A committed change can
+report notification warnings. Owner retirement pauses the job as no owner and
+notifies the lead; each management invocation handles at most 16 pending hooks.
+This release provides job management; clock and board controls land separately.
+
 ## Inspect board settings
 
 Press `,` to open read-only settings for the shown squad or tab; `settings` is

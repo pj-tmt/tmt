@@ -1741,7 +1741,14 @@ The Squad-owned cron library's focused checks are
 syntax, named-zone calendars, DST gaps/folds and elapsed anchors. Storage cases
 use disposable roots and check durable counters, exact messages, permissions,
 competing writers and rejected publication without touching the core database
-or `squad.toml`. CLI, notices and clock integration are not connected yet.
+or `squad.toml`. Management CLI/service checks are
+`cargo test --locked -p tmt-squad cron_service` and the native
+`squad.test.ts` cron cases. They verify explicit actor permission, locked room/
+revision refusal, exact messages, post-commit announcement recipients/failures,
+hook registration rollback and obsolete/replayed retirement references. Reads
+process one bounded retirement page without editing `squad.toml`. The private
+tmux `squad.e2e.test.ts` cron case independently reads committed announcement and
+hook state. Clock/board integration remains separate.
 
 Tab parity is checked by `built_in_board_documents_equal_ls_tab_documents` and
 `user_board_and_ls_share_members_sections_bindings_and_failed_reads`: board views
