@@ -1,4 +1,5 @@
 //! Disposable arrangement preview; only the opening Config can save the draft.
+use super::picker_surface;
 use crate::{
     config::{Board, Config},
     core::SquadError,
@@ -6,13 +7,12 @@ use crate::{
 };
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent},
+    crossterm::event::{Event, KeyCode},
     layout::Rect,
-    style::Modifier,
-    text::{Line, Span},
-    widgets::{Block, Borders, Clear, Padding, Paragraph},
 };
-use tmt_cli_style::Role;
+use serde_json::json;
+use std::{cell::RefCell, sync::OnceLock};
+use tmt_tui::components::{ListRow, PickerEvent, PickerField, PickerInput, surface};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Choice {
@@ -25,11 +25,39 @@ pub(super) enum Input {
     Cancel,
     Save,
 }
+impl Choice {
+    fn id(self) -> &'static str {
+        match self {
+            Self::Custom => "custom",
+            Self::Reset => "default",
+            Self::View(view) => view.name(),
+        }
+    }
+}
+const FILE: &str = "squad.view-picker.xml";
+const MARKUP: &str = r#"<tmt-view version="1"><tmt-modal id="view-picker" title="view · all boards" placement="center" class="w-72"><tmt-scroll id="choices-body"><tmt-table id="choices" bind="$.rows"><tmt-row class="grid grid-cols-[2_10_1fr] gap-1"><tmt-cell bind="row.mark" token="text"/><tmt-cell bind="row.name" token="text"/><tmt-cell bind="row.description" wrap="true" token="text"/></tmt-row></tmt-table><tmt-repeat each="$.notes" as="note"><tmt-text bind="note.text" token="muted" wrap="true"/></tmt-repeat></tmt-scroll><tmt-text id="scope" slot="query" bind="$.query" token="accent"/><tmt-text slot="status" bind="$.status" token="blocked"/><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#;
+fn template(squad: bool) -> &'static surface::Template<()> {
+    static BOARD: OnceLock<surface::Template<()>> = OnceLock::new();
+    static SQUAD: OnceLock<surface::Template<()>> = OnceLock::new();
+    let template = if squad { &SQUAD } else { &BOARD };
+    template.get_or_init(|| {
+        picker_surface::compile(
+            FILE,
+            &if squad {
+                MARKUP.replace("view · all boards", "view · this squad")
+            } else {
+                MARKUP.into()
+            },
+            picker_surface::schema(&["mark", "name", "description"]),
+        )
+    })
+}
+
 pub(super) struct Picker {
     config: Config,
     squad: Option<String>,
     pub scope: ViewScope,
-    pub selected: Choice,
+    pub(super) surface: RefCell<picker_surface::State>,
     current: Choice,
     custom: bool,
     pub notice: Option<String>,
@@ -61,7 +89,22 @@ impl Picker {
             config,
             squad,
             scope,
-            selected: current,
+            surface: RefCell::new(picker_surface::State::new(
+                None,
+                (if custom {
+                    vec![Choice::Custom, Choice::Reset]
+                } else {
+                    vec![Choice::Reset]
+                })
+                .into_iter()
+                .chain(ViewName::ALL.into_iter().map(Choice::View))
+                .map(|choice| ListRow {
+                    id: choice.id().into(),
+                    disabled: false,
+                })
+                .collect(),
+                Some(current.id()),
+            )),
             current,
             custom,
             notice: None,
@@ -92,38 +135,48 @@ impl Picker {
             None
         }
     }
-    pub fn key(&mut self, key: KeyEvent) -> Input {
-        self.notice = None;
-        let choices = self.choices();
-        let at = choices
-            .iter()
-            .position(|choice| *choice == self.selected)
-            .expect("picker entry");
-        match key.code {
-            KeyCode::Esc | KeyCode::Char('q') => return Input::Cancel,
-            KeyCode::Enter => return Input::Save,
-            KeyCode::Up | KeyCode::Char('k') => self.selected = choices[at.saturating_sub(1)],
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.selected = choices[(at + 1).min(choices.len() - 1)]
+    pub fn selected(&self) -> Choice {
+        let surface = self.surface.borrow();
+        let id = surface.picker.list.selected().expect("view choice");
+        self.choices()
+            .into_iter()
+            .find(|choice| choice.id() == id)
+            .expect("built-in choice")
+    }
+    #[cfg(test)]
+    pub fn key(&mut self, key: ratatui::crossterm::event::KeyEvent) -> Input {
+        self.input(&Event::Key(key)).unwrap_or(Input::Preview)
+    }
+    pub fn input(&mut self, event: &Event) -> Option<Input> {
+        if matches!(event, Event::Key(_)) {
+            self.notice = None;
+        }
+        if matches!(event, Event::Key(key) if key.code == KeyCode::Tab) {
+            if let Some(name) = &self.squad {
+                self.scope = match self.scope {
+                    ViewScope::Board => ViewScope::Squad(name.clone()),
+                    ViewScope::Squad(_) => ViewScope::Board,
+                };
             }
-            KeyCode::Tab => {
-                if let Some(name) = &self.squad {
-                    self.scope = match self.scope {
-                        ViewScope::Board => ViewScope::Squad(name.clone()),
-                        ViewScope::Squad(_) => ViewScope::Board,
-                    };
-                }
+        } else {
+            let input = self.surface.borrow_mut().input(event, PickerField::List);
+            if input.is_none() && !matches!(event, Event::Key(_)) {
+                return None;
             }
-            _ => return Input::Preview,
+            match input {
+                Some(PickerInput::Event(PickerEvent::Cancel)) => return Some(Input::Cancel),
+                Some(PickerInput::Event(PickerEvent::Confirm(_))) => return Some(Input::Save),
+                _ => {}
+            }
         }
         if self.squad.is_none() || (self.custom && self.scope == ViewScope::Board) {
             self.preview = self.opening.clone();
-            return Input::Preview;
+            return Some(Input::Preview);
         }
-        let preview = match self.selected {
+        let preview = match self.selected() {
             Choice::Custom => {
                 self.preview = self.opening.clone();
-                return Input::Preview;
+                return Some(Input::Preview);
             }
             Choice::Reset => {
                 self.config
@@ -139,10 +192,10 @@ impl Picker {
             Ok(board) => self.preview = board,
             Err(error) => self.notice = Some(error.message),
         }
-        Input::Preview
+        Some(Input::Preview)
     }
     pub fn save(&mut self) -> Result<bool, SquadError> {
-        let changed = match self.selected {
+        let changed = match self.selected() {
             Choice::Reset => self.config.remove_view(&self.scope),
             Choice::View(view) if !self.custom || self.scope == ViewScope::Board => {
                 self.config.set_view(&self.scope, view)
@@ -173,7 +226,7 @@ impl Picker {
         Ok(format!("inherit the arrangement ({name})"))
     }
     pub fn saved_message(&self, changed: bool) -> String {
-        match self.selected {
+        match self.selected() {
             Choice::View(view) => format!(
                 "{} view {} for {}",
                 if changed { "Set" } else { "Kept" },
@@ -190,116 +243,41 @@ impl Picker {
 }
 
 pub(super) fn render(frame: &mut Frame, picker: &Picker, look: crate::look::Look, body: Rect) {
-    let width = body.width.min(72);
-    let notice = picker
-        .notice
-        .as_ref()
-        .map(|notice| super::notes::wrap(notice, usize::from(width.saturating_sub(4))))
-        .unwrap_or_default();
-    let height = (picker.choices().len() as u16
-        + 8
-        + u16::from(picker.masked().is_some())
-        + u16::from(picker.squad.is_none())
-        + notice.len() as u16)
-        .min(body.height);
-    let area = Rect {
-        x: body.x + (body.width - width) / 2,
-        y: body.y + (body.height - height) / 2,
-        width,
-        height,
-    };
-    let active = look.role(Role::Accent).add_modifier(Modifier::BOLD);
-    let muted = look.role(Role::Muted);
-    let mut scope = vec![Span::styled(
-        "all boards",
-        if picker.scope == ViewScope::Board {
-            active
-        } else {
-            muted
-        },
-    )];
-    if picker.squad.is_some() {
-        scope.extend([
-            Span::styled(" · ", muted),
-            Span::styled(
-                "this squad",
-                if picker.scope != ViewScope::Board {
-                    active
-                } else {
-                    muted
-                },
-            ),
-        ]);
-    }
-    let mut lines = vec![Line::from(scope), Line::default()];
     let inherited = picker
         .inherited()
         .unwrap_or_else(|_| "inherit the arrangement".into());
-    for choice in picker.choices() {
-        let (name, purpose) = match choice {
+    let rows: Vec<_> = picker.choices().into_iter().map(|choice| {
+        let (name, description) = match choice {
             Choice::Custom => ("custom", "(squad.toml)"),
             Choice::Reset => ("default", inherited.as_str()),
             Choice::View(view) => (view.name(), view.description()),
         };
-        let prefix = format!(
-            "{} {} {name:<10} ",
-            if choice == picker.selected {
-                "›"
-            } else {
-                " "
-            },
-            if choice == picker.current { "●" } else { " " }
-        );
-        let style = if choice == picker.selected {
-            look.selection()
-        } else {
-            muted
-        };
-        let mut line = Line::from(vec![
-            Span::raw(prefix),
-            Span::styled(
-                super::view::fit(purpose, width.saturating_sub(19) as usize),
-                if choice == Choice::Reset {
-                    look.role(Role::Dim)
-                } else {
-                    style
-                },
-            ),
-        ]);
-        line.style = style;
-        lines.push(line);
-    }
-    lines.push(Line::default());
+        json!({"id":choice.id(),"disabled":false,"mark":if choice == picker.current {"●"} else {""},"name":name,"description":description})
+    }).collect();
+    let mut notes = vec![json!({"id":"purpose", "text":"Pane arrangement and fold defaults only"})];
     if let Some(masked) = picker.masked() {
-        lines.push(Line::styled(masked, muted));
+        notes.insert(0, json!({"id":"masked", "text":masked}));
     }
-    lines.push(Line::styled(
-        "Pane arrangement and fold defaults only",
-        muted,
-    ));
     if picker.squad.is_none() {
-        lines.push(Line::styled(
-            "leads and all stay rows only; views apply to squad tabs",
-            muted,
-        ));
+        notes.push(json!({"id":"aggregate", "text":"leads and all stay rows only; views apply to squad tabs"}));
     }
-    for line in notice {
-        lines.push(Line::styled(line, look.role(Role::Waiting)));
-    }
-    lines.push(Line::styled("Enter save · Esc cancel · Tab scope", muted));
-    let title = match &picker.scope {
-        ViewScope::Board => " view · all boards ".into(),
-        ViewScope::Squad(name) => format!(" view · {name} "),
+    let query = if picker.squad.is_some() {
+        if picker.scope == ViewScope::Board {
+            "all boards · Tab: this squad"
+        } else {
+            "this squad · Tab: all boards"
+        }
+    } else {
+        "all boards"
     };
-    frame.render_widget(Clear, area);
-    frame.render_widget(
-        Paragraph::new(lines).block(
-            Block::new()
-                .borders(Borders::ALL)
-                .padding(Padding::horizontal(1))
-                .title(title),
-        ),
-        area,
+    let value = json!({"rows":rows,"notes":notes,"query":query,"status":picker.notice.as_deref().unwrap_or(""),"footer":"Enter save · Esc cancel · Tab scope"});
+    picker.surface.borrow_mut().render(
+        FILE,
+        template(picker.scope != ViewScope::Board),
+        value,
+        frame,
+        look,
+        body,
     );
 }
 
@@ -310,7 +288,7 @@ mod tests {
     use ratatui::{
         Terminal,
         backend::TestBackend,
-        crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
+        crossterm::event::{KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
     };
     use serde_json::json;
     fn fixture(name: &str, text: &str) -> (std::path::PathBuf, Config, App) {
@@ -387,7 +365,7 @@ mod tests {
             Some("squad product keeps its own view")
         );
         picker.key(key(KeyCode::Tab));
-        picker.selected = Choice::Reset;
+        picker.surface.borrow_mut().select(Choice::Reset.id());
         assert!(picker.save().unwrap());
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
@@ -453,7 +431,7 @@ mod tests {
         assert_eq!(picker.board().panes.len(), 4);
         assert_eq!(picker.save().unwrap_err().code, "SQUAD_VIEW_CUSTOM");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), global);
-        picker.selected = Choice::Reset;
+        picker.surface.borrow_mut().select(Choice::Reset.id());
         assert!(picker.save().unwrap());
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),

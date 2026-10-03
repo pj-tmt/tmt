@@ -244,10 +244,23 @@ impl Overlay {
 }
 
 /// The quick switcher: a filter over every tab, hidden ones included.
-#[derive(Debug, Default)]
 pub struct Switcher {
-    pub query: String,
-    pub selected: usize,
+    pub(super) surface: RefCell<super::picker_surface::State>,
+}
+impl Default for Switcher {
+    fn default() -> Self {
+        Self::new(String::new())
+    }
+}
+impl Switcher {
+    pub fn new(query: String) -> Self {
+        Self {
+            surface: RefCell::new(super::picker_surface::State::new(Some(query), vec![], None)),
+        }
+    }
+    pub fn query(&self) -> String {
+        self.surface.borrow().picker.query().unwrap_or("").into()
+    }
 }
 
 /// Where one tab was drawn on the tab line, for clicks and drags.
@@ -509,9 +522,12 @@ impl App {
             overlay.squad_keys = snapshot.squad_keys.clone();
         }
         self.squad_keys = snapshot.squad_keys;
+
+        self.invalidate_overlay_frames();
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
         self.pinned = snapshot.pinned;
+        self.reconcile_switcher(false);
         self.note_cursors
             .borrow_mut()
             .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
@@ -1686,10 +1702,19 @@ impl App {
         let mut focus = std::mem::take(&mut self.overlay_focus);
         if focus.overlay() != Some(&id) {
             focus.reconcile_base(vec![vec![self.focused().title().into()]]);
-            focus.open(id, vec![]);
+            let fields = match overlay {
+                Overlay::Switcher => vec![
+                    vec!["switcher".into(), "query".into()],
+                    vec!["switcher".into(), "choices".into()],
+                ],
+                Overlay::Theme => vec![vec!["theme-picker".into(), "choices".into()]],
+                Overlay::View => vec![vec!["view-picker".into(), "choices".into()]],
+                _ => vec![],
+            };
+            focus.open(id, fields);
         }
-        let routed = route(&mut focus, event, |_, event| {
-            self.overlay_input(overlay, event)
+        let routed = route(&mut focus, event, |field, event| {
+            self.overlay_input(overlay, field, event)
         });
         // Applying a close must never replay this event into the restored base.
         if self.overlay() != Some(overlay) {
@@ -1719,7 +1744,12 @@ impl App {
         }
     }
 
-    fn overlay_input(&mut self, overlay: Overlay, event: &Event) -> Option<Effect> {
+    fn overlay_input(
+        &mut self,
+        overlay: Overlay,
+        field: &tmt_tui::app::ComponentId,
+        event: &Event,
+    ) -> Option<Effect> {
         match overlay {
             Overlay::Help => {
                 let input = self.help_state.borrow_mut().input(event);
@@ -1757,41 +1787,26 @@ impl App {
                 }
                 _ => None,
             },
-            Overlay::View => {
-                let Event::Key(key) = event else {
-                    return None;
-                };
-                Some(match self.view_picker.as_mut()?.key(*key) {
-                    super::view_picker::Input::Preview => {
-                        self.restore_focus();
-                        Effect::None
-                    }
-                    super::view_picker::Input::Save => Effect::SaveView,
-                    super::view_picker::Input::Cancel => {
-                        self.close_view_picker(false);
-                        Effect::CancelView
-                    }
-                })
-            }
-            Overlay::Theme => {
-                let Event::Key(key) = event else {
-                    return None;
-                };
-                Some(match self.theme_picker.as_mut()?.key(*key) {
-                    super::theme_picker::Input::Preview => Effect::None,
-                    super::theme_picker::Input::Save => Effect::SaveTheme,
-                    super::theme_picker::Input::Cancel => {
-                        self.theme_picker = None;
-                        Effect::None
-                    }
-                })
-            }
-            Overlay::Switcher => {
-                let Event::Key(key) = event else {
-                    return None;
-                };
-                Some(self.switcher_key(*key))
-            }
+            Overlay::View => Some(match self.view_picker.as_mut()?.input(event)? {
+                super::view_picker::Input::Preview => {
+                    self.restore_focus();
+                    Effect::None
+                }
+                super::view_picker::Input::Save => Effect::SaveView,
+                super::view_picker::Input::Cancel => {
+                    self.close_view_picker(false);
+                    Effect::CancelView
+                }
+            }),
+            Overlay::Theme => Some(match self.theme_picker.as_mut()?.input(event)? {
+                super::theme_picker::Input::Preview => Effect::None,
+                super::theme_picker::Input::Save => Effect::SaveTheme,
+                super::theme_picker::Input::Cancel => {
+                    self.theme_picker = None;
+                    Effect::None
+                }
+            }),
+            Overlay::Switcher => self.switcher_event(event, field),
         }
     }
 
@@ -1955,43 +1970,81 @@ impl App {
         self.tabs.iter().chain(&self.hidden).cloned().collect()
     }
 
-    fn switcher_key(&mut self, key: KeyEvent) -> Effect {
+    fn reconcile_switcher(&self, reset: bool) {
         let keys = self.switchable();
-        let Some(switcher) = &mut self.switcher else {
-            return Effect::None;
+        let Some(switcher) = &self.switcher else {
+            return;
         };
-        match key.code {
-            KeyCode::Esc => {
-                self.switcher = None;
-                return Effect::None;
-            }
-            KeyCode::Up => switcher.selected = switcher.selected.saturating_sub(1),
-            KeyCode::Down => switcher.selected += 1,
-            KeyCode::Backspace => {
-                switcher.query.pop();
-                switcher.selected = 0;
-            }
-            KeyCode::Char(character)
-                if !character.is_control() && !key.modifiers.contains(KeyModifiers::CONTROL) =>
-            {
-                switcher.query.push(character);
-                switcher.selected = 0;
-            }
-            KeyCode::Enter => {
-                let chosen = super::tabs::matching(&keys, &switcher.query)
-                    .get(switcher.selected)
-                    .map(|key| (*key).clone());
-                self.switcher = None;
-                return match chosen {
-                    Some(key) => self.go(key),
-                    None => Effect::None,
-                };
-            }
-            _ => {}
+        let mut surface = switcher.surface.borrow_mut();
+        let query = surface.picker.query().unwrap_or("");
+        let rows: Vec<_> = super::tabs::matching(&keys, query)
+            .into_iter()
+            .map(|key| tmt_tui::components::ListRow {
+                id: key.clone(),
+                disabled: false,
+            })
+            .collect();
+        let first = rows.first().map(|row| row.id.clone());
+        surface.reconcile(rows);
+        if reset && let Some(id) = first {
+            surface.select(&id);
         }
-        let count = super::tabs::matching(&keys, &switcher.query).len();
-        switcher.selected = switcher.selected.min(count.saturating_sub(1));
-        Effect::None
+    }
+
+    fn switcher_event(
+        &mut self,
+        event: &Event,
+        field: &tmt_tui::app::ComponentId,
+    ) -> Option<Effect> {
+        use tmt_tui::components::{PickerEvent, PickerField, PickerInput};
+        let field = match field.last().map(String::as_str) {
+            Some("query") => PickerField::Query,
+            Some("choices") => PickerField::List,
+            _ => return None,
+        };
+        self.reconcile_switcher(false);
+        let input = self
+            .switcher
+            .as_ref()?
+            .surface
+            .borrow_mut()
+            .input(event, field);
+        match input {
+            Some(PickerInput::Event(PickerEvent::Cancel)) => self.switcher = None,
+            Some(PickerInput::Event(PickerEvent::Confirm(key))) => {
+                self.switcher = None;
+                return Some(self.go(key));
+            }
+            Some(PickerInput::Event(PickerEvent::QueryChanged(_))) => self.reconcile_switcher(true),
+            Some(_) => {}
+            None if matches!(event, Event::Key(key) if key.code == KeyCode::Enter)
+                && self
+                    .switcher
+                    .as_ref()?
+                    .surface
+                    .borrow()
+                    .picker
+                    .list
+                    .selected()
+                    .is_none() =>
+            {
+                self.switcher = None
+            }
+            None => return None,
+        }
+        Some(Effect::None)
+    }
+
+    pub(super) fn invalidate_overlay_frames(&self) {
+        if let Some(picker) = &self.theme_picker {
+            picker.surface.borrow_mut().invalidate();
+        }
+        if let Some(picker) = &self.view_picker {
+            picker.surface.borrow_mut().invalidate();
+        }
+        if let Some(switcher) = &self.switcher {
+            switcher.surface.borrow_mut().invalidate();
+        }
     }
 
     fn bound(&self, key: KeyEvent) -> bool {
@@ -2234,6 +2287,59 @@ pub(crate) mod tests {
             me: None,
             replies: Vec::new(),
         }
+    }
+
+    #[test]
+    fn switcher_fields_keep_query_text_and_refresh_selection_by_identity() {
+        let mut app = App::new(Some("product".into()));
+        app.apply(snapshot("product", json!([])));
+        press(&mut app, KeyCode::Char('s'));
+        press(&mut app, KeyCode::Down);
+        let chosen = app
+            .switcher
+            .as_ref()
+            .unwrap()
+            .surface
+            .borrow()
+            .picker
+            .list
+            .selected()
+            .unwrap()
+            .to_owned();
+        let mut updated = snapshot("product", json!([]));
+        updated.tabs.reverse();
+        app.apply(updated);
+        assert_eq!(
+            app.switcher
+                .as_ref()
+                .unwrap()
+                .surface
+                .borrow()
+                .picker
+                .list
+                .selected(),
+            Some(chosen.as_str())
+        );
+        let current = app.current.clone();
+        let focus = app.focus;
+        press(&mut app, KeyCode::Char('q'));
+        assert_eq!(app.switcher.as_ref().unwrap().query(), "q");
+        press(&mut app, KeyCode::Char('?'));
+        assert_eq!(app.switcher.as_ref().unwrap().query(), "q?");
+        press(&mut app, KeyCode::Backspace);
+        press(&mut app, KeyCode::Backspace);
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(
+            app.overlay_focus.focused().unwrap().last().unwrap(),
+            "choices"
+        );
+        press(&mut app, KeyCode::Char('q'));
+        assert!(
+            app.switcher.is_none(),
+            "q closes the list field and stays text in the query"
+        );
+        assert_eq!(app.current, current);
+        assert_eq!(app.focus, focus);
     }
 
     #[test]

@@ -3667,6 +3667,18 @@ with one caller-owned `FocusStack` and routes key/mouse events through
 and worker effects; close is consumed, unhandled modal events stay captured and
 Ctrl-C returns Quit. Pane cursors and scrolls remain in their existing owners.
 
+`board::picker_surface` retains caller-owned shared Picker state, admitted scenes
+and current clipped frame maps for theme/view previews and the tab switcher.
+Theme/view controllers derive the selected choice from stable component identity;
+they retain scope, opening Config, preview and persistence. Their selection-only
+field keeps Tab's scope action. The switcher registers query and list fields:
+printable navigation/close keys remain query text, Tab moves between those fields,
+and query edits reset to the first match. Refresh follows the selected complete
+tab key; resize/model replacement invalidates hits. Its semantic attention spans
+use shared hit geometry and Squad's existing tab-color/selection policy. These
+three surfaces use shared modal chrome, wrapping, scrolling and inside footers;
+settings rendering remains a separate migration of the delivered editor.
+
 Squad's `settings` coordinator delegates to arrangement, rows, notebook/state,
 meter, theme and tab/program area projections. Source-bearing Config reader
 results own provenance; presentation does not inspect TOML or resolve values.

@@ -1820,6 +1820,12 @@ normal and narrow editor/refusal states from isolated HOME/TMUX_TEAM_HOME and a
 private tmux socket. The [Squad architecture](ARCHITECTURE.md#squad-extension) owns the
 preview and writer contracts.
 
+Board picker regressions cover shared query/list focus, identity retention on
+refresh, consumed close, scoped preview/save/cancel and stale-file refusal. Check
+clipped mouse maps after resize/model replacement and semantic attention styles
+under background and reverse selection; captures follow the same isolated
+160/100/80, dark/light/NO_COLOR contract as help above.
+
 Native Squad tests verify leadership selection and clearing without membership
 or role loss, repeated additions without overwriting state, and explicit recovery
 from a squad without a lead. The Docker Squad lifecycle test kills temporary and
