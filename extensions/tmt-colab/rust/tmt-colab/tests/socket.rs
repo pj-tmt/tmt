@@ -2670,3 +2670,57 @@ fn mounted_public_readers_catch_up_and_cannot_publish_or_claim_owner_context_twi
         assert!(server.open_tunnel(&replay).1.starts_with("HTTP/1.1 403"));
     }
 }
+
+#[test]
+fn archived_owner_pages_remain_readable_but_deny_all_publication() {
+    let server = Running::start(Tunnels::PRODUCT);
+    let mut peer = server.peer(DEVICE);
+    hello(&server, &mut peer, DEVICE);
+    let awareness = server.frame(
+        "awareness",
+        json!({"device":DEVICE,"data":values::encode_binary(b"presence")}),
+    );
+    send(&mut peer, awareness.clone());
+    assert_eq!(receive(&mut peer)["type"], "awareness");
+    let layout = Layout::open(&server.root).unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    let mut store = Store::open(&layout).unwrap();
+    store
+        .owner_transaction(
+            &server.space,
+            &key.owner_public(),
+            tmt_colab::store::owner::Mutation {
+                operation_id: OTHER,
+                digest: [23; 32],
+                expected_revision: 1,
+            },
+            |tx| {
+                tx.append_statement(&key.sign_statement(
+                    tx.head(),
+                    "page.archive",
+                    &serde_json::to_vec(&json!({"pageId":PAGE}))?,
+                )?)?;
+                Ok(Vec::new())
+            },
+        )
+        .unwrap();
+    // Archive preserves owner catchup, but freezes presence and uploads too.
+    let mut reader = server.peer(DEVICE);
+    let catchup = hello(&server, &mut reader, DEVICE);
+    assert_eq!(catchup[0]["membershipHead"]["revision"], "2");
+    for frame in [
+        awareness,
+        server.frame("append", json!({"streamId":DEVICE,"seq":"1","envelopeHash":values::encode_binary(&[0;32]),"envelope":{"objectId":"00".repeat(32)}})),
+        server.frame("chunk", json!({"objectId":"00".repeat(32),"envelopeHash":values::encode_binary(&[0;32]),"index":0,"count":1,"bytes":values::encode_binary(b"x")})),
+    ] {
+        send(&mut peer, frame);
+        assert_eq!(receive(&mut peer)["code"], "DENIED");
+    }
+    assert_eq!(
+        server
+            .oracle()
+            .query_row("SELECT count(*) FROM receipts", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+}

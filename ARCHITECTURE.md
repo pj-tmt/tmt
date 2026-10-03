@@ -5282,7 +5282,8 @@ carrier remains Colab-owned; Remote's Route mounting contract owns its forwardin
 Token hashes use the existing constant-time model HMAC verifier for confirmation;
 only the public sync protocol is selected. Disconnect/restart releases capabilities.
 Admission rechecks policy and expiry even before hello, rejects every publication
-operation, and chooses only link wraps or no wraps for public readers. The same
+operation, and chooses only link wraps or no wraps for public readers. Archived
+owner pages also deny publication while preserving reads. The same
 sync lock fences owner transitions and pending reader delivery. Readers add no
 Remote pairing, management, agent grant, migration or dependency. Mounted reader
 UI and the remaining #1371 lifecycle acceptance remain separate work.

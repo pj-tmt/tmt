@@ -578,6 +578,9 @@ Malformed requests return 400 `INVALID`; failed authority/proof/replay returns
 403 `DENIED`; expired challenges/tickets/sessions return 403 `EXPIRED`;
 exhaustion returns 503 `CAPACITY`; state faults return 503 `UNAVAILABLE`.
 Errors are JSON `{code}`. HTTP body and header bounds remain unchanged.
+Known availability limitation: unauthenticated challenge requests can occupy all
+64 entries for 60 seconds and deny new readers with `CAPACITY`. The mounted door's
+abuse budgets bound exposure; this seam adds no per-client challenge quota.
 
 Offer `colab-sync-v1` and `colab-reader-v1.<token>` to `/sync`. The server compares
 fixed-size token-hash confirmations through the existing constant-time HMAC

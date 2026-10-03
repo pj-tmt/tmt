@@ -3824,6 +3824,7 @@ shutdown/join/removal. No real Remote identity or Docker is involved.
 The native seam exercises possession/scope/replay/expiry denial, session caps,
 restart rejection and caller-admitted wrap selection with a nonempty exact-byte
 owner oracle. Real mounted public catchup and publication denials run twice.
+Mounted owner archive coverage preserves catchup and denies awareness/uploads.
 Mounted link→private and individual-revocation cases prove subscription closure,
 no further application delivery and old-chain denial twice; a retained seed can
 certify a fresh device only when the link survives. Other narrowing, Reset,

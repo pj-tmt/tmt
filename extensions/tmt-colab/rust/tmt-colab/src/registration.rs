@@ -674,7 +674,11 @@ impl crate::sync::Admission for OwnerAdmission {
                 }
                 let policy = tx.page_policy_at(&scope.page, head.revision)?;
                 if policy.deleted
-                    || (policy.archived && matches!(access, crate::sync::Access::Append(_)))
+                    || (policy.archived
+                        && matches!(
+                            access,
+                            crate::sync::Access::Append(_) | crate::sync::Access::Publish
+                        ))
                 {
                     return Err(SyncCode::Denied.into());
                 }
