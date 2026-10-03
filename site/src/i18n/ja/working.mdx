@@ -1,0 +1,192 @@
+---
+source: site/src/chapters/working.mdx
+sourceRevision: 08afdcc3b9e36f7458e3875c1bad7c1f2b19f716
+title: 起動して、送り、返事を受け取る
+---
+
+import { Cmd } from "../../components/Cmd";
+import { Aside } from "../../components/marks";
+import { MessageTravel } from "../../chapter-scenes/MessageTravel";
+import { components as Mdx } from "../../components/mdx";
+
+<MessageTravel />
+
+<Mdx.h3 id="tmt-run">
+  <code>tmt run</code>
+</Mdx.h3>
+
+自分でコマンドを実行するときと同じ操作に、名前を付けます。tmt のオプションは名前の前に置き、その後の引数はすべて agent に渡します。tmt が覚えるのは使った agent の種類だけで、引数や秘密情報は保存しません。Ctrl-C、Ctrl-Z、`fg` は通常どおり使え、agent の終了コードもそのまま返ります。
+
+<Cmd>{`
+$ tmt run reviewer claude --model sonnet   # このペインに名前を付け、Claude Code を起動
+$ tmt run reviewer                         # 次回：記憶した agent を起動
+`}</Cmd>
+
+Codex と Claude は、`--channel` を指定しない限り貼り付けで配信します。`--no-channel` はその起動に限って通常の貼り付けを選び、`--channel` は channel を必須にして、使えなければ失敗します。両方は同時に指定できず、名前の前に置きます。channel を使うペインは貼り付けに切り替わりません。設定方法と現在の制約は [Codex の配信ガイド](/drivers/codex#message-delivery)を参照してください。
+
+先に起動し、後から名前を付けることもできます。`tmt run claude` は `claude-12ab34cd56ef` のような一時的な名前で agent をすぐに起動し、名前の変更方法を1行で表示します。agent の shell ツールから `tmt name reviewer` を実行すると、同じ会話を保ったまま名前を付けられます。名前を付けるだけでは保存されません。保存するには `tmt name` または `tmt run` に `-s` を付けます。名前の変更で2つの identity が統合されることはないため、すでに `claude` という名前があれば `tmt run claude` は拒否されます。その identity を起動するには `tmt run claude claude`、別の名前なら `tmt run reviewer claude` を使います。
+
+<Mdx.h3 id="tmt-resume">
+  <code>tmt resume</code>
+</Mdx.h3>
+
+今いるペインで、その agent 自身の会話を開き直します。再起動した後も、ペインを開いて名前を指定すれば各 agent を再開できます。runtime driver が会話とモデルを覚え、再開コマンドを組み立てるので、セッション ID をコピーする必要はありません。
+
+<Cmd>{`
+$ tmt resume reviewer           # reviewer 自身の会話を同じモデルで再開
+$ tmt resume --forget reviewer  # 記憶した会話を削除
+`}</Cmd>
+
+tmt が覚えるのは、agent の hook を通して driver が報告した情報だけです。`/clear` や新しいセッションで置き換わり、identity を別の agent プログラムに切り替えると古い情報は消えます。identity を削除した場合も消えます。会話がもう存在しなければ、その旨を伝え、勝手に新しい会話を始めることはありません。新しく始めると決めたら `tmt run reviewer` を実行してください。ペインは自分で選びます。tmt は tmux のレイアウトを復元しません。`tmt run --resume <name>` も別名として使えます。
+
+元の会話を再開するときも、同じ channel フラグを使えます。Codex は既定で通常の再開を行い、`--channel` を指定すると記憶したスレッドそのものに接続します。新しいスレッドに置き換えることはありません。
+
+agent がセッションを確認する前に再開に失敗すると、tmt はそのセッションを stale として記録し、ユーザーが判断するまで再試行しません。`tmt resume --retry reviewer` はもう一度試し、`--forget` は記憶したセッションを削除します。Ctrl-C で stale になることはありません。
+
+<Mdx.h3 id="rename-retire-and-create-names">名前の変更、廃止、作成</Mdx.h3>
+
+名前は全体で共通で、保存しない限り一時的です。`tmt mv` は名前を変え、会話、role、notes、メタデータ、room、履歴をすべて引き継ぎます。変更前に送られたリクエストは引き続き届きますが、新しいリクエストには新しい名前を使います。`tmt rm` は名前を廃止し、ペインは動かしたままにします。保存済みの名前には `--force` が必要です。その場合は role と preamble も消えますが、やり取りは残ります。
+
+<Cmd>{`
+$ tmt mv reviewer code-review
+$ tmt rm builder                  # 一時的な名前
+$ tmt rm --force planner          # 保存済みの名前
+$ tmt unbind                      # ペイン内で関連付けを解除。一時的な名前は廃止、保存済みはオフライン
+`}</Cmd>
+
+`tmt add <pane> <name>` は別のペインを関連付けます。ペインには `%12` のような tmux ペイン ID、`window.pane`、`session:window.pane` を指定します。`tmt marked <name>` は tmux でマークしたペインを関連付けます。アクティブなペインを選ぶことはありません。どちらも `-s` を付けると名前を保存します。
+
+新しく関連付けると、作成した identity の名前を含むヒントが表示されます。一時的な名前なら保存コマンド、保存済みなら仕事を待つコマンドが示されます。名前に空白や shell の記号があれば引用符で囲まれます。同じ関連付けを繰り返してもヒントは再表示されません。`TMT_HINTS=off` で、この任意のヒントを無効にできます。
+
+名前にペインは必須ではありません。`tmt identity create coordinator` は、まだペインを持たない保存済みの名前を作ります。届いたリクエストは inbox で待機します。`tmt identity show coordinator` と `tmt identity ls` は tmux なしで名前を読み取れます。スクリプトでは `--json` を付けます。名前に検索用の情報を付け、その情報で絞り込むこともできます。
+
+<Cmd>{`
+$ tmt identity meta set --identity reviewer project tmt
+$ tmt identity meta ls --identity reviewer
+$ tmt identity ls --where project=tmt --has capability.review
+`}</Cmd>
+
+キーは `project` や `capability.review` のような小文字で、値は最大1024バイトのテキストです。1つの名前に最大64件を保存でき、複数のフィルターを指定した場合はすべてに一致する必要があります。メタデータは認証や権限付与の仕組みではなく、秘密情報を置く場所でもありません。
+
+<Mdx.h3 id="tmt-talk-and-tmt-reply">
+  <code>tmt talk</code> と <code>tmt reply</code>
+</Mdx.h3>
+
+`talk` は端末が静かになるまでではなく、agent が `tmt reply` で返事を提出するまで待ちます。agent が受け取るリクエストにはリクエスト ID と receipt があり、返事にはそのまま使います。返事は保存されるので、タイムアウトしても失われません。`talk` の待ち時間は既定で180秒です。`--timeout 10m` のように `--timeout` を指定すると、最大24時間まで変更できます。時間切れになると `TIMEOUT` で終了します。終わるのは待機だけで、リクエストは開いたままです。返事が届けば `tmt result <request-id>` で表示できます。`--detach` を付けると tmt はすぐに戻り、返事が届いたときにペインへ1行の通知を出します。待たないと選んだため、待機中のリマインダーはありません。
+
+<Cmd>{`[tmt] reply from builder to req_9ba4…: tmt result req_9ba4…`}</Cmd>
+
+この通知はペインごとにまとめられます。最初の返事から5秒以内に届いた返事は、1回の貼り付けにまとまります。ペインで入力中なら、キー入力が2秒間止まるまで貼り付けを待ちます。ただし、集約期間が終わってから最大30秒までです。channel に登録されたペインには、引き続き通知が1件ずつ届きます。どちらの待ち時間も[設定](/working/settings)で変更できます。
+
+agent は受け取った receipt を使い、メッセージ、ファイル、標準入力のいずれかで返事を提出します。同じ本文を再送しても何も変わりません。異なる本文は拒否されるので、最初の返事が最終回答として残ります。
+
+<Cmd>{`
+$ tmt reply req_9ba4… --receipt v2_… --message "Done: tests pass"
+$ tmt reply req_9ba4… --receipt v2_… --file answer.md
+`}</Cmd>
+
+agent がオフラインなら、`talk` はすぐにその旨を伝えます。リクエストは inbox で待ち、agent は次の起動時に確認します。
+
+<Aside title="反応がなくても、すぐに再送しないでください。">
+  配信が uncertain なら、まず <code>tmt check builder</code>{" "}
+  で確認してください。すでに作業が始まっているかもしれません。
+</Aside>
+
+自分宛てのリクエストは inbox で待機します。receipt なしで、送信者の名前を指定して返事を送れます。同じ送信者から未回答のリクエストが複数ある場合、`tmt answer` は何も送らず一覧を表示します。`--request` で1件を選んでください。
+
+<Cmd>{`
+$ tmt inbox                              # 自分宛ての未処理リクエストを古い順に表示
+$ tmt answer reviewer "Yes, ship it."    # reviewer の未回答リクエストに返事
+$ tmt answer reviewer "Yes" --request req_9ba4…
+`}</Cmd>
+
+<Mdx.h3 id="look-at-an-agent">agent の様子を見る</Mdx.h3>
+
+`tmt check` は agent のペインの最近の出力を、状況確認のために表示します。リクエストが完了したかどうかは判断しません。`tmt focus` はペインが今もその名前に属することを確かめ、自分の tmux クライアントをそのペインへ切り替えます。別のセッションにも移動できます。ペインへの入力は行いません。tmux 内で実行してください。
+
+<Cmd>{`
+$ tmt check builder 50      # builder のペインの末尾50行
+$ tmt focus builder         # builder のペインへ移動
+$ tmt focus %2              # 元のペインへ戻る
+$ tmt focus --client        # 移動対象のクライアントと表示中のペイン
+`}</Cmd>
+
+`tmt focus --json` は移動前の場所と移動したクライアントを記録するので、スクリプトで元に戻れます。tmux の外や、自分のセッションを表示するクライアントがない場合、`focus` は何も変えず理由を伝えます。
+
+<Mdx.h3 id="recover-requests">リクエストを取り出す</Mdx.h3>
+
+タイムアウト、detach、再起動、ペインの消失があってもリクエストは残ります。`tmt x` は、自分が開始してまだ確認済みにしていないリクエストを表示します。自分宛てのリクエストは `tmt inbox` にあります。それらを扱うには `x show`、`x ack`、`x ackall` に `--incoming` を付けます。
+
+<Cmd>{`
+$ tmt x                                  # 自分がまだ確認済みにしていないリクエスト
+$ tmt x show req_9ba4…                   # 元のリクエストと返事
+$ tmt x ack req_9ba4… --revision 3       # 読んだ revision を確認済みにする
+$ tmt x ackall                           # ここまでの全項目を確認済みにする
+$ tmt result req_9ba4…                   # 返事だけを表示
+`}</Cmd>
+
+`ack` には `x` または `x show` が表示した revision が必要なので、まだ見ていない返事を確認済みにして隠すことはありません。読むだけでは確認済みにならず、作業も取り消されず、保存期間も延びません。新しいリクエストの保存期間は、`exchange.retentionDays` を変えない限り90日です。
+
+`tmt result` には、リクエスト ID を一意に特定できる先頭部分も指定できます。16進数で8文字以上が必要で、`req_` は省略できます。例は `tmt result 82d3556e` です。8文字より先まで指定するときは、ID のハイフンを残します（`82d3556e-0`）。複数のリクエストに一致すると、完全な ID を最大5件と残りの件数を表示します。より長い先頭部分を指定してください。一致しなければ、返事がないと通知します。
+
+名前の付いたペインの外では、コマンド名の後に `--identity` を置いて自分を指定します。これは誰が依頼したかを記録するためのもので、自分のマシン上での帰属の記録であり、認証ではありません。
+
+<Cmd>{`
+$ tmt talk reviewer "Review the release notes." --identity coordinator --detach
+$ tmt x --identity coordinator
+`}</Cmd>
+
+<Mdx.h3 id="delivery-details">配信の詳細</Mdx.h3>
+
+- **貼り付け、待機、Enter。** tmt はメッセージ全体をペインに貼り付け、0.5秒待って Enter を押します。待ち時間は `pasteEnterDelayMs` で変更できます。改行は保たれます。
+- **`!` は `！` に変わります。** メッセージで agent の shell モードが起動しないよう、ASCII の `!` は全角の `！` で送ります。そのため `if (!ready)` のようなコードは、配信時にバイト単位では一致しません。保存されるリクエストには元のテキストが残ります。
+- **uncertain なら確認します。** テキストがペインに届いた可能性を否定できない場合、`talk` は `DELIVERY_UNCERTAIN` で失敗し、自動では再送しません。`tmt check` で見てから判断してください。タイムアウトや静かなペインだけでは、何も実行されなかったとは分かりません。
+- **tmux は承認待ちを認識できません。** 配信済みでも、agent が実行できる状態とは限りません。host が、agent はユーザーの承認や回答を待っていると報告した場合、`talk` は `DELIVERY_AWAITING_APPROVAL` で失敗します。何も送られず、リクエストはキューに残ります。tmt がプロンプトを回避して入力することはありません。agent が処理を続けてから再試行してください。
+- **ペインがなければ貼り付けません。** 終了した、または関連付けのない宛先には inbox で届けます。shell に貼り付けることはありません。
+- **`--inbox` はキューへの追加だけです。** agent が準備できていてもライブ配信は試みず、オンラインになっても過去のリクエストは配信されません。受信者が `tmt inbox` で取り出す必要があります。出力にはその説明と受信者用のコマンドが表示されます。`--json` では `notification: "not_attempted"` と `waitingFor: "recipient_inbox_pull"` も返ります。ライブ配信には通常の `talk` を使ってください。
+- **inbox の仕事を待ちます。** `tmt x listen --identity reviewer` は inbox に新しい仕事が届くのを待ちます。`--timeout` まで待機して終了し、バックグラウンドの listener は残りません。
+- **各プロンプトで通知します。** agent の hook を入れると（[`tmt setup`](#tmt-setup) を参照）、inbox に未処理の項目がある間、agent が送信するプロンプトに1行が加わります。例は `Incoming X items: 2 unacknowledged; pull with tmt inbox --identity '4f3793b4-…' --json` です。含まれる identity は agent 自身の ID です。待機中の項目がなければ表示されず、配信方法も変わりません。
+
+<Mdx.h3 id="notes-roles-and-preambles">notes、role、preamble</Mdx.h3>
+
+ペインが消えたり再起動したりしても、保存済みの identity に残る小さな情報が3つあります。
+
+- **notes** は、ユーザーと agent の両方が編集できる1つの Markdown ファイルです。`tmt notes path` は場所を表示し、初回は空のファイルを作ります。tmt が書き換えたり、切り詰めたり、ロックしたりすることはありません。
+- **role** は保存されたプロフィールで、セッションの開始時に渡される短い要約に表示されます。メッセージには追加されません。
+- **preamble** は agent が受け取るリクエストに追加するテキストです。最初の1件、その後は3件ごとに付きます（`preambleEvery`）。`--no-preamble` はその1件で省略し、`preambleMode disabled` または `preambleEvery 0` は無効にします。
+
+<Cmd>{`
+$ tmt notes path --identity coordinator
+$ tmt role set "Review correctness before style." --identity reviewer
+$ tmt preamble set reviewer "Be concise and cite evidence."
+$ tmt preamble show reviewer
+`}</Cmd>
+
+notes には保存済みの identity が必要で、一時的な identity ではエラーになります。notes ファイルは名前ではなく identity に属するので、同じ名前を再利用した新しい identity は新しいファイルから始まります。
+
+<Mdx.h3 id="tmt-setup">
+  <code>tmt setup</code>
+</Mdx.h3>
+
+ファイルシステムだけを調べて、このマシンの agent を見つけます。agent を起動することはありません。見つかった agent には tmt の skill を追加します。Claude Code と Codex がインストールされていれば、会話の開始と終了を tmt に伝える lifecycle hook も追加します。これにより `tmt resume` とバッジの情報が保たれ、新しいセッションには短い要約が渡されます。不足しているものだけを計画し、一度確認します。
+
+<Cmd>{`
+$ tmt setup              # agent を探し、計画を表示して一度確認
+$ tmt setup claude       # 1種類の agent の hook
+$ tmt setup codex --remove
+`}</Cmd>
+
+tmt の hook 以外の既存設定はバイト単位で保たれ、先にバックアップを作ります。hook が失敗しても agent の動作を妨げません。バックアップは設定ファイルの隣にある非公開の `.tmt-setup-backups` フォルダーに置かれ、古いものも残ります。tmt が削除や移動をすることはありません。32個を超えても変更は適用しますが、警告とフォルダーの場所を表示するので、自分で整理できます。`--usage` は任意の[使用量カウンター](/drivers#usage-counters)を追加します。
+
+<Mdx.h3 id="tmt-uninstall">
+  <code>tmt uninstall</code>
+</Mdx.h3>
+
+tmt がインストールした hook、skill、拡張機能、`tmt` コマンドを削除します。動作中の拡張機能サービスは先に停止します。削除対象をすべて表示してから確認します。ユーザーが変更したものは残し、その旨を報告します。`--purge` を付けない限り、identity、メッセージ、notes は残ります。
+
+<Cmd>{`
+$ tmt uninstall          # 削除するものと残すものを表示して一度確認
+$ tmt uninstall --purge  # tmt のデータも削除
+`}</Cmd>
+
+[設定、shell の補完、よくある問題の対処 →](/working/settings)

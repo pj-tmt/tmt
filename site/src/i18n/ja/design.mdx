@@ -1,0 +1,51 @@
+---
+source: site/src/chapters/design.mdx
+sourceRevision: 08968bf4a346ebc33e61b4bee74b700aaf3cb504
+title: 共通の見た目と意味
+---
+
+import { Cmd } from "../../components/Cmd";
+import { Tag } from "../../components/marks";
+import { MarkList, TokenPreview, TokenTable, TypePreview } from "../../components/samples";
+import { components as Mdx } from "../../components/mdx";
+
+コマンドライン、Squad の board、このサイトのどこでも、tmt は同じ製品として見えるようにします。このページは共通の指針です。値は1つのファイル、[`design/tokens/tokens.json`](https://github.com/pj-tmt/tmt/blob/main/design/tokens/tokens.json) にあります。サイトのスタイルシートとこのページのすべての表がそこから読み取るので、手作業でコピーした値はありません。
+
+<Mdx.h3 id="principles">基本方針</Mdx.h3>
+
+- **色に意味を持たせます。** 画面の大部分は落ち着いた色にし、ユーザーの対応が必要なもの、作業中のもの、行き詰まったものだけを目立たせます。
+- **色だけに頼りません。** 状態は `◆2` や `blocked` のように記号や言葉でも表します。`NO_COLOR`、パイプ、スクリーンリーダー、色の見え方の違いがあっても伝わります。
+- **端末の色合いは端末に任せます。** コマンドラインの token は端末の16色のいずれかを指定し、ユーザーのテーマを尊重します。サイトと全画面 board の truecolor テーマは、下記の値をそのまま使います。
+- **意味を統一します。** token はどこでも同じ意味を持ちます。`waiting` は board のタブでも、`tmt ls` の行でも、このサイトのバッジでも、ユーザーの対応が必要なものを示します。
+
+<Mdx.h3 id="color-tokens">色の token</Mdx.h3>
+
+<TokenPreview />
+
+<TokenTable />
+
+コマンドライン独自の token 名（`accent`、`ok`、`warn`、`error`、`dim`、driver の色）も、これらの色のいずれかで表示します。`ok` は `working`、`warn` は `waiting`、`error` は `blocked`、Claude と Codex の driver 色はそれぞれ `review` と `link` です。[design/cli-style.md](https://github.com/pj-tmt/tmt/blob/main/design/cli-style.md) に一覧があります。端末のテーマも同じファイルから値を読み、両者が異なればテストが失敗します。
+
+<Mdx.h3 id="surfaces">背景</Mdx.h3>
+
+背景用の surface は Web だけで使います。端末では常に端末自身の背景を保ちます。
+
+<TokenTable group="surface" />
+
+<Mdx.h3 id="type">文字</Mdx.h3>
+
+<TypePreview />
+
+見出しには display、本文には body、読者が入力するものや端末の出力には mono の書体を使います。コマンドは入力する形のまま、`$` プロンプトと淡い `# コメント` を添えて表示します。
+
+<Cmd>{`$ tmt sq board --squad product   # 読者がコピーして使えるコマンド`}</Cmd>
+
+<Mdx.h3 id="marks">記号</Mdx.h3>
+
+CLI、board、このサイトで、同じ少数の記号を使って状態を伝えます。
+
+<MarkList />
+
+<Mdx.h3 id="shipped-and-planned">リリース済みと計画中</Mdx.h3>
+
+まだリリースされていないものには、<Tag kind="planned" /> タグか、その旨を説明する注記を付けます。handbook は tmt の今後も説明しますが、計画を今使える機能として紹介することはありません。

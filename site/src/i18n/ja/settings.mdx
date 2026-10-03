@@ -1,0 +1,135 @@
+---
+source: site/src/chapters/settings.mdx
+sourceRevision: c896a4de0f5eddb19ca233300d9d55d40fa1d949
+title: 設定と困ったときの対処
+---
+
+import { Cmd, Code } from "../../components/Cmd";
+import { Callout } from "../../components/marks";
+import { components as Mdx } from "../../components/mdx";
+
+tmt の設定は少なく、どれにも既定値があります。このページでは設定の変更、tmt の更新、Tab 補完、ペインのバッジの追加設定、よくある問題の対処を説明します。
+
+<Mdx.h3 id="tmt-config">
+  <code>tmt config</code>
+</Mdx.h3>
+
+`tmt config show` はすべての設定について、実際に使う値、その値の取得元、指定できる値を表示します。`set` は1つの設定を変更し、`rm` は現在のフォルダーで指定した上書きを削除します。
+
+<Cmd>{`
+$ tmt config show                                 # 値、取得元、ファイルのパス
+$ tmt config set pasteEnterDelayMs 800            # 現在のフォルダーに適用
+$ tmt config set preambleEvery 5 --global         # すべてのフォルダーに適用
+$ tmt config set exchange.retentionDays 30 --global
+$ tmt config rm pasteEnterDelayMs                 # このフォルダーの上書きを削除
+`}</Cmd>
+
+| 設定                               | 既定値   | 動作                                                                                                | 設定場所                 |
+| ---------------------------------- | -------- | --------------------------------------------------------------------------------------------------- | ------------------------ |
+| `preambleMode`                     | `always` | `always` または `disabled`。リクエストに受信者の preamble を付けるかどうかです                      | `config set`、どちらも可 |
+| `preambleEvery`                    | `3`      | preamble を付ける頻度です。`0` で無効になります                                                     | `config set`、どちらも可 |
+| `pasteEnterDelayMs`                | `500`    | 貼り付けから Enter までのミリ秒数です。`0` で待機しません                                           | `config set`、どちらも可 |
+| `exchange.retentionDays`           | `90`     | 新しいリクエストと返事の保存日数です。1〜3650を指定できます                                         | `config set --global`    |
+| `ui.paneBadge`                     | `off`    | [ペインのバッジ](/drivers/tmux#the-pane-badge)です                                                  | `config set --global`    |
+| `notifications.replyBatchWindowMs` | `5000`   | 返事の通知を1回の貼り付けにまとめる待ち時間です。最大60000ミリ秒、`0` で個別に送ります              | `config set --global`    |
+| `notifications.typingQuietMs`      | `2000`   | まとめた通知を貼り付ける前に、キー入力が止まるのを待つ時間です。最大30000ミリ秒、`0` で待機しません | `config set --global`    |
+| `defaults.timeout`                 | `180`    | `talk` が返事を待つ秒数です                                                                         | `config.json` を編集     |
+| `defaults.pollInterval`            | `1`      | `talk` の待機中に確認する間隔の秒数です                                                             | `config.json` を編集     |
+| `defaults.captureLines`            | `100`    | `tmt check` が表示する行数です                                                                      | `config.json` を編集     |
+
+「どちらも可」は、現在のフォルダーに設定するか、`--global` ですべてのフォルダーに設定できるという意味です。グローバル設定は、tmt の旧名を残した設定ディレクトリ `~/.config/tmux-team/` の `config.json` にあります。フォルダーごとの上書きは、tmt を実行するフォルダーの `tmux-team.json` に保存されます。`tmt config show` は両方のパスを表示します。tmt は未知のフィールドを保ち、`config show` は実際に使う値とその取得元を示します。
+
+数値は数字だけで書き、単位、符号、小数は使いません。`exchange.retentionDays` の変更は、新しいリクエストだけに適用されます。
+
+色はテーマで決まり、テーマもグローバル設定ファイルで選びます。選ぶまでは、コマンドラインは端末自体の16色を使います。選択肢は[色とテーマ](/extensions/squad#colors-and-themes)を参照してください。
+
+<Mdx.h3 id="update-tmt">tmt の更新</Mdx.h3>
+
+`tmt upgrade`（別名 `tmt update`）は、インストール時の `stable` または `alpha` channel で、CLI、skill、インストール済みの[拡張機能](/extensions)を更新します。
+
+<Cmd>{`
+$ tmt upgrade                        # 現在の channel の最新版
+$ tmt upgrade --channel stable       # channel を変更
+$ tmt upgrade --to 5.0.0-alpha.8     # 指定したバージョンに CLI を固定
+$ tmt upgrade --unpin                # channel の更新に再び追従
+`}</Cmd>
+
+`--channel` と `--to` が選ぶのは CLI のバージョンだけです。拡張機能はそれぞれの channel と固定バージョンを保ち、CLI を固定しても更新できます。拡張機能の更新ではバージョンの変更を一覧にして一度確認し、`--yes` でその確認に同意できます。端末がない場合や `--json` の場合に `--yes` がなければ、拡張機能は1つも更新しません。更新待ちの各拡張機能を `consentRequired` として、再実行するコマンドとともに報告します。1つでも更新に失敗するとコマンドは失敗しますが、ほかの更新を取り消すことはありません。
+
+<Mdx.h3 id="shell-completion">shell の補完</Mdx.h3>
+
+shell の起動ファイルに1行追加するか、現在の shell で実行します。
+
+<Cmd>{`
+$ source <(tmt completion bash)   # bash
+$ source <(tmt completion zsh)    # zsh。compinit の後に実行
+$ tmt completion fish | source    # fish
+`}</Cmd>
+
+名前の補完は保存済みと一時的な identity から行い、保存済みを先に表示します。tmux は起動しません。`tmt resume` は記憶したセッションがある identity だけを候補にします。`tmt run` は名前より後の補完を agent 自身に任せるので、Tab で agent のフラグも補完できます。その補完スクリプトを tmt がインストールすることはありません。拡張機能は `tmt sq <Tab>` のように、自分の候補を補完します。
+
+<Mdx.h3 id="the-pane-badge-a-few-extras">ペインのバッジの追加設定</Mdx.h3>
+
+基本は[ペインのバッジ](/drivers/tmux#the-pane-badge)で説明しています。追加で、次の点を調整できます。
+
+- **狭いペインでは隠します。** 下の書式でペインの幅を確認できます。80はテーマに合わせて変えてください。自動調整ではありません。
+- **保存できるスタイルは1つです。** tmux が保存する既定スタイルは1つだけなので、バッジを別の `push-default` で囲まないでください。その範囲の外に置き、後でテーマのスタイルを復元します。
+- **変更はペインごとに反映されます。** 設定を切り替えても、すぐにはペインを書き換えません。名前の設定、起動や終了、hook など、次に tmt がそのペインを扱うときに更新します。`tmt unbind` はバッジを消します。
+- **長い名前は短縮します。** 48文字を超える名前は `…` で省略し、`#` は `＃` で表示します。保存されている名前は変わりません。
+
+<Code>{`
+#{?#{&&:#{@tmux-team.badge},#{e|>=:#{pane_width},80}}, [#{@tmux-team.badge}],}
+`}</Code>
+
+古い tmt がペインのタイトルや枠の書式を置き換えてしまった場合は、自分の tmux 設定から復元してください。tmt は上書きしたテーマを再構築できません。
+
+<Mdx.h3 id="troubleshooting">困ったときの対処</Mdx.h3>
+
+<Mdx.h4 id="tmt-is-not-found-after-installing">
+  インストール後に <code>tmt</code> が見つからない
+</Mdx.h4>
+
+`~/.local/bin` またはインストール先の `bin` を PATH の先頭に置き、新しい shell を開くか `hash -r` を実行します。インストーラーは shell の設定ファイルを編集しません。使っている起動ファイルに、次を一度だけ追加してください。
+
+<Code>{`
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
+`}</Code>
+
+次に、shell がどのコマンドを選んでいるか確認します。
+
+<Cmd>{`
+$ command -v tmt
+$ tmt --version
+$ command -v tmux-team      # 古い npm 版が新しい版より先に選ばれる場合があります
+`}</Cmd>
+
+古いインストールは元の管理ツール（`npm uninstall -g tmux-team` または `pnpm remove -g tmux-team`）で削除します。`sudo` ではなく、自分が所有するインストール先を使ってください。
+
+<Mdx.h4 id="skills-conflict-with-files-tmt-didn-t-write">
+  skill が tmt 以外の作ったファイルと競合する
+</Mdx.h4>
+
+まず対象を確認してください。`tmt install claude --force` は skill フォルダーの外にバックアップを作り、その場所を表示してから置き換えます。skill や setup を変更した後は、agent のセッションを再起動して読み込ませてください。
+
+<Mdx.h4 id="a-sandboxed-agent-can-t-reach-tmt-s-data-or-tmux">
+  sandbox 内の agent が tmt のデータや tmux にアクセスできない
+</Mdx.h4>
+
+<Callout title="2つのエラーに共通する原因です。">
+  agent の sandbox は、データディレクトリや tmux
+  ソケットへのアクセスを制限することがあります。`STORAGE_NOT_WRITABLE`
+  は書き込めないディレクトリを示し、`TMUX_PERMISSION_DENIED` は tmux
+  ソケットにアクセスできないことを示します。
+</Callout>
+
+そのディレクトリやソケットへのアクセスを許可するか、provider 自身の権限昇格機能で同じコマンドを実行させてください。所有者に書き込み権限がないデータディレクトリは、報告するだけで修復しません。エラーを回避するために tmt のデータを削除したり、tmux の確認情報を変えたりしないでください。何も保存されていないとエラーに明記されていれば、同一の `tmt reply` を安全に再試行できます。リクエスト ID、receipt、本文を変えずに実行してください。Codex の設定は [Codex の sandbox](/drivers/codex#codex-s-sandbox)を参照してください。
+
+<Mdx.h4 id="a-request-didn-t-finish">リクエストが終わらない</Mdx.h4>
+
+- `TIMEOUT` で終わるのは待機だけです。後で `tmt result` を使って返事を取り出せます。[`tmt talk` と `tmt reply`](/working#tmt-talk-and-tmt-reply)を参照してください。
+- `DELIVERY_UNCERTAIN` は、テキストがペインに届いた可能性があるという意味です。判断する前に `tmt check` で確認してください。[配信の詳細](/working#delivery-details)を参照してください。
+- `DELIVERY_AWAITING_APPROVAL` は、agent がユーザーを待っているため何も送られなかったことを示します。リクエストはキューに残ります。agent が処理を続けてから再試行し、待機を回避するためにペインへ入力しないでください。[配信の詳細](/working#delivery-details)を参照してください。
+- `CHANNEL_NOT_READY`、`CHANNEL_UNREACHABLE`、`CHANNEL_ENROLLMENT_ENDED` は Claude の[メッセージ channel](/drivers/claude-code#message-channel)のエラーです。送信も貼り付けも行われていません。

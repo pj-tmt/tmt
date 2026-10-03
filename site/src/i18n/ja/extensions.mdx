@@ -1,0 +1,42 @@
+---
+source: site/src/chapters/extensions.mdx
+sourceRevision: 573180706bac968a9ebb6f0924b5796d2c3b47f5
+title: コマンドを拡張する
+---
+
+import { Cmd } from "../../components/Cmd";
+import { St } from "../../components/marks";
+import { components as Mdx } from "../../components/mdx";
+
+PATH 上の `tmt-<name>` というプログラムは、`tmt <name>` として呼び出せます。gcloud にコンポーネントがコマンドを追加するのと同じ仕組みです。組み込みコマンドが常に優先されるので、拡張機能が `talk` や `run` を置き換えることはありません。拡張機能は、ほかのプログラムと同じくコマンド、JSON 出力、hook を通して tmt を使います。
+
+<Cmd>{`
+$ tmt sq board         # tmt-squad board を実行
+$ tmt help             # 見つかった拡張機能を表示
+$ tmt sq <Tab>         # 拡張機能が候補を補完
+`}</Cmd>
+
+<Mdx.h3 id="install-update-and-remove">インストール、更新、削除</Mdx.h3>
+
+以下の拡張機能は同じ方法でインストールします。それぞれが独自のバージョンを持ち、別々の予定で更新されます。削除するとコマンドと skill は消えますが、データは残ります。
+
+<Cmd>{`
+$ tmt extension install squad     # 変更する前に確認
+$ tmt extension ls                # インストール済みの拡張機能とバージョン。--check で更新を確認
+$ tmt upgrade                     # CLI、skill、インストール済みの公式拡張機能
+$ tmt extension upgrade squad     # Squad だけを更新
+$ tmt extension rm squad          # データは残ります
+`}</Cmd>
+
+`tmt upgrade` はインストール済みの公式拡張機能も、それぞれの channel と固定バージョンに従って更新し、まとめて一度確認します。`--yes` で確認を省略できます。未インストールの拡張機能を追加することはなく、1つが失敗してもほかの更新は取り消しません。`tmt extension upgrade <name> --unpin` でバージョンの固定を解除します。
+
+拡張機能に agent 用の skill が付いていれば、インストール時に追加するか一度確認します。`--skills` を指定すると確認せずに追加します。自作する場合は[拡張機能を作る](/develop/extensions)を参照してください。PATH 上の `tmt-<name>` は `tmt extension` を使わなくても動きます。
+
+<Mdx.h3 id="known-extensions">主な拡張機能</Mdx.h3>
+
+| コマンド       | 内容                                                                                                        | 状況                        |
+| -------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------- |
+| tmt squad · sq | lead、それぞれの worktree で作業するメンバー、状況を見て移動できる board です。[Squad →](/extensions/squad) | <St kind="done">Alpha</St>  |
+| tmt colab      | チームの計画、メモ、決定を共有する1つのページです。[Colab →](/extensions/colab)                             | <St kind="now">開発中</St>  |
+| tmt meet       | Squad に組み込む、ユーザーと agent のテキスト会議です。[Meet →](/extensions/meet)                           | <St kind="next">計画中</St> |
+| tmt remote     | 自分が管理する backend を通して、別のマシンの agent に話しかけ、操作します。[Remote →](/extensions/remote)  | <St kind="next">設計中</St> |
