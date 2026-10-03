@@ -4118,7 +4118,9 @@ argument-selected defects belong to this executable, with scenario assertions in
 tooling tests. Its `signal-hook` dev-dependency owns fixture SIGTERM cleanup; the
 library's production dependency boundary and publication helper are unchanged.
 Its `recording-cli-fixture` example is the native driver for synthetic
-extension-upgrade archives on every platform. The scenario owns absolute
+extension-upgrade archives on every platform. Its `serde_json` dev-dependency
+parses fixture configuration; release TOML edits belong to `tmt-release-tool`.
+The scenario owns absolute
 delegate/log configuration in its synthetic `NATIVE-INSTALL.md`; the example
 records the first two argv values and execs the selected CLI without changing
 process or environment ownership. Executable publication and exact macOS

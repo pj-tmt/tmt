@@ -3096,6 +3096,7 @@ dependencies = [
 name = "tmt-test-support"
 version = "5.0.0-dev"
 dependencies = [
+ "serde_json",
  "signal-hook 0.4.4",
  "tmt-invoke",
 ]

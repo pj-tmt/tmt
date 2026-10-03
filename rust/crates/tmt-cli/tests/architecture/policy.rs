@@ -26,6 +26,7 @@ const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
     ("tmt-cli", "insta", None),                 // command rendering snapshots
     ("tmt-cli", "proc-macro2", None),           // architecture syntax fixtures
     ("tmt-cli", "toml_edit", None),             // audited unsafe-boundary manifest policy
+    ("tmt-test-support", "serde_json", None),   // native recording driver configuration
     ("tmt-cli", "syn", None),                   // architecture AST checks
     ("tmt-cli", "tmt-office-model", None),      // Office parser fixtures
     ("tmt-cli", "tmt-driver-protocol", None),   // Herdr driver conformance harness

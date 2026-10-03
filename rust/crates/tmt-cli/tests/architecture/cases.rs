@@ -869,7 +869,7 @@ fn release_toml_tool_dependencies_are_private_production_edges() {
                 vec![dependency(name, "dev", None, None)]
             ))
             .len(),
-            1
+            usize::from(name == "toml_edit")
         );
     }
     for owner in [
