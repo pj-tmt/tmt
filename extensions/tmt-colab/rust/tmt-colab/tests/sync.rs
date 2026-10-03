@@ -41,6 +41,7 @@ impl Admission for Policy {
                 .map_err(|_| Code::Invalid)?
                 .ok_or(Code::Denied)?,
             baseline: self.baseline.clone(),
+            owner_key: self.owner,
         })
     }
     fn authorize(
@@ -105,6 +106,16 @@ impl Fixture {
                 },
                 |tx| {
                     tx.append_statement(&initial)?;
+                    for (id,key) in [(ALICE,&alice),(BOB,&bob)] {
+                        let public=key.verifying_key();
+                        let cert = tmt_colab_model::certificate::Certificate {space:&space,issuer_kind:"member",issuer_id:ALICE,
+                            device_id:id,signing_key:public.as_bytes(),encryption_key:&[6;32],membership_revision:"1",issued_at:0,expires_at:9_007_199_254_740_991};
+                        let input = tmt_colab_model::certificate::input(&cert)?;
+                        use ed25519_dalek::Signer;
+                        tx.put_device(&tmt_colab::store::owner::Device { chain:serde_json::to_vec(&json!({"version":1,
+                            "issuerStatement":values::encode_binary(&initial.hash()?),"deviceCertificate":values::encode_binary(&input),
+                            "issuerSignature":values::encode_binary(&alice.sign(&input).to_bytes())}))?, revoked:false })?;
+                    }
                     Ok(Vec::new())
                 },
             )
@@ -421,7 +432,10 @@ fn empty_catchup_has_metadata_then_atomic_live_subscription() {
     let mut peer = f.peer(ALICE);
     send(
         &mut peer,
-        f.frame("hello", json!({"device":ALICE,"cursors":[]})),
+        f.frame(
+            "hello",
+            json!({"membershipRevision":"0","device":ALICE,"cursors":[]}),
+        ),
     );
     let first = receive(&mut peer);
     assert_eq!(first["type"], "catchup");
@@ -437,7 +451,10 @@ fn empty_catchup_has_metadata_then_atomic_live_subscription() {
     assert_eq!(peer.1.poll(), Progress::Pending);
     send(
         &mut peer,
-        f.frame("hello", json!({"device":ALICE,"cursors":[]})),
+        f.frame(
+            "hello",
+            json!({"membershipRevision":"0","device":ALICE,"cursors":[]}),
+        ),
     );
     error(&mut peer, "INVALID");
 }
@@ -556,7 +573,7 @@ fn transfer(f: &Fixture, frame: Value, bytes: &[u8]) -> (Value, Vec<Value>) {
         f.frame("chunk", json!({"objectId":header.object_id,"envelopeHash":hash,"index":index,"count":count,"bytes":values::encode_binary(chunk)}))).collect();
     (reference, chunks)
 }
-fn assemble(peer: &mut Peer, expected: &[u8]) {
+fn assemble(peer: &mut Peer, expected: &[u8], paced: bool) {
     let count = expected.len().div_ceil(tmt_colab::limits::CHUNK_BYTES);
     let mut bytes = Vec::new();
     let mut identity = None;
@@ -576,6 +593,9 @@ fn assemble(peer: &mut Peer, expected: &[u8]) {
             .unwrap(),
         );
         assert!(frame.to_string().len() <= tmt_colab::limits::WS_FRAME_BYTES);
+        if paced {
+            ack(peer, &frame);
+        }
     }
     assert_eq!(bytes, expected);
     let envelope = object::Envelope::from_json(&bytes).unwrap();
@@ -605,7 +625,7 @@ fn large_chunk_append_applies_only_after_completion_and_lazy_broadcast_retries()
     assert_eq!(f.payload(ALICE, 1), Some(bytes.clone()));
     assert_eq!(b.1.poll(), Progress::Advanced);
     assert!(receive(&mut b)["envelope"]["objectId"].is_string());
-    assemble(&mut b, &bytes);
+    assemble(&mut b, &bytes, false);
     // Exact frozen replay does not create a second transfer/broadcast.
     send(&mut a, reference);
     for chunk in chunks {
@@ -616,13 +636,21 @@ fn large_chunk_append_applies_only_after_completion_and_lazy_broadcast_retries()
     let mut reconnect = f.peer(BOB);
     send(
         &mut reconnect,
-        f.frame("hello", json!({"device":BOB,"cursors":[]})),
+        f.frame(
+            "hello",
+            json!({"membershipRevision":"0","device":BOB,"cursors":[]}),
+        ),
     );
-    receive(&mut reconnect);
+    let first = receive(&mut reconnect);
+    ack(&mut reconnect, &first);
+    let wraps = receive(&mut reconnect);
+    assert_eq!(wraps["wraps"], json!([]));
+    ack(&mut reconnect, &wraps);
     assert_eq!(reconnect.1.poll(), Progress::Advanced);
     let page = receive(&mut reconnect);
     assert!(page["streams"][0]["tail"][0]["envelope"]["objectId"].is_string());
-    assemble(&mut reconnect, &bytes);
+    ack(&mut reconnect, &page);
+    assemble(&mut reconnect, &bytes, true);
     assert_ne!(reconnect.1.poll(), Progress::Closed);
     assert_eq!(receive(&mut reconnect)["more"], false);
 }
@@ -644,14 +672,25 @@ fn catchup_more_pages_than_queue_includes_appends_to_visited_namespaces_then_liv
         hash = next;
     }
     let mut b = f.peer(BOB);
-    send(&mut b, f.frame("hello", json!({"device":BOB,"cursors":[]})));
-    receive(&mut b);
+    send(
+        &mut b,
+        f.frame(
+            "hello",
+            json!({"membershipRevision":"0","device":BOB,"cursors":[]}),
+        ),
+    );
+    let first = receive(&mut b);
+    ack(&mut b, &first);
+    let wraps = receive(&mut b);
+    assert_eq!(wraps["wraps"], json!([]));
+    ack(&mut b, &wraps);
     let mut seen = Vec::new();
     for page in 0..11 {
         assert_eq!(b.1.poll(), Progress::Advanced);
         let result = receive(&mut b);
         assert_eq!(result["more"], true);
         assert!(result.get("membershipHead").is_none());
+        ack(&mut b, &result);
         seen.push(
             result["streams"][0]["tail"][0]["seq"]
                 .as_str()
@@ -731,7 +770,10 @@ fn unknown_pruned_and_wrong_namespace_cursors_resync_and_zero_bootstraps_checkpo
         let cursor = json!({"streamId":ALICE,"namespace":ns,"seq":seq.to_string(),"envelopeHash":values::encode_binary(&hash)});
         send(
             &mut b,
-            f.frame("hello", json!({"device":BOB,"cursors":[cursor]})),
+            f.frame(
+                "hello",
+                json!({"membershipRevision":"0","device":BOB,"cursors":[cursor]}),
+            ),
         );
         error(&mut b, "RESYNC_REQUIRED");
     }
@@ -739,6 +781,7 @@ fn unknown_pruned_and_wrong_namespace_cursors_resync_and_zero_bootstraps_checkpo
     let cursor = json!({"streamId":ALICE,"namespace":"own","seq":"2","envelopeHash":values::encode_binary(&head)});
     send(&mut b, f.frame("subscribe", json!({"cursors":[cursor]})));
     receive(&mut b);
+    assert_eq!(receive(&mut b)["wraps"], json!([]));
     assert_eq!(b.1.poll(), Progress::Advanced);
     let result = receive(&mut b);
     assert_eq!(result["streams"][0]["namespace"], "content");
@@ -858,7 +901,13 @@ fn bootstrap_baseline_descriptor_is_exact_scoped_and_first_page_only() {
         .update_admission(|p| p.baseline = Some(bytes.clone()))
         .unwrap();
     let mut b = f.peer(BOB);
-    send(&mut b, f.frame("hello", json!({"device":BOB,"cursors":[]})));
+    send(
+        &mut b,
+        f.frame(
+            "hello",
+            json!({"membershipRevision":"0","device":BOB,"cursors":[]}),
+        ),
+    );
     let result = receive(&mut b);
     assert_eq!(
         values::binary(result["baseline"].as_str().unwrap(), 8192).unwrap(),
@@ -874,7 +923,173 @@ fn bootstrap_baseline_descriptor_is_exact_scoped_and_first_page_only() {
     let mut a = f.peer(ALICE);
     send(
         &mut a,
-        f.frame("hello", json!({"device":ALICE,"cursors":[]})),
+        f.frame(
+            "hello",
+            json!({"membershipRevision":"0","device":ALICE,"cursors":[]}),
+        ),
     );
     error(&mut a, "INVALID");
+}
+
+fn ack(peer: &mut Peer, frame: &Value) {
+    let raw = json!({"version":1,"type":"ack","space":frame["space"],"page":frame["page"],"epoch":frame["epoch"],"cursors":[]});
+    peer.0.send(Message::Text(raw.to_string().into())).unwrap();
+}
+
+#[test]
+fn frame_credit_stops_at_eight_and_history_finishes_only_with_ack() {
+    let f = Fixture::new();
+    let mut writer = f.peer(ALICE);
+    let mut hash = [0; 32];
+    for seq in 1..=20 {
+        let (frame, next, _) = f.append(ALICE, seq, hash, "content", 4);
+        send(&mut writer, frame);
+        receive(&mut writer);
+        hash = next;
+    }
+    let mut reader = f.peer(BOB);
+    send(
+        &mut reader,
+        f.frame(
+            "hello",
+            json!({"device":BOB,"membershipRevision":"0","cursors":[]}),
+        ),
+    );
+    let mut frames = Vec::new();
+    for _ in 0..8 {
+        frames.push(receive(&mut reader));
+    }
+    assert_eq!(
+        frames[0]["membershipHead"]["ownerKey"],
+        values::encode_binary(f.alice.verifying_key().as_bytes())
+    );
+    assert_eq!(frames[1]["wraps"], json!([]));
+    assert_eq!(frames[2]["chains"][0]["deviceId"], ALICE);
+    assert_eq!(frames[3]["chains"], json!([]));
+    for _ in 0..16 {
+        assert_eq!(reader.1.poll(), Progress::Pending);
+    }
+    assert!(
+        matches!(reader.0.read(),Err(tungstenite::Error::Io(e)) if e.kind()==std::io::ErrorKind::WouldBlock)
+    );
+    let mut objects = 6;
+    for frame in &frames {
+        ack(&mut reader, frame);
+    }
+    loop {
+        let frame = receive(&mut reader);
+        objects += frame["streams"].as_array().unwrap().len();
+        ack(&mut reader, &frame);
+        if frame["more"] == false {
+            break;
+        }
+    }
+    assert_eq!(objects, 20);
+}
+#[test]
+fn twelve_chunk_transfer_stays_consecutive_across_credit_releases() {
+    let f = Fixture::new();
+    let (_, head, update) = f.append(ALICE, 1, [0; 32], "content", 4);
+    let mut store = Store::open(&Layout::open(&f.root).unwrap()).unwrap();
+    let scope = StreamScope {
+        page: PAGE,
+        epoch: 1,
+        stream: ALICE,
+    };
+    store
+        .append(&tmt_colab::store::Envelope {
+            scope,
+            namespace: tmt_colab::store::Namespace::Content,
+            seq: 1,
+            hash: head,
+            previous: [0; 32],
+            bytes: &update,
+        })
+        .unwrap();
+    let envelope = object::seal(
+        &object::Context {
+            space: f.space.clone(),
+            page: PAGE.into(),
+            epoch: "1".into(),
+            kind: "checkpoint".into(),
+            namespace: "content".into(),
+            author_device: ALICE.into(),
+            membership_revision: "1".into(),
+            stream_seq: "1".into(),
+            prev_hash: head,
+        },
+        &[9; 32],
+        &f.alice,
+        &vec![7; 270 * 1024],
+    )
+    .unwrap();
+    let bytes = envelope.to_json().unwrap();
+    assert_eq!(bytes.len().div_ceil(tmt_colab::limits::CHUNK_BYTES), 12);
+    store
+        .checkpoint(&tmt_colab::store::Envelope {
+            scope,
+            namespace: tmt_colab::store::Namespace::Content,
+            seq: 1,
+            hash: envelope.hash().unwrap(),
+            previous: head,
+            bytes: &bytes,
+        })
+        .unwrap();
+    let mut peer = f.peer(BOB);
+    send(
+        &mut peer,
+        f.frame(
+            "hello",
+            json!({"device":BOB,"membershipRevision":"0","cursors":[]}),
+        ),
+    );
+    let metadata = receive(&mut peer);
+    ack(&mut peer, &metadata);
+    let wraps = receive(&mut peer);
+    ack(&mut peer, &wraps);
+    let reference = receive(&mut peer);
+    ack(&mut peer, &reference);
+    assemble(&mut peer, &bytes, true);
+    assert_eq!(receive(&mut peer)["more"], false);
+}
+#[test]
+fn unsolicited_ack_has_no_bankable_credit_and_hello_revision_is_strict() {
+    let f = Fixture::new();
+    let mut peer = f.peer(ALICE);
+    send(&mut peer, f.frame("ack", json!({"cursors":[]})));
+    error(&mut peer, "INVALID");
+    for revision in ["2", "18446744073709551615"] {
+        let mut peer = f.peer(ALICE);
+        send(
+            &mut peer,
+            f.frame(
+                "hello",
+                json!({"device":ALICE,"membershipRevision":revision,"cursors":[]}),
+            ),
+        );
+        error(&mut peer, "RESYNC_REQUIRED");
+    }
+    for revision in ["00", "-1", "1.0"] {
+        let mut peer = f.peer(ALICE);
+        send(
+            &mut peer,
+            f.frame(
+                "hello",
+                json!({"device":ALICE,"membershipRevision":revision,"cursors":[]}),
+            ),
+        );
+        error(&mut peer, "INVALID");
+    }
+    let mut peer = f.peer(ALICE);
+    send(
+        &mut peer,
+        f.frame(
+            "hello",
+            json!({"device":ALICE,"membershipRevision":"1","cursors":[]}),
+        ),
+    );
+    assert_eq!(
+        receive(&mut peer)["membershipHead"]["statements"],
+        json!([])
+    );
 }

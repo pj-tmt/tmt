@@ -171,6 +171,23 @@ impl Registration {
     pub fn close(self) -> Result<()> {
         self.store.close()
     }
+    /// Read-only owner discovery also works before extension-key registration.
+    pub fn session(context: Option<&str>) -> std::result::Result<Vec<u8>, Code> {
+        let c = Context::parse(context)?;
+        serde_json::to_vec(
+            &serde_json::json!({"deviceId":c.device_id,"publicKey":c.public_key,
+            "grantRevision":c.grant_revision.to_string(),"name":c.name}),
+        )
+        .map_err(|_| Code::Unavailable)
+    }
+    pub fn pages(&self, context: Option<&str>) -> std::result::Result<Vec<u8>, Code> {
+        Context::parse(context)?;
+        self.store
+            .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
+                Ok(serde_json::to_vec(&tx.page_list()?)?)
+            })
+            .map_err(map_error)
+    }
     /// The caller supplies server time, never a request-selected clock.
     pub fn register(
         &mut self,
@@ -468,6 +485,7 @@ impl crate::sync::Admission for OwnerAdmission {
                 )
                 .map_err(|_| crate::sync::Code::Denied)?
                 .map(|baseline| baseline.descriptor),
+            owner_key: service.keyring.owner_public(),
         })
     }
 
