@@ -361,6 +361,32 @@ fn serve(
         let _ = response(&mut socket, 404, b"NOT FOUND", false);
         return;
     }
+    if matches!(
+        request.path.as_str(),
+        crate::readers::CHALLENGE_PATH | crate::readers::SESSION_PATH
+    ) {
+        let mut result = Err(registration::Code::Unavailable);
+        if request.method != "POST" || request.upgrade {
+            result = Err(registration::Code::Invalid);
+        } else if let Some(server) = sync {
+            let _ = server.update_admission(|admission| {
+                result = admission
+                    .0
+                    .lock()
+                    .map_err(|_| registration::Code::Unavailable)
+                    .and_then(|mut service| service.reader_request(&request.path, &request.body));
+            });
+        }
+        let (status, body) = match result {
+            Ok(bytes) => (200, bytes),
+            Err(code) => (
+                code.status(),
+                serde_json::to_vec(&serde_json::json!({"code":code.text()})).expect("error JSON"),
+            ),
+        };
+        let _ = response_as(&mut socket, status, &body, "application/json");
+        return;
+    }
     if request.method == "POST" && request.path == registration::PATH && !request.upgrade {
         let result = registration
             .ok_or(registration::Code::Unavailable)
@@ -417,8 +443,14 @@ fn serve(
             let _ = response(&mut socket, 400, b"INVALID", false);
             return;
         };
-        // Non-owner principals authenticate with colab itself, which is later work.
-        if request.owner.is_none() {
+        let token = match crate::readers::upgrade_token(&request.protocols) {
+            Ok(token) => token,
+            Err(code) => {
+                let _ = response(&mut socket, code.status(), code.text().as_bytes(), false);
+                return;
+            }
+        };
+        if request.owner.is_none() && token.is_none() {
             let _ = response(&mut socket, 403, b"DENIED", false);
             return;
         }
@@ -440,6 +472,14 @@ fn serve(
                         .0
                         .lock()
                         .map_err(|_| registration::Code::Unavailable)?;
+                    if let Some(token) = token {
+                        let (principal, device) = service.reader_upgrade(&token)?;
+                        active
+                            .lock()
+                            .map_err(|_| registration::Code::Unavailable)?
+                            .push((device, Arc::clone(&retained)));
+                        return Ok(principal);
+                    }
                     service.active_device(request.context.as_deref(), registration::now_ms()?)?;
                     let context: Value = serde_json::from_str(
                         request
@@ -480,6 +520,11 @@ fn serve(
             })
             .is_ok();
         if !reserved {
+            let _ = server.update_admission(|a| {
+                if let Ok(mut s) = a.0.lock() {
+                    s.release_reader(&device);
+                }
+            });
             let _ = response(&mut socket, 503, b"CAPACITY", false);
             return;
         }
@@ -488,9 +533,14 @@ fn serve(
             &key,
             tunnels.idle,
             server,
-            device,
+            device.clone(),
             request.prefetched,
         );
+        let _ = server.update_admission(|a| {
+            if let Ok(mut s) = a.0.lock() {
+                s.release_reader(&device);
+            }
+        });
         live.fetch_sub(1, Ordering::AcqRel);
         return;
     }
@@ -949,6 +999,9 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             | management::PATH
             | management::LOCAL_PATH
             | crate::page::ipc::PATH
+
+            | crate::readers::CHALLENGE_PATH
+            | crate::readers::SESSION_PATH
     ) {
         request.owner = request.context.as_deref().map(owner_name).transpose()?;
     }

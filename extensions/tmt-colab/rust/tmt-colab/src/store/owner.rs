@@ -10,6 +10,12 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, 
 use serde::{Deserialize, Serialize};
 use tmt_colab_model::{certificate, crypto, payload, statement, values, wrap};
 
+/// Caller-admitted recipients for scoped bootstrap; never inferred from a frame.
+pub enum WrapRecipients {
+    Owner,
+    Link(String),
+    None,
+}
 pub const MAX_OUTCOME_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, PartialEq, Eq)]

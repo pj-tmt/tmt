@@ -4801,7 +4801,7 @@ verification.
 ## Colab extension proposal
 
 **Status: persistence, foreground socket executable, isolated decoder and model foundation implemented;
-mounted owner stream sync and owner-browser registration are implemented;
+mounted owner stream sync, owner-browser registration and read-only reader sessions are implemented;
 the owner-local epoch engine is implemented; the browser page preview runs on a local adapter; backend work remains proposed.** The local-build-only pilot lives under
 `extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
 owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
@@ -4993,8 +4993,9 @@ inventories. Embedded builds survive relocation without a checkout, Node, pnpm o
 sibling assets; adopting new embedded output requires rebuilding the binary.
 There is no installer payload or data-root change. Shared packaging/notices and
 release activation remain infra-owned under #1418. It accepts a `colab-sync-v1`
-WebSocket upgrade only with an active registered owner context, version 13 and a well-formed
-16-byte key, computing the accept value with the workspace `tungstenite`
+WebSocket upgrade with an active registered owner context or a single-use
+read-only reader ticket. Both require version 13 and a well-formed 16-byte key,
+computing the accept value with the workspace `tungstenite`
 handshake, then drives the shared sync server (16 tunnels at most, closed after
 120 s without inbound bytes). The worker preserves HTTP read-ahead and drives
 sync acquisition/write deadlines even without input. Shutdown closes
@@ -5148,7 +5149,7 @@ machine-readable CLI errors.
 shared mutex. The mounted registration endpoint verifies both remote-owned
 extension-key certificates against the full forwarded owner context before any
 signing. Remote alone owns Host/Origin, pairing, cookies and live grant admission;
-colab adds no cookie/session credential. The existing owner transaction owns
+owner registration adds no cookie/session credential. The existing owner transaction owns
 revision-1 management-member genesis. Purpose-separated local management keys
 stay in Keyring; a separate device transaction serializes pinned-member admission,
 certificate signing, binding and exact response persistence without advancing the
@@ -5272,6 +5273,20 @@ Subsequent live edits never change an open bundle. Blocked bindings disable and
 close the panel; archived export remains deferred with the current admission
 policy. The renderer's handshake and source injection remain unchanged.
 
+`readers::Sessions` owns at most 64 ephemeral challenges/tickets/active readers
+inside Registration, using an injected server clock. Public readers are page-
+and epoch-scoped anonymous capabilities; link readers prove possession of a
+log-bound certified key and persist only their device projection in the existing
+transaction. No reader principal is an owner device or writer. The subprotocol
+carrier remains Colab-owned; Remote's Route mounting contract owns its forwarding.
+Token hashes use the existing constant-time model HMAC verifier for confirmation;
+only the public sync protocol is selected. Disconnect/restart releases capabilities.
+Admission rechecks policy and expiry even before hello, rejects every publication
+operation, and chooses only link wraps or no wraps for public readers. The same
+sync lock fences owner transitions and pending reader delivery. Readers add no
+Remote pairing, management, agent grant, migration or dependency. Mounted reader
+UI and the remaining #1371 lifecycle acceptance remain separate work.
+
 ### Stream sync transport
 
 `sync::Server` owns opaque append admission and bounded live subscriber queues
@@ -5331,8 +5346,8 @@ the existing append transaction. Outbound objects reserve queue entries and emit
 one frame per turn from immutable shared bytes. Revocation/drop clears partial
 state and pending transfer bytes; clients verify reassembled data before applying.
 The exact grammar/budgets live in colab-v1, with timers and socket workers still
-caller-owned. The foreground socket composes `registration::OwnerAdmission`
-with a Store connection and this shared Server. Upgrade verifies remote binding
+caller-owned. The foreground socket composes `registration::OwnerAdmission`, including the
+read-only session owner, with a Store connection and this shared Server. Upgrade verifies remote binding
 and the registered chain. Rechecks read a durable owner/device/issuer/epoch snapshot
 without writer reservation or repeated signatures; Append additionally fences the
 membership revision and namespace and supplies the registered signing key. The

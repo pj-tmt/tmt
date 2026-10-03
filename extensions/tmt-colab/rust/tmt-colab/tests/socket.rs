@@ -150,9 +150,12 @@ impl Running {
     }
     fn tunnel_for(&self, id: &str) -> (UnixStream, String) {
         let owner_header = owner(id);
+        self.open_tunnel(&format!("{owner_header}\r\n{UPGRADE}"))
+    }
+    fn open_tunnel(&self, headers: &str) -> (UnixStream, String) {
         let mut socket = self.connect();
         socket
-            .write_all(Self::get("/sync", &format!("{owner_header}\r\n{UPGRADE}")).as_bytes())
+            .write_all(Self::get("/sync", headers).as_bytes())
             .unwrap();
         let mut head = Vec::new();
         let mut byte = [0; 1];
@@ -2483,4 +2486,187 @@ fn root_local_page_write_broadcasts_chain_chunks_and_replays_without_fanout() {
     drop(peer);
     drop(server);
     assert!(page::ipc::write(&layout, &prepared).is_err());
+}
+
+impl Running {
+    fn publish(&self) {
+        use tmt_colab::{
+            store::owner::Mutation,
+            transitions::{Engine, OwnerAction, OwnerRequest, Publication, ShareMode},
+        };
+        let layout = Layout::open(&self.root).unwrap();
+        let key = Keyring::read(&layout).unwrap();
+        let mut store = Store::open(&layout).unwrap();
+        let head = store
+            .owner_head(&self.space, &key.owner_public())
+            .unwrap()
+            .unwrap();
+        store
+            .owner_transaction(
+                &self.space,
+                &key.owner_public(),
+                Mutation {
+                    operation_id: "40000000-0000-4000-8000-000000000001",
+                    expected_revision: head.revision,
+                    digest: [1; 32],
+                },
+                |tx| {
+                    tx.put_epoch_secret(PAGE, 1, &[8; 32])?;
+                    tx.append_statement(&key.sign_statement(
+                        tx.head(),
+                        "retention.set",
+                        &serde_json::to_vec(&json!({"pageId":PAGE,"days":null}))?,
+                    )?)?;
+                    Ok(Vec::new())
+                },
+            )
+            .unwrap();
+        Engine::new(env!("CARGO_BIN_EXE_tmt-colab").into())
+            .unwrap()
+            .apply(
+                &mut store,
+                &key,
+                OwnerRequest {
+                    operation_id: "40000000-0000-4000-8000-000000000002",
+                    expected_revision: head.revision + 1,
+                    action: OwnerAction::Share {
+                        page: PAGE,
+                        mode: ShareMode::Public,
+                        publication: Publication::Loopback,
+                    },
+                    transport_digest: None,
+                    scope: None,
+                },
+                now(),
+            )
+            .unwrap();
+    }
+    fn reader_session(&self) -> Value {
+        let response = self.event(
+            tmt_colab::readers::CHALLENGE_PATH,
+            "",
+            &json!({"kind":"public","space":self.space,"page":PAGE}).to_string(),
+        );
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        let c: Value = serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
+        let response = self.event(
+            tmt_colab::readers::SESSION_PATH,
+            "",
+            &json!({"kind":"public","challengeId":c["challengeId"]}).to_string(),
+        );
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap()
+    }
+    fn reader_peer(&self, s: &Value) -> WebSocket<UnixStream> {
+        let carrier = format!(
+            "Sec-WebSocket-Protocol: colab-reader-v1.{}, colab-sync-v1\r\n",
+            s["token"].as_str().unwrap()
+        );
+        let headers = UPGRADE.replace("Sec-WebSocket-Protocol: colab-sync-v1\r\n", &carrier);
+        let (socket, head) = self.open_tunnel(&headers);
+        assert!(head.starts_with("HTTP/1.1 101"), "{head}");
+        assert!(head.contains("Sec-WebSocket-Protocol: colab-sync-v1\r\n"));
+        assert!(!head.contains(s["token"].as_str().unwrap()));
+        assert!(!head.contains("colab-reader-v1."));
+        WebSocket::from_raw_socket(socket, Role::Client, None)
+    }
+    fn reader_frame(&self, s: &Value, kind: &str, fields: Value) -> Value {
+        let mut v = self.frame(kind, fields);
+        v["epoch"] = s["epoch"].clone();
+        v
+    }
+}
+#[test]
+fn mounted_public_readers_catch_up_and_cannot_publish_or_claim_owner_context_twice() {
+    for _ in 0..2 {
+        let server = Running::start(Tunnels::PRODUCT);
+        server.publish();
+        let s = server.reader_session();
+        let mut peer = server.reader_peer(&s);
+        send(
+            &mut peer,
+            server.reader_frame(
+                &s,
+                "hello",
+                json!({"device":s["principal"],"membershipRevision":"0","cursors":[]}),
+            ),
+        );
+        let first = receive(&mut peer);
+        assert_eq!(first["type"], "catchup");
+        assert_eq!(first["membershipHead"]["ownerKey"], s["ownerKey"]);
+        send(
+            &mut peer,
+            server.reader_frame(&s, "ack", json!({"cursors":[]})),
+        );
+        let wraps = receive(&mut peer);
+        assert_eq!(wraps["wraps"], json!([]));
+        assert_eq!(wraps["more"], false);
+        let count = server
+            .oracle()
+            .query_row("SELECT count(*) FROM receipts", [], |r| r.get::<_, i64>(0))
+            .unwrap();
+        for (kind, fields) in [
+            (
+                "awareness",
+                json!({"device":s["principal"],"data":values::encode_binary(b"presence")}),
+            ),
+            (
+                "append",
+                json!({"streamId":s["principal"],"seq":"1","envelopeHash":values::encode_binary(&[0;32]),"envelope":{"objectId":"00".repeat(32)}}),
+            ),
+            (
+                "chunk",
+                json!({"objectId":"00".repeat(32),"envelopeHash":values::encode_binary(&[0;32]),"index":0,"count":1,"bytes":values::encode_binary(b"x")}),
+            ),
+        ] {
+            let s = server.reader_session();
+            let mut p = server.reader_peer(&s);
+            send(
+                &mut p,
+                server.reader_frame(&s, "subscribe", json!({"cursors":[]})),
+            );
+            send(&mut p, server.reader_frame(&s, kind, fields));
+            let denial = receive(&mut p);
+            assert_eq!(denial["code"], "DENIED", "{denial}");
+        }
+        assert_eq!(
+            server
+                .oracle()
+                .query_row("SELECT count(*) FROM receipts", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            count
+        );
+        for path in ["/api/session", "/api/pages"] {
+            assert!(
+                server
+                    .request(&Running::get(path, ""))
+                    .starts_with("HTTP/1.1 403")
+            );
+        }
+        assert!(
+            server
+                .event(
+                    tmt_colab::registration::PATH,
+                    "",
+                    &registration_body(DEVICE)
+                        .into_iter()
+                        .map(char::from)
+                        .collect::<String>()
+                )
+                .starts_with("HTTP/1.1 403")
+        );
+        let wrong = UPGRADE.replace(
+            "colab-sync-v1",
+            "colab-sync-v1, colab-reader-v1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        );
+        assert!(server.open_tunnel(&wrong).1.starts_with("HTTP/1.1 403"));
+        let replay = UPGRADE.replace(
+            "colab-sync-v1",
+            &format!(
+                "colab-sync-v1, colab-reader-v1.{}",
+                s["token"].as_str().unwrap()
+            ),
+        );
+        assert!(server.open_tunnel(&replay).1.starts_with("HTTP/1.1 403"));
+    }
 }

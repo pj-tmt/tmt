@@ -3400,7 +3400,7 @@ socket/process lifecycle acceptance twice. No real model/account/DB is used.
 ## Colab pilot development
 
 The private local-build Colab executable serves an owner-only mounted socket,
-owner-browser registration and stream sync, and lists local-space metadata.
+owner-browser registration, stream sync and read-only reader sessions, and lists local-space metadata.
 Owner requests use the embedded browser app when built with `TMT_COLAB_APP_DIR`,
 or load local checkout output when it is available. Without either, the local
 build shows a build-hint placeholder. Published `tmt-colab` artifacts must embed
@@ -3810,6 +3810,30 @@ Docker or remote identities. Full two-browser application acceptance is later.
 The transport uses the existing workspace tungstenite 0.30.0 edge in `tmt-colab`
 (default features disabled, handshake enabled). Mounted composition adds no
 dependencies or lockfile resolutions.
+
+### Colab reader verification
+
+Run `CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-colab --lib readers::tests`
+and the focused `--lib mounted_link_reader` / `--test socket mounted_public_readers`
+filters from `rust/`. The unit fixtures reuse real private SQLite/keyring state
+and the built `tmt-colab` decoder sibling of the test executable. Build the
+executable first for a standalone library-only run; the complete package test
+builds it. Mounted tests use short isolated `/tmp` roots and unconditional socket
+shutdown/join/removal. No real Remote identity or Docker is involved.
+
+The native seam exercises possession/scope/replay/expiry denial, session caps,
+restart rejection and caller-admitted wrap selection with a nonempty exact-byte
+owner oracle. Real mounted public catchup and publication denials run twice.
+Mounted link→private and individual-revocation cases prove subscription closure,
+no further application delivery and old-chain denial twice; a retained seed can
+certify a fresh device only when the link survives. Other narrowing, Reset,
+rotation and lifecycle/blocked-transfer proofs remain #1371 acceptance work;
+these tests do not claim browser reader UI or complete L6 acceptance. Exact
+request/session carrier rules belong to
+[colab-v1](extensions/tmt-colab/contracts/colab-v1.md#mounted-read-only-reader-sessions-1310).
+The owner discovery endpoints stay owner-only. Readers receive no writes,
+management or agent authority. Decoder production-deadline failures under machine
+load are failures, tracked by #1311, never counted as passes.
 
 ### Colab decoder verification
 
