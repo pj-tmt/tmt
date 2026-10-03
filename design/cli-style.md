@@ -324,7 +324,7 @@ User bindings can change a key; help and footers always show the effective key.
 - Nothing from the base shows through: the overlay clears its area first.
 - Content is inset one cell from the left and right borders. The key line, a
   status line and the scroll position (`1–23 of 74`, `muted`) share that inset.
-- Size: help and other reference overlays fill the whole body between the tab line and the footer, which stay as they are. Small overlays (pickers, confirmations) are as wide as their content, at most 90% of the view and 80% of its height, centered. Below 100 columns every overlay takes the full body width. Below 100 columns an overlay takes the full body width.
+- Size: help and other reference overlays fill the whole body between the tab line and the footer, which stay as they are. Small overlays (pickers, confirmations) are as wide as their content, at most 90% of the view and 80% of its height, centered. Below 100 columns every overlay takes the full body width.
   Content that does not fit scrolls; the overlay never grows past the view.
 - A prompt is a short overlay docked above the footer, so the board stays
   visible as a live preview of the value being typed.
