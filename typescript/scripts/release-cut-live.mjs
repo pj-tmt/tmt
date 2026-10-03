@@ -4,7 +4,7 @@ import { appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readReleaseSourceAtRef } from './release-source-at-ref.mjs';
-import { releasePolicy } from './native-release-policy.mjs';
+import { componentOfProduct, releasePolicy } from './native-release-policy.mjs';
 import { planReleaseCuts } from './release-cut.mjs';
 import { readCutMetadata } from './release-cut-read.mjs';
 import { runPackedCommand } from './packed-command.mjs';
@@ -124,7 +124,8 @@ export async function runReleaseCuts({
   const { map, workspace } = readReleaseSourceAtRef(cut, { root, warm: true });
   if (
     product &&
-    !map.components.some((c) => c.name === product && c.package && c.release !== false)
+    (!componentOfProduct(map, product).package ||
+      componentOfProduct(map, product).release === false)
   )
     throw new Error(`Cut selection names an unreleased component ${product}.`);
   if (version && !product) throw new Error('An explicit cut version needs exactly one product.');

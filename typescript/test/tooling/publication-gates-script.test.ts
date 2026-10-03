@@ -104,7 +104,7 @@ function scenario(options: Scenario = {}) {
     path.join(repositoryRoot, '.github/components.json'),
     path.join(repo, '.github/components.json')
   );
-  writeReleaseWorkspace(repo);
+  writeReleaseWorkspace(repo, ['remote', 'colab']);
   writeFileSync(path.join(repo, MIGRATIONS), list(2));
   writeFileSync(path.join(repo, 'rust/lib.rs'), 'fn a() {}\n');
   git('add', '-A');
@@ -287,7 +287,7 @@ describe('publication-gates.mjs early', () => {
   it('passes a draft whose commit, immutability, order and migrations are all in order', () => {
     const { run, uploaded, calls } = scenario({ hold: null });
     const result = run(early);
-    expect(result.status).toBe(0);
+    expect(result.status, result.stderr).toBe(0);
     expect(result.output).toBe('held=\nskip=\n');
     for (const gate of ['channel', 'commit', 'immutability', 'monotonic', 'migration']) {
       expect(result.summary).toContain(`- passed \`${gate}\``);
@@ -302,7 +302,7 @@ describe('publication-gates.mjs early', () => {
     (tag) => {
       const { run, uploaded, calls } = scenario({ hold: null, draftTag: tag });
       const result = run(['early', '--product', 'cli', '--tag', tag]);
-      expect(result.status).toBe(0);
+      expect(result.status, result.stderr).toBe(0);
       expect(result.output).toBe('held=channel\nskip=\n');
       expect(result.summary).toContain('- FAILED `channel`');
       expect(result.summary).toContain('**Held** at `channel`');
@@ -332,7 +332,7 @@ describe('publication-gates.mjs early', () => {
     );
     const { run, uploaded, candidate } = scenario({ checkRuns: failed, hold: null });
     const result = run(early);
-    expect(result.status).toBe(0);
+    expect(result.status, result.stderr).toBe(0);
     expect(result.output).toBe('held=commit\nskip=\n');
     expect(result.summary).toContain('**Held** at `commit`');
     const marker = uploaded('publication-held.json');
@@ -357,7 +357,7 @@ describe('publication-gates.mjs early', () => {
   it('keeps an unpublished failed draft out of the breaking-change boundary', () => {
     const fixture = scenario({ failedCut: 'breaking', draftTag: 'v5.0.0-alpha.10', hold: null });
     const result = fixture.run(['early', '--product', 'cli', '--tag', 'v5.0.0-alpha.10']);
-    expect(result.status).toBe(0);
+    expect(result.status, result.stderr).toBe(0);
     expect(result.output).toBe('held=migration\nskip=\n');
     expect(fixture.uploaded('publication-held.json')?.reason).toContain(
       'feat!: remove the old API'
@@ -370,7 +370,7 @@ describe('publication-gates.mjs early', () => {
   it('counts migrations from the published ancestor despite a newer failed draft', () => {
     const fixture = scenario({ failedCut: 'migration', draftTag: 'v5.0.0-alpha.10', hold: null });
     const result = fixture.run(['early', '--product', 'cli', '--tag', 'v5.0.0-alpha.10']);
-    expect(result.status).toBe(0);
+    expect(result.status, result.stderr).toBe(0);
     expect(result.output).toBe('held=\nskip=\n');
     expect(result.summary).toContain(`${MIGRATIONS} has 3 migrations, 2 in v5.0.0-alpha.8`);
     expect(fixture.uploaded('publication-held.json')).toBeNull();
@@ -396,7 +396,7 @@ describe('publication-gates.mjs early', () => {
   it('holds a draft that points at a branch, so no commit can be checked', () => {
     const { run } = scenario({ draftCommit: 'branch', hold: null });
     const result = run(early);
-    expect(result.status).toBe(0);
+    expect(result.status, result.stderr).toBe(0);
     expect(result.output).toBe('held=commit\nskip=\n');
   });
 
@@ -421,7 +421,7 @@ describe('publication-gates.mjs early --release-hold', () => {
       hold: { gate: 'migration', reason: 'held earlier' },
     });
     const result = run([...early, '--release-hold']);
-    expect(result.status).toBe(0);
+    expect(result.status, result.stderr).toBe(0);
     expect(result.output).toBe('held=\nskip=migration\n');
     expect(result.summary).toContain('- skipped `migration`');
     expect(uploaded('publication-held.json')).toBeNull();
@@ -520,7 +520,7 @@ describe('held-draft rerun publication decisions', () => {
     }
     expect(calls().filter((call) => call.includes('--method'))).toEqual([]);
     const result = run(finish('success', 'proved', ['--rerun-gate', 'upgrade']));
-    expect(result.status).toBe(0);
+    expect(result.status, result.stderr).toBe(0);
     expect(result.summary).toContain('Every gate passed. The next job publishes the release.');
     expect(calls().filter((call) => call.includes('DELETE'))).toHaveLength(1);
     expect(publication().flags).toContain('--latest=false');

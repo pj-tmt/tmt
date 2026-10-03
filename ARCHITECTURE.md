@@ -4409,12 +4409,11 @@ the component existed. Herdr remains excluded from live release planning until o
 CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 
-Colab's native release wiring is prepared but parked (`release: false`, Cargo
-`dist = false`). The builder passes a stable absolute `TMT_COLAB_APP_DIR` to Colab's
-build-time embedding, so one executable carries the app, and core registers the
-product. `colab-runtime-proof.mjs` verifies the relocated socket, app bytes and child
-cleanup; only Colab verification loads it. Activation needs a published supporting CLI
-alpha and actual-archive acceptance.
+Remote and Colab are independent native products. The builder passes an absolute
+`TMT_COLAB_APP_DIR` to Colab's embedding boundary; core owns native registration.
+`colab-runtime-proof.mjs` verifies the relocated socket, app bytes and child cleanup;
+only Colab verification loads it. Publication requires a supporting CLI and actual-archive
+acceptance under the [release skill](.agents/skills/tmt-release/SKILL.md).
 
 The artifact builder resolves the taffy-only offline clarification before
 cargo-about runs. `rust/about.toml` owns the clarification's
@@ -4443,7 +4442,12 @@ parser/renderer dependencies produce notes for the releasable first-parent commi
 across the shared range below; linked SHAs equal that set by construction.
 A short serialized allocation section counts existing drafts and Git tags to
 reserve the next alpha number; each allocated tag then owns its independent pipeline. Explicit owner-selected
-versions must advance it; first release requires a reviewed bootstrap and seed.
+versions must advance it. The component map owns the permanent `bootstrapSha` boundary
+and owner-approved `initialVersion` for a first cut. Optional `requiresCliSha` blocks
+that cut until the newest published CLI contains the registration commit.
+`native-release-policy.mjs` maps component identities such as `tmt-colab` to
+canonical workflow products such as `colab`; cut, injection and Project evidence
+share this mapping without changing ownership or CI selection.
 Authorization belongs to the [release skill](.agents/skills/tmt-release/SKILL.md).
 
 `cargo-workspace.mjs::readCargoWorkspace` is the shared Cargo reader: callers
@@ -4518,8 +4522,10 @@ Never-shipped leaves have no consumers and require no release; changes confined 
 them reconcile to Done. Only waits confined to parked products reconcile to Done with
 one `ships with the first <product> release` line per waited-on product
 (`Office` today); any other wait keeps Merged. Available published
-evidence is retained. An absent marker means not yet activated, preserving Colab,
-Remote and Herdr waits. `colab-app` declares its embedded consumer `tmt-colab`; private
+evidence is retained. An absent marker on an unreleased product means not yet activated, preserving
+Herdr waits. Remote and Colab paths wait for their own published containing tags.
+`colab-app` and its bundled `colab-client` declare consumer `tmt-colab`;
+`remote-client` declares its embedding product `tmt-remote`. Private
 consumers may name a packaged product awaiting activation, but never a never-shipped one. Closed-issue status definitions belong to
 [Project tracking](DEVELOPMENT.md#project-tracking). Issues labeled `epic` are
 excluded from both field writes and listed as skipped: their owning lead retains
@@ -4602,7 +4608,7 @@ the installed product. There is no deferred smoke-retry workflow. Historical ano
 rate-limit issues remain visible to the monitor; no current failure is downgraded or
 made green. The Project dispatch retains successful-smoke gating and removes the obsolete
 infrastructure-only exception; release evidence still follows publication.
-CLI, Office, Squad and Herdr driver runs
+CLI, Office, Squad, Remote, Colab and Herdr driver runs
 share the four-target cargo-dist build and
 archive verifier, while keeping product-qualified bundles, independent versions and separate
 immutable tags.
@@ -4903,8 +4909,7 @@ follow the channel contract's device enrollment, receipt-proof and fingerprint r
 `firestore` and `cloudflare` are not permitted until their edge admission and
 encryption profile are specified. Core never owns a listener or remote state. Core recognizes Remote as an
 official installation product; archive publication and cargo-dist activation
-remain separate gates. Its private component owner excludes
-remote versions from real-product releases. Cargo-dist packages `tmt-remote` as an
+remain separate gates. Remote is a released component with an independent development version and alpha tag identity. Cargo-dist packages `tmt-remote` as an
 independent native archive containing the executable, `LICENSE`,
 `NATIVE-INSTALL.md` and `THIRD-PARTY-NOTICES.txt`, with no companions or skills.
 The pairing page, device SDK and fingerprint wordlist are embedded in the binary.
@@ -4974,8 +4979,7 @@ permitted/refused read scenario.
 ## Colab extension
 
 Colab (`extensions/tmt-colab/`: `tmt-colab`, `tmt-colab-model`, `@tmt/colab-client`,
-`@tmt/colab-app`) is an extension whose release is prepared and not yet activated
-(`release: false`, Cargo `dist = false`).
+`@tmt/colab-app`) is an activated native extension whose executable embeds the app.
 [colab-v1](extensions/tmt-colab/contracts/colab-v1.md) is the normative contract; the
 [tmt-colab skill](.agents/skills/tmt-colab/SKILL.md) holds module knowledge and procedures.
 

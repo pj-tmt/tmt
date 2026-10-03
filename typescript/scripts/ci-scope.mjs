@@ -63,6 +63,8 @@ export function parseComponentMap(text) {
     release: component.release,
     releaseStatus: component.releaseStatus,
     bootstrapSha: component.bootstrapSha,
+    initialVersion: component.initialVersion,
+    requiresCliSha: component.requiresCliSha,
     releaseConsumers:
       component.releaseConsumers === undefined
         ? []
@@ -82,6 +84,30 @@ export function parseComponentMap(text) {
       (typeof component.bootstrapSha !== 'string' || !/^[a-f0-9]{40}$/.test(component.bootstrapSha))
     )
       throw new Error(`Component ${component.name} bootstrapSha must be a commit SHA.`);
+    if (
+      component.requiresCliSha !== undefined &&
+      (typeof component.requiresCliSha !== 'string' ||
+        !/^[a-f0-9]{40}$/.test(component.requiresCliSha) ||
+        !component.package)
+    )
+      throw new Error(
+        `Component ${component.name} requiresCliSha must be a registration commit SHA for a package.`
+      );
+    if (component.initialVersion !== undefined) {
+      const alpha = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-alpha\.(0|[1-9]\d*)$/.exec(
+        component.initialVersion
+      );
+      if (
+        !component.package ||
+        !component.bootstrapSha ||
+        !alpha ||
+        alpha.slice(1).some((part) => !Number.isSafeInteger(Number(part))) ||
+        Number(alpha[4]) >= Number.MAX_SAFE_INTEGER
+      )
+        throw new Error(
+          `Component ${component.name} initialVersion needs a package, bootstrapSha and canonical bounded alpha version.`
+        );
+    }
     if (component.release !== undefined && typeof component.release !== 'boolean')
       throw new Error(`Component ${component.name} release must be boolean.`);
     if (

@@ -2,7 +2,7 @@
 import { appendFileSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { productOfTag, archivePrefix, releasePolicy } from './native-release-policy.mjs';
+import { productOfTag, productOfComponent, archivePrefix } from './native-release-policy.mjs';
 import { compareVersions, versionOfTag } from './release-versions.mjs';
 import { readReleaseSourceAtRef } from './release-source-at-ref.mjs';
 import { runPackedCommand } from './packed-command.mjs';
@@ -284,8 +284,7 @@ export function affectedProducts(paths, map, workspace) {
     if (component.package || !owners.size) owners.add(name);
     for (const owner of owners) {
       try {
-        releasePolicy(owner);
-        products.add(owner);
+        products.add(productOfComponent(owner));
       } catch {
         unpublished.add(owner);
       }
@@ -331,18 +330,19 @@ export function deriveEvidence(items, closing, releases, git, map, workspace) {
       if (first) labels.push(releaseIdentity(first.tag_name).label);
       else waiting.add(`Awaiting ${product}`);
     }
-    const parked = map.components.filter(
-      (component) =>
-        component.releaseStatus === 'parked' &&
-        (waiting.has(`Awaiting ${component.name}`) ||
-          waiting.has(`No publication policy: ${component.name}`))
-    );
-    const parkedReasons = new Set(
-      parked.flatMap((component) => [
-        `Awaiting ${component.name}`,
-        `No publication policy: ${component.name}`,
-      ])
-    );
+    const parked = map.components
+      .filter((component) => component.releaseStatus === 'parked')
+      .map((component) => {
+        let reason = `No publication policy: ${component.name}`;
+        try {
+          reason = `Awaiting ${productOfComponent(component.name)}`;
+        } catch {
+          // Unregistered parked products retain their component identity.
+        }
+        return { ...component, reason };
+      })
+      .filter((component) => waiting.has(component.reason));
+    const parkedReasons = new Set(parked.map((component) => component.reason));
     const onlyParked =
       waiting.size > 0 && [...waiting].every((reason) => parkedReasons.has(reason));
     const parkedNotes = onlyParked

@@ -58,6 +58,7 @@ const executable = {
   cli: 'tmt',
   office: 'tmt-office',
   squad: 'tmt-squad',
+  remote: 'tmt-remote',
   colab: 'tmt-colab',
   'driver-herdr': 'tmt-driver-herdr',
 }[values.product];

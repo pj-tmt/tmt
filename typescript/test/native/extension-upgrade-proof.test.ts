@@ -18,23 +18,32 @@ type Artifact = Awaited<ReturnType<typeof createArtifact>>;
 
 // The proof's verifier drives the newest published CLI, so it may only use what that CLI has. The
 // driver here is the freshly built CLI behind a native fixture that records its public commands.
-// Squad only: the Office installer also checks that the executable reports the version it is
+// Squad/Remote/Colab: the Office installer also checks that the executable reports the version it is
 // installed as, which a built `tmt-office` can do for one version only; the verifier builds the
-// same commands for both extensions.
+// same commands for every extension.
 describe('extension upgrade proof against the real CLI', () => {
   // The driver is the newest published CLI: today's, carrying its companion, or one released
   // before companions existed (5.0.0-alpha.39), read against its own manifest.
-  it.each([
-    ['a current CLI', undefined],
-    ['a CLI published before companions', null],
-  ] as const)(
-    'upgrades Squad through `tmt extension install` and `tmt extension ls` only, driven by %s',
-    async (_, driverCompanions) => {
+  it.each(
+    (['squad', 'remote', 'colab'] as const).flatMap(
+      (product) =>
+        [
+          [product, 'a current CLI', undefined],
+          [product, 'a CLI published before companions', null],
+        ] as const
+    )
+  )(
+    'upgrades %s through public commands, driven by %s',
+    async (extension, _, driverCompanions) => {
       await withSandbox(async (sandbox) => {
         const log = path.join(sandbox.root, 'driver commands.log');
         expect(sandbox.cli.args).toEqual([]);
 
-        const artifact = (name: string, version: string, product: 'cli' | 'squad') =>
+        const artifact = (
+          name: string,
+          version: string,
+          product: 'cli' | 'squad' | 'remote' | 'colab'
+        ) =>
           createArtifact(
             {
               root: path.join(sandbox.root, name),
@@ -55,15 +64,15 @@ describe('extension upgrade proof against the real CLI', () => {
             undefined,
             product === 'squad' ? { 'tmt-squad/SKILL.md': 'lead skill\n' } : {}
           );
-        const previous = await artifact('previous', '0.1.0-alpha.1', 'squad');
-        const candidate = await artifact('candidate', '0.1.0-alpha.2', 'squad');
+        const previous = await artifact('previous', '0.1.0-alpha.1', extension);
+        const candidate = await artifact('candidate', '0.1.0-alpha.2', extension);
         const driver = await artifact('driver', '5.0.0-alpha.1', 'cli');
 
-        const result = await runProof(sandbox, { previous, candidate, driver });
+        const result = await runProof(sandbox, { previous, candidate, driver, product: extension });
         expect(result.stderr).toBe('');
         expect(result.status).toBe(0);
         expect(result.stdout).toBe(
-          `Extension upgrade verified: squad 0.1.0-alpha.1 -> 0.1.0-alpha.2 (${nativeTarget()})\n`
+          `Extension upgrade verified: ${extension} 0.1.0-alpha.1 -> 0.1.0-alpha.2 (${nativeTarget()})\n`
         );
 
         const commands = new Set(readFileSync(log, 'utf8').trim().split('\n'));
@@ -139,14 +148,19 @@ describe('CLI installation proof', () => {
 
 function runProof(
   sandbox: Sandbox,
-  { previous, candidate, driver }: Record<'previous' | 'candidate' | 'driver', Artifact>
+  {
+    previous,
+    candidate,
+    driver,
+    product = 'squad',
+  }: Record<'previous' | 'candidate' | 'driver', Artifact> & { product?: string }
 ) {
   return runCli(
     { ...sandbox, cli: { executable: process.execPath, args: [] } },
     [
       verifier,
       '--product',
-      'squad',
+      product,
       '--archive',
       candidate.archive,
       '--manifest',

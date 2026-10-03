@@ -12,7 +12,7 @@ on:
         required: false
         default: all
         type: choice
-        options: [all, cli, squad]
+        options: [all, cli, squad, remote, colab]
       version:
         description: Optional explicit stable or alpha version; requires a product and owner authorization
         required: false

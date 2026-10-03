@@ -385,7 +385,7 @@ describe('full repository-state release sweep', () => {
     }));
 
   it.each(['tmt-cli-style', 'tmt-invoke'])(
-    'preserves CLI membership while adding Squad for %s',
+    'preserves CLI membership while adding its released extension consumers for %s',
     (leaf) => {
       const file = `rust/crates/${leaf}/src/lib.rs`;
       const before = {
@@ -394,7 +394,7 @@ describe('full repository-state release sweep', () => {
       };
       expect(affectedProducts([file], before)).toEqual({ products: ['cli'], unpublished: [] });
       expect(affectedProducts([file], map, workspace)).toEqual({
-        products: ['cli', 'squad'],
+        products: ['cli', 'colab', 'remote', 'squad'],
         unpublished: [],
       });
       expect(affectedProducts([`rust/crates/${leaf}-other/src/lib.rs`], map)).toEqual({
@@ -412,7 +412,7 @@ describe('full repository-state release sweep', () => {
   });
 
   it.each(['tmt-cli-style', 'tmt-invoke'])(
-    'requires both published products for a %s change',
+    'requires every published consuming product for a %s change',
     (leaf) =>
       history(({ directory, git, commit }) => {
         const sha = commit([`rust/crates/${leaf}/src/lib.rs`]);
@@ -431,9 +431,18 @@ describe('full repository-state release sweep', () => {
         expect(reconcile(input).rows[0]).toMatchObject({
           status: 'Merged',
           text: 'tmt-squad 0.1.0-alpha.1',
-          waiting: ['Awaiting cli'],
+          waiting: ['Awaiting cli', 'Awaiting colab', 'Awaiting remote'],
         });
         releases.push(release('v5.0.0-alpha.2', 1));
+        expect(reconcile(input).rows[0]).toMatchObject({
+          status: 'Merged',
+          waiting: ['Awaiting colab', 'Awaiting remote'],
+        });
+        for (const product of ['remote', 'colab']) {
+          const tag = `tmt-${product}-v0.1.0-alpha.1`;
+          git(['tag', tag]);
+          releases.push(release(tag, 2));
+        }
         const row = reconcile(input).rows[0];
         expect(row.status).toBe('Released');
         expect(row.text).toContain('tmt-cli 5.0.0-alpha.2');
@@ -443,6 +452,49 @@ describe('full repository-state release sweep', () => {
       })
   );
 
+  it('waits for both native products and maps embedded app/client merges to containing product tags', () =>
+    history(({ directory, git, commit }) => {
+      const sha = commit([
+        'extensions/tmt-remote/typescript/remote-client/src/fixture.ts',
+        'extensions/tmt-colab/typescript/app/src/fixture.ts',
+        'extensions/tmt-colab/typescript/colab-client/src/fixture.ts',
+      ]);
+      expect(
+        affectedProducts(
+          ['extensions/tmt-remote/typescript/remote-client/src/fixture.ts'],
+          map,
+          workspace
+        )
+      ).toEqual({ products: ['remote'], unpublished: [] });
+      const releases: Release[] = [];
+      const api = stateApi(project(), releases, new Map([['issue-1', [closingPr(1, sha)]]]));
+      const input = {
+        api,
+        repository,
+        dryRun: true,
+        git: gitEvidence({ cwd: directory }),
+        map,
+        workspace,
+      };
+      expect(reconcile(input).rows[0]).toMatchObject({
+        status: 'Merged',
+        waiting: ['Awaiting colab', 'Awaiting remote'],
+      });
+      git(['tag', 'tmt-remote-v0.1.0-alpha.1']);
+      releases.push(release('tmt-remote-v0.1.0-alpha.1'));
+      expect(reconcile(input).rows[0]).toMatchObject({
+        status: 'Merged',
+        waiting: ['Awaiting colab'],
+      });
+      git(['tag', 'tmt-colab-v0.1.0-alpha.1']);
+      releases.push(release('tmt-colab-v0.1.0-alpha.1', 1));
+      expect(reconcile(input).rows[0]).toMatchObject({
+        status: 'Released',
+        waiting: [],
+        text: 'tmt-colab 0.1.0-alpha.1\ntmt-remote 0.1.0-alpha.1',
+      });
+      expect(writes(api)).toHaveLength(0);
+    }));
   it('uses the owner map, selected paths and private consumers without silently releasing private components', () => {
     expect(
       affectedProducts(
@@ -453,8 +505,8 @@ describe('full repository-state release sweep', () => {
     ).toEqual({ products: ['cli', 'squad'], unpublished: [] });
     expect(affectedProducts(['extensions/tmt-office/a.rs'], map).products).toEqual(['office']);
     expect(affectedProducts(['extensions/tmt-colab/rust/a.rs'], map)).toEqual({
-      products: [],
-      unpublished: ['tmt-colab'],
+      products: ['colab'],
+      unpublished: [],
     });
     expect(releaseIdentity('tmt-squad-v0.1.0-alpha.9')?.product).toBe('squad');
     expect(affectedProducts(['rust/crates/tmt-driver-herdr/src/main.rs'], map)).toEqual({

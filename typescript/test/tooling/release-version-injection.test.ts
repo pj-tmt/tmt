@@ -33,11 +33,23 @@ function fixture(product = 'cli') {
       'version = 4\n\n[[package]]\nname = "tmt-cli"\nversion = "5.0.0-dev"\ndependencies = ["tmt-core 5.0.0-dev", "tmt-driver-herdr"]\n\n[[package]]\nname = "tmt-core"\nversion = "5.0.0-dev"\n\n[[package]]\nname = "tmt-driver-herdr"\nversion = "0.1.0-dev"\n\n[[package]]\nname = "tmt-squad"\nversion = "0.1.0-dev"\n\n[[package]]\nname = "external"\nversion = "1.0.0"\nsource = "registry+https://example.test"\nchecksum = "safe"\n',
     'rust/crates/tmt-cli/src/main.rs': 'fn main() {}\n',
   };
+  for (const extension of ['remote', 'colab']) {
+    files[`extensions/tmt-${extension}/rust/tmt-${extension}/Cargo.toml`] =
+      `[package]\nname = "tmt-${extension}"\nversion = "0.1.0-dev"\n`;
+    files['rust/Cargo.lock'] += `\n[[package]]\nname = "tmt-${extension}"\nversion = "0.1.0-dev"\n`;
+  }
   for (const [file, value] of Object.entries(files)) {
     mkdirSync(dirname(join(root, file)), { recursive: true });
     writeFileSync(join(root, file), value);
   }
-  const crates = ['tmt-cli', 'tmt-core', 'tmt-driver-herdr', 'tmt-squad'];
+  const crates = [
+    'tmt-cli',
+    'tmt-core',
+    'tmt-driver-herdr',
+    'tmt-squad',
+    'tmt-remote',
+    'tmt-colab',
+  ];
   const metadata: InjectionMetadata = {
     workspace_members: crates,
     packages: crates.map((name) => ({
@@ -46,7 +58,11 @@ function fixture(product = 'cli') {
       version: name === 'tmt-cli' || name === 'tmt-core' ? '5.0.0-dev' : '0.1.0-dev',
       manifest_path: join(
         root,
-        name === 'tmt-squad' ? 'extensions/squad/Cargo.toml' : `rust/crates/${name}/Cargo.toml`
+        name === 'tmt-squad'
+          ? 'extensions/squad/Cargo.toml'
+          : ['tmt-remote', 'tmt-colab'].includes(name)
+            ? `extensions/${name}/rust/${name}/Cargo.toml`
+            : `rust/crates/${name}/Cargo.toml`
       ),
     })),
   };
@@ -55,6 +71,8 @@ function fixture(product = 'cli') {
       components: {
         cli: { package: 'tmt-cli', owns: ['.'] },
         squad: { package: 'tmt-squad', owns: ['extensions/squad'] },
+        'tmt-remote': { package: 'tmt-remote', owns: ['extensions/tmt-remote'] },
+        'tmt-colab': { package: 'tmt-colab', owns: ['extensions/tmt-colab'] },
         'driver-herdr': {
           package: 'tmt-driver-herdr',
           owns: ['rust/crates/tmt-driver-herdr'],
@@ -64,7 +82,7 @@ function fixture(product = 'cli') {
       },
     })
   );
-  const tag = product === 'cli' ? 'v5.0.0-alpha.999' : 'tmt-squad-v0.1.0-alpha.999';
+  const tag = product === 'cli' ? 'v5.0.0-alpha.999' : `tmt-${product}-v0.1.0-alpha.999`;
   const snapshot = captureVersionState({
     root,
     files: Object.keys(files),
@@ -87,15 +105,15 @@ function fixture(product = 'cli') {
       product === 'cli'
         ? files['rust/Cargo.lock'].replaceAll('5.0.0-dev', snapshot.version)
         : files['rust/Cargo.lock'].replace(
-            'name = "tmt-squad"\nversion = "0.1.0-dev"',
-            `name = "tmt-squad"\nversion = "${snapshot.version}"`
+            `name = "tmt-${product}"\nversion = "0.1.0-dev"`,
+            `name = "tmt-${product}"\nversion = "${snapshot.version}"`
           )
     );
   return { root, snapshot, metadata, resolveMetadata, updateLock, map };
 }
 
 describe('mechanical version injection', () => {
-  it.each(['cli', 'squad'])(
+  it.each(['cli', 'squad', 'remote', 'colab'])(
     'injects a synthetic alpha for tagless %s preparation through the unchanged source gate',
     (product) => {
       const f = fixture(product);
@@ -158,14 +176,16 @@ describe('mechanical version injection', () => {
       'Source differs'
     );
   });
-  it.each(['cli', 'squad'])(
+  it.each(['cli', 'squad', 'remote', 'colab'])(
     'injects %s while preserving private independently versioned Herdr',
     (product) => {
       const f = fixture(product);
       injectVersion(f.root, f.snapshot);
       f.updateLock();
       const gate = verifyVersionState(f.root, f.snapshot, f.resolveMetadata());
-      expect(gate.packages).toEqual(product === 'cli' ? ['tmt-cli', 'tmt-core'] : ['tmt-squad']);
+      expect(gate.packages).toEqual(
+        product === 'cli' ? ['tmt-cli', 'tmt-core'] : [`tmt-${product}`]
+      );
       expect(
         readFileSync(join(f.root, 'rust/crates/tmt-driver-herdr/Cargo.toml'), 'utf8')
       ).toContain('version = "0.1.0-dev"');
@@ -268,24 +288,27 @@ describe('mechanical version injection', () => {
 });
 
 describe('dist and binary version agreement', () => {
-  it.each(['cli', 'squad'])('accepts only %s tag/plan/build/binary agreement', (product) => {
-    const { snapshot } = fixture(product);
-    const manifest = {
-      announcement_tag: snapshot.tag,
-      releases: [{ app_name: `tmt-${product}`, app_version: snapshot.version }],
-    };
-    const reported = product === 'cli' ? snapshot.version : `squad ${snapshot.version}`;
-    expect(() => verifyDistVersions(snapshot, manifest, manifest, reported)).not.toThrow();
-    for (const wrong of [
-      { ...manifest, announcement_tag: 'v9.0.0' },
-      { ...manifest, releases: [{ app_name: 'tmt-office', app_version: snapshot.version }] },
-      { ...manifest, releases: [{ app_name: `tmt-${product}`, app_version: '5.0.0-dev' }] },
-      { ...manifest, releases: [...manifest.releases, ...manifest.releases] },
-    ]) {
-      expect(() => verifyDistVersions(snapshot, manifest, wrong, reported)).toThrow();
+  it.each(['cli', 'squad', 'remote', 'colab'])(
+    'accepts only %s tag/plan/build/binary agreement',
+    (product) => {
+      const { snapshot } = fixture(product);
+      const manifest = {
+        announcement_tag: snapshot.tag,
+        releases: [{ app_name: `tmt-${product}`, app_version: snapshot.version }],
+      };
+      const reported = product === 'cli' ? snapshot.version : `${product} ${snapshot.version}`;
+      expect(() => verifyDistVersions(snapshot, manifest, manifest, reported)).not.toThrow();
+      for (const wrong of [
+        { ...manifest, announcement_tag: 'v9.0.0' },
+        { ...manifest, releases: [{ app_name: 'tmt-office', app_version: snapshot.version }] },
+        { ...manifest, releases: [{ app_name: `tmt-${product}`, app_version: '5.0.0-dev' }] },
+        { ...manifest, releases: [...manifest.releases, ...manifest.releases] },
+      ]) {
+        expect(() => verifyDistVersions(snapshot, manifest, wrong, reported)).toThrow();
+      }
+      expect(() => verifyDistVersions(snapshot, manifest, manifest, '5.0.0-dev')).toThrow(
+        'binary version'
+      );
     }
-    expect(() => verifyDistVersions(snapshot, manifest, manifest, '5.0.0-dev')).toThrow(
-      'binary version'
-    );
-  });
+  );
 });

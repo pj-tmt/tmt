@@ -10,14 +10,13 @@
     "releaseConsumers: a private leaf adds its owned changes to named packaged products, including products awaiting activation, without replacing matching released-root membership; ownership, CI scope and version updates remain independent.",
     "A private component may declare release:false, with or without a Cargo package; it owns files but gets no release. Binary targets require explicit package.metadata.dist.dist=false; library-only crates need no opt-out. A crate that inherits the workspace version keeps its Cargo.lock entry in the release of the component that owns rust/Cargo.toml, whoever owns the crate.",
     "releaseStatus: only with release:false; never means no released product contains this leaf and forbids releaseConsumers, parked means explicitly deferred publication. Absence means awaiting activation. This does not change CI selection.",
+    "initialVersion: owner-approved first alpha seed; requiresCliSha: supporting CLI registration commit that must be in its newest published release before a first product cut.",
     "bootstrapSha: first-release history boundary for the release cut (#1399); the last commit before the component existed, kept unchanged."
   ],
   "components": {
     "cli": {
       "package": "tmt-cli",
-      "owns": [
-        "."
-      ],
+      "owns": ["."],
       "excludes": [
         "extensions/tmt-office",
         "extensions/tmt-squad",
@@ -29,20 +28,14 @@
         "rust/crates/tmt-driver-herdr",
         "rust/crates/tmt-release-tool"
       ],
-      "migrations": [
-        "rust/crates/tmt-adapters/src/storage/migrations.rs"
-      ]
+      "migrations": ["rust/crates/tmt-adapters/src/storage/migrations.rs"]
     },
     "office": {
       "package": "tmt-office",
       "releaseStatus": "parked",
-      "owns": [
-        "extensions/tmt-office"
-      ],
+      "owns": ["extensions/tmt-office"],
       "release": false,
-      "migrations": [
-        "extensions/tmt-office/rust/tmt-office-storage/src/schema.rs"
-      ],
+      "migrations": ["extensions/tmt-office/rust/tmt-office-storage/src/schema.rs"],
       "selectedBy": [
         "typescript/test/native/office-*",
         "typescript/test/stress/office-*",
@@ -53,9 +46,7 @@
     },
     "squad": {
       "package": "tmt-squad",
-      "owns": [
-        "extensions/tmt-squad"
-      ],
+      "owns": ["extensions/tmt-squad"],
       "selectedBy": [
         "typescript/test/e2e/squad.e2e.test.ts",
         "typescript/test/e2e/squad-reminder.e2e.test.ts",
@@ -67,83 +58,55 @@
           "extension-install.test.ts",
           "extension-upgrade-proof.test.ts"
         ],
-        "e2eFiles": [
-          "squad.e2e.test.ts",
-          "squad-reminder.e2e.test.ts"
-        ]
+        "e2eFiles": ["squad.e2e.test.ts", "squad-reminder.e2e.test.ts"]
       }
     },
     "browser-addon": {
-      "owns": [
-        "extensions/tmt-remote/typescript/browser-addon"
-      ],
+      "owns": ["extensions/tmt-remote/typescript/browser-addon"],
       "release": false
     },
     "colab-app": {
-      "releaseConsumers": [
-        "tmt-colab"
-      ],
-      "owns": [
-        "extensions/tmt-colab/typescript/app"
-      ],
+      "releaseConsumers": ["tmt-colab"],
+      "owns": ["extensions/tmt-colab/typescript/app"],
       "release": false
     },
     "colab-client": {
-      "owns": [
-        "extensions/tmt-colab/typescript/colab-client"
-      ],
+      "owns": ["extensions/tmt-colab/typescript/colab-client"],
       "release": false,
-      "releaseConsumers": [
-        "tmt-colab"
-      ]
+      "releaseConsumers": ["tmt-colab"]
     },
     "remote-client": {
-      "owns": [
-        "extensions/tmt-remote/typescript/remote-client"
-      ],
+      "owns": ["extensions/tmt-remote/typescript/remote-client"],
       "release": false,
-      "releaseConsumers": [
-        "tmt-remote"
-      ]
+      "releaseConsumers": ["tmt-remote"]
     },
     "tmt-test-support": {
       "releaseStatus": "never",
-      "owns": [
-        "rust/crates/tmt-test-support"
-      ],
+      "owns": ["rust/crates/tmt-test-support"],
       "release": false
     },
     "tmt-tui": {
-      "owns": [
-        "rust/crates/tmt-tui"
-      ],
+      "owns": ["rust/crates/tmt-tui"],
       "release": false
     },
     "tmt-cli-style": {
-      "owns": [
-        "rust/crates/tmt-cli-style"
-      ],
+      "owns": ["rust/crates/tmt-cli-style"],
       "release": false
     },
     "tmt-invoke": {
-      "owns": [
-        "rust/crates/tmt-invoke"
-      ],
+      "owns": ["rust/crates/tmt-invoke"],
       "release": false
     },
     "tmt-colab": {
       "package": "tmt-colab",
-      "owns": [
-        "extensions/tmt-colab"
-      ],
+      "owns": ["extensions/tmt-colab"],
       "release": true,
       "bootstrapSha": "b9ea8cdfe477a596934a59a5b7eb066fbe755ebb",
-      "initialVersion": "0.1.0-alpha.1"
+      "initialVersion": "0.1.0-alpha.1",
+      "requiresCliSha": "ffea6da78361e5ea3df75b9da55fd0ea0c8a973d"
     },
     "tmt-remote": {
-      "owns": [
-        "extensions/tmt-remote/rust"
-      ],
+      "owns": ["extensions/tmt-remote/rust"],
       "release": true,
       "selectedBy": [
         "rust/crates/tmt-extension-state/**",
@@ -154,45 +117,33 @@
       ],
       "package": "tmt-remote",
       "bootstrapSha": "ffb5f32154f0f910d4b27287d5da70abbbc4f386",
-      "initialVersion": "0.1.0-alpha.1"
+      "initialVersion": "0.1.0-alpha.1",
+      "requiresCliSha": "ffea6da78361e5ea3df75b9da55fd0ea0c8a973d"
     },
     "driver-herdr": {
       "package": "tmt-driver-herdr",
-      "owns": [
-        "rust/crates/tmt-driver-herdr"
-      ],
+      "owns": ["rust/crates/tmt-driver-herdr"],
       "release": false,
       "bootstrapSha": "6ed7f3f9f0070076d4ca78e9fcc2f4de4457fbbd"
     },
     "tmt-release-tool": {
       "releaseStatus": "never",
-      "owns": [
-        "rust/crates/tmt-release-tool"
-      ],
+      "owns": ["rust/crates/tmt-release-tool"],
       "release": false
     }
   },
   "rules": [
     {
       "id": "design-tokens",
-      "consumers": [
-        "native"
-      ],
+      "consumers": ["native"],
       "why": "Shared tokens are read by Rust CLI palette and contrast tests; Site has its own workflow watching this path. Office web checks read none of these files.",
-      "paths": [
-        "design/tokens/**"
-      ]
+      "paths": ["design/tokens/**"]
     },
     {
       "id": "consumed-docs",
-      "consumers": [
-        "native"
-      ],
+      "consumers": ["native"],
       "why": "Read by build and test inputs: design/cli-style.md by the CLI and Squad style tests, rust/archive/NATIVE-INSTALL.md by the release archive and onboarding checks.",
-      "paths": [
-        "design/cli-style.md",
-        "rust/archive/NATIVE-INSTALL.md"
-      ]
+      "paths": ["design/cli-style.md", "rust/archive/NATIVE-INSTALL.md"]
     },
     {
       "id": "prose",
@@ -214,10 +165,7 @@
       "id": "site",
       "consumers": [],
       "why": "The handbook website has its own workflow (.github/workflows/site.yml); no native or Office job reads it.",
-      "paths": [
-        "site/**",
-        ".github/workflows/site.yml"
-      ]
+      "paths": ["site/**", ".github/workflows/site.yml"]
     },
     {
       "id": "browser-addon",
@@ -230,60 +178,37 @@
     },
     {
       "id": "colab-rust",
-      "consumers": [
-        "native"
-      ],
+      "consumers": ["native"],
       "why": "Colab Rust retains full workspace checks; frozen Office selection follows its own ownership rather than private release ownership.",
-      "paths": [
-        "extensions/tmt-colab/rust/**"
-      ]
+      "paths": ["extensions/tmt-colab/rust/**"]
     },
     {
       "id": "remote-rust",
-      "consumers": [
-        "native"
-      ],
+      "consumers": ["native"],
       "why": "Remote Rust retains full workspace checks; frozen Office selection follows its own ownership rather than private release ownership.",
-      "paths": [
-        "extensions/tmt-remote/rust/**"
-      ]
+      "paths": ["extensions/tmt-remote/rust/**"]
     },
     {
       "id": "office-web",
       "consumers": [],
       "why": "The Office application and its documentation: checked by the Office web jobs only.",
-      "paths": [
-        "extensions/tmt-office/typescript/apps/office/**",
-        "extensions/tmt-office/docs/**"
-      ]
+      "paths": ["extensions/tmt-office/typescript/apps/office/**", "extensions/tmt-office/docs/**"]
     },
     {
       "id": "native-source",
-      "consumers": [
-        "native"
-      ],
+      "consumers": ["native"],
       "why": "Rust workspace, embedded skills and the Squad extension: checked by the native jobs; the Office web checks read none of it.",
-      "paths": [
-        "rust/**",
-        "skills/**",
-        "extensions/tmt-squad/**"
-      ]
+      "paths": ["rust/**", "skills/**", "extensions/tmt-squad/**"]
     },
     {
       "id": "office-rust",
-      "consumers": [
-        "native"
-      ],
+      "consumers": ["native"],
       "why": "Office's Rust crates remain in workspace Cargo checks and select the frozen Office web, local-service and companion suites through Office ownership.",
-      "paths": [
-        "extensions/tmt-office/rust/**"
-      ]
+      "paths": ["extensions/tmt-office/rust/**"]
     },
     {
       "id": "native-tests",
-      "consumers": [
-        "native"
-      ],
+      "consumers": ["native"],
       "why": "Test suites and E2E scenarios retain native coverage. Office-owned native suites additionally select Office verification; shared support changes rely on weekly/manual Office runs.",
       "paths": [
         "typescript/test/native/**",

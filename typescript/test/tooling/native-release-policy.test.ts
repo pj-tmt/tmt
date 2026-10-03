@@ -8,6 +8,7 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const {
   checkLatestTag,
   productOfTag,
+  productOfComponent,
   publishFlags,
   releaseFlags,
   releasePolicy,
@@ -17,6 +18,7 @@ const {
   pathToFileURL(path.join(repositoryRoot, 'scripts', 'native-release-policy.mjs')).href
 )) as {
   checkLatestTag: (tag: string) => boolean;
+  productOfComponent: (name: string) => string;
   productOfTag: (tag: string) => string | undefined;
   publishFlags: (product: string) => string[];
   releaseFlags: (product: string) => string[];
@@ -52,7 +54,7 @@ describe('native release publication policy', () => {
       )
     ).toThrow('Ambiguous or missing');
   });
-  it.each(['cli', 'squad', 'office', 'driver-herdr', 'colab'])(
+  it.each(['cli', 'squad', 'office', 'driver-herdr', 'remote', 'colab'])(
     'gates %s through the component release policy',
     (product) => {
       const result = spawnSync(
@@ -65,10 +67,10 @@ describe('native release publication policy', () => {
         { cwd: os.tmpdir(), encoding: 'utf8', timeout: 10_000, maxBuffer: 64 * 1024 }
       );
       expect(result.error).toBeUndefined();
-      expect(result.status).toBe(['office', 'driver-herdr', 'colab'].includes(product) ? 1 : 0);
+      expect(result.status).toBe(['office', 'driver-herdr'].includes(product) ? 1 : 0);
       expect(result.stdout).toBe('');
       expect(result.stderr).toBe(
-        ['office', 'driver-herdr', 'colab'].includes(product)
+        ['office', 'driver-herdr'].includes(product)
           ? `${product} is not released (release: false in .github/components.json).\n`
           : ''
       );
@@ -83,14 +85,21 @@ describe('native release publication policy', () => {
       prerelease: false,
       latest: true,
     });
-    for (const product of ['office', 'squad', 'driver-herdr'])
+    for (const product of ['office', 'squad', 'driver-herdr', 'remote', 'colab'])
       expect(upgradeSupportFloor(product)).toBeNull();
     expect(() => upgradeSupportFloor('unknown')).toThrow('Unknown native product');
   });
 
+  it('maps ownership names to workflow products without accepting arbitrary prefixes', () => {
+    expect(productOfComponent('tmt-remote')).toBe('remote');
+    expect(productOfComponent('tmt-colab')).toBe('colab');
+    expect(productOfComponent('driver-herdr')).toBe('driver-herdr');
+    expect(() => productOfComponent('colab-client')).toThrow('No native publication policy');
+    expect(productOfTag('tmt-remote-v0.1.0-alpha.1')).toBe('remote');
+  });
   it('makes only the CLI the latest release', () => {
     expect(releaseFlags('cli')).toEqual(['--latest=true']);
-    for (const extension of ['office', 'squad', 'driver-herdr', 'colab']) {
+    for (const extension of ['office', 'squad', 'driver-herdr', 'remote', 'colab']) {
       expect(releasePolicy(extension).latest).toBe(false);
       expect(releaseFlags(extension)).toContain('--latest=false');
     }
@@ -104,21 +113,28 @@ describe('native release publication policy', () => {
     // same table. Change them together; neither side reads the other.
     expect(
       Object.fromEntries(
-        ['cli', 'office', 'squad', 'driver-herdr', 'colab'].map((product) => [
+        ['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'].map((product) => [
           product,
           releasePolicy(product).prerelease,
         ])
       )
-    ).toEqual({ cli: false, office: true, squad: true, 'driver-herdr': true, colab: true });
+    ).toEqual({
+      cli: false,
+      office: true,
+      squad: true,
+      'driver-herdr': true,
+      remote: true,
+      colab: true,
+    });
     expect(releaseFlags('cli')).not.toContain('--prerelease');
-    for (const extension of ['office', 'squad', 'driver-herdr', 'colab']) {
+    for (const extension of ['office', 'squad', 'driver-herdr', 'remote', 'colab']) {
       expect(releaseFlags(extension)).toContain('--prerelease');
     }
   });
 
   it('publishes a draft with every flag explicit, since each draft starts with component publication policy', () => {
     expect(publishFlags('cli')).toEqual(['--draft=false', '--prerelease=false', '--latest=true']);
-    for (const extension of ['office', 'squad', 'driver-herdr', 'colab']) {
+    for (const extension of ['office', 'squad', 'driver-herdr', 'remote', 'colab']) {
       expect(publishFlags(extension)).toEqual([
         '--draft=false',
         '--prerelease=true',
@@ -134,6 +150,7 @@ describe('native release publication policy', () => {
       'tmt-office-v0.1.0-alpha.4',
       'tmt-squad-v0.1.0-alpha.2',
       'tmt-driver-herdr-v99.0.0-alpha.1',
+      'tmt-remote-v0.1.0-alpha.1',
       'tmt-colab-v0.1.0-alpha.1',
       'install',
       'vnext',

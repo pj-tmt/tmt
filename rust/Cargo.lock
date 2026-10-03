@@ -2829,7 +2829,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-colab"
-version = "0.1.0-alpha.1"
+version = "0.1.0-dev"
 dependencies = [
  "base64 0.22.1",
  "clap",
@@ -3045,7 +3045,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-remote"
-version = "0.1.0-alpha.1"
+version = "0.1.0-dev"
 dependencies = [
  "base64 0.22.1",
  "clap",

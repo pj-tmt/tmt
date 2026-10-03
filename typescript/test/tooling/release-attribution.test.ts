@@ -76,7 +76,10 @@ it('preserves Herdr attribution and CI selection', () => {
   delete before.components.office.releaseStatus;
   delete before.components['tmt-test-support'].releaseStatus;
   delete before.components['colab-app'].releaseConsumers;
-  delete before.components['tmt-colab'].package;
+  delete before.components['colab-client'].releaseConsumers;
+  // Release ownership must not change CI selection, including the pre-activation map.
+  before.components['tmt-colab'].release = false;
+  before.components['tmt-remote'].release = false;
   const paths = [
     office('model'),
     office('storage'),
@@ -86,10 +89,10 @@ it('preserves Herdr attribution and CI selection', () => {
     selectCiAreas(paths, parseComponentMap(JSON.stringify(before)))
   );
 });
-it('accepts future packaged consumers, rejecting invalid marker combinations', () => {
+it('attributes embedded app changes to Colab, rejecting invalid marker combinations', () => {
   expect(
     affectedProducts(['extensions/tmt-colab/typescript/app/src/main.ts'], map, workspace)
-  ).toEqual({ products: [], unpublished: ['tmt-colab'] });
+  ).toEqual({ products: ['colab'], unpublished: [] });
   for (const patch of [
     { releaseStatus: 'unknown' },
     { release: true, releaseStatus: 'never' },
@@ -132,13 +135,14 @@ describe('explicit private delivery status', () => {
   });
   it('names each parked product actually waited on without adding unrelated parked products', () => {
     const value = JSON.parse(source);
+    value.components['tmt-remote'].release = false;
     value.components['tmt-remote'].releaseStatus = 'parked';
     const parkedMap = parseComponentMap(JSON.stringify(value));
     const remote = 'extensions/tmt-remote/rust/tmt-remote/src/main.rs';
     expect(evidence([remote], parkedMap)).toMatchObject({
       status: 'Done',
       text: 'ships with the first Remote release',
-      waiting: ['No publication policy: tmt-remote'],
+      waiting: ['Awaiting remote'],
     });
     expect(evidence([office('storage')], parkedMap)?.text).toBe(
       'ships with the first Office release'
@@ -146,7 +150,7 @@ describe('explicit private delivery status', () => {
     expect(evidence([remote, office('storage')], parkedMap)).toMatchObject({
       status: 'Done',
       text: 'ships with the first Office release\nships with the first Remote release',
-      waiting: ['Awaiting office', 'No publication policy: tmt-remote'],
+      waiting: ['Awaiting office', 'Awaiting remote'],
     });
     expect(evidence([remote, office('model')], parkedMap)).toMatchObject({
       status: 'Merged',
@@ -189,7 +193,7 @@ describe('explicit private delivery status', () => {
   it.each([
     'extensions/tmt-colab/rust/tmt-colab/src/main.rs',
     'extensions/tmt-remote/rust/tmt-remote/src/main.rs',
-  ])('keeps not-yet-activated products awaiting: %s', (path) => {
+  ])('keeps activated products Merged until their containing release publishes: %s', (path) => {
     expect(evidence([path])?.status).toBe('Merged');
   });
   it('does not turn missing path evidence into Done', () => {

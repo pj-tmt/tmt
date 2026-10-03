@@ -7,12 +7,12 @@ if [ "${1:-}" = --notices-only ]; then
   shift
 fi
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
-  printf '%s\n' 'Usage: scripts/build-native-artifact.sh [--notices-only] <cargo-dist target> [cli|office|squad|driver-herdr|colab]' >&2
+  printf '%s\n' 'Usage: scripts/build-native-artifact.sh [--notices-only] <cargo-dist target> [cli|office|squad|driver-herdr|remote|colab]' >&2
   exit 2
 fi
 target=$1
 product=${2:-cli}
-case "$product" in cli|office|squad|driver-herdr|colab) ;; *) printf '%s\n' 'Unknown native product.' >&2; exit 2 ;; esac
+case "$product" in cli|office|squad|driver-herdr|remote|colab) ;; *) printf '%s\n' 'Unknown native product.' >&2; exit 2 ;; esac
 repo=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 if [ "$product" = office ]; then
   cd "$repo/typescript"

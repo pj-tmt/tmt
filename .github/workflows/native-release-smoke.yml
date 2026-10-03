@@ -31,6 +31,7 @@ on:
           - office
           - squad
           - driver-herdr
+          - remote
           - colab
       tag:
         description: Published release to install

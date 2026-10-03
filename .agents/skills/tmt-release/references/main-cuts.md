@@ -16,19 +16,19 @@ not repeat their content. Notes, migrations and breaking authorization still cov
 the newest published ancestor through the captured main commit.
 
 For an owner-authorized explicit version, dispatch `release.yml` on main with
-`product=cli|squad`, `version=<canonical stable or alpha version>` and
+`product=cli|squad|remote|colab`, `version=<canonical stable or alpha version>` and
 `dry_run=true` first. Review the exact cut, notes, tag and native holds before the
 owner chooses `dry_run=false`. Without a version, released alpha products advance
 their current prerelease number. The draft starts tagless at the captured main
 commit; native-release creates the immutable tag only after all publication gates.
 A stable, breaking or held release still needs the owner's existing authorization.
-Parked products and their first alphas remain #1418; this procedure activates none.
+Parked products and their first alphas require separately reviewed activation; this procedure activates none.
 
 Keep the `release` Environment restricted to main. The cut job uses its scoped
 workflow token for draft visibility, creation and native dispatch; it requires no
 release-PR App token. Normal primary review, pinned-head checks and queue protection remain required.
 
-The persistent `release-version-injection.yml` PR check proves CLI and Squad on
+The persistent `release-version-injection.yml` PR check proves CLI, Squad, Remote and Colab on
 four native hosts. It reuses `.github/actions/inject-release-version`, fetches
 locked dependencies, captures the source/version contract, proves full locked
 metadata rejects a changed-version stale lock, updates only implied entries
@@ -65,6 +65,60 @@ archive extraction, `artifact <checkout> <snapshot> <plan.json> <build.json>
 <binary>` additionally checks the binary. Recheck `verify` after each stage.
 The checkout stays at its captured cut and may differ only in the exact version
 field and implied local lock entries. Never broaden an allowed diff after failure.
+
+## Remote and Colab products
+
+Both products start at `0.1.0-alpha.1`; main keeps `0.1.0-dev`. The component map
+owns `bootstrapSha` (the permanent pre-component history boundary), `initialVersion`
+(the approved first alpha) and `requiresCliSha` (the supporting CLI registration).
+The first-cut planner resolves the newest published CLI tag and requires that
+registration in its ancestry. Missing or older supporting releases block the cut
+with a clear reason; they create no product draft. Merge activation only after
+that supporting CLI has passed publication and public smoke. The hourly minute-17
+cut then allocates both products automatically; no manual dispatch is needed.
+
+Use the same four-host archive, installation, upgrade and public-smoke gates as
+other extensions. The first release has no previous version to upgrade; later
+cuts use the newest lower published product version. Both remain prereleases
+with `latest=false`. Remote archives carry its executable and the three shared
+files, with embedded pairing HTML, SDK and wordlist. Colab carries its executable
+and the same files, embedding the frozen Vite app and its used client code.
+The builder requires an absolute `TMT_COLAB_APP_DIR`, keeps it through compilation
+and appends frontend notices. The final Colab verifier compares an independently
+built app moved outside the checkout; public smoke uses its installed CLI and
+proves representative assets, notices and foreground cleanup. Tiny fixture assets
+prove verifier sensitivity rather than actual product delivery. Cleanup requires direct
+child close, drained stdio and confirmed process-group absence before deleting state;
+unconfirmed absence retains it. Accepted fixture HTTP sockets use blocking I/O with
+bounded read/write timeouts, including Darwin. Only Colab loads the app proof,
+keeping the minimal CLI verifier image independent. Preserve complete readiness JSON
+publication and fixture-owned GitHub output/summary destinations.
+
+For wiring changes, build CLI/Herdr, `tmt-release-tool` and the Rust
+`colab-runtime-fixture` example in the worktree's single Cargo target. Set absolute
+`TMT_TEST_COLAB_FIXTURE` when the target differs from `rust/target`. Then run:
+
+```sh
+(cd typescript && corepack pnpm@10.33.0 exec vp test run --config vitest.config.ts test/tooling/native-release-policy.test.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-version-injection.test.ts test/tooling/project-release.test.ts test/tooling/native-artifact-stdout.test.ts test/tooling/native-artifact-policy.test.ts test/tooling/native-runtime-proof.test.ts test/tooling/colab-runtime-proof.test.ts test/tooling/native-cargo.test.ts test/tooling/plan-release-builds.test.ts test/tooling/verify-public-install.test.ts test/tooling/release-workflow.test.ts)
+(cd typescript && corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build)
+(cd typescript && corepack pnpm@10.33.0 check:tooling)
+sh -n scripts/build-native-artifact.sh
+sh -n scripts/native-cargo.sh
+```
+
+For an actual Colab archive, pass an independent expected app directory:
+
+```sh
+node typescript/scripts/verify-native-artifact.mjs --product colab \
+  --manifest /absolute/colab-manifest.json \
+  --archive /absolute/tmt-colab-aarch64-apple-darwin.tar.gz \
+  --target aarch64-apple-darwin --app-dir /absolute/expected-colab-app \
+  --notices /absolute/combined-notices.txt --license LICENSE
+```
+
+Run the actionlint and injection checks above for workflow changes. Reserve the
+shared host's heavy slot before a local release archive build; fixture proofs do
+not authorize Docker, release dispatch, publication or hosted deployment.
 
 ## Native pipeline selection
 

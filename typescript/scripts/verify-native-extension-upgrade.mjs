@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Proves an extension release (Office or Squad) upgrades from its previous published release with
+// Proves an extension release (Office, Squad, Remote or Colab) upgrades from its previous published release with
 // their real archives: the newest published CLI installs the previous archive with
 // `tmt extension install <extension>`, then the candidate over it, in an isolated home, state and
 // prefix. The extension archives carry no installer of their own, so the CLI is the driver, and
@@ -30,7 +30,7 @@ const { values } = parseArgs({
 });
 for (const name of OPTIONS) assert(values[name], `--${name} is required`);
 assert(
-  ['office', 'squad', 'colab'].includes(values.product),
+  ['office', 'squad', 'remote', 'colab'].includes(values.product),
   'Only extension products have this proof'
 );
 

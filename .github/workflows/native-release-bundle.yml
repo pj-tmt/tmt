@@ -401,6 +401,13 @@ jobs:
               --archive "target/distrib/tmt-driver-herdr-$TARGET.tar.gz" --target "$TARGET" \
               --license LICENSE \
               --notices "target/distrib/$TARGET-notices.txt"
+          elif [ "$PRODUCT" = remote ]; then
+            node typescript/scripts/verify-native-artifact.mjs \
+              --product remote \
+              --manifest target/distrib/dist-manifest.json \
+              --archive "target/distrib/tmt-remote-$TARGET.tar.gz" --target "$TARGET" \
+              --license LICENSE \
+              --notices "target/distrib/$TARGET-notices.txt"
           elif [ "$PRODUCT" = colab ]; then
             node typescript/scripts/verify-native-artifact.mjs \
               --product colab \

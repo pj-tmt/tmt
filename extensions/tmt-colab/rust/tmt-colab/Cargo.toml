@@ -1,7 +1,7 @@
 [package]
 workspace = "../../../../rust"
 name = "tmt-colab"
-version = "0.1.0-alpha.1"
+version = "0.1.0-dev"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -9,7 +9,13 @@ publish.workspace = true
 repository.workspace = true
 
 [package.metadata.dist]
-dist = false
+dist = true
+# A package list replaces the workspace list, so it repeats the shared files.
+include = [
+    "../../../../LICENSE",
+    "../../../../rust/archive/NATIVE-INSTALL.md",
+    "../../../../rust/target/native-notices/THIRD-PARTY-NOTICES.txt",
+]
 
 [dependencies]
 clap.workspace = true

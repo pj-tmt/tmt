@@ -19,8 +19,18 @@ const PRODUCTS = {
   office: { tagPrefix: 'tmt-office-v', prerelease: true, latest: false },
   squad: { tagPrefix: 'tmt-squad-v', prerelease: true, latest: false },
   'driver-herdr': { tagPrefix: 'tmt-driver-herdr-v', prerelease: true, latest: false },
+  remote: { tagPrefix: 'tmt-remote-v', prerelease: true, latest: false },
   colab: { tagPrefix: 'tmt-colab-v', prerelease: true, latest: false },
 };
+
+/** Component identities retain their ownership names; native workflows use product keys. */
+export function productOfComponent(name) {
+  const product = Object.keys(PRODUCTS).find(
+    (product) => name === product || name === `tmt-${product}`
+  );
+  if (!product) throw new Error(`No native publication policy for component ${name}.`);
+  return product;
+}
 
 /** Resolve product selection to the component map, including prefixed private components. */
 export function componentOfProduct(map, product) {
