@@ -33,6 +33,8 @@ describe('release-cut shadow workflow boundaries', () => {
     for (const host of ['macos-15', 'macos-15-intel', 'ubuntu-24.04-arm', 'ubuntu-24.04'])
       expect(injection).toContain(`runner: ${host}`);
     expect(injection).toContain('cargo update --offline --workspace');
+    expect(injection).toContain('cargo build --locked -p tmt-cli --example release-version');
+    expect(injection).toContain('cargo test --locked -p tmt-cli --example release-version');
     expect(injection).toContain('release-version-injection.mjs artifact');
     expect(injection).not.toMatch(/contents: write|actions: write|secrets\.|workflow_dispatch/);
   });

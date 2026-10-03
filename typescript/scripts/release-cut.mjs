@@ -100,12 +100,22 @@ export function parseReleaseCommits(commits) {
 /** Ownership is the component map's responsibility, including private-leaf consumers. */
 export function attributeCutCommits(commits, map, product) {
   const byName = new Map(map.components.map((c) => [c.name, c]));
+  // Private ownership adds consumers without replacing the original released-root
+  // membership. Reuse the same exclusions/glob precedence in the released view.
+  const releasedMap = {
+    ...map,
+    components: map.components.filter((c) => c.release !== false && c.package),
+  };
   const selected = new Map();
   for (const commit of commits) {
     if (
       commit.files.some((path) => {
         const owner = ownerOf(path, map);
-        return owner === product || byName.get(owner)?.releaseConsumers.includes(product);
+        return (
+          owner === product ||
+          ownerOf(path, releasedMap) === product ||
+          byName.get(owner)?.releaseConsumers.includes(product)
+        );
       })
     )
       selected.set(commit.sha, commit);

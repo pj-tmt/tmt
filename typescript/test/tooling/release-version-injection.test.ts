@@ -153,7 +153,7 @@ describe('mechanical version injection', () => {
       'version = "5.0.0-dev"\nversion = "5.0.0-dev"'
     );
     writeFileSync(join(f.root, f.snapshot.manifest), f.snapshot.source);
-    expect(() => injectVersion(f.root, f.snapshot)).toThrow('Ambiguous');
+    expect(() => injectVersion(f.root, f.snapshot)).toThrow('duplicate key');
   });
 });
 

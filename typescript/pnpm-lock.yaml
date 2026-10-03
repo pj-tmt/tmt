@@ -15,9 +15,6 @@ importers:
       '@conventional-commits/parser':
         specifier: 0.4.1
         version: 0.4.1
-      '@iarna/toml':
-        specifier: 3.0.0
-        version: 3.0.0
       '@types/better-sqlite3':
         specifier: ^9.6.0
         version: 9.6.0
@@ -543,9 +540,6 @@ packages:
     resolution: {integrity: sha512-wtF6h+DY6M3YaDBPAmvuuA6jV8Sif9MjtOI5euKFWRgCDl5PeDpPsHR9u2l6St5ceY8AZgoNDww5+HvEsXFsGg==}
     engines: {node: '>=6'}
     hasBin: true
-
-  '@iarna/toml@3.0.0':
-    resolution: {integrity: sha512-td6ZUkz2oS3VeleBcN+m//Q6HlCFCPrnI0FZhrt/h4XqLEdOyYp2u21nd8MdsR+WJy5r9PTDaHTDDfhf4H4l6Q==}
 
   '@isaacs/cliui@8.0.2':
     resolution: {integrity: sha512-O8jcjabXaleOG9DQ0+ARXWZBTfnP4WNAqzuiJK7ll44AmxGKv/J2M4TPjxjY3znBCfvBXFzucm1twdyFybFqEA==}
@@ -3440,8 +3434,6 @@ snapshots:
       protobufjs: 7.6.6
       yargs: 17.7.3
     optional: true
-
-  '@iarna/toml@3.0.0': {}
 
   '@isaacs/cliui@8.0.2':
     dependencies:

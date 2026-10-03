@@ -4181,6 +4181,9 @@ attributable. Older or unknown active run identities block the shadow plan.
 `release-cut.mjs` owns the proposed cut computation. It captures one main SHA X,
 reads the component map at X through `parseComponentMap`/`ownerOf`, and attributes
 paths by ownership, exclusions, selected globs and declared `releaseConsumers`.
+Private-leaf consumers add attribution without replacing matching released-root
+membership: style/invoke remain CLI plus Squad, while explicitly CLI-excluded
+TUI is Squad only. Both views reuse `ownerOf` on the same parsed map.
 There is no generated release-config path expansion. Direct pinned conventional
 parser/renderer dependencies produce notes from first-parent commits in
 (previous product tag, X]; their linked SHA set must equal the releasable set.
@@ -4195,9 +4198,12 @@ discovers Cargo inheritance, edits only the selected version declaration, and
 verifies full offline locked resolution against the tag. All tracked source
 hashes, the exact manifest edit and semantic lock entries are checked; only local
 package versions and their implied qualified dependency references may change.
+The developer-only `tmt-cli` example `release-version` is the single TOML owner:
+workspace-pinned `toml_edit` parses manifests/locks and preserves formatting and
+comments while editing the version. It is not a shipped product command.
 The dist plan, build manifest and extracted binary must agree with the tag. The
 four-host PR workflow builds fixture versions without committing, tagging,
-dispatching or publishing. Independently versioned private Herdr stays unchanged.
+dispatching or publishing. The independently versioned private Herdr fixture stays unchanged.
 
 Historical comparison fixtures carry the public release bodies and source-map
 snapshots for CLI alpha.44→45/45→46 and Squad alpha.12→13. Their cuts are those

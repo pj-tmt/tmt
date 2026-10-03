@@ -71,6 +71,51 @@ describe('direct component-map cut attribution', () => {
       )
     ).toThrow('Invalid release consumer');
   });
+  it('preserves CLI plus Squad for style/invoke, and Squad only for CLI-excluded TUI', async () => {
+    const baseline = {
+      cli: {
+        owns: ['.'],
+        excludes: ['extensions/squad', 'rust/crates/tmt-tui'],
+        package: 'tmt-cli',
+      },
+      squad: { owns: ['extensions/squad'], package: 'tmt-squad' },
+      tui: { owns: ['rust/crates/tmt-tui'], release: false, releaseConsumers: ['squad'] },
+    };
+    const extended = parseComponentMap(
+      JSON.stringify({
+        components: {
+          ...baseline,
+          style: {
+            owns: ['rust/crates/tmt-cli-style'],
+            release: false,
+            releaseConsumers: ['squad'],
+          },
+          invoke: { owns: ['rust/crates/tmt-invoke'], release: false, releaseConsumers: ['squad'] },
+        },
+      })
+    );
+    const commits = [
+      commit('feat: style change', ['rust/crates/tmt-cli-style/src/lib.rs']),
+      commit('fix: invocation change', ['rust/crates/tmt-invoke/src/lib.rs'], 2),
+      commit('feat: TUI change', ['rust/crates/tmt-tui/src/lib.rs'], 3),
+    ];
+    const cli = await render(attributeCutCommits(commits, extended, 'cli'));
+    expect(cli.commits).toEqual([sha(1), sha(2)]);
+    expect(cli).toEqual(
+      await render(
+        attributeCutCommits(
+          commits,
+          parseComponentMap(JSON.stringify({ components: baseline })),
+          'cli'
+        )
+      )
+    );
+    const squad = await render(attributeCutCommits(commits, extended, 'squad'));
+    expect(squad.commits).toEqual([sha(1), sha(2), sha(3)]);
+    expect(squad.notes).toContain('style change');
+    expect(squad.notes).toContain('invocation change');
+    expect(squad.notes).toContain('TUI change');
+  });
 });
 
 describe('conventional cut notes', () => {
@@ -261,7 +306,7 @@ describe('immutable plans and in-flight guards', () => {
       parseComponentMap(
         JSON.stringify({ components: { cli: { ...definitions.cli, bootstrapSha: 'main' } } })
       )
-    ).toThrow('exact commit SHA');
+    ).toThrow('commit SHA');
   });
   it('does not fall back when a tag is absent or a range is not on main', async () => {
     const fixture = planningFixture();

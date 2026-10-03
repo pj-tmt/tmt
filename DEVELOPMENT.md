@@ -1966,6 +1966,7 @@ No release secrets or publication privileges enter these PR jobs.
 Run targeted fixture checks, then the tooling quality and affected workflow checks:
 
 ```bash
+(cd rust && cargo build --locked -p tmt-cli --example release-version && cargo test --locked -p tmt-cli --example release-version)
 (cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/release-cut.test.ts test/tooling/release-version-injection.test.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/repository-layout.test.ts)
 (cd typescript && corepack pnpm check:tooling)
 actionlint .github/workflows/release-cut.yml .github/workflows/release-version-injection.yml .github/workflows/native-release.yml
@@ -1979,12 +1980,16 @@ and Squad alpha.12→13. Regeneration must verify the public tag equals the reco
 release PR's merge commit and use its parent only for this historical fixture.
 This is not a production release ancestry helper. Explain any ownership change
 against the direct component map instead of adding generated-config exclusions.
+Private style/invoke controls retain byte-identical CLI notes while adding Squad;
+the explicitly CLI-excluded TUI control remains Squad only.
 The switch additionally requires one successful shadow run on a main push; live
 old-path publications can add evidence but do not gate it. Herdr's independent
 private version boundary is a fixture until the switch enables it for release-cut.
 
 For an authorized local native spike, follow the existing heavy-build/disk rules
-and use one target directory. Invoke `release-version-injection.mjs prepare
+and use one target directory. Build the developer-only Rust `release-version`
+example first; the Node gate finds it under that target's `debug/examples/`
+(or the default `rust/target`). Invoke `release-version-injection.mjs prepare
 <checkout> <snapshot-outside-checkout> <product> <tag>`, run the full stale-lock
 probe and offline workspace lock update, then `verify <checkout> <snapshot>`.
 After the existing native build, `artifact <checkout> <snapshot> <plan.json>

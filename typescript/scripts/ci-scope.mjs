@@ -83,11 +83,6 @@ export function parseComponentMap(text) {
       throw new Error(`Component ${component.name} bootstrapSha must be a commit SHA.`);
     if (component.release !== undefined && typeof component.release !== 'boolean')
       throw new Error(`Component ${component.name} release must be boolean.`);
-    if (
-      component.bootstrapSha !== undefined &&
-      (typeof component.bootstrapSha !== 'string' || !/^[a-f0-9]{40}$/.test(component.bootstrapSha))
-    )
-      throw new Error(`Component ${component.name} bootstrapSha must be an exact commit SHA.`);
     for (const name of component.releaseConsumers) {
       const consumer = components.find((candidate) => candidate.name === name);
       if (component.release !== false || !consumer?.package || consumer.release === false)

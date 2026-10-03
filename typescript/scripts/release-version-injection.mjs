@@ -5,7 +5,6 @@ import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, lstatSync, readlinkSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import toml from '@iarna/toml';
 import { parseComponentMap } from './ci-scope.mjs';
 import { releasePolicy } from './native-release-policy.mjs';
 import { versionOfTag } from './release-versions.mjs';
@@ -21,7 +20,24 @@ const hash = (root, file) =>
     )
     .digest('hex');
 const read = (root, file) => readFileSync(resolve(root, file), 'utf8');
-const parse = (text) => toml.parse(text);
+const TOOL = resolve(
+  process.env.CARGO_TARGET_DIR ?? fileURLToPath(new URL('../../rust/target', import.meta.url)),
+  'debug/examples/release-version'
+);
+// The developer-only Rust helper owns TOML parsing and formatting-preserving edits.
+function tomlCommand(args, source) {
+  const result = spawnSync(TOOL, args, {
+    input: source,
+    encoding: 'utf8',
+    timeout: 10_000,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0 || result.signal)
+    throw new Error(`Rust TOML helper failed: ${result.stderr}`);
+  return result.stdout;
+}
+const parse = (text) => JSON.parse(tomlCommand(['parse'], text));
 const normalizeLock = (lock) => ({
   ...lock,
   package: [...lock.package].sort((a, b) =>
@@ -81,20 +97,12 @@ export function captureVersionState({ root, files, metadata, product, tag, cut, 
   };
 }
 
-/** Preserve formatting; refuse an ambiguous declaration instead of reserializing TOML. */
+/** toml_edit preserves surrounding formatting and rejects invalid/ambiguous TOML. */
 function versionEditedSource(snapshot) {
-  const section = snapshot.section.replaceAll('.', '\\.');
-  const block = new RegExp(`(^\\[${section}\\][^\\n]*\\n)([\\s\\S]*?)(?=^\\[|$(?![\\s\\S]))`, 'm');
-  const match = block.exec(snapshot.source);
-  if (!match) throw new Error('Missing Cargo version section.');
-  const lines = [...match[2].matchAll(/^version\s*=\s*(['"])([^'"\n]+)\1([ \t]*(?:#[^\n]*)?)$/gm)];
-  if (lines.length !== 1 || lines[0][2] !== snapshot.oldVersion)
-    throw new Error('Ambiguous Cargo version declaration.');
-  const updatedBlock = match[2].replace(
-    lines[0][0],
-    `version = "${snapshot.version}"${lines[0][3]}`
+  return tomlCommand(
+    ['edit', snapshot.section, snapshot.oldVersion, snapshot.version],
+    snapshot.source
   );
-  return snapshot.source.replace(match[0], match[1] + updatedBlock);
 }
 
 export function injectVersion(root, snapshot) {
