@@ -1,0 +1,42 @@
+---
+source: site/src/chapters/extensions.mdx
+sourceRevision: 573180706bac968a9ebb6f0924b5796d2c3b47f5
+title: 扩展添加命令，不引入特例
+---
+
+import { components as Mdx } from "../../components/mdx";
+import { Cmd } from "../../components/Cmd";
+import { St } from "../../components/marks";
+
+PATH 上任何名为 `tmt-<name>` 的程序都会成为 `tmt <name>`，就像组件为 gcloud 添加命令一样。内置命令始终优先，因此扩展不能替换 `talk` 或 `run`。扩展通过命令、JSON 输出和钩子访问 tmt，与其他程序使用相同的接口。
+
+<Cmd>{`
+$ tmt sq board         # 运行 tmt-squad board
+$ tmt help             # 列出找到的扩展
+$ tmt sq <Tab>         # 补全由扩展提供
+`}</Cmd>
+
+<Mdx.h3 id="install-update-and-remove">安装、更新和移除</Mdx.h3>
+
+下面的扩展采用相同的安装方式。每个扩展都有自己的版本和更新节奏。移除扩展会删除其命令和技能，保留数据。
+
+<Cmd>{`
+$ tmt extension install squad     # 修改任何内容前先询问
+$ tmt extension ls                # 已安装的扩展及其版本；--check 检查更新
+$ tmt upgrade                     # CLI、技能和已安装的官方扩展
+$ tmt extension upgrade squad     # 只更新 Squad
+$ tmt extension rm squad          # 保留数据
+`}</Cmd>
+
+`tmt upgrade` 也会更新已安装的官方扩展。每个扩展沿用自己的通道和固定版本，并统一询问一次；`--yes` 跳过询问。它不会安装缺失的扩展。一个扩展更新失败，也不会撤销其他扩展的更新。`tmt extension upgrade <name> --unpin` 取消固定版本。
+
+如果扩展附带供 agent 使用的技能，安装时会询问一次是否添加；`--skills` 不经询问直接添加。要编写自己的扩展，请参阅[构建扩展](/develop/extensions)。PATH 上任何 `tmt-<name>` 都可以直接使用，不需要 `tmt extension`。
+
+<Mdx.h3 id="known-extensions">已知扩展</Mdx.h3>
+
+| 命令           | 用途                                                                                           | 状态                            |
+| -------------- | ---------------------------------------------------------------------------------------------- | ------------------------------- |
+| tmt squad · sq | lead、各自在 worktree 中工作的成员，以及用于查看和切换成员的看板。[Squad →](/extensions/squad) | <St kind="done">Alpha</St>      |
+| tmt colab      | 团队共用的页面，记录计划、笔记和决策。[Colab →](/extensions/colab)                             | <St kind="now">In progress</St> |
+| tmt meet       | 你与 agent 的文字会议，内置于 Squad。[Meet →](/extensions/meet)                                | <St kind="next">Planned</St>    |
+| tmt remote     | 通过你自己的后端，与其他机器上的 agent 通信并控制它们。[Remote →](/extensions/remote)          | <St kind="next">Designing</St>  |

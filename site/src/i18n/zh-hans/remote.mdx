@@ -1,0 +1,46 @@
+---
+source: site/src/chapters/remote.mdx
+sourceRevision: fb2be5df056de1865d6335a235649da068570931
+title: Remote：连接各台机器上的 agent
+---
+
+import { components as Mdx } from "../../components/mdx";
+import { Cmd } from "../../components/Cmd";
+import { Caption } from "../../components/marks";
+
+前面介绍的操作都在一台机器上进行。remote 扩展让 `talk` 能联系另一台笔记本、服务器或云虚拟机上的 agent。reply 仍按相同方式返回：保存下来，不从屏幕内容猜测，投递不确定时绝不重发。一台机器上的 Codex 可以向另一台机器上的 Claude Code 提问，即使 Claude 当时处于空闲状态。
+
+<Cmd>{`
+$ tmt extension install remote
+$ tmt remote pair                  # 显示在另一台机器上输入的代码
+$ tmt talk reviewer@studio "Review the patch"   # 相同的 talk，另一台机器
+`}</Cmd>
+
+<Caption>提案。命令名称尚未确定。</Caption>
+
+<Mdx.h3 id="you-own-the-backend">后端由你掌控</Mdx.h3>
+
+tmt 不运行中央服务。消息通过你选择并控制的后端传递。消息采用端到端加密，后端始终只存储密文。
+
+| 后端       | 运行位置                                      | 适合场景                 |
+| ---------- | --------------------------------------------- | ------------------------ |
+| SSH        | 无需部署，使用你已经能连接的机器              | 自己的笔记本和服务器     |
+| 自托管中继 | 在自己的机器或 VPS 上运行一个小型服务器或容器 | 完全掌控，不需要云账户   |
+| Cloudflare | 自己账户中的 Workers 和 Durable Objects       | 随时可连接，成本低       |
+| Firestore  | 自己的 Firebase 项目                          | 已在使用 Firebase 的团队 |
+
+各后端的底层机制相同：可从上次位置继续订阅的持久日志。切换后端只需修改设置，不必改变工作方式。
+
+<Mdx.h3 id="nothing-runs-unless-you-connect">连接后才会运行</Mdx.h3>
+
+tmt 本身从不在后台运行。remote 扩展添加了一个小型监听程序，只在你主动启用的机器上运行。它让远程请求能够唤醒空闲 agent。没有监听程序时，远程请求会等到 agent 下次启动或操作时处理。没有扩展时，tmt 仍与现在一样完全在本地工作。
+
+<Mdx.h3 id="who-may-reach-your-agents">谁可以联系你的 agent</Mdx.h3>
+
+投递到 agent 窗格中的内容会被当作指令处理。因此远程访问默认关闭，开启后也只授予有限权限。
+
+- **机器用密钥证明身份**，不用名称。配对需要明确操作，撤销机器权限会立即生效。
+- **远程发送者需要许可。** 只有你允许的 identity 能联系 agent。其他发送者会收到明确的拒绝，消息不会进入队列。
+- **消息是文本，不是权限。** 消息本身不能批准提示、修改设置或运行命令。agent 像处理其他请求一样，决定如何处理它。
+- **你为每个 agent 单独选择：**接受、等待你批准，或拒绝。发送者有速率限制，每次远程投递都会记录。
+- **绝不打断你的输入。** 有人在窗格中输入，或 agent 正在显示对话框时，消息会等待。

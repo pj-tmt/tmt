@@ -1,0 +1,66 @@
+---
+source: site/src/chapters/dev-driver.mdx
+sourceRevision: df52e69eff63def1e94f755a164446f1b4498e22
+title: 构建 driver
+---
+
+import { components as Mdx } from "../../components/mdx";
+import { Callout, Terms } from "../../components/marks";
+
+driver 让 tmt 了解一个原本不认识的程序。
+
+<Callout title="计划中。">
+  目前 driver 都编译进 tmt，添加新的 driver 需要向 tmt
+  仓库贡献代码。本章介绍未来的方向：任何人都能发布的独立软件包。Herdr 已经采用这种方式：它的 driver
+  随 tmt 一起发布，运行 `tmt driver install herdr` 批准后即可使用。下方协议仍可能变化。传输格式由
+  [contracts/driver-protocol-v1.md](https://github.com/pj-tmt/tmt/blob/main/contracts/driver-protocol-v1.md)
+  定义。
+</Callout>
+
+<Mdx.h3 id="two-kinds">两种 driver</Mdx.h3>
+
+<Terms>
+  <dt>host driver</dt>
+  <dd>
+    了解 agent 在哪里运行，以及如何向它们输入：定位窗格、投递输入、获取输出和切换焦点。tmux 是内置的
+    host driver，Herdr 是第一个外部 host driver。
+  </dd>
+  <dt>runtime driver</dt>
+  <dd>
+    了解一种 agent 程序：如何识别它、调用者属于哪个会话，以及如何启动、恢复和结束。Claude Code 和
+    Codex 已内置。
+  </dd>
+</Terms>
+
+<Mdx.h3 id="a-driver-is-a-program">driver 是一个程序</Mdx.h3>
+
+driver 是名为 `tmt-driver-<name>` 的可执行程序。tmt 每次操作运行它一次，形式为 `tmt-driver-<name> __tmt-driver <protocol> <operation>`。stdin 接收一个 JSON 请求，stdout 返回一个 JSON 答案：`{"ok": …}` 或 `{"error": {"code", "message"}}`。无法确定粘贴是否到达窗格时，这次发送就算不确定，任何一方都不会重试。每个操作都有时限和输出上限，因此卡住或输出过多的 driver 不会拖住 tmt。操作粒度较大，每次投递或查找调用一次。启动进程约需 1.5 ms，比一条 tmux 命令还短。
+
+第一次调用始终是 `capabilities`。它返回 driver 支持的协议版本、类型、名称、版本和已实现的操作。tmt 使用双方都支持的最高协议版本，并让上一版协议至少再兼容一个发布版本，driver 不必在 tmt 更新当天就更新。
+
+内置 driver 也使用相同的接口，因此安装的 driver 与随 tmt 发布的 driver 一视同仁。
+
+<Mdx.h3 id="what-tmt-keeps">tmt 保留的职责</Mdx.h3>
+
+driver 输出是不可信输入。tmt 在限制内解析它，按自己的规则检查每个 ID 和目标，并在显示前清理文本。涉及信任的决定仍由 tmt 作出：
+
+- **验证 binding。** tmt 比对 driver 返回的证据，不会仅凭 driver 声称就认定调用者已通过验证。
+- **投递安全。** 保护 `!`，安排粘贴和 Enter，并报告不确定的发送。
+- **存储。** driver 绝不打开 tmt 数据库，tmt 也不会向它传递数据路径或 token。这是协议约定，不是操作系统的保证，因此 tmt 绝不依赖 driver 自觉遵守规则。
+- **同意。** 修改 agent 设置仍须经用户同意，再通过 `tmt setup` 进行。
+
+<Mdx.h3 id="taking-over-from-a-built-in-driver-planned">接管内置 driver（计划中）</Mdx.h3>
+
+runtime driver 将能通过声明更高优先级，接管内置 driver 已能识别的程序。带有额外功能的社区 Claude Code driver 就能这样替换内置版本。接管关系会明确显示：安装时列出将接管的每个内置程序，`tmt driver ls` 也会显示各程序由哪个 driver 处理。driver 不能占用内置 driver 的名称。两个已安装的 driver 不能声明接管同一个程序，用户需要移除其中一个。
+
+<Mdx.h3 id="rules-every-driver-follows">每个 driver 都要遵守的规则</Mdx.h3>
+
+- **依据证据，不凭声明。** 提供方的会话 ID 只用于关联已有 binding，绝不创建或移动 identity。
+- **共享 host 需要严格匹配。** 多个会话共用一个进程时，只接受精确匹配。无法确定时应明确说明，不要猜测。
+- **钩子绝不阻塞 agent。** 钩子总会在规定时限内成功退出。任何失败都应让 agent 正常启动，只是不带上下文。
+- **发送失败要说明情况：**未发送、不确定、被拒绝，或等待批准。“不确定”表示输入可能已到达 agent。tmt 从不自动重试，driver 也不应重试。
+- **持久状态保持最新且精简。** 只有钩子证据能更新它。移除 identity、identity 切换程序、版本不匹配或 driver 被移除时，都要丢弃状态。绝不存储会话记录、参数或秘密信息。
+
+<Mdx.h3 id="publish-it">发布</Mdx.h3>
+
+runtime driver 将像扩展一样打包和发布，拥有自己的版本。目前 `tmt driver install <path>` 会先展示将运行的内容，再由用户批准 host driver 可执行程序。协议约定和一致性测试套件将随第一个外部 driver 一起发布。
