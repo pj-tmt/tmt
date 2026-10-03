@@ -461,9 +461,16 @@ impl crate::sync::Admission for OwnerAdmission {
                 .owner_head(&scope.space, &service.keyring.owner_public())
                 .map_err(|_| crate::sync::Code::Denied)?
                 .ok_or(crate::sync::Code::Denied)?,
-            baseline: None,
+            baseline: store
+                .baseline(
+                    &scope.page,
+                    values::decimal(&scope.epoch, false).map_err(|_| crate::sync::Code::Denied)?,
+                )
+                .map_err(|_| crate::sync::Code::Denied)?
+                .map(|baseline| baseline.descriptor),
         })
     }
+
     fn authorize(
         &self,
         principal: &str,

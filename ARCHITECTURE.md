@@ -4394,7 +4394,7 @@ replays independently of operation ID. Unknown IDs use the registration tombston
 transaction without signing; equal/older and already-revoked events write nothing.
 Registration owns a persistent Engine with an injected decoder executable. Its
 Boolean revoke result lets the reserved event route close tunnels only after a
-successful durable change; route composition is supplied by #1241.
+successful durable change; the reserved socket route supplies that composition.
 
 ### Foreground composition and owner registration
 
@@ -4476,7 +4476,8 @@ and the registered chain. Rechecks read a durable owner/device/issuer/epoch snap
 without writer reservation or repeated signatures; Append additionally fences the
 membership revision and namespace and supplies the registered signing key. The
 pinned management member represents the owner across local pages. Catchup uses
-`Store::owner_head`; reset baseline production remains #1157. Socket workers own
+`Store::owner_head` and the exact persisted baseline descriptor through
+`Store::baseline`, after live admission. Socket workers own
 readiness, idle timers, retained handles and revocation/shutdown cleanup.
 
 ### Isolated Colab decoder

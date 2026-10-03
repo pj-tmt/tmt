@@ -2969,8 +2969,8 @@ readiness and the one-second blocked-write deadline, drop connections on shutdow
 and supply current verified membership/device policy. Model statement/certificate
 verification remains that caller's responsibility; a successful upgrade is not
 page authority. The admission implementation supplies the verified retained owner
-head through `Store::owner_head` and an optional baseline descriptor (baseline
-persistence/production/object retrieval is #1157). One hello starts lazy catchup;
+head through `Store::owner_head` and the exact persisted baseline descriptor
+through `Store::baseline`; object retrieval remains caller-owned. One hello starts lazy catchup;
 its final page enables live delivery under the server lock. Unknown/pruned cursors
 return `RESYNC_REQUIRED`. An empty-cursor subscription remains live-only. Large
 updates use one bounded, deadline-limited inbound transfer before append verification;

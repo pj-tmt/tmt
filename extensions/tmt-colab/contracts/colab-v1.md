@@ -1061,8 +1061,9 @@ implementation supplies it through `Store::owner_head`; sync cannot manufacture
 membership authority. `baseline` is null when the epoch has no reset baseline yet,
 or canonical base64url of exact model baseline-descriptor JSON, bounded to 8 KiB.
 The descriptor's page/epoch must match and its membership revision cannot exceed
-the retained head. The caller verifies its signed-log binding. Baseline production,
-persistence and object retrieval remain #1157; this slice carries the descriptor.
+the retained head. The caller verifies its signed-log binding. The owner engine produces and persists
+reset baselines; mounted owner catchup reads the exact descriptor through
+`Store::baseline`. Scoped encrypted object retrieval remains caller-owned.
 
 The first page has empty `streams` and `more:true`. Later pages contain only
 `streams, more` in addition to common fields. Each stream entry is exactly
