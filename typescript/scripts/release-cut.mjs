@@ -336,11 +336,41 @@ export async function planReleaseCuts({
       const previous = history.previous?.sha ?? component.bootstrapSha;
       if (!SHA.test(previous)) throw new Error('Missing previous product cut commit.');
       const previousVersion = history.highestVersion;
+      if (
+        versions[component.name] &&
+        previousVersion &&
+        compareVersions(versions[component.name], previousVersion) <= 0
+      )
+        throw new Error('Explicit cut version must advance every allocated product version.');
+      const allocatedPrevious = history.previousAllocated?.sha ?? previous;
+      const pendingCommits = attributeCutCommits(
+        readCutRange(git, allocatedPrevious, cut),
+        map,
+        component.name,
+        workspace
+      );
+      // Use the same renderer visibility contract before choosing a new version.
+      const pending = await renderCutNotes({
+        commits: pendingCommits,
+        repository,
+        version: previousVersion ?? initialVersions[component.name],
+        previousTag: history.previous?.tag,
+        tag: `${tagPrefix}${previousVersion ?? initialVersions[component.name]}`,
+        date,
+      });
+      if (!pending.commits.length) {
+        Object.assign(row, {
+          previous,
+          previousTag: history.previous?.tag,
+          status: 'no-releasable-commits',
+          reason: 'No releasable commits since the newest allocated ancestor cut.',
+        });
+        components.push(row);
+        continue;
+      }
       const version =
         versions[component.name] ??
         (previousVersion ? nextAlphaVersion(previousVersion) : initialVersions[component.name]);
-      if (previousVersion && compareVersions(version, previousVersion) <= 0)
-        throw new Error('Explicit cut version must advance every allocated product version.');
       if (!previousVersion) nextAlphaVersion(version);
       const tag = `${tagPrefix}${version}`;
       const notesInput = {
@@ -350,33 +380,10 @@ export async function planReleaseCuts({
         tag,
         date,
       };
-      if (history.previousAllocated && history.previousAllocated.sha !== previous) {
-        const pending = await renderCutNotes({
-          ...notesInput,
-          commits: attributeCutCommits(
-            readCutRange(git, history.previousAllocated.sha, cut),
-            map,
-            component.name,
-            workspace
-          ),
-        });
-        if (!pending.commits.length) {
-          Object.assign(row, {
-            previous,
-            previousTag: history.previous?.tag,
-            status: 'no-releasable-commits',
-            reason: 'No releasable commits since the newest allocated ancestor cut.',
-          });
-          components.push(row);
-          continue;
-        }
-      }
-      const commits = attributeCutCommits(
-        readCutRange(git, previous, cut),
-        map,
-        component.name,
-        workspace
-      );
+      const commits =
+        allocatedPrevious === previous
+          ? pendingCommits
+          : attributeCutCommits(readCutRange(git, previous, cut), map, component.name, workspace);
       const notes = await renderCutNotes({
         ...notesInput,
         commits,

@@ -411,6 +411,16 @@ describe('immutable plans and independent cuts', () => {
     expect(unavailable.components).toEqual([]);
     expect(unavailable.unavailable).toContain('pagination');
   });
+  it('skips a stable component with no releasable work before requiring an explicit next version', async () => {
+    const fixture = planningFixture();
+    fixture.metadata.releases = [{ tag_name: 'v5.0.0', draft: false }];
+    const original = fixture.git.getMockImplementation()!;
+    fixture.git.mockImplementation((args) => (args[0] === 'log' ? '' : original(args)));
+    expect((await planReleaseCuts(fixture)).components[0]).toMatchObject({
+      status: 'no-releasable-commits',
+      previousTag: 'v5.0.0',
+    });
+  });
   it('uses a validated bootstrap cut and an explicitly supplied first alpha seed, never Cargo versions', async () => {
     const fixture = planningFixture();
     fixture.metadata.releases = [];
