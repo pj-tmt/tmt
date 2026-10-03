@@ -46,8 +46,10 @@ Remote's verified device-name prefix, while the transport excludes it because
 Remote adds it. Re-check and the visible-page observer read the original operation;
 uncertain asks may be abandoned without retrying dispatch.
 
-Registration retains the verified Remote session. Mounted reconnects coalesce
-session replacement, verify the same device and space owner, then rebuild the
+Registration retains the verified Remote session. Tunnel disconnects and resyncs
+reopen sync using that same session and Remote adapter, rebuilding only the Ask
+controller. An explicit Remote session fault triggers coalesced mounted session
+replacement, verifies the same device and space owner, then rebuilds the
 Remote adapter and Ask controller before opening sync. Closing the old controller
 invalidates its preview actions; the new controller observes unresolved original
 IDs after catchup. Normal context, agent-list, send and result calls never reopen

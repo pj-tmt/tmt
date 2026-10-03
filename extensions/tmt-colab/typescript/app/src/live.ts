@@ -3,7 +3,7 @@ import { requireValue } from '@tmt/colab-client';
 import type { Bootstrap, PageInfo } from './bootstrap.js';
 import type { Registration } from './registration.js';
 import type { PageBinding, PageSnapshot, PageView } from './transport.js';
-import type { RemoteClient } from './ask-remote.js';
+import { SessionEndedError, type RemoteClient } from './ask-remote.js';
 import { Admission } from './admission.js';
 import { Connection } from './connection.js';
 import { Writer } from './writer.js';
@@ -21,6 +21,7 @@ export interface LiveSessionOwner {
  * unsupported history is a blocking failure rather than a partial projection. */
 export class Live implements PageBinding {
   ask?: LiveAsk;
+  #remote: RemoteClient | null = null;
   #observation: AbortController | null = null;
   #views = Promise.resolve();
   #processingViews = false;
@@ -56,6 +57,7 @@ export class Live implements PageBinding {
     if (signal?.aborted) this.close();
   }
   #replaceAsk(remote: RemoteClient | null) {
+    this.#remote = remote;
     this.ask?.close();
     const { bootstrap, page, registration } = this;
     this.ask = remote
@@ -116,10 +118,10 @@ export class Live implements PageBinding {
           this.#observe();
       });
   }
-  async #open(reconnect = false): Promise<Connection> {
+  async #open(replaceSession = false): Promise<Connection> {
     this.#connecting = true;
     try {
-      if (reconnect && this.sessionOwner) {
+      if (replaceSession && this.sessionOwner) {
         const session = await this.sessionOwner.reconnect(this.registration);
         if (this.#closed) throw new Error('Page closed');
         this.registration = session.registration;
@@ -186,15 +188,15 @@ export class Live implements PageBinding {
   }
   #failed(error: Error) {
     if (this.#closed) return;
+    const sessionEnded =
+      error instanceof SessionEndedError || error.message === 'Remote session ended';
     if (
       !this.#connecting &&
       this.#attempts++ < 3 &&
-      [
-        'Sync disconnected',
-        'RESYNC_REQUIRED',
-        'Fresh membership catchup required',
-        'Remote session ended',
-      ].includes(error.message)
+      (sessionEnded ||
+        ['Sync disconnected', 'RESYNC_REQUIRED', 'Fresh membership catchup required'].includes(
+          error.message,
+        ))
     ) {
       this.#observation?.abort();
       this.#observation = null;
@@ -204,7 +206,10 @@ export class Live implements PageBinding {
       const previous = this.#connection;
       this.#connection = null;
       previous?.close();
-      this.#current = this.#open(true);
+      // A tunnel resync retains the verified Session and Remote port. Only a
+      // session fault may replace them and end other mounted tunnels.
+      if (!sessionEnded) this.#replaceAsk(this.#remote);
+      this.#current = this.#open(sessionEnded);
       void this.#current.catch((next) => this.#block(next instanceof Error ? next : error));
     } else this.#block(error);
   }

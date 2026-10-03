@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vite-plus/test';
 import type { Bootstrap, PageInfo } from '../src/bootstrap.js';
 import type { LiveAskOptions } from '../src/live-ask.js';
-import type { RemoteClient } from '../src/ask-remote.js';
+import { SessionEndedError, type RemoteClient } from '../src/ask-remote.js';
 import type { PageView } from '../src/transport.js';
 import type { Registration } from '../src/registration.js';
 import { Live } from '../src/live.js';
@@ -11,6 +11,7 @@ const connections = vi.hoisted(
     [] as {
       failed(error: Error): void;
       publish(value: PageView): void;
+      close: ReturnType<typeof vi.fn>;
       admission: {
         head: { revision: bigint; hash: Uint8Array } | null;
         root: object | null;
@@ -68,7 +69,7 @@ vi.mock('../src/connection.js', () => ({
     async run<T>(fn: () => Promise<T>) {
       return fn();
     }
-    close() {}
+    close = vi.fn();
   },
 }));
 vi.mock('../src/writer.js', () => ({
@@ -97,6 +98,62 @@ it('successful catchup resets reconnect failures across the page lifetime', asyn
     expect(failed).not.toHaveBeenCalled();
   } finally {
     live.close();
+  }
+});
+
+it('tunnel disconnects and resyncs preserve the Session and Remote without reopening or stopping another page', async () => {
+  asks.instances.length = 0;
+  const registration = {
+    deviceId: 'device',
+    keys: { sign: {}, signPublic: new Uint8Array(32) },
+    remoteSession: {},
+  } as unknown as Registration;
+  const remote = {} as RemoteClient;
+  const reopenSession = vi.fn(async () => ({}));
+  const reconnect = vi.fn(async () => ({
+    registration: { ...registration, remoteSession: await reopenSession() },
+    remote,
+  }));
+  const create = () =>
+    new Live(
+      new URL('https://example.test/colab/'),
+      { space: 'space', owner: new Uint8Array(32) } as Bootstrap,
+      registration,
+      { pageId: 'page', epoch: '1', sharing: 'private' } as PageInfo,
+      undefined,
+      remote,
+      { reconnect },
+    );
+  const live = create(),
+    other = create();
+  try {
+    await Promise.all([live.snapshot(), other.snapshot()]);
+    const otherConnection = connections.at(-1)!;
+    const otherAsk = asks.instances[1];
+    let connection = connections.at(-2)!;
+    let controller = asks.instances[0];
+    for (const reason of [
+      'Sync disconnected',
+      'RESYNC_REQUIRED',
+      'Fresh membership catchup required',
+    ]) {
+      connection.failed(new Error(reason));
+      expect((await live.snapshot()).source).toBe('verified');
+      expect(connection.close).toHaveBeenCalledOnce();
+      expect(controller.close).toHaveBeenCalledOnce();
+      expect(live.registration).toBe(registration);
+      controller = asks.instances.at(-1)!;
+      expect(controller.options.remote).toBe(remote);
+      connection = connections.at(-1)!;
+      expect(otherConnection.close).not.toHaveBeenCalled();
+      expect(otherAsk.close).not.toHaveBeenCalled();
+      expect(other.registration).toBe(registration);
+    }
+    expect(reconnect).not.toHaveBeenCalled();
+    expect(reopenSession).not.toHaveBeenCalled();
+  } finally {
+    live.close();
+    other.close();
   }
 });
 
@@ -204,46 +261,77 @@ it('page observer stops on hidden/close and resumes visible without another cont
   }
 });
 
-it('session-end replaces registration and controller before reconnect, then resumes observation after catchup', async () => {
-  asks.instances.length = 0;
-  asks.signals.length = 0;
-  const first = {
-    deviceId: 'device',
-    keys: { sign: {}, signPublic: new Uint8Array(32) },
-    remoteSession: {},
-  } as unknown as Registration;
-  const second = { ...first, remoteSession: {} };
-  const remote = {} as RemoteClient,
-    replacementRemote = {} as RemoteClient;
-  const reconnect = vi.fn(async () => ({ registration: second, remote: replacementRemote }));
-  const live = new Live(
-    new URL('https://example.test/colab/'),
-    { space: 'space', owner: new Uint8Array(32) } as Bootstrap,
-    first,
-    { pageId: 'page', epoch: '1', sharing: 'private' } as PageInfo,
-    undefined,
-    remote,
-    { reconnect },
-  );
-  try {
-    await live.snapshot();
-    live.subscribe(
-      () => {},
-      () => {},
+it.each(['callback', 'message', 'typed error'] as const)(
+  'session-end (%s) replaces once before reconnect and coalesces duplicate signals',
+  async (trigger) => {
+    asks.instances.length = 0;
+    asks.signals.length = 0;
+    const first = {
+      deviceId: 'device',
+      keys: { sign: {}, signPublic: new Uint8Array(32) },
+      remoteSession: {},
+    } as unknown as Registration;
+    const nextSession = {};
+    const second = { ...first, remoteSession: nextSession };
+    const remote = {} as RemoteClient,
+      replacementRemote = {} as RemoteClient;
+    let release!: (session: object) => void;
+    const reopenSession = vi.fn(
+      () =>
+        new Promise<object>((resolve) => {
+          release = resolve;
+        }),
     );
-    const previous = asks.instances[0];
-    expect(previous.options.remote).toBe(remote);
-    previous.options.sessionEnded?.();
-    await live.snapshot();
-    expect(reconnect).toHaveBeenCalledExactlyOnceWith(first);
-    expect(previous.close).toHaveBeenCalled();
-    expect(live.registration).toBe(second);
-    expect(asks.instances).toHaveLength(2);
-    expect(asks.instances[1].options.remote).toBe(replacementRemote);
-    await vi.waitFor(() => expect(asks.signals).toHaveLength(2));
-    expect(asks.signals[0].aborted).toBe(true);
-    expect(asks.signals[1].aborted).toBe(false);
-  } finally {
-    live.close();
-  }
-});
+    const reconnect = vi.fn(async () => {
+      const session = await reopenSession();
+      expect(session).toBe(nextSession);
+      return { registration: second, remote: replacementRemote };
+    });
+    const live = new Live(
+      new URL('https://example.test/colab/'),
+      { space: 'space', owner: new Uint8Array(32) } as Bootstrap,
+      first,
+      { pageId: 'page', epoch: '1', sharing: 'private' } as PageInfo,
+      undefined,
+      remote,
+      { reconnect },
+    );
+    try {
+      await live.snapshot();
+      live.subscribe(
+        () => {},
+        () => {},
+      );
+      const previous = asks.instances[0];
+      const connection = connections.at(-1)!;
+      expect(previous.options.remote).toBe(remote);
+      const end = () => {
+        if (trigger === 'callback') previous.options.sessionEnded?.();
+        else
+          connection.failed(
+            trigger === 'message'
+              ? new Error('Remote session ended')
+              : new SessionEndedError('REMOTE_SESSION_ENDED'),
+          );
+      };
+      end();
+      end();
+      expect(reconnect).toHaveBeenCalledExactlyOnceWith(first);
+      expect(reopenSession).toHaveBeenCalledOnce();
+      expect(previous.close).toHaveBeenCalledOnce();
+      expect(connection.close).toHaveBeenCalledOnce();
+      release(nextSession);
+      await live.snapshot();
+      expect(reconnect).toHaveBeenCalledOnce();
+      expect(reopenSession).toHaveBeenCalledOnce();
+      expect(live.registration).toBe(second);
+      expect(asks.instances).toHaveLength(2);
+      expect(asks.instances[1].options.remote).toBe(replacementRemote);
+      await vi.waitFor(() => expect(asks.signals).toHaveLength(2));
+      expect(asks.signals[0].aborted).toBe(true);
+      expect(asks.signals[1].aborted).toBe(false);
+    } finally {
+      live.close();
+    }
+  },
+);
