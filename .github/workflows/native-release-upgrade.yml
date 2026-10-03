@@ -3,8 +3,8 @@ name: Native release upgrade proof
 # Proves that a release (a draft about to be published, or a published one) upgrades from the
 # last published release of its product, with the real archives of both on the four matching
 # hosts: a CLI release through the managed-install lifecycle and injected adapter acceptance,
-# an extension release through the
-# newest published CLI's `tmt <extension> install`. It reads releases and downloads their assets;
+# an extension release through the newest published CLI's `tmt extension install <extension>`.
+# It reads releases and downloads their assets;
 # it never creates, edits, uploads to or publishes anything, so a maintainer can run it by hand
 # for any release and the publication run calls it for a draft.
 on:

@@ -870,7 +870,7 @@ describe('release-upgrade.mjs', () => {
     const run = fakeGh([]);
     expect(run(['prove', '--product', 'cli']).stderr).toContain('--tag is required.');
     expect(run(['bogus']).stderr).toContain(
-      'Usage: release-upgrade.mjs resolve|fetch|assess|prove|reason'
+      'Usage: release-upgrade.mjs resolve|fetch|assess|prove|acceptance|reason'
     );
   });
 });

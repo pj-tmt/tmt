@@ -2041,7 +2041,8 @@ installer: the candidate has no published release to find, and production has no
 test endpoint. The post-publication smoke below retains that separate live proof.
 For manual installer coverage, use an isolated HOME and prefix to install the
 previous published version with its public installer, then the candidate's
-installer. Preserve the superseded receipt. Receipts written by older releases stay readable: v5.0.0-alpha.2 through
+installer. Preserve the superseded receipt. Receipts written by older releases
+stay readable: v5.0.0-alpha.2 through
 alpha.6 and Office 0.1.0-alpha.1 through alpha.3 record the pre-rename repository
 `wkh237/tmux-team`, which receipt reading accepts as the official one (#492).
 

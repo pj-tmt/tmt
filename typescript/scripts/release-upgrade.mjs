@@ -13,6 +13,7 @@
 //   node release-upgrade.mjs fetch --product cli|office|squad --tag TAG --directory DIR
 //   node release-upgrade.mjs assess --directory DIR --sha SHA   proved, nothing or predates
 //   node release-upgrade.mjs prove --product P --tag TAG --target T --directory DIR [--skill S]
+//   node release-upgrade.mjs acceptance --product cli --tag TAG --target T --directory DIR
 //   node release-upgrade.mjs reason --directory DIR   why the proof failed, from the hosts' logs
 // A CLI candidate runs the managed-install lifecycle verifier over the two archives. An extension
 // candidate is installed and upgraded by the newest published CLI, which is what a user's
@@ -549,7 +550,9 @@ function main(argv, environment) {
         : `No published ${values.product} release precedes ${values.tag}; nothing was fetched.`
     );
   } else {
-    throw new Error('Usage: release-upgrade.mjs resolve|fetch|assess|prove|acceptance|reason --tag TAG ...');
+    throw new Error(
+      'Usage: release-upgrade.mjs resolve|fetch|assess|prove|acceptance|reason --tag TAG ...'
+    );
   }
 }
 
