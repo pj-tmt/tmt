@@ -97,6 +97,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     env:
+      RUSTUP_TOOLCHAIN: 1.97.0
       CARGO_TARGET_DIR: ${{ github.workspace }}/release-source/rust/target
     defaults:
       run:
@@ -156,24 +157,21 @@ jobs:
         env:
           PRODUCT: ${{ inputs.product }}
           TARGET: ${{ matrix.target }}
-          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
           MACOSX_DEPLOYMENT_TARGET: '11.0'
         run: |
           set -euo pipefail
           export PATH="$HOME/.tmt-packaging/bin:$PATH"
           started=$SECONDS
           cargo +1.97.0 fetch --manifest-path rust/Cargo.toml --locked
-          if [ -n "$RELEASE_TAG" ]; then
-            TMT_NATIVE_REAL_CARGO=$(command -v cargo)
-            export TMT_NATIVE_REAL_CARGO CARGO="$PWD/scripts/native-cargo.sh"
-            dist plan --tag "$RELEASE_TAG" --target "$TARGET" --output-format=json --no-local-paths > "$RUNNER_TEMP/plan.json"
-          fi
+          TMT_NATIVE_REAL_CARGO=$(command -v cargo)
+          export TMT_NATIVE_REAL_CARGO CARGO="$PWD/scripts/native-cargo.sh"
+          dist plan --tag "$RELEASE_TAG" --target "$TARGET" --output-format=json --no-local-paths > "$RUNNER_TEMP/plan.json"
           scripts/build-native-artifact.sh "$TARGET" "$PRODUCT" > "$RUNNER_TEMP/$TARGET-dist-manifest.json"
           cp "$RUNNER_TEMP/$TARGET-dist-manifest.json" target/distrib/
           cp rust/target/native-notices/THIRD-PARTY-NOTICES.txt "target/distrib/$TARGET-notices.txt"
           echo "Built the $PRODUCT archive for $TARGET in $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Verify plan, archive and binary versions against the injected tag
-        if: inputs.tag != ''
         env:
           PRODUCT: ${{ inputs.product }}
           TARGET: ${{ matrix.target }}
@@ -209,6 +207,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
+      RUSTUP_TOOLCHAIN: 1.97.0
       CARGO_TARGET_DIR: ${{ github.workspace }}/release-source/rust/target
     defaults:
       run:
@@ -271,6 +270,8 @@ jobs:
           fi
           dist plan --tag "$tag" --output-format=json --no-local-paths > "$RUNNER_TEMP/plan.json"
           dist build --tag "$tag" --artifacts global --output-format=json --no-local-paths > "$RUNNER_TEMP/dist-manifest.json"
+          node "$GITHUB_WORKSPACE/typescript/scripts/release-version-injection.mjs" manifests "$PWD" "$RUNNER_TEMP/release-version-state.json" \
+            "$RUNNER_TEMP/plan.json" "$RUNNER_TEMP/dist-manifest.json"
           cp "$RUNNER_TEMP/dist-manifest.json" target/distrib/dist-manifest.json
           # How this product's GitHub release must be published (#333): only the
           # CLI becomes the repository's latest release.
@@ -313,6 +314,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     env:
+      RUSTUP_TOOLCHAIN: 1.97.0
       CARGO_TARGET_DIR: ${{ github.workspace }}/release-source/rust/target
     defaults:
       run:

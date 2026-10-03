@@ -1,6 +1,6 @@
 {
   "$comment": [
-    "The one component map. typescript/scripts/ci-scope.mjs reads it to decide which CI consumers a changed path selects; release-cut.mjs reads it directly for shadow release attribution; release-please-config.mjs still generates the active release-please-config.json until the migration removes it.",
+    "The one component map. typescript/scripts/ci-scope.mjs reads it to decide which CI consumers a changed path selects; release-cut.mjs reads it for released-root membership at the exact main cut.",
     "components: who owns which paths. `owns` roots minus `excludes` decide ownership, a `selectedBy` glob wins over the root, and `package` is the Cargo package.",
     "rules: ordered, the first rule whose `paths` match a changed path decides native verification (Rust, tooling and E2E jobs). No match retains full native verification. Component ownership and Office-specific machinery decide frozen Office verification in ci-scope.mjs; rules do not select Office.",
     "Office SPA, browser and local-service/companion verification share the ownership-only Office selector in ci-scope.mjs; weekly/manual runs cover shared inputs, while merge groups and main pushes never select Office work.",

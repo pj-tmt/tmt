@@ -22,7 +22,8 @@ export function captureVersionState(input: {
   files: string[];
   metadata: InjectionMetadata;
   product: string;
-  tag: string;
+  /** Empty or absent means a version-preserving preparation checkout. */
+  tag?: string;
   cut: string;
   map: ComponentMap;
 }): VersionSnapshot;
@@ -43,4 +44,9 @@ export function verifyDistVersions(
   plan: { announcement_tag: string; releases: { app_name: string; app_version: string }[] },
   build: { announcement_tag: string; releases: { app_name: string; app_version: string }[] },
   reportedVersion: string
+): void;
+export function verifyDistManifests(
+  snapshot: VersionSnapshot,
+  plan: { announcement_tag: string; releases: { app_name: string; app_version: string }[] },
+  build: { announcement_tag: string; releases: { app_name: string; app_version: string }[] }
 ): void;

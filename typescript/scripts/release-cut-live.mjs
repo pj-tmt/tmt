@@ -107,21 +107,29 @@ function verifiedDraft(release, row, body) {
 }
 
 /** Drafts survive dispatch failure. Existing held/failed drafts are never automatically retried. */
-export async function runReleaseCuts({ client, git, live = false, date }) {
+export async function runReleaseCuts({ client, git, live = false, date, product, version }) {
   const cut = client.main();
   git(['fetch', '--quiet', 'origin', 'main', '--tags']);
   git(['merge-base', '--is-ancestor', cut, 'refs/remotes/origin/main']);
   const map = parseComponentMap(git(['show', `${cut}:.github/components.json`]));
+  if (
+    product &&
+    !map.components.some((c) => c.name === product && c.package && c.release !== false)
+  )
+    throw new Error(`Cut selection names an unreleased component ${product}.`);
+  if (version && !product) throw new Error('An explicit cut version needs exactly one product.');
+  const versions = version ? { [product]: version } : {};
   const metadata = client.metadata(cut);
   const cutDate = date ?? metadata.capturedAt?.slice(0, 10);
-  const plan = await planReleaseCuts({ metadata, map, git, date: cutDate });
+  const plan = await planReleaseCuts({ metadata, map, git, date: cutDate, versions });
   if (plan.unavailable) throw new Error(plan.unavailable);
   const actions = [];
   for (const row of plan.components) {
+    if (product && row.product !== product) continue;
     try {
       // A fresh bounded read precedes each component mutation. Other components progress independently.
       const fresh = live ? client.metadata(cut) : metadata;
-      const checked = await planReleaseCuts({ metadata: fresh, map, git, date: cutDate });
+      const checked = await planReleaseCuts({ metadata: fresh, map, git, date: cutDate, versions });
       if (checked.unavailable) throw new Error(checked.unavailable);
       const current = checked.components.find((item) => item.product === row.product);
       if (!current) throw new Error('Component disappeared from fresh cut plan.');
@@ -129,6 +137,14 @@ export async function runReleaseCuts({ client, git, live = false, date }) {
         (release) => release.draft === true && productOfTag(release.tag_name) === row.product
       );
       if (drafts.length) {
+        if (version) {
+          actions.push({
+            product: row.product,
+            status: 'in-flight',
+            reason: 'Explicit cut waits for the existing component draft.',
+          });
+          continue;
+        }
         const active = fresh.runs.some(
           (run) => run.display_title === `Native release: ${row.product}`
         );
@@ -225,7 +241,18 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       ref: process.env.GITHUB_REF,
     });
     const git = (args) => runPackedCommand('git', args, { cwd: ROOT, env: process.env }).trimEnd();
-    const result = await runReleaseCuts({ client, git, live: process.env.LIVE === 'true' });
+    if (
+      (process.env.PRODUCT || process.env.VERSION) &&
+      process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch'
+    )
+      throw new Error('Product/version selection requires an owner-dispatched cut.');
+    const result = await runReleaseCuts({
+      client,
+      git,
+      live: process.env.LIVE === 'true',
+      product: process.env.PRODUCT || undefined,
+      version: process.env.VERSION || undefined,
+    });
     console.log(JSON.stringify(result, null, 2));
     if (process.env.GITHUB_STEP_SUMMARY)
       appendFileSync(

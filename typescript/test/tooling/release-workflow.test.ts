@@ -14,33 +14,7 @@ const run = read('.github/workflows/native-release.yml');
 const bundle = read('.github/workflows/native-release-bundle.yml');
 const smokeWorkflow = read('.github/workflows/native-release-smoke.yml');
 
-describe('release-cut shadow workflow boundaries', () => {
-  it('isolates draft-visible GET acquisition from the read-only planner without release secrets', () => {
-    const shadow = read('.github/workflows/release-cut.yml');
-    expect(job(shadow, 'metadata')).toContain('contents: write');
-    expect(job(shadow, 'metadata')).toContain('DRAFT_VISIBILITY: trusted');
-    expect(job(shadow, 'shadow')).toContain('contents: read');
-    expect(job(shadow, 'shadow')).not.toContain('GH_TOKEN');
-    expect(shadow).not.toMatch(
-      /secrets\.|workflow_dispatch|release-please|native-release\.yml|actions: write/
-    );
-    expect(run).toContain("run-name: 'Native release: ${{ inputs.product }}'");
-  });
-  it('prepares locked Cargo inputs before offline attribution without publication permissions', () => {
-    for (const [file, name, command] of [
-      ['.github/workflows/ci.yml', 'unit-tests', 'pnpm test:run'],
-      ['.github/workflows/release-cut.yml', 'shadow', 'node typescript/scripts/release-cut.mjs'],
-      [
-        '.github/workflows/project-release.yml',
-        'update',
-        'node typescript/scripts/project-release.mjs',
-      ],
-    ]) {
-      const text = job(read(file), name);
-      expect(text).toContain('working-directory: rust\n        run: cargo fetch --locked');
-      expect(text.indexOf('cargo fetch --locked')).toBeLessThan(text.indexOf(command));
-    }
-  });
+describe('release version gate workflow boundaries', () => {
   it('builds and transfers the Rust TOML helper before ordinary tooling injection fixtures', () => {
     const ci = read('.github/workflows/ci.yml');
     const build = job(ci, 'native-runtime-build');
@@ -58,15 +32,46 @@ describe('release-cut shadow workflow boundaries', () => {
       tests.indexOf('pnpm test:run')
     );
   });
+  it('builds a gated synthetic debug alpha only for selected installation and upgrade tests', () => {
+    const processTests = job(read('.github/workflows/ci.yml'), 'native-process-tests');
+    const injection = processTests.indexOf('name: Inject the synthetic alpha installation fixture');
+    const build = processTests.indexOf(
+      'name: Build the synthetic alpha installation fixture in debug mode'
+    );
+    const verify = processTests.indexOf('name: Verify the synthetic alpha fixture source gate');
+    const restore = processTests.indexOf('name: Restore the reviewed development source');
+    const tests = processTests.indexOf('name: Verify native process and shared parser contracts');
+    expect(injection).toBeGreaterThan(0);
+    expect(build).toBeGreaterThan(injection);
+    expect(verify).toBeGreaterThan(build);
+    expect(restore).toBeGreaterThan(verify);
+    expect(tests).toBeGreaterThan(restore);
+    expect(processTests).toContain(
+      "contains(needs.changes.outputs.scoped_native_tests, 'extension-install.test.ts')"
+    );
+    expect(processTests).toContain('tag: v5.0.0-alpha.999999');
+    expect(processTests).toContain('cargo build --offline --locked -p tmt-cli --bin tmt');
+    expect(processTests).toContain('phase: verify');
+    expect(processTests).toContain('git diff --exit-code HEAD --');
+    expect(processTests).toContain('Synthetic alpha installation fixture debug build:');
+  });
   it('keeps native injection on pinned PR heads and all four hosts, with no publishing privileges', () => {
     const injection = read('.github/workflows/release-version-injection.yml');
     expect(injection).toContain('github.event.pull_request.head.sha || github.sha');
     expect(injection).toContain('product: [cli, squad]');
     for (const host of ['macos-15', 'macos-15-intel', 'ubuntu-24.04-arm', 'ubuntu-24.04'])
       expect(injection).toContain(`runner: ${host}`);
-    expect(injection).toContain('cargo update --offline --workspace');
-    expect(injection).toContain('cargo build --locked -p tmt-release-tool --bin release-version');
-    expect(injection).toContain('cargo test --locked -p tmt-release-tool --bin release-version');
+    const action = read('.github/actions/inject-release-version/action.yml');
+    expect(injection).toContain('uses: ./.github/actions/inject-release-version');
+    expect(action).toContain('update --offline --workspace');
+    expect(action).toContain('Injected version incorrectly accepted a stale lockfile.');
+    expect(action).toContain('metadata --offline --locked');
+    expect(injection).toContain(
+      'cargo build --offline --locked -p tmt-release-tool --bin release-version'
+    );
+    expect(injection).toContain(
+      'cargo test --offline --locked -p tmt-release-tool --bin release-version'
+    );
     expect(injection).toContain('release-version-injection.mjs artifact');
     expect(injection).not.toMatch(/contents: write|actions: write|secrets\.|workflow_dispatch/);
   });
@@ -258,7 +263,9 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
 
   it('asserts that the draft tag is the version its commit declares', () => {
     expect(job(bundle, 'assemble')).toContain('RELEASE_TAG: ${{ inputs.tag }}');
-    expect(job(bundle, 'assemble')).toContain('is not the $tag that this commit declares');
+    expect(job(bundle, 'assemble')).toContain(
+      'is not the $tag that the injected checkout declares'
+    );
   });
 
   it('attaches only after every verify job passed, and records a failure but not a cancellation', () => {
@@ -298,203 +305,40 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
   });
 });
 
-describe('release workflow (release.yml)', () => {
+describe('live main release cuts (release.yml)', () => {
   const release = read('.github/workflows/release.yml');
-
-  it('starts on every push to main, prose included, and on a manual dry run by default', () => {
-    // A documentation merge moves main under the open release pull requests too, so no path is
-    // ignored: the run refreshes them.
-    expect(release).toMatch(
-      /^on:\n {2}push:\n {4}branches:\n {6}- main\n(?: {4}#[^\n]*\n)* {2}workflow_dispatch:\n/m
-    );
-    expect(release.split(/^jobs:/m)[0]).not.toMatch(/^\s+paths(?:-ignore)?:/m);
-    expect(release).toMatch(
-      /workflow_dispatch:\n {4}inputs:\n {6}dry_run:\n(?: {8}[^\n]*\n)*? {8}default: true\n {8}type: boolean/
-    );
-    expect(release.match(/^ {2}[a-z_]+:$/gm)?.slice(0, 2)).toEqual([
-      '  push:',
-      '  workflow_dispatch:',
-    ]);
-    expect(release).toMatch(
-      /^concurrency:\n {2}group: release-please\n {2}cancel-in-progress: false$/m
+  it('recomputes every main push and daily recovery, with manual dry run as the default', () => {
+    expect(release).toContain('branches: [main]');
+    expect(release).toContain("- cron: '23 4 * * *'");
+    expect(release.split(/^jobs:/m)[0]).not.toMatch(/paths(?:-ignore)?:/);
+    expect(release).toMatch(/dry_run:\n(?: {8}[^\n]*\n)*? {8}default: true/);
+    expect(release).toContain('group: release-cut');
+    expect(release).toContain('cancel-in-progress: false');
+  });
+  it('captures trusted main with frozen rendering dependencies and bounded REST mutation only', () => {
+    const cut = job(release, 'cut');
+    expect(cut).toContain("if: github.ref == 'refs/heads/main'");
+    expect(cut).toContain('environment: release');
+    expect(cut).toContain('persist-credentials: false');
+    expect(cut).toContain('fetch-depth: 0');
+    expect(cut).toContain('pnpm install --frozen-lockfile --ignore-scripts');
+    expect(cut).toContain('GH_TOKEN: ${{ github.token }}');
+    expect(cut).toContain('LIVE: ${{ steps.mode.outputs.live }}');
+    expect(cut).toContain('node typescript/scripts/release-cut-live.mjs');
+    expect(cut).toContain('contents: write');
+    expect(cut).toContain('actions: write');
+    expect(release).not.toMatch(
+      /release-please|release-pr-safety|release-stall|create-github-app-token|pull-requests:|gh workflow|gh release|1445/
     );
   });
-
-  it('reconciles merged releases before fresh draft discovery, queue preparation and PR refresh', () => {
-    const please = job(release, 'release-please');
-    const names = [
-      'Create releases for merged release pull requests',
-      'Check for a tagless manifest draft',
-      'Run release-please',
-      'Enable auto-merge for one release pull request',
-    ];
-    const positions = names.map((name) => please.indexOf(`- name: ${name}`));
-    for (let index = 1; index < positions.length; index++)
-      expect(positions[index]).toBeGreaterThan(positions[index - 1]);
-    const reconcile = releasePleasePart(please, names[0]);
-    expect(reconcile).toContain('release-please-run.mjs github-release');
-    expect(reconcile).toContain('github-release failed; release-pr was not attempted.');
-    expect(reconcile).toContain('exit "$status"');
-    const draft = releasePleasePart(please, names[1]);
-    expect(draft).toContain('RELEASE_TOKEN: ${{ steps.app.outputs.token || github.token }}');
-    const refresh = releasePleasePart(please, names[2]);
-    expect(refresh.indexOf('release-please-queue.mjs')).toBeLessThan(
-      refresh.indexOf('release-please-run.mjs release-pr')
-    );
-    expect(refresh).toContain('TAGLESS_DRAFT_PATHS: ${{ steps.draft.outputs.held_paths }}');
-    expect(refresh).not.toContain('release-please-run.mjs github-release');
-  });
-
-  it('holds the release App token in one step of one job, only in a live run, pinned by commit', () => {
-    const uses = [...release.matchAll(/uses: actions\/create-github-app-token@(\S+) # (v\S+)/g)];
-    expect(uses).toHaveLength(1);
-    expect(uses[0][1]).toMatch(/^[0-9a-f]{40}$/);
-    const releasePlease = job(release, 'release-please');
-    expect(releasePlease).toContain('actions/create-github-app-token@');
-    expect(job(release, 'dispatch')).not.toContain('create-github-app-token');
-    expect(releasePlease).toMatch(
-      /- name: Create the release App token\n {8}id: app\n {8}if: steps\.mode\.outputs\.live == 'true'/
-    );
-    expect(releasePlease).toContain('permission-contents: write');
-    expect(releasePlease).toContain('permission-pull-requests: write');
-    // The token is scoped to this repository by default: no owner or repositories input.
-    expect(releasePlease).not.toMatch(/^ {10}(owner|repositories):/m);
-    // The secrets are read in two places: whether they exist, where the mode is decided, and
-    // their values, where the token is created.
-    expect(
-      [...release.matchAll(/secrets\.(\w+)( != '')?/g)].map(
-        ([, name, presence]) => `${name}${presence ? ' (presence)' : ''}`
-      )
-    ).toEqual([
-      'RELEASE_APP_ID (presence)',
-      'RELEASE_APP_PRIVATE_KEY (presence)',
-      'RELEASE_APP_ID',
-      'RELEASE_APP_PRIVATE_KEY',
-    ]);
-    const token = releasePleasePart(releasePlease, 'Create the release App token');
-    expect(token).toContain('app-id: ${{ secrets.RELEASE_APP_ID }}');
-    expect(token).toContain('private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}');
-  });
-
-  it('decides the mode from the event, the ref and whether the secrets exist, never their values', () => {
-    const mode = releasePleasePart(
-      job(release, 'release-please'),
-      'Decide whether this run changes anything'
-    );
-    expect([...mode.matchAll(/^ {10}([A-Z_]+):/gm)].map(([, name]) => name)).toEqual([
-      'EVENT',
-      'REF',
-      'DRY_RUN',
-      'HAS_APP_SECRETS',
-    ]);
-    expect(mode).toContain('REF: ${{ github.ref }}');
-    expect(mode).toContain(
-      "HAS_APP_SECRETS: ${{ secrets.RELEASE_APP_ID != '' && secrets.RELEASE_APP_PRIVATE_KEY != '' }}"
-    );
-    expect(mode).toContain('run: node typescript/scripts/release-mode.mjs');
-  });
-
-  it('reads the App credentials from the release Environment, on the release-please job only', () => {
-    expect(job(release, 'release-please')).toMatch(/^ {4}environment: release$/m);
-    expect(job(release, 'dispatch')).not.toContain('environment:');
-    expect(release.match(/^ {4}environment:/gm)).toHaveLength(1);
-  });
-
-  it('runs the pinned release-please API wrapper with the mode gate result', () => {
-    const releasePlease = job(release, 'release-please');
-    expect(releasePlease).toContain('pnpm install --frozen-lockfile --ignore-scripts');
-    expect(releasePlease).toContain('working-directory: .github/release-please');
-    expect(releasePlease).toContain('LIVE: ${{ steps.mode.outputs.live }}');
-    expect(releasePlease).toContain('set -o pipefail');
-    for (const command of ['github-release', 'release-pr'])
-      expect(releasePlease).toContain(
-        `node ../../typescript/scripts/release-please-run.mjs ${command}`
-      );
-    // Candidate construction and dry/live mutation controls are exercised by release-config tests.
-    expect(releasePlease).not.toMatch(/googleapis\/release-please-action/);
-  });
-
-  it('installs the isolated release pin only in CI jobs that run release-config tests', () => {
-    const ci = read('.github/workflows/ci.yml');
-    const consumers = [...jobs(ci)]
-      .filter(([, text]) => text.includes('working-directory: .github/release-please'))
-      .map(([name, text]) => {
-        expect(text).toContain('run: pnpm install --frozen-lockfile --ignore-scripts');
-        return name;
-      });
-    expect(consumers).toEqual(['code-quality', 'unit-tests']);
-  });
-
-  it('merges release pull requests through the required checks and never around them', () => {
-    const step = releasePleasePart(job(release, 'release-please'), 'Enable auto-merge');
-    expect(step).toContain(
-      "if: steps.mode.outputs.live == 'true' && steps.release.outputs.queue_blocked != 'true'"
-    );
-    // Paused for push runs until the release cut (#1399): only an explicit dispatch enqueues.
-    expect(step).toContain("&& github.event_name == 'workflow_dispatch'");
-    expect(step).toContain('RELEASE_TOKEN: ${{ steps.app.outputs.token }}');
-    expect(step).toContain('LIVE: ${{ steps.mode.outputs.live }}');
-    expect(step).toContain('node typescript/scripts/release-please-queue.mjs enable');
-    expect(step).not.toContain('gh pr update-branch');
-    expect(step).not.toContain('gh pr merge');
-    for (const bypass of ['--admin', '--force', 'bypass']) expect(release).not.toContain(bypass);
-    // Only the release-please job carries write access through the App token; the workflow token
-    // stays read-only; a separate advisory job owns issue-write permission.
-    const permissions = /permissions:\n((?: {6}[^\n]+\n)+)/.exec(
-      job(release, 'release-please')
-    )?.[1];
-    expect(permissions).toBe('      contents: read\n      pull-requests: read\n');
-  });
-
-  it('starts a release run per product, only in a live run, and never publishes', () => {
-    const dispatch = job(release, 'dispatch');
-    expect(dispatch).toContain('needs: release-please');
-    expect(dispatch).toMatch(/product:\n {10}- cli\n {10}- squad/);
-    expect(dispatch).toContain('typescript/scripts/plan-release-builds.mjs --product "$PRODUCT"');
-    // `prepare` defaults to true in native-release.yml, so a run that attaches to drafts must
-    // turn it off explicitly, and this is the only place that starts one.
-    expect(dispatch).toContain(
-      'gh workflow run native-release.yml --ref main -f "product=$PRODUCT" -f prepare=false'
-    );
-    expect(dispatch.match(/gh workflow run/g)).toHaveLength(1);
-    expect(dispatch).not.toMatch(/prepare=true|-f "?retry=/);
-    expect(dispatch).toContain('if [ "$LIVE" = true ]; then');
-    expect(dispatch).toContain('contents: write');
-    expect(dispatch).toContain('actions: write');
-    expect(release).not.toMatch(/gh release (create|edit)|draft=false/);
-  });
-
-  it('starts a run for exactly the products of the component map and the release configuration', () => {
-    const { components } = JSON.parse(read('.github/components.json')) as {
-      components: Record<string, { release?: boolean; owns: string[] }>;
-    };
-    const products = Object.entries(components)
-      .filter(([, component]) => component.release !== false)
-      .map(([name]) => name)
-      .sort();
-    // Parked components own files and CI scope but start no release run.
-    for (const parked of ['browser-addon', 'office']) {
-      expect(components[parked].release).toBe(false);
-      expect(products).not.toContain(parked);
-    }
-    const matrix = /product:\n((?: {10}- [a-z-]+\n)+)/.exec(job(release, 'dispatch'))?.[1] ?? '';
-    expect(matrix.match(/[a-z-]+(?=\n)/g)?.sort()).toEqual(products);
-    const config = JSON.parse(read('release-please-config.json')) as {
-      packages: Record<string, unknown>;
-    };
-    expect(Object.keys(config.packages)).toHaveLength(products.length);
-    for (const parked of ['browser-addon', 'office'])
-      expect(config.packages[components[parked].owns[0]]).toBeUndefined();
+  it('keeps owner versions explicit and parked products out of manual selection', () => {
+    expect(release).toContain('options: [all, cli, squad]');
+    expect(release).toContain('VERSION: ${{ inputs.version }}');
+    expect(release).not.toContain('driver-herdr');
+    expect(release).toContain('release-cut-plan.json');
+    expect(release).toContain('if: always()');
   });
 });
-
-/** The text of the step whose name starts with `name`, from a job's raw text. */
-function releasePleasePart(text: string, name: string): string {
-  const start = text.indexOf(`- name: ${name}`);
-  expect(start, name).toBeGreaterThanOrEqual(0);
-  const next = text.indexOf('\n      - ', start + 1);
-  return text.slice(start, next < 0 ? undefined : next);
-}
 
 describe('release upgrade proof (native-release-upgrade.yml)', () => {
   const upgrade = read('.github/workflows/native-release-upgrade.yml');
@@ -604,34 +448,32 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
     expect(conclude).toContain("if: needs.fetch.outputs.outcome == 'predates'");
     expect(conclude).toContain('exit 1');
     expect(conclude).toContain("if: ${{ !cancelled() && needs.fetch.result == 'success' }}");
-    expect(prove).toContain('release-upgrade.mjs prove --product "$PRODUCT" --tag "$RELEASE_TAG"');
+    expect(prove).toContain('release-upgrade.mjs" prove --product "$PRODUCT" --tag "$RELEASE_TAG"');
     expect(prove).toContain('skill=skills/tmux-team/SKILL.md');
     expect(prove).toContain('--skill "$skill"');
     // The macOS toolchain lookup is warmed before the archives run.
     expect(prove.indexOf('warm-xcrun')).toBeGreaterThan(0);
-    expect(prove.indexOf('warm-xcrun')).toBeLessThan(prove.indexOf('release-upgrade.mjs prove'));
+    expect(prove.indexOf('warm-xcrun')).toBeLessThan(prove.indexOf('release-upgrade.mjs" prove'));
   });
 
   it('requires CLI adapter acceptance after the existing proof on every host, with bounded compilation and read-only caching', () => {
     const prove = job(upgrade, 'prove');
-    expect(prove).toContain('timeout-minutes: 10');
+    expect(prove).toContain('timeout-minutes: 45');
+    expect(prove).toMatch(/name: Install Rust for version-only resolution and adapter acceptance/);
     expect(prove).toMatch(
-      /name: Install Rust for CLI adapter acceptance\n {8}if: inputs.product == 'cli'/
-    );
-    expect(prove).toMatch(
-      /name: Restore Rust dependencies for CLI adapter acceptance\n {8}if: inputs.product == 'cli'/
+      /name: Restore Rust dependencies for version-only resolution and adapter acceptance/
     );
     expect(prove).toContain('shared-key: native-rust');
     expect(prove).toContain('save-if: false');
     expect(prove).toMatch(
       /name: Prove the real-archive CLI upgrade adapter\n {8}if: inputs.product == 'cli'/
     );
-    expect(prove.indexOf('release-upgrade.mjs acceptance')).toBeGreaterThan(
-      prove.indexOf('release-upgrade.mjs prove')
+    expect(prove.indexOf('release-upgrade.mjs" acceptance')).toBeGreaterThan(
+      prove.indexOf('release-upgrade.mjs" prove')
     );
     expect(prove).toContain('2>&1 | tee -a "$RUNNER_TEMP/upgrade-proof.log"');
     expect(prove).not.toContain('continue-on-error:');
-    expect(prove).toContain('CARGO_TARGET_DIR: ${{ github.workspace }}/rust/target');
+    expect(prove).toContain('CARGO_TARGET_DIR: ${{ github.workspace }}/release-source/rust/target');
     const acceptance = prove.slice(
       prove.indexOf('- name: Prove the real-archive CLI upgrade adapter'),
       prove.indexOf('- name: Keep the log')
@@ -677,7 +519,8 @@ describe('publication gates (native-release-bundle.yml)', () => {
     expect(gates).toMatch(/^ {6}pull-requests: read$/m);
     expect(gates).toMatch(/^ {6}checks: read$/m);
     expect(finish).not.toMatch(/pull-requests|checks:/);
-    expect(gates).not.toMatch(/pnpm|cargo/);
+    expect(gates).toContain('pnpm install --frozen-lockfile --ignore-scripts');
+    expect(gates).not.toMatch(/cargo build|cargo test/);
   });
 
   it('proves the upgrade only after the other gates passed, and skips it only when the hold names it', () => {
@@ -936,7 +779,9 @@ describe('write access and release code', () => {
       const workflow = read(`.github/workflows/${name}`);
       for (const [jobName, text] of jobs(workflow)) {
         const writes = /^ {6}[a-z-]+: write$/m.test(text);
-        const checksOutRelease = /^ {10}ref: \$\{\{/m.test(text);
+        const checksOutRelease = [...text.matchAll(/^ {10}ref: (.+)$/gm)].some(
+          ([, ref]) => ref !== '${{ github.sha }}'
+        );
         expect(writes && checksOutRelease, `${name} job ${jobName}`).toBe(false);
       }
     }
@@ -956,9 +801,7 @@ describe('held release rerun workflow boundary', () => {
       'inputs.current-tooling && github.sha || steps.sha.outputs.sha'
     );
     const prove = job(upgrade, 'prove');
-    expect(prove).toContain(
-      'ref: ${{ inputs.current-tooling && github.sha || needs.fetch.outputs.sha }}'
-    );
+    expect(prove).toContain('ref: ${{ github.sha }}');
     expect(prove).toContain('path: release-source');
     expect(prove).toContain('set -- --source-root "$GITHUB_WORKSPACE/release-source"');
     expect(prove).toContain('skill="$GITHUB_WORKSPACE/release-source/skills/tmux-team/SKILL.md"');

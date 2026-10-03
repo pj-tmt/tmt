@@ -72,5 +72,7 @@ export function planReleaseCuts(input: {
   date?: string;
   workspace?: CargoWorkspace;
   initialVersions?: Record<string, string>;
+  /** Owner-dispatched product versions; native publication authorization remains independent. */
+  versions?: Record<string, string>;
 }): Promise<CutPlan>;
 export function renderCutSummary(plan: CutPlan): string;

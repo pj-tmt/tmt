@@ -29,6 +29,8 @@ export function runReleaseCuts(input: {
   git: (args: string[]) => string;
   live?: boolean;
   date?: string;
+  product?: string;
+  version?: string;
 }): Promise<{
   cut: string;
   mode: string;

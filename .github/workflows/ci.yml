@@ -95,6 +95,8 @@ jobs:
 
   code-quality:
     name: Code quality
+    env:
+      RUSTUP_TOOLCHAIN: 1.97.0
     needs: [changes, office]
     if: ${{ always() && needs.changes.outputs.verify != 'false' }}
     runs-on: ubuntu-latest
@@ -113,18 +115,17 @@ jobs:
       - name: Install dependencies
         working-directory: typescript
         run: pnpm --filter tmux-team install --frozen-lockfile
-      - name: Install pinned release-config test API
-        working-directory: .github/release-please
-        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Build the Rust TOML helper for cut and source-gate fixtures
+        env:
+          RUSTUP_TOOLCHAIN: 1.97.0
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal
+          cargo build --locked -p tmt-release-tool --bin release-version --manifest-path rust/Cargo.toml
       - name: Run code quality checks
         working-directory: typescript
         run: |
           pnpm check:tooling
-          pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/release-please-config.test.ts test/tooling/release-stall.test.ts test/tooling/release-pr-safety.test.ts
-      - name: Verify release PR notes
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: node typescript/scripts/release-pr-safety.mjs notes
+          pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-version-injection.test.ts test/tooling/release-workflow.test.ts
       - name: Report conventional PR titles
         if: github.event_name == 'merge_group'
         env:
@@ -372,6 +373,37 @@ jobs:
           cargo build --locked -p tmt-adapters --example runtime-caller-fixture
           cargo build --locked -p tmt-test-support --example recording-cli-fixture
           cargo build --locked --release -p tmt-cli -p tmt-driver-herdr --bins
+      - name: Inject the synthetic alpha installation fixture
+        if: needs.changes.outputs.native_scope == 'full' || contains(needs.changes.outputs.scoped_native_tests, 'extension-install.test.ts')
+        uses: ./.github/actions/inject-release-version
+        with:
+          product: cli
+          tag: v5.0.0-alpha.999999
+      - name: Build the synthetic alpha installation fixture in debug mode
+        if: needs.changes.outputs.native_scope == 'full' || contains(needs.changes.outputs.scoped_native_tests, 'extension-install.test.ts')
+        working-directory: rust
+        run: |
+          set -euo pipefail
+          started=$SECONDS
+          cargo build --offline --locked -p tmt-cli --bin tmt
+          test "$(target/debug/tmt --version)" = 5.0.0-alpha.999999
+          mkdir -p target/debug/native-release-fixture
+          cp target/debug/tmt target/debug/native-release-fixture/tmt
+          cp target/release/tmt-driver-herdr target/debug/native-release-fixture/tmt-driver-herdr
+          echo "Synthetic alpha installation fixture debug build: $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Verify the synthetic alpha fixture source gate
+        if: needs.changes.outputs.native_scope == 'full' || contains(needs.changes.outputs.scoped_native_tests, 'extension-install.test.ts')
+        uses: ./.github/actions/inject-release-version
+        with:
+          product: cli
+          phase: verify
+      - name: Restore the reviewed development source before process tests
+        if: needs.changes.outputs.native_scope == 'full' || contains(needs.changes.outputs.scoped_native_tests, 'extension-install.test.ts')
+        run: |
+          set -euo pipefail
+          # The source gate has proved these are the only edits, implied by the CLI version.
+          git restore --source=HEAD -- rust/Cargo.toml rust/Cargo.lock
+          git diff --exit-code HEAD --
       - name: Download the verified Office companion
         if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_office == 'true'
         uses: actions/download-artifact@v4
@@ -389,7 +421,7 @@ jobs:
         working-directory: typescript
         env:
           TMT_TEST_CLI: '{"executable":"${{ github.workspace }}/rust/target/release/tmt","args":[]}'
-          TMT_TEST_STORAGE_PROBE: '{"executable":"${{ github.workspace }}/rust/target/debug/storage-probe","args":[]}'
+          TMT_TEST_STORAGE_PROBE: '{"executable":"${{ github.workspace }}/rust/target/debug/examples/storage-probe","args":[]}'
           NATIVE_OFFICE_SELECTED: ${{ needs.changes.outputs.native_office }}
         run: |
           if [ "$NATIVE_OFFICE_SELECTED" = true ]; then
@@ -491,9 +523,6 @@ jobs:
       - name: Install dependencies
         working-directory: typescript
         run: pnpm --filter tmux-team install --frozen-lockfile
-      - name: Install pinned release-config test API
-        working-directory: .github/release-please
-        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Prepare locked Cargo metadata inputs
         working-directory: rust
         run: cargo fetch --locked

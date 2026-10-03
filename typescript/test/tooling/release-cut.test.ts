@@ -239,6 +239,37 @@ function planningFixture() {
   return { metadata, git, map, date: '2026-10-03' };
 }
 describe('immutable plans and in-flight guards', () => {
+  it('accepts an owner-selected advancing stable/core version without authorizing publication', async () => {
+    const fixture = planningFixture();
+    for (const version of ['5.0.0', '5.1.0-alpha.0', '6.0.0']) {
+      const result = await planReleaseCuts({ ...fixture, versions: { cli: version } });
+      expect(result.components[0]).toMatchObject({
+        status: 'proposed',
+        version,
+        tag: `v${version}`,
+        authorization: 'owner-required',
+      });
+    }
+    fixture.metadata.releases = [{ tag_name: 'v5.0.0', draft: false }];
+    expect(
+      (await planReleaseCuts({ ...fixture, versions: { cli: '5.1.0-alpha.0' } })).components[0]
+    ).toMatchObject({ status: 'proposed', authorization: 'owner-required' });
+  });
+  it('refuses non-advancing, ambiguous and parked explicit versions', async () => {
+    const fixture = planningFixture();
+    for (const version of ['5.0.0-alpha.46', '5.0.0-alpha.1', '4.9.0']) {
+      expect(
+        (await planReleaseCuts({ ...fixture, versions: { cli: version } })).components[0].reason
+      ).toContain('must advance');
+    }
+    for (const version of ['05.0.0', '5.0.0-alpha.01', '5.0.0-rc.1', '5.0.0+build', 'main'])
+      await expect(planReleaseCuts({ ...fixture, versions: { cli: version } })).rejects.toThrow(
+        'canonical'
+      );
+    await expect(planReleaseCuts({ ...fixture, versions: { parked: '1.0.0' } })).rejects.toThrow(
+      'unreleased'
+    );
+  });
   it('computes a cut/version/notes with ordinary tag ancestry, without a mutation client', async () => {
     const fixture = planningFixture();
     const result = await planReleaseCuts(fixture);

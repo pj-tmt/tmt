@@ -12,6 +12,7 @@ import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
+import { withReleaseSandbox } from '../support/native-installation.js';
 import { createArtifact, type ArtifactFixture } from '../support/native-artifact.js';
 
 const INSTALL_PROCESS_BUDGET_MS = 15_000;
@@ -610,7 +611,7 @@ describe('aggregate official upgrades', () => {
     'keeps independent CLI/Squad/Remote/Colab pins and skips frozen Office even with invalid state',
     { timeout: 60000 },
     async () => {
-      await withSandbox(async (sandbox) => {
+      await withReleaseSandbox(async (sandbox) => {
         const prefix = path.join(sandbox.root, 'native install prefix with spaces');
         const install = async (
           artifact: ArtifactFixture,

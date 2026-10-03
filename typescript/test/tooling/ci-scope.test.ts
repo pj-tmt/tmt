@@ -480,9 +480,10 @@ describe('component map', () => {
     // them: they check inputs that Squad-only changes can also change.
     const alwaysRun = [
       'typescript/test/tooling/ci-scope.test.ts',
-      'typescript/test/tooling/release-please-config.test.ts',
-      'typescript/test/tooling/release-stall.test.ts',
-      'typescript/test/tooling/release-pr-safety.test.ts',
+      'typescript/test/tooling/release-cut.test.ts',
+      'typescript/test/tooling/release-cut-live.test.ts',
+      'typescript/test/tooling/release-version-injection.test.ts',
+      'typescript/test/tooling/release-workflow.test.ts',
     ];
     const qualityCommand = /vp test run ([^\n]+)/.exec(
       readFileSync(path.join(repository, '.github/workflows/ci.yml'), 'utf8')

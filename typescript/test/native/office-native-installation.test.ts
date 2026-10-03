@@ -13,6 +13,7 @@ import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/c
 import { createArtifact } from '../support/native-artifact.js';
 import { workspaceVersion } from '../support/workspace-version.js';
 import {
+  withReleaseSandbox,
   INSTALL_PROCESS_BUDGET_MS,
   installPrefix,
   install,
@@ -246,7 +247,7 @@ describe('native installation process contract', () => {
     'installs Office explicitly without changing CLI bytes, receipts or application state',
     { timeout: 60_000 },
     async () => {
-      await withSandbox(async (sandbox) => {
+      await withReleaseSandbox(async (sandbox) => {
         const version = (await runCli(sandbox, ['--version'])).stdout.trim();
         const cli = await createArtifact(sandbox, version);
         const prefix = installPrefix(sandbox);

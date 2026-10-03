@@ -548,8 +548,11 @@ function sandboxProcesses(root: string, pid?: number): number[] {
     .map(({ pid }) => pid);
 }
 
-export async function withSandbox<T>(callback: (sandbox: Sandbox) => T | Promise<T>): Promise<T> {
-  const sandbox = createSandbox();
+export async function withSandbox<T>(
+  callback: (sandbox: Sandbox) => T | Promise<T>,
+  executableEnv: NodeJS.ProcessEnv = process.env
+): Promise<T> {
+  const sandbox = createSandbox(executableEnv);
   const processRoot = realpathSync(sandbox.root);
   let value: T | undefined;
   let failure: { error: unknown } | undefined;

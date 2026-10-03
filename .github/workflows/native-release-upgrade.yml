@@ -144,6 +144,7 @@ jobs:
     permissions:
       contents: read
     env:
+      RUSTUP_TOOLCHAIN: 1.97.0
       CARGO_TARGET_DIR: ${{ github.workspace }}/release-source/rust/target
     defaults:
       run:
@@ -161,7 +162,7 @@ jobs:
           ref: ${{ needs.fetch.outputs.sha }}
           path: release-source
       - name: Require candidate Rosetta tooling
-        if: matrix.target == 'x86_64-apple-darwin'
+        if: ${{ matrix.target == 'x86_64-apple-darwin' && !inputs.current-tooling }}
         run: |
           if [ ! -x scripts/run-native-verification.sh ]; then
             echo '::error::candidate predates #547 Rosetta tooling; the owner reruns with native-release rerun=<tag>'
@@ -209,20 +210,22 @@ jobs:
           TARGET: ${{ matrix.target }}
           CURRENT_TOOLING: ${{ inputs.current-tooling }}
         run: |
-          scripts/run-native-verification.sh "$TARGET" <<'VERIFY'
+          verification="$PWD/scripts/run-native-verification.sh"
+          if [ "$CURRENT_TOOLING" = true ]; then verification="$GITHUB_WORKSPACE/scripts/run-native-verification.sh"; fi
+          "$verification" "$TARGET" <<'VERIFY'
           started=$SECONDS
           # The log is kept so the conclusion can name the first error; pipefail keeps the exit status.
           set -o pipefail
-          source_args=()
+          set --
           tooling=.
           skill=skills/tmux-team/SKILL.md
           if [ "$CURRENT_TOOLING" = true ]; then
             tooling="$GITHUB_WORKSPACE"
-            source_args=(--source-root "$GITHUB_WORKSPACE/release-source")
+            set -- --source-root "$GITHUB_WORKSPACE/release-source"
             skill="$GITHUB_WORKSPACE/release-source/skills/tmux-team/SKILL.md"
           fi
           node "$tooling/typescript/scripts/release-upgrade.mjs" prove --product "$PRODUCT" --tag "$RELEASE_TAG" \
-            --target "$TARGET" --directory "$RUNNER_TEMP/upgrade" --skill "$skill" "${source_args[@]}" \
+            --target "$TARGET" --directory "$RUNNER_TEMP/upgrade" --skill "$skill" "$@" \
             2>&1 | tee "$RUNNER_TEMP/upgrade-proof.log"
           echo "Verified $TARGET in $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
           VERIFY
@@ -233,16 +236,18 @@ jobs:
           TARGET: ${{ matrix.target }}
           CURRENT_TOOLING: ${{ inputs.current-tooling }}
         run: |
-          scripts/run-native-verification.sh "$TARGET" <<'VERIFY'
+          verification="$PWD/scripts/run-native-verification.sh"
+          if [ "$CURRENT_TOOLING" = true ]; then verification="$GITHUB_WORKSPACE/scripts/run-native-verification.sh"; fi
+          "$verification" "$TARGET" <<'VERIFY'
           set -o pipefail
-          source_args=()
+          set --
           tooling=.
           if [ "$CURRENT_TOOLING" = true ]; then
             tooling="$GITHUB_WORKSPACE"
-            source_args=(--source-root "$GITHUB_WORKSPACE/release-source")
+            set -- --source-root "$GITHUB_WORKSPACE/release-source"
           fi
           node "$tooling/typescript/scripts/release-upgrade.mjs" acceptance --product cli --tag "$RELEASE_TAG" \
-            --target "$TARGET" --directory "$RUNNER_TEMP/upgrade" "${source_args[@]}" \
+            --target "$TARGET" --directory "$RUNNER_TEMP/upgrade" "$@" \
             2>&1 | tee -a "$RUNNER_TEMP/upgrade-proof.log"
           VERIFY
       - name: Recheck version-only source after runtime proof and adapter acceptance

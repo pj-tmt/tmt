@@ -24,7 +24,7 @@ function fixture(product = 'cli') {
       '[workspace]\nmembers = []\n[workspace.package]\nversion = "5.0.0-dev" # fixed main version\nedition = "2024"\n',
     'rust/crates/tmt-cli/Cargo.toml': '[package]\nname = "tmt-cli"\nversion.workspace = true\n',
     'rust/crates/tmt-core/Cargo.toml': '[package]\nname = "tmt-core"\nversion.workspace = true\n',
-    // #1278's narrowed boundary: private/independently versioned, enabled for release-cut in B.
+    // #1278's private independent boundary; activation belongs to owner-authorized #1418.
     'rust/crates/tmt-driver-herdr/Cargo.toml':
       '[package]\nname = "tmt-driver-herdr"\nversion = "0.1.0-dev"\n',
     'extensions/squad/Cargo.toml': '[package]\nname = "tmt-squad"\nversion = "0.1.0-dev"\n',
@@ -90,10 +90,56 @@ function fixture(product = 'cli') {
             `name = "tmt-squad"\nversion = "${snapshot.version}"`
           )
     );
-  return { root, snapshot, metadata, resolveMetadata, updateLock };
+  return { root, snapshot, metadata, resolveMetadata, updateLock, map };
 }
 
 describe('mechanical version injection', () => {
+  it.each(['cli', 'squad'])(
+    'gates tagless %s preparation without changing source or lock bytes',
+    (product) => {
+      const f = fixture(product);
+      const snapshot = captureVersionState({
+        root: f.root,
+        files: Object.keys(f.snapshot.hashes),
+        metadata: f.metadata,
+        product,
+        tag: '',
+        cut: f.snapshot.cut,
+        map: f.map,
+      });
+      const before = readFileSync(join(f.root, 'rust/Cargo.lock'));
+      expect(snapshot.version).toBe(snapshot.oldVersion);
+      injectVersion(f.root, snapshot);
+      expect(verifyVersionState(f.root, snapshot, f.metadata).changed).toEqual([]);
+      expect(readFileSync(join(f.root, 'rust/Cargo.lock'))).toEqual(before);
+      writeFileSync(join(f.root, 'rust/Cargo.lock'), `${before.toString()}\n# unreviewed\n`);
+      expect(() => verifyVersionState(f.root, snapshot, f.metadata)).toThrow('Source differs');
+    }
+  );
+  it('reproves already-versioned historical reruns without rewriting the manifest or lock', () => {
+    const f = fixture();
+    injectVersion(f.root, f.snapshot);
+    f.updateLock();
+    const snapshot = captureVersionState({
+      root: f.root,
+      files: Object.keys(f.snapshot.hashes),
+      metadata: f.resolveMetadata(),
+      product: 'cli',
+      tag: f.snapshot.tag,
+      cut: f.snapshot.cut,
+      map: f.map,
+    });
+    const source = readFileSync(join(f.root, snapshot.manifest));
+    const lock = readFileSync(join(f.root, 'rust/Cargo.lock'));
+    injectVersion(f.root, snapshot);
+    expect(verifyVersionState(f.root, snapshot, f.resolveMetadata()).changed).toEqual([]);
+    expect(readFileSync(join(f.root, snapshot.manifest))).toEqual(source);
+    expect(readFileSync(join(f.root, 'rust/Cargo.lock'))).toEqual(lock);
+    writeFileSync(join(f.root, 'rust/crates/tmt-cli/src/main.rs'), 'fn changed() {}\n');
+    expect(() => verifyVersionState(f.root, snapshot, f.resolveMetadata())).toThrow(
+      'Source differs'
+    );
+  });
   it.each(['cli', 'squad'])(
     'injects %s while preserving private independently versioned Herdr',
     (product) => {

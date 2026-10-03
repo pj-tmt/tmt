@@ -10,7 +10,7 @@ import presetFactory from 'conventional-changelog-conventionalcommits';
 import writer from 'conventional-changelog-writer';
 import { ownerOf, parseComponentMap, releasedComponentsForPath } from './ci-scope.mjs';
 import { releasePolicy } from './native-release-policy.mjs';
-import { publishedReleases, versionOfTag } from './release-versions.mjs';
+import { compareVersions, publishedReleases, versionOfTag } from './release-versions.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -221,7 +221,14 @@ export async function planReleaseCuts({
   date,
   workspace,
   initialVersions = {},
+  versions = {},
 }) {
+  for (const [product, version] of Object.entries(versions)) {
+    if (!map.components.some((c) => c.name === product && c.package && c.release !== false))
+      throw new Error(`Explicit version names an unreleased component ${product}.`);
+    if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-alpha\.(0|[1-9]\d*))?$/.test(version))
+      throw new Error('An explicit cut version must be a canonical stable or alpha version.');
+  }
   if (
     metadata.schema !== 1 ||
     !SHA.test(metadata.cut ?? '') ||
@@ -278,9 +285,13 @@ export async function planReleaseCuts({
         ? git(['rev-parse', '--verify', `refs/tags/${previousRelease.tag_name}^{commit}`]).trim()
         : component.bootstrapSha;
       if (!SHA.test(previous)) throw new Error('Missing published product tag commit.');
-      const version = previousRelease
-        ? nextAlphaVersion(versionOfTag(previousRelease.tag_name, component.name))
-        : initialVersions[component.name];
+      const previousVersion =
+        previousRelease && versionOfTag(previousRelease.tag_name, component.name);
+      const version =
+        versions[component.name] ??
+        (previousRelease ? nextAlphaVersion(previousVersion) : initialVersions[component.name]);
+      if (previousRelease && compareVersions(version, previousVersion) <= 0)
+        throw new Error('Explicit cut version must advance the latest published product version.');
       if (!previousRelease) nextAlphaVersion(version); // validate the explicitly supplied alpha seed
       const tag = `${tagPrefix}${version}`;
       const commits = attributeCutCommits(
@@ -303,7 +314,7 @@ export async function planReleaseCuts({
         version,
         tag,
         status: notes.commits.length ? 'proposed' : 'no-releasable-commits',
-        authorization: notes.breaking ? 'owner-required' : 'alpha',
+        authorization: notes.breaking || versions[component.name] ? 'owner-required' : 'alpha',
       });
     } catch (error) {
       row.reason = error.message;

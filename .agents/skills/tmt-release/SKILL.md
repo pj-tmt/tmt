@@ -18,105 +18,35 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
 - The CLI version is owned by `rust/Cargo.toml` and exposed through Cargo's package version; there is no TypeScript fallback. Keep any retained developer package version and public release instructions consistent when changing versions. The native skill ships with the CLI; there is no separately versioned plugin or marketplace.
 - Follow `AGENTS.md` for GitHub issue state, branch and pull-request links, verification evidence, and safe worktree cleanup.
 
-## Release-cut shadow migration
+## Main cut authorization
 
-Follow the [architecture's shadow contract](../../../ARCHITECTURE.md#release-cut-shadow)
-and [verification procedure](../../../DEVELOPMENT.md#release-cut-shadow-verification)
-for #1399. Shadow computation and the read-only native injection check confer no
-publication, release/tag mutation, owner-hold override or workflow-dispatch
-authorization. Preserve the active release path and its gates until the separately
-reviewed switch; authorization below continues to apply.
+The [architecture](../../../ARCHITECTURE.md#main-release-cuts) owns the release
+model; [DEVELOPMENT](../../../DEVELOPMENT.md#main-release-cuts) owns its procedure.
+Automatic cuts and publication cover only released products on their existing
+alpha core version. Stable releases, major/minor changes, breaking releases and
+any manual publication require the owner. An explicit version on a cut requests a
+draft and native verification; it never overrides a publication gate.
 
-## Private-leaf attribution
+A first alpha also needs the product owner's authorization and reviewed activation
+under #1418. The CLI/Squad switch grants no parked-product activation. Keep hold,
+retry and rerun authorization below, required merge checks, every publication
+proof and immutable releases intact. A component's draft/run in flight blocks only
+that component, never main merges. Missing draft visibility, tag or active-run
+identity requires investigation, not an assumed idle product.
 
-The component map's `releaseConsumers` attributes private TUI, CLI style and invoke changes to Squad.
-The release workflow's small `release-please-run.mjs` wrapper adds only in-memory consumer paths
-before release-please's splitter and cutoffs; 17.11.2 has no `additional-paths` config option.
-Style and invoke retain CLI attribution; TUI retains its CLI exclusion. Project release evidence
-uses `ci-scope.releasedComponentsForPath` to retain released-root membership alongside leaf consumers
-and the Cargo normal/build workspace closure. Read it through the shared
-`cargo-workspace.mjs` reader against the caller's chosen checkout; dev-only dependencies
-never contribute. ARCHITECTURE owns the reader and explicit private-delivery marker
-contract; DEVELOPMENT owns its checks and cache preparation.
-The generator requires
-reviewed consumption declarations for all external production workspace links of a declared consumer,
-using its existing Cargo metadata graph, including transitive dependencies.
-Keep its pinned API shape verified by tooling tests loading the release job's isolated install.
-Follow DEVELOPMENT's generator and real-candidate checks before changing this consumption rule
-or upgrading release-please. This does not change publication authorization or private-leaf version ownership.
+The private release tool's mechanical source/lock proof grants no publishing
+permission. Do not commit injected versions back to main, create tags early,
+replace public assets or replay publication to recover a smoke failure.
 
-## Release PR safety
-
-Release PRs must pass `Code quality`'s notes gate before merge: compare from the
-component's newest published tag, with every linked commit inside its ancestry
-range through the candidate base. COVERAGE requires a link for every commit the
-pinned release-please renderer lists for the component in that range. Use its
-parser, path splitter, exclusions and private-leaf attribution with the
-candidate-base config's changelog sections or pinned defaults; do not introduce
-a second visible-type list or entry-count policy. Missing links hold the merge
-group until release-please refreshes the notes on a main push.
-The cumulative merge-group selector
-keeps existing locked Cargo workers selected for earlier pending release changes.
-A visible matching manifest draft without its git tag holds only that component’s
-release PR candidate; unheld components regenerate normally. Only all-held
-manifest paths skip `release-pr`; `github-release` and draft processing continue. Missing or inconsistent evidence
-fails closed. [DEVELOPMENT's safety gates](../../../DEVELOPMENT.md#release-pr-safety-gates)
-own draft-token visibility, bounded REST discovery, fixtures and recovery procedures. Neither gate
-authorizes manual tagging, release editing or publication.
-
-## Release queue robustness
-
-The release workflow runs `github-release` first, then the fresh tagless-draft REST
-check, queue preparation/dequeue and `release-pr`, then enables at most one
-same-repository main release PR. This clears merged untagged PRs before the pinned
-release-please attempts PR updates; the draft check must include drafts created
-in this run. A failed `github-release` stops the job and reports that `release-pr`
-was not attempted. Keep the
-queue pre-check's `skip`/`run`/`blocked` interface and its live-only `enable` command in
-the single queue owner; complete paginated discovery and head-pinned enabling must fail
-visibly on uncertainty. Skip a queued release PR only when `checkReleaseNotes` accepts
-its notes against main HEAD; keep coverage in that safety owner. Invalid compare anchors, out-of-range links or missing COVERAGE links require one
-bounded live dequeue with the release App token, after rechecking the PR identity,
-head and queue entry, before release-pr refreshes the notes. Dry runs never dequeue.
-Tagless-draft-held candidates retain their queue entry and existing generation filter.
-Failed or unverified dequeue writes a recovery summary and blocks release-pr and
-queue enabling after github-release, while downstream draft processing continues;
-initial acquisition errors still fail visibly. Fetch full history and tags with Code quality's
-checkout pattern. Do not enable another component while a release PR is enabled
-or queued. Existing workflow concurrency serializes this policy, not external enqueues.
-
-Keep `always-update` for conflict recovery and the pinned update wrapper's unchanged
-release-content comparison for CI continuity. BEHIND alone does not require a branch
-refresh: the merge queue runs required checks against current main's merged result.
-Changed release content still needs fresh checks; no queue priority jump is used.
-[DEVELOPMENT's queue section](../../../DEVELOPMENT.md#queued-release-pull-requests)
-owns request bounds, failure and recovery details. Tooling tests must cover pagination,
-single-active selection, queued covered/stale notes against main HEAD, dequeue-before-refresh ordering,
-failed dequeue after completed github-release and suppressed queue enabling, identity/head races, dry-run non-mutation, unchanged generated files and original conflict/update behavior.
-
-## Release stall monitoring
-
-Keep advisory stall detection separate from required release gates. The pinned
-manifest remains the releasability owner; a monitor must not close its issue on
-incomplete evidence or mutate held release PRs. Keep `issues: write` for monitoring
-in its separate job; its REST uses `github.token`. Only the existing
-release-job App reader sees drafts, passing metadata rather than credentials.
-Distinguish historical anonymous-smoke infrastructure issues from current check failures;
-a rate-limit issue recommends retrying smoke, never publication. Preserve zero-failure behavior,
-visible summary warnings and fixture-only REST tests. [DEVELOPMENT’s monitor
-section](../../../DEVELOPMENT.md#release-stall-monitoring) owns thresholds,
-credentials, bounded discovery and the single-issue recovery lifecycle.
 
 ## Conventional PR titles
 
-Merge groups report conventional squash-title syntax through the shared safety
-owner. The report-only phase writes findings and unavailable evidence to job
+Merge groups report conventional squash-title syntax through `pr-title-check.mjs`. The report-only phase writes findings and unavailable evidence to job
 output/summary and always exits zero; it does not enforce titles yet. Do not add
 an `edited` trigger to full CI or compare ordinary queued subjects against mutable
 REST titles. [DEVELOPMENT's rollout](../../../DEVELOPMENT.md#conventional-pr-title-rollout)
 owns the observation day and the separate explicit UTC cutover, 24 hours after
-the report-only PR merges. Keep release-please as the release attribution and
-changelog owner.
+the report-only PR merges. The cut planner owns release notes and attribution.
 
 ## Project release reconciliation
 
@@ -268,8 +198,8 @@ gates, the markers and the procedures; this section owns who may publish what.
   channel; a release from a branch line; a draft that any gate holds, and in particular a
   breaking change (a `!` or `BREAKING CHANGE:` commit), which always pauses for the owner's
   explicit OK;
-  README installer promotion; creating or rotating the release App credentials and the
-  `release` Environment (the owner's setup is in the guide's release-please section);
+  README installer promotion; creating or rotating Project release App credentials,
+  changing the main-only `release` Environment (the owner's setup is in the guide's main-cut section);
   enabling or changing release immutability; and this authorization itself.
 - The authorization belongs to the pipeline, not to an agent. An agent still never tags,
   creates, edits or publishes a release by hand, and never dispatches a run that publishes,
@@ -299,8 +229,4 @@ gates, the markers and the procedures; this section owns who may publish what.
   published releases for tooling changes, never a publishing dispatch. Keep the
   post-publication Project dispatch gated on successful smoke and historical failure issues
   visible to the release monitor. Never dispatch publication to recover a smoke failure.
-
-The private `tmt-release-tool` binary supplies the mechanical TOML injection gate;
-its build or verification never grants publishing authorization. Follow
-[DEVELOPMENT](../../../DEVELOPMENT.md#release-cut-shadow-verification) for the procedure.
 

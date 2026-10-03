@@ -102,6 +102,56 @@ function fixture() {
 }
 
 describe('live release cut lifecycle', () => {
+  it('cuts exactly the owner-selected product and explicit version while keeping publication gates', async () => {
+    const f = fixture();
+    const result = await runReleaseCuts({
+      ...f,
+      live: true,
+      product: 'cli',
+      version: '5.1.0-alpha.0',
+    });
+    expect(result.actions).toEqual([
+      { product: 'cli', status: 'created', tag: 'v5.1.0-alpha.0', cut: f.cut },
+    ]);
+    expect(f.client.draft).toHaveBeenCalledTimes(1);
+    expect(f.client.dispatch).toHaveBeenCalledExactlyOnceWith('cli');
+  });
+  it('refuses version selection without a product and selection of parked products before mutation', async () => {
+    const f = fixture();
+    await expect(runReleaseCuts({ ...f, live: true, version: '6.0.0' })).rejects.toThrow(
+      'exactly one product'
+    );
+    await expect(
+      runReleaseCuts({ ...f, live: true, product: 'driver-herdr', version: '1.0.0' })
+    ).rejects.toThrow('unreleased');
+    expect(f.client.draft).not.toHaveBeenCalled();
+    expect(f.client.dispatch).not.toHaveBeenCalled();
+  });
+  it('does not resume an older draft as a substitute for an explicit owner-selected cut', async () => {
+    const f = fixture();
+    f.releases.push({
+      id: 999,
+      draft: true,
+      tag_name: 'v5.0.0-alpha.49',
+      target_commitish: f.cut,
+      assets: [],
+    });
+    const result = await runReleaseCuts({
+      ...f,
+      live: true,
+      product: 'cli',
+      version: '6.0.0-alpha.0',
+    });
+    expect(result.actions).toEqual([
+      {
+        product: 'cli',
+        status: 'in-flight',
+        reason: 'Explicit cut waits for the existing component draft.',
+      },
+    ]);
+    expect(f.client.draft).not.toHaveBeenCalled();
+    expect(f.client.dispatch).not.toHaveBeenCalled();
+  });
   it('holds private-leaf and nested breaking changes for both released-root and additive consumer', () => {
     const f = fixture();
     mkdirSync(join(f.root, 'shared'));

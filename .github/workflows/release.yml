@@ -9,6 +9,17 @@ on:
     - cron: '23 4 * * *'
   workflow_dispatch:
     inputs:
+      product:
+        description: Optional single released product for an owner-dispatched cut
+        required: false
+        default: all
+        type: choice
+        options: [all, cli, squad]
+      version:
+        description: Optional explicit stable or alpha version; requires a product and owner authorization
+        required: false
+        default: ''
+        type: string
       dry_run:
         description: Report proposed cuts and recovery without creating drafts or dispatching builds
         required: true
@@ -55,6 +66,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           LIVE: ${{ steps.mode.outputs.live }}
+          PRODUCT: ${{ inputs.product != 'all' && inputs.product || '' }}
+          VERSION: ${{ inputs.version }}
         run: node typescript/scripts/release-cut-live.mjs > "$RUNNER_TEMP/release-cut-plan.json"
       - uses: actions/upload-artifact@v4
         if: always()
