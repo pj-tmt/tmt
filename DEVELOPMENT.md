@@ -2870,6 +2870,32 @@ and foreground process cleanup tests run lifecycle scenarios twice, with no core
 socket traffic. Owner-key temporary cleanup is publication-locked; it preserves
 foreign file names and refuses unsafe matching files.
 
+### Colab owner epoch verification
+
+Run `(cd rust && cargo test --offline --locked -p tmt-colab --test transitions)`
+for real SQLite/keyring and isolated-child fold/rotation tests. They cover exact
+baseline materialization, remaining-recipient wrap decryption, checkpoint pins,
+reopen replay, stale writes, tampered signatures/chains/descriptors, role/epoch/
+root denial, revoked/expired-device exclusion and rollback on baseline/wrap
+write failure. FIFO barriers pause the real child while a second SQLite writer
+appends: one moving snapshot retries successfully; three return `STALE_HEAD`
+without authority changes. No Docker or fixed sleep is involved.
+
+Schema 4 adds `baselines(page, epoch, descriptor, envelope)` with a composite
+primary key and an epoch-secret foreign key. Earlier tables are unchanged;
+baseline ciphertext counts toward the existing per-page quota. Re-run
+`--test owner_state --test registration` for legacy schema preservation and
+registration/tombstone behavior. Newer schemas still refuse without mutation.
+
+The local `transitions::Engine::advance_epoch` seam requires root authorization,
+an operation ID and expected owner revision. It accepts no source, cuts or wraps
+from a request. It verifies and decrypts stored envelopes, validates namespace
+roots through the isolated decoder, and produces the baseline before its short
+writer transaction. The exact signed response is replayed without regeneration.
+A fold exceeding the existing decoder batch/update/baseline caps fails closed;
+there is no truncation or fallback. Membership/devices, links/Reset, browser
+management requests and remote event wiring are subsequent #1157 work.
+
 ### Colab owner registration verification
 
 Run `(cd rust && cargo test --offline --locked -p tmt-colab --test registration)`

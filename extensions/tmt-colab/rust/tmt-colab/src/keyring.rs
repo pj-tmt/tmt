@@ -285,6 +285,15 @@ impl Keyring {
             .sign(&tmt_colab_model::certificate::input(cert)?)
             .to_bytes())
     }
+    /// Epoch baseline objects are authored by the local management identity.
+    pub(crate) fn seal_baseline(
+        &self,
+        context: &tmt_colab_model::object::Context,
+        secret: &[u8; 32],
+        plaintext: &[u8],
+    ) -> tmt_colab_model::Result<tmt_colab_model::object::Envelope> {
+        tmt_colab_model::object::seal(context, secret, &self.management_signer()?, plaintext)
+    }
     pub fn owner_public(&self) -> [u8; 32] {
         self.owner.verifying_key().to_bytes()
     }

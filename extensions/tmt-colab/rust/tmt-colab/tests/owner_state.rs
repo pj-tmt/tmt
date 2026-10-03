@@ -474,7 +474,7 @@ fn schema_one_migration_preserves_all_ciphertext_and_refuses_newer_schema_untouc
     let f = Fixture::new();
     let db = f.oracle();
     // Independent schema-1 fixture: all original columns carry non-default data.
-    db.execute_batch("DROP TABLE device_registrations; DROP TABLE owner_operations; DROP TABLE wraps; DROP TABLE epoch_secrets;
+    db.execute_batch("DROP TABLE baselines; DROP TABLE device_registrations; DROP TABLE owner_operations; DROP TABLE wraps; DROP TABLE epoch_secrets;
         DROP TABLE devices; DROP TABLE recipients; DROP TABLE membership_log; DROP TABLE owner_state;
         DROP TABLE checkpoints; DROP TABLE receipts; DROP TABLE streams; DROP TABLE pages;
         CREATE TABLE pages(page TEXT PRIMARY KEY, epoch TEXT NOT NULL);
@@ -518,16 +518,16 @@ fn schema_one_migration_preserves_all_ciphertext_and_refuses_newer_schema_untouc
     assert_eq!(
         db.pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
             .unwrap(),
-        3
+        4
     );
     assert_eq!(counts(&db), vec![0; 7]);
-    db.pragma_update(None, "user_version", 4).unwrap();
+    db.pragma_update(None, "user_version", 5).unwrap();
     let path = f.layout.directory.join("space.db");
     let bytes = fs::read(&path).unwrap();
     let error = Store::open(&f.layout).err().unwrap();
     assert!(matches!(
         error.downcast_ref::<Fault>(),
-        Some(Fault::UnsupportedSchema(4))
+        Some(Fault::UnsupportedSchema(5))
     ));
     assert_eq!(fs::read(&path).unwrap(), bytes);
     assert_eq!(legacy_rows(&db), before);

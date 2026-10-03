@@ -526,6 +526,19 @@ with a test-only fixed client ID; production uses a fresh identity. Their
 [independent oracle](vectors/baseline-reference.py) covers only the fresh
 `html`/`meta.title` schema and requires no third-party libraries.
 
+The owner-local epoch engine stores baseline plaintext as strict JSON with exactly
+`source` (the exact UTF-8 source string) and `update` (canonical base64url update-v1).
+Its `html`/`content` object has sequence zero and the pinned local management member
+as author, signed with that member's key; the root-signed epoch descriptor admits
+this baseline independently of a device stream. Store retains the exact descriptor
+and encrypted envelope together with the new secret, wraps, epoch and replay result.
+The engine verifies stored owner statements, certificates and object chains from a
+read snapshot, then materializes content and validates per-writer own roots through
+the isolated decoder. It produces the new baseline outside the writer lock. The
+commit rechecks every captured namespace cut and device projection before pinning
+checkpoints; moving snapshots retry at most three times, then fail `STALE_HEAD`.
+This owner-local library seam does not enable a browser management endpoint.
+
 A page's history mode is `shared` by default. A member joining a `shared` page
 receives, in the same owner transition as `member.add`, owner-signed wraps of
 every retained earlier epoch key of that page; no epoch advance is needed, and
