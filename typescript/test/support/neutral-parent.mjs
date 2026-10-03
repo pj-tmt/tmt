@@ -12,13 +12,8 @@ function report(value) {
   fs.writeSync(3, JSON.stringify(value) + '\n');
 }
 
-function complete(value) {
-  report(value);
-  if (mode === 'supervise') fs.writeSync(5, JSON.stringify(value));
-}
-
 function reportError(error) {
-  complete({ error: { message: error.message, code: error.code ?? 'NEUTRAL_PARENT_FAILED' } });
+  report({ error: { message: error.message, code: error.code ?? 'NEUTRAL_PARENT_FAILED' } });
   process.exit(1);
 }
 
@@ -49,36 +44,12 @@ function executablePath(executable) {
   );
 }
 
-if (mode === 'relay') {
-  // The intermediary exits without waiting for the supervisor. Its completion
-  // descriptor stays open in the supervisor, whose payload exit ends this relay.
-  const intermediary = spawn(process.execPath, [...nodeArgs, 'detach', ...args], {
-    stdio: ['inherit', 'inherit', 'inherit', 3, 4, 'pipe'],
-  });
-  intermediary.once('error', reportError);
-  const completion = intermediary.stdio[5];
-  completion.setEncoding('utf8');
-  let body = '';
-  completion.on('data', (chunk) => {
-    body += chunk;
-    if (body.length > 16384) reportError(new Error('Neutral-parent control exceeded its bound.'));
-  });
-  completion.once('end', () => {
-    try {
-      const result = JSON.parse(body);
-      if (result.error) process.exit(1);
-      if (result.signal) process.kill(process.pid, result.signal);
-      else process.exit(result.status);
-    } catch (error) {
-      reportError(error);
-    }
-  });
-} else if (mode === 'detach') {
+if (mode === 'detach') {
   const supervisor = spawn(
     process.execPath,
     [...nodeArgs, 'supervise', String(process.pid), ...args],
     {
-      stdio: ['inherit', 'inherit', 'inherit', 3, 4, 5],
+      stdio: ['inherit', 'inherit', 'inherit', 3, 4],
     }
   );
   supervisor.once('error', reportError);
@@ -99,9 +70,9 @@ if (mode === 'relay') {
   });
   child.once('error', reportError);
   // The selected CLI leads this second owned group. Exec preserves its PID,
-  // group and inherited streams; the supervisor can still relay its exit.
+  // group and inherited streams; the supervisor reports its observed exit.
   child.once('exit', (status, signal) => {
-    complete({ status, signal });
+    report({ status, signal });
     process.exit(0);
   });
 } else if (mode === 'execute') {

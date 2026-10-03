@@ -151,7 +151,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
     try {
       child = spawn(
         process.execPath,
-        [neutralParent, 'relay', sandbox.cli.executable, ...sandbox.cli.args, ...args],
+        [neutralParent, 'detach', sandbox.cli.executable, ...sandbox.cli.args, ...args],
         {
           cwd: sandbox.cwd,
           env: sandbox.env,
@@ -179,8 +179,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
     let failure: Error | undefined;
     let control = '';
     let controlBytes = 0;
-    let completion: unknown;
-    let launcherError: unknown;
+    let completion: { status: number | null; signal: NodeJS.Signals | null } | undefined;
     let cliGroup: number | undefined;
     const groups = new Set(child.pid === undefined ? [] : [child.pid]);
     const acknowledgement = child.stdio[4]! as Duplex;
@@ -214,10 +213,46 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
             if (finishing) stopGroup(cliGroup);
             else acknowledgement.end('ready\n');
           } else if (typeof report === 'object' && report !== null && 'error' in report) {
-            launcherError ??= report;
+            const error = report.error;
+            if (
+              typeof error !== 'object' ||
+              error === null ||
+              !('message' in error) ||
+              typeof error.message !== 'string' ||
+              !('code' in error) ||
+              typeof error.code !== 'string'
+            )
+              throw new Error('Invalid launcher error.');
+            failure ??= Object.assign(new Error(error.message), { code: error.code });
+            beginCleanup();
           } else {
             if (completion !== undefined) throw new Error('Duplicate launcher completion.');
-            completion = report;
+            if (
+              cliGroup === undefined ||
+              typeof report !== 'object' ||
+              report === null ||
+              !('status' in report) ||
+              !('signal' in report)
+            )
+              throw new Error('Missing selected CLI completion.');
+            const { status, signal } = report;
+            if (
+              !(
+                status === null ||
+                (typeof status === 'number' &&
+                  Number.isInteger(status) &&
+                  status >= 0 &&
+                  status <= 255)
+              ) ||
+              !(
+                signal === null ||
+                (typeof signal === 'string' && signal in os.constants.signals)
+              ) ||
+              (status === null) !== (signal !== null)
+            )
+              throw new Error('Invalid selected CLI completion.');
+            completion = { status, signal: signal as NodeJS.Signals | null };
+            beginCleanup();
           }
         } catch (error) {
           failure ??= new Error('Invalid neutral-parent control.', { cause: error });
@@ -266,7 +301,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
       } else {
         cleaned();
         if (failure) reject(failure);
-        else resolve({ ...closed!, stdout, stderr });
+        else resolve({ ...completion!, stdout, stderr });
       }
     };
     const pollCleanup = (): void => {
@@ -358,40 +393,18 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
       beginCleanup();
     }
     // Descendants can keep inherited pipes open after the direct child exits.
-    child.once('exit', beginCleanup);
+    // Successful setup exits to orphan the supervisor. Its completion record,
+    // not this setup exit, starts cleanup of the selected CLI and descendants.
+    child.once('exit', (status, signal) => {
+      if (status !== 0 || signal !== null) {
+        failure ??= new Error('Neutral-parent setup did not exit successfully.');
+        beginCleanup();
+      }
+    });
     child.on('close', (status, signal) => {
       if (!failure) {
-        try {
-          if (control !== '') throw new Error('Incomplete launcher control.');
-          const report: unknown = launcherError ?? completion;
-          if (typeof report !== 'object' || report === null)
-            throw new Error('Missing launcher result.');
-          if ('error' in report) {
-            const error = report.error;
-            if (
-              typeof error !== 'object' ||
-              error === null ||
-              !('message' in error) ||
-              typeof error.message !== 'string' ||
-              !('code' in error) ||
-              typeof error.code !== 'string'
-            )
-              throw new Error('Invalid launcher error.');
-            failure = Object.assign(new Error(error.message), { code: error.code });
-          } else if (
-            cliGroup === undefined ||
-            !('status' in report) ||
-            report.status !== status ||
-            !('signal' in report) ||
-            report.signal !== signal
-          ) {
-            throw new Error('Launcher exit did not match the selected CLI result.');
-          }
-        } catch (error) {
-          failure = new Error('Could not establish neutral-parent CLI completion.', {
-            cause: error,
-          });
-        }
+        if (control !== '' || completion === undefined)
+          failure = new Error('Could not establish neutral-parent CLI completion.');
       }
       closed = { status, signal };
       beginCleanup();
