@@ -85,6 +85,11 @@ export async function mountRenderer(
       stop('navigation');
       return;
     }
+    // Source init runs in a later postMessage task, outside iframe load-in-progress,
+    // so document.open does not mute the completion load. HTML's "the end" fires
+    // Window load then completes the document through the iframe load event steps:
+    // https://html.spec.whatwg.org/multipage/parsing.html#the-end
+    // https://html.spec.whatwg.org/multipage/iframe-embed-object.html#iframe-load-event-steps
     // The bootstrap load receives source once; document.write completes the second load.
     if (loads !== 1) return;
     frame.contentWindow?.postMessage({ type: 'colab.render.bind', ...snapshot }, '*', [
