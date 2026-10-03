@@ -636,6 +636,26 @@ describe('the public installer smoke of an extension release', () => {
 });
 
 describe('public Colab embedded app smoke', () => {
+  it('keeps authenticated acquisition separate from the relocated app process', async () => {
+    const githubToken = 'fixture-colab-acquisition-secret';
+    const attempt = run(
+      {
+        tokenDigest: createHash('sha256').update(githubToken).digest('hex'),
+        extension: {
+          product: 'colab',
+          binary: colabFixtureBinary(base),
+          installs: '0.1.0-alpha.1',
+        },
+      },
+      { product: 'colab', tag: 'tmt-colab-v0.1.0-alpha.1', githubToken }
+    );
+    const results = await attempt.results;
+    // Acquisition requires the credential; the native app fixture refuses it at runtime.
+    expect(failed(results)).toEqual([]);
+    expect(results.at(-1)).toMatchObject({ check: 'colab embedded app', ok: true });
+    expect(JSON.stringify(results)).not.toContain(githubToken);
+  });
+
   it.each([
     ['valid', true],
     ['PLACEHOLDER', false],

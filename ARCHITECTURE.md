@@ -4016,7 +4016,6 @@ their owners. Office real-companion stress cases use `office-*` filenames and th
 component map's stress `selectedBy` glob; retained-release setup uses the private
 installer, while public acquisition refusal stays in the native lifecycle suite.
 The `rust/crates/tmt-test-support` library owns fixture-executable publication for
-`rust/crates/tmt-test-support` owns fixture-executable publication for
 [DEVELOPMENT's ETXTBSY case 2](DEVELOPMENT.md#rust-checks), not general test utilities.
 Its one `write_executable` helper sends exact bytes and the caller's permission
 mode to a short-lived shell through `tmt-invoke`'s bounded execution and

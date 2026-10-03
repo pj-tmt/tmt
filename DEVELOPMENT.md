@@ -2902,9 +2902,10 @@ checkout output or pnpm on PATH. Exact HTML, every expected asset and frontend
 notices must match; archived notices must contain both Rust and frontend texts.
 Archive proof injects only core storage-root discovery; public-install smoke uses
 its installed CLI and the same serving/cleanup proof after install/list. All state
-is disposable, and all child processes stop before its removal. Public smoke is
-still unauthenticated and keeps the existing classified retry limits. Subsequent
-releases retain the shared previous-release extension upgrade gate.
+is disposable, and all child processes stop before its removal. Public smoke uses
+the shared [read-only acquisition credential boundary](#explicit-multi-platform-release-preparation);
+the relocated Colab process receives no credential. Subsequent releases retain
+the shared previous-release extension upgrade gate.
 
 ### Native curl bootstrap verification
 

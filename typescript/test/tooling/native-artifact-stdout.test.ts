@@ -123,7 +123,8 @@ describe('native artifact stdout', () => {
       });
       expect(result.status, result.stderr).toBe(0);
       expect(JSON.parse(result.stdout)).toEqual({ artifacts: {} });
-      if (['office', 'colab'].includes(product)) expect(result.stderr).toContain('vite diagnostics');
+      if (['office', 'colab'].includes(product))
+        expect(result.stderr).toContain('vite diagnostics');
       else expect(result.stderr).not.toContain('vite diagnostics');
       expect(result.stderr).toContain('notice diagnostics');
       expect(result.stderr).toContain('dist diagnostics');
