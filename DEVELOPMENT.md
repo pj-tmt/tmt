@@ -1957,23 +1957,34 @@ broken release. Mixed or real failures retain the post-publication failure issue
 conclusions fail the job and retain artifacts from all four hosts. Missing or malformed
 host evidence cannot establish an infrastructure-only failure; nothing is silently accepted.
 The host artifacts are qualified by product, tag and target and retain the classified
-diagnostic and its parsed UTC reset epoch. After a failed main `Native release artifacts`
-or manually dispatched `Native release smoke` run completes,
-`native-release-smoke-retry.yml` automatically re-proves eligible affected targets once.
+diagnostic and its parsed UTC reset epoch. The smoke report's shared `smokeFailureOutcome`
+output schedules only an infrastructure-only failure through a dedicated `actions: write`
+dispatch job. It explicitly POSTs `native-release-smoke-retry.yml` on main with the source
+run ID/attempt, product, tag and affected targets: `workflow_dispatch` is exempt from
+`GITHUB_TOKEN` event suppression, while completion-triggered `workflow_run` is unreliable
+for automatically dispatched native runs. Reusable callers propagate this capability;
+install and issue-report jobs do not request it.
 `public-install-retry.mjs` requires four distinct matching-host results per tag, validates
 the exact diagnostic through the smoke owner's parser, and selects only the classified
 failed acquisition targets. Unclassified hosts are never retried. Missing timing,
 inconsistent evidence or a reset more than 60 minutes away keeps the original failure.
+The retry planner verifies the source through REST: the current attempt of a same-repository
+main `workflow_dispatch` run of `native-release.yml` or standalone `native-release-smoke.yml`,
+with four matching concluded target jobs and product/tag-qualified artifact conclusions.
+Requested targets must each be classified and reset-eligible; only those targets are retried,
+while unrequested host failures retain their original conclusions. Dispatch inputs cannot
+fabricate a recovered host, select healthy targets or recursively retry a retry run.
 Host artifacts record their run attempt; artifacts from an earlier attempt cannot
 prove the current one. A partial manual rerun without four current-attempt results
 retains the issue and does not schedule recovery.
 
 One Linux job waits until the last selected reset plus one second, bounded at 60 minutes;
 each selected target then repeats the public install on its matching host with `--retry`,
-which allows one acquisition attempt without another rate-limit retry. The wait starts
-in a separate workflow after the originating run releases `release-<product>`. Its
-source-run-specific `public-install-retry-...` concurrency group cannot block the next
-release. Only the planner has `actions: read` to download the originating artifacts;
+which allows one acquisition attempt without another rate-limit retry. The source dispatch
+finishes promptly; the long wait runs solely in the independent workflow, whose
+source-run/attempt/product/tag `public-install-retry-...` group never holds `release-<product>`
+and cannot block the next release. Only the planner has `actions: read` to verify the source
+run/jobs and download its artifacts;
 install legs have `contents: read`, no token on the acquisition path, and tag checkouts
 read solely as data. A separate `issues: write` reporter reconciles retry evidence with
 all original hosts. Full recovery comments on and closes the infrastructure issue,

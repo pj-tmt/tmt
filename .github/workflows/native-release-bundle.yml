@@ -510,6 +510,7 @@ jobs:
     permissions:
       contents: read
       issues: write
+      actions: write
     uses: ./.github/workflows/native-release-smoke.yml
     with:
       product: ${{ inputs.product }}

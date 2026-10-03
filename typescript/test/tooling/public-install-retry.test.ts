@@ -7,7 +7,11 @@ import {
   readRetryHosts,
   reportSmokeRetry,
   waitForSmokeReset,
+  parseRetryRequest,
+  validateRetrySource,
+  ghSmokeRetryApi,
   type RetryHost,
+  type RetrySource,
 } from '../../scripts/public-install-retry.mjs';
 import { parseRateLimitDiagnostic } from '../../scripts/verify-public-install.mjs';
 import { ghPublishApi } from '../../scripts/release-publish.mjs';
@@ -374,19 +378,35 @@ describe('independent smoke-retry workflow', () => {
     'utf8'
   );
   const retry = workflow.split('\n  retry:\n')[1].split('\n  report:\n')[0];
-  it('starts only after trusted main release/smoke completion and cannot hold the release group or recurse', () => {
-    expect(workflow).toContain('workflows: [Native release artifacts, Native release smoke]');
-    expect(workflow).toContain('types: [completed]\n    branches: [main]');
-    expect(workflow).toContain("github.event.workflow_run.event == 'workflow_dispatch'");
-    expect(workflow).toContain(
-      'github.event.workflow_run.head_repository.full_name == github.repository'
-    );
+  it('uses an explicit main dispatch, independently of suppressed workflow_run events and release concurrency', () => {
+    expect(workflow).toContain('workflow_dispatch:');
+    expect(workflow).not.toContain('workflow_run:');
+    expect(workflow).toContain("if: github.ref == 'refs/heads/main'");
+    for (const input of ['source_run_id', 'source_run_attempt', 'product', 'tag', 'targets'])
+      expect(workflow).toContain(`      ${input}:`);
     expect(workflow).toContain('group: public-install-retry-');
+    expect(workflow).toContain('${{ inputs.product }}-${{ inputs.tag }}');
     expect(workflow).not.toMatch(
-      /group: release-|workflow_dispatch:|workflow_call:|actions: write|contents: write|secrets\./
+      /group: release-|workflow_call:|actions: write|contents: write|secrets\./
     );
     expect(workflow).toContain('timeout-minutes: 65');
     expect(workflow.match(/issues: write/g)).toHaveLength(1);
+  });
+  it('schedules only the shared infrastructure outcome with write access scoped to the dispatch job', () => {
+    const smoke = readFileSync(
+      new URL('../../../.github/workflows/native-release-smoke.yml', import.meta.url),
+      'utf8'
+    );
+    const dispatch = smoke.split('\n  retry-dispatch:\n')[1];
+    expect(dispatch).toContain('needs: report');
+    expect(dispatch).toContain("needs.report.outputs.outcome == 'infrastructure'");
+    expect(dispatch).toContain('actions: write');
+    expect(dispatch).not.toMatch(/issues: write|contents: write|verify-public-install|wait --plan/);
+    expect(dispatch).toContain('public-install-retry.mjs dispatch');
+    expect(smoke.match(/actions: write/g)).toHaveLength(1);
+    expect(workflow).toContain('GH_TOKEN: ${{ github.token }}');
+    expect(workflow).toContain('SOURCE_RUN_ID: ${{ inputs.source_run_id }}');
+    expect(workflow).toContain('RETRY_TARGETS: ${{ inputs.targets }}');
   });
   it('keeps acquisition token-free on matching hosts, uses tag checkout only as data and disables further retries', () => {
     expect(retry).toContain('matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}');
@@ -398,5 +418,205 @@ describe('independent smoke-retry workflow', () => {
       /GH_TOKEN|GITHUB_TOKEN|issues: write|release-source\/(scripts|typescript)/
     );
     expect(retry).not.toContain('continue-on-error');
+  });
+});
+
+describe('REST validation of retry dispatch source', () => {
+  const repository = 'pj-tmt/tmt';
+  const request = () => ({
+    sourceRunId: 37100024356,
+    sourceRunAttempt: 1,
+    product: 'cli',
+    tag: TAG,
+    targets: [TARGETS[0]],
+  });
+  const source = (): RetrySource => ({
+    run: {
+      id: 37100024356,
+      run_attempt: 1,
+      head_branch: 'main',
+      event: 'workflow_dispatch',
+      path: '.github/workflows/native-release.yml',
+      repository: { full_name: repository },
+      head_repository: { full_name: repository },
+    },
+    jobs: TARGETS.map((target, i) => ({
+      name: `Release ${TAG} / Install the published ${TAG} / Install ${TAG} from the public release (${target})`,
+      conclusion: i === 0 ? 'failure' : 'success',
+    })),
+  });
+  const validate = (extra: Partial<Parameters<typeof validateRetrySource>[0]> = {}) =>
+    validateRetrySource({
+      request: request(),
+      repository,
+      ...source(),
+      hosts: hosts(),
+      now: NOW,
+      ...extra,
+    });
+
+  it('accepts only real native release or standalone smoke main evidence for the requested tag and targets', () => {
+    expect(validate().matrix).toEqual(plan().matrix);
+    const standalone = source();
+    standalone.run.path = '.github/workflows/native-release-smoke.yml';
+    standalone.jobs = standalone.jobs.map(({ name, conclusion }) => ({
+      name: name.split(' / ').at(-1)!,
+      conclusion,
+    }));
+    expect(validate(standalone).matrix).toEqual(plan().matrix);
+  });
+
+  it.each([
+    { id: 9 },
+    { run_attempt: 2 },
+    { head_branch: 'feature' },
+    { event: 'pull_request' },
+    { path: '.github/workflows/native-release-smoke-retry.yml' },
+    { repository: { full_name: 'other/repo' } },
+    { head_repository: { full_name: 'fork/tmt' } },
+  ])('rejects a fabricated, stale, recursive or non-main source: %j', (change) => {
+    expect(() => validate({ run: { ...source().run, ...change } })).toThrow('requested main');
+  });
+
+  it('rejects altered product/tag/attempt evidence and unclassified source failures', () => {
+    expect(() => validate({ request: { ...request(), tag: 'v5.0.0-alpha.44' } })).toThrow();
+    expect(() => validate({ request: { ...request(), product: 'squad' } })).toThrow();
+    expect(() => validate({ hosts: hosts().map((host) => ({ ...host, runAttempt: 2 })) })).toThrow(
+      'attempt mismatch'
+    );
+    const mixed = hosts();
+    mixed[1].failed = [{ check: 'skills', reason: 'wrong skills' }];
+    const jobs = source().jobs;
+    jobs[1].conclusion = 'failure';
+    expect(() => validate({ hosts: mixed, jobs })).toThrow('infrastructure-only');
+  });
+
+  it('requires each target job to match a complete source artifact and its actual conclusion', () => {
+    const jobs = source().jobs;
+    expect(() => validate({ jobs: jobs.slice(1) })).toThrow('target job');
+    expect(() => validate({ jobs: [...jobs, jobs[0]] })).toThrow('target job');
+    jobs[0].conclusion = 'success';
+    expect(() => validate({ jobs })).toThrow('target job');
+    jobs[0].conclusion = null;
+    expect(() => validate({ jobs })).toThrow('target job');
+    expect(() => validate({ hosts: hosts().slice(1) })).toThrow('Incomplete');
+  });
+
+  it('does not expand requested targets or reject a queued retry when another reset enters the bound', () => {
+    const input = hosts();
+    input[1].failed = [limit(NOW / 1000 + 3601)];
+    const jobs = source().jobs;
+    jobs[1].conclusion = 'failure';
+    expect(planSmokeRetry(input, { now: NOW }).matrix.include.map(({ target }) => target)).toEqual([
+      TARGETS[0],
+    ]);
+    expect(planSmokeRetry(input, { now: NOW + 2000 }).matrix.include).toHaveLength(2);
+    const selected = validate({ hosts: input, jobs, now: NOW + 2000 });
+    expect(selected.matrix.include.map(({ target }) => target)).toEqual([TARGETS[0]]);
+    expect(selected.waitUntilMs).toBe(1791000293000);
+    const { api, calls } = reporter();
+    expect(
+      reportSmokeRetry({
+        api,
+        plan: selected,
+        retried: [{ ...input[0], failed: [] }],
+        originalRunUrl: ORIGINAL,
+        retryRunUrl: RETRY,
+      })
+    ).toEqual([{ tag: TAG, ok: false }]);
+    expect(calls.some(({ kind }) => kind === 'close')).toBe(false);
+    expect(calls.find(({ kind }) => kind === 'comment')?.body).toContain(TARGETS[1]);
+  });
+
+  it('cannot request a healthy, additional, duplicate or unknown target, or a reset beyond the bound', () => {
+    expect(() => validate({ request: { ...request(), targets: [TARGETS[1]] } })).toThrow(
+      'Requested targets'
+    );
+    expect(() =>
+      validate({ request: { ...request(), targets: [TARGETS[0], TARGETS[1]] } })
+    ).toThrow('Requested targets');
+    for (const targets of [[], ['unknown'], [TARGETS[0], TARGETS[0]]])
+      expect(() => parseRetryRequest({ ...request(), targets })).toThrow('targets');
+    expect(() => parseRetryRequest({ ...request(), sourceRunId: 'malicious/path' })).toThrow(
+      'source run'
+    );
+    const distant = hosts();
+    distant[0].failed = [limit(NOW / 1000 + 3600)];
+    expect(() => validate({ hosts: distant })).toThrow('Requested targets');
+  });
+
+  it('reads the current run and attempt-specific jobs through bounded REST and dispatches only smoke retry on main', () => {
+    const calls: { args: readonly string[]; options: object }[] = [];
+    const api = ghSmokeRetryApi({
+      repository,
+      spawn: (_command, args, options) => {
+        calls.push({ args, options });
+        return {
+          status: 0,
+          stderr: '',
+          stdout: args[1].includes('/jobs?')
+            ? JSON.stringify({ jobs: source().jobs })
+            : args.includes('POST')
+              ? ''
+              : JSON.stringify(source().run),
+        };
+      },
+    });
+    expect(api.readSource(request())).toEqual(source());
+    api.dispatch(request());
+    expect(calls.map(({ args }) => args[1])).toEqual([
+      `repos/${repository}/actions/runs/37100024356`,
+      `repos/${repository}/actions/runs/37100024356/attempts/1/jobs?per_page=100&page=1`,
+      `repos/${repository}/actions/workflows/native-release-smoke-retry.yml/dispatches`,
+    ]);
+    expect(calls[2].args).toEqual([
+      'api',
+      `repos/${repository}/actions/workflows/native-release-smoke-retry.yml/dispatches`,
+      '--method',
+      'POST',
+      '--input',
+      '-',
+    ]);
+    expect(JSON.parse((calls[2].options as { input: string }).input)).toEqual({
+      ref: 'main',
+      inputs: {
+        source_run_id: '37100024356',
+        source_run_attempt: '1',
+        product: 'cli',
+        tag: TAG,
+        targets: JSON.stringify([TARGETS[0]]),
+      },
+    });
+  });
+
+  it('fails closed on REST errors, malformed jobs or exhausted pagination', () => {
+    const bad = ghSmokeRetryApi({
+      repository,
+      spawn: () => ({ status: 1, stdout: '', stderr: 'forbidden' }),
+    });
+    expect(() => bad.readSource(request())).toThrow('REST request failed');
+    let requests = 0;
+    const pages = ghSmokeRetryApi({
+      repository,
+      spawn: (_command, args) => {
+        requests += 1;
+        return {
+          status: 0,
+          stderr: '',
+          stdout: JSON.stringify(
+            args[1].includes('/jobs?')
+              ? { jobs: Array.from({ length: 100 }, () => source().jobs[0]) }
+              : source().run
+          ),
+        };
+      },
+    });
+    expect(() => pages.readSource(request())).toThrow('ten pages');
+    expect(requests).toBe(11);
+    const malformed = ghSmokeRetryApi({
+      repository,
+      spawn: () => ({ status: 0, stdout: '{}', stderr: '' }),
+    });
+    expect(() => malformed.readSource(request())).toThrow('Invalid source jobs');
   });
 });

@@ -1,23 +1,41 @@
 name: Native release smoke retry
 
-# Completion starts a new run after native-release.yml releases release-<product>.
-# This workflow never calls or dispatches publication, and cannot trigger itself.
+# Explicit dispatch is exempt from GITHUB_TOKEN event suppression. It schedules only smoke.
+# The planner checks the originating main run and its concluded target jobs through REST.
 on:
-  workflow_run:
-    workflows: [Native release artifacts, Native release smoke]
-    types: [completed]
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Originating native release or standalone smoke run ID
+        required: true
+        type: string
+      source_run_attempt:
+        description: Originating run attempt that wrote the host artifacts
+        required: true
+        type: string
+      product:
+        description: Product of the classified smoke failure
+        required: true
+        type: string
+      tag:
+        description: Published tag proven by the source smoke artifacts and jobs
+        required: true
+        type: string
+      targets:
+        description: JSON array of classified affected targets
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: public-install-retry-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  group: public-install-retry-${{ inputs.source_run_id }}-${{ inputs.source_run_attempt }}-${{ inputs.product }}-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
   plan:
-    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_repository.full_name == github.repository
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -38,13 +56,18 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ inputs.source_run_id }}
           pattern: smoke-failures-*
           path: ${{ runner.temp }}/original-smoke
       - name: Plan only classified affected targets
         id: plan
         env:
-          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
+          PRODUCT: ${{ inputs.product }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RETRY_TARGETS: ${{ inputs.targets }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$RUNNER_TEMP/original-smoke"
           node typescript/scripts/public-install-retry.mjs plan --directory "$RUNNER_TEMP/original-smoke" --plan "$RUNNER_TEMP/retry-plan.json"
@@ -145,7 +168,7 @@ jobs:
       - name: Report failures or close the recovered infrastructure issue
         env:
           GH_TOKEN: ${{ github.token }}
-          ORIGINAL_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/attempts/${{ github.event.workflow_run.run_attempt }}
+          ORIGINAL_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ inputs.source_run_id }}/attempts/${{ inputs.source_run_attempt }}
         run: |
           mkdir -p "$RUNNER_TEMP/retry-smoke"
           node typescript/scripts/public-install-retry.mjs report --plan "$RUNNER_TEMP/plan/retry-plan.json" \
