@@ -156,45 +156,72 @@ async function reply(sandbox: Sandbox, item: SeededResponse) {
   expect(result.status, result.stderr).toBe(0);
   return parseWholeStdout(result);
 }
+interface ReplyWorker {
+  id: string;
+  worker_pid: number;
+  worker_start: string;
+}
 function batches(sandbox: Sandbox) {
-  return sql<{ id: string; due_ms: number; worker_pid: number; sending: number; members: number }>(
+  return sql<ReplyWorker & { due_ms: number; sending: number; members: number }>(
     sandbox,
     'SELECT b.*, (SELECT count(*) FROM reply_notices n WHERE n.batch_id=b.id) AS members FROM reply_notice_batches b'
   );
 }
-async function reaped(pid: number) {
+function processStart(pid: number) {
+  try {
+    const start = execFileSync('ps', ['-p', String(pid), '-o', 'lstart='], {
+      encoding: 'utf8',
+      stdio: 'pipe',
+      env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' },
+      timeout: 1000,
+      killSignal: 'SIGKILL',
+    });
+    return `ps-v1:${start.trim().split(/\s+/).join(' ')}`;
+  } catch (error) {
+    if (error instanceof Error && 'status' in error && error.status === 1) return undefined;
+    throw error;
+  }
+}
+async function reaped(pid: number, start?: string) {
   await waitFor(() => {
-    try {
-      execFileSync('ps', ['-p', String(pid), '-o', 'pid='], { stdio: 'pipe' });
-      return false;
-    } catch (error) {
-      if (error instanceof Error && 'status' in error && error.status === 1) return true;
-      throw error;
-    }
+    const current = processStart(pid);
+    return current === undefined || (start !== undefined && current !== start);
   }, 'worker reaped');
 }
-async function cleanup(sandbox: Sandbox) {
-  if (!fs.existsSync(sandbox.database)) return;
-  for (const worker of batches(sandbox)) {
+async function cleanup(sandbox: Sandbox, started: readonly ReplyWorker[] = []) {
+  const remaining = fs.existsSync(sandbox.database) ? batches(sandbox) : [];
+  const workers = new Map(
+    [...started, ...remaining].map((worker) => [
+      `${worker.worker_pid}:${worker.worker_start}`,
+      worker,
+    ])
+  );
+  for (const worker of workers.values()) {
     if (!worker.worker_pid) continue;
+    if (processStart(worker.worker_pid) !== worker.worker_start) continue;
     let argv: string;
     try {
       argv = execFileSync('ps', ['-p', String(worker.worker_pid), '-o', 'args='], {
         encoding: 'utf8',
         stdio: 'pipe',
+        timeout: 1000,
+        killSignal: 'SIGKILL',
       });
     } catch (error) {
       if (error instanceof Error && 'status' in error && error.status === 1) continue;
       throw error;
     }
-    if (argv.includes(`__reply-notice-worker ${worker.id} `)) {
+    if (
+      argv.includes(`__reply-notice-worker ${worker.id} `) &&
+      processStart(worker.worker_pid) === worker.worker_start
+    ) {
       try {
         process.kill(-worker.worker_pid, 'SIGKILL');
       } catch (error) {
         if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) throw error;
       }
-      await reaped(worker.worker_pid);
     }
+    await reaped(worker.worker_pid, worker.worker_start);
   }
 }
 
@@ -515,6 +542,10 @@ describe('native reply notice process scheduling', () => {
     async (incarnation) => {
       await withSandbox(async (sandbox) => {
         const f = await fixture(sandbox, 100);
+        // Hold delivery until the worker's startup identity is retained. Batch
+        // deletion precedes process exit, so rows cannot own final cleanup.
+        state(sandbox, true);
+        const started: ReplyWorker[] = [];
         const directory = path.join(sandbox.globalDir, 'channels');
         fs.mkdirSync(directory, { recursive: true });
         const binding = '95400000-0000-4000-8000-000000000004';
@@ -542,7 +573,13 @@ describe('native reply notice process scheduling', () => {
         );
         try {
           const accepted = await reply(sandbox, f.seed('prior-binding-notice'));
+          started.push(...batches(sandbox));
           expect(accepted.notification).toBe(incarnation === 'same' ? 'unavailable' : 'queued');
+          expect(started).toHaveLength(incarnation === 'same' ? 0 : 1);
+          for (const worker of started) {
+            expect(processStart(worker.worker_pid)).toBe(worker.worker_start);
+          }
+          state(sandbox, false);
           await waitFor(() => batches(sandbox).length === 0, 'pane evidence outcome');
           expect(commands(sandbox).filter((args) => args.includes('paste-buffer'))).toHaveLength(
             incarnation === 'same' ? 0 : 1
@@ -551,11 +588,48 @@ describe('native reply notice process scheduling', () => {
             { reply_state: incarnation === 'same' ? 'unavailable' : 'sent' },
           ]);
         } finally {
-          await cleanup(sandbox);
+          await cleanup(sandbox, started);
         }
       });
     }
   );
+
+  it('cleans a captured worker after its batch disappears and the callback fails', async () => {
+    await withSandbox(async (sandbox) => {
+      const f = await fixture(sandbox, 100);
+      state(sandbox, true);
+      const started: ReplyWorker[] = [];
+      const failure = new Error('Injected callback failure after batch deletion');
+      await expect(
+        (async () => {
+          try {
+            await reply(sandbox, f.seed('cleanup-after-deletion'));
+            started.push(...batches(sandbox));
+            expect(started).toHaveLength(1);
+            const worker = started[0];
+            expect(processStart(worker.worker_pid)).toBe(worker.worker_start);
+            // Freeze the real worker to make the row-deleted/process-live gap
+            // deterministic, including if the failure path skips normal waits.
+            process.kill(worker.worker_pid, 'SIGSTOP');
+            const db = new Database(sandbox.database);
+            try {
+              db.prepare('DELETE FROM reply_notice_batches WHERE id=?').run(worker.id);
+            } finally {
+              db.close();
+            }
+            expect(batches(sandbox)).toEqual([]);
+            expect(processStart(worker.worker_pid)).toBe(worker.worker_start);
+            throw failure;
+          } finally {
+            await cleanup(sandbox, started);
+          }
+        })()
+      ).rejects.toBe(failure);
+      for (const worker of started) {
+        expect(processStart(worker.worker_pid)).not.toBe(worker.worker_start);
+      }
+    });
+  });
 
   it.each(['valid', 'corrupt'])(
     '%s channel enrollment bypasses batching and never pastes',
