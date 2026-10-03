@@ -155,7 +155,8 @@ so a later request can make an already delivered prefix ambiguous; result lists
 then expose full candidate IDs. Missing or expired prompt context falls back to
 `[tmt] reply from <recipient>: tmt result <id>`.
 Timeout hints show the same original preview with `no reply yet` and the timeout
-duration, without a result command; missing context uses a still-pending fallback.
+duration and end with `· tmt result <id>`, exactly once under the same short/full
+selection rule. Missing context uses a still-pending fallback with that command.
 Ordinary pane reply hints share a fixed window from the first notice (5 s by
 default). New notices never reset that window. A finite detached worker reads
 durable SQLite state across invocations, delivers one combined paste containing

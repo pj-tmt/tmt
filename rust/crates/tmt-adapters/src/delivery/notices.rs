@@ -81,14 +81,16 @@ fn single(fields: &Fields, kind: HintKind, timeout_ms: u64) -> String {
             fields.recipient, fields.result_id
         ),
         (HintKind::Timeout, Some(preview)) => format!(
-            "▚ … {} · {preview} · no reply yet · {}",
+            "▚ … {} · {preview} · no reply yet · {} · tmt result {}",
             fields.recipient,
-            duration(timeout_ms)
+            duration(timeout_ms),
+            fields.result_id
         ),
         (HintKind::Timeout, None) => format!(
-            "[tmt] no reply yet from {} after {}; still pending",
+            "[tmt] no reply yet from {} after {}; still pending · tmt result {}",
             fields.recipient,
-            duration(timeout_ms)
+            duration(timeout_ms),
+            fields.result_id
         ),
     }
 }
@@ -296,7 +298,7 @@ mod tests {
         let live = fields(&mut fixture.storage, &hint, || fixture.now);
         assert_eq!(
             single(&live, HintKind::Timeout, 600_000),
-            "▚ … builder · expired request text · no reply yet · 10m"
+            "▚ … builder · expired request text · no reply yet · 10m · tmt result abcdef12"
         );
         rusqlite::Connection::open(fixture._directory.path.join("notices.db"))
             .unwrap()
@@ -319,9 +321,13 @@ mod tests {
         let timeout = single(&expired, HintKind::Timeout, 600_000);
         assert_eq!(
             timeout,
-            "[tmt] no reply yet from builder after 10m; still pending"
+            format!("[tmt] no reply yet from builder after 10m; still pending · tmt result {id}")
         );
-        assert!(!timeout.contains(id));
+        assert_eq!(timeout.matches(id).count(), 1);
+        assert_eq!(timeout.matches("tmt result ").count(), 1);
+        let live_timeout = single(&live, HintKind::Timeout, 600_000);
+        assert_eq!(live_timeout.matches("abcdef12").count(), 1);
+        assert_eq!(live_timeout.matches("tmt result ").count(), 1);
         assert_eq!(duration(1500), "1500ms");
         assert_eq!(duration(1000), "1s");
     }

@@ -319,7 +319,9 @@ when available. Missing or expired previews fall back to
 A live blocking waiter receives the full response without an extra hint.
 A `--detach` request gets the reply hint only, never a timeout hint. The bounded
 timeout hint sent for a non-detached request to an offline recipient means still
-pending, not failed or cancelled. Anonymous and explicit queue-only requests do not
+pending, not failed or cancelled. Both timeout forms also end with
+`· tmt result <id>`, using the same unique short/full rule and printing the ID once.
+Anonymous and explicit queue-only requests do not
 push these hints.
 
 Talk/send's command-local `--identity <existing-name>` attributes the originator,
