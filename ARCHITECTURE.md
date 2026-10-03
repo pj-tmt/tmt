@@ -4969,6 +4969,11 @@ Colab (`extensions/tmt-colab/`: `tmt-colab`, `tmt-colab-model`, `@tmt/colab-clie
   paired owner device, with no native bridge, ledger or migration. With core: `Product::Colab`
   registers the executable with the installer, and the app is served from `serve --app-dir`,
   else bytes embedded from `TMT_COLAB_APP_DIR`, else the checkout's Vite output.
+- **Restart recovery.** Private guidance serves one public, build-owned recovery entry;
+  all other app assets remain owner-gated. It uses the existing tab claim and Web Lock
+  before Remote's SDK checks its paired key and reopens. A session-storage marker
+  spans the recovery reload until authenticated boot clears it; failed recovery
+  shows pairing guidance. Disconnected active tabs offer the same explicit recovery.
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
