@@ -247,6 +247,10 @@ impl tmt_core::driver::Driver for ClaudeRuntime {
         crate::runtime::claim_named(command, NAME)
     }
 
+    fn maximum_send_duration(&self) -> std::time::Duration {
+        channel::MAXIMUM_SEND_DURATION
+    }
+
     /// Only a session with an enrollment for its own launch leaves the tmux path;
     /// see `contracts/claude-channel-v1.md`.
     fn send(

@@ -278,6 +278,10 @@ impl tmt_core::driver::Driver for CodexRuntime {
         crate::runtime::claim_named(command, NAME)
     }
 
+    fn maximum_send_duration(&self) -> std::time::Duration {
+        delivery::MAXIMUM_SEND_DURATION
+    }
+
     fn send(
         &mut self,
         target: &Self::Target,

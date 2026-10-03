@@ -24,6 +24,11 @@ use tmt_core::{
     endpoint::ProcessIncarnation,
 };
 
+const PREPARATION_BUDGET: Duration = Duration::from_secs(3);
+const DELIVERY_BUDGET: Duration = Duration::from_secs(3);
+pub(super) const MAXIMUM_SEND_DURATION: Duration =
+    PREPARATION_BUDGET.saturating_add(DELIVERY_BUDGET);
+
 type Sent = ActionResult<DeliveryAcceptance, SendFailure<RuntimeError>>;
 fn denied(fault: ChannelFault) -> Sent {
     ActionResult::Failed(SendFailure::Denied(RuntimeError::Channel(fault)))
@@ -69,7 +74,7 @@ fn send_with_runner(
     }) {
         return denied(ChannelFault::Mismatch);
     }
-    let deadline = Instant::now() + Duration::from_secs(3);
+    let deadline = Instant::now() + PREPARATION_BUDGET;
     let observe = |process: &ProcessIncarnation| {
         observe_runtime_process(runner, process.pid(), deadline)
             .map(|value| value.matches(process))
@@ -123,7 +128,7 @@ fn send_with_runner(
     }
     // Process qualification owns the preparation budget. Only the verified
     // sole delivery attempt gets a new absolute write/receipt budget.
-    match client.queue(&request, Instant::now() + Duration::from_secs(3)) {
+    match client.queue(&request, Instant::now() + DELIVERY_BUDGET) {
         QueueOutcome::Accepted { .. } => ActionResult::Completed(DeliveryAcceptance::Queued),
         QueueOutcome::Refused { .. } => denied(ChannelFault::Refused),
         QueueOutcome::Uncertain => uncertain(),

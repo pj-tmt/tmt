@@ -140,6 +140,14 @@ pub trait Driver {
         ActionResult::Unsupported
     }
 
+    /// Maximum bounded work in one send, including preparation and receipt.
+    /// The conservative default covers drivers without a declaration. Overrides
+    /// must derive their duration from the adapter's enforced stage budgets.
+    /// This is an observer allowance, never a cancellation or retry boundary.
+    fn maximum_send_duration(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(30)
+    }
+
     fn send(
         &mut self,
         _target: &Self::Target,

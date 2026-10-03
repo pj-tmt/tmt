@@ -223,6 +223,42 @@ fn core_allows_grouped_renamed_reexport_and_qualified_pure_std_references() {
 }
 
 #[test]
+fn core_allows_duration_budget_values_but_rejects_clocks_and_broad_time_imports() {
+    assert_exact(
+        &[syntax(
+            "tmt-core",
+            "budget.rs",
+            r#"
+            use std::time::Duration as Budget;
+            pub fn budget() -> Budget { std::time::Duration::from_secs(6) }
+        "#,
+        )],
+        &[],
+    );
+    for (reference, statement) in [
+        ("std::time::Instant", "use std::time::Instant;"),
+        ("std::time::SystemTime", "use std::time::SystemTime;"),
+        ("std::time", "use std::time;"),
+        ("std::time::*", "use std::time::*;"),
+        (
+            "std::time::Instant::now",
+            "fn clock() { let _ = std::time::Instant::now(); }",
+        ),
+        (
+            "std::time::SystemTime::now",
+            "fn clock() { let _ = std::time::SystemTime::now(); }",
+        ),
+    ] {
+        assert_exact(
+            &[syntax("tmt-core", "budget.rs", statement)],
+            &[&format!(
+                "tmt-core/budget.rs: non-pure core reference {reference}"
+            )],
+        );
+    }
+}
+
+#[test]
 fn adapters_allow_legitimate_grouped_reexports_and_dtos() {
     assert_exact(
         &[syntax(

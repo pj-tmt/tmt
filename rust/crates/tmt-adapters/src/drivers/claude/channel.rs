@@ -72,6 +72,11 @@ const EXCHANGE_DEADLINE: Duration = Duration::from_secs(2);
 const READINESS_WAIT: Duration = Duration::from_secs(3);
 const READINESS_POLL: Duration = Duration::from_millis(50);
 const OWNER_PROBE: Duration = Duration::from_secs(1);
+// A successful send observes the owner once, waits for readiness, then exchanges
+// one frame. Stale-owner branches may observe twice but cannot send a frame.
+pub(super) const MAXIMUM_SEND_DURATION: Duration = OWNER_PROBE
+    .saturating_add(READINESS_WAIT)
+    .saturating_add(EXCHANGE_DEADLINE);
 const VERSION_DEADLINE: Duration = Duration::from_secs(5);
 const VERSION_OUTPUT: usize = 4096;
 /// macOS `sockaddr_un` holds 104 bytes; stay below it (and Linux's 108).

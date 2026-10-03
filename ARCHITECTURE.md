@@ -2247,9 +2247,18 @@ attention. `request::notification::batch` owns the quiet/deadline policy;
 `reply_notice` composes enrollment evidence, enqueue, binding-fenced delivery and
 one-shot settlement. `reply_notice_command` schedules finite detached workers,
 with process-incarnation CAS claims before waits, sealed batch membership, and
-per-frame attempt evidence before transport. An approval-blocked registered frame
-is settled definitely unsent and does not stop independent later frames; joined
-host notices retain the host's single final approval result without input fallback.
+per-frame attempt evidence before transport. Its competing-waiter transport grace
+is derived from the computed registry maximum of `Driver::maximum_send_duration`,
+not a CLI timeout constant. Drivers derive this single-send declaration from their
+enforced stage budgets; the port has a conservative 30-second default. Core permits
+`std::time::Duration` as pure budget data; `Instant`, `SystemTime`, clock reads and
+broad `std::time` imports remain forbidden by the architecture guard. The grace
+extends the existing typing limit and is only an observer allowance: expiry keeps
+untouched notices queued and cannot release a live sender or replay input. A
+multi-frame batch or host routing can outlast one declared driver send; the worker
+retains the same bounded observer and durable recovery behavior.
+An approval-blocked registered frame is settled definitely unsent and does not
+stop independent later frames; joined host notices retain the host's single final approval result without input fallback.
 A unique SQLite sending claim serializes worker transport per binding, including
 separate zero-window notices.
 Only exact process-death evidence may release a stranded sending claim; attempted

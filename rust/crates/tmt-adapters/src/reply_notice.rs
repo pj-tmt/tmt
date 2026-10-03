@@ -114,6 +114,12 @@ pub fn input_state(entry: &BindingEntry, quiet_ms: u64) -> Result<InputState, Ac
     Ok(batch::typing_state(activity, quiet_ms))
 }
 
+/// Conservatively includes every registered sender: enrollment may change
+/// while a notice waits. No provider budget belongs to the CLI scheduler.
+pub fn maximum_send_duration() -> Duration {
+    RuntimeRegistry::first_party().maximum_send_duration()
+}
+
 pub enum FlushOutcome {
     Finished,
     Waiting(Batch),

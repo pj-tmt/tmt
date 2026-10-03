@@ -658,7 +658,15 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     && source.file == "host.rs"
                     && module == "sync"
                     && path.get(2).is_some_and(|p| p == "OnceLock");
-                if (root == "std" && !pure_std.contains(&module) && !model_value && !host_registry)
+                // Duration is pure budget data; clock reads (Instant/SystemTime)
+                // and broad time imports remain outside the core boundary.
+                let duration_value =
+                    module == "time" && path.get(2).is_some_and(|name| name == "Duration");
+                if (root == "std"
+                    && !pure_std.contains(&module)
+                    && !model_value
+                    && !host_registry
+                    && !duration_value)
                     || ["print", "println", "eprint", "eprintln", "dbg"].contains(&root)
                 {
                     violations.push(format!(
