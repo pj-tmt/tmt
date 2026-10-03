@@ -1575,9 +1575,9 @@ Success is JSON `{operationId, membershipHead:{revision, statementHash}}`, using
 operation's committed head even after later mutations. Clients refresh and verify
 the owner log/wraps through bounded catchup; this reply is not authority. Errors are
 400 INVALID, 403 DENIED/EXPIRED, 409 CONFLICT/STALE_HEAD and 503 CAPACITY/UNAVAILABLE.
-The prerequisite runner implements member/link/epoch actions. Sharing, history,
-retention, archive and delete requests are strictly decoded but return UNAVAILABLE
-without statements or receipts until the #1160 policy slice lands. Methods other
+The runner implements member/link/epoch and sharing/history/retention/archive/delete
+actions. This socket composition selects loopback publication; the page-policy
+engine owns rotation, published keys and deletion. Methods other
 than POST and upgrade attempts are INVALID. Unknown reserved routes
 remain unavailable. No schema, dependency or separate replay store is added.
 

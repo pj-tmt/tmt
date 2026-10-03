@@ -2180,47 +2180,166 @@ fn management_link_add_reset_remove_fence_scope_replay_and_seed_disclosure() {
     assert!(!response.contains(&old_seed) && !response.contains(&new_seed));
 }
 #[test]
-fn management_reserved_policy_requests_are_unavailable_without_partial_statements() {
+fn management_page_policy_lifecycle_keeps_archived_reads_and_closes_deleted_peers() {
     let server = Running::start(Tunnels::PRODUCT);
-    let mut cases = vec![
-        ("page.share", json!({"pageId":PAGE,"mode":"public"})),
+    server
+        .oracle()
+        .execute(
+            "INSERT INTO epoch_secrets(page,epoch,secret) VALUES (?, '00000000000000000001', ?)",
+            rusqlite::params![PAGE, [8u8; 32].as_slice()],
+        )
+        .unwrap();
+    let path = tmt_colab::management::PATH;
+    let header = format!("{}\r\n", owner(DEVICE));
+    for (index, (operation, payload)) in [
+        ("page.share", json!({"pageId":PAGE,"mode":"link"})),
         ("page.history", json!({"pageId":PAGE,"mode":"current"})),
         ("retention.set", json!({"pageId":PAGE,"days":30})),
-        ("page.archive", json!({"pageId":PAGE})),
-        ("page.delete", json!({"pageId":PAGE})),
-    ];
-    for (operation, payload) in cases.drain(..) {
-        let body = local_management(
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let revision = index as u64 + 1;
+        let body = management_body(
             &server,
-            "90000000-0000-4000-8000-000000000002",
-            1,
+            &format!("90000000-0000-4000-8000-{revision:012}"),
+            revision,
             operation,
             payload,
+            DEVICE,
+            now(),
         );
-        let response = server.event(tmt_colab::management::LOCAL_PATH, "", &body);
-        assert!(
-            response.starts_with("HTTP/1.1 503") && response.ends_with("UNAVAILABLE"),
-            "{response}"
+        management_response(
+            &server,
+            &server.event(path, &header, &body),
+            &(revision + 1).to_string(),
         );
     }
+    let mut peer = server.peer(DEVICE);
+    hello(&server, &mut peer, DEVICE);
+    let archive = management_body(
+        &server,
+        "90000000-0000-4000-8000-000000000004",
+        4,
+        "page.archive",
+        json!({"pageId":PAGE}),
+        DEVICE,
+        now(),
+    );
+    let archived = server.event(path, &header, &archive);
+    management_response(&server, &archived, "5");
+    assert_eq!(server.event(path, &header, &archive), archived);
+    peer.send(Message::Ping(vec![4].into())).unwrap();
+    assert!(
+        matches!(peer.read().unwrap(), Message::Pong(_)),
+        "archive preserves read access"
+    );
+    let page_list = server.request(&Running::get("/api/pages", &header));
+    let pages: Value = serde_json::from_str(page_list.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(pages["pages"][0]["archived"], true);
+    assert_eq!(pages["pages"][0]["sharing"], "link");
+    assert_eq!(pages["pages"][0]["history"], "current");
+    let delete = local_management(
+        &server,
+        "90000000-0000-4000-8000-000000000005",
+        5,
+        "page.delete",
+        json!({"pageId":PAGE}),
+    );
+    let deleted = server.event(tmt_colab::management::LOCAL_PATH, "", &delete);
+    management_response(&server, &deleted, "6");
+    match peer.read() {
+        Ok(Message::Close(Some(close))) => assert_eq!(close.reason, "DENIED"),
+        other => panic!("delete left a subscribed peer alive: {other:?}"),
+    }
     assert_eq!(
-        server
-            .oracle()
-            .query_row("SELECT count(*) FROM membership_log", [], |r| r
-                .get::<_, i64>(0))
-            .unwrap(),
-        1
+        server.event(tmt_colab::management::LOCAL_PATH, "", &delete),
+        deleted
     );
     assert_eq!(
-        server
-            .oracle()
-            .query_row("SELECT count(*) FROM owner_operations", [], |r| r
-                .get::<_, i64>(0))
-            .unwrap(),
-        1
+        server.event(path, &header, &archive),
+        archived,
+        "replay retains its committed head after deletion"
     );
+    let db = server.oracle();
+    for (table, expected) in [
+        ("membership_log", 6),
+        ("owner_operations", 6),
+        ("epoch_secrets", 0),
+    ] {
+        let count: i64 = db
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, expected);
+    }
+    let page_list = server.request(&Running::get("/api/pages", &header));
+    let pages: Value = serde_json::from_str(page_list.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(pages["pages"], json!([]));
 }
-
+#[test]
+fn management_public_share_uses_trusted_loopback_and_owner_published_keys() {
+    let server = Running::start(Tunnels::PRODUCT);
+    server
+        .oracle()
+        .execute(
+            "INSERT INTO epoch_secrets(page,epoch,secret) VALUES (?, '00000000000000000001', ?)",
+            rusqlite::params![PAGE, [8u8; 32].as_slice()],
+        )
+        .unwrap();
+    let path = tmt_colab::management::PATH;
+    let header = format!("{}\r\n", owner(DEVICE));
+    let id = "90000000-0000-4000-8000-000000000006";
+    let invalid = management_body(
+        &server,
+        id,
+        1,
+        "page.share",
+        json!({"pageId":PAGE,"mode":"public","publication":"cloud"}),
+        DEVICE,
+        now(),
+    );
+    assert!(server.event(path, &header, &invalid).ends_with("INVALID"));
+    let body = management_body(
+        &server,
+        id,
+        1,
+        "page.share",
+        json!({"pageId":PAGE,"mode":"public"}),
+        DEVICE,
+        now(),
+    );
+    management_response(&server, &server.event(path, &header, &body), "3");
+    let db = server.oracle();
+    let bytes: Vec<u8> = db
+        .query_row(
+            "SELECT envelope FROM membership_log WHERE revision=?",
+            [format!("{:020}", 3)],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let envelope: Value = serde_json::from_slice(&bytes).unwrap();
+    let payload: Value = serde_json::from_slice(
+        &values::binary(envelope["payload"].as_str().unwrap(), 65536).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(payload["mode"], "public");
+    assert_eq!(payload["epoch"], "2");
+    assert_eq!(payload["publishedKeys"].as_array().unwrap().len(), 2);
+    for (index, epoch) in [1, 2].into_iter().enumerate() {
+        let secret: Vec<u8> = db
+            .query_row(
+                "SELECT secret FROM epoch_secrets WHERE page=? AND epoch=?",
+                rusqlite::params![PAGE, format!("{epoch:020}")],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(payload["publishedKeys"][index]["epoch"], epoch.to_string());
+        assert_eq!(
+            payload["publishedKeys"][index]["key"],
+            values::encode_binary(&secret)
+        );
+    }
+}
 #[test]
 fn management_root_ipc_rejects_forwarded_headers_before_parsing_without_effects() {
     let server = Running::start(Tunnels::PRODUCT);

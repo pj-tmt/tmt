@@ -4912,7 +4912,8 @@ exact transport digest into that transaction, uses its committed head on replay 
 returns a bounded refresh acknowledgment. It never writes authority tables directly
 or generates caller-selected baselines, cuts, wraps or epoch keys. Caller-held link
 seeds are transient local inputs and require encryption to the owner before relay
-transport. The prerequisite runner reserves page-policy actions as UNAVAILABLE until #1160.
+transport. Member/link/epoch and page-policy actions use the same owner runner;
+loopback publication is selected by this trusted socket composition.
 Exact DTOs, limits and failure codes live in colab-v1. Public CLI commands,
 browser controls and reader admission are separately tracked by #1307, #1308 and #1310.
 

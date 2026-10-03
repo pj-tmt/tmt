@@ -3402,9 +3402,10 @@ use real temporary SQLite/keyring state and the existing foreground fixture. The
 prove signed owner outcomes, replay after later commits, changed-byte conflicts,
 stale heads, root-local IPC without fabricated context, no-effect denial of forwarded
 context/event headers before payload parsing, epoch/Reset subscription closure, link
-add/remove/Reset, seed non-disclosure and rollback on receipt failure. Reserved
-page-policy actions return UNAVAILABLE without partial state until #1160; archive
-subscriber acceptance belongs to that policy slice. Lifecycle cases run twice and remove their socket
+add/remove/Reset, seed non-disclosure and rollback on receipt failure. Page-policy
+cases prove signed sharing/history/retention, public epoch/key publication from
+trusted loopback composition, archived read access and deleted-peer closure/data
+purge. The fixture uses the injected test decoder configuration. Lifecycle cases run twice and remove their socket
 and state; no Docker, real user identities or core calls are involved.
 
 The local library service is the offline composition seam, while the reserved

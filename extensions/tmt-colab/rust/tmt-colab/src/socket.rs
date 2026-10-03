@@ -314,7 +314,7 @@ fn serve(
         } else if request.method != "POST" || request.upgrade {
             Err(management::Code::Invalid)
         } else {
-            apply_management(&request, space_id, sync)
+            apply_management(&request, &browser.space_id, sync)
         };
         match result {
             Ok(bytes) => {
