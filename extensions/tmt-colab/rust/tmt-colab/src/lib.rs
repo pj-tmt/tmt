@@ -4,6 +4,7 @@ pub mod decoder;
 pub mod fold;
 pub mod keyring;
 pub mod limits;
+pub mod management;
 pub mod registration;
 pub mod socket;
 pub mod store;

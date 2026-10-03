@@ -188,6 +188,25 @@ impl Registration {
             })
             .map_err(map_error)
     }
+    /// The caller serializes management with sync before taking this mutex.
+    pub fn apply_owner(
+        &mut self,
+        request: crate::transitions::OwnerRequest<'_>,
+        now: u64,
+    ) -> std::result::Result<crate::transitions::Applied, crate::transitions::TransitionError> {
+        self.engine
+            .apply(&mut self.store, &self.keyring, request, now)
+    }
+    pub(crate) fn management_device(
+        &mut self,
+        context: Option<&str>,
+        now: u64,
+    ) -> std::result::Result<(String, [u8; 32]), Code> {
+        let device = Context::parse(context)?.device_id;
+        let signing = self.active_device(context, now)?;
+        Ok((device, signing))
+    }
+
     /// The caller supplies server time, never a request-selected clock.
     pub fn register(
         &mut self,

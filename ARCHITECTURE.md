@@ -4511,6 +4511,26 @@ Socket shutdown closes retained sockets before joining workers and closing the
 registration store. Real SQLite and socket tests prove persistence, retry,
 rollback, admission denial, renewal, ordered revocation and cleanup.
 
+### Management admission
+
+`management` owns strict browser and root-local IPC DTOs, device-signature admission
+and adaptation to the owner runner. The socket routes `POST /api/management` and the
+reserved `POST /.tmt/colab/management` through the sync lock before Registration,
+matching upgrade/event admission. Registration supplies the live registered sender
+key and delegates admitted requests to its private engine. Browser request scope is
+checked atomically by the engine; the boundary does not race a separate assignment
+read against mutation. The private socket supplies root authority for local IPC;
+Remote refuses forwarding the reserved subtree from browser mounts.
+
+The engine remains the sole transition/signing/receipt owner. Management passes an
+exact transport digest into that transaction, uses its committed head on replay and
+returns a bounded refresh acknowledgment. It never writes authority tables directly
+or generates caller-selected baselines, cuts, wraps or epoch keys. Caller-held link
+seeds are transient local inputs and require encryption to the owner before relay
+transport. The prerequisite runner reserves page-policy actions as UNAVAILABLE until #1160.
+Exact DTOs, limits and failure codes live in colab-v1. Public CLI commands,
+browser controls and reader admission are separately tracked by #1307, #1308 and #1310.
+
 ### Stream sync transport
 
 `sync::Server` owns opaque append admission and bounded live subscriber queues
