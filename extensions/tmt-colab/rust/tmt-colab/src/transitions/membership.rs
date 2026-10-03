@@ -222,6 +222,7 @@ impl Engine {
                     let rotation = epoch::Prepared::new(snapshot, key, &page, next, decoder)?;
                     prepared.insert(page, Page::Rotate(Box::new(rotation)));
                 } else {
+                    // Authenticate tails/checkpoints before signing cuts without a new baseline.
                     if matches!(action, Action::Member(MemberAction::Role { .. }))
                         && action.reduction(&plan.target)
                     {

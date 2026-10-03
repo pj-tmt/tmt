@@ -327,8 +327,8 @@ impl Registration {
         )?;
         Ok(())
     }
-    /// Local tombstone only. Remote event delivery is #1100; owner-signed cuts
-    /// and epoch rotation are #1157. This must be called by a trusted consumer.
+    /// Trusted remote consumer: known devices commit cuts/rotation and a tombstone;
+    /// unknown IDs only tombstone. Equal/older or already-revoked events return false.
     pub fn revoke(&mut self, device_id: &str, grant_revision: u64) -> Result<bool> {
         values::generated_id(device_id)?;
         if grant_revision == 0 {
