@@ -88,7 +88,7 @@ manifest remains the releasability owner; a monitor must not close its issue on
 incomplete evidence or mutate held release PRs. Keep `issues: write` for monitoring
 in its separate job; its REST uses `github.token`. Only the existing
 release-job App reader sees drafts, passing metadata rather than credentials.
-Distinguish current published-release smoke infrastructure issues from real check failures;
+Distinguish historical anonymous-smoke infrastructure issues from current check failures;
 a rate-limit issue recommends retrying smoke, never publication. Preserve zero-failure behavior,
 visible summary warnings and fixture-only REST tests. [DEVELOPMENT’s monitor
 section](../../../DEVELOPMENT.md#release-stall-monitoring) owns thresholds,
@@ -114,7 +114,7 @@ component map and release policy/version helpers, never notes or a recency windo
 Every sweep is authoritative for eligible issues, including recovery from built-in
 status workflow writes. Exclude epic trackers from both fields; their owning lead
 retains the acceptance/dogfood gate, and the summary lists them as skipped. The post-publication dispatch waits for read-back and smoke completion;
-classified infrastructure failures still reconcile without weakening smoke.
+authenticated acquisition errors remain failures, with the daily sweep retaining publication reconciliation.
 Retain the daily safety net. Follow [DEVELOPMENT's Project release tracking
 procedure](../../../DEVELOPMENT.md#project-release-tracking) for full dry-run table
 review, request and GraphQL point-cost reporting, exact verification commands and
@@ -264,20 +264,13 @@ gates, the markers and the procedures; this section owns who may publish what.
   A failed check opens an issue and fails the run; nothing is rolled back, and a repair is a new
   reviewed version. A read-only smoke then installs the published release through the public
   installer (and `tmt upgrade` for the CLI) in an isolated environment on the four hosts, and a
-  real failure there is reported on the same issue. Smoke remains unauthenticated. Retry only
-  the native classified rate-limit diagnostic, within DEVELOPMENT's attempt/reset-wait
-  bounds; exhausted rate limits keep a failed job with a separate infrastructure issue,
-  while any real or mixed failure keeps the release-failure conclusion. Keep the separate
-  deferred affected-target re-proof outside the native run's `release-<product>` group:
-  consume the report owner's infrastructure outcome and explicitly dispatch the smoke-retry
-  workflow (completion events from token-dispatched native runs are suppressed). Its planner
-  verifies the main source run, attempt and matching tag/target evidence through REST.
-  Keep both host jobs on the shared `public-install-smoke` action, including target-specific
-  Node, macOS warm-up and complete process wrappers; both Intel rows use macos-15
-  with x64 Node and Rosetta. Pin source/retry target and runner parity in fixtures.
-  Keep its 60-minute reset bound and one acquisition attempt. Complete original and retry evidence is required before the issue owner
-  comments with both runs and closes an infrastructure issue. Neither a failed original
-  job nor a failed retry becomes green, and real failure issues stay open. Keep the
-  bounded latest-installer lag retry for an older alpha, and pin the consumed native
-  diagnostic format in fixture tests. Never dispatch
-  publication to recover a public smoke rate limit.
+  real failure there is reported on the same issue. The shared public-install-smoke
+  action uses the workflow's `contents: read` `GITHUB_TOKEN` for native API acquisition.
+  Pass it through env only, never argv or disk; redact output and verify isolated
+  installed state contains no credential. Asset downloads remain public and token-free.
+  Preserve the native bounded HTTPS retry and the bounded older-alpha latest-installer
+  lag retry. Exhausted rate limits are ordinary failed smoke checks; there is no
+  deferred rate-limit retry workflow. Use the PR-only four-host proof against existing
+  published releases for tooling changes, never a publishing dispatch. Keep the
+  post-publication Project dispatch gated on successful smoke and historical failure issues
+  visible to the release monitor. Never dispatch publication to recover a smoke failure.

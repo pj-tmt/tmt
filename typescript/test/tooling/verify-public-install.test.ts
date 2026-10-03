@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { createArtifact, nativeTarget } from '../support/native-artifact.js';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,6 +41,9 @@ const INBOX = '# The inbox skill\n';
 
 interface Fake {
   driverExecutable?: string;
+  tokenDigest?: string;
+  persistCredential?: boolean;
+  echoCredential?: boolean;
   /** The version the installer embeds and `tmt --version` prints. */
   version?: string;
   /** The version `tmt --version` prints, when it differs from the installer's. */
@@ -75,6 +79,9 @@ function installerText(fake: Fake = {}): string {
     ...fake.upgrade,
   };
   const extension = fake.extension ?? {};
+  const requireToken = fake.tokenDigest
+    ? `${shellQuote(globalThis.process.execPath)} -e 'if (require("node:crypto").createHash("sha256").update(process.env.GITHUB_TOKEN ?? "").digest("hex") !== "${fake.tokenDigest}" || process.env.GH_TOKEN) process.exit(1)' || exit 1`
+    : 'true';
   const skillCommands = Object.entries(skills)
     .map(
       ([name, text]) =>
@@ -85,6 +92,7 @@ function installerText(fake: Fake = {}): string {
 set -eu
   version='${version}'
 prefix=
+${requireToken}
 while [ "$#" -gt 0 ]; do case "$1" in --prefix) prefix=$2; shift 2 ;; *) shift ;; esac; done
 [ "$(printf %s "\${CI:-}")" = true ]
 if [ ${fake.installerStatus ?? 0} -ne 0 ]; then echo 'download failed' >&2; exit ${fake.installerStatus ?? 0}; fi
@@ -96,15 +104,19 @@ ${
 ${shellQuote(globalThis.process.execPath)} ${shellQuote(executableWriter)} --write "$prefix/bin/tmt" 493 <<'TMT'
 #!/bin/sh
 exe=$(cd "$(dirname "$0")" && pwd)/tmt
-env | sort > "$HOME/environment.txt"
+env | sed '/^GITHUB_TOKEN=/d' | sort > "$HOME/environment.txt"
 case "$*" in
-  --version) echo '${fake.installed ?? version}' ;;
+  --version) ${fake.tokenDigest ? '[ -z "${GITHUB_TOKEN:-}" ] || exit 1' : 'true'}; echo '${fake.installed ?? version}' ;;
   "upgrade --channel alpha --json")
+    ${requireToken}
+    ${fake.echoCredential ? 'printf %s "$GITHUB_TOKEN"; printf %s "$GITHUB_TOKEN" >&2; exit 1' : 'true'}
+    ${fake.persistCredential ? 'printf %s "$GITHUB_TOKEN" > "$HOME/leaked-token"' : 'true'}
     count=$(cat "$HOME/upgrade-count" 2>/dev/null || echo 0); echo $((count + 1)) > "$HOME/upgrade-count"
     ${fake.upgradeCause ? `if [ "$count" -lt ${fake.upgradeFailures ?? 10} ]; then printf '%s' '${JSON.stringify({ error: { code: fake.upgradeCode ?? 'NATIVE_UPGRADE_FAILED', message: 'Native upgrade failed', cause: fake.upgradeCause } })}'; ${fake.upgradeStderr ? `echo '${fake.upgradeStderr}' >&2;` : ''} exit 1; fi` : ''}
     ${fake.upgradeAfterStderr ? `echo '${fake.upgradeAfterStderr}' >&2; exit 1` : ''}
     ${!fake.upgradeCause && fake.upgradeStderr ? `printf '%s' '${fake.upgradeStdout ?? ''}'; echo '${fake.upgradeStderr}' >&2; exit 1` : `printf '%s' '${JSON.stringify(upgrade)}' | sed "s#@EXE@#$exe#"`} ;;
   "extension install squad "*)
+    ${requireToken}
     count=$(cat "$HOME/extension-count" 2>/dev/null || echo 0); echo $((count + 1)) > "$HOME/extension-count"
     ${fake.extensionCause ? `if [ "$count" -lt ${fake.extensionFailures ?? 10} ]; then printf '%s' '${JSON.stringify({ error: { code: 'EXTENSION_INSTALL_FAILED', message: fake.extensionCause + ' Inspect with: tmt extension ls', cause: fake.extensionCause } })}'; exit 1; fi` : ''}
     ${extension.command === false ? 'echo "error: unrecognized subcommand \'extension\'" >&2; exit 2' : 'true'}
@@ -133,7 +145,7 @@ function run(
     systemPath?: string[];
     installerVersions?: string[];
     fetchError?: string;
-    retry?: boolean;
+    githubToken?: string;
     download?: (url: string, maximum: number) => Promise<Uint8Array>;
     target?: string;
     architectures?: string[];
@@ -175,8 +187,7 @@ function run(
           );
         });
       },
-      now: () => 1893456000000,
-      retry: options.retry,
+      githubToken: options.githubToken,
       ...(options.download ? { download: options.download } : {}),
       ...(options.systemPath ? { systemPath: options.systemPath } : {}),
       fetch: async (url: string) => {
@@ -242,26 +253,52 @@ describe('the public installer smoke of a CLI release', () => {
     );
   });
 
-  it('runs everything in an isolated environment that carries no token', async () => {
-    process.env.GH_TOKEN = 'secret-token';
-    process.env.GITHUB_TOKEN = 'secret-token';
-    try {
-      const attempt = run({});
-      await attempt.results;
-      const environment = readFileSync(
-        path.join(attempt.root, 'work', 'home', 'environment.txt'),
-        'utf8'
-      );
-      expect(environment).toContain(`HOME=${path.join(attempt.root, 'work', 'home')}`);
-      expect(environment).toContain(`TMUX_TEAM_HOME=${path.join(attempt.root, 'work', 'state')}`);
-      expect(environment).toContain('CI=true');
-      expect(environment).not.toMatch(/TOKEN|secret-token/);
-      expect(environment).not.toContain(`HOME=${os.homedir()}`);
-    } finally {
-      delete process.env.GH_TOKEN;
-      delete process.env.GITHUB_TOKEN;
+  it.each(['cli', 'squad'])(
+    'passes only the selected token to %s acquisition without persisting it',
+    async (product) => {
+      process.env.GH_TOKEN = 'secret-token';
+      process.env.GITHUB_TOKEN = 'secret-token';
+      try {
+        const githubToken = 'fixture-acquisition-secret';
+        const attempt = run(
+          { tokenDigest: createHash('sha256').update(githubToken).digest('hex') },
+          {
+            githubToken,
+            product,
+            tag: product === 'cli' ? 'v5.0.0-alpha.12' : 'tmt-squad-v0.1.0-alpha.4',
+          }
+        );
+        const results = await attempt.results;
+        expect(failed(results)).toEqual([]);
+        expect(
+          JSON.stringify(results) +
+            renderSmokeSummary({ tag: 'fixture', target: nativeTarget(), results })
+        ).not.toContain(githubToken);
+        const files = (directory: string): string[] =>
+          readdirSync(directory, { withFileTypes: true }).flatMap((entry) =>
+            entry.isDirectory()
+              ? files(path.join(directory, entry.name))
+              : entry.isFile()
+                ? [path.join(directory, entry.name)]
+                : []
+          );
+        for (const file of files(path.join(attempt.root, 'work')))
+          expect(readFileSync(file).includes(githubToken), file).toBe(false);
+        const environment = readFileSync(
+          path.join(attempt.root, 'work', 'home', 'environment.txt'),
+          'utf8'
+        );
+        expect(environment).toContain(`HOME=${path.join(attempt.root, 'work', 'home')}`);
+        expect(environment).toContain(`TMUX_TEAM_HOME=${path.join(attempt.root, 'work', 'state')}`);
+        expect(environment).toContain('CI=true');
+        expect(environment).not.toMatch(/TOKEN|secret-token/);
+        expect(environment).not.toContain(`HOME=${os.homedir()}`);
+      } finally {
+        delete process.env.GH_TOKEN;
+        delete process.env.GITHUB_TOKEN;
+      }
     }
-  });
+  );
 
   it('passes with a note when a newer alpha appeared meanwhile, and fails for anything else', async () => {
     const newer = await run({ upgrade: { version: '5.0.0-alpha.13', changed: true } }).results;
@@ -322,19 +359,6 @@ describe('the public installer smoke of a CLI release', () => {
     expect(attempt.waits).toEqual([]);
   });
 
-  it('pins the native diagnostic format, timing representation and reasons consumed by smoke', () => {
-    const rust = readFileSync(
-      new URL('../../../rust/crates/tmt-adapters/src/release_http.rs', import.meta.url),
-      'utf8'
-    );
-    expect(rust.match(/"GitHub API rate limit:[^"\n]+"/)?.[0]).toBe(
-      '"GitHub API rate limit: reset/earliest retry time {reset}; {reason}. Retry later or optionally set GITHUB_TOKEN."'
-    );
-    expect(rust).toContain('format!("{date} (UTC epoch {epoch})")');
-    expect(rust).toContain('Some("the single retry was exhausted")');
-    expect(rust).toContain('Some("the required wait exceeds the remaining deadline")');
-  });
-
   it('fails an installer that exits nonzero, a missing tmt and a version that is not the installer’s', async () => {
     expect((await run({ installerStatus: 7 }).results).at(-1)?.reason).toContain(
       'the installer exited 7: download failed'
@@ -369,81 +393,51 @@ describe('the public installer smoke of a CLI release', () => {
   const diagnostic = (epoch = '1893456002') =>
     `GitHub API rate limit: reset/earliest retry time 2030-01-01 0:00:02.0 +00:00:00 (UTC epoch ${epoch}); the required wait exceeds the remaining deadline. Retry later or optionally set GITHUB_TOKEN.`;
 
-  it('retries only the upgrade after its reset and preserves the already completed install', async () => {
-    const attempt = run({ upgradeCause: diagnostic(), upgradeFailures: 1 });
-    expect(failed(await attempt.results)).toEqual([]);
-    expect(attempt.waits).toEqual([3000]);
-    expect(attempt.fetched).toHaveLength(1);
-    expect(
-      readFileSync(path.join(attempt.root, 'work', 'home', 'upgrade-count'), 'utf8').trim()
-    ).toBe('2');
+  it('fails native acquisition rate limits immediately without a smoke retry', async () => {
+    for (const product of ['cli', 'squad', 'driver-herdr']) {
+      const attempt = run(
+        { upgradeCause: diagnostic(), extensionCause: diagnostic() },
+        {
+          product,
+          tag:
+            product === 'cli'
+              ? 'v5.0.0-alpha.12'
+              : product === 'squad'
+                ? 'tmt-squad-v0.1.0-alpha.4'
+                : 'tmt-driver-herdr-v0.1.0-alpha.0',
+        }
+      );
+      const failures = failed(await attempt.results);
+      expect(failures).toHaveLength(1);
+      expect(failures[0].reason).toContain('GitHub API rate limit');
+      expect(failures[0]).not.toHaveProperty('infrastructure');
+      expect(attempt.waits).toEqual([]);
+      const count = product === 'squad' ? 'extension-count' : 'upgrade-count';
+      expect(readFileSync(path.join(attempt.root, 'work/home', count), 'utf8').trim()).toBe('1');
+    }
   });
 
-  it('fails a real error after a rate-limit retry without retaining infrastructure classification', async () => {
-    const attempt = run({
-      upgradeCause: diagnostic(),
-      upgradeFailures: 1,
-      upgradeAfterStderr: 'archive corrupt',
-    });
-    const result = (await attempt.results).at(-1);
-    expect(result?.ok).toBe(false);
-    expect(result?.reason).toContain('archive corrupt');
-    expect(result?.infrastructure).toBeUndefined();
-    expect(attempt.waits).toEqual([3000]);
+  it('fails if an acquisition process persists the credential', async () => {
+    const attempt = run({ persistCredential: true }, { githubToken: 'fixture-persisted-secret' });
+    expect(failed(await attempt.results)).toEqual([
+      {
+        check: 'credential isolation',
+        ok: false,
+        reason: 'Acquisition credential persisted in installed state',
+      },
+    ]);
   });
 
-  it('retries extension acquisition alone using its native error cause', async () => {
-    const attempt = run(
-      { extensionCause: diagnostic(), extensionFailures: 1 },
-      { product: 'squad', tag: 'tmt-squad-v0.1.0-alpha.4' }
-    );
-    expect(failed(await attempt.results)).toEqual([]);
-    expect(attempt.waits).toEqual([3000]);
-    expect(attempt.fetched).toHaveLength(1);
-    expect(
-      readFileSync(path.join(attempt.root, 'work', 'home', 'extension-count'), 'utf8').trim()
-    ).toBe('2');
-  });
-
-  it('keeps a repeated rate limit as a failed infrastructure conclusion after two attempts', async () => {
-    const attempt = run({ upgradeCause: diagnostic() });
-    expect((await attempt.results).at(-1)).toMatchObject({
-      ok: false,
-      infrastructure: 'github-api-rate-limit',
-    });
-    expect((await attempt.results).at(-1)?.reason).toContain('attempt bound exceeded (2 attempts)');
-    expect(attempt.waits).toEqual([3000]);
-    expect(
-      readFileSync(path.join(attempt.root, 'work', 'home', 'upgrade-count'), 'utf8').trim()
-    ).toBe('2');
-  });
-
-  it('preserves the exact reset diagnostic and allows no further acquisition attempt in a deferred retry', async () => {
-    const attempt = run({ upgradeCause: diagnostic(), upgradeFailures: 1 }, { retry: true });
-    expect((await attempt.results).at(-1)).toMatchObject({
-      ok: false,
-      infrastructure: 'github-api-rate-limit',
-      rateLimit: { diagnostic: diagnostic(), resetAtMs: 1893456002000 },
-    });
-    expect(attempt.waits).toEqual([]);
-    expect(
-      readFileSync(path.join(attempt.root, 'work', 'home', 'upgrade-count'), 'utf8').trim()
-    ).toBe('1');
-    expect(failed(await run({}, { retry: true }).results)).toEqual([]);
-  });
-
-  it.each([
-    diagnostic('1893456600'),
-    diagnostic().replace(/2030[^;]+/, 'unavailable (missing or invalid timing header)'),
-  ])('fails clearly without waiting beyond the bound or guessing missing timing', async (cause) => {
-    const attempt = run({ upgradeCause: cause });
-    const result = (await attempt.results).at(-1);
-    expect(result?.infrastructure).toBe('github-api-rate-limit');
-    expect(result?.reason).toMatch(/wait bound exceeded|reset time unavailable/);
-    expect(attempt.waits).toEqual([]);
-    expect(
-      readFileSync(path.join(attempt.root, 'work', 'home', 'upgrade-count'), 'utf8').trim()
-    ).toBe('1');
+  it('redacts a credential echoed in failed command diagnostics and summaries', async () => {
+    const githubToken = 'fixture-diagnostic-secret';
+    const attempt = run({ echoCredential: true }, { githubToken });
+    const results = await attempt.results;
+    expect(failed(results)).toHaveLength(1);
+    const text =
+      JSON.stringify(results) +
+      renderSmokeSummary({ tag: 'v5.0.0-alpha.12', target: nativeTarget(), results });
+    expect(text).not.toContain(githubToken);
+    expect(text).toContain('[REDACTED]');
   });
 
   it.each([
@@ -456,7 +450,7 @@ describe('the public installer smoke of a CLI release', () => {
     const attempt = run(fake);
     const result = (await attempt.results).at(-1);
     expect(result?.ok).toBe(false);
-    expect(result?.infrastructure).toBeUndefined();
+    expect(result).not.toHaveProperty('infrastructure');
     expect(attempt.waits).toEqual([]);
     expect(
       readFileSync(path.join(attempt.root, 'work', 'home', 'upgrade-count'), 'utf8').trim()
@@ -465,8 +459,8 @@ describe('the public installer smoke of a CLI release', () => {
 });
 
 describe('failed command diagnostics', () => {
-  it.each([false, true])(
-    'keeps failed CLI status and artifact evidence (infrastructure: %s)',
+  it.each([false, true, 'credential'])(
+    'keeps failed CLI status and artifact evidence (rate limited: %s)',
     (limited) => {
       const root = path.join(base, `diagnostic-cli-${limited}`);
       const source = path.join(root, 'source');
@@ -486,15 +480,17 @@ child.spawnSync = (command, ...args) => command.endsWith('/lipo')
 syncBuiltinESMExports();
 globalThis.fetch = async () => ({ ok: true, text: async () => ${JSON.stringify(
           installerText(
-            limited
+            limited === true
               ? {
                   upgradeCause:
                     'GitHub API rate limit: reset/earliest retry time 2030-01-01 (UTC epoch 1893456000); the required wait exceeds the remaining deadline. Retry later or optionally set GITHUB_TOKEN.',
                 }
-              : {
-                  upgradeStdout: 'stdout-cause-' + 'x'.repeat(4000),
-                  upgradeStderr: 'stderr-cause-' + 'y'.repeat(4000),
-                }
+              : limited === 'credential'
+                ? { echoCredential: true }
+                : {
+                    upgradeStdout: 'stdout-cause-' + 'x'.repeat(4000),
+                    upgradeStderr: 'stderr-cause-' + 'y'.repeat(4000),
+                  }
           )
         )} });\nglobalThis.setTimeout = (fn) => { fn(); return 0; };\n`,
         0o644
@@ -521,7 +517,11 @@ globalThis.fetch = async () => ({ ok: true, text: async () => ${JSON.stringify(
         {
           encoding: 'utf8',
           timeout: 20_000,
-          env: { ...globalThis.process.env, GITHUB_REPOSITORY: 'pj-tmt/tmt' },
+          env: {
+            ...globalThis.process.env,
+            GITHUB_REPOSITORY: 'pj-tmt/tmt',
+            GITHUB_TOKEN: 'fixture-process-secret',
+          },
         }
       );
       expect(process.error).toBeUndefined();
@@ -532,13 +532,19 @@ globalThis.fetch = async () => ({ ok: true, text: async () => ${JSON.stringify(
       const failure = result.failed[0];
       expect(failure.check).toBe('tmt upgrade');
       expect(failure.reason.length).toBeLessThanOrEqual(500);
-      if (limited) {
-        expect(failure.infrastructure).toBe('github-api-rate-limit');
-        expect(failure.reason).toContain('wait bound exceeded');
-        expect(process.stderr).toContain('Public install infrastructure');
+      for (const text of [process.stdout, process.stderr, readFileSync(resultFile, 'utf8')])
+        expect(text).not.toContain('fixture-process-secret');
+      if (limited === 'credential') {
+        expect(failure.reason).toContain('[REDACTED]');
         return;
       }
-      expect(failure.infrastructure).toBeUndefined();
+      if (limited === true) {
+        expect(failure).not.toHaveProperty('infrastructure');
+        expect(failure.detail).toContain('GitHub API rate limit');
+        expect(process.stderr).toContain('GitHub API rate limit');
+        return;
+      }
+      expect(failure).not.toHaveProperty('infrastructure');
       expect(failure.detail.length).toBeLessThanOrEqual(6000);
       for (const text of [
         'Packed command failed (exited 1, expected 0)',
@@ -675,7 +681,7 @@ describe('public standalone driver smoke', () => {
     }
   });
 
-  it('verifies the public archive and durable approval through the current CLI, reusing classified retry', async () => {
+  it('verifies the public archive and durable approval through the current CLI', async () => {
     const fixtureRoot = mkdtempSync(path.join(base, 'driver-archive-'));
     const archiveName = `tmt-driver-herdr-${nativeTarget()}.tar.gz`;
     const artifact = await createArtifact(
@@ -690,9 +696,6 @@ describe('public standalone driver smoke', () => {
     const urls: string[] = [];
     const fake = {
       driverExecutable: path.resolve('../rust/target/debug/tmt'),
-      upgradeCause:
-        'GitHub API rate limit: reset/earliest retry time 2030-01-01T00:00:01Z (UTC epoch 1893456001); the single retry was exhausted. Retry later or optionally set GITHUB_TOKEN.',
-      upgradeFailures: 1,
     };
     const attempt = run(fake, {
       product: 'driver-herdr',
@@ -707,7 +710,7 @@ describe('public standalone driver smoke', () => {
       },
     });
     expect(failed(await attempt.results)).toEqual([]);
-    expect(attempt.waits).toEqual([2000]);
+    expect(attempt.waits).toEqual([]);
     expect(urls).toEqual(
       ['dist-manifest.json', archiveName].map(
         (name) =>
@@ -718,38 +721,6 @@ describe('public standalone driver smoke', () => {
       readFileSync(path.join(attempt.root, 'work/state/drivers.json'), 'utf8')
     );
     expect(JSON.stringify(registry)).toContain('0.1.0-alpha.0');
-  });
-
-  it('uses one CLI acquisition attempt for a deferred driver re-proof', async () => {
-    let downloads = 0;
-    const attempt = run(
-      {
-        upgradeFailures: 1,
-        upgradeCause:
-          'GitHub API rate limit: reset/earliest retry time 2030-01-01T00:00:01Z (UTC epoch 1893456001); the single retry was exhausted. Retry later or optionally set GITHUB_TOKEN.',
-      },
-      {
-        product: 'driver-herdr',
-        tag: 'tmt-driver-herdr-v0.1.0-alpha.0',
-        retry: true,
-        download: async () => {
-          downloads++;
-          throw new Error('unexpected archive acquisition');
-        },
-      }
-    );
-    expect(failed(await attempt.results)).toEqual([
-      expect.objectContaining({
-        check: 'current public CLI',
-        infrastructure: 'github-api-rate-limit',
-        reason: expect.stringContaining('attempt bound exceeded (1 attempts)'),
-      }),
-    ]);
-    expect(attempt.waits).toEqual([]);
-    expect(downloads).toBe(0);
-    expect(
-      readFileSync(path.join(attempt.root, 'work', 'home', 'upgrade-count'), 'utf8').trim()
-    ).toBe('1');
   });
 
   it('fails immediately on an unclassified public archive HTTP failure', async () => {

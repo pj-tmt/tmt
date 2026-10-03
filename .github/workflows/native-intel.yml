@@ -75,27 +75,10 @@ jobs:
       - name: Prove public installer detection and tmt upgrade on real Intel
         env:
           RELEASE_TAG: ${{ steps.latest.outputs.tag }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           node typescript/scripts/verify-public-install.mjs --product cli --tag "$RELEASE_TAG" \
             --source release-source --target "$TARGET" --result-file "$RUNNER_TEMP/native-intel-smoke.json"
-      - name: Summarize native Intel public infrastructure
-        if: failure()
-        run: |
-          node --input-type=module <<'SUMMARY'
-          import { appendFileSync, existsSync, readFileSync } from 'node:fs';
-          const result = `${process.env.RUNNER_TEMP}/native-intel-smoke.json`;
-          if (existsSync(result)) {
-            const { failed } = JSON.parse(readFileSync(result, 'utf8'));
-            const limited = failed.find(({ check, infrastructure }) =>
-              check === 'tmt upgrade' && infrastructure === 'github-api-rate-limit');
-            if (limited) {
-              const epoch = /\(UTC epoch (\d+)\)/.exec(limited.reason)?.[1];
-              const reset = epoch ? new Date(Number(epoch) * 1000).toISOString() : 'unavailable';
-              appendFileSync(process.env.GITHUB_STEP_SUMMARY,
-                `\n### Native Intel public infrastructure\n\nClass: github-api-rate-limit.\n\nReset/earliest retry: ${reset}.\n\nThe upgrade is unproven this week; the job remains failed.\n`);
-            }
-          }
-          SUMMARY
       - name: Keep the public installation conclusion
         if: always()
         uses: actions/upload-artifact@v4

@@ -1,0 +1,65 @@
+name: Public install smoke PR proof
+
+# Read-only install proof of existing public releases using the PR's tooling.
+# There is no manual or publication entry point.
+on:
+  pull_request:
+    paths:
+      - .github/actions/public-install-smoke/**
+      - .github/workflows/public-install-smoke-pr.yml
+      - typescript/scripts/verify-public-install.*
+      - rust/crates/tmt-adapters/src/native_install/**
+      - rust/crates/tmt-adapters/src/release_http*
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-install-smoke-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    name: Authenticated public install (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-15
+          - target: x86_64-apple-darwin
+            runner: macos-15
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Resolve the existing published CLI
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Prove authenticated public acquisition and credential isolation
+        uses: ./.github/actions/public-install-smoke
+        with:
+          product: cli
+          tag: ${{ steps.latest.outputs.tag }}
+          target: ${{ matrix.target }}
+      - name: Keep the host conclusion
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-install-proof-${{ matrix.target }}
+          path: ${{ runner.temp }}/smoke-result.json
+          if-no-files-found: error
+          retention-days: 7

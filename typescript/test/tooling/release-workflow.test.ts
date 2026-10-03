@@ -697,9 +697,7 @@ describe('public install smoke (native-release-smoke.yml)', () => {
     expect(caller).toContain('needs: published');
     expect(caller).toContain("if: ${{ !cancelled() && needs.published.result == 'success' }}");
     expect(caller).toContain('uses: ./.github/workflows/native-release-smoke.yml');
-    expect(caller).toMatch(
-      /^ {4}permissions:\n {6}contents: read\n {6}issues: write\n {6}actions: write\n/m
-    );
+    expect(caller).toMatch(/^ {4}permissions:\n {6}contents: read\n {6}issues: write\n/m);
     expect(smokeWorkflow).toMatch(
       /^on:\n {2}workflow_call:\n {4}inputs:\n(?: {4,}[^\n]*\n)+ {2}workflow_dispatch:\n {4}inputs:\n/m
     );
@@ -716,7 +714,7 @@ describe('public install smoke (native-release-smoke.yml)', () => {
     expect(targets(smokeWorkflow)).toEqual(targets(upgrade));
   });
 
-  it('only reads: the install legs have no write access and no token in their step environment', () => {
+  it('authenticates only the shared acquisition step while keeping install permissions read-only', () => {
     expect(smokeWorkflow).toMatch(/^permissions:\n {2}contents: read$/m);
     expect(smoke).toMatch(/^ {4}permissions:\n {6}contents: read\n/m);
     expect(smoke).not.toMatch(/issues: write|contents: write|GH_TOKEN|GITHUB_TOKEN|secrets\./);
@@ -725,8 +723,8 @@ describe('public install smoke (native-release-smoke.yml)', () => {
     );
     expect(smoke).not.toContain('actions: write');
     expect(report).not.toContain('actions: write');
-    expect(smokeWorkflow.match(/^ {6}actions: write$/gm)).toHaveLength(1);
-    expect(job(smokeWorkflow, 'retry-dispatch')).toContain('actions: write');
+    expect(smokeWorkflow).not.toContain('actions: write');
+    expect(smokeWorkflow).not.toContain('retry-dispatch');
     // The tag is checked out as data beside this repository's own code, and nothing of it runs.
     expect(smoke.match(/uses: actions\/checkout@v4/g)).toHaveLength(1);
     expect(smoke).toContain('uses: ./.github/actions/public-install-smoke');
@@ -738,19 +736,73 @@ describe('public install smoke (native-release-smoke.yml)', () => {
     expect(host.match(/persist-credentials: false/g)).toHaveLength(1);
     expect(host).toContain('node typescript/scripts/verify-public-install.mjs');
     expect(host).toContain('--source release-source');
-    expect(host).not.toMatch(
-      /GH_TOKEN|GITHUB_TOKEN|continue-on-error|release-source\/(typescript|scripts)/
-    );
+    expect(host).toContain('GITHUB_TOKEN: ${{ github.token }}');
+    expect(host).not.toContain('--retry');
+    expect(host).not.toMatch(/GH_TOKEN:|continue-on-error|release-source\/(typescript|scripts)/);
   });
 
-  it('loads Herdr archive dependencies in the shared source/retry host owner', () => {
+  it('forwards the action credential through env without putting it in argv or output files', () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'authenticated-public-host-'));
+    const token = 'fixture-action-secret';
+    const record = path.join(root, 'arguments');
+    const summary = path.join(root, 'summary');
+    try {
+      writeExecutable(
+        path.join(root, 'node'),
+        `#!/bin/sh
+[ "$GITHUB_TOKEN" = "$EXPECTED_TOKEN" ] || exit 1
+printf '%s\\n' "$@" > "$RECORD_FILE"
+`,
+        0o755
+      );
+      const script = host.split('      run: |\n')[1].replace(/^        /gm, '');
+      const result = spawnSync('/bin/bash', ['-e', '-o', 'pipefail', '-c', script], {
+        cwd: repository,
+        env: {
+          PATH: `${root}:/usr/bin:/bin`,
+          GITHUB_TOKEN: token,
+          EXPECTED_TOKEN: token,
+          RECORD_FILE: record,
+          PRODUCT: 'cli',
+          RELEASE_TAG: 'v5.0.0-alpha.12',
+          TARGET: 'aarch64-unknown-linux-musl',
+          RUNNER_TEMP: root,
+          GITHUB_STEP_SUMMARY: summary,
+        },
+        encoding: 'utf8',
+        timeout: 10_000,
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(readFileSync(record, 'utf8').trim().split('\n')).toEqual([
+        'typescript/scripts/verify-public-install.mjs',
+        '--product',
+        'cli',
+        '--tag',
+        'v5.0.0-alpha.12',
+        '--source',
+        'release-source',
+        '--target',
+        'aarch64-unknown-linux-musl',
+        '--result-file',
+        path.join(root, 'smoke-result.json'),
+      ]);
+      for (const text of [
+        result.stdout,
+        result.stderr,
+        readFileSync(record, 'utf8'),
+        readFileSync(summary, 'utf8'),
+      ])
+        expect(text).not.toContain(token);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('loads Herdr archive dependencies in the shared public smoke host owner', () => {
     expect(host).toContain("if: inputs.product == 'driver-herdr'");
     expect(host).toContain('uses: ./.github/actions/setup-tooling');
     expect(host).toContain('pnpm install --frozen-lockfile --ignore-scripts');
     expect(smoke).not.toContain('pnpm install');
-    expect(read('.github/workflows/native-release-smoke-retry.yml')).toContain(
-      'uses: ./.github/actions/public-install-smoke'
-    );
   });
 
   it('keeps what failed as data and reports it with the only issue write access, in a job of its own', () => {
@@ -839,14 +891,13 @@ describe('held release rerun workflow boundary', () => {
 
 describe('post-publication Project reconciliation', () => {
   const dispatch = job(bundle, 'project-release');
-  it('waits for read-back and all smoke jobs, including classified infrastructure failure', () => {
+  it('waits for read-back and all smoke jobs, requiring successful smoke after authenticated failures', () => {
     expect(dispatch).toContain('needs: [published, smoke]');
     expect(dispatch).toContain(
-      "if: ${{ !cancelled() && needs.published.result == 'success' && (needs.smoke.result == 'success' || (needs.smoke.result == 'failure' && needs.smoke.outputs.outcome == 'infrastructure')) }}"
+      "if: ${{ !cancelled() && needs.published.result == 'success' && needs.smoke.result == 'success' }}"
     );
-    expect(smokeWorkflow).toContain('value: ${{ jobs.report.outputs.outcome }}');
-    expect(job(smokeWorkflow, 'report')).toContain('outcome: ${{ steps.report.outputs.outcome }}');
-    expect(job(smokeWorkflow, 'report')).toContain('id: report');
+    expect(smokeWorkflow).not.toContain('outcome:');
+    expect(dispatch).not.toContain('infrastructure');
     expect(job(smokeWorkflow, 'report')).toContain('--expected-results 4');
     expect(job(smokeWorkflow, 'smoke')).not.toContain('continue-on-error: true');
   });
@@ -862,11 +913,34 @@ describe('post-publication Project reconciliation', () => {
       [...jobs(bundle)]
         .filter(([, text]) => /^ {6}actions: write$/m.test(text))
         .map(([name]) => name)
-    ).toEqual(['smoke', 'project-release']);
-    // The reusable caller propagates capability; only its dedicated retry-dispatch job uses it.
+    ).toEqual(['project-release']);
+    // Only the Project dispatch job needs actions:write after deferred smoke retry removal.
     expect(job(bundle, 'smoke')).toContain('uses: ./.github/workflows/native-release-smoke.yml');
+    expect(job(bundle, 'smoke')).not.toContain('actions: write');
     expect(job(smokeWorkflow, 'smoke')).not.toContain('actions: write');
     expect(job(smokeWorkflow, 'report')).not.toContain('actions: write');
-    expect(job(smokeWorkflow, 'retry-dispatch')).toContain('actions: write');
+    expect(smokeWorkflow).not.toContain('retry-dispatch');
+  });
+});
+
+describe('PR-only authenticated public install proof', () => {
+  it('uses the production action on the same four hosts with read-only permissions', () => {
+    const proof = read('.github/workflows/public-install-smoke-pr.yml');
+    const smoke = read('.github/workflows/native-release-smoke.yml');
+    const matrix = (text: string) =>
+      [...text.matchAll(/- target: (\S+)\n\s+runner: (\S+)/g)].map(([, target, runner]) => [
+        target,
+        runner,
+      ]);
+    expect(proof).toMatch(/^on:\n {2}pull_request:/m);
+    expect(proof).not.toMatch(
+      /workflow_dispatch|workflow_call|pull_request_target|: write|release-publish|dispatches|continue-on-error/
+    );
+    expect(matrix(proof)).toEqual(matrix(smoke));
+    expect(matrix(proof)).toHaveLength(4);
+    expect(proof).toContain('uses: ./.github/actions/public-install-smoke');
+    expect(proof).toContain('repos/$GITHUB_REPOSITORY/releases/latest');
+    expect(proof).toContain('persist-credentials: false');
+    expect(proof).toContain('if-no-files-found: error');
   });
 });

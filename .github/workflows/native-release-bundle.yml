@@ -530,18 +530,17 @@ jobs:
     permissions:
       contents: read
       issues: write
-      actions: write
     uses: ./.github/workflows/native-release-smoke.yml
     with:
       product: ${{ inputs.product }}
       tag: ${{ inputs.tag }}
 
   # Dispatch is exempt from GITHUB_TOKEN event suppression. Wait for read-back and
-  # the entire smoke workflow; classified rate limits keep the smoke failure visible.
+  # the entire smoke workflow; every acquisition error remains a failed smoke.
   project-release:
     name: Reconcile Project release state
     needs: [published, smoke]
-    if: ${{ !cancelled() && needs.published.result == 'success' && (needs.smoke.result == 'success' || (needs.smoke.result == 'failure' && needs.smoke.outputs.outcome == 'infrastructure')) }}
+    if: ${{ !cancelled() && needs.published.result == 'success' && needs.smoke.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
