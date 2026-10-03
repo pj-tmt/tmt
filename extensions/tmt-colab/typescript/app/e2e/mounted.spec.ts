@@ -354,7 +354,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   await expect(dialog.getByLabel('Link seed')).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Confirm create link' }).click();
   await expect(dialog.getByLabel('Link seed')).toHaveValue(/^[A-Za-z0-9_-]{43}$/);
-  await expect(dialog).toContainText('Reader access arrives with #1310');
+  await expect(dialog).toContainText('Reader access is not available yet');
   await dialog.getByRole('button', { name: 'Manage another change' }).click();
   await dialog.getByLabel('Audience').selectOption('private');
   await expect(dialog).toContainText('links are revoked and affected pages rotate');
