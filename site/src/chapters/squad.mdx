@@ -105,6 +105,36 @@ order = ["all", "leads", "product"]
 hide  = ["quiet"]                      # still reachable with s, or tmt sq board --squad quiet
 `}</Code>
 
+### Your own tabs
+
+A user tab filters members across squads, including leads and hidden squads. It uses the squad/member/state/task row preset. Define it beside the built-in tabs in `squad.toml`:
+
+<Code>{`
+[tabs]
+order = ["tab:needs-me", "leads", "all", "product"]
+pin = ["tab:needs-me"]
+
+[tabs.needs-me]
+filter = "pending or waiting_on_you"
+sort = ["squad", "name"]
+
+[tabs.needs-me.bind]
+enter = "jump"
+
+[[tabs.needs-me.section]]
+title = "Blocked"
+filter = "state = blocked"
+
+[tabs.needs-me.section.bind]
+o = "tab"
+`}</Code>
+
+Write it as `tab:needs-me` in `order`, `pin` and `hide`, so it can't be mistaken for a squad. Tab names follow the squad-name rules, and `leads`, `all`, `colors`, `order`, `pin` and `hide` are reserved. A hidden tab is still reachable with **s**.
+
+Filters combine fields with `=`, `!=`, `not`, `and`, `or` and parentheses, and `waiting_on_you` matches members that wait on you. Prefix a sort key with `-` to reverse it. Sections split the tab's rows: a row can appear in several, and the rest follow untitled. A section's bindings win over the tab's, which win over the global ones.
+
+`tmt sq ls --tab needs-me` prints the same rows, and `--json` gives the board's full document. If a roster or inbox read fails, the board and the list say the result is partial, so an empty partial tab doesn't mean nobody waits on you.
+
 ### Board views
 
 A view arranges panes and their initial folds. It keeps the squad's states, rows, providers, reminders, token meter and theme. List the five factory views with `tmt sq view ls` (or bare `tmt sq view`):
