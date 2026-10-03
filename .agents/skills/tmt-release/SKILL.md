@@ -207,22 +207,15 @@ It remains parked: a published supporting CLI alpha and actual-archive acceptanc
 precede separately authorized activation. Follow [Colab packaging verification](../../../DEVELOPMENT.md#colab-packaging-wiring-parked)
 for fixture-only proof versus real archive/public-install evidence; do not treat
 a tiny embedded-app fixture as delivery of the Colab product.
-For changes to that proof or its native fixture, run both
-`test/tooling/colab-runtime-proof.test.ts` and the complete
-`test/tooling/verify-public-install.test.ts` through the tooling Vitest config.
-Build CLI and Herdr as described in DEVELOPMENT's native fixture build contract;
-missing executables are setup failures. Build `tmt-test-support`'s
-`colab-runtime-fixture` example and select its absolute path with
-`TMT_TEST_COLAB_FIXTURE` when using a separate Cargo target.
-Startup-failure classification waits for child `close`, after stdout/stderr drain,
-within the existing readiness deadline and stream limits. The startup regression
-holds the immediate native diagnostic until `exit`, then checks the complete
-failure and removal of isolated state. The synchronous HTTP fixture explicitly
-makes accepted sockets blocking, because Darwin inherits the nonblocking listener
-flag. Read/write timeouts still bound each client. Its request-barrier positive
-control sends headers only after native accept; an inherited nonblocking read
-fails this control with premature peer close/EPIPE. Filtered startup evidence
-alone does not cover HTTP serving or authenticated acquisition isolation.
+For proof/fixture changes, run `colab-runtime-proof.test.ts` and the complete
+`verify-public-install.test.ts` through the tooling Vitest config, with the native
+CLI/Herdr prerequisites and built `tmt-test-support` `colab-runtime-fixture` example.
+Use absolute `TMT_TEST_COLAB_FIXTURE` for a separate Cargo target. Startup errors
+wait for child `close` and drained stdio under the existing deadline/stream limits;
+the regression holds the immediate native diagnostic until `exit` and checks
+classification and state cleanup. Accepted HTTP fixture sockets use blocking I/O
+with read/write timeouts, including on Darwin, which inherits the listener's
+nonblocking flag. The native-accept/header barrier covers premature peer close/EPIPE.
 
 - Every product archive (CLI, Office, Squad) carries its executable, `LICENSE`,
   `NATIVE-INSTALL.md` and `THIRD-PARTY-NOTICES.txt`. The installer enforces this
