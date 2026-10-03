@@ -1709,6 +1709,7 @@ impl App {
                 ],
                 Overlay::Theme => vec![vec!["theme-picker".into(), "choices".into()]],
                 Overlay::View => vec![vec!["view-picker".into(), "choices".into()]],
+                Overlay::Settings => vec![vec!["settings".into(), "content".into()]],
                 _ => vec![],
             };
             focus.open(id, fields);
@@ -2036,6 +2037,9 @@ impl App {
     }
 
     pub(super) fn invalidate_overlay_frames(&self) {
+        if let Some(settings) = &self.settings {
+            settings.surface.borrow_mut().invalidate();
+        }
         if let Some(picker) = &self.theme_picker {
             picker.surface.borrow_mut().invalidate();
         }

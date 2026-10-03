@@ -930,7 +930,10 @@ unhandled modal keys/mouse are captured, closing events never replay into the ba
 and Ctrl-C returns a quit effect. The caller retains item cursors, data, effects
 and terminal lifecycle. `components` owns opaque square-border modal chrome,
 fixed footer/status/position slots, visual-line scroll/clamp/reveal and typed
-key-help sections. Its surface compiler lowers component markup into the existing
+key-help sections. Wrapped fixed text is measured by the existing text owner
+before the scroll viewport is reserved; nowrap slots keep their one-line default.
+Authored modal cell height controls demand within placement bounds; body
+references still fill the application body. Its surface compiler lowers component markup into the existing
 bounded primitive binding and geometry pipeline; generated templates are checked
 against the same depth/node limits. Component IDs are static scoped IDs outside
 repeats in this first API. Key help measures one display-cell label column across
@@ -3668,7 +3671,7 @@ and worker effects; close is consumed, unhandled modal events stay captured and
 Ctrl-C returns Quit. Pane cursors and scrolls remain in their existing owners.
 
 `board::picker_surface` retains caller-owned shared Picker state, admitted scenes
-and current clipped frame maps for theme/view previews and the tab switcher.
+and current clipped frame maps for settings, theme/view previews and the tab switcher.
 Theme/view controllers derive the selected choice from stable component identity;
 they retain scope, opening Config, preview and persistence. Their selection-only
 field keeps Tab's scope action. The switcher registers query and list fields:
@@ -3676,8 +3679,12 @@ printable navigation/close keys remain query text, Tab moves between those field
 and query edits reset to the first match. Refresh follows the selected complete
 tab key; resize/model replacement invalidates hits. Its semantic attention spans
 use shared hit geometry and Squad's existing tab-color/selection policy. These
-three surfaces use shared modal chrome, wrapping, scrolling and inside footers;
-settings rendering remains a separate migration of the delivered editor.
+surfaces use shared modal chrome, wrapping, scrolling and inside footers.
+Settings use grouped stable-key list rows for the reference and an admitted
+docked prompt for edits. The existing Config controller retains raw edit text,
+validation, disposable preview, stale-file refusal and persistence; edit cancellation
+restores the retained list selection and scroll. Group headings are disabled rows;
+read-only settings remain selectable so Enter can explain their restriction.
 
 Squad's `settings` coordinator delegates to arrangement, rows, notebook/state,
 meter, theme and tab/program area projections. Source-bearing Config reader

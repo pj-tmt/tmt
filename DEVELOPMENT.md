@@ -1310,8 +1310,12 @@ and names. Optional `heading-token` (existing theme role, default `muted`),
 `heading-bold` (`true`/`false`, default `false`) and `section-gap` (0–4096 lines,
 default 0) style headings and add space only between sections.
 Use `placement="body"` for references, `"center"` for small overlays,
-or `"docked"` for prompts. `surface::render` accepts caller-owned ScrollState,
-body Rect/Buffer, RenderStyle (Theme/Depth) and selection styling. It returns
+or `"docked"` for prompts.
+Authored `h-N` sets modal height demand within placement bounds; body references
+still fill the body. Wrapped footer/status text reserves its measured lines
+before the scroll viewport; nowrap slots retain their one-line default.
+`surface::render` accepts caller-owned ScrollState, body Rect/Buffer,
+RenderStyle (Theme/Depth) and selection styling. It returns
 visible scoped hits; route current input through `app::route` before base handlers.
 The caller performs effects, routes editable fields, invalidates old hits on
 resize/data changes, and may keep component state behind one RefCell for an

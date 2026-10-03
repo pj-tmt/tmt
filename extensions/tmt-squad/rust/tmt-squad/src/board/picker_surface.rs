@@ -1,4 +1,4 @@
-//! Shared component state for Squad's preview pickers and tab filter.
+//! Shared component state for Squad's settings, preview pickers and tab filter.
 //! Controllers own projection, previews and persistence; this owner retains
 //! only the component cursor, query, scene and currently painted hit map.
 use crate::look::Look;
@@ -121,15 +121,7 @@ impl State {
         look: Look,
         body: Rect,
     ) {
-        if self.scene.as_ref().is_none_or(|(old, _)| old != &value) {
-            self.frame = None;
-            self.scene = Some((
-                value.clone(),
-                template
-                    .materialize(file, &value, &Data)
-                    .expect("typed picker projection"),
-            ));
-        }
+        self.prepare(file, template, value);
         self.frame = Some(
             surface::render_list(
                 &self.scene.as_ref().unwrap().1,
@@ -147,5 +139,41 @@ impl State {
             )
             .expect("admitted picker surface"),
         );
+    }
+    pub fn render_modal(
+        &mut self,
+        file: &str,
+        template: &surface::Template<()>,
+        value: Value,
+        frame: &mut Frame,
+        look: Look,
+        body: Rect,
+    ) {
+        self.prepare(file, template, value);
+        self.frame = Some(
+            surface::render(
+                &self.scene.as_ref().unwrap().1,
+                &mut self.picker.list.scroll,
+                body,
+                frame.buffer_mut(),
+                RenderStyle {
+                    theme: &look.theme,
+                    depth: look.depth,
+                },
+                |role| look.role(role),
+            )
+            .expect("admitted modal surface"),
+        );
+    }
+    fn prepare(&mut self, file: &str, template: &surface::Template<()>, value: Value) {
+        if self.scene.as_ref().is_none_or(|(old, _)| old != &value) {
+            self.frame = None;
+            self.scene = Some((
+                value.clone(),
+                template
+                    .materialize(file, &value, &Data)
+                    .expect("typed picker projection"),
+            ));
+        }
     }
 }

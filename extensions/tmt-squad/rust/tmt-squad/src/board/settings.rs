@@ -1,18 +1,18 @@
 //! A settings snapshot and disposable edit, saved through the opening Config only.
-use super::scroll::{Scrolls, Step, WHEEL_LINES};
-use crate::{
-    config::{Config, Pane},
-    look::Look,
-    settings::BoardSettings,
-};
+use super::picker_surface;
+use crate::{config::Config, look::Look, settings::BoardSettings};
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind},
+    crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent},
     layout::Rect,
-    text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
 };
-use tmt_cli_style::{Role, grid::Align, mark::Mark, table::escape};
+use serde_json::{Value, json};
+use std::{cell::RefCell, collections::BTreeMap};
+use tmt_cli_style::{Role, mark::Mark, table::escape};
+use tmt_tui::{
+    binding::Schema,
+    components::{ListRow, PickerField},
+};
 use unicode_width::UnicodeWidthStr;
 
 pub(super) enum Input {
@@ -47,21 +47,31 @@ impl SettingNotice {
     fn text(&self) -> String {
         format!("{} {}", self.mark.symbol(), self.message)
     }
-    fn style(&self, look: Look) -> ratatui::style::Style {
-        look.role(self.mark.token().role().expect("notice mark has a token"))
-    }
+}
+
+struct CachedTemplate<K> {
+    key: K,
+    template: tmt_tui::components::surface::Template<()>,
+}
+
+#[derive(PartialEq, Eq)]
+struct ReferenceStyle {
+    key_width: usize,
+    source_width: usize,
+    notice_role: &'static str,
 }
 
 pub(super) struct Overlay {
     pub settings: BoardSettings,
-    scrolls: Scrolls,
+    pub surface: RefCell<picker_surface::State>,
+    prompt: RefCell<picker_surface::State>,
+    reference_template: RefCell<Option<CachedTemplate<ReferenceStyle>>>,
+    prompt_template: RefCell<Option<CachedTemplate<(usize, &'static str)>>>,
     display_path: String,
     config: Option<Config>,
     pub draft: Option<Config>,
     editing: Option<(String, String)>,
     notice: Option<SettingNotice>,
-    selected: usize,
-    reveal: std::cell::Cell<bool>,
     section: Option<usize>,
     pub squad_keys: Vec<String>,
     pub opening_focus: usize,
@@ -79,16 +89,18 @@ impl Overlay {
                     .map(|path| format!("~/{path}"))
             })
             .unwrap_or_else(|| settings.path.clone());
+        let rows = list_rows(&settings);
         Self {
             settings,
+            reference_template: RefCell::new(None),
+            prompt_template: RefCell::new(None),
             display_path,
-            scrolls: Scrolls::default(),
+            surface: RefCell::new(picker_surface::State::new(None, rows, None)),
+            prompt: RefCell::new(picker_surface::State::new(None, Vec::new(), None)),
             config: None,
             draft: None,
             editing: None,
             notice: None,
-            selected: 0,
-            reveal: std::cell::Cell::new(false),
             section: None,
             squad_keys: Vec::new(),
             opening_focus: 0,
@@ -156,10 +168,10 @@ impl Overlay {
             self.preview();
             return Input::Preview;
         }
-        let step = match key.code {
+        match key.code {
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char(',') => return Input::Close,
             KeyCode::Enter if self.config.is_some() => {
-                if let Some(entry) = self.settings.entries.get(self.selected) {
+                if let Some(entry) = self.selected_entry() {
                     if !entry.editable {
                         self.notice = Some(SettingNotice {
                             message: "This setting is read-only; edit squad.toml.".into(),
@@ -173,37 +185,22 @@ impl Overlay {
                 }
                 return Input::Preview;
             }
-            KeyCode::Up | KeyCode::Char('k') => {
-                self.selected = self.selected.saturating_sub(1);
-                Step::Lines(-1)
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.selected =
-                    (self.selected + 1).min(self.settings.entries.len().saturating_sub(1));
-                Step::Lines(1)
-            }
-            KeyCode::PageUp => {
-                self.selected = self.selected.saturating_sub(10);
-                Step::Pages(-1)
-            }
-            KeyCode::PageDown => {
-                self.selected =
-                    (self.selected + 10).min(self.settings.entries.len().saturating_sub(1));
-                Step::Pages(1)
-            }
-            KeyCode::Home => {
-                self.selected = 0;
-                Step::Top
-            }
-            KeyCode::End => {
-                self.selected = self.settings.entries.len().saturating_sub(1);
-                Step::Bottom
-            }
-            _ => return Input::None,
-        };
-        self.reveal.set(true);
-        self.scrolls.scroll(Pane::Rows, step);
+            _ => {}
+        }
+        self.surface
+            .borrow_mut()
+            .input(&Event::Key(key), PickerField::List);
         Input::None
+    }
+    fn selected_entry(&self) -> Option<&crate::settings::BoardSetting> {
+        let id = self
+            .surface
+            .borrow()
+            .picker
+            .list
+            .selected()
+            .map(str::to_owned)?;
+        self.settings.entries.iter().find(|entry| entry.key == id)
     }
     fn preview(&mut self) {
         let (name, text) = self.editing.as_ref().expect("editing value").clone();
@@ -243,6 +240,9 @@ impl Overlay {
                     )
                     .expect("validated settings draft");
                 group_entries(&mut self.settings);
+                self.surface
+                    .borrow_mut()
+                    .reconcile(list_rows(&self.settings));
                 self.editing = None;
                 self.draft = None;
                 let pinning = crate::settings::saved_notice(
@@ -268,14 +268,10 @@ impl Overlay {
         }
     }
     pub fn mouse(&self, event: MouseEvent) {
-        if self.scrolls.pane_at(event.column, event.row).is_some() {
-            let direction = match event.kind {
-                MouseEventKind::ScrollUp => -1,
-                MouseEventKind::ScrollDown => 1,
-                _ => return,
-            };
-            self.scrolls
-                .scroll(Pane::Rows, Step::Lines(direction * WHEEL_LINES as isize));
+        if self.editing.is_none() {
+            self.surface
+                .borrow_mut()
+                .input(&Event::Mouse(event), PickerField::List);
         }
     }
 }
@@ -341,91 +337,114 @@ fn value_lines(text: &str, width: usize, structured: bool) -> Vec<String> {
     lines
 }
 
+fn list_rows(settings: &BoardSettings) -> Vec<ListRow> {
+    let mut rows = Vec::new();
+    let mut previous = None;
+    for entry in &settings.entries {
+        let group = setting_name(&entry.key).0;
+        if previous != Some(group) {
+            rows.push(ListRow {
+                id: format!("group:{group}"),
+                disabled: true,
+            });
+            previous = Some(group);
+        }
+        rows.push(ListRow {
+            id: entry.key.clone(),
+            disabled: false,
+        });
+    }
+    rows
+}
+
+const FILE: &str = "squad.settings.xml";
+fn template(
+    key_width: usize,
+    source_width: usize,
+    role: &str,
+) -> tmt_tui::components::surface::Template<()> {
+    // Groups are disabled rows; setting identity and selection remain owned by the list.
+    let markup = format!(
+        r#"<tmt-view version="1"><tmt-modal id="settings" title="settings · Enter edit · * read-only" placement="body"><tmt-scroll id="body"><tmt-text bind="$.query" token="dim" class="truncate-middle"/><tmt-text token="dim" class="truncate">Full values: tmt sq config show --json (--squad/--tab)</tmt-text><tmt-repeat each="$.notes" as="note"><tmt-text bind="note.text" token="waiting" wrap="true"/></tmt-repeat><tmt-list id="choices" bind="$.rows" empty="(no settings)"><tmt-row class="flex-col"><tmt-repeat each="row.lines" as="line"><tmt-row id-bind="line.id" class="grid grid-cols-[2_{key_width}_1fr_{source_width}] gap-x-2 shrink-0"><tmt-text bind="line.mark"/><tmt-text id="name" bind="line.name" token="accent" class="truncate-middle"/><tmt-text id="value" bind="line.value" token="text" wrap="true"/><tmt-text bind="line.source" token="dim" class="truncate-middle"/></tmt-row></tmt-repeat><tmt-repeat each="row.description" as="description"><tmt-row class="grid grid-cols-[2_{key_width}_1fr_{source_width}] gap-x-2 shrink-0"><tmt-text/><tmt-text/><tmt-text bind="description.text" token="muted" wrap="true" class="col-span-2"/></tmt-row></tmt-repeat><tmt-repeat each="row.heading" as="heading"><tmt-text bind="heading.text" token="dim" class="shrink-0"/></tmt-repeat></tmt-row></tmt-list></tmt-scroll><tmt-text slot="status" bind="$.status" token="{role}" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#
+    );
+    let scalar_row = |fields: &[&str]| {
+        Schema::Collection(Box::new(Schema::Object(
+            fields
+                .iter()
+                .map(|name| {
+                    (
+                        name.to_string(),
+                        if *name == "id" {
+                            Schema::StableId
+                        } else {
+                            Schema::Scalar
+                        },
+                    )
+                })
+                .collect(),
+        )))
+    };
+    let mut schema = picker_surface::schema(&[]);
+    let Schema::Object(root) = &mut schema else {
+        unreachable!()
+    };
+    root.insert(
+        "rows".into(),
+        Schema::Collection(Box::new(Schema::Object(BTreeMap::from([
+            ("id".into(), Schema::StableId),
+            ("disabled".into(), Schema::Boolean),
+            (
+                "lines".into(),
+                scalar_row(&["id", "mark", "name", "value", "source"]),
+            ),
+            ("description".into(), scalar_row(&["text"])),
+            ("heading".into(), scalar_row(&["text"])),
+        ])))),
+    );
+    picker_surface::compile(FILE, &markup, schema)
+}
+fn notice_role(notice: Option<&SettingNotice>) -> &'static str {
+    match notice.map(|notice| notice.mark) {
+        Some(Mark::Failed) => "blocked",
+        Some(Mark::Warning) => "waiting",
+        Some(Mark::Done) => "ok",
+        _ => "dim",
+    }
+}
 pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rect) {
     if let Some((name, text)) = &overlay.editing {
+        // Raw edit text stays in the existing Config controller. Markup owns
+        // fitting, wrapped validation, docking, opacity and fixed key hints.
         let width = body.width.saturating_sub(4);
-        let (notice, notice_style) = overlay.notice.as_ref().map_or_else(
-            || {
-                (
-                    format!(
-                        "{} valid · Enter save · Esc cancel · Ctrl-U clear",
-                        Mark::Done.symbol()
-                    ),
-                    look.role(Role::Dim),
-                )
-            },
-            |notice| (notice.text(), notice.style(look)),
+        let status = overlay
+            .notice
+            .as_ref()
+            .map(SettingNotice::text)
+            .unwrap_or_else(|| format!("{} valid", Mark::Done.symbol()));
+        let height = tmt_tui::text::lines(&status, width, tmt_tui::style::TextFlow::Wrap)
+            .len()
+            .saturating_add(5)
+            .min(usize::from(u16::MAX));
+        let markup = format!(
+            r#"<tmt-view version="1"><tmt-modal id="settings-edit" title="settings · preview" placement="docked" class="h-{height}"><tmt-scroll id="body"/><tmt-text slot="query" bind="$.query" token="text" class="truncate-middle"/><tmt-text slot="status" bind="$.status" token="{}" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#,
+            notice_role(overlay.notice.as_ref())
         );
-        let input = tmt_tui::text::fit_line(
-            &format!("{text}▏"),
-            width.saturating_sub(1),
-            tmt_tui::style::TextFlow::Middle,
-            Align::Left,
-        );
-        let mut lines = vec![Line::styled(format!(" {input}"), look.role(Role::Text))];
-        lines.extend(
-            super::notes::wrap(&notice, usize::from(width.saturating_sub(1).max(1)))
-                .into_iter()
-                .map(|line| Line::styled(format!(" {line}"), notice_style)),
-        );
-        let height = (lines.len() as u16 + 2).min(body.height);
-        let area = Rect {
-            y: body.y + body.height.saturating_sub(height),
-            height,
-            ..body
-        };
-        frame.render_widget(Clear, area);
-        frame.render_widget(
-            Paragraph::new(lines).block(
-                Block::new()
-                    .borders(Borders::ALL)
-                    .border_style(look.role(Role::Dim))
-                    .title(format!(" {name} · preview ")),
-            ),
-            area,
-        );
+        let key = (height, notice_role(overlay.notice.as_ref()));
+        let mut cache = overlay.prompt_template.borrow_mut();
+        if cache.as_ref().is_none_or(|old| old.key != key) {
+            *cache = Some(CachedTemplate {
+                key,
+                template: picker_surface::compile(FILE, &markup, picker_surface::schema(&["name"])),
+            });
+        }
+        let template = &cache.as_ref().unwrap().template;
+        overlay.prompt.borrow_mut().render_modal(FILE, template, json!({"rows":[], "query":format!("{name}: {text}▏"), "status":status, "footer":"Enter save · Esc cancel · Ctrl-U clear", "height":height}), frame, look, body);
         return;
     }
-    frame.render_widget(Clear, body);
-    let block = Block::new()
-        .borders(Borders::ALL)
-        .border_style(look.role(Role::Dim))
-        .title(" settings · Enter edit · * read-only ");
-    let mut inner = block.inner(body);
-    frame.render_widget(block, body);
-    inner.x += u16::from(inner.width > 0);
-    inner.width = inner.width.saturating_sub(2);
-    let mut footer_lines: Vec<Line> = overlay
-        .notice
-        .as_ref()
-        .into_iter()
-        .flat_map(|notice| {
-            super::notes::wrap(&notice.text(), usize::from(inner.width.max(1)))
-                .into_iter()
-                .map(|line| Line::styled(line, notice.style(look)))
-        })
-        .collect();
-    footer_lines.push(Line::styled(
-        super::view::fit(
-            "↑↓ select · Enter edit · PgUp/PgDn page · Esc close",
-            usize::from(inner.width),
-        ),
-        look.role(Role::Muted),
-    ));
-    let footer_height = (footer_lines.len() as u16).min(inner.height);
-    let footer = Rect {
-        y: inner.y + inner.height.saturating_sub(footer_height),
-        height: footer_height,
-        ..inner
-    };
-    let content = Rect {
-        height: inner.height.saturating_sub(footer_height),
-        ..inner
-    };
-    let settings = &overlay.settings;
-    let width = usize::from(content.width);
+    let width = usize::from(body.width.saturating_sub(4));
     let row_width = width.saturating_sub(2);
-    let key_width = settings
+    let key_width = overlay
+        .settings
         .entries
         .iter()
         .map(|entry| setting_name(&entry.key).1.width() + usize::from(!entry.editable))
@@ -433,152 +452,93 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
         .unwrap_or(0)
         .min(row_width / 4);
     let source_width = (row_width / 3).min(42);
+    // Three gaps include the selection marker's track. Shared geometry owns
+    // the actual grid fitting at tiny widths.
     let value_width = row_width
-        .saturating_sub(key_width + source_width + 4)
+        .saturating_sub(key_width + source_width + 6)
         .max(1);
-    let fit = |text: &str, width: usize| {
-        tmt_tui::text::fit_line(
-            text,
-            width.min(usize::from(u16::MAX)) as u16,
-            tmt_tui::style::TextFlow::Middle,
-            Align::Left,
-        )
-    };
-    let context = settings.context.as_deref().unwrap_or("board defaults");
-    let heading = format!("{context} {} · {}", settings.host, overlay.display_path);
-    let mut lines = vec![Line::styled(fit(&heading, width), look.role(Role::Dim))];
-    let cell = |text: &str, width, role| Span::styled(fit(text, width), look.role(role));
-    lines.push(Line::styled(
-        fit(
-            "Full values: tmt sq config show --json (--squad/--tab)",
-            width,
-        ),
-        look.role(Role::Dim),
-    ));
-    for notice in &settings.notices {
-        lines.push(Line::styled(fit(notice, width), look.role(Role::Waiting)));
-    }
-    let mut groups = Vec::new();
-    for entry in &settings.entries {
+    let selected = overlay
+        .surface
+        .borrow()
+        .picker
+        .list
+        .selected()
+        .map(str::to_owned);
+    let mut rows = Vec::new();
+    let mut previous = None;
+    for entry in &overlay.settings.entries {
         let group = setting_name(&entry.key).0;
-        if !groups.contains(&group) {
-            groups.push(group);
+        if previous != Some(group) {
+            rows.push(json!({"id":format!("group:{group}"), "disabled":true, "lines":[], "description":[], "heading":[{"text":group}]}));
+            previous = Some(group);
         }
-    }
-    let mut selected_range = 0..1;
-    for group in groups {
-        lines.push(Line::styled(group.to_owned(), look.role(Role::Dim)));
-        for entry in settings
-            .entries
-            .iter()
-            .filter(|entry| setting_name(&entry.key).0 == group)
-        {
-            let selected = settings
-                .entries
-                .get(overlay.selected)
-                .is_some_and(|chosen| chosen.key == entry.key);
-            let start = lines.len();
-            let name = format!(
-                "{}{}",
-                setting_name(&entry.key).1,
-                if entry.editable { "" } else { "*" }
-            );
-            let (value, role) = match &entry.value {
-                serde_json::Value::Null => ("unset".into(), Role::Dim),
-                serde_json::Value::Array(items) if items.is_empty() => ("none".into(), Role::Dim),
-                value => (crate::settings::display(value), Role::Text),
-            };
-            for (index, value) in value_lines(
-                &escape(&value),
-                value_width,
-                entry.value.is_array() || entry.value.is_object(),
-            )
-            .into_iter()
-            .enumerate()
-            {
-                lines.push(
-                    Line::from(vec![
-                        Span::raw(if selected { "› " } else { "  " }),
-                        cell(
-                            if index == 0 { &name } else { "" },
-                            key_width,
-                            if entry.editable {
-                                Role::Accent
-                            } else {
-                                Role::Muted
-                            },
-                        ),
-                        Span::raw("  "),
-                        cell(&value, value_width, role),
-                        Span::raw("  "),
-                        cell(
-                            if index == 0 { &entry.source } else { "" },
-                            source_width,
-                            Role::Dim,
-                        ),
-                    ])
-                    .style(if selected {
-                        look.selection()
-                    } else {
-                        look.role(Role::Text)
-                    }),
-                );
-            }
-            if selected {
-                selected_range = start..lines.len();
-            }
-            if let Some(description) = &entry.description {
-                for line in super::notes::wrap(
-                    &escape(description),
-                    row_width.saturating_sub(key_width + 2).max(1),
-                ) {
-                    lines.push(Line::from(vec![
-                        Span::raw(" ".repeat(key_width + 4)),
-                        Span::styled(line, look.role(Role::Muted)),
-                    ]));
-                }
-            }
-        }
-    }
-    let count = lines.len();
-    if overlay.reveal.replace(false) {
-        overlay
-            .scrolls
-            .reveal_range(Pane::Rows, selected_range, content, count);
-    }
-    let (offset, shown) =
-        overlay
-            .scrolls
-            .show(frame, Pane::Rows, content, lines, look.role(Role::Dim));
-    if shown < usize::from(content.height) {
-        let indicator = Rect {
-            y: content.y + shown as u16,
-            height: 1,
-            ..content
+        let value = match &entry.value {
+            Value::Null => "unset".into(),
+            Value::Array(items) if items.is_empty() => "none".into(),
+            value => crate::settings::display(value),
         };
-        frame.render_widget(Clear, indicator);
-        frame.render_widget(
-            Paragraph::new(format!(
-                "{}–{} of {count}",
-                offset + 1,
-                (offset + shown).min(count)
-            ))
-            .style(look.role(Role::Dim)),
-            indicator,
+        let name = format!(
+            "{}{}",
+            setting_name(&entry.key).1,
+            if entry.editable { "" } else { "*" }
         );
+        let lines: Vec<_> = value_lines(&escape(&value), value_width, entry.value.is_array() || entry.value.is_object()).into_iter().enumerate().map(|(index,value)| json!({"id":format!("line:{index}"), "mark":if selected.as_deref() == Some(&entry.key) {"›"} else {""}, "name":if index == 0 {name.as_str()} else {""}, "value":value, "source":if index == 0 {entry.source.as_str()} else {""}})).collect();
+        rows.push(json!({"id":entry.key, "disabled":false, "lines":lines, "description":entry.description.as_ref().map(|text| vec![json!({"text":text})]).unwrap_or_default(), "heading":[]}));
     }
-    frame.render_widget(Paragraph::new(footer_lines), footer);
+    let key = ReferenceStyle {
+        key_width,
+        source_width,
+        notice_role: notice_role(overlay.notice.as_ref()),
+    };
+    let mut cache = overlay.reference_template.borrow_mut();
+    if cache.as_ref().is_none_or(|old| old.key != key) {
+        *cache = Some(CachedTemplate {
+            template: template(key_width, source_width, key.notice_role),
+            key,
+        });
+    }
+    let template = &cache.as_ref().unwrap().template;
+    let mut state = overlay.surface.borrow_mut();
+    state.render(FILE, template, json!({"rows":rows, "query":format!("{} {} · {}",overlay.settings.context.as_deref().unwrap_or("board defaults"), overlay.settings.host, overlay.display_path), "notes":overlay.settings.notices.iter().enumerate().map(|(index,text)| json!({"id":format!("notice:{index}"),"text":text})).collect::<Vec<_>>(), "status":overlay.notice.as_ref().map(SettingNotice::text).unwrap_or_default(), "footer":"↑↓ select · Enter edit · PgUp/PgDn page · Esc close", "tracks":[key_width,source_width], "role":notice_role(overlay.notice.as_ref())}), frame, look, body);
+    if let Some(map) = &state.frame {
+        for hit in &map.hits {
+            let Some(entry) = hit.row_id.as_ref().and_then(|id| {
+                overlay
+                    .settings
+                    .entries
+                    .iter()
+                    .find(|entry| &entry.key == id)
+            }) else {
+                continue;
+            };
+            let role = match hit.id.last().map(String::as_str) {
+                Some("name") if !entry.editable => Role::Muted,
+                Some("value")
+                    if entry.value.is_null()
+                        || entry.value.as_array().is_some_and(Vec::is_empty) =>
+                {
+                    Role::Dim
+                }
+                _ => continue,
+            };
+            let selected = selected.as_deref() == Some(&entry.key);
+            frame
+                .buffer_mut()
+                .set_style(hit.rect, look.row_span(selected, look.role(role), false));
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Pane;
     use ratatui::{Terminal, backend::TestBackend, crossterm::event::KeyModifiers};
     #[test]
     fn structured_values_break_at_punctuation_preserve_quotes_and_cap_lines() {
         for text in ["x,y:z", r#"x\"y,z:q"#] {
             let value = serde_json::json!({"a":text, "b":1}).to_string();
-            let lines = value_lines(&value, 20, true);
+            let lines = value_lines(&escape(&value), 20, true);
             assert_eq!(lines.concat(), value);
             assert!(
                 lines[..lines.len() - 1]
@@ -634,9 +594,25 @@ mod tests {
             terminal
                 .draw(|frame| render(frame, &overlay, look, frame.area()))
                 .unwrap();
-            assert!(overlay.scrolls.offset(Pane::Rows) > 0);
+            assert!(overlay.surface.borrow().picker.list.scroll.offset() > 0);
             overlay.key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
-            assert_eq!(overlay.scrolls.offset(Pane::Rows), 0);
+            assert_eq!(
+                overlay.surface.borrow().picker.list.selected(),
+                Some("board.mode")
+            );
+            terminal
+                .draw(|frame| render(frame, &overlay, look, frame.area()))
+                .unwrap();
+            let state = overlay.surface.borrow();
+            let map = state.frame.as_ref().unwrap();
+            assert!(
+                map.list
+                    .as_ref()
+                    .unwrap()
+                    .geometry
+                    .iter()
+                    .any(|row| row.id == "board.mode" && row.visible.height > 0)
+            );
         }
         let mut app = super::super::app::App::new(Some("x".into()));
         app.apply(super::super::app::tests::snapshot(
@@ -711,17 +687,128 @@ mod tests {
     }
     fn edit(app: &mut crate::board::app::App, key: &str, text: &str) {
         let overlay = app.settings.as_mut().unwrap();
-        overlay.selected = overlay
-            .settings
-            .entries
-            .iter()
-            .position(|entry| entry.key == key)
-            .unwrap();
+        overlay.surface.borrow_mut().select(key);
         assert_eq!(press(app, KeyCode::Enter), crate::board::app::Effect::None);
         app.key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
         for ch in text.chars() {
             press(app, KeyCode::Char(ch));
         }
+    }
+    #[test]
+    fn admitted_settings_rows_use_current_hits_and_restore_list_after_raw_edit() {
+        use ratatui::crossterm::event::{MouseButton, MouseEventKind};
+        let mut f = fixture("component-hits", "");
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        let look = f.app.look();
+        let paint = |frame: &mut Frame, app: &crate::board::app::App| {
+            render(frame, app.settings.as_ref().unwrap(), look, frame.area());
+        };
+        terminal.draw(|frame| paint(frame, &f.app)).unwrap();
+        let hit = f
+            .app
+            .settings
+            .as_ref()
+            .unwrap()
+            .surface
+            .borrow()
+            .frame
+            .as_ref()
+            .unwrap()
+            .list
+            .as_ref()
+            .unwrap()
+            .geometry
+            .iter()
+            .find(|row| row.id == "board.sizes")
+            .unwrap()
+            .visible;
+        assert!(hit.height > 0);
+        let mouse = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: hit.x,
+            row: hit.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        f.app.settings.as_ref().unwrap().mouse(mouse);
+        assert_eq!(
+            f.app
+                .settings
+                .as_ref()
+                .unwrap()
+                .surface
+                .borrow()
+                .picker
+                .list
+                .selected(),
+            Some("board.sizes")
+        );
+        let before = f
+            .app
+            .settings
+            .as_ref()
+            .unwrap()
+            .surface
+            .borrow()
+            .picker
+            .list
+            .scroll
+            .offset();
+        edit(&mut f.app, "board.sizes", "[30,70]");
+        let overlay = f.app.settings.as_ref().unwrap();
+        overlay.mouse(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            ..mouse
+        });
+        assert_eq!(overlay.surface.borrow().picker.list.scroll.offset(), before);
+        terminal.draw(|frame| paint(frame, &f.app)).unwrap();
+        let overlay = f.app.settings.as_ref().unwrap();
+        let prompt = overlay.prompt.borrow();
+        let map = prompt.frame.as_ref().unwrap();
+        assert_eq!(map.areas.outer.bottom(), 24);
+        assert!(map.areas.outer.height <= 7);
+        assert!(map.list.is_none());
+        assert_eq!(prompt.picker.list.scroll.content(), 0);
+        drop(prompt);
+        press(&mut f.app, KeyCode::Esc);
+        assert!(!f.app.settings.as_ref().unwrap().editing());
+        assert_eq!(
+            f.app
+                .settings
+                .as_ref()
+                .unwrap()
+                .surface
+                .borrow()
+                .picker
+                .list
+                .selected(),
+            Some("board.sizes")
+        );
+        assert_eq!(std::fs::read_to_string(&f.path).unwrap(), f.original);
+        f.app.invalidate_overlay_frames();
+        let old = f
+            .app
+            .settings
+            .as_ref()
+            .unwrap()
+            .surface
+            .borrow()
+            .picker
+            .list
+            .selected()
+            .map(str::to_owned);
+        f.app.settings.as_ref().unwrap().mouse(mouse);
+        assert_eq!(
+            f.app
+                .settings
+                .as_ref()
+                .unwrap()
+                .surface
+                .borrow()
+                .picker
+                .list
+                .selected(),
+            old.as_deref()
+        );
     }
     #[test]
     fn each_supported_area_previews_without_writing_and_cancel_restores_it() {
@@ -888,12 +975,7 @@ mod tests {
         );
         for key in ["fields.probe", "bind.enter", "board.layout"] {
             let overlay = f.app.settings.as_mut().unwrap();
-            overlay.selected = overlay
-                .settings
-                .entries
-                .iter()
-                .position(|entry| entry.key == key)
-                .unwrap();
+            overlay.surface.borrow_mut().select(key);
             assert_eq!(
                 press(&mut f.app, KeyCode::Enter),
                 crate::board::app::Effect::None
