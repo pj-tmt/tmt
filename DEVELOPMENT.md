@@ -3445,8 +3445,9 @@ initialization or migrations are performed by these commands.
 
 The real encrypted-state tests verify Unicode/CRLF/NUL/empty source, preserved
 title, scoped signed receipts, reopen and baseline rotation, deterministic
-competing preparations, exact replay after later edits, rollback at receipt
-publication, revoked-writer denial, invalid/capacity input and lifecycle exclusion.
+competing preparations and independent browser-author appends, exact replay after
+later edits, rollback at receipt publication, atomic certificate renewal at expiry,
+revoked-writer denial, invalid/capacity input and lifecycle exclusion.
 They use `tests/support::decoder_config`; production keeps Decoder::new and its
 fixed budget. Run the normal Colab Rust gates, docs formatting and layout guard
 before handoff. The first slice changes no browser app.

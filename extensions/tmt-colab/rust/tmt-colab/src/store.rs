@@ -519,7 +519,7 @@ fn append_in(tx: &Connection, envelope: &Envelope<'_>) -> StoreResult<Option<Acc
     let epoch = s.epoch.to_string();
     let seq = sequence(envelope.seq);
     let digest = Sha256::digest(envelope.bytes).to_vec();
-    current(&tx, s)?;
+    current(tx, s)?;
     tx.execute(
         "INSERT OR IGNORE INTO streams(page,epoch,stream) VALUES (?,?,?)",
         params![s.page, epoch, s.stream],
@@ -544,7 +544,7 @@ fn append_in(tx: &Connection, envelope: &Envelope<'_>) -> StoreResult<Option<Acc
         )?;
         return Ok(None);
     }
-    unfrozen(&tx, s)?;
+    unfrozen(tx, s)?;
     let head: Option<(String,Vec<u8>)> = tx.query_row("SELECT seq,hash FROM receipts WHERE page=? AND epoch=? AND stream=? ORDER BY seq DESC LIMIT 1",
             params![s.page,epoch,s.stream], |r| Ok((r.get(0)?,r.get(1)?))).optional()?;
     let (expected, previous) = match head {
@@ -563,7 +563,7 @@ fn append_in(tx: &Connection, envelope: &Envelope<'_>) -> StoreResult<Option<Acc
     if previous != envelope.previous {
         return Err(Fault::Conflict);
     }
-    capacity(&tx, s.page, envelope.bytes.len(), true)?;
+    capacity(tx, s.page, envelope.bytes.len(), true)?;
     tx.execute(
         "INSERT INTO receipts VALUES (?,?,?,?,?,?,?,?)",
         params![

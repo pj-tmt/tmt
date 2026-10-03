@@ -1707,7 +1707,9 @@ Keyring derives a root-local device using independent labels
 `tmt-colab-cli-encryption-seed-v1`, under the existing management HKDF framing.
 The ID uses the first 16 bytes with UUIDv4 version/variant bits. The revision-1
 management member certifies its keys for 365 days. Existing keys/certificates
-must match; revoked or expired identities fail closed, including receipt replay.
+must match. An expired, verified non-revoked chain is renewed for the same derived
+device; replacement commits atomically with the append and receipt. Revoked devices
+fail closed, including receipt replay; a frozen expired request must be prepared again.
 This device is not a Remote registration and grants no browser session or agent
 operation authority. Private material stays in Keyring.
 

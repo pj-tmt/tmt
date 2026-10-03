@@ -195,13 +195,18 @@ pub fn prepare(
             .and_then(|ch| Ok(ch.certificate()?.device_id == id))
             .unwrap_or(false)
     });
-    let chain = if let Some(device) = existing {
+    let reusable = if let Some(device) = existing {
         if device.revoked {
             return Err(Fault::Denied.into());
         }
         let chain = certificate::Chain::from_json(&device.chain)?;
-        local_chain(&chain, key, &s.authority.head, &issuer, now)?;
-        device.chain.clone()
+        let expiry = local_chain(&chain, key, &s.authority.head, &issuer, now)?;
+        (expiry > now).then(|| device.chain.clone())
+    } else {
+        None
+    };
+    let chain = if let Some(chain) = reusable {
+        chain
     } else {
         let cert = certificate::Certificate {
             space: &key.space_id,
@@ -280,7 +285,7 @@ fn local_chain(
     head: &statement::Head,
     issuer: &[u8; 32],
     now: u64,
-) -> Result<()> {
+) -> Result<u64> {
     let cert = chain.certificate()?;
     let (id, sign, enc) = key.local_writer()?;
     if cert.space != key.space_id
@@ -291,12 +296,11 @@ fn local_chain(
         || cert.encryption_key != &enc
         || cert.membership_revision != "1"
         || cert.issued_at > now
-        || cert.expires_at <= now
     {
         return Err(Fault::Denied.into());
     }
     chain.verify(issuer, &cert, &head.owner_member.signing_key)?;
-    Ok(())
+    Ok(cert.expires_at)
 }
 pub fn commit(
     store: &mut Store,
@@ -337,7 +341,9 @@ pub fn commit(
     let outcome = store.device_transaction(&key.space_id, &key.owner_public(), |tx| {
         let head = tx.head().ok_or(Fault::Missing)?;
         let issuer = tx.statement(1)?.ok_or(Fault::Missing)?.hash()?;
-        local_chain(&chain, key, head, &issuer, now)?;
+        if local_chain(&chain, key, head, &issuer, now)? <= now {
+            return Err(Fault::Denied.into());
+        }
         crypto::verify_signature(
             chain.certificate()?.signing_key,
             &envelope.signature_input()?,

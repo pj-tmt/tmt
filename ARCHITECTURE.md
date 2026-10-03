@@ -5086,7 +5086,8 @@ writer. API/runner/signing ownership and management DTOs are unchanged.
 source reads and minimal admitted-struct edits. Only the decoder child generates
 Yjs deltas; the parent signs with a purpose-separated Keyring device certified by
 the revision-1 management member. This local device is not a Remote registration;
-revocation/expiry fail closed. The opaque page token fences head, epoch and all
+revocation fails closed, while a verified expired chain renews atomically for the
+same device. The opaque page token fences head, epoch and all
 namespace positions, since content appends do not advance the membership log.
 
 Preparation releases its read snapshot before the offline lifecycle lock. The

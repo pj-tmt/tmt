@@ -20,7 +20,7 @@ use tmt_colab::{
     transitions::{Engine, EpochAdvance},
 };
 use tmt_colab_model::{certificate, object, values, wrap};
-use yrs::{Doc, Map, ReadTxn, StateVector, Text, Transact};
+use yrs::{Doc, Map, ReadTxn, StateVector, Text, Transact, Update, updates::decoder::Decode};
 const PAGE: &str = "10000000-0000-4000-8000-000000000001";
 const DEVICE: &str = "30000000-0000-4000-8000-000000000001";
 const BINARY: &str = env!("CARGO_BIN_EXE_tmt-colab");
@@ -479,4 +479,153 @@ fn ciphertext_tampering_and_oversized_delta_apply_nothing() {
             .is_err()
     );
     assert_eq!(f.bytes(), before);
+}
+
+#[test]
+fn expired_local_certificate_renews_same_device_atomically() {
+    let mut f = Fixture::new();
+    let original = f.write("before expiry");
+    let later = NOW + tmt_colab::registration::CERTIFICATE_MS;
+    let prepared = page::prepare(
+        &f.store,
+        &f.key,
+        PAGE,
+        "after expiry",
+        None,
+        &mut f.decoder(),
+        later,
+    )
+    .unwrap();
+    let renewed_bytes = values::binary(&prepared.chain, 16 * 1024).unwrap();
+    let renewed = certificate::Chain::from_json(&renewed_bytes).unwrap();
+    let cert = renewed.certificate().unwrap();
+    assert_eq!(cert.device_id, original.stream_id);
+    assert_eq!(cert.issued_at, later);
+    assert_eq!(
+        cert.expires_at,
+        later + tmt_colab::registration::CERTIFICATE_MS
+    );
+    f.sql().execute_batch("CREATE TRIGGER reject_renewal BEFORE INSERT ON owner_operations BEGIN SELECT RAISE(ABORT,'fixture refusal'); END").unwrap();
+    let before = f.bytes();
+    assert!(page::commit(&mut f.store, &f.key, &prepared, later).is_err());
+    assert_eq!(f.bytes(), before);
+    f.sql()
+        .execute_batch("DROP TRIGGER reject_renewal")
+        .unwrap();
+    let receipt = page::commit(&mut f.store, &f.key, &prepared, later)
+        .unwrap()
+        .receipt;
+    assert_eq!(receipt.stream_id, original.stream_id);
+    assert_eq!(receipt.seq, "2");
+    assert_eq!(f.read().source, "after expiry");
+    let record: Vec<u8> = f
+        .sql()
+        .query_row(
+            "SELECT record FROM devices WHERE id=?",
+            [&receipt.stream_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let mut device: Device = serde_json::from_slice(&record).unwrap();
+    assert_eq!(device.chain, renewed_bytes);
+    device.revoked = true;
+    f.sql()
+        .execute(
+            "UPDATE devices SET record=? WHERE id=?",
+            rusqlite::params![serde_json::to_vec(&device).unwrap(), receipt.stream_id],
+        )
+        .unwrap();
+    let before = f.bytes();
+    assert_eq!(
+        page::prepare(
+            &f.store,
+            &f.key,
+            PAGE,
+            "revoked",
+            None,
+            &mut f.decoder(),
+            cert.expires_at
+        )
+        .err()
+        .unwrap()
+        .downcast_ref::<Fault>(),
+        Some(&Fault::Denied)
+    );
+    assert_eq!(f.bytes(), before);
+}
+#[test]
+fn browser_author_append_invalidates_read_and_prepared_cli_bases() {
+    let mut f = Fixture::new();
+    let base = f.read().revision;
+    let prepared = f.prepare("CLI replacement", Some(&base)).unwrap();
+    // The existing certified browser author appends its own signed stream delta.
+    let bytes: Vec<u8> = f
+        .sql()
+        .query_row(
+            "SELECT payload FROM receipts WHERE stream=? ORDER BY seq DESC LIMIT 1",
+            [DEVICE],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let previous = object::Envelope::from_json(&bytes).unwrap();
+    let header = object::Header::decode(previous.header()).unwrap();
+    let plain = object::open(
+        &previous,
+        &header.context,
+        &[11; 32],
+        SigningKey::from_bytes(&[9; 32]).verifying_key().as_bytes(),
+    )
+    .unwrap();
+    let doc = Doc::new();
+    doc.transact_mut()
+        .apply_update(Update::decode_v1(&plain).unwrap())
+        .unwrap();
+    let vector = doc.transact().state_vector();
+    doc.get_or_insert_text("html")
+        .insert(&mut doc.transact_mut(), 0, "browser ");
+    let update = doc.transact().encode_state_as_update_v1(&vector);
+    let context = object::Context {
+        stream_seq: "2".into(),
+        prev_hash: previous.hash().unwrap(),
+        ..header.context
+    };
+    let envelope = object::seal(
+        &context,
+        &[11; 32],
+        &SigningKey::from_bytes(&[9; 32]),
+        &update,
+    )
+    .unwrap();
+    f.store
+        .append(&Envelope {
+            scope: StreamScope {
+                page: PAGE,
+                epoch: 1,
+                stream: DEVICE,
+            },
+            namespace: Namespace::Content,
+            seq: 2,
+            hash: envelope.hash().unwrap(),
+            previous: context.prev_hash,
+            bytes: &envelope.to_json().unwrap(),
+        })
+        .unwrap();
+    assert_eq!(f.read().source, "browser old 🐈\r\n");
+    let before = f.bytes();
+    assert_eq!(
+        f.prepare("CLI replacement", Some(&base))
+            .err()
+            .unwrap()
+            .downcast_ref::<Fault>(),
+        Some(&Fault::StaleBase)
+    );
+    assert_eq!(
+        page::commit(&mut f.store, &f.key, &prepared, NOW)
+            .err()
+            .unwrap()
+            .downcast_ref::<Fault>(),
+        Some(&Fault::StaleBase)
+    );
+    assert_eq!(f.bytes(), before);
+    assert_eq!(f.read().membership_head.revision, "2");
 }
