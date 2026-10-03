@@ -4263,9 +4263,9 @@ Merged with an explicit waiting reason. `release:false` alone is never evidence
 that work needs no release: Colab, Remote and Herdr remain awaiting activation.
 The component map's optional `releaseStatus` is valid only with `release:false`:
 `never` marks test support as contained in no release and forbids consumers;
-`parked` marks Office. Never-only changes reconcile to Done. Office-only waits
-reconcile to Done with `ships with the first Office release` in Released in;
-Office plus any other pending wait stays Merged. `colab-app` changes await its
+`parked` marks Office. Never-only changes reconcile to Done. Waits confined to parked products
+reconcile to Done with one `ships with the first <product> release` line per
+waited-on product in Released in (`Office` today); any other pending wait stays Merged. `colab-app` changes await its
 embedded `tmt-colab` consumer. For each affected product, the first
 publication containing all relevant closing merge commits becomes the sole
 canonical entry. All products must be present for Released. Closed issues with

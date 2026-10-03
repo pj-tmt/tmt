@@ -329,21 +329,35 @@ export function deriveEvidence(items, closing, releases, git, map, workspace) {
       if (first) labels.push(releaseIdentity(first.tag_name).label);
       else waiting.add(`Awaiting ${product}`);
     }
+    const parked = map.components.filter(
+      (component) =>
+        component.releaseStatus === 'parked' &&
+        (waiting.has(`Awaiting ${component.name}`) ||
+          waiting.has(`No publication policy: ${component.name}`))
+    );
     const parkedReasons = new Set(
-      map.components
-        .filter((component) => component.releaseStatus === 'parked')
-        .flatMap((component) => [
-          `Awaiting ${component.name}`,
-          `No publication policy: ${component.name}`,
-        ])
+      parked.flatMap((component) => [
+        `Awaiting ${component.name}`,
+        `No publication policy: ${component.name}`,
+      ])
     );
     const onlyParked =
       waiting.size > 0 && [...waiting].every((reason) => parkedReasons.has(reason));
+    const parkedNotes = onlyParked
+      ? parked
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((component) => {
+            const product = component.name
+              .replace(/^tmt-/, '')
+              .replace(/^./, (letter) => letter.toUpperCase());
+            return `ships with the first ${product} release`;
+          })
+      : [];
     const noRelease = requirements.size === 0 && waiting.size === 0;
     evidence.set(item.content.id, {
       status:
         !ids.length || noRelease || onlyParked ? 'Done' : waiting.size ? 'Merged' : 'Released',
-      text: [...labels, ...(onlyParked ? ['ships with the first Office release'] : [])].join('\n'),
+      text: [...labels, ...parkedNotes].join('\n'),
       prs: ids.map((id) => closing.prs.get(id).number),
       waiting: [...waiting].sort(),
     });

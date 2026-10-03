@@ -4381,8 +4381,9 @@ without a native publication policy remain visibly waiting rather than inheritin
 an unrelated product's release. A `release:false` component may explicitly declare
 `releaseStatus:"never"` (no release contains it) or `releaseStatus:"parked"` (Office).
 Never-shipped leaves have no consumers and require no release; changes confined to
-them reconcile to Done. Only waits confined to parked Office reconcile to Done with
-`ships with the first Office release`; any other wait keeps Merged. Available published
+them reconcile to Done. Only waits confined to parked products reconcile to Done with
+one `ships with the first <product> release` line per waited-on product
+(`Office` today); any other wait keeps Merged. Available published
 evidence is retained. An absent marker means not yet activated, preserving Colab,
 Remote and Herdr waits. `colab-app` declares its embedded consumer `tmt-colab`; private
 consumers may name a packaged product awaiting activation, but never a never-shipped one. Closed-issue status definitions belong to

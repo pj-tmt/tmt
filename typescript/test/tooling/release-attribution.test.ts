@@ -107,13 +107,13 @@ describe('explicit private delivery status', () => {
     prs: new Map([['pr', { number: 1, mergeCommit: { oid: sha } } as ClosingPr]]),
     issues: new Map([['issue', new Set(['pr'])]]),
   };
-  const evidence = (paths: string[]) =>
+  const evidence = (paths: string[], componentMap = map) =>
     deriveEvidence(
       [item],
       closing,
       [],
       { validateTags: () => {}, paths: () => paths, containingTags: () => new Set() },
-      map,
+      componentMap,
       workspace
     ).get('issue');
   it('marks an explicitly never-shipped leaf Done with no release evidence', () => {
@@ -128,6 +128,29 @@ describe('explicit private delivery status', () => {
       status: 'Done',
       text: 'ships with the first Office release',
       waiting: ['Awaiting office'],
+    });
+  });
+  it('names each parked product actually waited on without adding unrelated parked products', () => {
+    const value = JSON.parse(source);
+    value.components['tmt-remote'].releaseStatus = 'parked';
+    const parkedMap = parseComponentMap(JSON.stringify(value));
+    const remote = 'extensions/tmt-remote/rust/tmt-remote/src/main.rs';
+    expect(evidence([remote], parkedMap)).toMatchObject({
+      status: 'Done',
+      text: 'ships with the first Remote release',
+      waiting: ['No publication policy: tmt-remote'],
+    });
+    expect(evidence([office('storage')], parkedMap)?.text).toBe(
+      'ships with the first Office release'
+    );
+    expect(evidence([remote, office('storage')], parkedMap)).toMatchObject({
+      status: 'Done',
+      text: 'ships with the first Office release\nships with the first Remote release',
+      waiting: ['Awaiting office', 'No publication policy: tmt-remote'],
+    });
+    expect(evidence([remote, office('model')], parkedMap)).toMatchObject({
+      status: 'Merged',
+      text: '',
     });
   });
   it('retains published CLI evidence when Office is the sole remaining wait', () => {
