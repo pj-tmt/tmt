@@ -1433,7 +1433,7 @@ TMT_TEST_HERDR=/tmp/hdrbin/herdr TMT_TEST_PREVIOUS_TMT="$(cd ../tmt-previous && 
 ```
 
 The Herdr host driver (the independently versioned `tmt-driver-herdr` package,
-with one thin binary also carried in the CLI archive until #1084) has its own executable test, which
+with one thin binary also carried in the CLI archive through its first standalone release) has its own executable test, which
 uses the same pinned binary. It runs the protocol
 conformance harness and every declared operation against a private server and
 HOME, and fails if a server process remains. Its prompt case runs a
@@ -1886,9 +1886,11 @@ are not proof of release archives or public installation.
 #### Explicit multi-platform release preparation
 
 `Native release artifacts` (`.github/workflows/native-release.yml`) is the per-product
-release run, dispatched with an explicit `cli`, `squad` or `driver-herdr` product, not part of
-every PR. Office is frozen: its component is parked and neither preparation nor draft
-publication accepts it; existing releases remain untouched. It has two modes. The default `prepare` builds and verifies one bundle from the
+release run, with explicit product routing, not part of every PR. It currently
+accepts `cli` and `squad`. Office is frozen and Herdr awaits the release cut
+(#1399): parked components allow neither preparation nor draft publication;
+existing releases remain untouched. The [Herdr archive section](#herdr-driver-archives)
+owns its activation flags and retained CLI companion. It has two modes. The default `prepare` builds and verifies one bundle from the
 current main commit without a draft release and attaches nothing: dispatch each authorized
 product on the release's reviewed, required-checks-green main commit and record the
 product, run ID and exact SHA in its issue. With `prepare` off, the run plans the
@@ -2486,7 +2488,16 @@ authorize publication or a CLI tag.
 
 #### Herdr driver archives
 
-The `driver-herdr` product builds the independent package without building `tmt`:
+The `driver-herdr` component is parked (`release:false` in the component map and
+`package.metadata.dist.dist=false` in its Cargo package). The release cut (#1399)
+activates both flags for its first standalone release; it does not register a
+release-please package. Its retained `bootstrapSha` is the last commit before the
+component existed, the first-release history boundary for that cut. CLI release
+paths exclude the driver crate, while CLI archives continue shipping its binary
+through the first standalone Herdr release. Named acquisition remains #1084.
+
+After activation, the `driver-herdr` product builds the independent package
+without building `tmt`:
 
 ```sh
 scripts/build-native-artifact.sh aarch64-apple-darwin driver-herdr > /absolute/driver-manifest.json
@@ -2689,27 +2700,6 @@ retain that renderer's behavior. There is no separate type list or entry-count
 policy. Local coverage history is capped at 500 commits with 30-second command
 bounds; missing config, unsupported changelog renderers or incomplete evidence fail
 closed. Missing tags and malformed notes also fail.
-
-A component with no published release must declare `bootstrap-sha` in its
-release-please package; no release and no bootstrap still fails. Coverage uses
-`(bootstrap-sha, candidate base]`. With a nonzero manifest seed, pinned
-release-please 17.11.2 renders a compare from the component's seeded tag to the
-heading's new component tag; a zero seed renders a plain version heading. The
-gate verifies these forms with the pinned renderer and rejects foreign or
-unrelated compare anchors. Once published, the component uses its latest
-published tag and ignores bootstrap, as established components always have.
-
-The generated package option comes from `.github/components.json`'s
-`bootstrapSha`: the last commit before the component existed. Use the
-component-registration PR's own merge base and keep that SHA unchanged after
-merge. The first release notes include the introducing squash commit, which
-made the component releasable; no manual post-merge update is needed. Pinned
-release-please ignores package-level bootstrap options, so the existing wrapper
-applies the cutoff only to that unpublished component's commit list. The pinned
-Manifest owns scan termination; once bootstrap components are published, the
-wrapper passes through releases, tags and commits unchanged. Its top-level
-bootstrap option is honored only when Manifest needs bootstrap, so it cannot
-replace these per-package cutoffs.
 Existing locked Cargo workers verify the cumulative queue result through the
 [CI selector](ARCHITECTURE.md#ci-selection-and-worker-model), so a later prose-only HEADGREEN tip retains earlier
 release version/lock changes.

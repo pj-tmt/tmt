@@ -2804,8 +2804,9 @@ library depends on the protocol crate, `tmt-invoke` (its bounded process
 owner), `serde_json` and `semver`, and never on core or the adapters; the
 architecture guard holds it to those edges. Its independently versioned package
 owns a thin `tmt-driver-herdr` binary calling `tmt_driver_herdr::serve_call`.
-The CLI archive still carries that package's executable as a companion until
-#1084; its artifact build stages the driver package's binary for cargo-dist.
+The CLI archive still carries that package's executable as a companion through
+its first standalone release; its artifact build stages the driver package's
+binary for cargo-dist. Named acquisition remains #1084.
 There is only one binary target and no `tmt-cli -> tmt-driver-herdr` dependency.
 CI process fixture builds select both packages, and raw-runtime artifacts carry
 both executables for tooling acquisition and archive tests. A driver release
@@ -4053,7 +4054,11 @@ inventory and executable behavior on matching hosts. `driver-herdr` selects only
 the independently versioned driver package, notices and archive; its tags are
 `tmt-driver-herdr-v<semver>` and its prereleases never become repository latest.
 The component owns its Cargo version and lock entry, and CLI release paths exclude
-it. CLI runs additionally
+it. The component is parked with `release:false` and Cargo `dist=false`;
+release cut (#1399) activates both for its first standalone release. The retained
+`bootstrapSha` is that cut's first-release history boundary, the last commit before
+the component existed. No Herdr package or cutoff is added to release-please.
+CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 
 `project-release.mjs` owns release-to-Project delivery evidence, separately from
@@ -4135,12 +4140,7 @@ owns bounds, token and recovery behavior.
 `release-pr-safety.mjs` owns the read-only release PR safety gates. `Code quality`
 checks PR notes on PR updates and merge groups: the compare base must be the
 component's newest published tag, and each linked commit must descend from that
-tag and be an ancestor of the candidate base, excluding the tag itself. A component
-without a published release must declare package `bootstrap-sha`, the last
-commit before the component existed; the same gate
-anchors at that SHA and accepts only the pinned first-release header form.
-`release-please-run.mjs` applies path-local bootstrap cutoffs because pinned 17.11.2
-ignores the package option; established components keep their own release cutoffs. COVERAGE
+tag and be an ancestor of the candidate base, excluding the tag itself. COVERAGE
 requires links for every commit the pinned release-please notes renderer lists
 in that range for the component. The safety owner uses candidate-base config paths,
 exclusions and changelog sections (or pinned defaults), the pinned parser/splitter

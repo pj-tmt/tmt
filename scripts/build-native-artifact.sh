@@ -40,8 +40,9 @@ case "$product" in
   cli) tag="v$version" ;;
   *) tag="tmt-$product-v$version" ;;
 esac
-# The CLI carries the independently owned binary until #1084. Build it once
-# from its package, then let cargo-dist include it without a second bin target.
+# The CLI carries the independently owned binary through the first standalone
+# Herdr release. Build it once from its package, then let cargo-dist include it
+# without a second bin target.
 if [ "$product" = cli ]; then
   cargo build --locked -p tmt-driver-herdr --bin tmt-driver-herdr \
     --profile dist --target "$target" --target-dir "$repo/rust/target" 1>&2

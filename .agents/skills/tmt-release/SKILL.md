@@ -31,10 +31,7 @@ or upgrading release-please. This does not change publication authorization or p
 
 Release PRs must pass `Code quality`'s notes gate before merge: compare from the
 component's newest published tag, with every linked commit inside its ancestry
-range through the candidate base. A component without a published release must
-declare package `bootstrap-sha`; use the candidate-base bootstrap range and the
-pinned first-release header form described in DEVELOPMENT. `bootstrapSha` is the
-last commit before the component existed and remains unchanged after merge. COVERAGE requires a link for every commit the
+range through the candidate base. COVERAGE requires a link for every commit the
 pinned release-please renderer lists for the component in that range. Use its
 parser, path splitter, exclusions and private-leaf attribution with the
 candidate-base config's changelog sections or pinned defaults; do not introduce
@@ -164,7 +161,8 @@ procedures referenced below; DEVELOPMENT owns ordinary native checks.
   distinction between injected acquisition, skipped differential skill coverage for identical text,
   older-source rerun applicability and separate public installer/upgrade smoke.
   A standalone driver uses previous/candidate archives and the current published
-  CLI's path approval surface.
+  CLI's path approval surface. Herdr remains parked until release cut (#1399)
+  activates it, as DEVELOPMENT documents.
 - For curl bootstrap, follow the guide's native curl bootstrap verification.
   Generate from final verified cargo-dist artifacts and invoke the existing
   native publisher; do not enable a competing stock installer. Test an actual
