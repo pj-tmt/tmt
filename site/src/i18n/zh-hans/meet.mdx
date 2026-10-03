@@ -1,0 +1,39 @@
+---
+source: site/src/chapters/meet.mdx
+sourceRevision: c2f5628db5baaaf69d4b055feef494cee7184d97
+title: Meet：你与 agent 的会议室
+---
+
+import { components as Mdx } from "../../components/mdx";
+import { MeetRoom } from "../../chapter-scenes/MeetRoom";
+import { Callout } from "../../components/marks";
+
+<Callout title="计划中。">
+  Meet
+  已完成设计（[#842](https://github.com/pj-tmt/tmt/issues/842)），但尚未排期或开始开发。本页介绍已确定的设计，目前还不能运行。
+</Callout>
+
+<MeetRoom />
+
+<Mdx.h3 id="what-it-is">它是什么</Mdx.h3>
+
+你与多个 agent 在终端中开的会议。它属于 [Squad](/extensions/squad) 扩展，不是独立扩展。你指定主题和受邀 agent 来发起会议，并决定谁发言。
+
+<Mdx.h3 id="who-has-the-floor">谁来发言</Mdx.h3>
+
+- **只有你能发起会议。** agent 不能发起会议，也不能互相邀请。
+- **由你交出发言权。** 默认按 `g` 或用 `@name` 指定 agent。想发言的 agent 用一句话说明意图，举手等待。agent 发出的 `@mention` 只会加入举手队列。
+- **也可以先到先说。** 会议中按 `m` 切换模式。在这种模式下，任何人都不能连续发言两次。
+- **发言结束后自动收回发言权。** 发言者保持沉默时，发言权交给下一个举手者。
+
+<Mdx.h3 id="what-it-builds-on">基于什么</Mdx.h3>
+
+会议是一个 `tmt room`，包含成员和会议记录。交出发言权就是向该 agent 发送 `talk` 请求，它的 `reply` 就是这一轮发言。没有发言权的 agent 不会被唤醒，也不消耗配额。
+
+<Mdx.h3 id="when-it-ends">会议结束时</Mdx.h3>
+
+你会得到会议记录和记下的决策清单。决策可以转成 issue，或通过 `tmt talk` 交给 agent，但必须经过你的确认。会议中的任何内容都不会自行执行。
+
+<Mdx.h3 id="what-comes-later">后续计划</Mdx.h3>
+
+第一版是在终端中进行文字交流。基于 [Colab](/extensions/colab) 的网页视图和语音功能会在之后推出。

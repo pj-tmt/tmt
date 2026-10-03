@@ -1,0 +1,51 @@
+---
+source: site/src/chapters/design.mdx
+sourceRevision: 08968bf4a346ebc33e61b4bee74b700aaf3cb504
+title: 各处保持一致的外观
+---
+
+import { components as Mdx } from "../../components/mdx";
+import { Cmd } from "../../components/Cmd";
+import { Tag } from "../../components/marks";
+import { MarkList, TokenPreview, TokenTable, TypePreview } from "../../components/samples";
+
+无论在命令行、Squad 看板还是本站，tmt 都保持一致的外观。本页是它们共同遵循的指南。所有值都来自同一个文件：[`design/tokens/tokens.json`](https://github.com/pj-tmt/tmt/blob/main/design/tokens/tokens.json)。网站样式表和本页所有表格都读取这个文件，没有手工复制的值。
+
+<Mdx.h3 id="principles">原则</Mdx.h3>
+
+- **颜色表达含义。** 屏幕大部分区域保持中性。只有需要你处理、正在工作或卡住的内容才突出显示。
+- **不能只靠颜色。** 每个状态也会用符号或文字表示，例如 `◆2` 或 `blocked`。这样在 `NO_COLOR`、管道、屏幕阅读器或色觉障碍的情况下，信息仍然可用。
+- **终端决定具体色调。** 命令行中的 token 指向终端的 16 种颜色之一，因此以用户的主题为准。网站和全屏看板的真彩色主题使用下方的精确值。
+- **统一含义。** token 在各处含义一致。无论是看板标签页、`tmt ls` 中的一行，还是本站的徽标，`waiting` 始终表示需要你处理。
+
+<Mdx.h3 id="color-tokens">颜色 token</Mdx.h3>
+
+<TokenPreview />
+
+<TokenTable />
+
+命令行自己的 token 名称（`accent`、`ok`、`warn`、`error`、`dim` 和 driver 颜色）分别对应这些颜色之一：`ok` 对应 `working`，`warn` 对应 `waiting`，`error` 对应 `blocked`，Claude 和 Codex 的 driver 颜色分别对应 `review` 和 `link`。完整列表见 [design/cli-style.md](https://github.com/pj-tmt/tmt/blob/main/design/cli-style.md)。终端主题从同一个文件读取这些值；两者不一致时，测试会失败。
+
+<Mdx.h3 id="surfaces">背景层</Mdx.h3>
+
+背景层只用于网页，终端始终保留自己的背景。
+
+<TokenTable group="surface" />
+
+<Mdx.h3 id="type">字体</Mdx.h3>
+
+<TypePreview />
+
+标题使用展示字体，正文使用正文字体。读者输入的内容和终端输出都使用等宽字体。命令始终按实际输入的形式显示，带有 `$` 提示符和暗显的 `# 注释`：
+
+<Cmd>{`$ tmt sq board --squad product   # 读者可以复制的命令`}</Cmd>
+
+<Mdx.h3 id="marks">符号</Mdx.h3>
+
+命令行、看板和本站用同一小组符号表示状态：
+
+<MarkList />
+
+<Mdx.h3 id="shipped-and-planned">已发布与计划中</Mdx.h3>
+
+尚未发布的内容都带有 <Tag kind="planned">计划中</Tag> 标签，或用提示框明确说明。手册会介绍 tmt 的发展方向，但绝不会把计划写成现在就能用的功能。

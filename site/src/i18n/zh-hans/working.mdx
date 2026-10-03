@@ -1,0 +1,181 @@
+---
+source: site/src/chapters/working.mdx
+sourceRevision: 08afdcc3b9e36f7458e3875c1bad7c1f2b19f716
+title: 启动、发送、获取 reply
+---
+
+import { components as Mdx } from "../../components/mdx";
+import { Cmd } from "../../components/Cmd";
+import { Aside } from "../../components/marks";
+import { MessageTravel } from "../../chapter-scenes/MessageTravel";
+
+<MessageTravel />
+
+<Mdx.h3 id="tmt-run">`tmt run`</Mdx.h3>
+
+就像自己运行命令，只是多了一个名称。tmt 的选项放在名称前面，名称后面的内容都交给 agent。tmt 记住你用了哪个 agent，但绝不记录参数或秘密信息。Ctrl-C、Ctrl-Z 和 `fg` 照常工作，agent 的退出码原样返回。
+
+<Cmd>{`
+$ tmt run reviewer claude --model sonnet   # 为此窗格命名并启动 Claude Code
+$ tmt run reviewer                         # 之后：启动记住的 agent
+`}</Cmd>
+
+Codex 和 Claude 默认使用粘贴投递，除非传入 `--channel`。`--no-channel` 为本次启动选择普通粘贴投递；`--channel` 则要求使用通道，否则失败。这两个选项不能同时使用，都放在名称前面。接入通道的窗格绝不退回粘贴。[Codex 投递指南](/drivers/codex#message-delivery)介绍了通道设置及当前限制。
+
+也可以先启动，后命名。`tmt run claude` 会立即启动 agent，使用类似 `claude-12ab34cd56ef` 的临时名称，并输出一行重命名提示。在 agent 的 shell 工具中运行 `tmt name reviewer`，就能为它设置正式名称，保留同一会话。命名不等于保存名称；需要保存时，在 `tmt name` 或 `tmt run` 后加 `-s`。命名绝不会合并两个 identity。因此，如果已有 identity 叫 `claude`，`tmt run claude` 会拒绝启动。用 `tmt run claude claude` 启动已有的 identity，或用 `tmt run reviewer claude` 换个名称。
+
+<Mdx.h3 id="tmt-resume">`tmt resume`</Mdx.h3>
+
+在当前窗格中重新打开 agent 自己的会话。重启机器后，打开窗格，按名称恢复各个 agent。agent 的 runtime driver 会记住会话和模型，并自行构造恢复命令，无需复制会话 ID。
+
+<Cmd>{`
+$ tmt resume reviewer           # reviewer 自己的会话，使用相同模型
+$ tmt resume --forget reviewer  # 丢弃记录的会话
+`}</Cmd>
+
+tmt 只记住 driver 通过 agent 钩子报告的内容。`/clear` 或新会话会替换记录；identity 切换到另一种 agent 程序时，旧记录会被丢弃。移除 identity 也会删除记录。如果会话已不存在，tmt 会明确说明，不会擅自新建会话。要开始新会话，请主动运行 `tmt run reviewer`。窗格由你选择，tmt 不会恢复 tmux 布局。`tmt run --resume <name>` 仍可作为别名使用。
+
+恢复指定会话时也支持相同的通道选项。Codex 默认使用普通恢复方式；`--channel` 连接到记录中的确切线程，绝不新建线程。
+
+如果恢复在 agent 确认会话前失败，tmt 会将会话标为过期，不再尝试，直到你作出选择：`tmt resume --retry reviewer` 再试一次，`--forget` 丢弃记录。Ctrl-C 绝不会让会话被标为过期。
+
+<Mdx.h3 id="rename-retire-and-create-names">重命名、停用和创建名称</Mdx.h3>
+
+名称全局通用，未保存时是临时的。`tmt mv` 重命名 identity，并保留它的会话、角色、笔记、元数据、房间和历史。重命名前发送的请求仍能到达，之后的新请求必须使用新名称。`tmt rm` 停用名称，窗格继续运行。已保存的名称需要 `--force`，同时移除角色和前导文本，保留消息往来记录。
+
+<Cmd>{`
+$ tmt mv reviewer code-review
+$ tmt rm builder                  # 临时名称
+$ tmt rm --force planner          # 已保存的名称
+$ tmt unbind                      # 在窗格中解除绑定；临时名称会停用，已保存的名称变为离线
+`}</Cmd>
+
+`tmt add <pane> <name>` 绑定另一个窗格。窗格可以是 `%12` 这样的 tmux 窗格 ID、`window.pane` 或 `session:window.pane`。`tmt marked <name>` 绑定你在 tmux 中标记的窗格，绝不是当前活动窗格。两种命令都可以加 `-s` 保存名称。
+
+新建 binding 后，提示会指出刚创建的 identity。临时名称会显示保存命令，已保存的名称会显示等待任务的命令。包含空格或 shell 标点的名称会加引号。重复绑定不会再次显示提示；`TMT_HINTS=off` 可关闭这些可选提示。
+
+名称不需要窗格。`tmt identity create coordinator` 创建一个尚未绑定窗格的已保存名称，发给它的请求会在收件箱中等待。`tmt identity show coordinator` 和 `tmt identity ls` 无需 tmux 就能读取名称，脚本可加 `--json`。你可以为名称附加可搜索的信息，并按这些信息筛选：
+
+<Cmd>{`
+$ tmt identity meta set --identity reviewer project tmt
+$ tmt identity meta ls --identity reviewer
+$ tmt identity ls --where project=tmt --has capability.review
+`}</Cmd>
+
+键用小写，例如 `project` 或 `capability.review`。值是最多 1024 字节的文本。一个名称最多保存 64 个条目，多个筛选条件必须全部匹配。元数据不用于身份验证或授权，也不适合存放秘密信息。
+
+<Mdx.h3 id="tmt-talk-and-tmt-reply">`tmt talk` 和 `tmt reply`</Mdx.h3>
+
+`talk` 等待 agent 用 `tmt reply` 提交回复，不是等终端安静下来。agent 收到的请求附带请求 ID 和 receipt，回答时必须原样使用。reply 会保存下来，因此超时不会丢失它。`talk` 默认等待 180 秒，也可用 `--timeout` 指定，例如 `--timeout 10m`，最长 24 小时。超时后以 `TIMEOUT` 退出。这只结束你的等待，请求仍然开放。reply 到达后，`tmt result <request-id>` 会输出它。加上 `--detach` 后，tmt 立即返回；reply 到达时，窗格会收到一行通知。等待期间没有提醒，因为你选择了不等待。
+
+<Cmd>{`[tmt] reply from builder to req_9ba4…: tmt result req_9ba4…`}</Cmd>
+
+这些通知按窗格分组。第一条 reply 到达后的 5 秒内，收到的所有 reply 会合并为一次粘贴。有人正在窗格中输入时，tmt 会等到键盘停止活动 2 秒后再粘贴，但最长不会超过分组窗口结束后的 30 秒。已接入通道的窗格仍会逐条收到通知。两种等待时间都可以在[设置](/working/settings)中调整。
+
+agent 使用收到的 receipt 提交 reply，内容可以来自消息、文件或标准输入。再次提交相同内容不会改变任何结果；不同内容会被拒绝，因此第一条 reply 就是最终结果。
+
+<Cmd>{`
+$ tmt reply req_9ba4… --receipt v2_… --message "Done: tests pass"
+$ tmt reply req_9ba4… --receipt v2_… --file answer.md
+`}</Cmd>
+
+agent 离线时，`talk` 会立即说明。请求在其收件箱中等待，agent 下次启动时就能看到。
+
+<Aside title="没有动静时不要重发。">
+  投递不确定时，先用 <code>tmt check builder</code> 查看。任务可能已经在运行。
+</Aside>
+
+发给你的请求会在收件箱里等待。按发送者名称回答即可，不需要 receipt。同一发送者有多个待答请求时，`tmt answer` 不会发送任何内容，而会列出请求。用 `--request` 选择其中一个。
+
+<Cmd>{`
+$ tmt inbox                              # 等待你处理的请求，最早的在前
+$ tmt answer reviewer "Yes, ship it."    # 回答 reviewer 的待答请求
+$ tmt answer reviewer "Yes" --request req_9ba4…
+`}</Cmd>
+
+<Mdx.h3 id="look-at-an-agent">查看 agent</Mdx.h3>
+
+`tmt check` 显示 agent 最近的窗格输出，只用于诊断，绝不据此判断请求已完成。`tmt focus` 先检查窗格仍属于该名称，再将你自己的 tmux 客户端切到 agent 窗格，即使它在另一个会话中。它绝不会向窗格输入内容。请在 tmux 内运行。
+
+<Cmd>{`
+$ tmt check builder 50      # builder 窗格的最后 50 行
+$ tmt focus builder         # 跳到 builder 的窗格
+$ tmt focus %2              # 回到原来的窗格
+$ tmt focus --client        # 将切换哪个客户端，以及它当前显示的窗格
+`}</Cmd>
+
+`tmt focus --json` 记录原来的位置和被切换的客户端，方便脚本返回。若不在 tmux 中，或没有客户端显示你的会话，`focus` 不会改变任何内容，并会说明原因。
+
+<Mdx.h3 id="recover-requests">找回请求</Mdx.h3>
+
+超时、detach、重启或窗格丢失后，请求仍然保留。`tmt x` 列出你发起但尚未确认处理的请求。发给你的请求在 `tmt inbox` 中；为 `x show`、`x ack` 和 `x ackall` 添加 `--incoming`，即可操作这些请求。
+
+<Cmd>{`
+$ tmt x                                  # 你尚未确认处理的请求
+$ tmt x show req_9ba4…                   # 原始请求及其 reply
+$ tmt x ack req_9ba4… --revision 3       # 将已读修订标为已处理
+$ tmt x ackall                           # 确认处理当前已列出的全部请求
+$ tmt result req_9ba4…                   # 只显示 reply
+`}</Cmd>
+
+`ack` 需要 `x` 或 `x show` 输出的修订号，因此确认操作不会隐藏你尚未看到的 reply。读取不会作标记、取消任务，也不会延长请求保留时间。新请求默认保留 90 天，可通过 `exchange.retentionDays` 修改。
+
+`tmt result` 也接受唯一的请求 ID 前缀，至少包含 8 个十六进制字符，可带或不带 `req_`，例如 `tmt result 82d3556e`。超过前 8 个字符时，要保留 ID 中的连字符（`82d3556e-0`）。匹配多个请求时，会列出最多五个完整 ID，并说明还有多少个匹配项；请使用更长的前缀。前缀没有匹配项时，会提示没有可用的 reply。
+
+不在已命名的窗格中时，在子命令名称后用 `--identity` 指明自己是谁。这用于记录谁发起了请求，只是本机上的归属记录，不是身份验证。
+
+<Cmd>{`
+$ tmt talk reviewer "Review the release notes." --identity coordinator --detach
+$ tmt x --identity coordinator
+`}</Cmd>
+
+<Mdx.h3 id="delivery-details">投递细节</Mdx.h3>
+
+- **粘贴、等待、Enter。** tmt 将整条消息粘贴到窗格，等待半秒，再按 Enter。`pasteEnterDelayMs` 可修改等待时间。换行会保留。
+- **`!` 变为 `！`。** ASCII `!` 发送时会变成全角 `！`，防止消息启动 agent 的 shell 模式。因此，`if (!ready)` 这样的代码不会逐字节原样投递；保存的请求仍保留原文。
+- **不确定就先查看。** 文本可能已到达窗格，但 tmt 无法确定时，`talk` 会以 `DELIVERY_UNCERTAIN` 失败，绝不会自行重发。先用 `tmt check` 查看，再作决定。超时或窗格没有动静，都不能证明任务没有执行。
+- **tmux 看不到批准提示。** 消息已投递不代表 agent 已准备好处理它。如果 host 能报告 agent 正在等待用户批准或回答，`talk` 会以 `DELIVERY_AWAITING_APPROVAL` 失败。此时没有发送任何内容，请求仍在队列中，tmt 绝不会绕过提示输入。agent 继续运行后再重试。
+- **没有窗格就不粘贴。** 已结束或未绑定的接收者会在收件箱收到请求，绝不会粘贴到 shell 中。
+- **`--inbox` 只加入队列。** 即使 agent 已就绪，tmt 也不会尝试实时投递。agent 上线时不会自动收到积压请求，接收者必须通过 `tmt inbox` 拉取。返回的输出会明确说明，并给出接收者应运行的命令。使用 `--json` 时，还包含 `notification: "not_attempted"` 和 `waitingFor: "recipient_inbox_pull"`。需要实时发送消息时，请用普通 `talk`。
+- **等待收件箱任务。** `tmt x listen --identity reviewer` 等待新的收件箱任务，最长等待到 `--timeout`，然后退出。没有后台监听程序。
+- **每次提示词提交时提醒。** 安装 agent 钩子后（见 [`tmt setup`](#tmt-setup)），只要收件箱还有待处理内容，agent 提交的提示词就会附加一行，例如 `Incoming X items: 2 unacknowledged; pull with tmt inbox --identity '4f3793b4-…' --json`。其中的 identity 是 agent 自己的 ID。没有待处理内容时，不显示这一行。它不改变请求的投递方式。
+
+<Mdx.h3 id="notes-roles-and-preambles">笔记、角色和前导文本</Mdx.h3>
+
+以下三项内容会随已保存的 identity 保留，窗格丢失或重启后仍在：
+
+- **笔记**是你和 agent 都能编辑的 Markdown 文件。`tmt notes path` 输出其位置，首次运行时创建空文件。tmt 绝不重写、裁剪或锁定它。
+- **角色**是保存的简介，会显示在会话启动时收到的简短摘要中，绝不会附加到消息中。
+- **前导文本**会附加到 agent 收到的请求中：第一次附加，之后每三个请求附加一次（`preambleEvery`）。`--no-preamble` 为单次请求跳过它，`preambleMode disabled` 或 `preambleEvery 0` 将其关闭。
+
+<Cmd>{`
+$ tmt notes path --identity coordinator
+$ tmt role set "Review correctness before style." --identity reviewer
+$ tmt preamble set reviewer "Be concise and cite evidence."
+$ tmt preamble show reviewer
+`}</Cmd>
+
+笔记需要已保存的 identity，临时 identity 会报错。笔记文件跟随 identity，不跟随名称。因此，新 identity 即使复用旧名称，也会从新文件开始。
+
+<Mdx.h3 id="tmt-setup">`tmt setup`</Mdx.h3>
+
+只通过文件系统查找本机上的 agent，绝不启动它们。找到的每个 agent 都会安装 tmt 技能。本机已安装的 Claude Code 和 Codex 还会安装生命周期钩子，用来告诉 tmt 会话何时开始或结束。这让 `tmt resume` 和徽标保持准确，也为新会话提供简短摘要。它只计划补充缺失内容，并统一询问一次。
+
+<Cmd>{`
+$ tmt setup              # 查找 agent，显示计划，统一询问一次
+$ tmt setup claude       # 为单个 agent 设置钩子
+$ tmt setup codex --remove
+`}</Cmd>
+
+除 tmt 钩子外，现有设置逐字节保持原样。写入前先备份，钩子失败也不会阻塞 agent。备份放在设置文件旁的私有 `.tmt-setup-backups` 文件夹中，旧备份留在原处。tmt 绝不删除或移动它们。超过 32 份后，setup 仍会应用变更，但会警告并显示文件夹，方便你清理。`--usage` 添加可选的[用量计数器](/drivers#usage-counters)。
+
+<Mdx.h3 id="tmt-uninstall">`tmt uninstall`</Mdx.h3>
+
+只移除 tmt 安装的内容：钩子、技能、扩展和 `tmt` 命令。运行中的扩展服务会先停止。询问前会列出所有项目。你改动过的内容会保留并说明。identity、消息和笔记也会保留，除非添加 `--purge`。
+
+<Cmd>{`
+$ tmt uninstall          # 显示移除和保留的内容，然后统一询问一次
+$ tmt uninstall --purge  # 同时删除 tmt 数据
+`}</Cmd>
+
+[设置、shell 补全和常见问题处理 →](/working/settings)
