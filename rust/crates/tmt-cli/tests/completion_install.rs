@@ -54,18 +54,21 @@ impl Drop for Fixture {
 }
 
 #[test]
-fn scripts_are_byte_identical_and_hidden_from_generated_help() {
+fn only_hidden_route_generates_scripts_and_public_route_always_guides() {
     let mut f = Fixture::new();
     for shell in ["bash", "zsh", "fish"] {
-        let legacy = f.run(&["completion", shell], "/bin/unsupported");
+        let guide = f.run(&["completion", shell], "/bin/unsupported");
         let hidden = f.run(&["__completion-script", shell], "/bin/unsupported");
-        assert!(legacy.status.success());
+        assert!(guide.status.success());
         assert!(hidden.status.success());
-        assert!(legacy.stderr.is_empty());
+        assert!(guide.stderr.is_empty());
         assert!(hidden.stderr.is_empty());
-        assert_eq!(legacy.stdout, hidden.stdout);
+        let guide = String::from_utf8(guide.stdout).unwrap();
+        assert!(guide.contains("startup-file evidence"));
+        assert!(!guide.contains("_tmt_static"));
+        assert!(String::from_utf8_lossy(&hidden.stdout).contains("_tmt_static"));
         assert!(
-            !String::from_utf8(legacy.stdout)
+            !String::from_utf8(hidden.stdout)
                 .unwrap()
                 .contains("__completion-script")
         );
@@ -80,64 +83,46 @@ fn scripts_are_byte_identical_and_hidden_from_generated_help() {
 }
 
 #[test]
-fn json_detection_override_install_and_idempotence_preserve_startup_files() {
+fn json_detection_and_override_check_files_without_changing_them() {
     let mut f = Fixture::new();
-    for (shell, path) in [
-        ("bash", "home/.bashrc"),
-        ("zsh", "home/.zshrc"),
-        ("fish", "xdg-config/fish/config.fish"),
+    for (shell, path, line) in [
+        (
+            "bash",
+            "home/.bashrc",
+            "source <(tmt __completion-script bash)",
+        ),
+        (
+            "zsh",
+            "home/.zshrc",
+            "source <(tmt __completion-script zsh)",
+        ),
+        (
+            "fish",
+            "xdg-config/fish/config.fish",
+            "tmt __completion-script fish | source",
+        ),
     ] {
         let check = f.run(&["completion", "--json"], &format!("/bin/{shell}"));
-        assert!(
-            check.status.success(),
-            "{}",
-            String::from_utf8_lossy(&check.stderr)
-        );
+        assert!(check.status.success());
         let check: serde_json::Value = serde_json::from_slice(&check.stdout).unwrap();
         assert_eq!(check["shell"], shell);
         assert_eq!(check["installed"], false);
         assert_eq!(check["evidence"], "startup-file");
         let file = f.root.join(path);
+        assert!(!file.exists(), "inspection must not create a startup file");
         fs::create_dir_all(file.parent().unwrap()).unwrap();
-        let original = if shell == "zsh" {
-            "# custom\ncompinit\n"
-        } else {
-            "# custom\n"
-        };
-        fs::write(&file, original).unwrap();
-        let refused = f.run(&["completion", shell, "--install"], "/bin/unsupported");
-        assert!(!refused.status.success());
-        assert_eq!(fs::read_to_string(&file).unwrap(), original);
-        assert!(String::from_utf8_lossy(&refused.stderr).contains("consent"));
-        let install = f.run(
-            &["completion", shell, "--install", "--yes", "--json"],
-            "/bin/unsupported",
-        );
-        assert!(
-            install.status.success(),
-            "{}",
-            String::from_utf8_lossy(&install.stderr)
-        );
-        let installed: serde_json::Value = serde_json::from_slice(&install.stdout).unwrap();
-        assert_eq!(installed["installed"], true);
-        assert_eq!(installed["changed"], true);
-        assert_eq!(installed["detectedShell"], serde_json::Value::Null);
-        let bytes = fs::read(&file).unwrap();
-        assert_eq!(
-            bytes,
-            format!("{original}{}\n", installed["line"].as_str().unwrap()).as_bytes()
-        );
-        let repeat = f.run(
-            &["completion", shell, "--install", "--yes", "--json"],
-            "/bin/bash",
-        );
-        assert!(repeat.status.success());
-        assert_eq!(
-            serde_json::from_slice::<serde_json::Value>(&repeat.stdout).unwrap()["changed"],
-            false
-        );
-        assert_eq!(fs::read(file).unwrap(), bytes);
+        let original = format!("# custom\nsource \"$ZSH/oh-my-zsh.sh\"\n{line}\n");
+        fs::write(&file, &original).unwrap();
+        let check = f.run(&["completion", shell, "--json"], "/bin/unsupported");
+        assert!(check.status.success());
+        let check: serde_json::Value = serde_json::from_slice(&check.stdout).unwrap();
+        assert_eq!(check["installed"], true);
+        assert_eq!(check["detectedShell"], serde_json::Value::Null);
+        assert_eq!(check["line"], line);
+        assert_eq!(check["file"], file.to_str().unwrap());
+        assert_eq!(fs::read_to_string(file).unwrap(), original);
     }
+    assert!(!support::state_dir(&f.root).exists());
 }
 
 #[test]
@@ -153,6 +138,7 @@ fn no_argument_is_a_guide_even_when_piped_and_bad_shells_refuse() {
         vec!["completion"],
         vec!["completion", "bad"],
         vec!["completion", "--yes"],
+        vec!["completion", "--install"],
         vec!["completion", "--script"],
         vec!["__completion-script", "bash", "--json"],
     ] {
@@ -164,60 +150,89 @@ fn no_argument_is_a_guide_even_when_piped_and_bad_shells_refuse() {
 }
 
 #[cfg(unix)]
-#[test]
-fn real_terminal_shows_guide_and_consent_decline_keeps_file_unchanged() {
-    use nix::{
-        poll::{PollFd, PollFlags, poll},
-        pty::openpty,
-        unistd::{read, write},
-    };
-    use std::{os::fd::AsFd, time::Instant};
-    let mut f = Fixture::new();
-    // Initialize only this fixture's environment, then preserve a real rc file.
-    let mut command = support::command(&f.root, &["completion", "bash", "--install"]);
-    let rc = f.root.join("home/.bashrc");
-    fs::write(&rc, "# user's existing content\n").unwrap();
-    let pty = openpty(None, None).unwrap();
-    command
-        .env("SHELL", "/bin/zsh")
-        .env("TERM", "dumb")
-        .env("NO_COLOR", "1")
-        .stdin(Stdio::from(pty.slave.try_clone().unwrap()))
-        .stdout(Stdio::from(pty.slave.try_clone().unwrap()))
-        .stderr(Stdio::from(pty.slave));
-    f.child = Some(command.spawn().unwrap());
-    drop(command);
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let mut screen = Vec::new();
-    while !String::from_utf8_lossy(&screen).contains("[y/N]") {
-        assert!(
-            Instant::now() < deadline,
-            "missing consent prompt: {}",
-            String::from_utf8_lossy(&screen)
-        );
-        let mut ready = [PollFd::new(pty.master.as_fd(), PollFlags::POLLIN)];
-        assert!(poll(&mut ready, 1000u16).unwrap() >= 0);
-        if ready[0].revents().unwrap().contains(PollFlags::POLLIN) {
-            let mut bytes = [0u8; 4096];
-            let count = read(&pty.master, &mut bytes).unwrap();
-            assert!(count > 0);
-            screen.extend_from_slice(&bytes[..count]);
+impl Fixture {
+    fn terminal_help(&mut self, args: &[&str], shell: &str) -> String {
+        use nix::{
+            poll::{PollFd, PollFlags, poll},
+            pty::openpty,
+            unistd::read,
+        };
+        use std::{os::fd::AsFd, time::Instant};
+        let pty = openpty(None, None).unwrap();
+        let mut command = support::command(&self.root, args);
+        command
+            .env("SHELL", shell)
+            .env("TERM", "dumb")
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(pty.slave))
+            .stderr(Stdio::null());
+        self.child = Some(command.spawn().unwrap());
+        drop(command);
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let mut screen = Vec::new();
+        loop {
+            assert!(Instant::now() < deadline, "help did not finish");
+            let mut ready = [PollFd::new(pty.master.as_fd(), PollFlags::POLLIN)];
+            poll(&mut ready, 100u16).unwrap();
+            let events = ready[0].revents().unwrap();
+            if events.intersects(PollFlags::POLLIN | PollFlags::POLLHUP) {
+                let mut bytes = [0u8; 4096];
+                match read(&pty.master, &mut bytes) {
+                    Ok(0) | Err(nix::errno::Errno::EIO) => break,
+                    Ok(count) => screen.extend_from_slice(&bytes[..count]),
+                    Err(error) => panic!("PTY read failed: {error}"),
+                }
+            }
         }
+        assert!(
+            support::wait(&mut self.child, Duration::from_secs(5))
+                .wait()
+                .unwrap()
+                .success()
+        );
+        String::from_utf8(screen).unwrap().replace("\r\n", "\n")
     }
-    let screen = String::from_utf8(screen).unwrap();
-    assert!(screen.contains("startup-file evidence"));
-    assert!(screen.contains(rc.to_str().unwrap()));
-    assert!(screen.contains("source <(tmt __completion-script bash)"));
-    assert!(!screen.contains("_tmt_static"));
-    write(&pty.master, b"n\n").unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn top_level_terminal_help_hints_only_when_not_configured() {
+    const TIP: &str =
+        "Tip: shell completion is not set up; run tmt completion to see the line to add.";
+    let mut f = Fixture::new();
+    for args in [vec![], vec!["help"], vec!["--help"]] {
+        let text = f.terminal_help(&args, "/bin/zsh");
+        assert!(text.trim_end().ends_with(TIP));
+        assert_eq!(text.matches(TIP).count(), 1);
+        assert!(!f.root.join("home/.zshrc").exists());
+        let pipe = f.run(&args, "/bin/zsh");
+        assert!(pipe.status.success());
+        assert!(!String::from_utf8_lossy(&pipe.stdout).contains(TIP));
+    }
+    let file = f.root.join("home/.zshrc");
+    let configured = "source \"$ZSH/oh-my-zsh.sh\"\nsource <(tmt __completion-script zsh)\n";
+    fs::write(&file, configured).unwrap();
+    for args in [vec![], vec!["help"], vec!["--help"]] {
+        assert!(!f.terminal_help(&args, "/bin/zsh").contains(TIP));
+    }
+    assert_eq!(fs::read_to_string(&file).unwrap(), configured);
+    fs::write(&file, [0xff]).unwrap();
+    assert!(!f.terminal_help(&["--help"], "/bin/zsh").contains(TIP));
+    assert_eq!(fs::read(&file).unwrap(), [0xff]);
+    fs::remove_file(file).unwrap();
     assert!(
-        support::wait(&mut f.child, Duration::from_secs(10))
-            .wait()
-            .unwrap()
-            .success()
+        !f.terminal_help(&["help", "completion"], "/bin/zsh")
+            .contains(TIP)
     );
-    assert_eq!(
-        fs::read_to_string(rc).unwrap(),
-        "# user's existing content\n"
+    assert!(
+        !f.terminal_help(&["--help"], "/bin/unsupported")
+            .contains(TIP)
     );
+    let json = f.run(&["--help", "--json"], "/bin/zsh");
+    assert!(!json.status.success());
+    let _: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert!(!String::from_utf8_lossy(&json.stdout).contains(TIP));
+    assert!(!String::from_utf8_lossy(&json.stderr).contains(TIP));
+    assert!(!support::state_dir(&f.root).exists());
 }

@@ -1,130 +1,53 @@
 use super::*;
-use std::sync::atomic::{AtomicUsize, Ordering};
-static NEXT: AtomicUsize = AtomicUsize::new(0);
-struct Directory(PathBuf);
-impl Directory {
-    fn new() -> Self {
-        let path = std::env::temp_dir().join(format!(
-            "tmt-completion-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir(&path).unwrap();
-        Self(path)
-    }
-}
-impl Drop for Directory {
-    fn drop(&mut self) {
-        fs::remove_dir_all(&self.0).unwrap();
-    }
+
+fn inspect(shell: Shell, text: &str) -> Plan {
+    Plan::from_bytes(shell, "unused".into(), text.as_bytes().to_vec()).unwrap()
 }
 
 #[test]
-fn append_preserves_bytes_and_is_idempotent_for_each_shell() {
-    let root = Directory::new();
+fn configured_state_recognizes_only_current_shell_lines() {
     for shell in [Shell::Bash, Shell::Zsh, Shell::Fish] {
-        let path = root.0.join(shell.name());
-        let original = if shell == Shell::Zsh {
-            "# keep this\nautoload -Uz compinit\ncompinit"
-        } else {
-            "# keep this"
-        };
-        fs::write(&path, original).unwrap();
-        assert!(
-            Plan::inspect(shell, path.clone())
-                .unwrap()
-                .append()
-                .unwrap()
-        );
-        let expected = format!("{original}\n{}\n", shell.line());
-        assert_eq!(fs::read_to_string(&path).unwrap(), expected);
-        assert!(
-            !Plan::inspect(shell, path.clone())
-                .unwrap()
-                .append()
-                .unwrap()
-        );
-        assert_eq!(fs::read_to_string(path).unwrap(), expected);
+        assert!(inspect(shell, shell.line()).configured);
+        assert!(!inspect(shell, &format!("# {}", shell.line())).configured);
+        assert!(!inspect(shell, "").configured);
     }
-    assert_eq!(
-        fs::read_dir(&root.0).unwrap().count(),
-        3,
-        "no backup or lock sidecars"
-    );
+    assert!(!inspect(Shell::Bash, Shell::Fish.line()).configured);
 }
 
 #[test]
-fn old_duplicate_and_commented_lines_have_distinct_evidence() {
-    let text = "# source <(tmt completion bash)\nsource <(tmux-team completion bash)\nsource <(tmt __completion-script bash)\n";
-    let plan = Plan::from_bytes(Shell::Bash, "ignored".into(), text.into()).unwrap();
+fn duplicate_and_ambiguous_lines_have_distinct_evidence() {
+    let plan = inspect(Shell::Bash, &format!("{0}\n{0}\n", Shell::Bash.line()));
     assert!(plan.configured);
-    assert_eq!(plan.warnings.len(), 2);
-    assert!(!plan.append().unwrap());
-    let plan = Plan::from_bytes(
-        Shell::Bash,
-        "ignored".into(),
-        b"# source <(tmt completion bash)".to_vec(),
-    )
-    .unwrap();
+    assert_eq!(plan.warnings.len(), 1);
+    assert!(plan.warnings[0].contains("Multiple"));
+    let plan = inspect(Shell::Bash, "eval tmt __completion-script bash");
     assert!(!plan.configured);
+    assert!(plan.warnings[0].contains("inspect it manually"));
+}
+
+#[test]
+fn framework_initialization_is_advisory_and_ordering_requires_literal_evidence() {
+    for framework in [
+        "source \"$ZSH/oh-my-zsh.sh\"",
+        "source \"${ZDOTDIR:-$HOME}/.zprezto/init.zsh\"",
+        "autoload -Uz compinit",
+        "",
+    ] {
+        let plan = inspect(Shell::Zsh, &format!("{framework}\n{}", Shell::Zsh.line()));
+        assert!(plan.configured);
+        assert!(plan.warnings.iter().any(|s| s.contains("may initialize")));
+        assert!(!plan.warnings.iter().any(|s| s.contains("precedes")));
+    }
+    let plan = inspect(Shell::Zsh, &format!("{}\ncompinit\n", Shell::Zsh.line()));
+    assert!(plan.warnings.iter().any(|s| s.contains("precedes")));
+    let plan = inspect(
+        Shell::Zsh,
+        &format!("autoload -Uz compinit; compinit\n{}\n", Shell::Zsh.line()),
+    );
     assert!(plan.warnings.is_empty());
 }
 
 #[test]
-fn zsh_requires_recognized_initialization_and_never_edits_existing_lines() {
-    let root = Directory::new();
-    let path = root.0.join(".zshrc");
-    fs::write(&path, "autoload -Uz compinit\n").unwrap();
-    assert!(
-        Plan::inspect(Shell::Zsh, path.clone())
-            .unwrap()
-            .append()
-            .is_err()
-    );
-    assert_eq!(
-        fs::read_to_string(&path).unwrap(),
-        "autoload -Uz compinit\n"
-    );
-    fs::write(&path, "source <(tmt completion zsh)\ncompinit\n").unwrap();
-    let plan = Plan::inspect(Shell::Zsh, path).unwrap();
-    assert!(plan.configured);
-    assert!(plan.warnings.iter().any(|s| s.contains("precedes")));
-}
-
-#[test]
-fn changed_unreadable_and_ambiguous_files_are_preserved() {
-    let root = Directory::new();
-    let path = root.0.join(".bashrc");
-    let plan = Plan::inspect(Shell::Bash, path.clone()).unwrap();
-    fs::write(&path, "new user content\n").unwrap();
-    assert!(plan.append().is_err());
-    assert_eq!(fs::read_to_string(&path).unwrap(), "new user content\n");
-    fs::write(&path, "eval tmt completion bash\n").unwrap();
-    let plan = Plan::inspect(Shell::Bash, path.clone()).unwrap();
-    assert!(!plan.configured);
-    assert!(plan.append().is_err());
-    fs::write(&path, [0xff]).unwrap();
-    assert!(Plan::inspect(Shell::Bash, path).is_err());
-    assert!(Plan::inspect(Shell::Bash, root.0.clone()).is_err());
-}
-
-#[test]
-fn absolute_legacy_executables_require_manual_review_instead_of_a_duplicate_append() {
-    for command in ["/usr/local/bin/tmt", "'/opt/homebrew/bin/tmux-team'"] {
-        let text = format!("source <({command} completion bash)\n");
-        let plan = Plan::from_bytes(Shell::Bash, "ignored".into(), text.into_bytes()).unwrap();
-        assert!(
-            !plan.configured,
-            "complex line is not asserted to be configured"
-        );
-        assert!(
-            plan.warnings
-                .iter()
-                .any(|warning| warning.contains("old completion"))
-        );
-        assert!(
-            plan.append().is_err(),
-            "never add a duplicate to an unrecognized existing line"
-        );
-    }
+fn invalid_text_is_an_inspection_error() {
+    assert!(Plan::from_bytes(Shell::Bash, "unused".into(), vec![0xff]).is_err());
 }

@@ -318,11 +318,7 @@ mod tests {
         for invocation in [
             Invocation::Help(Vec::new()),
             Invocation::Version,
-            Invocation::Completion {
-                shell: None,
-                install: false,
-                yes: false,
-            },
+            Invocation::Completion { shell: None },
             Invocation::CompletionScript("bash".into()),
             Invocation::Init,
             Invocation::Run {

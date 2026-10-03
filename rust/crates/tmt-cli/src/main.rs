@@ -154,17 +154,23 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             let mut stdout = tmt_cli_style::stream::stdout(false);
             let terminal = stdout.terminal();
             help_output::write(&path, &discovered, terminal, &mut stdout)?;
+            if path.is_empty()
+                && !parsed.mode.json
+                && tmt_cli_style::Interaction::detect(parsed.mode.json).stdout
+                && completion_command::needs_setup()
+            {
+                writeln!(
+                    stdout,
+                    "Tip: shell completion is not set up; run tmt completion to see the line to add."
+                )?;
+            }
         }
         Invocation::Version => {
             write_exact(|stdout| writeln!(stdout, "{}", env!("CARGO_PKG_VERSION")))?
         }
         Invocation::Complete(words) => write_exact(|stdout| completion::query(&words, stdout))?,
-        Invocation::Completion {
-            shell,
-            install,
-            yes,
-        } => {
-            return completion_command::execute(shell.as_deref(), install, yes, parsed.mode);
+        Invocation::Completion { shell } => {
+            return completion_command::execute(shell.as_deref(), parsed.mode);
         }
         Invocation::CompletionScript(shell) => {
             write_exact(|stdout| grammar::completion::generate(&shell, stdout))?;
@@ -356,8 +362,14 @@ fn failure(mode: OutputMode, code: &'static str, message: &str) -> io::Result<u8
 
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
-pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
-    &[crate::cli_style_tests::HintSpec::skipped(
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "Tip: shell completion is not set up; run tmt completion to see the line to add.",
+        &[" to see the line to add."],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::skipped(
         "tmt runs no command for a host driver; a driver gets what it needs in its request.",
         "Executable or option reference in prose, not a full command suggestion.",
-    )];
+    ),
+];

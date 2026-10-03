@@ -746,11 +746,14 @@ durable task reply.
 
 `tmt completion` checks startup-file configuration for `$SHELL`; an explicit
 `bash`, `zsh` or `fish` overrides detection. The guide shows the exact file and
-line to add, with zsh placement after `compinit`, and warns about old or duplicate
-lines. This is textual configured-state evidence, not a check of functions loaded
-in the parent shell. `--json` reports the shell, installed state, file and line.
-`--install` appends only the displayed line after consent; noninteractive use
-requires `--yes`. Existing setup lines are preserved for manual correction.
+line to add manually, with zsh placement after completion initialization
+(`compinit` or your shell framework), and warns about duplicate lines. This is
+textual configured-state evidence, not a check of functions loaded in the parent
+shell. `--json` reports the shell, installed state, file and line. Completion never
+edits startup files. Public `completion` always guides or checks, even when piped.
+Only `__completion-script bash|zsh|fish` emits the script used by the setup line.
+Top-level terminal help offers a tip when the detected shell is not configured;
+piped help and inspection errors suppress the tip.
 Completion offers saved-first identity candidates and command-owned completion
 after `run`'s name. Discovery does not probe tmux or create storage. Provider
 completion scripts still require separate installation.

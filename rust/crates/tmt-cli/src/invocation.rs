@@ -27,8 +27,6 @@ pub enum Invocation {
     },
     Completion {
         shell: Option<String>,
-        install: bool,
-        yes: bool,
     },
     CompletionScript(String),
     Complete(Vec<std::ffi::OsString>),

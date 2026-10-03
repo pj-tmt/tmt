@@ -1213,10 +1213,12 @@ part of the change. CI never updates snapshots.
 Completion setup (#1470) has isolated adapter and real-CLI tests:
 `CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters completion_install` and
 `CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli --test completion_install`.
-They check preserved rc bytes, consent refusal, idempotence, shell detection,
-legacy warnings, TTY selection and byte equality of both script routes. The
-PTY fixture owns its terminal and HOME; never test installation against a real
-shell startup file. Run the CLI style and architecture guards with these checks.
+They check read-only startup-file evidence, shell detection, duplicate warnings,
+framework-managed zsh initialization, and script generation restricted to the
+hidden route. A real PTY checks the final top-level help hint, its suppression
+when configured, and silent inspection errors; piped and JSON help omit it.
+Fixtures own their terminals and HOMEs; never use a real shell startup file.
+Run the CLI style and architecture guards with these checks.
 
 The CLI style guards ([enforcement](design/cli-style.md#enforcement)) run in
 `cargo test`. When a migrated command leaves its list, run them directly from

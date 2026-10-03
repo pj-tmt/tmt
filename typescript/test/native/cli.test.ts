@@ -118,7 +118,7 @@ describe('native grammar process contract', () => {
   it('generates valid shells without offering rejected or unrelated options', async () => {
     await withSandbox(async (sandbox) => {
       for (const shell of ['bash', 'zsh']) {
-        const completion = await runCli(sandbox, ['completion', shell]);
+        const completion = await runCli(sandbox, ['__completion-script', shell]);
         expect(completion.status).toBe(0);
         expect(completion.stderr).toBe('');
         expect(completion.stdout).toContain('--save');

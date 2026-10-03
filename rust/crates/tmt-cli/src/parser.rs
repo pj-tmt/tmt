@@ -237,8 +237,6 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         },
         ["completion"] => Invocation::Completion {
             shell: text(m, "shell"),
-            install: flag(m, "install"),
-            yes: flag(m, "yes"),
         },
         ["__completion-script"] => Invocation::CompletionScript(required(m, "shell")),
         ["__complete"] => Invocation::Complete(

@@ -23,7 +23,7 @@ describe('native managed skill refresh', () => {
       expect(result.status).toBe(0);
       expect(result.stderr).toBe('');
       expect(parseWholeStdout(result)).toEqual({ refreshed: [], skipped: [], conflicts: [] });
-      for (const args of [[], ['completion', 'bash'], ['completion', 'zsh']]) {
+      for (const args of [[], ['__completion-script', 'bash'], ['__completion-script', 'zsh']]) {
         const help = await runCli(sandbox, args);
         expect(help.status).toBe(0);
         expect(help.stdout).not.toContain('__native-refresh-skills');

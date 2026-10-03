@@ -148,17 +148,15 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     .subcommand(
         general(spec!(
             "completion",
-            "Check and install shell completion",
-            details = "Checks startup-file configuration, not functions loaded in the current shell. Bash: ~/.bashrc; zsh: ${ZDOTDIR:-$HOME}/.zshrc (after compinit); fish: ${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish. The guide shows the exact source line. --install appends only with consent; noninteractive use requires --yes.",
+            "Check shell completion setup",
+            details = "Checks startup-file configuration, not functions loaded in the current shell. Bash: ~/.bashrc; zsh: ${ZDOTDIR:-$HOME}/.zshrc (after compinit); fish: ${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish. The guide shows the exact source line and file to edit manually. Startup files are never modified. Zsh initialization may be provided by your shell framework.",
             [
                 "Check completion for your shell" => "tmt completion",
-                "Install after reviewing the startup line" => "tmt completion zsh --install",
+                "Show the zsh startup line" => "tmt completion zsh",
                 "Inspect configured completion as JSON" => "tmt completion bash --json",
             ]
         ))
-        .arg(operand("shell", false).value_parser(["bash", "zsh", "fish"]).help("Shell to check (defaults to SHELL)"))
-        .arg(Arg::new("install").long("install").action(ArgAction::SetTrue).help("Append the displayed startup line after consent"))
-        .arg(option("yes").requires("install")),
+        .arg(operand("shell", false).value_parser(["bash", "zsh", "fish"]).help("Shell to check (defaults to SHELL)")),
     )
     .subcommand(
         internal("__completion-script", "Internal shell completion script")

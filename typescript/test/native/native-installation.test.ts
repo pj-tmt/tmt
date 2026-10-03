@@ -481,7 +481,7 @@ esac
       expect(help.stdout).not.toContain('__native-install');
       expect(help.stdout).not.toContain('--archive');
       for (const shell of ['bash', 'zsh']) {
-        const completion = await runCli(sandbox, ['completion', shell]);
+        const completion = await runCli(sandbox, ['__completion-script', shell]);
         expect(completion.status).toBe(0);
         expect(completion.stdout).not.toContain('__native-install');
         expect(completion.stdout).not.toContain('--product');

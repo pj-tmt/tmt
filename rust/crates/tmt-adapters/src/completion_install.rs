@@ -1,9 +1,8 @@
-//! Bounded startup-file inspection and consented append-only completion setup.
+//! Read-only, bounded startup-file evidence for shell completion.
 
 use crate::bounded_file::{self, FileReadError};
 use std::{
-    fs,
-    io::{self, Seek, SeekFrom, Write},
+    io,
     path::{Path, PathBuf},
 };
 
@@ -56,8 +55,6 @@ pub struct Plan {
     pub file: PathBuf,
     pub configured: bool,
     pub warnings: Vec<String>,
-    before: Vec<u8>,
-    safe_to_append: bool,
 }
 
 impl Plan {
@@ -80,20 +77,21 @@ impl Plan {
         let mut configured = 0;
         let mut candidates = 0;
         let mut warnings = Vec::new();
-        let mut compinit = false;
-        for (index, raw) in text.lines().enumerate() {
+        // Frameworks may initialize completion in sourced files. Literal calls
+        // provide ordering evidence only; startup files are never evaluated.
+        let compinit = text.lines().position(|raw| {
             let line = raw.split('#').next().unwrap_or("").trim();
-            // This is conservative textual evidence, never shell evaluation.
-            if line.split([';', '&']).any(|command| {
+            line.split([';', '&']).any(|command| {
                 let mut words = command.split_whitespace();
                 match words.next() {
                     Some("compinit") => true,
                     Some("command") => words.next() == Some("compinit"),
                     _ => false,
                 }
-            }) {
-                compinit = true;
-            }
+            })
+        });
+        for (index, raw) in text.lines().enumerate() {
+            let line = raw.split('#').next().unwrap_or("").trim();
             let words: Vec<_> = line
                 .split(|c: char| c.is_whitespace() || "();|<>".contains(c))
                 .filter(|word| !word.is_empty())
@@ -102,90 +100,38 @@ impl Plan {
                 let executable = Path::new(pair[0].trim_matches(['\'', '"']))
                     .file_name()
                     .and_then(|name| name.to_str());
-                matches!(executable, Some("tmt" | "tmux-team"))
-                    && matches!(pair[1], "completion" | "__completion-script")
+                executable == Some("tmt") && pair[1] == "__completion-script"
             }) {
                 continue;
             }
             candidates += 1;
             let normalized = line.split_whitespace().collect::<Vec<_>>().join(" ");
-            let legacy = normalized
-                .replace("tmux-team", "tmt")
-                .replace(" completion ", " __completion-script ");
             // Recognize documented one-line forms; complex shell constructs are
             // reported for manual inspection, not asserted to be installed.
-            let recognized = legacy == shell.line()
-                || (shell != Shell::Fish && legacy == shell.line().replacen("source ", ". ", 1));
+            let recognized = normalized == shell.line()
+                || (shell != Shell::Fish
+                    && normalized == shell.line().replacen("source ", ". ", 1));
             if recognized {
                 configured += 1;
-                if shell == Shell::Zsh && !compinit {
+                if shell == Shell::Zsh && compinit.is_some_and(|init| index < init) {
                     warnings.push(format!("Line {} precedes any recognized compinit call; place completion after compinit.", index + 1));
                 }
             } else {
                 warnings.push(format!("Line {} mentions completion but is not a recognized setup line for this shell; inspect it manually.", index + 1));
             }
-            if words.contains(&"completion") || words.contains(&"tmux-team") {
-                warnings.push(format!("Line {} uses an old completion command; replace it manually with the displayed line.", index + 1));
-            }
         }
         if candidates > 1 {
             warnings.push("Multiple completion lines found; remove duplicates manually.".into());
         }
-        if shell == Shell::Zsh && !compinit {
-            warnings.push("No compinit call recognized. Initialize zsh completion first, then add the displayed line after compinit.".into());
+        if shell == Shell::Zsh && compinit.is_none() {
+            warnings.push("No literal compinit call recognized; your shell framework may initialize completion. Place the displayed line after completion initialization.".into());
         }
-        let safe_to_append = candidates == 0 && (shell != Shell::Zsh || compinit);
         Ok(Self {
             shell,
             file,
             configured: configured > 0,
             warnings,
-            before,
-            safe_to_append,
         })
-    }
-
-    /// Caller has displayed this plan and obtained consent. Cooperating TMT
-    /// writers lock the rc inode; changed content refuses instead of rewriting.
-    /// No backup, replacement, shell execution, or extra setup line is produced.
-    pub fn append(&self) -> io::Result<bool> {
-        if self.configured {
-            return Ok(false);
-        }
-        if !self.safe_to_append {
-            return Err(io::Error::other(
-                "Resolve the startup-file warnings manually before installing completion.",
-            ));
-        }
-        let parent = self
-            .file
-            .parent()
-            .ok_or_else(|| io::Error::other("Startup file has no parent"))?;
-        fs::create_dir_all(parent)?;
-        let mut file = crate::file_lock::exclusive(&self.file)?;
-        let current =
-            bounded_file::read_opened(file.try_clone()?, MAXIMUM).map_err(io::Error::other)?;
-        if current != self.before {
-            return Err(io::Error::other(
-                "Startup file changed after inspection; review it and retry.",
-            ));
-        }
-        file.seek(SeekFrom::End(0))?;
-        let separator = if current.is_empty() || current.ends_with(b"\n") {
-            ""
-        } else {
-            "\n"
-        };
-        let addition = format!("{separator}{}\n", self.shell.line());
-        file.write_all(addition.as_bytes())
-            .and_then(|()| file.sync_all())
-            .map_err(|error| {
-                io::Error::other(format!(
-                    "Append may be incomplete; inspect {} before retrying: {error}",
-                    self.file.display()
-                ))
-            })?;
-        Ok(true)
     }
 }
 
