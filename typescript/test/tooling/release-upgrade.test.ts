@@ -22,6 +22,7 @@ import {
   releaseCommit,
   selectAssets,
   selectPrevious,
+  selectSupportFloor,
   stageRelease,
 } from '../../scripts/release-upgrade.mjs';
 import {
@@ -310,6 +311,129 @@ describe('fetchUpgrade and proveStaged', () => {
       readFileSync(path.join(directory, TARGET, 'previous', `tmt-cli-${TARGET}.tar.gz`), 'utf8')
     ).toBe(`v5.0.0-alpha.8:tmt-cli-${TARGET}.tar.gz`);
     expect(JSON.parse(readFileSync(path.join(directory, 'plan.json'), 'utf8'))).toEqual(plan);
+  });
+
+  it('stages both the declared CLI floor and last published source with the candidate bootstrap', () => {
+    const entries = [
+      release('v5.0.0-alpha.36', { targets: TARGETS }),
+      release('v5.0.0-alpha.45', { targets: TARGETS }),
+      release('v5.0.0-alpha.46', { draft: true, targets: TARGETS }),
+    ];
+    let candidate = entries[2];
+    const asset = { id: nextId++, name: 'install.sh', digest: digestOf('bootstrap') };
+    contents.set(asset.id, 'bootstrap');
+    candidate = { ...candidate, assets: [...(candidate.assets ?? []), asset] };
+    entries[2] = candidate;
+    const { directory, plan, downloads } = fetchInto('cli', candidate.tag_name, {
+      releases: entries,
+    });
+    expect(plan.floor).toBe('v5.0.0-alpha.36');
+    expect(plan.previous).toBe('v5.0.0-alpha.45');
+    expect(downloads).toHaveLength(7 * TARGETS.length);
+    const { calls } = prove(directory, {
+      product: 'cli',
+      tag: candidate.tag_name,
+      skill: 'candidate-skill',
+    });
+    expect(calls).toHaveLength(2);
+    expect(value(calls[0].args, '--previous-archive')).toContain('/previous/');
+    expect(value(calls[1].args, '--previous-archive')).toContain('/floor/');
+    for (const call of calls)
+      expect(value(call.args, '--bootstrap')).toBe(
+        path.join(directory, TARGET, 'candidate', 'install.sh')
+      );
+    const messages: string[] = [];
+    const acceptanceSources: string[] = [];
+    let compiles = 0;
+    proveArchiveAcceptance({
+      directory,
+      product: 'cli',
+      tag: candidate.tag_name,
+      target: TARGET,
+      report: (line) => messages.push(line),
+      execute: (command, args, options) => {
+        if (command === 'cargo') {
+          compiles++;
+          return JSON.stringify({
+            reason: 'compiler-artifact',
+            target: { name: 'tmt_adapters' },
+            profile: { test: true },
+            executable: '/fixture/tests',
+          });
+        }
+        if (args.includes('--list')) return `${ACCEPTANCE_TEST}: test\n`;
+        acceptanceSources.push(options.env.TMT_UPGRADE_OLD_ARCHIVE!);
+        return 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out;\n';
+      },
+    });
+    expect(compiles).toBe(1);
+    expect(acceptanceSources).toEqual(calls.map((call) => value(call.args, '--previous-archive')));
+    expect(
+      messages.filter((message) => message.includes('Real-archive adapter acceptance: passed'))
+    ).toHaveLength(2);
+    writeFileSync(path.join(directory, TARGET, 'floor', `tmt-cli-${TARGET}.tar.gz`), 'corrupt');
+    expect(() =>
+      prove(directory, { product: 'cli', tag: candidate.tag_name, skill: 'candidate-skill' })
+    ).toThrow('does not match its recorded digest');
+  });
+
+  it('reuses the previous source when it is the floor and refuses missing bootstrap evidence', () => {
+    const entries = [
+      release('v5.0.0-alpha.36', { targets: TARGETS }),
+      release('v5.0.0-alpha.37', { draft: true, targets: TARGETS }),
+    ];
+    expect(() => fetchInto('cli', entries[1].tag_name, { releases: entries })).toThrow(
+      'digest-checked install.sh'
+    );
+    const asset = { id: nextId++, name: 'install.sh', digest: digestOf('bootstrap') };
+    contents.set(asset.id, 'bootstrap');
+    entries[1] = { ...entries[1], assets: [...(entries[1].assets ?? []), asset] };
+    for (const assets of [
+      [...(entries[1].assets ?? []), asset],
+      (entries[1].assets ?? []).map((item) =>
+        item.name === 'install.sh' ? { ...item, digest: 'sha256:invalid' } : item
+      ),
+    ]) {
+      expect(() =>
+        fetchInto('cli', entries[1].tag_name, {
+          releases: [entries[0], { ...entries[1], assets }],
+        })
+      ).toThrow('exactly one digest-checked install.sh');
+    }
+    const { directory, plan } = fetchInto('cli', entries[1].tag_name, { releases: entries });
+    expect(Object.keys(plan.files).some((name) => name.includes('/floor/'))).toBe(false);
+    expect(
+      prove(directory, { product: 'cli', tag: entries[1].tag_name, skill: 'candidate-skill' }).calls
+    ).toHaveLength(1);
+    delete plan.files[`${TARGET}/candidate/install.sh`];
+    writeFileSync(path.join(directory, 'plan.json'), JSON.stringify(plan));
+    expect(() =>
+      prove(directory, { product: 'cli', tag: entries[1].tag_name, skill: 'candidate-skill' })
+    ).toThrow('install.sh has no recorded digest');
+    plan.floor = null;
+    writeFileSync(path.join(directory, 'plan.json'), JSON.stringify(plan));
+    expect(() =>
+      prove(directory, { product: 'cli', tag: entries[1].tag_name, skill: 'candidate-skill' })
+    ).toThrow('missing the declared support floor');
+  });
+
+  it('selects only the exact published floor, failing closed instead of substituting another source', () => {
+    const input = { product: 'cli', candidateTag: 'v5.0.0-alpha.46' };
+    for (const entries of [
+      [],
+      [release('v5.0.0-alpha.36', { draft: true })],
+      [release('v5.0.0-alpha.35')],
+      [release('v5.0.0-alpha.36'), release('v5.0.0-alpha.36')],
+    ])
+      expect(() => selectSupportFloor({ ...input, releases: entries })).toThrow(
+        'exactly one published support floor'
+      );
+    expect(
+      selectSupportFloor({ ...input, candidateTag: 'v5.0.0-alpha.36', releases: [] })
+    ).toBeNull();
+    expect(
+      selectSupportFloor({ product: 'squad', candidateTag: 'tmt-squad-v1.0.0', releases: [] })
+    ).toBeNull();
   });
 
   it('adds the newest published CLI as the driver of an extension', () => {

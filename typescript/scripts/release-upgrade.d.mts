@@ -5,6 +5,11 @@ export function selectPrevious(input: {
   product: string;
   candidateTag: string;
 }): DraftRelease | null;
+export function selectSupportFloor(input: {
+  releases: readonly DraftRelease[];
+  product: string;
+  candidateTag: string;
+}): DraftRelease | null;
 export function archiveTargets(input: { release: DraftRelease; product: string }): string[];
 export function selectAssets(input: { release: DraftRelease; product: string; target: string }): {
   archive: DraftAsset;
@@ -22,6 +27,7 @@ export interface UpgradePlan {
   product: string;
   tag: string;
   previous: string | null;
+  floor: string | null;
   driver: string | null;
   files: Record<string, string>;
 }

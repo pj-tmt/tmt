@@ -60,6 +60,7 @@ function steps(workflow: string, job: string): string[] {
 describe('macOS toolchain warm-up before the native runtime proof', () => {
   it('finds the proof consumers the workflows run', () => {
     expect(proofConsumers()).toEqual([
+      'native-upgrade-proof.mjs',
       'verify-native-artifact.mjs',
       'verify-native-bootstrap.mjs',
       'verify-native-driver-upgrade.mjs',

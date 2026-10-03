@@ -146,7 +146,7 @@ describe('Intel workflow coverage', () => {
         mkdirSync(path.join(root, 'scripts'));
         writeExecutable(path.join(root, 'scripts/run-native-verification.sh'), wrapper);
         for (const [name, mode] of [
-          ['Upgrade from the last published release', 'prove'],
+          ['Prove last-published and declared-floor installation and bootstrap recovery', 'prove'],
           ['Prove the real-archive CLI upgrade adapter', 'acceptance'],
         ]) {
           const step = workflow.split(`      - name: ${name}\n`)[1].split('\n      - name:')[0];
