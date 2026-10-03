@@ -119,7 +119,7 @@ fn wrapped_fixed_slots_reserve_lines_before_scroll_and_remeasure_on_resize() {
     let markup = MARKUP
         .replace("slot=\"status\"", "slot=\"status\" wrap=\"true\"")
         .replace("slot=\"footer\"", "slot=\"footer\" wrap=\"true\"");
-    let status = "Saved layout crew; local settings can override them.";
+    let status = "Saved preferences; local values can override them.";
     let footer = "Up Down scroll; Escape closes this reference.";
     let scene = compile(
         "wrapped.xml",

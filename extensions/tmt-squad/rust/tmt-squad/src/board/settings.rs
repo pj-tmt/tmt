@@ -61,12 +61,19 @@ struct ReferenceStyle {
     notice_role: &'static str,
 }
 
+#[derive(PartialEq, Eq)]
+struct PromptStyle {
+    width: u16,
+    height: usize,
+    notice_role: &'static str,
+}
+
 pub(super) struct Overlay {
     pub settings: BoardSettings,
     pub surface: RefCell<picker_surface::State>,
     prompt: RefCell<picker_surface::State>,
     reference_template: RefCell<Option<CachedTemplate<ReferenceStyle>>>,
-    prompt_template: RefCell<Option<CachedTemplate<(usize, &'static str)>>>,
+    prompt_template: RefCell<Option<CachedTemplate<PromptStyle>>>,
     display_path: String,
     config: Option<Config>,
     pub draft: Option<Config>,
@@ -415,7 +422,13 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
     if let Some((name, text)) = &overlay.editing {
         // Raw edit text stays in the existing Config controller. Markup owns
         // fitting, wrapped validation, docking, opacity and fixed key hints.
-        let width = body.width.saturating_sub(4);
+        let width = tmt_tui::components::Modal {
+            title: String::new(),
+            placement: tmt_tui::components::Placement::Docked,
+        }
+        .areas(body, [body.width, body.height], true, true)
+        .content
+        .width;
         let status = overlay
             .notice
             .as_ref()
@@ -426,10 +439,15 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
             .saturating_add(5)
             .min(usize::from(u16::MAX));
         let markup = format!(
-            r#"<tmt-view version="1"><tmt-modal id="settings-edit" title="settings · preview" placement="docked" class="h-{height}"><tmt-scroll id="body"/><tmt-text slot="query" bind="$.query" token="text" class="truncate-middle"/><tmt-text slot="status" bind="$.status" token="{}" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#,
+            r#"<tmt-view version="1"><tmt-modal id="settings-edit" title="settings · preview" placement="docked" class="w-{} h-{height}"><tmt-scroll id="body"/><tmt-text slot="query" bind="$.query" token="text" class="truncate-middle"/><tmt-text slot="status" bind="$.status" token="{}" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#,
+            body.width,
             notice_role(overlay.notice.as_ref())
         );
-        let key = (height, notice_role(overlay.notice.as_ref()));
+        let key = PromptStyle {
+            width: body.width,
+            height,
+            notice_role: notice_role(overlay.notice.as_ref()),
+        };
         let mut cache = overlay.prompt_template.borrow_mut();
         if cache.as_ref().is_none_or(|old| old.key != key) {
             *cache = Some(CachedTemplate {
@@ -438,7 +456,7 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
             });
         }
         let template = &cache.as_ref().unwrap().template;
-        overlay.prompt.borrow_mut().render_modal(FILE, template, json!({"rows":[], "query":format!("{name}: {text}▏"), "status":status, "footer":"Enter save · Esc cancel · Ctrl-U clear", "height":height}), frame, look, body);
+        overlay.prompt.borrow_mut().render_modal(FILE, template, json!({"rows":[], "query":format!("{name}: {text}▏"), "status":status, "footer":"Enter save · Esc cancel · Ctrl-U clear", "height":height, "width":body.width}), frame, look, body);
         return;
     }
     let width = usize::from(body.width.saturating_sub(4));
@@ -809,6 +827,38 @@ mod tests {
                 .selected(),
             old.as_deref()
         );
+    }
+    #[test]
+    fn docked_edit_reserves_width_for_query_and_wrapped_validation_at_all_board_widths() {
+        let mut f = fixture("prompt-width", "");
+        edit(&mut f.app, "board.sizes", "[30,70]");
+        for width in [160, 100, 80, 24, 160] {
+            let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
+            let overlay = f.app.settings.as_ref().unwrap();
+            terminal
+                .draw(|frame| render(frame, overlay, f.app.look(), frame.area()))
+                .unwrap();
+            let state = overlay.prompt.borrow();
+            let map = state.frame.as_ref().unwrap();
+            assert_eq!(
+                map.areas.outer.width,
+                if width < 100 { width } else { width * 9 / 10 }
+            );
+            assert_eq!(map.areas.outer.bottom(), 30);
+            let text: String = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect();
+            assert!(text.contains("▏"));
+            assert!(text.contains("✓ valid"));
+            if width >= 80 {
+                assert!(text.contains("board.sizes: [30,70]▏"));
+            }
+        }
+        assert_eq!(std::fs::read_to_string(&f.path).unwrap(), f.original);
     }
     #[test]
     fn each_supported_area_previews_without_writing_and_cancel_restores_it() {
