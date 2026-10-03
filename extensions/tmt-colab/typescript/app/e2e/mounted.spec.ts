@@ -184,6 +184,7 @@ test('verified metadata with no wraps keeps the page blocked and opens no render
   await expect(page.getByRole('alert')).toContainText('no verified page key');
   await expect(page.locator('iframe')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Export page' })).toHaveCount(0);
 });
 
 test('a successful HTTP registration with a forged certificate remains blocked', async ({

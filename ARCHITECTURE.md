@@ -4917,8 +4917,25 @@ into a fresh UUID directory, checking identities and bytes. Manifest publication
 is last. Cleanup removes only checked invocation-owned staging; partial output
 is preserved and reported. It promises returned-error cleanup, not crash recovery.
 The [export contract](extensions/tmt-colab/contracts/colab-v1.md#plaintext-page-export-1309)
-owns the two-file format, disclosure and discussion exclusion. Browser downloads
-remain the next #1309 slice.
+owns the two-file format, disclosure and discussion exclusion.
+
+### Browser plaintext export
+
+The mounted `Live.export` binding captures its committed parent-held projection
+and `Admission`'s verified head/epoch together through `Connection.run`. It waits
+for ready catchup and rechecks binding/key/page admission; drafts and local sample
+adapters provide no export capability. `export` copies those inputs before
+asynchronous hashing and produces the native format, pinned byte-for-byte by one
+contract-owned fixture consumed by both serializers. No plaintext endpoint,
+store write, Worker decoding request or renderer callback is added.
+
+`export-panel` owns trusted parent clicks, a frozen bundle, per-file requested
+state and close/navigation cleanup. `Downloads` owns literal attachment filenames
+and temporary Blob URLs; each handoff has bounded revocation and panel cleanup
+revokes outstanding URLs. Browser requests cannot prove local persistence.
+Subsequent live edits never change an open bundle. Blocked bindings disable and
+close the panel; archived export remains deferred with the current admission
+policy. The renderer's handshake and source injection remain unchanged.
 
 ### Stream sync transport
 

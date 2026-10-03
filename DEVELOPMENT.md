@@ -3291,8 +3291,9 @@ bundles, verified manifest hashes and admission/capacity denial. Real subprocess
 verify CLI help/human/JSON/defaults and read-only state handling. Descriptor-level
 publication tests prove permissions, collisions, symlink refusal, manifest-last
 partial output and preservation of replaced/foreign staging entries. Run the
-normal Colab Rust gates and docs formatting before handoff. Browser download
-verification is added with the subsequent #1309 browser slice.
+normal Colab Rust gates and docs formatting before handoff. The shared
+`contracts/vectors/export-v1.json` fixture also proves exact native manifest
+serialization against the browser format with an injected export time.
 
 ### Colab owner transition verification
 
@@ -3567,6 +3568,25 @@ corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app exec playwright i
 corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-match test:browser
 corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-match dev
 ```
+
+Mounted pages offer Export page in trusted parent chrome. Open it to read the
+plaintext disclosure, then request `page.html` and `manifest.json` separately.
+The panel copies the last admitted committed page, including its exact title,
+epoch and verified owner head; unsaved source drafts are excluded. Both files
+stay fixed while the live page changes. A partial/requested state records browser
+requests only: inspect browser downloads to confirm saved files. Local sample
+pages have no export capability; archived export remains deferred until #1348.
+
+`test/export.test.ts` and the native export serializer consume the same
+`contracts/vectors/export-v1.json` fixture for byte-identical manifest output,
+including key order, decimal revision/epoch and lowercase hex hashes. Unit cases
+cover exact UTF-8, input freezing, admission/size denial and URL cleanup/failure.
+The signed mounted live/baseline suite downloads real files, excludes unsaved
+drafts, freezes through live edits, ignores renderer/programmatic requests and
+checks preparation/partial/close/navigation cleanup. Run app check/test/build,
+the app Chromium suite and the normal native/docs/layout gates before handoff.
+Screenshot artifacts from the export case are `/private/tmp/1309-export-light.png`,
+`1309-export-dark.png` and `1309-export-mobile.png`.
 
 The Ask preview foundation (#1312) has no production selection/threads entry
 point or live remote operation adapter. `test/ask.test.ts` verifies independent

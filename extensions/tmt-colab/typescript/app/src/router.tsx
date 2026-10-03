@@ -12,6 +12,7 @@ import type { PageTransport } from './transport.js';
 import { mountRenderer } from './renderer.js';
 import type { RenderState } from './renderer.js';
 import { text } from './strings.js';
+import { ExportPanel } from './export-panel.js';
 
 const root = createRootRouteWithContext<{ transport: PageTransport }>()({
   component: Shell,
@@ -194,6 +195,7 @@ function Page() {
         </button>
       </div>
       {view.ownData && <p role="status">{text.ownNotDisplayed}</p>}
+      <ExportPanel key={snapshot.id} binding={snapshot.binding} blocked={!!liveError} />
       <div className={`workspace ${showSource ? 'split' : ''}`}>
         {showSource && (
           <div className="source">

@@ -1,3 +1,4 @@
+import type { ExportBundle } from './export.js';
 import type { OwnState, Projection } from './fold-protocol.js';
 export interface PageView extends Projection {
   readonly ownData?: boolean;
@@ -17,6 +18,7 @@ export interface PageSnapshot extends PageSummary {
 export interface PageBinding {
   subscribe(publish: (value: PageView) => void, failed: (error: Error) => void): () => void;
   edit(source: string, base: string): Promise<void>;
+  export(): Promise<ExportBundle>;
   close(): void;
 }
 export interface SpaceHome {
