@@ -1867,9 +1867,19 @@ metadata and reports the installation current (a newer alpha that appeared since
 note). An extension alpha is installed by the newest published CLI's `tmt extension install
 <extension>` into a separate prefix; `tmt extension list` must report the tag's version and no
 CLI link may appear. The tag is
-checked out only so its skills can be read; none of its code runs. The network steps get three
-attempts, and a GitHub API rate limit that persists is reported as one (the installed CLI reads
-the release list unauthenticated). A failed leg keeps its failed checks as data, and a final job
+checked out only so its skills can be read; none of its code runs. All smoke acquisition stays
+unauthenticated. Only a native JSON failure with the classified `GitHub API rate limit:
+reset/earliest retry time ...` cause may retry its failed acquisition step: at most two
+attempts, waiting until the diagnostic's UTC epoch plus one second, with a five-minute
+wait limit. Missing timing, a reset beyond the limit or a repeated limit fails clearly with
+`github-api-rate-limit` infrastructure data. Any other failure (including a bare 403/429,
+a stale latest installer, mixed diagnostics or a real error after retry) fails immediately.
+The smoke job has a 25-minute bound. Infrastructure-only failures open a separate
+`Release <tag> public install blocked by GitHub API rate limit` issue; they do not claim a
+broken release. Mixed or real failures retain the post-publication failure issue. Both
+conclusions fail the job and retain artifacts from all four hosts. Missing or malformed
+host evidence cannot establish an infrastructure-only failure; nothing is silently accepted.
+A failed leg keeps its failed checks as data, and a final job
 with `issues: write` comments on, or opens, the issue of the checks above; nothing is rolled
 back. Both `publish` and `published` run `main`'s code and never the release commit's: `publish`
 holds the write token, `published` only read access and `issues: write`; the install legs have
@@ -2440,8 +2450,11 @@ repeat the occurrence. Complete healthy discovery closes it automatically.
 Ambiguous discovery or mutation errors leave a visible summary warning; resolve
 multiple matching issues before retrying. Dry runs only summarize and do not
 edit issues. If the App token is unavailable, dry reads cannot observe drafts,
-as described in the safety gate above. The detector never edits release PRs,
-tags, drafts or publication state. Fixtures verify both thresholds, component
+as described in the safety gate above. For current published manifest tags, the monitor also
+reads open reporter issues and distinguishes public-smoke rate-limit infrastructure
+from real post-publication check failures. It recommends retrying smoke after reset for the former, never publication.
+Old release issues and pull requests are ignored; unavailable issue discovery cannot
+declare healthy. The detector never edits release PRs, tags, drafts or publication state. Fixtures verify both thresholds, component
 isolation, real pinned planning, occurrence lifecycle and nonblocking failure.
 
 ## Conventional PR-title rollout

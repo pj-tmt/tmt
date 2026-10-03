@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { runPackedCommand } from './packed-command.mjs';
 import { parseComponentMap } from './ci-scope.mjs';
 import { releasePolicy } from './native-release-policy.mjs';
+import { postPublicationIssueTitles } from './release-publish.mjs';
 import { releaseNoteLinks } from './release-pr-safety.mjs';
 import {
   attributeReleaseConsumption,
@@ -268,11 +269,41 @@ export async function detectReleaseStalls({
         );
     }
   }
+  // Observe the reporter's distinct issue conclusions only for current published manifest tags.
+  let warning;
+  try {
+    const issues = client.list('issues?state=open');
+    for (const component of components.filter((item) => item.release !== false)) {
+      const tag = `${releasePolicy(component.name).tagPrefix}${manifest[component.owns[0]]}`;
+      if (!publishedTags.has(tag)) continue;
+      const titles = postPublicationIssueTitles(tag);
+      const hasFailure = issues.some(
+        (issue) => !issue.pull_request && issue.title === titles.failure
+      );
+      for (const issue of issues) {
+        const limited = issue.title === titles.rateLimit && !hasFailure;
+        const broken = issue.title === titles.failure;
+        if (issue.pull_request || (!limited && !broken)) continue;
+        if (!Number.isSafeInteger(issue.number) || issue.number < 1)
+          throw new Error('Invalid post-publication issue evidence.');
+        findings.push(
+          occurrence(
+            `public-install:${issue.number}`,
+            limited
+              ? `${tag}: public smoke infrastructure blocked by GitHub API rate limit (issue #${issue.number}); retry smoke after reset, not publication. No broken release is established.`
+              : `${tag}: published release checks failed (issue #${issue.number}); investigate the install or publication failure.`
+          )
+        );
+      }
+    }
+  } catch (error) {
+    warning = `Post-publication smoke evidence unavailable: ${error.message}`;
+  }
   const pulls = client.list('pulls?state=open&base=main');
   const releasePulls = pulls.filter(
     (pr) => pr.head?.ref?.startsWith(PREFIX) && pr.head?.repo?.full_name === client.repository
   );
-  if (!releasePulls.length) return { findings };
+  if (!releasePulls.length) return { findings, warning };
   try {
     const candidates = await plan({ client, components, releases });
     for (const pr of releasePulls) {
@@ -303,9 +334,9 @@ export async function detectReleaseStalls({
         )
       );
     }
-    return { findings };
+    return { findings, warning };
   } catch (error) {
-    return { findings, warning: error.message };
+    return { findings, warning: [warning, error.message].filter(Boolean).join('; ') };
   }
 }
 

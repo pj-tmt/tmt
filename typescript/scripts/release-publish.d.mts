@@ -39,6 +39,7 @@ export interface CheckResult {
   readonly check: string;
   readonly ok: boolean;
   readonly reason: string;
+  readonly infrastructure?: 'github-api-rate-limit';
 }
 
 export function publishBlocker(input: {
@@ -70,6 +71,7 @@ export function verifyPublication(input: {
   attempts?: number;
   sleep?: (milliseconds: number) => void;
 }): CheckResult[];
+export function postPublicationIssueTitles(tag: string): { failure: string; rateLimit: string };
 export function renderFailureIssue(input: {
   tag: string;
   results: readonly CheckResult[];
@@ -81,7 +83,10 @@ export function reportFailure(input: {
   results: readonly CheckResult[];
   runUrl?: string;
 }): { issue: number; created: boolean };
-export function readSmokeFailures(directory: string): CheckResult[];
+export function readSmokeFailures(
+  directory: string,
+  options?: { expectedResults?: number }
+): CheckResult[];
 export function renderVerifySummary(input: {
   tag: string;
   results: readonly CheckResult[];

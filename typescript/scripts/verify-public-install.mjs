@@ -32,8 +32,8 @@ import { isReleased, parseComponentMap } from './ci-scope.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 import { compareVersions, isAlphaVersion, versionOfTag } from './release-versions.mjs';
 
-const ATTEMPTS = 3;
-const WAIT_MS = 20_000;
+const ATTEMPTS = 2;
+const MAX_WAIT_MS = 5 * 60_000;
 const COMPONENTS = fileURLToPath(new URL('../../.github/components.json', import.meta.url));
 
 export const installerUrl = (repository) =>
@@ -54,25 +54,56 @@ async function fetchText(url) {
   return response.text();
 }
 
-/**
- * Runs `step` up to `attempts` times, for the steps that reach GitHub. A failure that stays is
- * reported as what it looks like: unauthenticated API calls from a shared runner address can be
- * rate limited, and that is not a fault of the release.
- */
-async function withAttempts(label, step, { attempts = ATTEMPTS, wait = sleep } = {}) {
-  let last;
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+/** Only the native acquisition diagnostic is retryable; HTTP status alone is not evidence. */
+function rateLimitDiagnostic(error) {
+  const result = error.cause;
+  if (!result || result.status !== 1 || result.stderr !== '') return null;
+  try {
+    const { error: failure } = JSON.parse(result.stdout);
+    if (!['NATIVE_UPGRADE_FAILED', 'EXTENSION_INSTALL_FAILED'].includes(failure?.code)) return null;
+    const cause = failure.cause;
+    if (
+      typeof cause !== 'string' ||
+      !/^GitHub API rate limit: reset\/earliest retry time [^\n]+; the (?:required wait exceeds the remaining deadline|single retry was exhausted)\. Retry later or optionally set GITHUB_TOKEN\.$/.test(
+        cause
+      )
+    )
+      return null;
+    return cause;
+  } catch {
+    return null;
+  }
+}
+
+/** Retry only the failed acquisition, at most once and with at most five minutes of waiting. */
+async function withAttempts(label, step, { wait = sleep, now = Date.now } = {}) {
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
     try {
       return await step();
     } catch (error) {
-      last = error;
-      if (attempt < attempts) await wait(WAIT_MS);
+      const diagnostic = rateLimitDiagnostic(error);
+      if (!diagnostic) throw error;
+      const epoch = diagnostic.match(/\(UTC epoch (\d+)\)/)?.[1];
+      const retryAtMs = epoch === undefined ? NaN : Number(epoch) * 1000;
+      const waitMs = Math.max(1000, retryAtMs - now() + 1000);
+      const reason =
+        attempt === ATTEMPTS
+          ? `attempt bound exceeded (${ATTEMPTS} attempts)`
+          : !Number.isSafeInteger(retryAtMs)
+            ? 'reset time unavailable'
+            : waitMs > MAX_WAIT_MS
+              ? `wait bound exceeded (${MAX_WAIT_MS / 1000} seconds)`
+              : '';
+      if (reason) {
+        const failure = new Error(
+          `Public install infrastructure: ${label}: ${reason}; ${diagnostic}`
+        );
+        failure.infrastructure = 'github-api-rate-limit';
+        throw failure;
+      }
+      await wait(waitMs);
     }
   }
-  const limited = /rate limit|\b(403|429)\b|too many requests/i.test(last.message);
-  throw new Error(
-    `${limited ? 'GitHub rate limit: ' : ''}${label} failed after ${attempts} attempts: ${last.message}`
-  );
 }
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -120,6 +151,7 @@ export async function smokeRelease({
   root,
   fetch: read = fetchText,
   wait = sleep,
+  now = Date.now,
   systemPath = ['/usr/bin', '/bin', '/usr/sbin', '/sbin'],
 }) {
   const version = versionOfTag(tag, product);
@@ -154,6 +186,7 @@ export async function smokeRelease({
         check: name,
         ok: false,
         reason,
+        ...(error.infrastructure ? { infrastructure: error.infrastructure } : {}),
         ...(detail === reason ? {} : { detail }),
       });
       return false;
@@ -163,42 +196,26 @@ export async function smokeRelease({
 
   let installer = '';
   const fetched = await check('public installer', async () => {
-    installer = await withAttempts(
-      'the public installer',
-      async () => {
-        const text = await read(installerUrl(repository));
-        const embedded = /^\s*version='([^']+)'$/m.exec(text)?.[1];
-        if (!embedded) throw new Error('the installer names no version');
-        // `latest` can lag the publication by a moment, hence the attempts.
-        if (isCli && embedded !== version) {
-          throw new Error(`the latest installer is for ${embedded}, not ${version}`);
-        }
-        return text;
-      },
-      { wait }
-    );
+    installer = await read(installerUrl(repository));
+    const embedded = /^\s*version='([^']+)'$/m.exec(installer)?.[1];
+    if (!embedded) throw new Error('the installer names no version');
+    if (isCli && embedded !== version)
+      throw new Error(`the latest installer is for ${embedded}, not ${version}`);
     return `embeds ${/^\s*version='([^']+)'$/m.exec(installer)[1]}`;
   });
   if (!fetched) return results;
 
   const installed = await check('install', async () => {
-    await withAttempts(
-      'the installer run',
-      async () => {
-        const result = spawnSync('sh', ['-s', '--', '--prefix', prefix, '--no-setup'], {
-          input: installer,
-          env,
-          cwd: root,
-          encoding: 'utf8',
-          timeout: 300_000,
-        });
-        if (result.error) throw result.error;
-        if (result.status !== 0) {
-          throw new Error(`the installer exited ${result.status}: ${oneLine(result.stderr)}`);
-        }
-      },
-      { wait }
-    );
+    const result = spawnSync('sh', ['-s', '--', '--prefix', prefix, '--no-setup'], {
+      input: installer,
+      env,
+      cwd: root,
+      encoding: 'utf8',
+      timeout: 300_000,
+    });
+    if (result.error) throw result.error;
+    if (result.status !== 0)
+      throw new Error(`the installer exited ${result.status}: ${oneLine(result.stderr)}`);
   });
   if (!installed) return results;
 
@@ -241,7 +258,7 @@ export async function smokeRelease({
       const stdout = await withAttempts(
         'tmt upgrade',
         () => tmt(['upgrade', '--channel', 'alpha', '--json']),
-        { wait }
+        { wait, now }
       );
       const report = JSON.parse(stdout);
       if (resolved(report.executable) !== resolved(binary)) {
@@ -278,7 +295,7 @@ export async function smokeRelease({
             ],
             { timeoutMs: 300_000 }
           ),
-        { wait }
+        { wait, now }
       )
     );
     if (report.version !== version)

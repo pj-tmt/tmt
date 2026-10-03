@@ -32,11 +32,16 @@ export function runPackedCommand(
   assert.equal(result.signal, null, `Packed command terminated: ${result.signal}: ${command}`);
   // The first line carries the cause, because the release hold reason keeps only that line. A CLI
   // run with `--json` reports its error on stdout, so the failure shows both streams.
-  const failure = (what, streams) =>
-    assert.fail(
-      `Packed command ${what}: ${shortName(executable, args)}${firstDetail(result.stdout, result.stderr)}\n` +
-        `command: ${command}\n${streams}`
-    );
+  const failure = (what, streams) => {
+    const error = new assert.AssertionError({
+      message:
+        `Packed command ${what}: ${shortName(executable, args)}${firstDetail(result.stdout, result.stderr)}\n` +
+        `command: ${command}\n${streams}`,
+    });
+    // Structured streams let callers classify a failure without parsing truncated log text.
+    error.cause = { status: result.status, stdout: result.stdout, stderr: result.stderr };
+    throw error;
+  };
   if (result.status !== expectedStatus) {
     failure(
       `failed (exited ${result.status}, expected ${expectedStatus})`,

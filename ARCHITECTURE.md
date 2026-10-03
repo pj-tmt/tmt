@@ -3671,7 +3671,11 @@ contention, crash cleanup, retention, acknowledgment and late-final behavior.
 Tooling tests prove release-script policy and bounded command wrappers; they do
 not count as native runtime or release-archive proof.
 The public-install smoke keeps short issue reasons and separate bounded command
-diagnostics in its run log and result artifact; the packed runner owns stream capture.
+diagnostics in its run log and result artifact; the packed runner owns stream capture
+and retains structured failed-command streams for classification. The smoke owner alone
+recognizes native acquisition JSON rate-limit causes and applies bounded reset-time retries
+to the failed step; status codes, unrelated diagnostics and validation failures are not retry
+signals. Exhaustion remains a failed job with typed infrastructure evidence.
 
 Docker E2E `harness.ts` retains scenario imports; `harness/fixture.ts` owns
 fixture resources and process registries.
@@ -3834,8 +3838,10 @@ it emits only matching draft path/ID/tag/time metadata alongside held paths.
 A separate advisory job consumes those outputs with only `contents: read` and
 `issues: write` permission. It holds no App token or Environment secrets: all of
 its own REST uses `github.token` for published releases, PR/head ancestry and the
-single fixed-title `Release stalled` issue. Later publication supersedes the
-snapshot; missing or malformed draft evidence cannot declare healthy. Stable occurrence
+single fixed-title `Release stalled` issue, plus open post-publication reporter issues for
+current published manifest tags. Rate-limit infrastructure and real check failures produce
+distinct advisory findings; neither permits publication replay. Later publication
+supersedes the snapshot; missing or malformed draft evidence cannot declare healthy. Stable occurrence
 markers in comments suppress retry duplicates; healthy complete discovery closes
 the same issue. Uncertainty warns without closing, and dry runs only summarize.
 Its request/deadline budget and isolated workflow timeout keep all monitor failures
@@ -3872,7 +3878,13 @@ component with `release: false`, a draft without the bundle and one with a hold 
 marker, and the planner leaves the drafts of such a component alone; one `gh release edit` applies the product policy's explicit draft,
 prerelease and latest flags), and a job without write access to contents reads the release back: public, immutable,
 the policy's flags, the tag on the release commit and GitHub's attestation for the release and
-every asset. A failed check opens an issue and fails the run; nothing is rolled back. A read-only `native-release-smoke.yml` then installs the published release as a user does, on the four hosts in an isolated environment: the public installer and `tmt upgrade` for the CLI, the newest published CLI's extension install for an extension; its failures are reported on the same issue by a separate job. CLI, Office and Squad runs share the four-target cargo-dist build and
+every asset. A failed check opens an issue and fails the run; nothing is rolled back.
+A read-only `native-release-smoke.yml` then installs the published release as a user does,
+on the four hosts in an isolated environment: the public installer and `tmt upgrade` for
+the CLI, the newest published CLI's extension install for an extension. Its real failures
+are reported on the same issue by a separate job, while exhausted classified rate limits
+use a distinct infrastructure issue. Both fail the smoke job. CLI, Office and Squad runs
+share the four-target cargo-dist build and
 archive verifier, while keeping product-qualified bundles, independent versions and separate
 immutable tags.
 Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill
