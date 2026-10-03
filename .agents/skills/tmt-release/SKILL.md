@@ -133,6 +133,9 @@ Preserve its real absence and surviving-group controls; synthetic fixture succes
 does not authorize publication or replace artifact acceptance.
 
 - For Rust archives, follow the guide's native Rust release archive procedure.
+  Generate the offline clarification config before calling cargo-about directly,
+  as documented there; keep its vendored-license checksum and version checks,
+  `--fail` and the archive verifier's placeholder rejection intact.
   Keep cargo-dist's manifest as the artifact metadata owner; independently verify
   bounded extraction, notices, linkage, skill installation and persisted state.
   Raw PR runtime checks do not establish release archive correctness. Do not enable a
