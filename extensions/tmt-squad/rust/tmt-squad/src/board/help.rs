@@ -176,17 +176,17 @@ pub(super) fn model(app: &App) -> KeyHelp {
     if let Some(rate) = app.view.as_ref().and_then(|view| view.token_rate.as_ref()) {
         let windows = format!(
             "{}; observed totals, no persisted history",
-            rate.settings.windows.map(|window| window.label()).join(" / ")
+            rate.settings
+                .windows
+                .map(|window| window.label())
+                .join(" / ")
         );
         let mut meter = section(
             "meter",
             "tokens",
             &[
                 ("windows", &windows),
-                (
-                    "trend",
-                    "eight bucket-aligned observed-token slices",
-                ),
+                ("trend", "eight bucket-aligned observed-token slices"),
                 (
                     "coverage",
                     "no data hides the meter; measured zero is 0; — is unreported; ~ is incomplete window/coverage",
