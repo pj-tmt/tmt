@@ -93,6 +93,7 @@ fn exercise(reply: Reply, version: &str) -> QueueOutcome {
     let client = Client::connect(&endpoint, Instant::now() + Duration::from_secs(2)).unwrap();
     let result = client.queue(
         &QueueRequest::new(ProviderSessionId::new("owned-thread").unwrap(), "tiny").unwrap(),
+        Instant::now() + Duration::from_secs(2),
     );
     let listener = server.join().unwrap();
     listener.set_nonblocking(true).unwrap();
@@ -327,10 +328,12 @@ fn partial_delivery_receipt_expires_uncertain_without_resend() {
         start + Duration::from_millis(150),
     )
     .unwrap();
+    let delivery_started = Instant::now();
     let result = client.queue(
         &QueueRequest::new(ProviderSessionId::new("owned-thread").unwrap(), "tiny").unwrap(),
+        delivery_started + Duration::from_millis(150),
     );
-    let elapsed = start.elapsed();
+    let elapsed = delivery_started.elapsed();
     let _ = stop.send(());
     let listener = server.join().unwrap();
     listener.set_nonblocking(true).unwrap();

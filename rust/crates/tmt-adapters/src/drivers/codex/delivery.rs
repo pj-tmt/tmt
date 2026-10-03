@@ -42,6 +42,15 @@ pub fn enrolled(directory: &Path, binding: &str) -> Result<bool, ChannelFault> {
 }
 
 pub fn send(directory: Option<&Path>, entry: &BindingEntry, message: &str) -> Sent {
+    send_with_runner(directory, entry, message, &UnixCommandRunner)
+}
+
+fn send_with_runner(
+    directory: Option<&Path>,
+    entry: &BindingEntry,
+    message: &str,
+    runner: &impl crate::process::CommandRunner,
+) -> Sent {
     let Some(binding) = &entry.binding else {
         return denied(ChannelFault::Unverifiable);
     };
@@ -62,7 +71,7 @@ pub fn send(directory: Option<&Path>, entry: &BindingEntry, message: &str) -> Se
     }
     let deadline = Instant::now() + Duration::from_secs(3);
     let observe = |process: &ProcessIncarnation| {
-        observe_runtime_process(&UnixCommandRunner, process.pid(), deadline)
+        observe_runtime_process(runner, process.pid(), deadline)
             .map(|value| value.matches(process))
             .unwrap_or(RuntimeLiveness::Unknown)
     };
@@ -109,7 +118,12 @@ pub fn send(directory: Option<&Path>, entry: &BindingEntry, message: &str) -> Se
         Ok(false) => return denied(ChannelFault::Mismatch),
         Err(fault) => return denied(fault),
     }
-    match client.queue(&request) {
+    if Instant::now() >= deadline {
+        return denied(ChannelFault::NotReady);
+    }
+    // Process qualification owns the preparation budget. Only the verified
+    // sole delivery attempt gets a new absolute write/receipt budget.
+    match client.queue(&request, Instant::now() + Duration::from_secs(3)) {
         QueueOutcome::Accepted { .. } => ActionResult::Completed(DeliveryAcceptance::Queued),
         QueueOutcome::Refused { .. } => denied(ChannelFault::Refused),
         QueueOutcome::Uncertain => uncertain(),

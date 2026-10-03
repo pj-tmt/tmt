@@ -138,8 +138,16 @@ The initialize format is source-backed at the pinned revision above, in
 for that build. The accepted 0.160.0 proof separately qualifies that build; the
 allowlist alone is not runtime evidence for future versions.
 
-One client connection has one absolute deadline, recalculated before every
-underlying read and write, including library-internal handshake/fragment reads.
+Native delivery has two bounded stages on the same client connection. Preparation
+has one three-second absolute deadline for process qualification, connect,
+handshake/initialize and the final enrollment/process recheck. Expired or
+unverifiable preparation sends no queue frame. After a successful final recheck,
+the consuming queue attempt receives one fresh three-second absolute delivery
+deadline for its write and receipt. These stages can together consume six seconds;
+process inspection cannot spend the delivery receipt budget. The delivery deadline
+is set once on the client and stream, then recalculated before every underlying
+read and write, including library-internal fragment reads; it is never renewed by
+fragments or events. Enrollment-only calls retain their caller's absolute deadline.
 Input is at most 64 KiB, response/message at most 1 MiB, frame at most 256 KiB,
 and at most 256 interleaved events are inspected per call. Only notifications
 may be skipped; malformed envelopes, requests and wrong response IDs terminate
