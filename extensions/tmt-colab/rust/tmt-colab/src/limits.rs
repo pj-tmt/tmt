@@ -1,6 +1,10 @@
 //! L2 product bounds, distinct from the disposable #830 fixture budgets.
 use std::time::Duration;
 
+/// Immutable app inventory, below remote's per-reply 16 MiB cap.
+pub const APP_BYTES: usize = 16 * 1024 * 1024;
+pub const APP_FILES: usize = 128;
+
 pub const SOCKETS: usize = 16;
 /// Live colab-sync-v1 tunnels, matching the remote door's colab mount cap.
 pub const TUNNELS: usize = 16;

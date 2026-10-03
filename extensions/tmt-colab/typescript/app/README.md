@@ -1,9 +1,17 @@
 # Colab local page preview
 
-A private React/Vite app for space home and HTML page views. `PageTransport` is
-read-only; the in-process adapter supplies detached sample snapshots. Remote
-sign-in, live sync, editing, comments and agent operations are later slices.
-The executable does not embed this build yet.
+A private React/Vite app for space home and HTML page views. The in-process
+preview adapter supplies detached sample snapshots. The paired
+mount uses Remote's session/key certification, Colab registration and verified
+bootstrap, with a bounded Worker and live content binding. Comments and agent
+operations remain later slices.
+
+The local-build executable serves the `dist` output at startup, with optional
+`serve --app-dir` override; build and restart serve to adopt changes. Vite emits
+relative asset URLs for the nested Remote mount. The app uses installed/system
+font fallbacks and makes no third-party asset requests. The static route, fallback
+and CSP contract is owned by
+[colab-v1](../../contracts/colab-v1.md#implemented-mounted-browser-assets-1253).
 
 Trusted chrome uses the shared design tokens. Page HTML runs in an opaque frame
 under the [renderer contract](../../contracts/colab-v1.md#renderer-and-live-anchors).
@@ -12,5 +20,5 @@ leak a request before teardown; the app does not promise complete exfiltration
 prevention.
 
 [DEVELOPMENT.md](../../../../DEVELOPMENT.md#colab-browser-verification) owns the
-install, dev, build and test commands. `test:browser` runs the app's Chromium
-isolation tests, separately from the client primitive conformance harness.
+install, dev, build and test commands. `test:browser` requires a built native `tmt-colab`
+and runs the Chromium isolation and real-socket static app scenarios, separately from the client primitive conformance harness.

@@ -75,6 +75,9 @@ struct Running {
 }
 impl Running {
     fn start(tunnels: Tunnels) -> Self {
+        Self::start_with_app(tunnels, None)
+    }
+    fn start_with_app(tunnels: Tunnels, app: Option<tmt_colab::assets::App>) -> Self {
         // Short absolute root: Unix socket paths are limited to about 100 bytes.
         let root = PathBuf::from(format!(
             "/tmp/tmt-1039-colab-{}-{}",
@@ -97,7 +100,8 @@ impl Running {
         let socket = MountSocket::bind(&layout, &space, tunnels)
             .unwrap()
             .with_registration(&layout, Arc::new(Mutex::new(registration)))
-            .unwrap();
+            .unwrap()
+            .with_app(app);
         let path = socket.path.clone();
         assert_eq!(
             fs::metadata(&path).unwrap().permissions().mode() & 0o777,
@@ -173,7 +177,11 @@ fn pages_follow_the_forwarded_owner_context_within_the_door_bounds() {
     assert!(private.contains("Content-Security-Policy: default-src 'none'"));
     let owner_header = owner(DEVICE);
     let owned = server.request(&Running::get("/", &format!("{owner_header}\r\n")));
-    assert!(owned.contains(&format!("Colab space {} is running. You are signed in as &lt;b&gt;Laptop&lt;/b&gt;. Co-editing arrives with the next colab slice.", server.space)));
+    assert!(owned.contains(&format!(
+        "Colab space {} is running. You are signed in as &lt;b&gt;Laptop&lt;/b&gt;. {}.",
+        server.space,
+        tmt_colab::assets::BUILD_HINT
+    )));
     for context in [
         "tmt-device-context: {}\r\n",
         "tmt-device-context: not json\r\n",
@@ -1525,4 +1533,119 @@ fn membership_transfer_refuses_sql_oversize_before_loading_bytes() {
         )
         .unwrap();
     assert_eq!(size, (limits::STATEMENT_BYTES + 1) as i64);
+}
+
+#[test]
+fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution() {
+    use tmt_colab::assets::{App, POLICY};
+    let directory = PathBuf::from(format!("/tmp/tmt-1253-build-{}", std::process::id()));
+    fs::create_dir_all(directory.join("assets")).unwrap();
+    let files: [(&str, &str, &[u8]); 6] = [
+        ("index.html", "text/html; charset=utf-8", br#"<link href="./assets/app.css"><script type="module" src="./assets/app.js"></script>"#),
+        ("assets/app.js", "text/javascript; charset=utf-8", b"export {};"),
+        ("assets/app.css", "text/css; charset=utf-8", b"body{color:red}"),
+        ("assets/font.woff2", "font/woff2", b"wOF2\0\xfffont-test-bytes"),
+        ("assets/font.woff", "font/woff", b"wOFF\0\xfffont-test-bytes"),
+        ("THIRD-PARTY-NOTICES.txt", "text/plain; charset=utf-8", b"test-only notice"),
+    ];
+    for (name, _, bytes) in files {
+        fs::write(directory.join(name), bytes).unwrap();
+    }
+    let app = App::load(&directory).unwrap();
+    fs::remove_dir_all(&directory).unwrap(); // No request-time file reads are possible.
+    let server = Running::start_with_app(Tunnels::PRODUCT, Some(app));
+    // The browser must load before Colab registration. This forwarded owner is
+    // deliberately absent from the active device registrations above.
+    let unregistered = "00000000-0000-4000-8000-000000000006";
+    let headers = format!("{}\r\n", owner(unregistered));
+    for (name, content_type, bytes) in files {
+        let path = if name == "index.html" {
+            "/".into()
+        } else {
+            format!("/{name}")
+        };
+        let mut socket = server.connect();
+        socket
+            .write_all(Running::get(&path, &headers).as_bytes())
+            .unwrap();
+        let mut reply = Vec::new();
+        socket.read_to_end(&mut reply).unwrap();
+        let end = reply.windows(4).position(|s| s == b"\r\n\r\n").unwrap() + 4;
+        let head = std::str::from_utf8(&reply[..end]).unwrap();
+        assert!(head.starts_with("HTTP/1.1 200"));
+        assert!(head.contains(&format!("Content-Type: {content_type}\r\n")));
+        assert!(head.contains(&format!("Content-Length: {}\r\n", bytes.len())));
+        assert!(head.contains(&format!("Content-Security-Policy: {POLICY}\r\n")));
+        assert_eq!(&reply[end..], bytes);
+        if path != "/" {
+            assert!(
+                server
+                    .request(&Running::get(&path, ""))
+                    .starts_with("HTTP/1.1 403")
+            );
+        }
+    }
+    assert!(
+        server
+            .request(&Running::get("/", ""))
+            .contains("This colab space is private")
+    );
+    for path in [
+        "/../index.html",
+        "/assets/../index.html",
+        "/assets/./app.js",
+        "/assets/%2e%2e/index.html",
+        "/assets/app.js?x=1",
+        "/assets\\app.js",
+        "//assets/app.js",
+    ] {
+        assert!(
+            server
+                .request(&Running::get(path, &headers))
+                .starts_with("HTTP/1.1 400"),
+            "{path}"
+        );
+    }
+    assert!(
+        server
+            .request(&Running::get("/sync", &format!("{headers}{UPGRADE}")))
+            .starts_with("HTTP/1.1 403")
+    );
+    assert!(
+        server
+            .request(&Running::get("/assets/missing.js", &headers))
+            .starts_with("HTTP/1.1 404")
+    );
+    // Existing discovery dispatch keeps its JSON policy with an app loaded,
+    // and still admits the forwarded owner before extension-key registration.
+    for path in ["/api/session", "/api/pages"] {
+        let reply = server.request(&Running::get(path, &headers));
+        let (head, body) = reply.split_once("\r\n\r\n").unwrap();
+        assert!(head.starts_with("HTTP/1.1 200"));
+        assert!(head.contains("Content-Type: application/json"));
+        assert!(!head.contains("unsafe-inline"));
+        let body: Value = serde_json::from_str(body).unwrap();
+        if path == "/api/session" {
+            assert_eq!(body["deviceId"], unregistered);
+            assert_eq!(body["grantRevision"], "1");
+        } else {
+            assert_eq!(body["spaceId"], server.space);
+            assert_eq!(body["pages"][0]["pageId"], PAGE);
+        }
+        assert!(
+            server
+                .request(&Running::get(path, ""))
+                .starts_with("HTTP/1.1 403")
+        );
+    }
+    assert!(
+        server
+            .request("POST /assets/app.js HTTP/1.1\r\nHost: x\r\n\r\n")
+            .starts_with("HTTP/1.1 403")
+    );
+    assert!(
+        server
+            .request(&format!("POST /assets/app.js HTTP/1.1\r\n{headers}\r\n"))
+            .starts_with("HTTP/1.1 404")
+    );
 }

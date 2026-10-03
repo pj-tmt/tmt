@@ -471,6 +471,57 @@ nor tunnel effects. Rename is validated and acknowledged without local
 presentation state. Other reserved paths reject; remote refuses the `/.tmt`
 subtree beneath browser mounts. There is no browser revocation route.
 
+### Implemented mounted browser assets (#1253)
+
+The local-build foreground executable loads the app's Vite output at startup.
+Its default path is the compile-time crate directory plus
+`../../typescript/app/dist`, canonicalized at startup. Optional
+`serve --app-dir <absolute directory>` replaces that selection. An invalid
+explicit directory MUST fail with `COLAB_APP_UNAVAILABLE` before Colab state is
+created. A missing, unsafe or incomplete default MUST still start the service,
+with an owner placeholder carrying the one-line instruction
+`build the app: corepack pnpm --dir typescript --filter @tmt/colab-app build`.
+The binary remains excluded from release; there is no installer or data-root copy.
+
+The immutable startup inventory MUST admit only nonempty regular files through
+no-follow directory-anchored opens, at most 128 files and 16 MiB total. It contains
+`index.html`, optional `THIRD-PARTY-NOTICES.txt` and flat generated `assets/` files;
+unknown output, symlinks and missing HTML entry references reject the inventory.
+JavaScript and CSS are required. Supported asset suffixes are `html`, `js`, `css`,
+`woff2`, `woff`, `ttf`, `otf`, `png`, `jpg`, `jpeg`, `svg`, `webp`, `ico` and `txt`.
+Fonts use their `font/<suffix>` media type; JS/CSS/HTML/notices use UTF-8 text
+media types. Assets MUST be exact startup bytes, including after files change or
+are removed; adopting a rebuilt app requires restarting serve.
+
+After existing API/event/upgrade dispatch, owner-context GET `/` and `/index.html`
+MUST return the built HTML; GET of an inventory key MUST return its bytes and
+content type. Asset access MUST NOT require Colab registration, since the app
+performs that registration. Anonymous root GET retains private-space guidance;
+other asset requests without owner context return 403. Unknown paths and owner
+non-GET static requests return 404. Invalid context is rejected by the existing
+HTTP admission. Dot path segments, backslashes, doubled leading slashes, percent
+encodings, queries and fragments MUST reject with 400. No request path is
+normalized, joined to a filesystem directory or given a SPA fallback. Existing
+API routes and registered-owner `/sync` admission/transport are unchanged.
+
+Vite output MUST use relative URLs beneath `/r/<prefix>/x/colab/`, with no
+third-party requests. The current app declares installed/system font fallbacks;
+no external font service is used. The app response CSP is exactly:
+
+```text
+default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'
+```
+
+Inline script/style permissions preserve the existing opaque srcdoc renderer's
+inherited policy. Its own stricter renderer CSP and unconditional sandbox remain
+required; parent permission does not grant renderer network or app-storage access.
+This `unsafe-inline` allowance also loosens the trusted app policy; #1334 tracks
+moving the renderer into its own document so that policy can drop the allowance
+before relayed or cloud access.
+App/static responses retain `Cache-Control: no-store`, `Referrer-Policy:
+no-referrer` and `X-Content-Type-Options: nosniff`. Non-app responses retain the
+existing restrictive placeholder/API policy.
+
 ## Page state, roles and epochs
 
 Each device has one signed append stream per `(space, page, epoch)`. Sequences
