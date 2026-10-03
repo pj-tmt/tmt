@@ -26,9 +26,7 @@ function FlatExchange() {
         <b>{handoff.builder}</b>
         <span>Codex</span>
       </div>
-      <p>
-        02 · {handoff.receipt} · {handoff.tied}
-      </p>
+      <p>02 · {handoff.tied}</p>
     </div>
   );
 }
