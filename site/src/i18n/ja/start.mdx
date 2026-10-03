@@ -52,10 +52,10 @@ tmt には、通常必要になる driver が組み込まれています。追�
 tmux の中で、agent が動いているペインに名前を付けます（`tmt name`、または同じ意味の `tmt this`）。その後は、どこからでもメッセージを送れます。ページ上部のデモは、この流れを示しています。
 
 <Cmd>{`
-$ tmt name reviewer                   # in the agent's pane: name it
-$ tmt talk reviewer "Review the diff."  # from any pane: send, then wait for the reply
-$ tmt reply req_4f36… --receipt v2_… --message "…"   # the agent answers; talk prints it
-$ tmt check reviewer                  # look at the pane if something seems stuck
+$ tmt name reviewer                   # agent のペインで命名
+$ tmt talk reviewer "Review the diff."  # どのペインからでも送信し、返信を待つ
+$ tmt reply req_4f36… --receipt v2_… --message "…"   # agent が返信し、talk が表示する
+$ tmt check reviewer                  # 処理が進まない場合にペインを確認
 `}</Cmd>
 
 agent がこの行を覚えておく必要はありません。受け取るリクエストには、receipt を含む正確な `tmt reply` コマンドが入っています。
@@ -68,9 +68,9 @@ agent がこの行を覚えておく必要はありません。受け取るリ�
 次に、付けた名前を管理します。
 
 <Cmd>{`
-$ tmt ls                    # every name, its lifetime and whether it's present
-$ tmt add 0:1.2 builder     # name another pane without switching to it
-$ tmt rm builder            # retire a name; the pane keeps running
+$ tmt ls                    # すべての名前、存続期間、所在を表示
+$ tmt add 0:1.2 builder     # 切り替えずに別のペインを命名
+$ tmt rm builder            # 名前の使用を終了する。ペインは動き続ける
 `}</Cmd>
 
 名前は、`-s` を付けない限り一時的なものです。`tmt ls` は agent を中心に表示します。保存済みの名前が先に、一時的な名前が後に並びます。それぞれの所在は `driver:session` で表示され、実行できる操作がある場合だけ、その操作も表示されます。
@@ -85,14 +85,14 @@ $ tmt rm builder            # retire a name; the pane keeps running
 
 <Cmd>{`
 $ tmt run -s reviewer claude --model sonnet
-$ tmt resume reviewer       # later, in any pane: reviewer's own conversation
+$ tmt resume reviewer       # 後からどのペインでも reviewer の会話を再開
 `}</Cmd>
 
 先に起動して、後から名前を付けることもできます。`tmt run claude` は、`claude-12ab34cd56ef` のような一時的な名前で Claude Code をすぐに起動します。agent の shell ツールから `tmt name reviewer` を実行すると、指定した名前に変わります。名前を付けても同じ会話は保持されますが、名前は保存されません。保存するには `-s` を付けてください。
 
 <Cmd>{`
 $ tmt run claude --model sonnet
-$ tmt name -s reviewer      # from the agent's shell tool: name it, and keep the name
+$ tmt name -s reviewer      # agent の shell ツールから命名し、名前を保存
 `}</Cmd>
 
 <PaneDemo
