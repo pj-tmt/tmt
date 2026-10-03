@@ -107,7 +107,7 @@ describe('native installation process contract', () => {
           expect(parseWholeStdout(rejected).installation).toBeNull();
           expect(currentReleaseId(prefix)).toBe(oldId);
           expect(readFileSync(receiptPath(prefix))).toEqual(oldReceipt);
-          expect(readFileSync(oldPath)).toEqual(oldBytes);
+          expect(readFileSync(oldPath).equals(oldBytes)).toBe(true);
         }
         const accepted = await handoff(request);
         expect(accepted.status, accepted.stdout + accepted.stderr).toBe(0);
@@ -125,7 +125,7 @@ describe('native installation process contract', () => {
           release_id: 1454,
           manifest_sha256: request.manifest_sha256,
         });
-        expect(readFileSync(oldPath)).toEqual(oldBytes);
+        expect(readFileSync(oldPath).equals(oldBytes)).toBe(true);
         const refreshed = await runCli(
           { ...sandbox, cli: { executable: path.join(prefix, 'bin', 'tmt'), args: [] } },
           ['__native-refresh-skills', '--managed', '--json']
