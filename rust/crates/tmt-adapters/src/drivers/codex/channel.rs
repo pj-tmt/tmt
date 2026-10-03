@@ -7,7 +7,7 @@ use crate::{
         EvidenceError, Recovery, RecoveryError, RuntimeChannel,
     },
 };
-use std::{ffi::OsStr, path::Path, time::Instant};
+use std::{path::Path, time::Instant};
 
 pub struct CodexChannel;
 impl RuntimeChannel for CodexChannel {
@@ -51,23 +51,21 @@ impl RuntimeChannel for CodexChannel {
     }
     fn preflight(
         &self,
-        executable: &OsStr,
+        command: &crate::runtime::RuntimeCommand,
+        working_directory: Option<&Path>,
         directory: &Path,
         deadline: Instant,
     ) -> Result<Option<String>, ChannelError> {
-        if !directory.is_absolute() {
-            return Err(ChannelError::Enrollment);
-        }
-        let output = UnixCommandRunner
-            .execute(CommandRequest {
-                program: executable,
-                args: &["--version".into()],
-                input: &[],
-                deadline,
-                max_output_bytes: 4096,
-            })
-            .map_err(|_| ChannelError::ProviderUnavailable)?;
-        version_advisory(&output.stdout)
+        check_provider(
+            &UnixCommandRunner,
+            command,
+            working_directory,
+            directory,
+            deadline,
+            crate::skill_installation::ProviderEnvironment::capture()
+                .ok()
+                .as_ref(),
+        )
     }
 
     fn serve(
@@ -104,6 +102,49 @@ impl RuntimeChannel for CodexChannel {
                     ChannelError::Enrollment
                 }
             })
+    }
+}
+
+fn check_provider(
+    runner: &impl CommandRunner,
+    command: &crate::runtime::RuntimeCommand,
+    working_directory: Option<&Path>,
+    directory: &Path,
+    deadline: Instant,
+    environment: Option<&crate::skill_installation::ProviderEnvironment>,
+) -> Result<Option<String>, ChannelError> {
+    if !directory.is_absolute() {
+        return Err(ChannelError::Enrollment);
+    }
+    let output = runner
+        .execute(CommandRequest {
+            program: &command.executable,
+            args: &["--version".into()],
+            input: &[],
+            deadline,
+            max_output_bytes: 4096,
+        })
+        .map_err(|_| ChannelError::ProviderUnavailable)?;
+    version_advisory(&output.stdout)?;
+    Ok(environment
+        .zip(working_directory)
+        .and_then(|(environment, working_directory)| {
+            trust_advisory(command, working_directory, environment)
+        })
+        .map(str::to_owned))
+}
+
+fn trust_advisory(
+    command: &crate::runtime::RuntimeCommand,
+    working_directory: &Path,
+    environment: &crate::skill_installation::ProviderEnvironment,
+) -> Option<&'static str> {
+    let options = LaunchOptions::parse(command, working_directory).ok()?;
+    match super::trust::local_project_trust(environment, options.working_directory()) {
+        super::trust::LocalProjectTrust::Unset | super::trust::LocalProjectTrust::Untrusted => {
+            Some("Codex may ask you to trust this folder in its own window.")
+        }
+        super::trust::LocalProjectTrust::Trusted | super::trust::LocalProjectTrust::Unknown => None,
     }
 }
 

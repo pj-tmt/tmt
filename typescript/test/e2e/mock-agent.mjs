@@ -303,7 +303,11 @@ let guidancePending = false;
 appendEvent({ event: 'ready', mode, pid: process.pid });
 
 input.on('line', (line) => {
-  if (!frame && !guidancePending && /^\[tmt\] (reply from |no reply yet from )/.test(line)) {
+  // Notices are advisory input, never the next request's prompt. Retain the
+  // expired-context fallback and recognize the single/header/aligned-row formats.
+  const notice =
+    /^(?:\[tmt\] (?:reply from |no reply yet from )|▚ [✓…] |▚ tmt · \d+ updates$|  ✓ )/.test(line);
+  if (!frame && !guidancePending && notice) {
     appendEvent({ event: 'input', line, mode, pid: process.pid });
     return;
   }

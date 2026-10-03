@@ -168,6 +168,93 @@ fn second_serve_lock_on_one_root_refuses() {
 }
 
 #[test]
+fn shared_layout_preserves_root_permissions_sibling_bytes_and_private_names() {
+    let root = Root::new();
+    fs::set_permissions(&root.0, fs::Permissions::from_mode(0o751)).unwrap();
+    let sibling = root.0.join("colab");
+    fs::create_dir(&sibling).unwrap();
+    let owner = sibling.join("owner.key");
+    fs::write(&owner, [2; 32]).unwrap();
+    let layout = Layout::open(&root.0).unwrap();
+    MachineKey::open(&layout).unwrap();
+    assert_eq!(mode(&root.0), 0o751);
+    assert_eq!(fs::read(owner).unwrap(), [2; 32]);
+    for name in ["../owner.key", "owner.key", "machine.key/"] {
+        let error = layout.file(name).err().unwrap();
+        assert_eq!(error.code, "REMOTE_STATE_NAME_INVALID");
+        assert_eq!(error.message, "Invalid private file name.");
+    }
+}
+
+#[test]
+fn publication_contention_preserves_stale_bytes_and_releases_for_cleanup() {
+    use nix::fcntl::{Flock, FlockArg};
+    let root = Root::new();
+    let layout = Layout::open(&root.0).unwrap();
+    let stale = root.remote().join(format!(".machine-{}", "b".repeat(32)));
+    fs::write(&stale, b"partial").unwrap();
+    fs::set_permissions(&stale, fs::Permissions::from_mode(0o600)).unwrap();
+    let held = Flock::lock(
+        layout.file("key.lock").unwrap(),
+        FlockArg::LockExclusiveNonblock,
+    )
+    .unwrap();
+    let error = MachineKey::open(&layout).err().unwrap();
+    assert_eq!(error.code, "REMOTE_KEY_BUSY");
+    assert_eq!(
+        error.message,
+        "Machine key publication is already in progress."
+    );
+    assert_eq!(fs::read(&stale).unwrap(), b"partial");
+    assert!(!root.remote().join("machine.key").exists());
+    drop(held);
+    MachineKey::open(&layout).unwrap();
+    assert!(!stale.exists());
+}
+
+#[test]
+fn bounded_keys_and_unsafe_temporaries_keep_original_bytes_and_error_mapping() {
+    let root = Root::new();
+    let layout = Layout::open(&root.0).unwrap();
+    MachineKey::open(&layout).unwrap();
+    let key = root.remote().join("machine.key");
+    for length in [0, 31, 33, 4096] {
+        let original = vec![7; length];
+        fs::write(&key, &original).unwrap();
+        let error = MachineKey::open(&layout).err().unwrap();
+        assert_eq!(error.code, "REMOTE_KEY_INVALID");
+        assert_eq!(
+            error.message,
+            "Invalid machine key length; the key was not replaced."
+        );
+        assert_eq!(fs::read(&key).unwrap(), original);
+    }
+    fs::write(&key, [7; 32]).unwrap();
+    assert!(
+        MachineKey::open(&layout).is_ok(),
+        "valid key positive control"
+    );
+    let stale = root.remote().join(format!(".machine-{}", "c".repeat(32)));
+    fs::write(&stale, [8; 33]).unwrap();
+    fs::set_permissions(&stale, fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(
+        MachineKey::open(&layout).err().unwrap().code,
+        "REMOTE_KEY_INVALID"
+    );
+    assert_eq!(fs::read(&stale).unwrap(), [8; 33]);
+    fs::remove_file(&stale).unwrap();
+    symlink(&key, &stale).unwrap();
+    let error = MachineKey::open(&layout).err().unwrap();
+    assert_eq!(error.code, "REMOTE_STATE_UNSAFE");
+    assert_eq!(
+        error.message,
+        "Remote state files must be owned regular 0600 files."
+    );
+    assert!(fs::symlink_metadata(&stale).unwrap().is_symlink());
+    assert_eq!(fs::read(&key).unwrap(), [7; 32]);
+}
+
+#[test]
 fn only_the_serve_lock_holder_opens_the_database() {
     let root = Root::new();
     let serving = Layout::open(&root.0).unwrap().serve_lock().unwrap();

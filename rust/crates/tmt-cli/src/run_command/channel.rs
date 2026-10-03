@@ -6,8 +6,8 @@
 
 use crate::{invocation::ChannelMode, output::Failure, run_command::storage_failure};
 use std::{
-    ffi::{OsStr, OsString},
-    path::PathBuf,
+    ffi::OsString,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 use tmt_adapters::{
@@ -58,13 +58,15 @@ pub(super) fn preflight<'a>(
     registry: &'a RuntimeRegistry,
     mode: ChannelMode,
     claim: Option<&HarnessId>,
-    executable: &OsStr,
+    command: &RuntimeCommand,
     paths: &ConfigPaths,
 ) -> Result<Prepared<'a>, Failure> {
+    let working_directory = std::env::current_dir().ok();
     prepare(
         claim.and_then(|harness| registry.channel(harness)),
         mode,
-        executable,
+        command,
+        working_directory.as_deref(),
         paths.channel_directory(),
     )
 }
@@ -72,7 +74,8 @@ pub(super) fn preflight<'a>(
 fn prepare<'a>(
     channel: Option<&'a dyn RuntimeChannel>,
     mode: ChannelMode,
-    executable: &OsStr,
+    command: &RuntimeCommand,
+    working_directory: Option<&Path>,
     directory: PathBuf,
 ) -> Result<Prepared<'a>, Failure> {
     let mut prepared = Prepared {
@@ -96,7 +99,8 @@ fn prepare<'a>(
         })?;
         let advisory = channel
             .preflight(
-                executable,
+                command,
+                working_directory,
                 &prepared.directory,
                 Instant::now() + Duration::from_secs(5),
             )

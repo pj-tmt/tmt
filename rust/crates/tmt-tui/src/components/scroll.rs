@@ -53,15 +53,18 @@ impl ScrollState {
         if height == 0 || range.is_empty() {
             return;
         }
-        let end = if range.len() > height {
-            range.start.saturating_add(1)
-        } else {
-            range.end
-        };
-        if range.start < self.offset {
+        if range.len() > height {
+            // An oversized selected row can be read by scrolling within it.
+            // Keep any existing window inside the row, rather than snapping to
+            // its first line on every repaint or wrapped-width change.
+            self.offset = self
+                .offset
+                .max(range.start)
+                .min(range.end.saturating_sub(height));
+        } else if range.start < self.offset {
             self.offset = range.start;
-        } else if end > self.offset.saturating_add(height) {
-            self.offset = end.saturating_sub(height);
+        } else if range.end > self.offset.saturating_add(height) {
+            self.offset = range.end.saturating_sub(height);
         }
         self.offset = self.offset.min(self.limit());
     }

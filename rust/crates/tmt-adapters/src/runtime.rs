@@ -589,7 +589,8 @@ mod tests {
     impl channel::RuntimeChannel for CommunityChannel {
         fn preflight(
             &self,
-            _: &OsStr,
+            _: &crate::runtime::RuntimeCommand,
+            _: Option<&std::path::Path>,
             _: &std::path::Path,
             _: std::time::Instant,
         ) -> Result<Option<String>, channel::ChannelError> {
@@ -624,7 +625,8 @@ mod tests {
     impl channel::RuntimeChannel for Answering {
         fn preflight(
             &self,
-            _: &OsStr,
+            _: &crate::runtime::RuntimeCommand,
+            _: Option<&std::path::Path>,
             _: &std::path::Path,
             _: std::time::Instant,
         ) -> Result<Option<String>, channel::ChannelError> {
@@ -659,7 +661,8 @@ mod tests {
     impl channel::RuntimeChannel for InPane {
         fn preflight(
             &self,
-            _: &OsStr,
+            _: &crate::runtime::RuntimeCommand,
+            _: Option<&std::path::Path>,
             _: &std::path::Path,
             _: std::time::Instant,
         ) -> Result<Option<String>, channel::ChannelError> {

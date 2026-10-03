@@ -1,5 +1,7 @@
 //! Shared composition for requests and advisory hints. Drivers own IO policy.
 
+mod notices;
+
 use crate::{
     host::{ActionError, Host},
     process::{SupervisedProbeRunner, runtime::observe_runtime_process},
@@ -368,6 +370,7 @@ struct NoticeAttempt<'a> {
     batch: &'a tmt_core::request::notification::batch::Batch,
     worker: &'a tmt_core::endpoint::ProcessIncarnation,
     notices: &'a [tmt_core::request::notification::batch::Notice],
+    host_text: String,
     progress: std::cell::Cell<NoticeProgress>,
     storage_error: std::cell::Cell<Option<StorageError>>,
 }
@@ -381,14 +384,7 @@ impl Messages<'_> {
     fn rendered(&self) -> std::borrow::Cow<'_, str> {
         match self {
             Self::Single(text) => std::borrow::Cow::Borrowed(text),
-            Self::Notices(attempt) => std::borrow::Cow::Owned(
-                attempt
-                    .notices
-                    .iter()
-                    .map(|notice| notice.text.as_str())
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-            ),
+            Self::Notices(attempt) => std::borrow::Cow::Borrowed(&attempt.host_text),
         }
     }
 
@@ -522,7 +518,7 @@ impl Messages<'_> {
 }
 
 /// Same fresh route and paste gate as send: drivers receive individual frames,
-/// and only the host fallback receives their joined text. Binding replacement
+/// and only the host fallback receives the aligned block. Binding replacement
 /// cannot redirect already queued notices to another pane.
 pub fn send_reply_notices(
     storage: &mut Storage,
@@ -531,10 +527,15 @@ pub fn send_reply_notices(
     notices: &[tmt_core::request::notification::batch::Notice],
     delay: Duration,
 ) -> Result<(), StorageError> {
+    // Presentation is derived from retained originator-owned request metadata,
+    // not parsed from persisted lines. Old queued notices retain their claims.
+    let (frames, host_text) = notices::reply_batch(storage, notices);
+    let notices = frames.as_slice();
     let progress = NoticeAttempt {
         batch,
         worker,
         notices,
+        host_text,
         progress: std::cell::Cell::new(NoticeProgress::Unstarted),
         storage_error: std::cell::Cell::new(None),
     };
@@ -688,28 +689,7 @@ fn route_harness(
 }
 
 pub fn hint_text(storage: &mut Storage, hint: &OriginatorHint) -> String {
-    let recipient = hint
-        .recipient_id
-        .as_deref()
-        .and_then(|id| current(storage, id).ok().flatten())
-        .map(|entry| entry.identity.name)
-        .unwrap_or_else(|| "recipient".into());
-    let recipient: String = recipient
-        .chars()
-        .take(64)
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect();
-    match hint.kind {
-        HintKind::Reply => format!(
-            "[tmt] reply from {recipient} to {}: tmt result {}",
-            hint.request_id, hint.request_id
-        ),
-        HintKind::Timeout => format!(
-            "[tmt] no reply yet from {recipient} to {} after {}s; still pending",
-            hint.request_id,
-            hint.timeout_ms as f64 / 1000.0
-        ),
-    }
+    notices::hint(storage, hint)
 }
 
 pub fn notify(storage: &mut Storage, hint: &OriginatorHint) -> WakeState {
@@ -768,7 +748,8 @@ mod tests {
     impl crate::runtime::channel::RuntimeChannel for Evidence {
         fn preflight(
             &self,
-            _: &std::ffi::OsStr,
+            _: &crate::runtime::RuntimeCommand,
+            _: Option<&Path>,
             _: &Path,
             _: Instant,
         ) -> Result<Option<String>, crate::runtime::channel::ChannelError> {
@@ -839,7 +820,8 @@ mod tests {
     impl crate::runtime::channel::RuntimeChannel for InPane {
         fn preflight(
             &self,
-            _: &std::ffi::OsStr,
+            _: &crate::runtime::RuntimeCommand,
+            _: Option<&Path>,
             _: &Path,
             _: Instant,
         ) -> Result<Option<String>, crate::runtime::channel::ChannelError> {

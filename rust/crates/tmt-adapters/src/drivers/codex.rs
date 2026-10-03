@@ -18,6 +18,7 @@ pub mod recovery;
 pub mod server;
 pub mod supervisor;
 pub mod transport;
+mod trust;
 
 /// Keep work plus the process owner's cleanup inside the installed hook timeout.
 pub const HOOK_TIMEOUT_MARGIN: std::time::Duration = std::time::Duration::from_millis(500);

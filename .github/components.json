@@ -7,8 +7,9 @@
     "migrations: the source files that list a component's SQLite migrations; outside the alpha channel a release that has more entries in one than the last published release of that component is held for the owner, while an alpha only reports them (typescript/scripts/publication-gates.mjs).",
     "scopedChecks: a component that cannot affect the others (only Squad) lists the native test files and E2E files its own scope runs; ci-scope.mjs turns that into the native_scope outputs.",
     "Globs: `**` matches any path, `*` and `?` stay inside one directory. A rule may only narrow selection for a path that provably no job of the dropped consumer reads; ci-scope.test.ts guards each narrowed class.",
-    "releaseConsumers: a private leaf adds its owned changes to named released components without replacing matching released-root membership; ownership, CI scope and version updates remain independent.",
+    "releaseConsumers: a private leaf adds its owned changes to named packaged products, including products awaiting activation, without replacing matching released-root membership; ownership, CI scope and version updates remain independent.",
     "A private component may declare release:false, with or without a Cargo package; it owns files but gets no release. Binary targets require explicit package.metadata.dist.dist=false; library-only crates need no opt-out. A crate that inherits the workspace version keeps its Cargo.lock entry in the release of the component that owns rust/Cargo.toml, whoever owns the crate.",
+    "releaseStatus: only with release:false; never means no released product contains this leaf and forbids releaseConsumers, parked means explicitly deferred publication. Absence means awaiting activation. This does not change CI selection.",
     "bootstrapSha: first-release history boundary for the release cut (#1399); the last commit before the component existed, kept unchanged."
   ],
   "components": {
@@ -21,6 +22,7 @@
         "extensions/tmt-remote",
         "extensions/tmt-colab",
         "rust/crates/tmt-tui",
+        "rust/crates/tmt-extension-state",
         "rust/crates/tmt-test-support",
         "rust/crates/tmt-driver-herdr"
       ],
@@ -28,6 +30,7 @@
     },
     "office": {
       "package": "tmt-office",
+      "releaseStatus": "parked",
       "owns": ["extensions/tmt-office"],
       "release": false,
       "migrations": ["extensions/tmt-office/rust/tmt-office-storage/src/schema.rs"],
@@ -61,6 +64,7 @@
       "release": false
     },
     "colab-app": {
+      "releaseConsumers": ["tmt-colab"],
       "owns": ["extensions/tmt-colab/typescript/app"],
       "release": false
     },
@@ -73,6 +77,7 @@
       "release": false
     },
     "tmt-test-support": {
+      "releaseStatus": "never",
       "owns": ["rust/crates/tmt-test-support"],
       "release": false
     },
@@ -92,6 +97,7 @@
       "release": false
     },
     "tmt-colab": {
+      "package": "tmt-colab",
       "owns": ["extensions/tmt-colab"],
       "release": false
     },
@@ -99,6 +105,7 @@
       "owns": ["extensions/tmt-remote/rust"],
       "release": false,
       "selectedBy": [
+        "rust/crates/tmt-extension-state/**",
         "typescript/test/e2e/remote-operations.e2e.test.ts",
         "typescript/test/e2e/remote-recovery.e2e.test.ts",
         "typescript/test/support/remote-device.ts",

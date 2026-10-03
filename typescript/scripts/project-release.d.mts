@@ -1,3 +1,4 @@
+import type { CargoWorkspace } from './cargo-workspace.mjs';
 import type { ComponentMap } from './ci-scope.mjs';
 export interface IssueEvidence {
   status: string;
@@ -99,14 +100,16 @@ export function gitEvidence(options?: {
 }): GitEvidence;
 export function affectedProducts(
   paths: string[],
-  map: ComponentMap
+  map: ComponentMap,
+  workspace?: CargoWorkspace
 ): { products: string[]; unpublished: string[] };
 export function deriveEvidence(
   items: ProjectItem[],
   closing: Closing,
   releases: Release[],
   git: GitEvidence,
-  map: ComponentMap
+  map: ComponentMap,
+  workspace?: CargoWorkspace
 ): Map<string, IssueEvidence>;
 export function planUpdates(evidence: Map<string, IssueEvidence>, project: Project): Plan;
 export function applyUpdates(api: Api, project: Project, plan: Plan, dryRun: boolean): void;
@@ -117,6 +120,7 @@ export function reconcile(options: {
   projectId?: string;
   git?: GitEvidence;
   map?: ComponentMap;
+  workspace?: CargoWorkspace;
 }): Reconciliation;
 export function renderSummary(result: Reconciliation): string;
 export function main(env?: NodeJS.ProcessEnv): void;

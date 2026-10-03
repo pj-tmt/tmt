@@ -26,6 +26,9 @@ pub enum Kind {
     Modal,
     Scroll,
     KeyHelp,
+    List,
+    Table,
+    Picker,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -202,6 +205,9 @@ fn read(
         "tmt-modal" => Kind::Modal,
         "tmt-scroll" => Kind::Scroll,
         "tmt-key-help" => Kind::KeyHelp,
+        "tmt-list" => Kind::List,
+        "tmt-table" => Kind::Table,
+        "tmt-picker" => Kind::Picker,
         _ => return Err(fail("unknown element or nested tmt-view".into())),
     };
     let leaf = matches!(kind, Kind::Cell | Kind::Text);
@@ -212,9 +218,12 @@ fn read(
             ["each", "as"].contains(&name)
         } else {
             ["id", "id-bind", "class", "token", "selected"].contains(&name)
-                || (kind == Kind::Modal && ["title", "placement"].contains(&name))
+                || (matches!(kind, Kind::Modal | Kind::Picker)
+                    && ["title", "placement"].contains(&name))
                 || (kind == Kind::KeyHelp
                     && ["bind", "heading-token", "heading-bold", "section-gap"].contains(&name))
+                || (matches!(kind, Kind::List | Kind::Table)
+                    && ["bind", "as", "empty"].contains(&name))
                 || (kind == Kind::Text && name == "slot")
                 || (root && name == "version")
                 || (kind == Kind::Row && ["row-id", "row-bind"].contains(&name))

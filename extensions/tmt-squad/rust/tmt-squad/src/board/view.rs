@@ -1774,6 +1774,7 @@ mod tests {
     fn board(sections: Value) -> App {
         let mut app = App::new(Some("product".into()));
         app.apply(Snapshot {
+            squad_keys: Vec::new(),
             tabs: vec!["product".into(), "reviews".into()],
             hidden: Vec::new(),
             pinned: 0,
@@ -2446,6 +2447,7 @@ columns = [{ name = "member", width = "30%" },
         let bindings = crate::action::preset(true, &board.panes);
         let mut app = App::new(Some("product".into()));
         app.apply(Snapshot {
+            squad_keys: Vec::new(),
             tabs: vec!["product".into()],
             hidden: Vec::new(),
             pinned: 0,
@@ -3912,6 +3914,7 @@ lines = [
         view.rows = crate::rows::Rows::leads();
         let mut app = App::new(Some(crate::board::LEADS.into()));
         app.apply(Snapshot {
+            squad_keys: Vec::new(),
             tabs: vec!["product".into(), crate::board::LEADS.into()],
             hidden: Vec::new(),
             pinned: 0,

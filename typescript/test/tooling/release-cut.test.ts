@@ -21,7 +21,18 @@ const definitions = {
   cli: { owns: ['.'], excludes: ['extensions', 'shared'], package: 'tmt-cli' },
   squad: { owns: ['extensions/squad'], package: 'tmt-squad', selectedBy: ['tests/squad.*'] },
   private: { owns: ['shared'], release: false, releaseConsumers: ['squad'] },
-  parked: { owns: ['extensions/parked'], release: false, package: 'tmt-parked' },
+  never: {
+    owns: ['extensions/never'],
+    release: false,
+    releaseStatus: 'never',
+    package: 'tmt-never',
+  },
+  parked: {
+    owns: ['extensions/parked'],
+    release: false,
+    releaseStatus: 'parked',
+    package: 'tmt-parked',
+  },
 };
 const map = parseComponentMap(JSON.stringify({ components: definitions }));
 const commit = (message = 'feat: add feature', files = ['rust/file.rs'], n = 1): CutCommit => ({
@@ -51,8 +62,8 @@ describe('direct component-map cut attribution', () => {
     expect(attributeCutCommits(commits, map, 'cli').map((c) => c.sha)).toEqual([sha(1), sha(3)]);
     expect(attributeCutCommits(commits, map, 'squad').map((c) => c.sha)).toEqual([sha(2), sha(3)]);
   });
-  it('rejects unknown, parked or non-private consumption instead of a second attribution list', () => {
-    for (const consumers of [['missing'], ['parked']]) {
+  it('rejects unknown, never-shipped or non-private consumption instead of a second attribution list', () => {
+    for (const consumers of [['missing'], ['never']]) {
       expect(() =>
         parseComponentMap(
           JSON.stringify({

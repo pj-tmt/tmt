@@ -49,13 +49,14 @@ $ tmt upgrade --unpin                # follow the channel again
 
 ### Shell completion
 
-Add one line to your shell's startup file, or run it in the current shell:
+`tmt completion` checks your shell's startup file and prints the one line to add. Name `bash`, `zsh` or `fish` to check another shell. It reads the file, so it can't tell whether completion is already loaded in the shell you're in now.
 
 <Cmd>{`
-$ source <(tmt completion bash)   # bash
-$ source <(tmt completion zsh)    # zsh, after compinit
-$ tmt completion fish | source    # fish
+$ tmt completion                 # check your shell and show the line
+$ tmt completion zsh             # the same for zsh
 `}</Cmd>
+
+Add that line to the file it names yourself; tmt never edits your shell's startup files. For zsh, put it after completion is set up, whether by `compinit` or by a framework such as oh-my-zsh. If the line is there twice, tmt says so. Open a new shell afterwards. `tmt completion --json` gives the same check for scripts, and tmt's main help (`tmt --help`) shows a reminder in a terminal while completion isn't set up.
 
 Names complete from your saved and temporary identities, saved ones first, without starting tmux. `tmt resume` offers only identities with a remembered session. After the name, `tmt run` hands over to the agent's own completion, so Tab completes the agent's flags too; tmt doesn't install those scripts. Extensions complete their own words, such as `tmt sq <Tab>`.
 

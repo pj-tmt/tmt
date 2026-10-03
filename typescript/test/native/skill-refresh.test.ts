@@ -26,7 +26,7 @@ describe('native managed skill refresh', () => {
       const managed = await runCli(sandbox, ['__native-refresh-skills', '--managed', '--json']);
       expect(managed.status).toBe(1);
       expectError(managed, 'SKILL_REFRESH_FAILED');
-      for (const args of [[], ['completion', 'bash'], ['completion', 'zsh']]) {
+      for (const args of [[], ['__completion-script', 'bash'], ['__completion-script', 'zsh']]) {
         const help = await runCli(sandbox, args);
         expect(help.status).toBe(0);
         expect(help.stdout).not.toContain('__native-refresh-skills');

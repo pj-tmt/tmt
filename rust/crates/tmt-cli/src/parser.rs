@@ -79,7 +79,7 @@ fn finish_parse(invocation: Invocation, mode: OutputMode) -> Result<Parsed, Pars
             invocation,
             Invocation::Help(_)
                 | Invocation::Version
-                | Invocation::Completion(_)
+                | Invocation::CompletionScript(_)
                 | Invocation::Complete(_)
                 | Invocation::Mcp { .. }
                 | Invocation::Learn { .. }
@@ -236,7 +236,10 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["__request-observer"] => Invocation::RequestObserver {
             request_id: text(m, "request-id").expect("required request ID"),
         },
-        ["completion"] => Invocation::Completion(text(m, "shell")),
+        ["completion"] => Invocation::Completion {
+            shell: text(m, "shell"),
+        },
+        ["__completion-script"] => Invocation::CompletionScript(required(m, "shell")),
         ["__complete"] => Invocation::Complete(
             m.get_many::<OsString>("words")
                 .map(|values| values.cloned().collect())

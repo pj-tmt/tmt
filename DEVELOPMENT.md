@@ -1069,6 +1069,13 @@ must fail the positive control. Registry maximum selection is checked with
 `cargo test --locked -p tmt-adapters runtime::tests::maximum_send_duration`.
 Existing `storage::requests::service_tests::notification` tests retain ownership
 of dead-sender recovery and attempted-frame no-replay assertions.
+`cargo test --locked -p tmt-adapters delivery::notices` verifies original-request
+previews, control stripping, Unicode character limits and aligned columns,
+expired-prompt fallback, render-time prefix collisions, and exactly one ID per
+reply row and both timeout forms inside their runnable result commands. Poisoned
+final bytes prove these reads never decode responder bodies. The architecture
+suite checks that display width dependencies are allowed only in the two
+presentation owners.
 The refusal fixture holds a bound, non-listening socket through the connect attempt;
 it never releases a port for a parallel test to claim. It uses the existing nix
 Unix dev-dependency with `net`, without a new runtime dependency. These tests do
@@ -1086,6 +1093,15 @@ Owned Codex startup and attachment planning (#738) are covered by
 isolated shell stand-ins and check observable process/file cleanup; cwd probes
 compare relative and absolute `-C`. They do not start Codex or a model and do not
 replace the final live foreground continuity gate.
+
+Read-only Codex folder-trust advice (#781) is checked with
+`cargo test --locked -p tmt-adapters drivers::codex::trust` and
+`cargo test --locked -p tmt-adapters drivers::codex::channel`. Temporary local
+config fixtures verify cwd/root precedence, alternate `CODEX_HOME`, unknown
+inputs and unchanged config/credentials. The injected version runner permits
+only `--version`; these tests never start Codex or a model. Shared informational
+preflight behavior is checked with
+`cargo test --locked -p tmt-cli run_command::channel`.
 
 For fresh Codex bootstrap (#1198), run focused model-free checks:
 `CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters drivers::codex::supervisor`,
@@ -1210,6 +1226,16 @@ After an intended change, regenerate with `INSTA_UPDATE=always cargo test -p
 <crate>`, delete any leftover `*.snap.new` files, and review the snapshot diff as
 part of the change. CI never updates snapshots.
 
+Completion setup (#1470) has isolated adapter and real-CLI tests:
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters completion_install` and
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli --test completion_install`.
+They check read-only startup-file evidence, shell detection, duplicate warnings,
+framework-managed zsh initialization, and script generation restricted to the
+hidden route. A real PTY checks the final top-level help hint, its suppression
+when configured, and silent inspection errors; piped and JSON help omit it.
+Fixtures own their terminals and HOMEs; never use a real shell startup file.
+Run the CLI style and architecture guards with these checks.
+
 The CLI style guards ([enforcement](design/cli-style.md#enforcement)) run in
 `cargo test`. When a migrated command leaves its list, run them directly from
 `rust/`: `cargo test --locked -p tmt-cli --bin tmt cli_style`, `cargo test
@@ -1287,10 +1313,48 @@ Use `placement="body"` for references, `"center"` for small overlays,
 or `"docked"` for prompts. `surface::render` accepts caller-owned ScrollState,
 body Rect/Buffer, RenderStyle (Theme/Depth) and selection styling. It returns
 visible scoped hits; route current input through `app::route` before base handlers.
-The caller performs effects, owns editable-field behavior, invalidates old hits on
+The caller performs effects, routes editable fields, invalidates old hits on
 resize/data changes, and may keep component state behind one RefCell for an
 immutable application render interface. `components::footer` fits priority-ordered
 effective-key hints as whole pairs. The shared style guideline owns roles/sizing.
+List/table/picker tests cover identity reconciliation, disabled/empty activation,
+whole-row wrapped selection, visual-range paging, clipped/stale mouse hits,
+query editing/confirm/cancel, fixed picker query/footer, tiny areas and reverse
+selection with bold attention marks. `tmt-list`/`tmt-table` bind a root collection
+whose rows declare `id: StableId`, `disabled: Boolean` and projected display fields.
+Each contains exactly one `tmt-row` template using the `as` alias (default `row`);
+components own row identity/selection. A table row declares shared grid tracks:
+
+```xml
+<tmt-view version="1">
+  <tmt-table id="items" bind="$.rows" as="item" empty="(no items)">
+    <tmt-row class="grid grid-cols-[2_1fr] gap-1">
+      <tmt-cell bind="item.mark" token="accent" />
+      <tmt-cell bind="item.description" wrap="true" />
+    </tmt-row>
+  </tmt-table>
+</tmt-view>
+```
+
+For an ordinary pane use `components::collection::compile`, its compiled
+`Table::materialize` and `collection::render` with caller `ListState`. In a modal,
+put the same list/table inside its scroll body and use `surface::render_list`;
+`FrameMap.list` contains current row geometry. `tmt-picker` instead contains a
+query text slot, one list/table, and optional footer/status text; it supplies the
+modal and scroll body. Bind `Picker::query_visible(width)` to the fixed query
+slot. `Picker::input_field` follows the caller's FocusStack Query/List field;
+printable navigation/close keys are text in the query. On `QueryChanged`, filter
+application data and call `Picker::reconcile` before handling another action.
+`Changed(id)` is a preview request, `Confirm(id)` an application action, and
+`Cancel` requests caller rollback/close. `PickerInput::Captured` consumes an
+accepted key without an event (cursor motion, a boundary or a bounded edit),
+so its focused-field handler still returns a handled value to `app::route`.
+Rendering never runs those effects.
+Discard row maps on resize/model replacement; mouse routing also rejects changed
+row models or painted offsets. Ordinary panes reserve a dim `N more ↓` line while
+content overflows. One list/table is supported per scroll surface; component IDs
+remain literal, outside repeats. Generated templates obey the primitive budgets.
+
 Run `cargo test --locked -p tmt-squad` for its in-memory source adapter and frozen
 board/list parity fixture, projected and retained-view loading identities,
 coverage, priority and CSS clamp/default-min mapping. Board fitting uses the shared grapheme owner;
@@ -1729,6 +1793,14 @@ scrolling at 160/100/80 columns. Verify real private-tmux captures in `tmt`,
 `tmt-light` and `NO_COLOR`, at the top and end, with isolated HOME,
 TMUX_TEAM_HOME and XDG cache. Settings tests retain raw binding JSON while
 checking shared description metadata.
+
+Settings editor coverage exercises live preview, refreshed data retention, focus
+and age-evidence restoration on cancel, persisted values/sources, invalid input,
+read-only command entries and stale-file refusal. Native settings edits verify
+shared staleness after reload, including the disabled no-publication path; capture
+normal and narrow editor/refusal states from isolated HOME/TMUX_TEAM_HOME and a
+private tmux socket. The [Squad architecture](ARCHITECTURE.md#squad-extension) owns the
+preview and writer contracts.
 
 Native Squad tests verify leadership selection and clearing without membership
 or role loss, repeated additions without overwriting state, and explicit recovery
@@ -3283,7 +3355,7 @@ Every issue carries these Project fields:
     `Fixes #N` merge moves the issue here through the Project workflow.
   - `Released`: every affected product has a published tag containing the closing
     merge commit(s). Release automation sets it and fills `Released in`.
-  - `Done`: closed without a delivering merged PR (not planned, duplicate, or resolved elsewhere); release automation sets it.
+  - `Done`: closed without a delivering merged PR (not planned, duplicate, or resolved elsewhere), delivery confined to explicitly never-shipped leaves, or only parked-product waits; release automation sets it and records the parked-product note.
 - `Agents`: comma-separated names of agents actively building or coordinating
   it now, including assigned members waiting on a named dependency. List the
   lead first. Reviewers who build nothing are not listed. Removing a member
@@ -3346,6 +3418,28 @@ Compare exact file bytes, not symlink-directory snapshots or enumerated binary
 objects. Use structured output or a focused formatter test, not mocked
 `console.log`. Apply the [architecture maintenance contract](ARCHITECTURE.md#maintenance-contract)
 when changing an owner, boundary or verification procedure.
+
+## Shared extension state verification
+
+The [extension state leaf](ARCHITECTURE.md#shared-extension-state-layout) is
+library-only and shared by the Remote and Colab executables. From the repository
+root, run its primitive tests and both consumers' real temporary-root preservation
+suites, then the dependency/import guard:
+
+```bash
+(cd rust && cargo test --offline --locked -p tmt-extension-state)
+(cd rust && cargo test --offline --locked -p tmt-remote --test state)
+(cd rust && cargo test --offline --locked -p tmt-colab --test state)
+(cd rust && cargo clippy --offline --locked -p tmt-extension-state -p tmt-remote -p tmt-colab --all-targets -- -D warnings)
+(cd rust && cargo test --offline --locked -p tmt-cli --test architecture)
+```
+
+These suites assert exact retained bytes, private admission, read-only lookup,
+lock contention before cleanup, bounded reads and create-only publication. The
+consumer tests also retain extension-specific errors, identity and database
+behavior. Synced publication tests prove filesystem behavior, not power-loss
+recovery. New workspace paths also require the tracked-file layout, generated
+release configuration and CI-scope checks described in this guide.
 
 ## Browser add-on shell
 
@@ -4302,11 +4396,27 @@ closed PRs, supplies merged closing PRs. Local git reads the first-parent merge
 delta (including deleted paths and both sides of renames) and tag containment.
 The existing component owner map assigns products. Private-leaf consumers add
 attribution to existing released-root membership through
-`ci-scope.releasedComponentsForPath`, using `owns`/`excludes` rather than CI
-`selectedBy`. Style and invoke require CLI and Squad release evidence; TUI
+`ci-scope.releasedComponentsForPath`, using `owns`/`excludes` plus each released
+package's transitive Cargo normal/build workspace dependency directories, rather
+than CI `selectedBy`. Dev-only edges do not attribute release work. The shared
+`cargo-workspace.mjs::readCargoWorkspace(root, {runner})` reads a repository root
+with `cargo metadata --format-version 1 --offline --locked`; it has no Git logic.
+The cut caller exports its captured ref before reading; the Project sweep reads
+its trusted main checkout. Workflow callers prepare the locked Cargo cache with
+`cargo fetch --locked` from `rust/` before offline acquisition and the full tooling
+test suite. Exported-cut cleanup tests create their own temporary Git repository,
+without requiring shared checkout history. Fixture callers without a Cargo
+checkout may omit the workspace argument; production callers always supply it. Style and invoke require CLI and Squad release evidence; TUI
 requires only Squad evidence. Existing historical Office tags remain evidence even while Office
 publication is parked. Components without a native publication policy stay
-Merged with an explicit waiting reason. For each affected product, the first
+Merged with an explicit waiting reason. `release:false` alone is never evidence
+that work needs no release: Colab, Remote and Herdr remain awaiting activation.
+The component map's optional `releaseStatus` is valid only with `release:false`:
+`never` marks test support as contained in no release and forbids consumers;
+`parked` marks Office. Never-only changes reconcile to Done. Waits confined to parked products
+reconcile to Done with one `ships with the first <product> release` line per
+waited-on product in Released in (`Office` today); any other pending wait stays Merged. `colab-app` changes await its
+embedded `tmt-colab` consumer. For each affected product, the first
 publication containing all relevant closing merge commits becomes the sole
 canonical entry. All products must be present for Released. Closed issues with
 no merged closing PR use the closed-issue state defined in [Project tracking](#project-tracking),
@@ -4363,7 +4473,7 @@ Run fixture-only checks without live API calls or Docker:
 
 ```bash
 cd typescript
-corepack pnpm exec vp test run --config vitest.config.ts test/tooling/project-release.test.ts test/tooling/release-workflow.test.ts test/tooling/release-publish.test.ts
+corepack pnpm exec vp test run --config vitest.config.ts test/tooling/project-release.test.ts test/tooling/cargo-workspace.test.ts test/tooling/release-attribution.test.ts test/tooling/release-cut.test.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/release-publish.test.ts
 corepack pnpm check:tooling
 cd ..
 actionlint .github/workflows/project-release.yml .github/workflows/native-release.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-smoke.yml

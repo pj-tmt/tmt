@@ -97,6 +97,10 @@ describe('scripts/dev-worktree-remove.sh', () => {
       await withScratch((scratch) => {
         scratch.env.FAKE_PR_STATE = state;
         if (state === 'unknown') scratch.env.FAKE_GH = 'fail';
+        const listed = () =>
+          scratch.git(scratch.repo, 'worktree', 'list', '--porcelain').split('\n');
+        const entry = `worktree ${scratch.worktree}`;
+        expect(listed()).toContain(entry);
         const result = scratch.remove();
         expect(result.status, result.stderr).toBe(0);
         expect(JSON.parse(readFileSync(path.join(scratch.root, 'gh-call.json'), 'utf8'))).toEqual({
@@ -109,7 +113,8 @@ describe('scripts/dev-worktree-remove.sh', () => {
           ],
         });
         expect(existsSync(scratch.worktree)).toBe(false);
-        expect(scratch.git(scratch.repo, 'worktree', 'list')).not.toContain('wt');
+        // Exact entry: the random temp parent may itself contain any short substring.
+        expect(listed()).not.toContain(entry);
       });
     }
   );

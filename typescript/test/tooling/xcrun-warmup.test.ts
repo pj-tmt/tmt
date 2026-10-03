@@ -135,6 +135,8 @@ describe('macOS toolchain warm-up before the native runtime proof', () => {
       `${scripts}/native-runtime-proof.mjs`,
       // Fixture-only assertions of the shared tool lookup, not a new runtime caller.
       'typescript/test/tooling/native-runtime-proof.test.ts',
+      // Fixture-only Git lookup warms its cache before changing the child TMPDIR.
+      'typescript/test/tooling/release-attribution.test.ts',
       'typescript/test/tooling/xcrun-warmup.test.ts',
     ]);
     // The tool itself, not the name of the warm-up action.

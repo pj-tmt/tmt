@@ -43,11 +43,19 @@ pub fn unavailable(state: &str) -> Value {
         "activityAfterUpdate": false, "reasons": []})
 }
 
+fn age_state(age: u64, settings: Reminders) -> &'static str {
+    if age >= settings.stale_after.as_millis() as u64 {
+        "stale"
+    } else {
+        "fresh"
+    }
+}
+
 fn age(since: u64, now: u64, settings: Reminders, reasons: &Value) -> Value {
     let Some(age) = now.checked_sub(since) else {
         return unavailable("unknown");
     };
-    json!({"state": if age >= settings.stale_after.as_millis() as u64 { "stale" } else { "fresh" },
+    json!({"state": age_state(age, settings),
         "unchangedSinceMs": since, "ageMs": age,
         "activityAfterUpdate": reasons.as_array().is_some_and(|items| !items.is_empty()),
         "reasons": reasons})
@@ -62,6 +70,52 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    /// Retain only acquired evidence for reversible in-memory settings preview.
+    pub fn for_preview(document: &Value) -> Self {
+        let rows = document["sections"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|section| section["rows"].as_array().into_iter().flatten());
+        let lead = std::iter::once(&document["squad"]["lead"]);
+        Self {
+            members: rows
+                .chain(lead)
+                .filter_map(|row| Some((row["id"].as_str()?.to_owned(), row["staleness"].clone())))
+                .collect(),
+            notes: document["squad"]["notesStaleness"].clone(),
+            fallback: unavailable("unknown"),
+        }
+    }
+
+    /// Reclassify known ages only; never read, observe, publish or claim a reminder.
+    pub fn apply_preview(&self, document: &mut Value, settings: Reminders) {
+        let project = |value: &Value| {
+            if !settings.enabled {
+                return unavailable("disabled");
+            }
+            if matches!(value["state"].as_str(), Some("fresh" | "stale"))
+                && let Some(age) = value["ageMs"].as_u64()
+            {
+                let mut value = value.clone();
+                value["state"] = age_state(age, settings).into();
+                value
+            } else {
+                unavailable("unknown")
+            }
+        };
+        Self {
+            members: self
+                .members
+                .iter()
+                .map(|(id, value)| (id.clone(), project(value)))
+                .collect(),
+            notes: project(&self.notes),
+            fallback: project(&self.fallback),
+        }
+        .apply(document);
+    }
+
     fn unavailable(state: &str) -> Self {
         Self {
             members: BTreeMap::new(),

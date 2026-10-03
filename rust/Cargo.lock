@@ -2781,7 +2781,9 @@ dependencies = [
  "tmt-office-model",
  "tmt-sys",
  "tmt-test-support",
+ "toml_edit",
  "tungstenite",
+ "unicode-width",
  "ureq",
  "uuid",
 ]
@@ -2842,6 +2844,7 @@ dependencies = [
  "signal-hook 0.4.4",
  "tmt-cli-style",
  "tmt-colab-model",
+ "tmt-extension-state",
  "tmt-invoke",
  "tmt-test-support",
  "tungstenite",
@@ -2904,6 +2907,13 @@ dependencies = [
  "serde",
  "serde_json",
  "tmt-host-grammar",
+]
+
+[[package]]
+name = "tmt-extension-state"
+version = "5.0.0-alpha.49"
+dependencies = [
+ "nix",
 ]
 
 [[package]]
@@ -3042,6 +3052,7 @@ dependencies = [
  "sha2",
  "signal-hook 0.4.4",
  "tmt-cli-style",
+ "tmt-extension-state",
  "tmt-invoke",
 ]
 

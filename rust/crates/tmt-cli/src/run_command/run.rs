@@ -156,14 +156,8 @@ pub(super) fn run_bound(
     let mode = super::channel::resume_mode(channel, launch.resumed.is_some(), remembered_channel);
     let remember_channel =
         launch.resumed.is_none() || channel != crate::invocation::ChannelMode::Default;
-    let mut channel = preflight(
-        &registry,
-        mode,
-        claim.as_ref(),
-        &launch.command.executable,
-        paths,
-    )
-    .map_err(|error| channel_preflight_failure(error, channel, mode, name))?;
+    let mut channel = preflight(&registry, mode, claim.as_ref(), &launch.command, paths)
+        .map_err(|error| channel_preflight_failure(error, channel, mode, name))?;
     host.resolve_servers(storage).map_err(endpoint_failure)?;
     let bound = if auto_named {
         binding::bind_auto_identity(storage, &mut host.session(), pane, name, save)

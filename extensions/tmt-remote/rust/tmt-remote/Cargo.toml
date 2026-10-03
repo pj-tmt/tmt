@@ -25,6 +25,7 @@ httparse.workspace = true
 nix = { workspace = true, features = ["socket"] }
 rusqlite.workspace = true
 tmt-invoke.workspace = true
+tmt-extension-state.workspace = true
 signal-hook.workspace = true
 tmt-cli-style.workspace = true
 

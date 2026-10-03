@@ -72,6 +72,8 @@ pub enum Notes {
 }
 
 pub struct Snapshot {
+    /// Squad names in core list order, before tab policy.
+    pub squad_keys: Vec<String>,
     /// Tab keys in order: squad names and built-in tabs (`board::tabs`).
     pub tabs: Vec<String>,
     /// Hidden tabs, still reachable through the switcher.
@@ -146,6 +148,8 @@ pub enum Effect {
     Load(String),
     Refresh,
     Settings,
+    SaveSetting,
+    CancelSettings,
     PickTheme,
     SaveTheme,
     PickView,
@@ -264,6 +268,7 @@ pub struct App {
     pub(super) token_window: crate::config::TokenWindow,
     pub(super) excluded_counters: Vec<String>,
     window_changed: bool,
+    squad_keys: Vec<String>,
     pub tabs: Vec<String>,
     pub hidden: Vec<String>,
     pub pinned: usize,
@@ -475,6 +480,10 @@ impl App {
                 || snapshot.squad.as_deref() == Some(super::ALL),
             "home data belongs to the aggregate snapshot"
         );
+        if let Some(overlay) = &mut self.settings {
+            overlay.squad_keys = snapshot.squad_keys.clone();
+        }
+        self.squad_keys = snapshot.squad_keys;
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
         self.pinned = snapshot.pinned;
@@ -545,6 +554,10 @@ impl App {
                     .map_or(view.board.panes.len(), |picker| picker.board().panes.len());
                 self.focus = self.focus.min(panes.saturating_sub(1));
                 let changed = self.loading() || self.view.is_none();
+                if let Some(overlay) = &mut self.settings {
+                    overlay.staleness =
+                        Some(crate::staleness::Snapshot::for_preview(&view.document));
+                }
                 let previous = self.view.replace(view);
                 let previous_squad = std::mem::replace(&mut self.shown, self.current.clone());
                 // A result that arrived for it meanwhile is newer: keep that.
@@ -572,6 +585,15 @@ impl App {
             }
         }
         self.prune_views();
+        if self
+            .settings
+            .as_ref()
+            .is_some_and(|overlay| overlay.settings.context != self.shown)
+        {
+            self.settings = None;
+            self.notice = Some("Shown tab changed; reopen settings.".into());
+        }
+        self.settings_preview();
         self.clamp();
     }
 
@@ -684,6 +706,97 @@ impl App {
             let key = key.clone();
             let board = view.board.clone();
             self.remember_folds(key, &board);
+        }
+        self.restore_focus();
+    }
+
+    pub(super) fn open_settings(&mut self, config: Config) -> Result<(), crate::core::SquadError> {
+        let mut overlay =
+            super::settings::Overlay::open(config, self.shown_tab(), self.selected_section())?;
+        overlay.opening_focus = self.focus;
+        overlay.squad_keys = self.squad_keys.clone();
+        overlay.staleness = self
+            .view
+            .as_ref()
+            .map(|view| crate::staleness::Snapshot::for_preview(&view.document));
+        self.settings = Some(overlay);
+        self.help = false;
+        Ok(())
+    }
+
+    /// Apply disposable presentation to the newest acquired data; the opening Config restores it on cancel.
+    pub(super) fn settings_preview(&mut self) {
+        let Some(overlay) = &self.settings else {
+            return;
+        };
+        let Some(config) = overlay.config() else {
+            return;
+        };
+        let key = overlay.settings.context.as_deref().unwrap_or("");
+        let policy = config.tabs().expect("validated settings draft");
+        (self.tabs, self.pinned) = if overlay.squad_keys.is_empty() && policy.user.is_empty() {
+            (Vec::new(), 0)
+        } else {
+            crate::tabs::arrange(&overlay.squad_keys, &policy)
+        };
+        self.hidden = if overlay.squad_keys.is_empty() && policy.user.is_empty() {
+            Vec::new()
+        } else {
+            overlay
+                .squad_keys
+                .iter()
+                .cloned()
+                .chain([crate::tabs::LEADS.to_owned(), crate::tabs::ALL.to_owned()])
+                .chain(
+                    policy
+                        .user
+                        .iter()
+                        .map(|tab| crate::tabs::user_key(&tab.name)),
+                )
+                .filter(|key| !self.tabs.contains(key))
+                .collect()
+        };
+        if let Some(view) = &mut self.view {
+            view.refresh = config.refresh(key).expect("validated settings draft");
+            if !crate::tabs::aggregate(key) {
+                view.board = config.board(key).expect("validated settings draft");
+                view.bindings = config
+                    .bindings_for_tab(key, overlay.settings.host == "tmux", &view.board.panes)
+                    .expect("validated settings draft");
+                view.rows = config.rows(key).expect("validated settings draft");
+                view.render = config.notes_render(key).expect("validated settings draft");
+                let states = config
+                    .states(key, config.layout(key).unwrap())
+                    .expect("validated settings draft");
+                for section in view.document["sections"]
+                    .as_array_mut()
+                    .into_iter()
+                    .flatten()
+                {
+                    for row in section["rows"].as_array_mut().into_iter().flatten() {
+                        let color = states.color(row["state"].as_str()).map(str::to_owned);
+                        if let Some(colors) = row["colors"].as_object_mut() {
+                            colors.remove("state");
+                        }
+                        if let Some(color) = color {
+                            if !row["colors"].is_object() {
+                                row["colors"] = serde_json::json!({});
+                            }
+                            row["colors"]["state"] = color.into();
+                        }
+                    }
+                }
+                if let Some(snapshot) = &overlay.staleness {
+                    snapshot.apply_preview(
+                        &mut view.document,
+                        config.reminders(key).expect("validated settings draft"),
+                    );
+                }
+                *view.derived.borrow_mut() = Default::default();
+            }
+        }
+        if overlay.draft.is_none() {
+            self.focus = overlay.opening_focus;
         }
         self.restore_focus();
     }
@@ -1545,10 +1658,24 @@ impl App {
             return Effect::Quit;
         }
         if let Some(overlay) = &mut self.settings {
-            if overlay.key(key) {
-                self.settings = None;
+            let editing = overlay.editing();
+            let input = overlay.key(key);
+            if !editing && overlay.editing() {
+                overlay.opening_focus = self.focus;
             }
-            return Effect::None;
+            return match input {
+                super::settings::Input::None => Effect::None,
+                super::settings::Input::Save => Effect::SaveSetting,
+                super::settings::Input::Preview => {
+                    self.settings_preview();
+                    Effect::None
+                }
+                super::settings::Input::Close => {
+                    self.settings_preview();
+                    self.settings = None;
+                    Effect::CancelSettings
+                }
+            };
         }
         if let Some(picker) = &mut self.view_picker {
             return match picker.key(key) {
@@ -2066,6 +2193,7 @@ pub(crate) mod tests {
 
     pub(crate) fn snapshot(squad: &str, sections: Value) -> Snapshot {
         Snapshot {
+            squad_keys: vec!["infra".into(), "product".into()],
             tabs: vec!["infra".into(), "product".into()],
             hidden: Vec::new(),
             pinned: 0,
@@ -2192,6 +2320,7 @@ pub(crate) mod tests {
         ));
         press(&mut app, KeyCode::Right);
         app.apply(Snapshot {
+            squad_keys: Vec::new(),
             tabs: vec!["product".into(), "infra".into()],
             hidden: Vec::new(),
             pinned: 0,
@@ -2751,6 +2880,7 @@ pub(crate) mod tests {
             json!([{"title": null, "rows": [row("a", "")]}]),
         ));
         app.apply(Snapshot {
+            squad_keys: Vec::new(),
             tabs: vec!["product".into()],
             hidden: Vec::new(),
             pinned: 0,

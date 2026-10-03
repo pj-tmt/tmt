@@ -148,12 +148,20 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     .subcommand(
         general(spec!(
             "completion",
-            "Generate shell completion",
+            "Check shell completion setup",
+            details = "Checks startup-file configuration, not functions loaded in the current shell. Bash: ~/.bashrc; zsh: ${ZDOTDIR:-$HOME}/.zshrc (after compinit); fish: ${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish. The guide shows the exact source line and file to edit manually. Startup files are never modified. Zsh initialization may be provided by your shell framework.",
             [
-                "Print the zsh completion script" => "tmt completion zsh",
+                "Check completion for your shell" => "tmt completion",
+                "Show the zsh startup line" => "tmt completion zsh",
+                "Inspect configured completion as JSON" => "tmt completion bash --json",
             ]
         ))
-        .arg(operand("shell", false)),
+        .arg(operand("shell", false).value_parser(["bash", "zsh", "fish"]).help("Shell to check (defaults to SHELL)")),
+    )
+    .subcommand(
+        internal("__completion-script", "Internal shell completion script")
+            .hide(true)
+            .arg(operand("shell", true).value_parser(["bash", "zsh", "fish"])),
     )
     .subcommand(
         internal("__complete", "Internal shell completion context")

@@ -288,7 +288,9 @@ describe('retired legacy registry commands', { concurrent: false }, () => {
       expectRetiredNamesAndFlagsAbsent(help.stdout);
 
       for (const shell of ['bash', 'zsh']) {
-        const completion = await fixture.runCli(['completion', shell], { withoutTmux: true });
+        const completion = await fixture.runCli(['__completion-script', shell], {
+          withoutTmux: true,
+        });
         expect(completion.code).toBe(0);
         expectNeighborsPresent(completion.stdout, shell as 'bash' | 'zsh');
         expectRetiredNamesAndFlagsAbsent(completion.stdout, shell as 'bash' | 'zsh');
