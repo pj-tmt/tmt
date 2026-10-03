@@ -1532,11 +1532,11 @@ ciphertext, checkpoints, baselines, wraps and epoch secrets in the owner
 transaction. Signed policy, operation receipts and the reserved page ID remain;
 exact replay returns the saved outcome without restoring deleted data.
 
-The planned CLI surface is `serve`, `spaces`, `ls [--archived]`, `show [--json]`,
+The local-build management surface is defined in [Local management CLI](#local-management-cli-1307);
+`serve` and `spaces` remain available. The remaining proposed surface is
 `create <file|->`, `cat`, `edit (--file|--patch)`, `snapshot`, `restore`, `comment`,
-`share mode/link/members/remove`, `retention`, `archive`, `delete`, `pair`,
-`devices [revoke]`, `approve`, `refuse`, `retry`, `abandon`. These are proposed
-commands, not installed usage guidance. Edit computes minimal text diffs as Yjs
+`pair`, `devices [revoke]`, `approve`, `refuse`, `retry`, `abandon`.
+Those commands are proposals, not installed usage guidance. Edit computes minimal text diffs as Yjs
 operations so concurrent browser/CLI edits merge. Comment never dispatches.
 Space home/CLI management expose sharing, threads, anchors, conversations,
 members, snapshots, activity/expiry and held/uncertain sends. Enrollment, member
@@ -1611,6 +1611,69 @@ actions. This socket composition selects loopback publication; the page-policy
 engine owns rotation, published keys and deletion. Methods other
 than POST and upgrade attempts are INVALID. Unknown reserved routes
 remain unavailable. No schema, dependency or separate replay store is added.
+
+### Local management CLI (#1307)
+
+The root-local CLI is a client of the reserved management IPC while serving and
+calls the same library service under the lifecycle lock offline. It MUST NOT
+fall back to an offline writer after an IPC send. The owner runner alone signs,
+mutates and records replay outcomes. Read commands MUST NOT initialize missing
+state, change journal mode or migrate schemas.
+
+Command names precede operands, following the shared CLI style audit (the lead's
+#1307 decision replaces the positional-first #1111 sketch):
+
+```text
+ls [--archived]
+show <page>
+share mode <page> <private|link|public>
+share link list <page>
+share link add <page> --seed-file <file|-> [--link-id <uuid>]
+share link reset <page> <link> --seed-file <file|-> [--link-id <uuid>]
+share link remove <page> <link>
+```
+
+All commands support human output and one `--json` document. Top-level `ls`
+and `share link ls` have hidden `list` aliases, following the shared CLI style.
+Audience widening and link addition/Reset MUST require explicit `--yes`; absent
+confirmation sends and writes nothing. Seeds are canonical base64url seed32
+from an owned regular 0600 file or bounded stdin, never argv or output.
+Links created or reset by this v1 CLI always have the viewer role. Removal/Reset
+capture complete verified assignments. Member, history, retention, archive and
+delete commands are deferred beyond v1.
+
+Mutations accept `--operation-id` and `--expected-revision`; generated/default
+values are captured once. Success is `{operationId, expectedRevision,
+membershipHead:{revision, statementHash}}`; link creation/Reset also returns the
+nonsecret replacement `linkId`. An explicit retry MUST retain the same IDs,
+revision, selections and caller-held seed. Unknown IPC outcomes MUST retain this
+nonsecret correlation, never regenerate a request or claim no effect.
+
+Link listings return `{membershipHead, links}`.
+Page lists return `{spaceId, membershipHead, pages}`; an uninitialized list has null
+space/head and empty pages. Show returns `{spaceId, membershipHead, page, members,
+links, discussions:"not-available"}`. Page fields are `pageId, title, epoch,
+sharing, history, archived, retentionDays, lastUpdateAtMs, expiresAtMs, warnings`.
+IDs, epochs and revisions retain canonical full values; times would be UTC
+milliseconds. Policy derives from verified owner statements; titles require the
+authenticated fold and isolated decoder. Archived titles are null with
+`title-unavailable` because the fold refuses archived pages. Members/links expose
+ID, role, page assignments and revocation, never secret material.
+
+Until durable last-update evidence is available, both timestamp fields are null
+and warnings contain `expiry-unavailable`; human output states this plainly.
+No file time, read time or fabricated zero establishes expiry. Retention defaults
+to 30 days; forever is null. Local policy never automatically deletes or denies
+access. Discussion summaries await verified own folding (#1264/#1110).
+
+Failures exit 1. JSON is `{error:{code,message}}` with operation/revision/link
+correlation when captured; human failures use styled stderr. Management codes
+map explicitly to `COLAB_INVALID`, `COLAB_DENIED`, `COLAB_EXPIRED`,
+`COLAB_CONFLICT`, `COLAB_STALE_HEAD`, `COLAB_CAPACITY`, `COLAB_UNAVAILABLE`.
+CLI failures add `COLAB_INPUT_INVALID`, `COLAB_CONFIRMATION_REQUIRED`,
+`COLAB_PAGE_NOT_FOUND`, `COLAB_OUTCOME_UNKNOWN`; existing state/schema failures
+keep their codes. Success exits 0. Neither acknowledgments nor unsigned output
+create browser authority; browser refresh still uses verified catchup.
 
 ## Plaintext page export (#1309)
 

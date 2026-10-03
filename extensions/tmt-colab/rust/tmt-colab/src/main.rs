@@ -1,3 +1,6 @@
+mod cli_grammar;
+mod cli_management;
+const IPC_RESPONSE_BYTES: usize = 8192;
 use clap::{Arg, ArgAction, Command};
 use serde_json::json;
 use std::{
@@ -25,7 +28,7 @@ fn grammar() -> Command {
             note: "Run the local foreground space",
         }],
         outputs: OutputModes::Human,
-        details: "The space is reached through tmt remote, which mounts it for paired browsers. Serve the bundled browser app, or build it for local development.",
+        details: "The space is reached through tmt remote, which mounts it for paired browsers. Serve the bundled browser app, or build it for local development. Local root-authorized management uses the same owner service as mounted browser requests.",
     };
     const SERVE: CommandSpec = CommandSpec {
         name: "serve",
@@ -57,37 +60,39 @@ fn grammar() -> Command {
         outputs: OutputModes::HumanAndJson,
         details: "This creates an unencrypted copy of the page. Anyone with these files can read it.\nCreates page.html and manifest.json in a new UUID subdirectory of --dir (default: current directory). The parent must exist; aliases resolve to a canonical path. Created entries cannot be symlinks; parent traversal and overwrite are refused. Discussions are not included. Archived or deleted pages cannot be exported yet.",
     };
-    tmt_cli_style::command(&ROOT)
-        .bin_name("tmt colab")
-        .version(env!("CARGO_PKG_VERSION"))
-        .arg(tmt_cli_style::version_arg(ArgAction::Version))
-        .subcommand_required(true)
-        .subcommand(
-            tmt_cli_style::command(&SERVE).arg(
-                Arg::new("app-dir")
-                    .long("app-dir")
-                    .value_name("DIRECTORY")
-                    .value_parser(clap::value_parser!(std::path::PathBuf))
-                    .help(
-                        "Override embedded or checkout app bytes with an absolute build directory",
+    cli_grammar::extend(
+        tmt_cli_style::command(&ROOT)
+            .bin_name("tmt colab")
+            .version(env!("CARGO_PKG_VERSION"))
+            .arg(tmt_cli_style::version_arg(ArgAction::Version))
+            .subcommand_required(true)
+            .subcommand(
+                tmt_cli_style::command(&SERVE).arg(
+                    Arg::new("app-dir")
+                        .long("app-dir")
+                        .value_name("DIRECTORY")
+                        .value_parser(clap::value_parser!(std::path::PathBuf))
+                        .help(
+                            "Override embedded or checkout app bytes with an absolute build directory",
+                        ),
+                ),
+            )
+            .subcommand(tmt_cli_style::command(&SPACES))
+            .subcommand(
+                tmt_cli_style::command(&EXPORT)
+                    .arg(Arg::new("page").required(true).value_parser(|value: &str| {
+                        tmt_colab_model::values::generated_id(value)
+                            .map(|_| value.to_owned())
+                            .map_err(|error| error.to_string())
+                    }))
+                    .arg(
+                        Arg::new("dir")
+                            .long("dir")
+                            .value_name("destination")
+                            .value_parser(clap::value_parser!(std::path::PathBuf)),
                     ),
             ),
-        )
-        .subcommand(tmt_cli_style::command(&SPACES))
-        .subcommand(
-            tmt_cli_style::command(&EXPORT)
-                .arg(Arg::new("page").required(true).value_parser(|value: &str| {
-                    tmt_colab_model::values::generated_id(value)
-                        .map(|_| value.to_owned())
-                        .map_err(|error| error.to_string())
-                }))
-                .arg(
-                    Arg::new("dir")
-                        .long("dir")
-                        .value_name("destination")
-                        .value_parser(clap::value_parser!(std::path::PathBuf)),
-                ),
-        )
+    )
 }
 fn run(matches: &clap::ArgMatches) -> Result<()> {
     let (command, args) = matches.subcommand().expect("required subcommand");
@@ -104,6 +109,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         }
         if command == "export" {
             return export(&root, args);
+        }
+        if command != "serve" {
+            return cli_management::run(command, args, &root, json_output);
         }
         let app = App::selected(
             args.get_one::<std::path::PathBuf>("app-dir")
@@ -277,6 +285,41 @@ fn spaces(root: &std::path::Path, json_output: bool) -> Result<()> {
     }
     Ok(())
 }
+fn error_code(error: &(dyn std::error::Error + Send + Sync + 'static)) -> &'static str {
+    error
+        .downcast_ref::<tmt_colab::keyring::StateFault>()
+        .map(|e| e.code())
+        .or_else(|| {
+            error
+                .downcast_ref::<tmt_colab::socket::SocketFault>()
+                .map(|e| e.code())
+        })
+        .or_else(|| {
+            error
+                .downcast_ref::<cli_management::ManagementFault>()
+                .map(|e| e.code)
+        })
+        .or_else(|| {
+            error
+                .downcast_ref::<tmt_colab::export::Fault>()
+                .map(|e| e.code())
+        })
+        .or_else(|| {
+            error
+                .downcast_ref::<tmt_colab::assets::AssetFault>()
+                .map(|_| "COLAB_APP_UNAVAILABLE")
+        })
+        .unwrap_or_else(|| {
+            if matches!(
+                error.downcast_ref::<tmt_colab::store::Fault>(),
+                Some(tmt_colab::store::Fault::UnsupportedSchema(_))
+            ) {
+                "COLAB_SCHEMA_UNSUPPORTED"
+            } else {
+                "COLAB_UNAVAILABLE"
+            }
+        })
+}
 fn main() -> ExitCode {
     if std::env::args().nth(1).as_deref() == Some("__decoder") {
         return tmt_colab::decoder::child_main();
@@ -318,39 +361,16 @@ fn main() -> ExitCode {
     match run(&matches) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            let code = error
-                .downcast_ref::<tmt_colab::keyring::StateFault>()
-                .map(|e| e.code())
-                .or_else(|| {
-                    error
-                        .downcast_ref::<tmt_colab::socket::SocketFault>()
-                        .map(|e| e.code())
-                })
-                .or_else(|| {
-                    error
-                        .downcast_ref::<tmt_colab::export::Fault>()
-                        .map(|e| e.code())
-                })
-                .or_else(|| {
-                    error
-                        .downcast_ref::<tmt_colab::assets::AssetFault>()
-                        .map(|_| "COLAB_APP_UNAVAILABLE")
-                })
-                .unwrap_or_else(|| {
-                    if matches!(
-                        error.downcast_ref::<tmt_colab::store::Fault>(),
-                        Some(tmt_colab::store::Fault::UnsupportedSchema(_))
-                    ) {
-                        "COLAB_SCHEMA_UNSUPPORTED"
-                    } else {
-                        "COLAB_UNAVAILABLE"
-                    }
-                });
+            let cli_failure = error.downcast_ref::<cli_management::ManagementFault>();
+            let code = error_code(error.as_ref());
             if matches
                 .subcommand()
                 .is_some_and(|(_, m)| m.get_flag("json"))
             {
-                let mut value = json!({"error":{"code":code,"message":error.to_string()}});
+                let mut value = cli_failure
+                    .map(|e| e.correlation.clone())
+                    .unwrap_or_else(|| json!({}));
+                value["error"] = json!({"code":code,"message":error.to_string()});
                 if let Some(path) = error
                     .downcast_ref::<tmt_colab::export::Fault>()
                     .and_then(|fault| fault.partial_directory())
@@ -404,5 +424,8 @@ mod tests {
             },
         );
         assert!(violations.is_empty(), "{violations:?}");
+        assert!(
+            tmt_cli_style::audit::list_spelling_report(&grammar(), &["tmt", "colab"]).is_empty()
+        );
     }
 }

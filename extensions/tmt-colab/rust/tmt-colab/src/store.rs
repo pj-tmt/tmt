@@ -128,6 +128,10 @@ impl Store {
         schema::check_version(&connection)?;
         Ok(Self { connection })
     }
+    /// Management inspection requires current tables, without migrating legacy state.
+    pub fn require_current_schema(&self) -> StoreResult<()> {
+        schema::check_read_version(&self.connection)
+    }
     pub fn create_page(&self, page: &str) -> StoreResult<()> {
         bounded_id(page)?;
         self.connection

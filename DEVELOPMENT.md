@@ -3585,6 +3585,37 @@ this slice adds their transport, not installed CLI usage. Request/response DTOs 
 link-seed relay restrictions are owned by
 [colab-v1](extensions/tmt-colab/contracts/colab-v1.md#local-management-admission-1306).
 
+### Colab management CLI verification
+
+The v1 local-build CLI adds `ls`, `show`, `share mode` and
+`share link list/add/reset/remove`. Subcommands precede operands:
+`tmt colab share link list <page>`, `tmt colab share mode <page> link --yes`.
+Link creation and reset always select viewer; member, history, retention, archive
+and delete commands are deferred beyond v1.
+The contract's [CLI section](extensions/tmt-colab/contracts/colab-v1.md#local-management-cli-1307)
+owns flags, disclosure, JSON and error shapes. Existing `serve`/`spaces` remain.
+
+Read-only commands create no missing state and never migrate a schema. Titles
+come from the isolated authenticated fold; archived titles are explicitly
+unavailable. Expiry times are not available yet; retention never
+causes automatic local deletion. Discussions await verified own folding.
+
+Run the focused subprocess cases from `rust/`:
+
+```sh
+CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/tmt-colab-cli-target cargo test --offline --locked -p tmt-colab --bin tmt-colab --test cli
+```
+
+Real temporary SQLite/keyring/encrypted-source fixtures cover verified titles,
+state-preserving inspection, unsafe/old-schema refusal, help/JSON/human output,
+no-effect confirmation/input denials, foreground/offline viewer-link changes, frozen
+retry after reopen, conflict/stale heads, reset/removal revocation, seed-file custody and interrupted IPC
+without an offline fallback. No real user state, browser or Docker is involved.
+Sharing cases cover confirmed link/public modes and unconfirmed narrowing, both
+offline and serving. Fixture engine setup uses the shared injected decoder
+configuration; subprocess cases exercise the production executable. Removed
+commands are rejected without changing state.
+
 ### Colab stream sync verification
 
 Run `(cd rust && cargo test --offline --locked -p tmt-colab --test sync)` for
