@@ -515,6 +515,7 @@ fn width_value(width: Option<Basis>) -> Value {
 
 /// `[squad.<name>.rows]` when present, else the older `columns` table, else
 /// the preset. Setting both is refused rather than guessed.
+#[cfg(test)]
 pub fn read(squad: Option<&dyn TableLike>, name: &str) -> Result<Rows, SquadError> {
     read_with_windows(squad, name, crate::config::TokenWindow::DEFAULTS)
 }
