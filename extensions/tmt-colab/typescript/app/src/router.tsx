@@ -7,8 +7,10 @@ import {
   createRouter,
   Link,
   Outlet,
+  useRouter,
 } from '@tanstack/react-router';
 import type { PageView, PageTransport } from './transport.js';
+import { ShareDialog } from './share-dialog.js';
 import { mountRenderer } from './renderer.js';
 import type { RenderState } from './renderer.js';
 import { text } from './strings.js';
@@ -97,6 +99,35 @@ function Shell() {
     </>
   );
 }
+function ManageButton({ pageId, changed }: { pageId: string; changed?(): void }) {
+  const port = root.useRouteContext().transport.management;
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const touched = useRef(false);
+  if (!port) return null;
+  return (
+    <>
+      <button onClick={() => setOpen(true)}>Manage page</button>
+      {open && (
+        <ShareDialog
+          port={port}
+          pageId={pageId}
+          committed={() => {
+            touched.current = true;
+            changed?.();
+          }}
+          close={() => {
+            setOpen(false);
+            if (touched.current) {
+              touched.current = false;
+              void router.invalidate();
+            }
+          }}
+        />
+      )}
+    </>
+  );
+}
 function Home() {
   const space = home.useLoaderData();
   return (
@@ -118,6 +149,7 @@ function Home() {
                   {text.open} <span aria-hidden>↗</span>
                 </span>
               </Link>
+              <ManageButton pageId={p.id} />
             </li>
           ))}
         </ul>
@@ -227,6 +259,13 @@ function Page() {
         </Link>
         <h1>{view.title || snapshot.title}</h1>
         <span className="chip">{text[snapshot.sharing]}</span>
+        <ManageButton
+          pageId={snapshot.id}
+          changed={() => {
+            snapshot.binding?.close();
+            setLiveError('Management changed. Reopen the page to load its latest state.');
+          }}
+        />
         <span className={`status ${state === 'ready' ? 'live' : ''}`}>
           <span aria-hidden>{state === 'ready' ? '●' : state === 'loading' ? '○' : '✗'}</span>{' '}
           {state === 'ready' ? text.loaded : state === 'loading' ? text.loading : text.blocked}

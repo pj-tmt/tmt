@@ -35,10 +35,13 @@ export function mountUrl(): URL {
 export async function discover(
   mount: URL,
   verify?: (space: string, owner: Uint8Array) => Promise<unknown>,
+  signal?: AbortSignal,
 ): Promise<Bootstrap> {
   const value = await jsonResponse(
     await fetch(new URL('api/pages', mount), {
-      signal: AbortSignal.timeout(10_000),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(10_000)])
+        : AbortSignal.timeout(10_000),
     }),
     256 * 1024,
   );

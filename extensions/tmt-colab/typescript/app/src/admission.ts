@@ -40,6 +40,10 @@ export class Admission {
     readonly owner: Uint8Array,
     readonly registration: Registration,
   ) {}
+  /** Verified authority for parent management; never renderer data. */
+  statements(): readonly statement.Verified[] {
+    return this.#log.slice();
+  }
   async restore() {
     await verifyRegistration(this.registration, this.space, this.owner);
     const stored = (await record<string[]>(`log:${this.space}`)) ?? [];
