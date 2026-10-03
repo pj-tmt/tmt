@@ -991,17 +991,17 @@ upgrade cannot establish authorship. Removed access terminates live subscription
 space, page and epoch. The backend moves bytes, not Yjs state vectors. The wire
 operations are:
 
-| Type        | Additional fields / behavior                                                                                        |
-| ----------- | ------------------------------------------------------------------------------------------------------------------- |
-| `hello`     | `device, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                   |
-| `catchup`   | `membershipHead, baseline, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail |
-| `subscribe` | `cursors`; observe only the admitted page/current epoch                                                             |
-| `append`    | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                   |
-| `receipt`   | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                              |
-| `broadcast` | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                     |
-| `ack`       | `cursors`; scoped delivery positions only                                                                           |
-| `awareness` | `device, data`; bounded ephemeral presence, never persisted or authority                                            |
-| `error`     | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                      |
+| Type        | Additional fields / behavior                                                                                                                 |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hello`     | `device, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                                            |
+| `catchup`   | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail |
+| `subscribe` | `cursors`; observe only the admitted page/current epoch                                                                                      |
+| `append`    | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                            |
+| `receipt`   | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                       |
+| `broadcast` | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                              |
+| `ack`       | `cursors`; scoped delivery positions only                                                                                                    |
+| `awareness` | `device, data`; bounded ephemeral presence, never persisted or authority                                                                     |
+| `error`     | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                               |
 
 ### Implemented stream subset (#1156, #1166)
 
@@ -1091,10 +1091,31 @@ verified log before applying objects. A chain never grants current authority.
 
 `baseline` is null or canonical base64url of exact model baseline-descriptor
 JSON, bounded to 8 KiB. Its scope/revision must match the admitted page/epoch and
-retained head. The caller verifies its signed-log binding. The owner engine
-produces and persists reset baselines; mounted owner catchup reads the exact
-descriptor through `Store::baseline`. Its encrypted object delivery is a separate
-bootstrap slice.
+retained head. The caller verifies its exact signed `epoch.advance` binding.
+The owner engine produces and persists reset baselines; mounted owner catchup
+reads the exact descriptor through `Store::baseline`. Scoped encrypted object
+retrieval remains caller-owned.
+When `baseline` is non-null, the first page MUST also contain exactly
+`baselineObject: {envelopeHash, envelope}`. When `baseline` is null that field MUST
+be absent. `envelopeHash` is canonical base64url hash32 and MUST equal the signed
+descriptor's `objectEnvelopeHash`; `envelope` is the existing exact inline
+base64url envelope or `{objectId}` followed by chunk frames. Later pages MUST NOT
+repeat either baseline field. The first page still has empty streams; baseline
+retrieval does not advance any device stream or cursor.
+
+Before publishing a reset view, the browser MUST finish owner-log verification,
+match every descriptor field to the signed epoch transition, obtain the admitted
+new-epoch wrap, and verify the exact baseline envelope hash, management-member
+signature and `html/content` sequence-zero context. Its author is the pinned owner
+management member, not a device certificate; its revision equals the descriptor's
+revision. Plaintext is strict JSON with only `source` and `update` as specified in
+[current-view baseline](#current-view-baseline-and-history-modes). The dedicated
+Worker verifies the source digest, LP commitment and exact source/title projection
+from that identical update before initializing a fresh content document. Apply
+current-epoch tails only after that initialization; publish nothing on any failure.
+Old-epoch envelopes and a missing baseline for a reset epoch MUST reject. The
+browser implementation is tested with signed fixtures; native delivery of
+`baselineObject` is owned by #1248 and is not established by those fixtures.
 
 The first page has empty `streams` and `more:true`. Later pages carry
 `streams, more` and the applicable membership, wraps or chains fields. Each stream entry is exactly
@@ -1136,7 +1157,13 @@ and exactly `{objectId, envelopeHash, index, count, bytes}`. Envelope JSON over
 32 KiB uses chunks. Raw `bytes` are canonical base64url, nonempty and at most
 32 KiB; every nonfinal chunk is exactly 32 KiB. `index` and `count` are JSON
 integers: consecutive zero-based index, positive bounded count, index below count.
-Transfer scope, object ID, envelope hash and count cannot change. Consumers retain
+Transfer scope, object ID, envelope hash and count cannot change.
+Baseline transfers use the model's non-update envelope ceiling (16 MiB plaintext
+plus authentication tag, framed header and base64/JSON overhead), exposed by the
+browser model as `MAX_ENVELOPE_JSON`; their chunk-count ceiling is that serialized
+bound divided by 32 KiB, rounded up. This does not raise the update ceiling below.
+The same one-transfer rule, absolute two-second deadline and queue bounds apply;
+a maximum accepted size is not a delivery-time promise. Consumers retain
 only one bounded incomplete object and apply nothing until exact reassembly,
 model hash/signature and application admission succeed; abnormal close discards it.
 

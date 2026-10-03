@@ -7,6 +7,7 @@ import {
   exactKeys,
   requireValue,
   statement,
+  payload,
   wrap,
 } from '@tmt/colab-client';
 import { record } from './storage.js';
@@ -151,6 +152,17 @@ export class Admission {
         secret.fill(0);
       }
     }
+  }
+  baseline(value: payload.Baseline): Uint8Array {
+    requireValue(this.head !== null && value.pageId === this.page && value.epoch === this.epoch);
+    const revision = decimal(value.membershipRevision);
+    requireValue(revision <= this.head.revision);
+    const signed = this.#log[Number(revision - 1n)];
+    requireValue(signed?.payload.operation === 'epoch.advance');
+    const expected = signed.payload.value.baseline;
+    for (const field of Object.keys(expected) as (keyof payload.Baseline)[])
+      requireValue(value[field] === expected[field]);
+    return this.head.ownerMember.signingKey.slice();
   }
   author(device: string, revision: string): Uint8Array {
     const c = this.#authors.get(device);
