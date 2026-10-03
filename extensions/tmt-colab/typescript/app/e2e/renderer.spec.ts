@@ -29,9 +29,9 @@ test.beforeEach(() => {
   referrers.length = 0;
 });
 
-async function mount(page: Page, source: string, probeAdmission = false) {
+async function mount(page: Page, source: string) {
   return page.evaluate(
-    async ({ source, probeAdmission }) => {
+    async ({ source }) => {
       const path = '/src/renderer.ts';
       const { mountRenderer } = await import(path);
       const host = document.createElement('div');
@@ -46,31 +46,13 @@ async function mount(page: Page, source: string, probeAdmission = false) {
       });
       // Test-owned handles never exist in the production entry point.
       Object.assign(window, { probe: { handle, controller } });
-      const admission: (string | undefined)[] = [];
-      if (probeAdmission) {
-        // Run in the same task as insertion, before the genuine frame load/reply.
-        const frame = host.querySelector('iframe')!;
-        const reply = (source: Window, renderId: string) => {
-          window.dispatchEvent(
-            new MessageEvent('message', {
-              source,
-              data: { type: 'colab.render.bound', renderId },
-            }),
-          );
-          admission.push(host.dataset.state);
-        };
-        reply(window, handle.snapshot.renderId);
-        reply(frame.contentWindow!, 'stale-id');
-        reply(frame.contentWindow!, handle.snapshot.renderId);
-      }
-      return { ...handle.snapshot, admission } as {
+      return { ...handle.snapshot } as {
         renderId: string;
         sourceDigest: string;
         source: string;
-        admission: (string | undefined)[];
       };
     },
-    { source, probeAdmission },
+    { source },
   );
 }
 
@@ -147,7 +129,10 @@ test('opaque frame cannot read app storage, cookies, native keys or bridge; no n
       parent: denied(() => parent.document.title),
       key: denied(() => parent.appKey),
       bridge: denied(() => parent.bridge()),
-      popup: window.open('${origin}/popup') === null,
+      popup: (() => {
+        try { return window.open('${origin}/popup') === null; }
+        catch (error) { return error instanceof DOMException && ['SecurityError', 'InvalidAccessError'].includes(error.name); }
+      })(),
       top: denied(() => top.location.href = '${origin}/top'),
     };
     const image = new Image(); image.src = '${origin}/image'; document.body.append(image);
@@ -199,9 +184,53 @@ test('handshake binds window source and renderId; captured digest and cleanup su
   page,
 }) => {
   await page.goto('/');
-  const source = '<p>First</p>';
-  const captured = await mount(page, source, true);
-  expect(captured.admission).toEqual([undefined, undefined, 'ready']);
+  // Delay the real document so the wrong-window positive-shape reply is tested
+  // before the renderer can acknowledge. Use real postMessage delivery on all engines.
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/renderer.html', async (route) => {
+    await gate;
+    await route.continue();
+  });
+  const source =
+    '<p>First</p><script>parent.postMessage({type:"colab.render.bound",renderId:"stale-id"},"*")</script>';
+  const captured = await mount(page, source);
+  await page.evaluate(() => {
+    const admission: (string | undefined)[] = [];
+    Object.assign(window, { admission });
+    window.addEventListener('message', (event) => {
+      if (event.data?.type === 'colab.render.bound')
+        admission.push(document.getElementById('probe')!.dataset.state);
+    });
+  });
+  try {
+    await page.evaluate(async (renderId) => {
+      const sibling = document.createElement('iframe');
+      const received = new Promise<void>((resolve) => {
+        const listener = (event: MessageEvent) => {
+          if (event.source !== sibling.contentWindow) return;
+          window.removeEventListener('message', listener);
+          resolve();
+        };
+        window.addEventListener('message', listener);
+      });
+      sibling.srcdoc = `<script>parent.postMessage({type:'colab.render.bound',renderId:${JSON.stringify(renderId)}},'*')</script>`;
+      document.body.append(sibling);
+      await received;
+      sibling.remove();
+    }, captured.renderId);
+    await expect(page.locator('#probe')).not.toHaveAttribute('data-state');
+  } finally {
+    release();
+  }
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { admission: (string | undefined)[] }).admission,
+    ),
+  ).toEqual([undefined, undefined, 'ready']);
   await expect(page.frameLocator('#probe iframe').getByText('First')).toBeVisible();
   const digest = await page.evaluate(
     async (source) =>
