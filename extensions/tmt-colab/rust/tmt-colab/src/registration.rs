@@ -700,7 +700,7 @@ fn forward_owner_wraps(
 ) -> Result<()> {
     let head = tx.head().ok_or(Code::Unavailable)?.clone();
     let pages = tx.pages()?;
-    if pages.len() > 1000 {
+    if pages.len() > crate::limits::PAGES {
         return Err(Code::Capacity.into());
     }
     let mut added = 0;
@@ -718,7 +718,7 @@ fn forward_owner_wraps(
                     return Ok(());
                 }
                 added += 1;
-                if added > 512 {
+                if added > crate::limits::OWNER_WRAPS {
                     return Err(Code::Capacity.into());
                 }
                 tx.put_wrap(&key.seal_wrap(

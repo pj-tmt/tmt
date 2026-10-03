@@ -87,7 +87,7 @@ impl Engine {
                     None,
                 )?;
                 // Creation publishes a normal content update, with the existing stream cap.
-                if baseline.update.len() > 256 * 1024 {
+                if baseline.update.len() > crate::limits::CONTENT_UPDATE_BYTES {
                     return Err(OwnerFault::Capacity.into());
                 }
                 let mut secret = [0; 32];
@@ -117,7 +117,7 @@ impl Engine {
                 let authority = states.last().ok_or(OwnerFault::Invalid)?;
                 let devices = tx.devices()?;
                 let targets = epoch::targets(tx, &devices, key, authority, page, now)?;
-                if targets.len() > 512 {
+                if targets.len() > crate::limits::OWNER_WRAPS {
                     return Err(OwnerFault::Capacity.into());
                 }
                 let mut wraps = Vec::new();

@@ -247,7 +247,7 @@ impl OwnerTransaction<'_> {
         let count: i64 = self
             .tx
             .query_row("SELECT count(*) FROM pages", [], |r| r.get(0))?;
-        if count >= 1000 {
+        if count >= crate::limits::PAGES as i64 {
             return Err(OwnerFault::Capacity.into());
         }
         self.tx

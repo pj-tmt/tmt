@@ -5400,7 +5400,7 @@ successful durable change; the reserved socket route supplies that composition.
 
 ### Foreground composition and owner registration
 
-`main` owns `serve`, read-only `spaces`, private page creation, page source read/write and plaintext `export`, style/JSON output, signals and one
+`main` owns `serve`, read-only `spaces`, page source read/write and plaintext `export`, style/JSON output, signals and one
 foreground service lock. `core` makes one fixed `storage.root` public API call
 through the absolute invoking `TMT_EXECUTABLE` and `tmt-invoke`, with deadline,
 stream caps and cancellation; missing/invalid roots fail before state creation.
@@ -5446,14 +5446,6 @@ checked atomically by the engine; the boundary does not race a separate assignme
 read against mutation. The private socket supplies root authority for local IPC only without forwarded
 device-context or event headers; their presence is denied before payload parsing.
 Remote refuses forwarding the reserved subtree from browser mounts.
-
-Root-only page creation uses this same Engine and IPC seam. The decoder prepares
-initial Yjs content outside the writer reservation; a single owner transaction
-commits page identity, private policy, epoch key, owner-device wraps, certified
-encrypted content and receipt, including genesis for a fresh space. Later owner
-registration atomically adds missing forward wraps for active pages, without a
-new route or owner-log operation. The mounted path and bounds are owned by
-[colab-v1](extensions/tmt-colab/contracts/colab-v1.md#root-local-page-creation).
 
 The engine remains the sole transition/signing/receipt owner. Management passes an
 exact transport digest into that transaction, uses its committed head on replay and
