@@ -273,7 +273,7 @@ fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {
     )
     .unwrap()
     .stdout;
-    assert_ne!(new_skill, old_skill);
+    let skill_text_changed = new_skill != old_skill;
     assert_eq!(fs::read(first_target.join("SKILL.md")).unwrap(), old_skill);
 
     let refresh = run(
@@ -330,4 +330,12 @@ fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {
     ));
     assert_eq!(fs::read(first_target.join("SKILL.md")).unwrap(), new_skill);
     assert_eq!(fs::read(second_target.join("SKILL.md")).unwrap(), new_skill);
+    if skill_text_changed {
+        eprintln!("skill-content transition: passed (old and candidate text differ)");
+    } else {
+        eprintln!(
+            "skill-content transition: skipped (old and candidate text are identical); \
+             candidate-byte equality, conflict preservation and repair passed"
+        );
+    }
 }

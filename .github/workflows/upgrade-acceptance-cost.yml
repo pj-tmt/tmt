@@ -1,0 +1,61 @@
+name: Upgrade acceptance compile cost
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/upgrade-acceptance-cost.yml
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    name: Compile cost (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-15
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+    env:
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install 1.97.0 --profile minimal
+      - name: Measure cold and warm lib-test compilation
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          CARGO_TARGET_DIR: ${{ runner.temp }}/upgrade-acceptance-target
+        run: |
+          set -o pipefail
+          for temperature in cold warm; do
+            started=$(date +%s)
+            CARGO_BUILD_JOBS=2 cargo test --locked --manifest-path rust/Cargo.toml -p tmt-adapters --lib \
+              native_install::upgrade::artifact_tests::cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts \
+              --no-run 2>&1 | tee "$RUNNER_TEMP/$temperature-compile.log"
+            seconds=$(( $(date +%s) - started ))
+            printf '%s %s compile: %s seconds\n' "$TARGET" "$temperature" "$seconds" | tee -a "$RUNNER_TEMP/compile-cost.txt" "$GITHUB_STEP_SUMMARY"
+          done
+      - name: Keep compile measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upgrade-acceptance-cost-${{ matrix.target }}
+          path: |
+            ${{ runner.temp }}/compile-cost.txt
+            ${{ runner.temp }}/*-compile.log
+          if-no-files-found: error
+          retention-days: 7
