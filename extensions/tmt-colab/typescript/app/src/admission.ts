@@ -19,6 +19,7 @@ export class Admission {
   #raw: string[] = [];
   #target: { revision: bigint; hash: Uint8Array } | null = null;
   root: CryptoKey | null = null;
+  #authors = new Map<string, certificate.Certificate>();
   constructor(
     readonly space: string,
     readonly page: string,
@@ -29,6 +30,7 @@ export class Admission {
   async restore() {
     await verifyRegistration(this.registration, this.space, this.owner);
     for (const raw of (await record<string[]>(`log:${this.space}`)) ?? []) await this.#next(raw);
+    this.#authors.set(this.registration.deviceId, this.registration.chain.certificate());
   }
   async #next(raw: string) {
     const envelope = statement.Envelope.fromJson(binary(raw, 1024 * 1024)),
@@ -106,6 +108,9 @@ export class Admission {
           ),
       );
       await chain.verify(issuer.head.hash, c, this.head.ownerMember.signingKey);
+      const prior = this.#authors.get(c.deviceId);
+      requireValue(!prior || equal(prior.signingKey, c.signingKey));
+      this.#authors.set(c.deviceId, c);
       verified.push(c);
     }
     return verified;
@@ -146,6 +151,22 @@ export class Admission {
         secret.fill(0);
       }
     }
+  }
+  author(device: string, revision: string): Uint8Array {
+    const c = this.#authors.get(device);
+    if (!this.head || decimal(revision) > this.head.revision || !c)
+      throw new Error('Fresh membership catchup required');
+    requireValue(
+      c.issuerKind === 'member' &&
+        c.issuerId === this.head.ownerMember.id &&
+        decimal(c.membershipRevision) <= decimal(revision) &&
+        c.issuedAt <= Date.now() &&
+        c.expiresAt > Date.now() &&
+        !this.#log.some(
+          (v) => v.payload.operation === 'device.revoke' && v.payload.value.deviceId === device,
+        ),
+    );
+    return c.signingKey.slice();
   }
   validatePage(sharing: string) {
     let epoch: string | undefined,

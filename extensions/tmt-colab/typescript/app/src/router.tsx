@@ -110,26 +110,75 @@ function Home() {
 function Page() {
   const snapshot = page.useLoaderData();
   const [showSource, setShowSource] = useState(false);
+  const [view, setView] = useState({ source: snapshot.source, title: snapshot.title });
+  const latest = useRef(view),
+    dirty = useRef(false),
+    base = useRef(snapshot.source);
+  const [draft, setDraft] = useState(snapshot.source),
+    [saving, setSaving] = useState(false);
+  const [liveError, setLiveError] = useState<string | null>(null),
+    [editError, setEditError] = useState<string | null>(null);
+  useEffect(() => {
+    dirty.current = false;
+    base.current = snapshot.source;
+    setDraft(snapshot.source);
+    setView({ source: snapshot.source, title: snapshot.title });
+    setLiveError(null);
+    setEditError(null);
+    const unsubscribe = snapshot.binding?.subscribe(
+      (value) => {
+        latest.current = value;
+        setView(value);
+        if (!dirty.current) {
+          base.current = value.source;
+          setDraft(value.source);
+        }
+      },
+      (error) => setLiveError(error.message),
+    );
+    return () => {
+      unsubscribe?.();
+    };
+  }, [snapshot]);
+  async function save() {
+    if (!snapshot.binding || saving) return;
+    setSaving(true);
+    setEditError(null);
+    try {
+      await snapshot.binding.edit(draft, base.current);
+      dirty.current = false;
+      base.current = latest.current.source;
+      setDraft(latest.current.source);
+    } catch {
+      setEditError(text.editFailed);
+    } finally {
+      setSaving(false);
+    }
+  }
   const [state, setState] = useState<RenderState | 'loading'>('loading');
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const controller = new AbortController();
+    if (liveError) {
+      setState('failed');
+      return () => controller.abort();
+    }
     setState('loading');
-    void mountRenderer(host.current!, snapshot.source, {
+    void mountRenderer(host.current!, view.source, {
       signal: controller.signal,
       onState: setState,
     }).catch(() => {
       if (!controller.signal.aborted) setState('failed');
     });
     return () => controller.abort();
-  }, [snapshot]);
+  }, [view.source, liveError]);
   return (
     <section className="page">
       <div className="page-bar">
         <Link className="back" to="/" aria-label={text.home}>
           ←
         </Link>
-        <h1>{snapshot.title}</h1>
+        <h1>{view.title || snapshot.title}</h1>
         <span className="chip">{text[snapshot.sharing]}</span>
         <span className={`status ${state === 'ready' ? 'live' : ''}`}>
           <span aria-hidden>{state === 'ready' ? '●' : state === 'loading' ? '○' : '✗'}</span>{' '}
@@ -141,10 +190,30 @@ function Page() {
       </div>
       <div className={`workspace ${showSource ? 'split' : ''}`}>
         {showSource && (
-          <label className="source">
-            <span>{text.source}</span>
-            <textarea readOnly spellCheck={false} value={snapshot.source} />
-          </label>
+          <div className="source">
+            <span>
+              <label htmlFor="source-edit">{text.source}</label>
+              {snapshot.binding && (
+                <button
+                  disabled={saving || !!liveError || draft === base.current}
+                  onClick={() => void save()}
+                >
+                  {saving ? text.saving : text.save}
+                </button>
+              )}
+            </span>
+            <textarea
+              id="source-edit"
+              readOnly={!snapshot.binding || saving || !!liveError}
+              spellCheck={false}
+              value={draft}
+              onChange={(event) => {
+                dirty.current = true;
+                setDraft(event.target.value);
+              }}
+            />
+            {editError && <p role="alert">{editError}</p>}
+          </div>
         )}
         <div className="canvas">
           <div className="boundary">
@@ -154,7 +223,7 @@ function Page() {
           {(state === 'navigation' || state === 'failed') && (
             <div className="notice" role="alert">
               <h2>{text.blocked}</h2>
-              <p>{state === 'navigation' ? text.navigation : text.failed}</p>
+              <p>{liveError ?? (state === 'navigation' ? text.navigation : text.failed)}</p>
               <p>{text.limit}</p>
             </div>
           )}

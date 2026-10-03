@@ -3071,11 +3071,19 @@ corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-matc
 The dev server binds loopback and serves in-process sample pages. The paired mount
 client path is tested with Vite plus signed protocol fixtures: first-use key
 persistence/non-extractability, registration failure, root pin mismatch, strict
-owner-log/author-chain admission and missing-wrap blocking. This does not replace
-the native placeholder; #1248/#1250 supply bootstrap and certificate refresh,
-#1253 owns native assets, and #1252 owns live editing/transport acceptance.
+owner-log/author-chain admission and missing-wrap blocking. The live fixture
+exercises two same-device tabs, a single durable writer, large chunked updates,
+reload reconstruction and retry of exact accepted bytes after receipt interruption.
+The fixture paces server delivery with the existing ACK frame; native ACK-window
+backpressure is a #1248 acceptance gate. Large history against the current native
+server can block visibly until that gate lands. It covers unpruned content updates
+from sequence one, not checkpoints, own data or
+reset baselines (#1264). Production-rotated pages remain blocked until reset
+adoption. This is signed protocol-fixture evidence, not native mounted E2E:
+#1248/#1250 supply bootstrap/refresh and #1253 owns native assets.
 The content Worker suite proves concurrent writer convergence and reload
-reconstruction, rejects malformed/mixed roots, and checks termination and cleanup.
+reconstruction, rejects malformed/mixed roots, checks termination/cleanup and
+proves prepared edits cannot leak through committed projections.
 The unchanged renderer suite proves opaque origin isolation, CSP request blocking,
 source-digest/window binding and teardown, including the permitted self-navigation
 request before teardown. These app fixtures do not establish real mounted

@@ -4212,8 +4212,9 @@ The extension-relative `typescript/colab-client` is a private pnpm member for
 client primitives; log verification, Yjs state and SyncBinding are planned additions.
 `typescript/app` is the private React/Vite/TanStack app member, using the same
 workspace pins and shared design tokens as Office without importing Office behavior.
-Its read-only `PageTransport` supplies detached home/page snapshots through an
-in-process sample adapter. The mounted browser path uses Remote's served SDK to
+Its `PageTransport` supplies detached home/page snapshots through an in-process
+sample adapter; mounted pages expose a separate edit/subscription binding in parent
+chrome. The mounted browser path uses Remote's served SDK to
 reopen a paired session and certify Colab's non-extractable Ed25519/X25519 handles.
 Colab owns their IndexedDB records and first-use Web Lock; it never reads Remote's
 keyring. Registration/discovery/catchup follow the Colab contract. The owner-only
@@ -4224,18 +4225,31 @@ The client object primitives accept those opaque HKDF/deriveBits handles alongsi
 32-byte roots, with identical derivation labels and cipher inputs. The importing
 caller owns the root-length check because WebCrypto hides a handle's input length;
 seal/open validate its algorithm, usage and non-extractability without exporting it.
-The bounded metadata probe closes after catchup; absent wraps, invalid registration/
-pins, stream objects and reset baselines remain blocking states. The native
-placeholder is unchanged: #1248/#1250/#1253 own bootstrap/refresh/assets;
-#1252 owns live transport/editing.
+The mounted binding admits unpruned content-update streams from sequence one,
+scoped signatures, owner-author chains and contiguous hash-linked sequences before
+folding. One lifetime Web Lock owns each device stream; other tabs relay updates.
+Its writer persists exact envelopes before send and retries those frozen bytes
+across interruption. The socket and Worker share one bounded executor; referenced
+objects have one bounded assembly and an absolute deadline. Last-subscriber release
+closes socket, Worker and relay; reconnect reconstructs a fresh verified fold.
+Absent wraps, invalid registration/pins, checkpoints, own-namespace data and reset
+baselines remain visible blocking states. Catchup has a 200-update/256 KiB plaintext
+budget; the live reader retains at most 4,096 sequence hashes. #1264 owns history,
+compaction/ledger proofs and reset adoption; rotated pages remain blocked until then.
+The native placeholder is unchanged: #1248/#1250/#1253 own bootstrap/refresh/assets.
 
 The content-only Yjs decoder lives in a dedicated Worker. It accepts bounded
 plaintext/edit requests and validates exhaustive roots/types before committing a
-candidate document. The parent independently checks its projection and terminates
-it on failure or deadline. No keys or transport capabilities enter the Worker;
-this is resource containment, not a security sandbox. UI adoption is #1252.
+candidate document. Prepared local edits and relay checks do not commit decoder
+state; only an admitted broadcast or matching durable receipt commits local bytes.
+The source UI rejects a stale editing base instead of overwriting unseen changes.
+The parent independently checks projections and terminates the Worker on failure
+or deadline. No keys or transport capabilities enter it; this is resource
+containment, not a security sandbox.
 The trusted parent owns routing, source display and render lifecycle; only captured
-HTML enters an opaque `allow-scripts` iframe. The renderer prepends the contract CSP,
+HTML enters an opaque `allow-scripts` iframe. Its default browser canvas is opaque
+white with a light color scheme, independent of the surrounding chrome theme;
+author HTML can supply its own styling. The renderer prepends the contract CSP,
 uses `no-referrer`, binds fresh render IDs to exact source digests and tears down the
 frame on subsequent load/navigation or route cleanup. Its handshake grants no
 effectful capability. Page self-navigation can still leak a request before teardown;
