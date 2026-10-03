@@ -74,8 +74,9 @@ are the one place repository prose may be non-English
 ([AGENTS](AGENTS.md#repository-content-language)). The allowlist's optional
 `languageExceptions` key maps each language directory under `site/src/i18n/` to
 its HTML language tag; a language's entry lands with its first tracked translation.
-The test fails a listed directory with no tracked file, a code outside that closed
-set, and a tracked file under `site/src/i18n/` outside a listed directory.
+The layout test owns the closed set of allowed languages and fails a listed
+directory with no tracked file, a tag that does not match its directory, and a
+tracked file under `site/src/i18n/` outside a listed directory.
 For add/move review and rename hygiene, use the
 [layout procedure](.agents/skills/tmt-layout/SKILL.md).
 
