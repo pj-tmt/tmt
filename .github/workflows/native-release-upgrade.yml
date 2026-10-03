@@ -45,6 +45,7 @@ on:
           - cli
           - office
           - squad
+          - driver-herdr
       tag:
         description: Release to prove, a draft or a published one
         required: true

@@ -99,7 +99,7 @@ describe('per-product release run (native-release.yml)', () => {
           'office is not released (release: false in .github/components.json).'
         );
       }
-      for (const product of ['cli', 'squad']) {
+      for (const product of ['cli', 'squad', 'driver-herdr']) {
         const output = path.join(directory, product);
         const result = spawnSync('/bin/sh', ['-eu', '-c', shell], {
           cwd: repository,
@@ -396,8 +396,8 @@ describe('release workflow (release.yml)', () => {
       expect(components[parked].release).toBe(false);
       expect(products).not.toContain(parked);
     }
-    const matrix = /product:\n((?: {10}- [a-z]+\n)+)/.exec(job(release, 'dispatch'))?.[1] ?? '';
-    expect(matrix.match(/[a-z]+(?=\n)/g)?.sort()).toEqual(products);
+    const matrix = /product:\n((?: {10}- [a-z-]+\n)+)/.exec(job(release, 'dispatch'))?.[1] ?? '';
+    expect(matrix.match(/[a-z-]+(?=\n)/g)?.sort()).toEqual(products);
     const config = JSON.parse(read('release-please-config.json')) as {
       packages: Record<string, unknown>;
     };
@@ -511,6 +511,7 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
         'release-versions.mjs',
         'verify-native-installation.mjs',
         'verify-native-extension-upgrade.mjs',
+        'verify-native-driver-upgrade.mjs',
       ].sort()
     );
     // Whether the release's commit has the scripts is decided in fetch, without a checkout, and

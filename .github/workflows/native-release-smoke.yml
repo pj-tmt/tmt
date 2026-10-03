@@ -2,11 +2,12 @@ name: Native release smoke
 
 # Installs a published alpha release the way a user does, on the four hosts of the upgrade proof, in
 # an isolated home, state directory and prefix: the public installer and `tmt upgrade` for a CLI
-# release, the newest published CLI's `tmt extension install <extension>` for an extension release.
+# release, the newest published CLI's extension install for an extension release, or its driver
+# path approval against the verified standalone public driver archive.
 # It only reads the public release and never publishes, creates or changes anything. The publication
 # run calls it after its own checks of the published release, and a maintainer can run it by hand
-# for the newest published release of a product: it installs what the public entry points serve
-# now, so an older tag fails its first check. A failure opens, or comments on, the issue of those
+# for the newest published CLI/extension release or an exact published driver tag. CLI and
+# extension acquisition uses current public entry points; drivers use versioned archive URLs. A failure opens, or comments on, the issue of those
 # checks; an immutable release is never rolled back.
 on:
   workflow_call:
@@ -33,6 +34,7 @@ on:
           - cli
           - office
           - squad
+          - driver-herdr
       tag:
         description: Published release to install
         required: true
