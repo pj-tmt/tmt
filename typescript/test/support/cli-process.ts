@@ -1,6 +1,15 @@
 import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { resolveCliExecutables, type CliExecutable } from './cli-executable.mjs';
@@ -337,8 +346,38 @@ export function fileSnapshot(root: string): Record<string, string> {
   return snapshot;
 }
 
+function processCwds(pid?: number): { pid: number; cwd: string }[] {
+  const pids =
+    pid === undefined ? readdirSync('/proc').filter((name) => /^\d+$/.test(name)) : [String(pid)];
+  return pids.flatMap((name) => {
+    try {
+      if (statSync(`/proc/${name}`).uid !== process.getuid!()) return [];
+      return [
+        {
+          pid: Number(name),
+          cwd: readlinkSync(`/proc/${name}/cwd`).replace(/ \(deleted\)$/, ''),
+        },
+      ];
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT' || code === 'ESRCH') return [];
+      // Same-user system processes can deny cwd access. Only discovery may skip them;
+      // an already verified resident must remain a cleanup failure if inspection fails.
+      if (pid === undefined && (code === 'EACCES' || code === 'EPERM')) return [];
+      throw error;
+    }
+  });
+}
+
+function sandboxProcesses(root: string, pid?: number): number[] {
+  return processCwds(pid)
+    .filter(({ cwd }) => cwd === root || cwd.startsWith(`${root}${path.sep}`))
+    .map(({ pid }) => pid);
+}
+
 export async function withSandbox<T>(callback: (sandbox: Sandbox) => T | Promise<T>): Promise<T> {
   const sandbox = createSandbox();
+  const processRoot = realpathSync(sandbox.root);
   let value: T | undefined;
   let failure: { error: unknown } | undefined;
   try {
@@ -352,13 +391,50 @@ export async function withSandbox<T>(callback: (sandbox: Sandbox) => T | Promise
   for (const run of runs) run.stop();
   const results = await Promise.allSettled(runs.map((run) => run.cleanup));
   const errors = results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []));
+  let leak: Error | undefined;
+  try {
+    const leaked = process.platform === 'linux' ? sandboxProcesses(processRoot) : [];
+    if (leaked.length) {
+      leak = new Error(`Sandbox callback left live processes: ${leaked.join(', ')}.`);
+      for (const pid of leaked) {
+        // Recheck cwd immediately before signalling; a recycled or moved PID is not ours.
+        if (sandboxProcesses(processRoot, pid).length === 0) continue;
+        if (pid === process.pid) throw new Error('The test runner is still inside the sandbox.');
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+        }
+      }
+      const deadline = performance.now() + 1000;
+      while (
+        sandboxProcesses(processRoot).length ||
+        leaked.some((pid) => {
+          try {
+            process.kill(pid, 0);
+            return true;
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false;
+            throw error;
+          }
+        })
+      ) {
+        if (performance.now() >= deadline)
+          throw new Error('Sandbox process cleanup did not confirm exit within 1000ms.');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    }
+  } catch (error) {
+    errors.push(error);
+  }
   if (errors.length) {
     throw new AggregateError(
-      failure ? [failure.error, ...errors] : errors,
+      [...(failure ? [failure.error] : []), ...(leak ? [leak] : []), ...errors],
       `CLI sandbox cleanup failed; retained fixture at ${sandbox.root}.`
     );
   }
   rmSync(sandbox.root, { recursive: true, force: true });
+  if (leak) throw new AggregateError(failure ? [failure.error, leak] : [leak], leak.message);
   if (failure) throw failure.error;
   return value as T;
 }
