@@ -182,10 +182,10 @@ function processStart(pid: number) {
     throw error;
   }
 }
-async function reaped(pid: number, start?: string) {
+async function reaped(pid: number, start: string) {
   await waitFor(() => {
     const current = processStart(pid);
-    return current === undefined || (start !== undefined && current !== start);
+    return current === undefined || current !== start;
   }, 'worker reaped');
 }
 async function cleanup(sandbox: Sandbox, started: readonly ReplyWorker[] = []) {
@@ -229,11 +229,16 @@ describe('native reply notice process scheduling', () => {
   it('prepares a cold host before timed probes without emitting protocol commands', async () => {
     await withSandbox(async (sandbox) => {
       const f = await fixture(sandbox, 1500, true);
+      state(sandbox, true);
+      const started: ReplyWorker[] = [];
       try {
         expect((await reply(sandbox, f.seed('cold-host'))).notification).toBe('queued');
-        const first = batches(sandbox)[0];
+        const pending = batches(sandbox);
+        started.push(...pending);
+        const first = pending[0];
+        state(sandbox, false);
         await waitFor(() => batches(sandbox).length === 0, 'prepared cold host delivery');
-        await reaped(first.worker_pid);
+        await reaped(first.worker_pid, first.worker_start);
         expect(fs.readdirSync(path.join(sandbox.globalDir, 'reply-notice-workers'))).toEqual([]);
         expect(sql(sandbox, 'SELECT reply_state FROM request_notifications')).toEqual([
           { reply_state: 'sent' },
@@ -243,7 +248,7 @@ describe('native reply notice process scheduling', () => {
           parseWholeStdout(await runCli(sandbox, ['result', 'cold-host', '--json']))
         ).toMatchObject({ response: 'answer cold-host' });
       } finally {
-        await cleanup(sandbox);
+        await cleanup(sandbox, started);
       }
     });
   });
@@ -251,10 +256,13 @@ describe('native reply notice process scheduling', () => {
     await withSandbox(async (sandbox) => {
       const f = await fixture(sandbox, 1500);
       state(sandbox, true);
+      const started: ReplyWorker[] = [];
       try {
         const items = ['notice-one', 'notice-two', 'notice-three'].map(f.seed);
         expect((await reply(sandbox, items[0])).notification).toBe('queued');
-        const first = batches(sandbox)[0];
+        const pending = batches(sandbox);
+        started.push(...pending);
+        const first = pending[0];
         // The elapsed window and pending keys hold membership open. Later accepts
         // need not win a wall-clock race against the 1500 ms window.
         await waitFor(() => pendingKeyEvidence(sandbox) >= 1, 'pending batch key evidence');
@@ -277,7 +285,7 @@ describe('native reply notice process scheduling', () => {
         );
         state(sandbox, false);
         await waitFor(() => batches(sandbox).length === 0, 'batch settled');
-        await reaped(first.worker_pid);
+        await reaped(first.worker_pid, first.worker_start);
         const workerLogs = path.join(sandbox.globalDir, 'reply-notice-workers');
         const evidence = JSON.stringify({
           notifications: sql(sandbox, 'SELECT reply_state FROM request_notifications'),
@@ -310,7 +318,7 @@ describe('native reply notice process scheduling', () => {
           ).toMatchObject({ response: `answer ${item.requestId}` });
         }
       } finally {
-        await cleanup(sandbox);
+        await cleanup(sandbox, started);
       }
     });
   });
@@ -318,9 +326,12 @@ describe('native reply notice process scheduling', () => {
     await withSandbox(async (sandbox) => {
       const f = await fixture(sandbox, 100);
       state(sandbox, true);
+      const started: ReplyWorker[] = [];
       try {
         await reply(sandbox, f.seed('typing-one'));
-        const first = batches(sandbox)[0];
+        const pending = batches(sandbox);
+        started.push(...pending);
+        const first = pending[0];
         await waitFor(() => pendingKeyEvidence(sandbox) >= 3, 'multiple typing rechecks');
         expect(batches(sandbox)).toMatchObject([
           {
@@ -343,7 +354,7 @@ describe('native reply notice process scheduling', () => {
         });
         state(sandbox, false);
         await waitFor(() => batches(sandbox).length === 0, 'quiet delivery');
-        await reaped(first.worker_pid);
+        await reaped(first.worker_pid, first.worker_start);
         expect(commands(sandbox).filter((args) => args.includes('paste-buffer'))).toHaveLength(1);
         expect(sql(sandbox, 'SELECT reply_state FROM request_notifications')).toEqual([
           { reply_state: 'sent' },
@@ -355,19 +366,43 @@ describe('native reply notice process scheduling', () => {
           });
         }
       } finally {
-        await cleanup(sandbox);
+        await cleanup(sandbox, started);
       }
     });
   });
   it('zero produces separate deliveries', async () => {
     await withSandbox(async (sandbox) => {
       const f = await fixture(sandbox, 0);
+      state(sandbox, true);
+      const started: ReplyWorker[] = [];
       try {
-        for (const id of ['disabled-one', 'disabled-two']) await reply(sandbox, f.seed(id));
+        const items = ['disabled-one', 'disabled-two'].map(f.seed);
+        for (const item of items) expect((await reply(sandbox, item)).notification).toBe('queued');
+        started.push(...batches(sandbox));
+        expect(started).toHaveLength(2);
+        for (const worker of started) {
+          expect(processStart(worker.worker_pid)).toBe(worker.worker_start);
+        }
+        expect(batches(sandbox).map((batch) => batch.members)).toEqual([1, 1]);
+        expect(commands(sandbox).filter((args) => args.includes('paste-buffer'))).toEqual([]);
+        state(sandbox, false);
         await waitFor(() => batches(sandbox).length === 0, 'disabled grouping settled');
-        expect(commands(sandbox).filter((args) => args.includes('paste-buffer'))).toHaveLength(2);
+        for (const worker of started) await reaped(worker.worker_pid, worker.worker_start);
+        const transport = commands(sandbox)
+          .filter((args) => args.includes('paste-buffer') || args.includes('send-keys'))
+          .map((args) => (args.includes('paste-buffer') ? 'paste' : 'enter'));
+        expect(transport).toEqual(['paste', 'enter', 'paste', 'enter']);
+        expect(sql(sandbox, 'SELECT reply_state FROM request_notifications')).toEqual([
+          { reply_state: 'sent' },
+          { reply_state: 'sent' },
+        ]);
+        for (const item of items) {
+          expect(
+            parseWholeStdout(await runCli(sandbox, ['result', item.requestId, '--json']))
+          ).toMatchObject({ response: `answer ${item.requestId}` });
+        }
       } finally {
-        await cleanup(sandbox);
+        await cleanup(sandbox, started);
       }
     });
   });
@@ -375,17 +410,19 @@ describe('native reply notice process scheduling', () => {
     await withSandbox(async (sandbox) => {
       const f = await fixture(sandbox, 0);
       state(sandbox, true);
+      const started: ReplyWorker[] = [];
       try {
         const items = ['separate-one', 'separate-two'].map(f.seed);
         const accepted = await Promise.all(items.map((item) => reply(sandbox, item)));
         expect(accepted.map((result) => result.notification)).toEqual(['queued', 'queued']);
         const pending = batches(sandbox);
+        started.push(...pending);
         expect(pending).toHaveLength(2);
         expect(pending.every((batch) => batch.members === 1)).toBe(true);
         expect(commands(sandbox).filter((args) => args.includes('paste-buffer'))).toEqual([]);
         state(sandbox, false);
         await waitFor(() => batches(sandbox).length === 0, 'serialized separate notices');
-        for (const batch of pending) await reaped(batch.worker_pid);
+        for (const batch of pending) await reaped(batch.worker_pid, batch.worker_start);
         const transport = commands(sandbox)
           .filter((args) => args.includes('paste-buffer') || args.includes('send-keys'))
           .map((args) => (args.includes('paste-buffer') ? 'paste' : 'enter'));
@@ -395,7 +432,7 @@ describe('native reply notice process scheduling', () => {
           { reply_state: 'sent' },
         ]);
       } finally {
-        await cleanup(sandbox);
+        await cleanup(sandbox, started);
       }
     });
   });
@@ -404,23 +441,28 @@ describe('native reply notice process scheduling', () => {
     await withSandbox(async (sandbox) => {
       const f = await fixture(sandbox, 100);
       state(sandbox, true);
+      const started: ReplyWorker[] = [];
       try {
         await reply(sandbox, f.seed('before-crash'));
-        const first = batches(sandbox)[0];
+        const pending = batches(sandbox);
+        started.push(...pending);
+        const first = pending[0];
         await waitFor(
           () => commands(sandbox).some((args) => args.includes('list-clients')),
           'typing worker started'
         );
-        await cleanup(sandbox);
+        await cleanup(sandbox, started);
         expect(batches(sandbox)).toMatchObject([{ id: first.id, members: 1, sending: 0 }]);
         expect(commands(sandbox).filter((args) => args.includes('paste-buffer'))).toEqual([]);
         expect((await reply(sandbox, f.seed('after-crash'))).notification).toBe('queued');
-        const resumed = batches(sandbox)[0];
+        const resumedWorkers = batches(sandbox);
+        started.push(...resumedWorkers);
+        const resumed = resumedWorkers[0];
         expect(resumed).toMatchObject({ id: first.id, due_ms: first.due_ms, members: 2 });
         expect(resumed.worker_pid).not.toBe(first.worker_pid);
         state(sandbox, false);
         await waitFor(() => batches(sandbox).length === 0, 'untouched notices recovered');
-        await reaped(resumed.worker_pid);
+        await reaped(resumed.worker_pid, resumed.worker_start);
         expect(commands(sandbox).filter((args) => args.includes('paste-buffer'))).toHaveLength(1);
         expect(sql(sandbox, 'SELECT reply_state FROM request_notifications')).toEqual([
           { reply_state: 'sent' },
@@ -432,7 +474,7 @@ describe('native reply notice process scheduling', () => {
           });
         }
       } finally {
-        await cleanup(sandbox);
+        await cleanup(sandbox, started);
       }
     });
   });
@@ -441,9 +483,12 @@ describe('native reply notice process scheduling', () => {
     await withSandbox(async (sandbox) => {
       const f = await fixture(sandbox, 100);
       state(sandbox, true);
+      const started: ReplyWorker[] = [];
       try {
         await reply(sandbox, f.seed('failed-claim'));
-        const first = batches(sandbox)[0];
+        const pending = batches(sandbox);
+        started.push(...pending);
+        const first = pending[0];
         await waitFor(
           () => commands(sandbox).some((args) => args.includes('list-clients')),
           'typing worker ready'
@@ -457,7 +502,7 @@ describe('native reply notice process scheduling', () => {
           db.close();
         }
         state(sandbox, false);
-        await reaped(first.worker_pid);
+        await reaped(first.worker_pid, first.worker_start);
         expect(commands(sandbox).filter((args) => args.includes('paste-buffer'))).toEqual([]);
         expect(sql(sandbox, 'SELECT reply_state FROM request_notifications')).toEqual([
           { reply_state: 'claimed' },
@@ -473,7 +518,7 @@ describe('native reply notice process scheduling', () => {
           parseWholeStdout(await runCli(sandbox, ['result', 'failed-claim', '--json']))
         ).toMatchObject({ response: 'answer failed-claim' });
       } finally {
-        await cleanup(sandbox);
+        await cleanup(sandbox, started);
       }
     });
   });
@@ -491,14 +536,20 @@ describe('native reply notice process scheduling', () => {
             defaults: { timeout: 'invalid' },
             notifications: {
               replyBatchWindowMs: kind === 'notification' ? 'invalid' : 100,
-              typingQuietMs: 0,
+              typingQuietMs: 2000,
             },
           })
         );
+        state(sandbox, true);
+        const started: ReplyWorker[] = [];
         try {
           const accepted = await reply(sandbox, item);
+          started.push(...batches(sandbox));
+          expect(started).toHaveLength(kind === 'notification' ? 0 : 1);
+          state(sandbox, false);
           expect(accepted.notification).toBe(kind === 'notification' ? 'unavailable' : 'queued');
           await waitFor(() => batches(sandbox).length === 0, 'advisory configuration outcome');
+          for (const worker of started) await reaped(worker.worker_pid, worker.worker_start);
           expect(sql(sandbox, 'SELECT reply_state FROM request_notifications')).toEqual([
             { reply_state: kind === 'notification' ? 'unavailable' : 'sent' },
           ]);
@@ -506,7 +557,7 @@ describe('native reply notice process scheduling', () => {
             parseWholeStdout(await runCli(sandbox, ['result', item.requestId, '--json']))
           ).toMatchObject({ response: `answer ${item.requestId}` });
         } finally {
-          await cleanup(sandbox);
+          await cleanup(sandbox, started);
         }
       });
     }
@@ -516,14 +567,19 @@ describe('native reply notice process scheduling', () => {
     await withSandbox(async (sandbox) => {
       const f = await fixture(sandbox, 1500);
       const item = f.seed('channel-transition');
+      state(sandbox, true);
+      const started: ReplyWorker[] = [];
       try {
         expect((await reply(sandbox, item)).notification).toBe('queued');
-        const first = batches(sandbox)[0];
+        const pending = batches(sandbox);
+        started.push(...pending);
+        const first = pending[0];
         const directory = path.join(sandbox.globalDir, 'channels');
         fs.mkdirSync(directory, { recursive: true });
         fs.writeFileSync(path.join(directory, '95400000-0000-4000-8000-000000000001.json'), '{');
+        state(sandbox, false);
         await waitFor(() => batches(sandbox).length === 0, 'enrolled batch refused safely');
-        await reaped(first.worker_pid);
+        await reaped(first.worker_pid, first.worker_start);
         expect(commands(sandbox).filter((args) => args.includes('paste-buffer'))).toEqual([]);
         expect(sql(sandbox, 'SELECT reply_state FROM request_notifications')).toEqual([
           { reply_state: 'unavailable' },
@@ -532,7 +588,7 @@ describe('native reply notice process scheduling', () => {
           parseWholeStdout(await runCli(sandbox, ['result', item.requestId, '--json']))
         ).toMatchObject({ response: `answer ${item.requestId}` });
       } finally {
-        await cleanup(sandbox);
+        await cleanup(sandbox, started);
       }
     });
   });
@@ -581,6 +637,7 @@ describe('native reply notice process scheduling', () => {
           }
           state(sandbox, false);
           await waitFor(() => batches(sandbox).length === 0, 'pane evidence outcome');
+          for (const worker of started) await reaped(worker.worker_pid, worker.worker_start);
           expect(commands(sandbox).filter((args) => args.includes('paste-buffer'))).toHaveLength(
             incarnation === 'same' ? 0 : 1
           );
@@ -594,42 +651,52 @@ describe('native reply notice process scheduling', () => {
     }
   );
 
-  it('cleans a captured worker after its batch disappears and the callback fails', async () => {
-    await withSandbox(async (sandbox) => {
-      const f = await fixture(sandbox, 100);
-      state(sandbox, true);
-      const started: ReplyWorker[] = [];
-      const failure = new Error('Injected callback failure after batch deletion');
-      await expect(
-        (async () => {
-          try {
-            await reply(sandbox, f.seed('cleanup-after-deletion'));
-            started.push(...batches(sandbox));
-            expect(started).toHaveLength(1);
-            const worker = started[0];
-            expect(processStart(worker.worker_pid)).toBe(worker.worker_start);
-            // Freeze the real worker to make the row-deleted/process-live gap
-            // deterministic, including if the failure path skips normal waits.
-            process.kill(worker.worker_pid, 'SIGSTOP');
-            const db = new Database(sandbox.database);
+  it.each([1, 2])(
+    'cleans %i captured workers after batch deletion and callback failure',
+    async (count) => {
+      await withSandbox(async (sandbox) => {
+        const f = await fixture(sandbox, count === 1 ? 100 : 0);
+        state(sandbox, true);
+        const started: ReplyWorker[] = [];
+        const failure = new Error('Injected callback failure after batch deletion');
+        await expect(
+          (async () => {
             try {
-              db.prepare('DELETE FROM reply_notice_batches WHERE id=?').run(worker.id);
+              for (let index = 0; index < count; index++) {
+                await reply(sandbox, f.seed(`cleanup-after-deletion-${index}`));
+              }
+              started.push(...batches(sandbox));
+              expect(started).toHaveLength(count);
+              // Freeze the real worker to make the row-deleted/process-live gap
+              // deterministic, including if the failure path skips normal waits.
+              for (const worker of started) {
+                expect(processStart(worker.worker_pid)).toBe(worker.worker_start);
+                process.kill(worker.worker_pid, 'SIGSTOP');
+              }
+              const db = new Database(sandbox.database);
+              try {
+                for (const worker of started) {
+                  db.prepare('DELETE FROM reply_notice_batches WHERE id=?').run(worker.id);
+                }
+              } finally {
+                db.close();
+              }
+              expect(batches(sandbox)).toEqual([]);
+              for (const worker of started) {
+                expect(processStart(worker.worker_pid)).toBe(worker.worker_start);
+              }
+              throw failure;
             } finally {
-              db.close();
+              await cleanup(sandbox, started);
             }
-            expect(batches(sandbox)).toEqual([]);
-            expect(processStart(worker.worker_pid)).toBe(worker.worker_start);
-            throw failure;
-          } finally {
-            await cleanup(sandbox, started);
-          }
-        })()
-      ).rejects.toBe(failure);
-      for (const worker of started) {
-        expect(processStart(worker.worker_pid)).not.toBe(worker.worker_start);
-      }
-    });
-  });
+          })()
+        ).rejects.toBe(failure);
+        for (const worker of started) {
+          expect(processStart(worker.worker_pid)).not.toBe(worker.worker_start);
+        }
+      });
+    }
+  );
 
   it.each(['valid', 'corrupt'])(
     '%s channel enrollment bypasses batching and never pastes',
