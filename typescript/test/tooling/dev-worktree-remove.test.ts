@@ -97,7 +97,8 @@ describe('scripts/dev-worktree-remove.sh', () => {
       await withScratch((scratch) => {
         scratch.env.FAKE_PR_STATE = state;
         if (state === 'unknown') scratch.env.FAKE_GH = 'fail';
-        const listed = () => scratch.git(scratch.repo, 'worktree', 'list', '--porcelain').split('\n');
+        const listed = () =>
+          scratch.git(scratch.repo, 'worktree', 'list', '--porcelain').split('\n');
         const entry = `worktree ${scratch.worktree}`;
         expect(listed()).toContain(entry);
         const result = scratch.remove();
