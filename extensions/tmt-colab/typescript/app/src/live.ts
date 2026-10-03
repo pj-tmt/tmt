@@ -59,6 +59,7 @@ export class Live implements PageBinding {
         (error) => this.#failed(error),
       ));
       await c.ready;
+      this.#attempts = 0;
       return c;
     } finally {
       this.#connecting = false;
