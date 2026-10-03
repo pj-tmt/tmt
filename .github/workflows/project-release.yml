@@ -58,6 +58,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.23.2
+      - name: Prepare locked Cargo inputs for offline attribution
+        working-directory: rust
+        run: cargo fetch --locked
       - name: Reconcile published releases into the release project
         env:
           RELEASE_APP_TOKEN: ${{ steps.app.outputs.token }}

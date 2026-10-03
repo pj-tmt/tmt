@@ -1,10 +1,11 @@
 // Repository state -> existing Project items. No release, issue or membership mutation.
 import { appendFileSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { productOfTag, archivePrefix, releasePolicy } from './native-release-policy.mjs';
 import { compareVersions, versionOfTag } from './release-versions.mjs';
 import { ownerOf, parseComponentMap, releasedComponentsForPath } from './ci-scope.mjs';
+import { readCargoWorkspace } from './cargo-workspace.mjs';
 
 export const PROJECT_ID = 'PVT_kwDOFBKkD84BlZ_A';
 export const LIMITS = { graphql: 200, rest: 20, pages: 20, prs: 2000, batch: 25 };
@@ -266,20 +267,19 @@ export function gitEvidence({ cwd = process.cwd(), spawn = spawnSync } = {}) {
   };
 }
 
-export function affectedProducts(paths, map) {
+export function affectedProducts(paths, map, workspace) {
   const products = new Set(),
     unpublished = new Set();
   for (const path of paths) {
     const name = ownerOf(path, map);
     const component = map.components.find((entry) => entry.name === name);
     if (!component) throw new Error(`No component owns ${path}.`);
-    // Private consumption adds attribution without replacing existing released-root membership.
-    const owners = component.releaseConsumers.length
-      ? [
-          ...component.releaseConsumers,
-          ...releasedComponentsForPath(path, map).map((entry) => entry.name),
-        ]
-      : [name];
+    if (component.releaseStatus === 'never') continue;
+    // Consumers replace only their private leaf, while Cargo/root membership remains additive.
+    const owners = new Set([
+      ...(component.releaseConsumers.length ? component.releaseConsumers : [name]),
+      ...releasedComponentsForPath(path, map, workspace).map((entry) => entry.name),
+    ]);
     for (const owner of owners) {
       try {
         releasePolicy(owner);
@@ -292,13 +292,17 @@ export function affectedProducts(paths, map) {
   return { products: [...products].sort(), unpublished: [...unpublished].sort() };
 }
 
-export function deriveEvidence(items, closing, releases, git, map) {
+export function deriveEvidence(items, closing, releases, git, map, workspace) {
   git.validateTags(releases.map((r) => r.tag_name));
   const merged = new Map();
   for (const [id, pr] of closing.prs) {
     const sha = pr.mergeCommit.oid;
     const paths = git.paths(sha);
-    merged.set(id, { ...affectedProducts(paths, map), tags: git.containingTags(sha) });
+    merged.set(id, {
+      ...affectedProducts(paths, map, workspace),
+      empty: !paths.length,
+      tags: git.containingTags(sha),
+    });
   }
   const evidence = new Map();
   for (const item of items) {
@@ -307,8 +311,8 @@ export function deriveEvidence(items, closing, releases, git, map) {
       waiting = new Set();
     for (const id of ids) {
       const pr = merged.get(id);
+      if (pr.empty) waiting.add('Merge has no changed paths');
       for (const owner of pr.unpublished) waiting.add(`No publication policy: ${owner}`);
-      if (!pr.products.length && !pr.unpublished.length) waiting.add('Merge has no changed paths');
       for (const product of pr.products) {
         const tags = requirements.get(product) || [];
         tags.push(pr.tags);
@@ -325,9 +329,21 @@ export function deriveEvidence(items, closing, releases, git, map) {
       if (first) labels.push(releaseIdentity(first.tag_name).label);
       else waiting.add(`Awaiting ${product}`);
     }
+    const parkedReasons = new Set(
+      map.components
+        .filter((component) => component.releaseStatus === 'parked')
+        .flatMap((component) => [
+          `Awaiting ${component.name}`,
+          `No publication policy: ${component.name}`,
+        ])
+    );
+    const onlyParked =
+      waiting.size > 0 && [...waiting].every((reason) => parkedReasons.has(reason));
+    const noRelease = requirements.size === 0 && waiting.size === 0;
     evidence.set(item.content.id, {
-      status: !ids.length ? 'Done' : waiting.size ? 'Merged' : 'Released',
-      text: labels.join('\n'),
+      status:
+        !ids.length || noRelease || onlyParked ? 'Done' : waiting.size ? 'Merged' : 'Released',
+      text: [...labels, ...(onlyParked ? ['ships with the first Office release'] : [])].join('\n'),
       prs: ids.map((id) => closing.prs.get(id).number),
       waiting: [...waiting].sort(),
     });
@@ -399,6 +415,7 @@ export function reconcile({
   repository,
   dryRun,
   projectId = PROJECT_ID,
+  workspace = readCargoWorkspace(fileURLToPath(new URL('../../', import.meta.url))),
   git = gitEvidence(),
   map = parseComponentMap(
     readFileSync(new URL('../../.github/components.json', import.meta.url), 'utf8')
@@ -417,7 +434,7 @@ export function reconcile({
   const epicIds = new Set(epics.map((item) => item.id));
   const items = closed.filter((item) => !epicIds.has(item.id));
   const closing = readClosingPrs(api, items, repository);
-  const evidence = deriveEvidence(items, closing, releases, git, map);
+  const evidence = deriveEvidence(items, closing, releases, git, map, workspace);
   const plan = planUpdates(evidence, project);
   applyUpdates(api, project, plan, dryRun);
   if (!dryRun && plan.changes.length) {

@@ -3255,7 +3255,7 @@ Every issue carries these Project fields:
     `Fixes #N` merge moves the issue here through the Project workflow.
   - `Released`: every affected product has a published tag containing the closing
     merge commit(s). Release automation sets it and fills `Released in`.
-  - `Done`: closed without a delivering merged PR (not planned, duplicate, or resolved elsewhere); release automation sets it.
+  - `Done`: closed without a delivering merged PR (not planned, duplicate, or resolved elsewhere), delivery confined to explicitly never-shipped leaves, or only parked-product waits; release automation sets it and records the parked-product note.
 - `Agents`: comma-separated names of agents actively building or coordinating
   it now, including assigned members waiting on a named dependency. List the
   lead first. Reviewers who build nothing are not listed. Removing a member
@@ -4246,11 +4246,25 @@ closed PRs, supplies merged closing PRs. Local git reads the first-parent merge
 delta (including deleted paths and both sides of renames) and tag containment.
 The existing component owner map assigns products. Private-leaf consumers add
 attribution to existing released-root membership through
-`ci-scope.releasedComponentsForPath`, using `owns`/`excludes` rather than CI
-`selectedBy`. Style and invoke require CLI and Squad release evidence; TUI
+`ci-scope.releasedComponentsForPath`, using `owns`/`excludes` plus each released
+package's transitive Cargo normal/build workspace dependency directories, rather
+than CI `selectedBy`. Dev-only edges do not attribute release work. The shared
+`cargo-workspace.mjs::readCargoWorkspace(root, {runner})` reads a repository root
+with `cargo metadata --format-version 1 --offline --locked`; it has no Git logic.
+The cut caller exports its captured ref before reading; the Project sweep reads
+its trusted main checkout. Workflow callers prepare the locked Cargo cache with
+`cargo fetch --locked` before offline acquisition. Fixture callers without a Cargo
+checkout may omit the workspace argument; production callers always supply it. Style and invoke require CLI and Squad release evidence; TUI
 requires only Squad evidence. Existing historical Office tags remain evidence even while Office
 publication is parked. Components without a native publication policy stay
-Merged with an explicit waiting reason. For each affected product, the first
+Merged with an explicit waiting reason. `release:false` alone is never evidence
+that work needs no release: Colab, Remote and Herdr remain awaiting activation.
+The component map's optional `releaseStatus` is valid only with `release:false`:
+`never` marks test support as contained in no release and forbids consumers;
+`parked` marks Office. Never-only changes reconcile to Done. Office-only waits
+reconcile to Done with `ships with the first Office release` in Released in;
+Office plus any other pending wait stays Merged. `colab-app` changes await its
+embedded `tmt-colab` consumer. For each affected product, the first
 publication containing all relevant closing merge commits becomes the sole
 canonical entry. All products must be present for Released. Closed issues with
 no merged closing PR use the closed-issue state defined in [Project tracking](#project-tracking),
@@ -4307,7 +4321,7 @@ Run fixture-only checks without live API calls or Docker:
 
 ```bash
 cd typescript
-corepack pnpm exec vp test run --config vitest.config.ts test/tooling/project-release.test.ts test/tooling/release-workflow.test.ts test/tooling/release-publish.test.ts
+corepack pnpm exec vp test run --config vitest.config.ts test/tooling/project-release.test.ts test/tooling/cargo-workspace.test.ts test/tooling/release-attribution.test.ts test/tooling/release-cut.test.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/release-publish.test.ts
 corepack pnpm check:tooling
 cd ..
 actionlint .github/workflows/project-release.yml .github/workflows/native-release.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-smoke.yml

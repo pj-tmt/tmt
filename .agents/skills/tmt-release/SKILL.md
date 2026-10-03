@@ -33,7 +33,11 @@ The component map's `releaseConsumers` attributes private TUI, CLI style and inv
 The release workflow's small `release-please-run.mjs` wrapper adds only in-memory consumer paths
 before release-please's splitter and cutoffs; 17.11.2 has no `additional-paths` config option.
 Style and invoke retain CLI attribution; TUI retains its CLI exclusion. Project release evidence
-uses `ci-scope.releasedComponentsForPath` to retain released-root membership alongside leaf consumers.
+uses `ci-scope.releasedComponentsForPath` to retain released-root membership alongside leaf consumers
+and the Cargo normal/build workspace closure. Read it through the shared
+`cargo-workspace.mjs` reader against the caller's chosen checkout; dev-only dependencies
+never contribute. ARCHITECTURE owns the reader and explicit private-delivery marker
+contract; DEVELOPMENT owns its checks and cache preparation.
 The generator requires
 reviewed consumption declarations for all external production workspace links of a declared consumer,
 using its existing Cargo metadata graph, including transitive dependencies.
