@@ -1426,7 +1426,7 @@ TMT_TEST_HERDR=/tmp/hdrbin/herdr TMT_TEST_PREVIOUS_TMT="$(cd ../tmt-previous && 
 ```
 
 The Herdr host driver (the independently versioned `tmt-driver-herdr` package,
-with a thin binary and a retained `tmt-cli` companion binary until #1084) has its own executable test, which
+with one thin binary also carried in the CLI archive until #1084) has its own executable test, which
 uses the same pinned binary. It runs the protocol
 conformance harness and every declared operation against a private server and
 HOME, and fails if a server process remains. Its prompt case runs a
@@ -1435,7 +1435,7 @@ shell-script stand-in named `claude` in a pane, never a real agent. Without
 
 ```bash
 (cd rust && cargo test --locked -p tmt-driver-herdr)
-(cd rust && TMT_TEST_HERDR=/tmp/hdrbin/herdr cargo test --locked -p tmt-cli --test herdr_driver)
+(cd rust && TMT_TEST_HERDR=/tmp/hdrbin/herdr cargo test --locked -p tmt-driver-herdr --test herdr_driver)
 (cd rust && cargo clippy --locked -p tmt-driver-herdr -p tmt-cli --all-targets -- -D warnings)
 (cd rust && cargo test --locked -p tmt-adapters --lib host::external)
 (cd rust && cargo test --locked -p tmt-cli --test architecture)
@@ -2492,7 +2492,8 @@ node typescript/scripts/verify-native-artifact.mjs --product driver-herdr \
 
 Retain each build's archive, manifest and notices before building another product.
 The standalone archive carries its executable and shared license/install/notices
-files. CLI archives retain the companion; both are checked against their own
+files. CLI archive builds stage the companion from `-p tmt-driver-herdr`, without
+defining another binary, and include notices for both packages. Both archive shapes are checked against their own
 manifest, and current CLI release proof checks the companion's independently
 specified Cargo version. The standalone proof executes protocol capabilities
 with no application state, rather than CLI skill/SQLite commands.
@@ -2692,16 +2693,16 @@ unrelated compare anchors. Once published, the component uses its latest
 published tag and ignores bootstrap, as established components always have.
 
 The generated package option comes from `.github/components.json`'s
-`bootstrapSha`. During a component-registration PR, use that PR's own merge base
-as the provisional value. After merge, replace it with the PR merge commit,
-regenerate with `node typescript/scripts/release-please-config.mjs --write`, and
-verify both files before the component's first release planning/publication.
-The merge commit's parent is the last history before registration. Keep the
-provisional and final SHA reconciliation in the issue/PR handoff. Pinned
+`bootstrapSha`: the last commit before the component existed. Use the
+component-registration PR's own merge base and keep that SHA unchanged after
+merge. The first release notes include the introducing squash commit, which
+made the component releasable; no manual post-merge update is needed. Pinned
 release-please ignores package-level bootstrap options, so the existing wrapper
-applies the cutoff only to that unpublished component's commit list and stops
-history acquisition only after all component boundaries are reached; it never
-uses the new cutoff to truncate an established component's history.
+applies the cutoff only to that unpublished component's commit list. The pinned
+Manifest owns scan termination; once bootstrap components are published, the
+wrapper passes through releases, tags and commits unchanged. Its top-level
+bootstrap option is honored only when Manifest needs bootstrap, so it cannot
+replace these per-package cutoffs.
 Existing locked Cargo workers verify the cumulative queue result through the
 [CI selector](ARCHITECTURE.md#ci-selection-and-worker-model), so a later prose-only HEADGREEN tip retains earlier
 release version/lock changes.

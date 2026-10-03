@@ -2804,9 +2804,10 @@ library depends on the protocol crate, `tmt-invoke` (its bounded process
 owner), `serde_json` and `semver`, and never on core or the adapters; the
 architecture guard holds it to those edges. Its independently versioned package
 owns a thin `tmt-driver-herdr` binary calling `tmt_driver_herdr::serve_call`.
-The retained `tmt-cli` bin calls the same library (the only
-`tmt-cli -> tmt-driver-herdr` edge), so the CLI archive still carries the
-companion until #1084. Both entrypoints serve identical behavior. It answers `caller`,
+The CLI archive still carries that package's executable as a companion until
+#1084; its artifact build stages the driver package's binary for cargo-dist.
+There is only one binary target and no `tmt-cli -> tmt-driver-herdr` dependency.
+Its executable conformance tests belong to the driver package. It answers `caller`,
 `server`, `resolve-target`, `snapshot`, `publish`, `clear`, `capture`, `input`
 and `prompt` through Herdr's documented CLI (floor 0.9.1) and `ps`. Its children get an allowlisted
 environment without `TMT_DRIVER_CALL`. Herdr reports no server pid, so `server`
@@ -4132,7 +4133,8 @@ owns bounds, token and recovery behavior.
 checks PR notes on PR updates and merge groups: the compare base must be the
 component's newest published tag, and each linked commit must descend from that
 tag and be an ancestor of the candidate base, excluding the tag itself. A component
-without a published release must declare package `bootstrap-sha`; the same gate
+without a published release must declare package `bootstrap-sha`, the last
+commit before the component existed; the same gate
 anchors at that SHA and accepts only the pinned first-release header form.
 `release-please-run.mjs` applies path-local bootstrap cutoffs because pinned 17.11.2
 ignores the package option; established components keep their own release cutoffs. COVERAGE
