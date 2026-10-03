@@ -500,7 +500,7 @@ impl App {
                                         format!("{}{value}", if r.partial { "~" } else { "" })
                                     })
                                 })
-                                .unwrap_or_else(|| "—".into());
+                                .unwrap_or_else(|| "–".into());
                             row["fields"][&column.field] = value.into();
                             if let Some(token) =
                                 reading.and_then(|r| column.threshold(r.tokens as f64))
@@ -508,7 +508,7 @@ impl App {
                                 row["colors"][&column.field] = token.into();
                             }
                         } else if source.path == "session.model" {
-                            row["fields"][&column.field] = meter.model(&id).unwrap_or("—").into();
+                            row["fields"][&column.field] = meter.model(&id).unwrap_or("–").into();
                         }
                     }
                 }
@@ -3610,7 +3610,7 @@ mod token_window_tests {
             now,
         ));
         app.project_usage(now);
-        assert_eq!(app.rows()[0].1["fields"]["tok_1"], "—");
+        assert_eq!(app.rows()[0].1["fields"]["tok_1"], "–");
         let mut next = super::super::rate::tests::input(200);
         next.resumes.get_mut("a").unwrap()["model"] = serde_json::json!("new");
         next.resumes.insert("never".into(), Value::Null);
@@ -3623,7 +3623,7 @@ mod token_window_tests {
             assert_eq!(row["fields"]["model"], "new");
             assert_eq!(row["fields"]["task"], "keep");
         }
-        assert_eq!(app.rows()[2].1["fields"]["tok_3"], "—");
+        assert_eq!(app.rows()[2].1["fields"]["tok_3"], "–");
         assert_eq!(app.view.as_ref().unwrap().document, public);
         let projected = app.usage_document.clone();
         app.project_usage(time);
