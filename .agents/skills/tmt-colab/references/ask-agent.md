@@ -24,9 +24,9 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   `/sdk/mount` (machine). A failed `send` or `operation` becomes `uncertain`, never a
   retry. `listAgents` keeps id, name and presence only; the port has no delivery field and
   no `check`. A Session fault (SDK `RefusalError` `REMOTE_SESSION_ENDED`, `ClientError`
-  `sequence_unavailable`, a verified refused-`REMOTE_SESSION_ENDED` state, an expired
-  Session or a changed grant revision) is normalized to `SessionEndedError` or an
-  `uncertain` state with that reason. Other refusals use the nine reviewed
+  `sequence_unavailable`, an expired Session or a changed grant revision) is normalized to
+  `SessionEndedError` or an `uncertain` state with that reason. A verified send that Remote
+  refused with `REMOTE_SESSION_ENDED` before admission stays `refused`. Other refusals use the nine reviewed
   `REMOTE_REFUSAL_CODES`; anything else is `REMOTE_REFUSED`. Registration must rebuild the client and its
   controllers when it replaces the Session; an old client never adopts a new one.
 - **`ask-records.ts`.** Record types `ask`, `ask-state`, `ask-reply`, the ledger states and
@@ -52,8 +52,10 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   session-ending refusal stops it. `observe` runs while the page is visible, backs off from 2 s up to 30 s, stops
   after two hours and never sends on reload or reconnect. `abandon` applies only to
   `uncertain`, records `MAY_HAVE_BEEN_DELIVERED` and cancels nothing. On a Session fault
-  the controller publishes `uncertain` (an `accepted` ask's records stay unchanged), then
-  calls `sessionEnded` once, refuses further work and stops observing.
+  an adopted send ends `uncertain` (a typed sequence failure too) and an `accepted` ask's
+  records stay unchanged; a pre-admission `REMOTE_SESSION_ENDED` refusal stays `refused`. The
+  controller then calls `sessionEnded` once, after publication, refuses further work and
+  stops observing.
 - **`writer.ts` and the fold Worker.** `Writer.submitOwn` is generic over the own roots
   (`threads`, `intents`, `messages`, `replies`) and imports nothing from Ask. It has the
   Worker `prepare-own` a candidate update (immutable per key, size-bounded, not committed),
