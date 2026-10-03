@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 #[derive(Default)]
 pub(super) struct Derived {
-    pub notes: Option<(usize, crate::look::Look, Vec<Line<'static>>)>,
+    pub notes: Option<(usize, crate::look::Look, Vec<Line<'static>>, Vec<usize>)>,
     pub replies: Option<ReplyBodies>,
     pub grid: Option<Grid>,
 }

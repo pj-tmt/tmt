@@ -29,7 +29,8 @@ use tmt_cli_style::{
 use unicode_width::UnicodeWidthStr;
 
 const KEYS: &[&str] = &[
-    "↑ ↓ / j k   select a row; in a focused notes, detail or replies pane, scroll it",
+    "↑ ↓ / j k   select a row or notebook line; scroll detail or replies",
+    "g G         first/last notebook line; a annotates that line for the lead",
     "PgUp PgDn   page the focused pane; Home End go to its top and bottom",
     "wheel       scroll the pane under the pointer",
     "title click fold or expand a split pane (▸ means folded)",
@@ -782,6 +783,7 @@ fn render_meter(frame: &mut Frame, app: &App, summary: Rect) {
 pub fn render(frame: &mut Frame, app: &App) {
     let look = app.look();
     app.hits.borrow_mut().clear();
+    app.note_hits.borrow_mut().clear();
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
     app.title_hits.borrow_mut().clear();
@@ -1074,19 +1076,127 @@ pub(super) fn notebook_lines(
 fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     let Some(view) = &app.view else { return };
-    let width = usize::from(area.width);
+    let gutter = view.document["squad"]["noteAnnotations"]
+        .as_array()
+        .is_some_and(|items| !items.is_empty());
+    let width = usize::from(area.width)
+        .saturating_sub(if gutter { 2 } else { 0 })
+        .max(1);
     let mut derived = view.derived.borrow_mut();
-    if derived
+    let rebuilt = derived
         .notes
         .as_ref()
-        .is_none_or(|(cached_width, cached_look, _)| *cached_width != width || *cached_look != look)
-    {
-        let lines = notebook_lines(&view.notes, width, look, view.render);
-        derived.notes = Some((width, look, lines));
+        .is_none_or(|(cached_width, cached_look, _, _)| {
+            *cached_width != width || *cached_look != look
+        });
+    if rebuilt {
+        let (lines, sources) = match &view.notes {
+            Notes::Text(text) if view.render == NotesRender::Markdown => {
+                let mapped = markdown::render_mapped(text, width, look);
+                (mapped.lines, mapped.sources)
+            }
+            Notes::Text(text) => {
+                let mut lines = Vec::new();
+                let mut sources = Vec::new();
+                for (source, line) in text.split('\n').enumerate() {
+                    for wrapped in wrap(line, width) {
+                        lines.push(Line::from(wrapped));
+                        sources.push(source);
+                    }
+                }
+                (lines, sources)
+            }
+            _ => (
+                notebook_lines(&view.notes, width, look, view.render),
+                Vec::new(),
+            ),
+        };
+        derived.notes = Some((width, look, lines, sources));
     }
-    let lines = &derived.notes.as_ref().expect("prepared notes").2;
-    app.scrolls
-        .show(frame, Pane::Notes, area, lines, look.role(Role::Dim));
+    let (_, _, lines, sources) = derived.notes.as_ref().expect("prepared notes");
+    let mut selected = None;
+    let mut marked = std::collections::BTreeSet::new();
+    if let (Some(key), Notes::Text(text)) = (&app.current, &view.notes) {
+        let mut cursors = app.note_cursors.borrow_mut();
+        let cursor = cursors.entry(key.clone()).or_default();
+        if rebuilt {
+            cursor.reconcile(text);
+        }
+        if app.focused_pane() == Some(Pane::Notes) {
+            selected = cursor.visual(sources);
+            if cursor.follow
+                && let Some(line) = selected
+            {
+                app.scrolls
+                    .reveal_range(Pane::Notes, line..line + 1, area, lines.len());
+            }
+        }
+        for item in view.document["squad"]["noteAnnotations"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            let Some(quote) = item["quote"].as_str() else {
+                continue;
+            };
+            let old = item["line"].as_u64().unwrap_or_default() as usize;
+            let source = text
+                .split('\n')
+                .enumerate()
+                .filter(|(_, line)| line.starts_with(quote))
+                .min_by_key(|(at, _)| (at.abs_diff(old), std::cmp::Reverse(*at)))
+                .map(|(at, _)| at);
+            if let Some(at) = sources.iter().position(|line| Some(*line) == source) {
+                marked.insert(at);
+            }
+        }
+    }
+    let (offset, viewport) = app.scrolls.show_with(
+        frame,
+        Pane::Notes,
+        area,
+        lines,
+        look.role(Role::Dim),
+        |at, line| {
+            let mut line = line.clone();
+            let is_selected = Some(at) == selected;
+            if is_selected {
+                line.style = look.selection();
+                for span in &mut line.spans {
+                    span.style = look.row_span(true, span.style, false);
+                }
+            }
+            if gutter {
+                line.spans.insert(
+                    0,
+                    Span::styled(
+                        if marked.contains(&at) { "✎ " } else { "  " },
+                        look.row_span(is_selected, look.role(Role::Muted), false),
+                    ),
+                );
+            }
+            line
+        },
+    );
+    app.note_hits
+        .borrow_mut()
+        .extend(
+            sources
+                .iter()
+                .enumerate()
+                .skip(offset)
+                .take(viewport)
+                .map(|(line, _)| {
+                    (
+                        Rect {
+                            y: area.y + (line - offset) as u16,
+                            height: 1,
+                            ..area
+                        },
+                        line,
+                    )
+                }),
+        );
 }
 
 /// Finals to the user's squad requests, newest first. Bodies are
@@ -4021,17 +4131,19 @@ lines = [
         };
         draw(&app, 60, 11);
         assert_eq!(app.focused(), Pane::Rows);
-        // A click in the notes focuses them; keys then scroll the notes.
+        // A click focuses notes and places the source-line cursor; Down moves it.
         assert_eq!(click(&mut app, 45, 5), crate::board::Effect::None);
         assert_eq!(app.focused(), Pane::Notes);
         assert_eq!(app.selected, 0);
+        let clicked = app.note_cursors.borrow()["product"].source;
         app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         let screen = draw(&app, 60, 11);
+        assert_eq!(app.note_cursors.borrow()["product"].source, clicked + 1);
         assert!(
-            !screen.iter().any(|line| line.contains("line 01")),
-            "{screen:#?}"
+            screen
+                .iter()
+                .any(|line| line.contains(&format!("line {:02}", clicked + 2)))
         );
-        assert!(screen.iter().any(|line| line.contains("line 02")));
         // The rows border now shows the notes as focused.
         let mut terminal = Terminal::new(TestBackend::new(60, 11)).unwrap();
         terminal.draw(|frame| render(frame, &app)).unwrap();
@@ -4102,6 +4214,162 @@ lines = [
             matches!(effect, crate::board::app::Effect::Act(_)),
             "{effect:?}"
         );
+    }
+
+    #[test]
+    fn notebook_cursor_click_resize_refresh_annotation_and_cancel() {
+        use crate::board::app::{Effect, Request};
+        let mut app = paned(
+            split(
+                Direction::LeftRight,
+                vec![Pane::Rows, Pane::Notes],
+                vec![50, 50],
+            ),
+            Notes::Text(
+                "# First\n\n- selected source line that wraps at narrow widths\n- last".into(),
+            ),
+        );
+        app.view.as_mut().unwrap().me = Some("Ben".into());
+        draw(&app, 60, 15);
+        let (hit, _) = *app
+            .note_hits
+            .borrow()
+            .iter()
+            .find(|(_, source)| *source == 2)
+            .unwrap();
+        assert_eq!(
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: hit.x,
+                    row: hit.y,
+                    modifiers: KeyModifiers::NONE
+                },
+                std::time::Instant::now()
+            ),
+            Effect::None
+        );
+        assert_eq!(app.note_cursors.borrow()["product"].source, 2);
+        assert_eq!(app.selected, 0);
+        draw(&app, 30, 15);
+        assert_eq!(app.note_cursors.borrow()["product"].source, 2);
+        app.view.as_mut().unwrap().notes = Notes::Text(
+            "new\n# First\n\n- selected source line that wraps at narrow widths\n- last".into(),
+        );
+        app.view.as_mut().unwrap().derived = Default::default();
+        draw(&app, 60, 15);
+        assert_eq!(app.note_cursors.borrow()["product"].source, 3);
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
+            Effect::None
+        );
+        let input = app.input.as_ref().unwrap();
+        assert!(input.prompt.contains("notes L4"));
+        assert!(input.text.is_empty());
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            Effect::None
+        );
+        assert!(app.input.is_none());
+        app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            Effect::None
+        );
+        app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+        app.key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        assert!(
+            matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            Effect::Act(Request::Annotate { me, squad, to, row, text })
+            if me == "Ben" && squad == "product" && to == "sol" && row.starts_with("notes L4 ") && text == "x")
+        );
+        app.key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE));
+        assert_eq!(app.note_cursors.borrow()["product"].source, 4);
+        app.key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
+        assert_eq!(app.note_cursors.borrow()["product"].source, 0);
+    }
+
+    #[test]
+    fn sent_marker_reserves_space_without_clipping_wrapped_source_text() {
+        let text = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        let mut app = paned(
+            split(
+                Direction::LeftRight,
+                vec![Pane::Rows, Pane::Notes],
+                vec![50, 50],
+            ),
+            Notes::Text(text.into()),
+        );
+        app.view.as_mut().unwrap().render = NotesRender::Plain;
+        app.view.as_mut().unwrap().document["squad"]["noteAnnotations"] =
+            json!([{"line": 0, "quote": text, "requestId": "open"}]);
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let mut content = String::new();
+        for (area, _) in app.note_hits.borrow().iter() {
+            for x in area.x..area.x + area.width {
+                content.extend(
+                    terminal.backend().buffer()[(x, area.y)]
+                        .symbol()
+                        .chars()
+                        .filter(|c| c.is_ascii_alphanumeric()),
+                );
+            }
+        }
+        assert_eq!(content, text, "the marker cannot hide any wrapped content");
+    }
+
+    #[test]
+    fn notebook_cursor_uses_existing_selection_and_sent_marker_clears_on_answer() {
+        for (base, depth) in [
+            (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
+            (
+                tmt_cli_style::Base::TmtLight,
+                tmt_cli_style::Depth::TrueColor,
+            ),
+            (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
+        ] {
+            let mut app = paned(
+                split(
+                    Direction::LeftRight,
+                    vec![Pane::Rows, Pane::Notes],
+                    vec![50, 50],
+                ),
+                Notes::Text("selected\nother".into()),
+            );
+            app.view.as_mut().unwrap().look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(base),
+                depth,
+            };
+            app.view.as_mut().unwrap().render = NotesRender::Plain;
+            app.focus = 1;
+            app.view.as_mut().unwrap().document["squad"]["noteAnnotations"] =
+                json!([{"line": 0, "quote": "selected", "requestId": "open"}]);
+            let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
+            terminal.draw(|frame| render(frame, &app)).unwrap();
+            let (hit, _) = app.note_hits.borrow()[0];
+            let cell = &terminal.backend().buffer()[(hit.x + 2, hit.y)];
+            let selection = app.look().selection();
+            assert_eq!(cell.bg, selection.bg.unwrap_or_default());
+            assert_eq!(
+                cell.modifier.contains(Modifier::REVERSED),
+                selection.bg.is_none()
+            );
+            assert!(
+                draw(&app, 60, 12)
+                    .iter()
+                    .any(|line| line.contains("✎ selected"))
+            );
+            app.view.as_mut().unwrap().document["squad"]
+                .as_object_mut()
+                .unwrap()
+                .remove("noteAnnotations");
+            assert!(
+                !draw(&app, 60, 12)
+                    .iter()
+                    .any(|line| line.contains("✎ selected"))
+            );
+        }
     }
 
     #[test]

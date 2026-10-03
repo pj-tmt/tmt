@@ -143,7 +143,21 @@ impl Scrolls {
         lines: impl AsRef<[Line<'a>]>,
         dim: Style,
     ) -> (usize, usize) {
-        let lines = lines.as_ref();
+        self.show_with(frame, pane, area, lines.as_ref(), dim, |_, line| {
+            line.clone()
+        })
+    }
+
+    /// Decorates only visible lines; selection never clones the whole notebook.
+    pub fn show_with<'a>(
+        &self,
+        frame: &mut Frame,
+        pane: Pane,
+        area: Rect,
+        lines: &[Line<'a>],
+        dim: Style,
+        mut decorate: impl FnMut(usize, &Line<'a>) -> Line<'a>,
+    ) -> (usize, usize) {
         let content = lines.len();
         let viewport = Self::viewport(area, content);
         self.drawn.borrow_mut().insert(
@@ -161,7 +175,13 @@ impl Scrolls {
             ..area
         };
         frame.render_widget(
-            Paragraph::new(lines[offset..(offset + viewport).min(content)].to_vec()),
+            Paragraph::new(
+                lines[offset..(offset + viewport).min(content)]
+                    .iter()
+                    .enumerate()
+                    .map(|(index, line)| decorate(offset + index, line))
+                    .collect::<Vec<_>>(),
+            ),
             body,
         );
         if viewport < usize::from(area.height) {

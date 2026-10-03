@@ -193,9 +193,141 @@ impl Notebooks {
     }
 }
 
+/// Selection belongs to notebook content; Scrolls remains the viewport owner.
+#[derive(Default)]
+pub(super) struct NotesCursor {
+    pub source: usize,
+    part: usize,
+    anchor: Option<String>,
+    pub follow: bool,
+}
+
+impl NotesCursor {
+    pub fn reconcile(&mut self, text: &str) {
+        let lines: Vec<_> = text.split('\n').collect();
+        if let Some(anchor) = &self.anchor {
+            self.source = lines
+                .iter()
+                .enumerate()
+                .filter(|(_, line)| **line == anchor)
+                .min_by_key(|(index, _)| (index.abs_diff(self.source), std::cmp::Reverse(*index)))
+                .map_or(
+                    self.source.min(lines.len().saturating_sub(1)),
+                    |(index, _)| index,
+                );
+        }
+        self.select(text, self.source);
+    }
+
+    pub fn select(&mut self, text: &str, source: usize) {
+        self.source = source.min(text.split('\n').count().saturating_sub(1));
+        self.anchor = text.split('\n').nth(self.source).map(str::to_owned);
+    }
+
+    /// A continuation offset keeps click placement and paging within long lines.
+    pub fn visual(&self, sources: &[usize]) -> Option<usize> {
+        let first = sources.iter().position(|source| *source == self.source)?;
+        let count = sources[first..]
+            .iter()
+            .take_while(|source| **source == self.source)
+            .count();
+        Some(first + self.part.min(count.saturating_sub(1)))
+    }
+
+    pub fn select_visual(&mut self, text: &str, sources: &[usize], visual: usize) {
+        if let Some(source) = sources.get(visual) {
+            self.select(text, *source);
+            self.part = visual
+                - sources
+                    .iter()
+                    .position(|line| line == source)
+                    .unwrap_or(visual);
+        }
+    }
+
+    pub fn move_by(
+        &mut self,
+        text: &str,
+        sources: &[usize],
+        step: super::scroll::Step,
+        page: usize,
+    ) {
+        self.reconcile(text);
+        let fallback: Vec<_>;
+        let sources = if sources.is_empty() {
+            fallback = (0..text.split('\n').count()).collect();
+            &fallback[..]
+        } else {
+            sources
+        };
+        let current = self.visual(sources).unwrap_or_default();
+        let next = match step {
+            super::scroll::Step::Lines(n) => current.saturating_add_signed(n),
+            super::scroll::Step::Pages(n) => current.saturating_add_signed(n * page as isize),
+            super::scroll::Step::Top => 0,
+            super::scroll::Step::Bottom => sources.len().saturating_sub(1),
+        }
+        .min(sources.len().saturating_sub(1));
+        self.select_visual(text, sources, next);
+        self.follow = true;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paging_and_clicks_keep_the_chosen_wrapped_continuation() {
+        let text = "long notebook line\nnext";
+        let sources = [0, 0, 0, 0, 0, 1];
+        let mut cursor = NotesCursor::default();
+        cursor.select_visual(text, &sources, 2);
+        assert_eq!(cursor.visual(&sources), Some(2));
+        cursor.move_by(text, &sources, super::super::scroll::Step::Pages(1), 2);
+        assert_eq!(cursor.source, 0);
+        assert_eq!(cursor.visual(&sources), Some(4));
+        assert_eq!(
+            cursor.visual(&[0, 0, 1]),
+            Some(1),
+            "resize clamps the continuation"
+        );
+        cursor.reconcile("inserted\nlong notebook line\nnext");
+        assert_eq!(cursor.source, 1);
+        assert_eq!(cursor.visual(&[0, 1, 1, 1, 1, 1, 2]), Some(5));
+    }
+
+    #[test]
+    fn cursor_follows_content_and_clamps_deleted_lines() {
+        let mut cursor = NotesCursor::default();
+        cursor.select("first\nselected\nlast", 1);
+        cursor.reconcile("new\nfirst\nselected\nlast");
+        assert_eq!(cursor.source, 2);
+        cursor.reconcile("only");
+        assert_eq!(cursor.source, 0);
+        cursor.move_by(
+            "a\nb\nc",
+            &[0, 0, 1, 2],
+            super::super::scroll::Step::Bottom,
+            2,
+        );
+        assert_eq!(cursor.source, 2);
+        cursor.move_by(
+            "a\nb\nc",
+            &[0, 0, 1, 2],
+            super::super::scroll::Step::Pages(-1),
+            2,
+        );
+        assert_eq!(cursor.source, 0);
+    }
+
+    #[test]
+    fn duplicate_lines_keep_the_nearest_anchor() {
+        let mut cursor = NotesCursor::default();
+        cursor.select("repeat\nother\nrepeat", 2);
+        cursor.reconcile("new\nrepeat\nother\nrepeat");
+        assert_eq!(cursor.source, 3);
+    }
 
     #[test]
     fn notebook_cache_is_bounded_and_reuses_only_unchanged_content() {

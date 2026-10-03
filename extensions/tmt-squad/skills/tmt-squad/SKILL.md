@@ -344,6 +344,21 @@ tools. The board never creates it: a saved lead without a notebook shows
 `(no notes yet)`, while a temporary lead shows the
 `NOTEBOOK_SAVED_IDENTITY_REQUIRED` failure text.
 
+Click a notebook line in the lead notes pane to focus it and place the cursor.
+Arrow keys or j/k move between displayed lines; PgUp/PgDn page, and
+Home/End or g/G select the first/last line. The cursor follows unchanged source
+text when notes refresh (nearest match for duplicates, clamped after deletion).
+The wheel scrolls independently; moving the cursor brings it back into view.
+The selected displayed line uses the existing selection appearance, including
+reverse video with `NO_COLOR`.
+
+In focused notes, the annotate binding (`a` by default) opens a composer addressed
+to the lead, quoting the line number and a bounded excerpt. Enter sends only
+nonempty text; Esc cancels. The line shows `✎` while your request to the current
+lead is open, clearing after the lead answers and the board refreshes. Notes remain
+read-only. The marker uses the nearest matching quoted excerpt after an edit;
+requests outside the bounded room-history window may not be shown.
+
 The detail pane shows the selected member's own notebook after its fields,
 using the same read-only Markdown/plain rendering as lead notes. A saved member
 without a notebook shows `(no notes yet)`; temporary members show
@@ -353,7 +368,7 @@ on selection and board refresh. The leads/all tabs remain rows only.
 Every member should keep a short **Current state** section at the top of their own notebook, with
 **Now / Next / Blocked** in a few lines, because the user reads it on the board.
 Update those lines when the working state changes; keep history below them.
-User annotations remain requests about a row.
+User annotations remain requests about a row or a notebook line.
 
 ## Annotations from the user
 
