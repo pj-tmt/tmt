@@ -33,8 +33,8 @@ Release PRs must pass `Code quality`'s notes gate before merge: compare from the
 component's newest published tag, with every linked commit inside its ancestry
 range through the candidate base. A component without a published release must
 declare package `bootstrap-sha`; use the candidate-base bootstrap range and the
-pinned first-release header form described in DEVELOPMENT. Follow its provisional
-merge-base to merge-commit reconciliation before first release planning. COVERAGE requires a link for every commit the
+pinned first-release header form described in DEVELOPMENT. `bootstrapSha` is the
+last commit before the component existed and remains unchanged after merge. COVERAGE requires a link for every commit the
 pinned release-please renderer lists for the component in that range. Use its
 parser, path splitter, exclusions and private-leaf attribution with the
 candidate-base config's changelog sections or pinned defaults; do not introduce

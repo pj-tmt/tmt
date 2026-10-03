@@ -61,7 +61,12 @@ export function attributeReleaseConsumption(github, components) {
   return github;
 }
 
-/** Pinned 17.11.2 ignores package bootstrap-sha: keep first-release cutoffs path-local. */
+/**
+ * Pinned release-please 17.11.2 ignores per-package bootstrap-sha; it honors only
+ * the top-level option, and only when Manifest needsBootstrap. Re-check this
+ * limitation on upgrade. Keep unpublished cutoffs path-local and leave scan
+ * termination to Manifest; once bootstrap components are published, pass through.
+ */
 export function applyBootstrapCutoffs(manifest, components) {
   const bootstraps = components.filter(
     (component) => component.release !== false && component.bootstrapSha
@@ -71,8 +76,6 @@ export function applyBootstrapCutoffs(manifest, components) {
   const originalReleases = github.releaseIterator;
   const originalCommits = github.mergeCommitIterator;
   const originalTags = github.tagIterator;
-  const tagged = new Map();
-  const published = new Map();
   const publishedPaths = new Set();
   const before = new Map();
   const seen = new Set();
@@ -84,37 +87,28 @@ export function applyBootstrapCutoffs(manifest, components) {
   )
     throw new Error('Unsupported release-please bootstrap API.');
   github.releaseIterator = async function* (options) {
-    published.clear();
     publishedPaths.clear();
     for await (const release of originalReleases.call(this, options)) {
-      for (const component of components.filter((item) => item.release !== false)) {
+      for (const component of bootstraps) {
         const path = component.owns[0];
         if (productOfTag(release.tagName) === component.name) publishedPaths.add(path);
-        if (
-          release.tagName ===
-          `${releasePolicy(component.name).tagPrefix}${manifest.releasedVersions[path]}`
-        ) {
-          published.set(path, release.sha);
-        }
       }
       yield release;
     }
   };
   github.tagIterator = async function* (...args) {
-    tagged.clear();
+    const missing = bootstraps.filter((component) => !publishedPaths.has(component.owns[0]));
+    if (!missing.length) {
+      yield* originalTags.apply(this, args);
+      return;
+    }
     for await (const tag of originalTags.apply(this, args)) {
-      let bootstrapOnly = false;
-      for (const component of components.filter((item) => item.release !== false)) {
-        const path = component.owns[0];
-        if (
+      // A tag without a published release cannot replace a declared bootstrap anchor.
+      const bootstrapOnly = missing.some(
+        (component) =>
           tag.name ===
-          `${releasePolicy(component.name).tagPrefix}${manifest.releasedVersions[path]}`
-        ) {
-          // A tag without a published release cannot replace a declared bootstrap anchor.
-          if (component.bootstrapSha && !publishedPaths.has(path)) bootstrapOnly = true;
-          else tagged.set(path, tag.sha);
-        }
-      }
+          `${releasePolicy(component.name).tagPrefix}${manifest.releasedVersions[component.owns[0]]}`
+      );
       if (!bootstrapOnly) yield tag;
     }
   };
@@ -122,28 +116,17 @@ export function applyBootstrapCutoffs(manifest, components) {
     before.clear();
     seen.clear();
     const missing = bootstraps.filter((component) => !publishedPaths.has(component.owns[0]));
-    const boundaries = new Set([
-      ...published.values(),
-      ...tagged.values(),
-      ...missing.map((component) => component.bootstrapSha),
-    ]);
-    const bounded = components
-      .filter((component) => component.release !== false)
-      .every(
-        (component) =>
-          published.has(component.owns[0]) ||
-          tagged.has(component.owns[0]) ||
-          (!publishedPaths.has(component.owns[0]) && component.bootstrapSha)
-      );
+    if (!missing.length) {
+      yield* originalCommits.call(this, branch, options);
+      return;
+    }
     for (const component of missing) before.set(component.owns[0], new Set());
     for await (const commit of originalCommits.call(this, branch, options)) {
       for (const component of missing) {
         if (commit.sha === component.bootstrapSha) seen.add(component.bootstrapSha);
         if (!seen.has(component.bootstrapSha)) before.get(component.owns[0]).add(commit.sha);
       }
-      boundaries.delete(commit.sha);
       yield commit;
-      if (bounded && boundaries.size === 0) break;
     }
   };
   const { ManifestPlugin } = requirePinned('release-please/build/src/plugin.js');
