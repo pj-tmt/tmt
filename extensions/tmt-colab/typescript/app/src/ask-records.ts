@@ -61,6 +61,8 @@ export interface AskIntentRecord {
   version: 1;
   kind: 'ask';
   signed: SignedAsk;
+  agentName: string;
+  deviceName: string;
 }
 export interface AskStateRecord {
   version: 1;
@@ -83,6 +85,8 @@ export type AskRecord = AskIntentRecord | AskStateRecord | AskReplyRecord;
 export type AskRoot = 'intents' | 'messages' | 'replies';
 export interface AskLedgerView {
   writer: string;
+  agentName: string;
+  deviceName: string;
   signed: SignedAsk;
   intent: DecodedAsk;
   state: LedgerState;
@@ -165,7 +169,9 @@ export function validateRecord(value: unknown): asserts value is AskRecord {
   requireValue(value !== null && typeof value === 'object');
   const r = value as Record<string, unknown>;
   if (r.kind === 'ask') {
-    exactKeys(r, ['version', 'kind', 'signed']);
+    exactKeys(r, ['version', 'kind', 'signed', 'agentName', 'deviceName']);
+    requireValue(typeof r.agentName === 'string' && text(r.agentName).length <= 128);
+    requireValue(typeof r.deviceName === 'string' && text(r.deviceName).length <= 128);
     decodeAsk(r.signed);
   } else if (r.kind === 'ask-state') {
     exactKeys(r, ['version', 'kind', 'operationId', 'revision', 'state', 'requestId', 'reason']);
@@ -225,6 +231,8 @@ export async function readAskRecords(
         );
         const view: AskLedgerView = {
           writer,
+          agentName: value.agentName,
+          deviceName: value.deviceName,
           signed: structuredClone(value.signed),
           intent,
           state: 'uncertain',

@@ -1113,11 +1113,17 @@ proves absence nor cancels recipient work.
 
 Ask records are inert JSON values in the existing per-writer own Yjs roots:
 
-| Root/key                             | Value                                                                                 |
-| ------------------------------------ | ------------------------------------------------------------------------------------- |
-| `intents[operationId]`               | `{version:1,kind:"ask",signed:{operationId,senderDevice,input,signature,finalBytes}}` |
-| `messages[operationId+":"+revision]` | `{version:1,kind:"ask-state",operationId,revision,state,requestId,reason}`            |
-| `replies[operationId]`               | `{version:1,kind:"ask-reply",operationId,requestId,agentId,body}`                     |
+| Root/key                             | Value                                                                                                      |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `intents[operationId]`               | `{version:1,kind:"ask",signed:{operationId,senderDevice,input,signature,finalBytes},agentName,deviceName}` |
+| `messages[operationId+":"+revision]` | `{version:1,kind:"ask-state",operationId,revision,state,requestId,reason}`                                 |
+| `replies[operationId]`               | `{version:1,kind:"ask-reply",operationId,requestId,agentId,body}`                                          |
+
+`agentName` and `deviceName` are display-only, publisher-asserted labels, each
+bounded to 128 UTF-8 bytes. The asking publisher takes them from the verified
+preview (agents.list and owner session echo). They are outside the signed input
+and never establish authority, route work, or replace the agent/device UUID.
+Readers may show a UUID fallback when a label is empty.
 
 Binary fields use canonical base64url. State revisions are positive canonical
 decimal strings, ordered numerically. `requestId` and `reason` are explicitly

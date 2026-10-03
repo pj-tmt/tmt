@@ -353,6 +353,17 @@ it('SDK class and code identify session faults; error-shaped objects never cause
     await expect(adapter.result(`req_${id(8)}`)).rejects.toBeInstanceOf(SessionEndedError);
     await expect(adapter.listAgents()).rejects.toBeInstanceOf(SessionEndedError);
   }
+  for (const code of [
+    'REMOTE_INPUT_TOO_LARGE',
+    'REMOTE_STATE_UNAVAILABLE',
+    'REMOTE_CORE_UNAVAILABLE',
+  ]) {
+    fault = new RefusalError(code);
+    expect(
+      (await adapter.send({ operationId: id(9), agentId: id(6), message: 'exact' })).state,
+    ).toBe('uncertain');
+    await expect(adapter.result(`req_${id(8)}`)).rejects.toBeInstanceOf(ReadRefusedError);
+  }
   fault = { code: 'sequence_unavailable' };
   expect((await adapter.operation(id(9))).state).toBe('uncertain');
   expect(((await adapter.operation(id(9))) as { reason?: string }).reason).toBeUndefined();
@@ -418,7 +429,7 @@ it('interrupted sends become uncertain, then refused reads preserve that record 
   for (const state of ['dispatching', 'uncertain'] as const) {
     const { store, remote, key, own } = await setup();
     const frozen = FrozenAsk.capture(selection(), destination());
-    await store.adopt(await frozen.signed(key));
+    await store.adopt(await frozen.signed(key), frozen.view);
     await store.state(frozen.view.operationId, state);
     const controller = new AskController({ store, remote, key, selection });
     const before = structuredClone(own);
@@ -487,4 +498,35 @@ it('a verified pre-admission Session refusal stays refused before reconnect noti
   const next = new AskController({ store, remote, key, selection });
   expect((await next.recover(frozen.view.operationId)).state).toBe('refused');
   expect(remote.sends).toHaveLength(1);
+});
+
+it('display labels remain bounded publisher claims outside the signed input and routing', async () => {
+  const { controller, own } = await setup();
+  await controller.destinations();
+  const frozen = controller.prepare(destination());
+  const sent = await controller.send(frozen);
+  expect(sent.agentName).toBe('Deterministic agent');
+  expect(sent.deviceName).toBe('Fixture browser');
+  const changed = structuredClone(own);
+  const intent = changed[id(4)].intents[sent.intent.operationId] as {
+    agentName: string;
+    deviceName: string;
+  };
+  intent.agentName = '😀'.repeat(32);
+  intent.deviceName = 'Another label';
+  const views = await readAskViews(changed, { space: selection().space, page: id(1) }, () =>
+    hex(vector.publicKey),
+  );
+  expect(views[0].signed).toEqual(sent.signed);
+  expect(views[0].intent.agent).toBe(sent.intent.agent);
+  expect(views[0].agentName).toBe(intent.agentName);
+  intent.agentName += 'x';
+  expect(
+    await readAskViews(changed, { space: selection().space, page: id(1) }, () =>
+      hex(vector.publicKey),
+    ),
+  ).toEqual([]);
+  expect(() =>
+    FrozenAsk.capture(selection(), { ...destination(), deviceName: '😀'.repeat(33) }),
+  ).toThrow();
 });

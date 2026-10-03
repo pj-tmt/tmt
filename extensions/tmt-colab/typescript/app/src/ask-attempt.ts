@@ -102,7 +102,7 @@ export class AskController {
     if (previous) {
       if (previous.preview === preview) return previous.task;
       return this.options.store.exclusive(id, async () => {
-        await this.options.store.adopt(await preview.signed(this.options.key));
+        await this.options.store.adopt(await preview.signed(this.options.key), preview.view);
         return this.options.store.view(id);
       });
     }
@@ -124,7 +124,7 @@ export class AskController {
             (current.expiresAtMs === null || Date.now() < current.expiresAtMs),
         );
         const signed = await preview.signed(key);
-        const adoption = await store.adopt(signed);
+        const adoption = await store.adopt(signed, view);
         adopted = true;
         if (adoption === 'existing') return store.view(id);
         await store.state(id, 'dispatching');

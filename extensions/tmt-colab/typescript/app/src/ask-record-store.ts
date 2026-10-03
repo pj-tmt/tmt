@@ -84,7 +84,18 @@ export class AskRecordStore {
   }
   /** Must run under exclusive. Durable metadata and own append both precede
    * dispatch. An interrupted reservation never authorizes another send. */
-  async adopt(signed: SignedAsk): Promise<'created' | 'existing'> {
+  async adopt(
+    signed: SignedAsk,
+    labels: { agentName: string; deviceName: string },
+  ): Promise<'created' | 'existing'> {
+    const value: AskRecord = {
+      version: 1,
+      kind: 'ask',
+      signed,
+      agentName: labels.agentName,
+      deviceName: labels.deviceName,
+    };
+    validateRecord(value);
     const intent = await verifyAsk(signed, this.#publicKey);
     requireValue(
       intent.space === this.scope.space &&
@@ -103,7 +114,7 @@ export class AskRecordStore {
     }
     requireValue((await this.views()).length < 1000);
     const status = await storeAskDraft(signed);
-    await this.#write({ version: 1, kind: 'ask', signed });
+    await this.#write(value);
     return status;
   }
   async state(

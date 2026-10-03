@@ -100,6 +100,9 @@ export class FrozenAsk {
       destination.deviceName,
     ])
       text(value);
+    requireValue(
+      text(destination.agentName).length <= 128 && text(destination.deviceName).length <= 128,
+    );
     const url = new URL(selection.url);
     requireValue(['http:', 'https:'].includes(url.protocol) && !url.username && !url.password);
     url.hash = '';

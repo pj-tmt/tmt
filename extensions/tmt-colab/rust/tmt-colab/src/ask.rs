@@ -115,6 +115,10 @@ struct AskRecord {
     version: u8,
     kind: String,
     signed: SignedAsk,
+    #[serde(rename = "agentName")]
+    agent_name: String,
+    #[serde(rename = "deviceName")]
+    device_name: String,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -151,6 +155,7 @@ pub(crate) fn validate_record(root: &str, key: &str, value: &Value) -> Result<()
                     && v.kind == "ask"
                     && v.signed.operation_id == key,
             )?;
+            require(v.agent_name.len() <= 128 && v.device_name.len() <= 128)?;
             v.signed.decode()?;
         }
         Some("ask-state") => {
@@ -263,9 +268,16 @@ mod tests {
     #[test]
     fn own_records_are_scoped_bounded_and_strict() {
         let (signed, _) = fixture();
-        let ask = json!({"version":1,"kind":"ask","signed":signed});
+        let ask = json!({"version":1,"kind":"ask","signed":signed,"agentName":"Fixture agent","deviceName":"Fixture browser"});
         let id = signed.operation_id;
         assert!(validate_record("intents", &id, &ask).is_ok());
+        for field in ["agentName", "deviceName"] {
+            let mut boundary = ask.clone();
+            boundary[field] = json!("😀".repeat(32));
+            assert!(validate_record("intents", &id, &boundary).is_ok());
+            boundary[field] = json!("😀".repeat(33));
+            assert!(validate_record("intents", &id, &boundary).is_err());
+        }
         assert!(validate_record("replies", &id, &ask).is_err());
         let request = format!("req_{id}");
         let reply = json!({"version":1,"kind":"ask-reply","operationId":id,"requestId":request,"agentId":id,"body":""});
