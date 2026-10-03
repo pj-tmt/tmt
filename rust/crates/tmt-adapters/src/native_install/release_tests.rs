@@ -804,6 +804,46 @@ fn exhausted_tag_lookup_scan_preserves_the_existing_error_and_request_cap() {
 }
 
 #[test]
+fn cli_tag_discovery_never_accepts_driver_component_tags() {
+    assert!(refs_url(Product::Cli).contains("/matching-refs/tags/v?"));
+    let mut fixture = HttpFixture::default();
+    let mut driver = metadata(Product::Cli, "99.0.0-alpha.99", false);
+    driver["tag_name"] = json!("tmt-driver-herdr-v99.0.0-alpha.99");
+    fixture.releases(&[driver, metadata(Product::Cli, "1.0.0-alpha.1", false)]);
+    assert_eq!(
+        discover(&mut fixture, Product::Cli, Channel::Alpha)
+            .unwrap()
+            .to_string(),
+        "1.0.0-alpha.1"
+    );
+    assert_eq!(fixture.calls.len(), 2);
+    assert!(
+        !fixture
+            .calls
+            .iter()
+            .any(|call| call.url.contains("tmt-driver-"))
+    );
+    for tag in [
+        "tmt-driver-herdr-v99.0.0",
+        "tmt-driver-other-v99.0.0-alpha.99",
+    ] {
+        let mut fixture = HttpFixture::default();
+        fixture.response(
+            refs_url(Product::Cli),
+            serde_json::to_vec(&json!([{"ref": format!("refs/tags/{tag}")}])).unwrap(),
+        );
+        assert!(discover(&mut fixture, Product::Cli, Channel::Alpha).is_err());
+        assert_eq!(fixture.calls.len(), 1);
+        assert!(
+            !fixture
+                .calls
+                .iter()
+                .any(|call| call.url.contains("/releases/"))
+        );
+    }
+}
+
+#[test]
 fn ref_and_pagination_uncertainty_fails_before_release_or_asset_requests() {
     let url = refs_url(Product::Cli);
     for response in [

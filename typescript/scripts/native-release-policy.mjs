@@ -16,6 +16,7 @@ const PRODUCTS = {
   cli: { tagPrefix: 'v', prerelease: false, latest: true },
   office: { tagPrefix: 'tmt-office-v', prerelease: true, latest: false },
   squad: { tagPrefix: 'tmt-squad-v', prerelease: true, latest: false },
+  'driver-herdr': { tagPrefix: 'tmt-driver-herdr-v', prerelease: true, latest: false },
 };
 
 /** The publication settings for one product; unknown products are refused. */

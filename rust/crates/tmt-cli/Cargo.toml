@@ -9,16 +9,18 @@ repository.workspace = true
 
 [package.metadata.dist]
 dist = true
+# Package include replaces the workspace list in pinned cargo-dist 0.32.0.
+# Retain its common files plus the driver package's binary until #1084.
+include = [
+  "../../../LICENSE",
+  "../../archive/NATIVE-INSTALL.md",
+  "../../target/native-notices/THIRD-PARTY-NOTICES.txt",
+  "../../target/native-companion/tmt-driver-herdr",
+]
 
 [[bin]]
 name = "tmt"
 path = "src/main.rs"
-
-# The first-party Herdr driver ships beside tmt in the CLI archive
-# (Product::companions); its behavior lives in the tmt-driver-herdr library.
-[[bin]]
-name = "tmt-driver-herdr"
-path = "src/bin/tmt-driver-herdr.rs"
 
 [dependencies]
 tmt-core.workspace = true
@@ -26,14 +28,12 @@ tmt-adapters.workspace = true
 tmt-command-output.workspace = true
 tmt-cli-style.workspace = true
 tmt-office-command.workspace = true
-tmt-driver-herdr.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
 tmt-test-support.workspace = true
-tmt-driver-protocol.workspace = true
 toml_edit.workspace = true
 crossterm.workspace = true
 insta.workspace = true

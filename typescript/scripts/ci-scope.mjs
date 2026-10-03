@@ -61,6 +61,7 @@ export function parseComponentMap(text) {
     name,
     package: component.package,
     release: component.release,
+    bootstrapSha: component.bootstrapSha,
     releaseConsumers:
       component.releaseConsumers === undefined
         ? []
@@ -75,6 +76,11 @@ export function parseComponentMap(text) {
     scopedChecks: parseScopedChecks(name, component.scopedChecks),
   }));
   for (const component of components) {
+    if (
+      component.bootstrapSha !== undefined &&
+      (typeof component.bootstrapSha !== 'string' || !/^[a-f0-9]{40}$/.test(component.bootstrapSha))
+    )
+      throw new Error(`Component ${component.name} bootstrapSha must be a commit SHA.`);
     if (component.release !== undefined && typeof component.release !== 'boolean')
       throw new Error(`Component ${component.name} release must be boolean.`);
   }

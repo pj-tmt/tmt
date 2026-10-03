@@ -1379,6 +1379,13 @@ TMT_TEST_STORAGE_PROBE='{"executable":"/absolute/checkout/rust/target/debug/exam
   pnpm test:native
 ```
 
+Native process and archive fixtures need both the CLI and Herdr executable. When
+narrowing Cargo package selection, build them together with
+`cargo build --locked -p tmt-cli -p tmt-driver-herdr --bins`. CI release fixtures
+build both packages; the shared raw-runtime artifact carries both executables,
+and tooling restores executable mode after download. Drivers are independent
+release components, outside the `tmt extension` inventory.
+
 Squad context fixtures separate successful core-invocation evidence from deadline
 termination. Cold/fresh reads and a promptly returning stale-context sentinel
 assert the cache-only gate independently. Timeout scenarios establish a gated
@@ -1435,8 +1442,8 @@ TMT_TEST_HERDR=/tmp/hdrbin/herdr TMT_TEST_PREVIOUS_TMT="$(cd ../tmt-previous && 
   pnpm exec vp test run --config test/native/vitest.config.ts test/native/herdr.test.ts
 ```
 
-The Herdr host driver (the `tmt-driver-herdr` library, whose executable is a
-`tmt-cli` bin shipped in the CLI archive) has its own executable test, which
+The Herdr host driver (the independently versioned `tmt-driver-herdr` package,
+with one thin binary also carried in the CLI archive through its first standalone release) has its own executable test, which
 uses the same pinned binary. It runs the protocol
 conformance harness and every declared operation against a private server and
 HOME, and fails if a server process remains. Its prompt case runs a
@@ -1445,7 +1452,7 @@ shell-script stand-in named `claude` in a pane, never a real agent. Without
 
 ```bash
 (cd rust && cargo test --locked -p tmt-driver-herdr)
-(cd rust && TMT_TEST_HERDR=/tmp/hdrbin/herdr cargo test --locked -p tmt-cli --test herdr_driver)
+(cd rust && TMT_TEST_HERDR=/tmp/hdrbin/herdr cargo test --locked -p tmt-driver-herdr --test herdr_driver)
 (cd rust && cargo clippy --locked -p tmt-driver-herdr -p tmt-cli --all-targets -- -D warnings)
 (cd rust && cargo test --locked -p tmt-adapters --lib host::external)
 (cd rust && cargo test --locked -p tmt-cli --test architecture)
@@ -1459,7 +1466,7 @@ above, since the host harness also asks every runtime operation:
 
 ```bash
 (cd rust && cargo test --locked -p tmt-driver-protocol)
-(cd rust && cargo test --locked -p tmt-cli --test herdr_driver)
+(cd rust && cargo test --locked -p tmt-driver-herdr --test herdr_driver)
 (cd rust && cargo test --locked -p tmt-adapters --lib host::external)
 ```
 
@@ -1889,9 +1896,11 @@ are not proof of release archives or public installation.
 #### Explicit multi-platform release preparation
 
 `Native release artifacts` (`.github/workflows/native-release.yml`) is the per-product
-release run, dispatched with an explicit `cli` or `squad` product, not part of
-every PR. Office is frozen: its component is parked and neither preparation nor draft
-publication accepts it; existing releases remain untouched. It has two modes. The default `prepare` builds and verifies one bundle from the
+release run, with explicit product routing, not part of every PR. It currently
+accepts `cli` and `squad`. Office is frozen and Herdr awaits the release cut
+(#1399): parked components allow neither preparation nor draft publication;
+existing releases remain untouched. The [Herdr archive section](#herdr-driver-archives)
+owns its activation flags and retained CLI companion. It has two modes. The default `prepare` builds and verifies one bundle from the
 current main commit without a draft release and attaches nothing: dispatch each authorized
 product on the release's reviewed, required-checks-green main commit and record the
 product, run ID and exact SHA in its issue. With `prepare` off, the run plans the
@@ -2045,9 +2054,9 @@ retried for about two minutes. A failed check opens an issue and fails the run; 
 rolled back, because a published release is immutable and a repair needs a new reviewed
 version. A `smoke` job then installs the published release as a user does
 (`.github/workflows/native-release-smoke.yml`, also run by hand with `product` and `tag`, for
-the newest published release of the product only: it installs what the public entry points serve
-now, so any other tag fails its first check and a failed run reports on the issue like any
-other). On the four hosts of the upgrade proof, in an isolated home, state directory
+the newest published CLI/extension release or an exact published driver tag: CLI and
+extension acquisition uses current public entry points, while a driver uses its versioned
+archive URLs. A failed run reports on the issue like any other). On the four hosts of the upgrade proof, in an isolated home, state directory
 and prefix and with no token, a CLI alpha goes through the public
 `releases/latest/download/install.sh`: the installer names the tag's version, the installed `tmt`
 is the one PATH selects and reports that version, the installed shared skills are the tag's
@@ -2055,7 +2064,13 @@ is the one PATH selects and reports that version, the installed shared skills ar
 metadata and reports the installation current (a newer alpha that appeared since passes with a
 note). An extension alpha is installed by the newest published CLI's `tmt extension install
 <extension>` into a separate prefix; `tmt extension list` must report the tag's version and no
-CLI link may appear. The tag is
+CLI link may appear. A Herdr driver alpha downloads its exact tag’s
+`dist-manifest.json` and matching standalone archive through public versioned URLs,
+checks the bounded manifest, digest and inventory, then uses the current public CLI’s
+supported `driver install <extracted-path> --yes --json` and `driver ls` surfaces
+to verify capabilities and durable approval. Its CLI metadata check reuses the
+classified retry below; bare asset HTTP failures do not retry. Named released-driver
+acquisition belongs to #1084. The tag is
 checked out only so its skills can be read; none of its code runs. All smoke acquisition stays
 unauthenticated. Only a native JSON failure with the classified `GitHub API rate limit:
 reset/earliest retry time ...` cause may retry its failed acquisition step: at most two
@@ -2099,6 +2114,9 @@ each selected target then repeats the public install on its matching host with `
 which allows one acquisition attempt without another rate-limit retry. Source and retry
 install jobs share `.github/actions/public-install-smoke`: it owns the tag data
 checkout, Node setup and verifier invocation, including any host architecture wrapper.
+For Herdr, that shared action also installs archive-verification dependencies.
+Only its `current public CLI` classified acquisition failure is retryable; standalone
+archive HTTP failures and mixed failures retain their original failure conclusions.
 Fixtures require the source matrix's target/runner pairs to equal the retry planner's `TARGETS`.
 The source dispatch finishes promptly; the long wait runs solely in the independent workflow, whose
 source-run/attempt/product/tag `public-install-retry-...` group never holds `release-<product>`
@@ -2186,7 +2204,14 @@ with `tmt extension install <extension>` and read back with `tmt extension ls`
 (`verify-native-extension-upgrade.mjs`): the version changes, the previous release stays on
 disk, a repeat is a no-op, a downgrade is refused and no CLI link is created. Extensions
 have no install command of their own under `tmt <extension>`; the proof must use the surface
-a user's install runs. The first release of a product has nothing to upgrade from and says
+a user's install runs. A `driver-herdr` release uses
+`verify-native-driver-upgrade.mjs` with both standalone archives and the current
+published CLI: exact capabilities and linkage, previous approval, refused
+replacement without consent, new approval/list digest and version, repeat approval,
+unchanged executable bytes, approval removal and no application SQLite. Path
+approval does not own extension receipts, pinning or downgrade refusal. Those
+checks do not claim the future #1084 named acquisition or PR 2 compatibility gate.
+The first release of a product has nothing to upgrade from and says
 so. A commit that predates these scripts fails the proof with that message; prove it by
 hand as below. A verifier command that fails says, on one line, which command failed, how it
 ended and the first thing it said. A failed host keeps its log as an artifact, and the
@@ -2473,6 +2498,55 @@ local cargo-dist's package selection tag does not publish a Git tag. Historical 
 releases use `tmt-office-v<version>`. Office is frozen and is
 not accepted by the shared release workflow; local archive verification does not
 authorize publication or a CLI tag.
+
+#### Herdr driver archives
+
+The `driver-herdr` component is parked (`release:false` in the component map and
+`package.metadata.dist.dist=false` in its Cargo package). The release cut (#1399)
+activates both flags for its first standalone release; it does not register a
+release-please package. Its retained `bootstrapSha` is the last commit before the
+component existed, the first-release history boundary for that cut. CLI release
+paths exclude the driver crate, while CLI archives continue shipping its binary
+through the first standalone Herdr release. Named acquisition remains #1084.
+
+After activation, the `driver-herdr` product builds the independent package
+without building `tmt`:
+
+```sh
+scripts/build-native-artifact.sh aarch64-apple-darwin driver-herdr > /absolute/driver-manifest.json
+node typescript/scripts/verify-native-artifact.mjs --product driver-herdr \
+  --manifest /absolute/driver-manifest.json \
+  --archive target/distrib/tmt-driver-herdr-aarch64-apple-darwin.tar.gz \
+  --target aarch64-apple-darwin \
+  --notices rust/target/native-notices/THIRD-PARTY-NOTICES.txt --license LICENSE
+```
+
+Retain each build's archive, manifest and notices before building another product.
+The standalone archive carries its executable and shared license/install/notices
+files. CLI archive builds stage the companion from `-p tmt-driver-herdr`, without
+defining another binary, and include notices for both packages. Both archive shapes are checked against their own
+manifest, and current CLI release proof checks the companion's independently
+specified Cargo version. The standalone proof executes protocol capabilities
+with no application state, rather than CLI skill/SQLite commands.
+
+For a local two-version upgrade proof, retain actual separately versioned driver
+archives and the current published CLI archive and run:
+
+```sh
+node typescript/scripts/verify-native-driver-upgrade.mjs --product driver-herdr \
+  --archive /absolute/new/tmt-driver-herdr-aarch64-apple-darwin.tar.gz \
+  --manifest /absolute/new/dist-manifest.json \
+  --previous-archive /absolute/old/tmt-driver-herdr-aarch64-apple-darwin.tar.gz \
+  --previous-manifest /absolute/old/dist-manifest.json \
+  --driver-archive /absolute/cli/tmt-cli-aarch64-apple-darwin.tar.gz \
+  --driver-manifest /absolute/cli/dist-manifest.json --target aarch64-apple-darwin
+```
+
+Use task-owned source copies/worktrees to build each version; do not rewrite the
+implementation checkout or reuse another worktree's Rust target directory.
+Driver tags are only `tmt-driver-herdr-v<semver>`, never `v*`, and are published
+as prereleases with `--latest=false` so the public CLI installer keeps ownership
+of repository latest. Archive proof does not authorize publication.
 
 #### Squad archives
 

@@ -76,8 +76,9 @@ fn private_hook_binding_lookup_and_locator_have_one_owner_each() {
 #[test]
 fn the_herdr_driver_is_referenced_only_by_its_bin() {
     let call = "fn main() { tmt_driver_herdr::serve_call(); }";
-    assert_exact(&[syntax("tmt-cli", "tmt-driver-herdr.rs", call)], &[]);
+    assert_exact(&[syntax("tmt-driver-herdr", "main.rs", call)], &[]);
     for (package, file, code) in [
+        ("tmt-cli", "tmt-driver-herdr.rs", call),
         ("tmt-cli", "main.rs", call),
         (
             "tmt-cli",
@@ -85,6 +86,12 @@ fn the_herdr_driver_is_referenced_only_by_its_bin() {
             "use tmt_driver_herdr::HerdrDriver;",
         ),
         ("tmt-adapters", "host.rs", call),
+        ("tmt-driver-herdr", "lib.rs", call),
+        (
+            "tmt-driver-herdr",
+            "main.rs",
+            "use tmt_driver_herdr::HerdrDriver;",
+        ),
     ] {
         let failures = policy::source_violations(&[syntax(package, file, code)]);
         assert!(

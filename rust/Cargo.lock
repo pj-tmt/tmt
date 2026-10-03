@@ -2725,8 +2725,6 @@ dependencies = [
  "tmt-cli-style",
  "tmt-command-output",
  "tmt-core",
- "tmt-driver-herdr",
- "tmt-driver-protocol",
  "tmt-office-command",
  "tmt-office-model",
  "tmt-test-support",
@@ -2813,7 +2811,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-driver-herdr"
-version = "5.0.0-alpha.48"
+version = "0.1.0-alpha.0"
 dependencies = [
  "semver",
  "serde_json",

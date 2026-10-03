@@ -2805,10 +2805,16 @@ guard allows exactly those edges.
 `rust/crates/tmt-driver-herdr` is the first driver built this way (#479). The
 library depends on the protocol crate, `tmt-invoke` (its bounded process
 owner), `serde_json` and `semver`, and never on core or the adapters; the
-architecture guard holds it to those edges. Its executable is the
-`tmt-driver-herdr` bin of `tmt-cli` (`tmt_driver_herdr::serve_call`, the only
-`tmt-cli -> tmt-driver-herdr` edge), so the CLI release archive carries it as
-a companion (see native installation). It answers `caller`,
+architecture guard holds it to those edges. Its independently versioned package
+owns a thin `tmt-driver-herdr` binary calling `tmt_driver_herdr::serve_call`.
+The CLI archive still carries that package's executable as a companion through
+its first standalone release; its artifact build stages the driver package's
+binary for cargo-dist. Named acquisition remains #1084.
+There is only one binary target and no `tmt-cli -> tmt-driver-herdr` dependency.
+CI process fixture builds select both packages, and raw-runtime artifacts carry
+both executables for tooling acquisition and archive tests. A driver release
+component remains outside the extension command's inventory.
+Its executable conformance tests belong to the driver package. It answers `caller`,
 `server`, `resolve-target`, `snapshot`, `publish`, `clear`, `capture`, `input`
 and `prompt` through Herdr's documented CLI (floor 0.9.1) and `ps`. Its children get an allowlisted
 environment without `TMT_DRIVER_CALL`. Herdr reports no server pid, so `server`
@@ -4047,7 +4053,15 @@ explicit rather than becoming inferred delivery decisions.
 `typescript/scripts/verify-native-artifact.mjs` are developer/release tooling. The
 workflow builds the four supported cargo-dist targets, creates target-filtered
 third-party notices (including Vite's bundled frontend inventory for Office), and verifies runtime bytes, linkage, checksums, archive
-inventory and executable behavior on matching hosts. CLI runs additionally
+inventory and executable behavior on matching hosts. `driver-herdr` selects only
+the independently versioned driver package, notices and archive; its tags are
+`tmt-driver-herdr-v<semver>` and its prereleases never become repository latest.
+The component owns its Cargo version and lock entry, and CLI release paths exclude
+it. The component is parked with `release:false` and Cargo `dist=false`;
+release cut (#1399) activates both for its first standalone release. The retained
+`bootstrapSha` is that cut's first-release history boundary, the last commit before
+the component existed. No Herdr package or cutoff is added to release-please.
+CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 
 `project-release.mjs` owns release-to-Project delivery evidence, separately from
@@ -4222,9 +4236,13 @@ the policy's flags, the tag on the release commit and GitHub's attestation for t
 every asset. A failed check opens an issue and fails the run; nothing is rolled back.
 A read-only `native-release-smoke.yml` then installs the published release as a user does,
 on the four hosts in an isolated environment: the public installer and `tmt upgrade` for
-the CLI, the newest published CLI's extension install for an extension. Its real failures
+the CLI, the newest published CLI's extension install for an extension, or its
+driver path approval against a checksum-verified standalone public archive. Driver
+upgrade proof similarly uses previous/candidate driver archives under the current
+published CLI, preserving executable bytes and checking consent and durable approval.
+Named driver acquisition and the compatibility gate remain separate work. Its real failures
 are reported on the same issue by a separate job, while exhausted classified rate limits
-use a distinct infrastructure issue. Both fail the smoke job. CLI, Office and Squad runs
+use a distinct infrastructure issue. Both fail the smoke job. CLI, Office, Squad and Herdr driver runs
 are eligible for one deferred affected-target re-proof through
 `native-release-smoke-retry.yml`. A separate smoke job with `actions: write` explicitly
 dispatches it only for the report owner's infrastructure outcome; this avoids suppressed
@@ -4235,7 +4253,7 @@ never `release-<product>`. Install legs retain read-only credentials and token-f
 acquisition; a separate issues writer comments with both runs and closes only a fully
 recovered infrastructure issue. Real, repeated, incomplete or distant-reset failures
 remain visible, and neither original failures nor retry failures are made green.
-CLI, Office and Squad runs
+CLI, Office, Squad and Herdr driver runs
 share the four-target cargo-dist build and
 archive verifier, while keeping product-qualified bundles, independent versions and separate
 immutable tags.

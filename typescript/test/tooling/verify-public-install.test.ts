@@ -1,5 +1,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
+import { createArtifact, nativeTarget } from '../support/native-artifact.js';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -27,6 +28,7 @@ const SKILL = '# The tmux-team skill\n';
 const INBOX = '# The inbox skill\n';
 
 interface Fake {
+  driverExecutable?: string;
   /** The version the installer embeds and `tmt --version` prints. */
   version?: string;
   /** The version `tmt --version` prints, when it differs from the installer's. */
@@ -100,6 +102,7 @@ case "$*" in
     printf '{"extension":"squad","installed":true,"changed":true,"version":"%s"}' '${extension.installs ?? '0.1.0-alpha.4'}' ;;
   "extension list --json --prefix "*)
     printf '{"extensions":[{"name":"office","installed":false},{"name":"squad","installed":true,"version":"%s"}]}' '${extension.reports ?? extension.installs ?? '0.1.0-alpha.4'}' ;;
+  "driver "*) ${fake.driverExecutable ? `exec ${shellQuote(fake.driverExecutable)} "$@"` : 'exit 9'} ;;
   *) echo "unexpected: $*" >&2; exit 9 ;;
 esac
 TMT
@@ -120,6 +123,7 @@ function run(
     installerVersions?: string[];
     fetchError?: string;
     retry?: boolean;
+    download?: (url: string, maximum: number) => Promise<Uint8Array>;
   } = {}
 ) {
   const root = path.join(base, `run-${(counter += 1)}`);
@@ -144,9 +148,11 @@ function run(
       tag: options.tag ?? 'v5.0.0-alpha.12',
       source,
       repository: 'wkh237/tmt',
+      target: nativeTarget(),
       root: path.join(root, 'work'),
       now: () => 1893456000000,
       retry: options.retry,
+      ...(options.download ? { download: options.download } : {}),
       ...(options.systemPath ? { systemPath: options.systemPath } : {}),
       fetch: async (url: string) => {
         fetched.push(url);
@@ -556,5 +562,102 @@ describe('renderSmokeSummary', () => {
     ).toBe(
       '### Public install of `v5.0.0-alpha.12` (aarch64-apple-darwin)\n\n- passed install\n- FAILED tmt upgrade: it reports 5.0.0\n'
     );
+  });
+});
+
+describe('public standalone driver smoke', () => {
+  it('verifies the public archive and durable approval through the current CLI, reusing classified retry', async () => {
+    const fixtureRoot = mkdtempSync(path.join(base, 'driver-archive-'));
+    const archiveName = `tmt-driver-herdr-${nativeTarget()}.tar.gz`;
+    const artifact = await createArtifact(
+      { root: fixtureRoot },
+      '0.1.0-alpha.0',
+      new Uint8Array(),
+      'driver-herdr',
+      undefined,
+      {},
+      archiveName
+    );
+    const urls: string[] = [];
+    const fake = {
+      driverExecutable: path.resolve('../rust/target/debug/tmt'),
+      upgradeCause:
+        'GitHub API rate limit: reset/earliest retry time 2030-01-01T00:00:01Z (UTC epoch 1893456001); the single retry was exhausted. Retry later or optionally set GITHUB_TOKEN.',
+      upgradeFailures: 1,
+    };
+    const attempt = run(fake, {
+      product: 'driver-herdr',
+      tag: 'tmt-driver-herdr-v0.1.0-alpha.0',
+      download: async (url, maximum) => {
+        urls.push(url);
+        const bytes = readFileSync(
+          url.endsWith('/dist-manifest.json') ? artifact.manifest : artifact.archive
+        );
+        expect(bytes.length).toBeLessThan(maximum);
+        return bytes;
+      },
+    });
+    expect(failed(await attempt.results)).toEqual([]);
+    expect(attempt.waits).toEqual([2000]);
+    expect(urls).toEqual(
+      ['dist-manifest.json', archiveName].map(
+        (name) =>
+          `https://github.com/wkh237/tmt/releases/download/tmt-driver-herdr-v0.1.0-alpha.0/${name}`
+      )
+    );
+    const registry = JSON.parse(
+      readFileSync(path.join(attempt.root, 'work/state/drivers.json'), 'utf8')
+    );
+    expect(JSON.stringify(registry)).toContain('0.1.0-alpha.0');
+  });
+
+  it('uses one CLI acquisition attempt for a deferred driver re-proof', async () => {
+    let downloads = 0;
+    const attempt = run(
+      {
+        upgradeFailures: 1,
+        upgradeCause:
+          'GitHub API rate limit: reset/earliest retry time 2030-01-01T00:00:01Z (UTC epoch 1893456001); the single retry was exhausted. Retry later or optionally set GITHUB_TOKEN.',
+      },
+      {
+        product: 'driver-herdr',
+        tag: 'tmt-driver-herdr-v0.1.0-alpha.0',
+        retry: true,
+        download: async () => {
+          downloads++;
+          throw new Error('unexpected archive acquisition');
+        },
+      }
+    );
+    expect(failed(await attempt.results)).toEqual([
+      expect.objectContaining({
+        check: 'current public CLI',
+        infrastructure: 'github-api-rate-limit',
+        reason: expect.stringContaining('attempt bound exceeded (1 attempts)'),
+      }),
+    ]);
+    expect(attempt.waits).toEqual([]);
+    expect(downloads).toBe(0);
+    expect(
+      readFileSync(path.join(attempt.root, 'work', 'home', 'upgrade-count'), 'utf8').trim()
+    ).toBe('1');
+  });
+
+  it('fails immediately on an unclassified public archive HTTP failure', async () => {
+    let downloads = 0;
+    const attempt = run(
+      {},
+      {
+        product: 'driver-herdr',
+        tag: 'tmt-driver-herdr-v0.1.0-alpha.0',
+        download: async () => {
+          downloads++;
+          throw new Error('HTTP 403');
+        },
+      }
+    );
+    expect(failed(await attempt.results)[0].check).toBe('driver public archive and approval');
+    expect(downloads).toBe(1);
+    expect(attempt.waits).toEqual([]);
   });
 });

@@ -85,10 +85,12 @@ describe('per-product release run (native-release.yml)', () => {
         0o700
       );
       const search = `${directory}${path.delimiter}${process.env.PATH ?? ''}`;
-      for (const prepare of ['true', 'false']) {
+      for (const [product, prepare] of ['office', 'driver-herdr'].flatMap((product) =>
+        ['true', 'false'].map((prepare) => [product, prepare])
+      )) {
         const result = spawnSync('/bin/sh', ['-eu', '-c', shell], {
           cwd: repository,
-          env: { PATH: search, PRODUCT: 'office', PREPARE: prepare },
+          env: { PATH: search, PRODUCT: product, PREPARE: prepare },
           encoding: 'utf8',
           timeout: 10_000,
         });
@@ -96,7 +98,7 @@ describe('per-product release run (native-release.yml)', () => {
         expect(result.status).toBe(1);
         expect(result.stdout).toBe('');
         expect(result.stderr.trim()).toBe(
-          'office is not released (release: false in .github/components.json).'
+          `${product} is not released (release: false in .github/components.json).`
         );
       }
       for (const product of ['cli', 'squad']) {
@@ -396,8 +398,8 @@ describe('release workflow (release.yml)', () => {
       expect(components[parked].release).toBe(false);
       expect(products).not.toContain(parked);
     }
-    const matrix = /product:\n((?: {10}- [a-z]+\n)+)/.exec(job(release, 'dispatch'))?.[1] ?? '';
-    expect(matrix.match(/[a-z]+(?=\n)/g)?.sort()).toEqual(products);
+    const matrix = /product:\n((?: {10}- [a-z-]+\n)+)/.exec(job(release, 'dispatch'))?.[1] ?? '';
+    expect(matrix.match(/[a-z-]+(?=\n)/g)?.sort()).toEqual(products);
     const config = JSON.parse(read('release-please-config.json')) as {
       packages: Record<string, unknown>;
     };
@@ -511,6 +513,7 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
         'release-versions.mjs',
         'verify-native-installation.mjs',
         'verify-native-extension-upgrade.mjs',
+        'verify-native-driver-upgrade.mjs',
       ].sort()
     );
     // Whether the release's commit has the scripts is decided in fetch, without a checkout, and
@@ -735,6 +738,16 @@ describe('public install smoke (native-release-smoke.yml)', () => {
     expect(host).toContain('--source release-source');
     expect(host).not.toMatch(
       /GH_TOKEN|GITHUB_TOKEN|continue-on-error|release-source\/(typescript|scripts)/
+    );
+  });
+
+  it('loads Herdr archive dependencies in the shared source/retry host owner', () => {
+    expect(host).toContain("if: inputs.product == 'driver-herdr'");
+    expect(host).toContain('uses: ./.github/actions/setup-tooling');
+    expect(host).toContain('pnpm install --frozen-lockfile --ignore-scripts');
+    expect(smoke).not.toContain('pnpm install');
+    expect(read('.github/workflows/native-release-smoke-retry.yml')).toContain(
+      'uses: ./.github/actions/public-install-smoke'
     );
   });
 

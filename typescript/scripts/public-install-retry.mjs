@@ -151,7 +151,7 @@ export function ghSmokeRetryApi({ repository, env = process.env, spawn = spawnSy
 function admitHost(host) {
   if (
     !host ||
-    !['cli', 'office', 'squad'].includes(host.product) ||
+    !['cli', 'office', 'squad', 'driver-herdr'].includes(host.product) ||
     !Object.hasOwn(TARGETS, host.target)
   ) {
     throw new Error('Invalid public-install product or target.');
@@ -215,7 +215,12 @@ export function planSmokeRetry(hosts, { now = Date.now(), targets } = {}) {
       if (host.failed.length !== 1) continue;
       const failure = host.failed[0];
       const diagnostic = parseRateLimitDiagnostic(failure.rateLimit?.diagnostic);
-      const expectedCheck = host.product === 'cli' ? 'tmt upgrade' : `${host.product} install`;
+      const expectedCheck =
+        host.product === 'cli'
+          ? 'tmt upgrade'
+          : host.product === 'driver-herdr'
+            ? 'current public CLI'
+            : `${host.product} install`;
       if (
         failure.infrastructure !== 'github-api-rate-limit' ||
         failure.check !== expectedCheck ||

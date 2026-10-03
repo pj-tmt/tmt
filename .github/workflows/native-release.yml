@@ -26,6 +26,7 @@ on:
         options:
           - cli
           - squad
+          - driver-herdr
       prepare:
         description: Build and verify one bundle from this main commit, without a draft release; nothing is attached
         required: true

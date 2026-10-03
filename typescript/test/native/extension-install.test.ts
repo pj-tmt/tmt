@@ -20,10 +20,13 @@ describe('tmt extension install surface', () => {
   it('offers exactly the released extension components', async () => {
     const { components } = JSON.parse(
       readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
-    ) as { components: Record<string, { package?: string; release?: boolean }> };
+    ) as { components: Record<string, { owns: string[]; package?: string; release?: boolean }> };
     const released = Object.entries(components)
       .filter(
-        ([name, component]) => name !== 'cli' && component.package && component.release !== false
+        ([, component]) =>
+          component.owns.some((root) => root.startsWith('extensions/')) &&
+          component.package &&
+          component.release !== false
       )
       .map(([name]) => name)
       .sort();
@@ -43,6 +46,10 @@ describe('tmt extension install surface', () => {
       };
       expect(listed.extensions.every((extension) => !extension.installed)).toBe(true);
       expect(listed.extensions.map((extension) => extension.name).sort()).toEqual(released);
+      expectError(
+        await runCli(sandbox, ['extension', 'install', 'driver-herdr', '--yes', '--json']),
+        'EXTENSION_UNKNOWN'
+      );
     });
   });
 

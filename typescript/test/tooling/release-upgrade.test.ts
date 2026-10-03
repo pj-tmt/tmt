@@ -67,7 +67,9 @@ function release(
     ? 'office'
     : tag.startsWith('tmt-squad-v')
       ? 'squad'
-      : 'cli';
+      : tag.startsWith('tmt-driver-herdr-v')
+        ? 'driver-herdr'
+        : 'cli';
   const asset = (name: string): DraftAsset => {
     const id = nextId++;
     const text = `${tag}:${name}`;
@@ -250,6 +252,8 @@ describe('fetchUpgrade and proveStaged', () => {
     release('tmt-office-v0.1.0-alpha.3', { targets: TARGETS }),
     release('tmt-office-v0.1.0-alpha.4', { draft: true, targets: TARGETS }),
     release('tmt-squad-v0.1.0-alpha.1', { draft: true, targets: TARGETS }),
+    release('tmt-driver-herdr-v0.1.0-alpha.1', { targets: TARGETS }),
+    release('tmt-driver-herdr-v0.1.0-alpha.2', { draft: true, targets: TARGETS }),
   ];
   const download = (asset: DraftAsset, file: string) =>
     writeFileSync(file, contents.get(asset.id) ?? '');
@@ -318,6 +322,29 @@ describe('fetchUpgrade and proveStaged', () => {
     expect(
       readFileSync(path.join(directory, TARGET, 'candidate', `tmt-office-${TARGET}.tar.gz`), 'utf8')
     ).toBe(`tmt-office-v0.1.0-alpha.4:tmt-office-${TARGET}.tar.gz`);
+  });
+
+  it('stages only driver versions and the published CLI, then calls the driver proof', () => {
+    const { plan, directory, downloads } = fetchInto(
+      'driver-herdr',
+      'tmt-driver-herdr-v0.1.0-alpha.2'
+    );
+    expect(plan.previous).toBe('tmt-driver-herdr-v0.1.0-alpha.1');
+    expect(plan.driver).toBe('v5.0.0-alpha.8');
+    expect(downloads.filter((name) => name.endsWith('.tar.gz'))).toHaveLength(3 * TARGETS.length);
+    expect(
+      downloads
+        .filter((name) => name.endsWith('.tar.gz'))
+        .every((name) => name.startsWith('tmt-driver-herdr-') || name.startsWith('tmt-cli-'))
+    ).toBe(true);
+    const { calls } = prove(directory, {
+      product: 'driver-herdr',
+      tag: 'tmt-driver-herdr-v0.1.0-alpha.2',
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].script).toBe('verify-native-driver-upgrade.mjs');
+    expect(value(calls[0].args, '--product')).toBe('driver-herdr');
+    expect(value(calls[0].args, '--driver-archive')).toContain('tmt-cli-');
   });
 
   it('has nothing to fetch for the first release of a product', () => {
@@ -707,7 +734,17 @@ describe('assessUpgrade', () => {
         },
       })
     ).toEqual({ outcome: 'proved', reason: '' });
-    expect(asked).toEqual(PROOF_FILES.map((file) => `typescript/scripts/${file}`));
+    expect(asked).toEqual(
+      PROOF_FILES.filter((file) => file !== 'verify-native-driver-upgrade.mjs').map(
+        (file) => `typescript/scripts/${file}`
+      )
+    );
+    expect(
+      assessUpgrade({
+        plan: { product: 'driver-herdr', previous: 'tmt-driver-herdr-v0.1.0-alpha.1' },
+        hasFileAt: (file) => !file.endsWith('verify-native-driver-upgrade.mjs'),
+      }).outcome
+    ).toBe('predates');
   });
 
   it('names the first missing script and words the reason for the owner', () => {
