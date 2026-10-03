@@ -7,9 +7,11 @@ import {
   realpathSync,
   symlinkSync,
   writeFileSync,
+  unlinkSync,
 } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vite-plus/test';
 import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
 import { createArtifact, type ArtifactFixture } from '../support/native-artifact.js';
@@ -42,6 +44,108 @@ function artifactChecksum(fixture: ArtifactFixture): string {
 }
 
 describe('native installation process contract', () => {
+  it(
+    'versioned candidate handoff fences publication and retains provenance and same-version repair',
+    { timeout: 60_000 },
+    async () => {
+      await withSandbox(async (sandbox) => {
+        const probe = await runCli(sandbox, [
+          '__native-install',
+          '--handoff-version',
+          '1',
+          '--probe',
+          '--json',
+        ]);
+        expect(probe.status).toBe(0);
+        expect(probe.stderr).toBe('');
+        expect(parseWholeStdout(probe)).toEqual({ protocol: 1 });
+        expect(existsSync(sandbox.database)).toBe(false);
+        const version = (await runCli(sandbox, ['--version'])).stdout.trim();
+        const old = await createArtifact(sandbox, '0.0.1-alpha.1');
+        const prefix = installPrefix(sandbox);
+        await install(sandbox, old, prefix);
+        const oldId = currentReleaseId(prefix);
+        const oldPath = realpathSync(path.join(prefix, 'bin', 'tmt'));
+        const oldBytes = readFileSync(oldPath);
+        const oldReceipt = readFileSync(receiptPath(prefix));
+        const candidate = await createArtifact(sandbox, version);
+        const request = {
+          protocol: 1,
+          archive: candidate.archive,
+          manifest: candidate.manifest,
+          prefix: realpathSync(prefix),
+          target: candidate.target,
+          version,
+          archive_sha256: artifactChecksum(candidate),
+          manifest_sha256: createHash('sha256')
+            .update(readFileSync(candidate.manifest))
+            .digest('hex'),
+          channel: 'alpha',
+          pin: 'preserve',
+          expected_current: oldId,
+          release_id: 1454,
+        };
+        const handoff = (input: unknown) =>
+          runCli(sandbox, ['__native-install', '--handoff-version', '1', '--json'], {
+            stdin: JSON.stringify(input),
+            deadlineMs: INSTALL_PROCESS_BUDGET_MS,
+          });
+        for (const change of [
+          { protocol: 2 },
+          { archive: 'relative.tar.gz' },
+          { manifest: 'relative.json' },
+          { prefix: 'relative-prefix' },
+          { manifest_sha256: '0'.repeat(64) },
+          { archive_sha256: '0'.repeat(64) },
+          { target: 'unsupported-target' },
+          { version: '0.0.0' },
+          { expected_current: randomUUID() },
+          { extra: true },
+        ]) {
+          const rejected = await handoff({ ...request, ...change });
+          expect(rejected.status, rejected.stdout + rejected.stderr).toBe(1);
+          expect(parseWholeStdout(rejected).installation).toBeNull();
+          expect(currentReleaseId(prefix)).toBe(oldId);
+          expect(readFileSync(receiptPath(prefix))).toEqual(oldReceipt);
+          expect(readFileSync(oldPath)).toEqual(oldBytes);
+        }
+        const accepted = await handoff(request);
+        expect(accepted.status, accepted.stdout + accepted.stderr).toBe(0);
+        expect(accepted.stderr).toBe('');
+        const report = parseWholeStdout(accepted);
+        expect(report).toMatchObject({
+          protocol: 1,
+          error: null,
+          installation: { version, changed: true },
+        });
+        expect(currentReleaseId(prefix)).not.toBe(oldId);
+        expect(receipt(prefix).source).toEqual({
+          kind: 'github-release',
+          repository: 'pj-tmt/tmt',
+          release_id: 1454,
+          manifest_sha256: request.manifest_sha256,
+        });
+        expect(readFileSync(oldPath)).toEqual(oldBytes);
+        const refreshed = await runCli(
+          { ...sandbox, cli: { executable: path.join(prefix, 'bin', 'tmt'), args: [] } },
+          ['__native-refresh-skills', '--managed', '--json']
+        );
+        expect(refreshed.status, refreshed.stdout + refreshed.stderr).toBe(0);
+        expect(parseWholeStdout(refreshed)).toEqual({ refreshed: [], skipped: [], conflicts: [] });
+        expect(existsSync(sandbox.database)).toBe(false);
+        const activeId = currentReleaseId(prefix);
+        unlinkSync(path.join(prefix, 'bin', 'tmux-team'));
+        const repeated = await handoff({ ...request, expected_current: activeId });
+        expect(repeated.status, repeated.stdout + repeated.stderr).toBe(0);
+        expect(parseWholeStdout(repeated)).toMatchObject({ installation: { changed: false } });
+        expect(currentReleaseId(prefix)).toBe(activeId);
+        expect(realpathSync(path.join(prefix, 'bin', 'tmux-team'))).toBe(
+          realpathSync(path.join(prefix, 'bin', 'tmt'))
+        );
+      });
+    }
+  );
+
   it('prints the requested command path even through an aliased prefix ancestor', async () => {
     await withSandbox(async (sandbox) => {
       const version = (await runCli(sandbox, ['--version'])).stdout.trim();

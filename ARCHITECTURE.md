@@ -3065,9 +3065,10 @@ hosts never receive it. Discovery and installation policy remain with their
 existing owners. The generated shell bootstrap downloads fixed-version assets
 without API discovery and retains its unauthenticated download policy.
 
-Downloaded bytes feed the same bounded artifact verifier directly; there is no
-extra download-to-disk/read-back stage. Publication runs the caller's release
-verifier on the written candidate before its receipt, so a rejection keeps the
+Downloaded bytes feed the shared bounded artifact verifier. CLI self-upgrade
+then stages verified bytes for the candidate-owned handoff described below;
+extension installation retains direct in-process verification and publication.
+Publication runs the caller's release verifier on the written candidate before its receipt, so a rejection keeps the
 previous release current. A product whose row requires a verifier (Office) is
 refused without one before anything is written. Office callers pass the bounded
 versioned probe from `tmt-office-command`; core's installers (`tmt extension`
@@ -3143,8 +3144,35 @@ companion as optional, so a release from before it existed still verifies:
   inspection re-verifies it. A file without a recorded digest, a recorded
   digest without the file, a changed file or a lost execute bit fails closed.
 
-The running tmt verifies and publishes an upgrade, so readers learn a
-companion one published release before any archive carries it.
+CLI self-upgrade separates transport safety from installation policy. The running
+binary checks immutable release metadata, product/tag/target identity, manifest
+and archive digests, and bounded archive safety before executing any candidate.
+The shared decoder admits only canonical relative paths, regular files and their
+containing directories, rejects links, duplicate/conflicting paths and special
+permissions, and bounds compressed bytes, expanded bytes and entry count. It does
+not use the running binary's file or companion inventory for this handoff.
+The complete verified tree is materialized in a private invocation-owned directory.
+Executing this candidate before activation has the same trust as installing that
+verified release; SHA-256 does not protect against a compromised release origin.
+
+The candidate's `__native-install` entry point owns strict inventory, companion
+policy, receipt creation and the existing atomic publisher. The
+[versioned handoff contract](contracts/native-install-handoff-v1.md) owns
+probe, request, report, unsupported-candidate diagnostics and bounds. The candidate
+revalidates the staged bytes and checks the expected receipt under the existing
+installation lock. Acquisition and the parent process hold no installation lock
+across the child. The parent validates the selected release and paths without
+interpreting the candidate's receipt inventory. The process runner owns deadlines
+and reaping;
+the invocation owns staging cleanup. Pre-activation failures preserve the previous
+release. Reported post-activation failures retain the active-installation result;
+a missing completed report is uncertain and asks the user to inspect before retrying.
+
+Root upgrade updates the CLI first and lets that CLI judge extension inventories
+and run the existing consented extension phase. Extensions do not implement the
+CLI installer handoff. Core registers each product's files before that product
+publishes them; the supporting CLI release must reach users first.
+
 `native_install::active_companion` names a companion of the running, active
 CLI release and its receipt digest by reading only the receipt, cheap enough
 for every command; whoever runs the companion checks its bytes.
@@ -3192,6 +3220,8 @@ stays at 16 KiB.
 
 `native_upgrade_command` upgrades the CLI and refreshes its managed skills before
 asking the newly installed executable to upgrade installed official products.
+Managed-skill refresh acquires and validates the active installation in that new
+executable, so the old reader never revalidates a newer receipt inventory.
 The bounded hidden `__native-upgrade-extensions --json --plan` command supplies
 pending versions; the parent owns one terminal consent question and sends that
 exact plan on stdin to the new executable with `--yes`. It validates the bounded

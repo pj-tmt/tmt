@@ -262,7 +262,13 @@ pub(in crate::grammar) fn uninstall() -> Command {
 }
 
 pub(in crate::grammar) fn refresh_skills() -> Command {
-    internal("__native-refresh-skills", "Internal managed skill refresh").hide(true)
+    internal("__native-refresh-skills", "Internal managed skill refresh")
+        .hide(true)
+        .arg(
+            Arg::new("managed")
+                .long("managed")
+                .action(ArgAction::SetTrue),
+        )
 }
 
 pub(in crate::grammar) fn upgrade_extensions() -> Command {
@@ -290,6 +296,20 @@ pub(in crate::grammar) fn native_install() -> Command {
     internal("__native-install", "Internal offline native installation")
         .hide(true)
         .arg(
+            Arg::new("handoff-version")
+                .long("handoff-version")
+                .value_parser(["1"])
+                .conflicts_with_all([
+                    "archive", "manifest", "prefix", "channel", "pin", "unpin", "product",
+                ]),
+        )
+        .arg(
+            Arg::new("probe")
+                .long("probe")
+                .action(ArgAction::SetTrue)
+                .requires("handoff-version"),
+        )
+        .arg(
             Arg::new("product")
                 .long("product")
                 .default_value("cli")
@@ -297,13 +317,25 @@ pub(in crate::grammar) fn native_install() -> Command {
                     tmt_core::native_install::Product::ALL.map(|product| product.as_str()),
                 ),
         )
-        .arg(Arg::new("archive").long("archive").required(true))
-        .arg(Arg::new("manifest").long("manifest").required(true))
-        .arg(Arg::new("prefix").long("prefix").required(true))
+        .arg(
+            Arg::new("archive")
+                .long("archive")
+                .required_unless_present("handoff-version"),
+        )
+        .arg(
+            Arg::new("manifest")
+                .long("manifest")
+                .required_unless_present("handoff-version"),
+        )
+        .arg(
+            Arg::new("prefix")
+                .long("prefix")
+                .required_unless_present("handoff-version"),
+        )
         .arg(
             Arg::new("channel")
                 .long("channel")
-                .required(true)
+                .required_unless_present("handoff-version")
                 .value_parser(
                     tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str()),
                 ),

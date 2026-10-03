@@ -228,13 +228,16 @@ fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {
         &new_archive,
     );
     let new_version = new_artifact.version.to_string();
-    let report = upgrade_with(
+    let report = upgrade_product_with(
+        super::super::Product::Cli,
         UpgradeRequest {
             executable: &old_executable,
             channel: Some(channel),
             exact: Some(&new_version),
             unpin: false,
         },
+        None,
+        None,
         || Ok(()),
         injected_release(
             &new_artifact.version,
@@ -242,6 +245,7 @@ fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {
             new_manifest.clone(),
             new_archive,
         ),
+        install_cli,
     )
     .unwrap();
     assert!(report.installation.changed);

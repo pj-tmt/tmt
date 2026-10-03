@@ -2578,6 +2578,34 @@ The generated shell bootstrap fixes a manifest version and uses versioned downlo
 URLs; it does not perform channel discovery. CLI alpha publication flags make
 `releases/latest` unsuitable for stable-channel selection.
 
+CLI upgrade verifies release metadata and the complete bounded archive before
+running the candidate installer. Cover a candidate carrying a file unknown to the
+old policy: the old strict installer must reject that inventory as a negative
+control, while the handoff must reach the candidate and retain its resulting
+receipt without an old-policy reread. Synthetic candidate stand-ins prove this
+ownership boundary; the actual-archive acceptance below separately executes the
+real candidate. Ordinary offline `__native-install --archive` still enforces the
+invoked binary's inventory and does not recursively delegate.
+
+The [handoff contract](contracts/native-install-handoff-v1.md) owns the versioned
+probe, result shape, bounds and exact unsupported-installer diagnostic. Verify
+its successful probe before sending installation input. Unsupported/nonzero or
+malformed probes must preserve the active receipt and bytes and report the
+contract's actionable bootstrap command.
+This diagnostic belongs to post-fix updaters; immutable older binaries retain
+their original errors and need one bootstrap reinstall. The release-upgrade
+matrix owns source-floor selection and the distinction between legacy bootstrap
+recovery, injected-acquisition acceptance and real public upgrade smoke.
+
+Run `cargo test --locked -p tmt-adapters native_install` and
+`cargo test --locked -p tmt-cli native_install` for archive, handoff, publication
+and typed grammar checks. Before-execution failures include wrong release
+identity/digests, traversal, absolute and conflicting paths, links, special files
+and resource limits. Keep unsupported probe, candidate rejection, interruption,
+malformed/failed child reports and owned-staging cleanup controls. A timeout after
+starting installation is not proof of rollback: retain the explicit uncertain
+outcome instead of claiming the old release is necessarily current.
+
 Check pinned no-network behavior, explicit pin/unpin, unchanged release identity,
 preserved old bytes, missing/mutable release rejection, dual digest checks,
 same-version integrity and concurrent pin fencing. Cancellation and finalization

@@ -67,7 +67,12 @@ pub fn execute(
                 1
             };
             let message = error.to_string();
-            let failure = Failure::new("NATIVE_UPGRADE_FAILED", message, status).caused_by(error);
+            let code = if error.needs_new_installer() {
+                "NATIVE_UPGRADE_INSTALLER_UNSUPPORTED"
+            } else {
+                "NATIVE_UPGRADE_FAILED"
+            };
+            let failure = Failure::new(code, message, status).caused_by(error);
             return publish(activated.as_deref(), None, Some(failure), mode);
         }
     };
@@ -87,11 +92,7 @@ pub fn execute(
             mode,
         );
     }
-    let refreshed =
-        native_install::with_active_release(&report.installation.active_executable, || {
-            refresh(&report.installation.active_executable, &UnixCommandRunner)
-        })
-        .unwrap_or_else(|error| Err((None, error)));
+    let refreshed = refresh(&report.installation.active_executable, &UnixCommandRunner);
     let (skills, mut failure) = match refreshed {
         Ok(skills) => (Some(skills), None),
         Err((skills, cause)) => (skills, Some(Failure::new(
@@ -136,7 +137,11 @@ fn refresh(
 ) -> Result<Value, (Option<Value>, io::Error)> {
     let result = runner.execute(CommandRequest {
         program: executable.as_os_str(),
-        args: &["__native-refresh-skills".into(), "--json".into()],
+        args: &[
+            "__native-refresh-skills".into(),
+            "--managed".into(),
+            "--json".into(),
+        ],
         input: &[],
         deadline: Instant::now() + Duration::from_secs(30),
         max_output_bytes: 4 * 1024 * 1024,

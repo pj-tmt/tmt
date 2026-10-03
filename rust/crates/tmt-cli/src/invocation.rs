@@ -164,7 +164,9 @@ pub enum Invocation {
         unpin: bool,
         yes: bool,
     },
-    NativeRefreshSkills,
+    NativeRefreshSkills {
+        managed: bool,
+    },
     NativeUpgradeExtensions {
         plan: bool,
     },
@@ -176,6 +178,9 @@ pub enum Invocation {
     Office {
         prefix: Option<String>,
         operation: OfficeOperation,
+    },
+    NativeInstallHandoff {
+        probe: bool,
     },
     NativeInstall {
         product: tmt_core::native_install::Product,
