@@ -2915,6 +2915,42 @@ and foreground process cleanup tests run lifecycle scenarios twice, with no core
 socket traffic. Owner-key temporary cleanup is publication-locked; it preserves
 foreign file names and refuses unsafe matching files.
 
+### Colab native export verification
+
+After local page state exists, export its admitted source without running HTML:
+
+```bash
+PATH="$PWD/rust/target/debug:$PATH" tmt colab export 10000000-0000-4000-8000-000000000001 --json
+PATH="$PWD/rust/target/debug:$PATH" tmt colab export 10000000-0000-4000-8000-000000000001 --dir /existing/export-parent
+```
+
+Use the actual page UUID. The parent must exist; the command creates a new UUID
+subdirectory containing `page.html` and `manifest.json`. Existing output is never
+replaced. Symlink components and `..` are refused. Files are 0600 and the output
+and staging directories are 0700. JSON returns `directory`, both file sizes and
+SHA-256 values, and `disclosure`; human output shows the same plaintext disclosure
+before publication. The manifest explicitly excludes discussions. Missing state
+is not initialized or migrated. Archived/deleted pages currently return
+`COLAB_EXPORT_INACTIVE`; archived reads wait for the #1348 policy split.
+On publication failure, inspect any reported `error.partialDirectory`; partial
+output is preserved, and cleanup touches only checked staging from that invocation.
+
+From `rust/`, run the focused behavior checks:
+
+```bash
+CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-colab --test export
+CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-colab export::tests
+```
+
+Real SQLite, signed/encrypted objects and decoder children prove exact
+CRLF/Unicode/NUL/empty source and title, baseline rotation, frozen/reopened
+bundles, verified manifest hashes and admission/capacity denial. Real subprocesses
+verify CLI help/human/JSON/defaults and read-only state handling. Descriptor-level
+publication tests prove permissions, collisions, symlink refusal, manifest-last
+partial output and preservation of replaced/foreign staging entries. Run the
+normal Colab Rust gates and docs formatting before handoff. Browser download
+verification is added with the subsequent #1309 browser slice.
+
 ### Colab owner transition verification
 
 Run `(cd rust && cargo test --offline --locked -p tmt-colab --test transitions)`

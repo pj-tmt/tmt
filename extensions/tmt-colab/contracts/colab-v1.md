@@ -1247,6 +1247,67 @@ Space home/CLI management expose sharing, threads, anchors, conversations,
 members, snapshots, activity/expiry and held/uncertain sends. Enrollment, member
 management and local-agent grants remain distinct controls.
 
+## Plaintext page export (#1309)
+
+The native export v1 emits exactly `page.html` and `manifest.json` from one
+owner-authenticated read snapshot and the existing isolated decoder. HTML is the
+exact admitted UTF-8 source, including CR/LF, Unicode and NUL; export MUST NOT
+inject renderer CSP/bootstrap, normalize source or execute it. The title, epoch
+and verified membership head MUST belong to that same snapshot. A later write
+cannot change an already captured bundle. This head is locally verified, not a
+claim of globally current membership.
+
+The manifest is UTF-8 JSON with these fields:
+
+| Field            | Value / meaning                                                            |
+| ---------------- | -------------------------------------------------------------------------- |
+| `format`         | `tmt-colab-page-export`                                                    |
+| `version`        | JSON integer `1`                                                           |
+| `spaceId`        | Pinned space ID                                                            |
+| `pageId`         | Exported page UUID                                                         |
+| `title`          | Exact admitted title                                                       |
+| `exportedAtMs`   | Safe-integer UTC milliseconds                                              |
+| `membershipHead` | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256       |
+| `epoch`          | Current snapshot epoch as canonical positive decimal text                  |
+| `plaintext`      | `true`                                                                     |
+| `discussions`    | `not-included`                                                             |
+| `files`          | `[{name:"page.html", sizeBytes, sha256}]`; bytes and lowercase hex SHA-256 |
+
+The manifest MUST NOT list its own digest: that would be circular. The CLI result
+lists both files with their byte sizes and SHA-256. Export contains no roots,
+wraps, bearer seeds, sessions or private keys. It is a readable copy, not an
+import/backup format; referenced assets, retained history and snapshots are not
+promised as portable files. Discussion export is deferred until own-namespace
+folding exists (#1110 / #1264 slice C); native fold validation of own updates
+still applies, but their projections are not included.
+
+`tmt colab export <page> [--dir <destination>] [--json]` reads existing local
+state only. It MUST NOT initialize missing state or run migrations. The
+current native fold refuses inactive pages, so archived and deleted pages fail
+with `COLAB_EXPORT_INACTIVE` and the explanation "archived or deleted pages
+cannot be exported yet". After the archive/delete read-policy split (#1348),
+archived exports are enabled separately; deleted pages remain denied.
+
+The destination names an existing parent directory, defaulting to the current
+directory. Export creates a fresh UUID-named 0700 subdirectory with regular
+0600 files. It MUST reject symlink path components, parent traversal and
+replacement; source/title MUST NOT choose paths. Private staging uses exclusive
+files, byte/digest checks and sync before descriptor-relative, create-only
+publication into an exclusively reserved directory. `manifest.json` publishes
+last. Publication verifies directory/file identities and MUST NOT use a
+replacing rename or follow symlinks. On failure, clean only this invocation's
+checked staging; preserve foreign entries and any partial output. Report a
+partial destination in the human error and JSON `error.partialDirectory`.
+A returned success means both files were published and staging was removed;
+this is not a crash-recovery guarantee.
+
+The CLI human disclosure and successful JSON `disclosure` say exactly:
+"This creates an unencrypted copy of the page. Anyone with these files can read it."
+The browser download surface is the subsequent #1309 slice. Its two downloads
+MUST freeze one admitted bundle, live only in trusted parent chrome, use and
+revoke parent-owned Blob URLs, show partial-download state and the same
+disclosure, and expose no download capability to the renderer.
+
 ## Conformance and acceptance gates
 
 C0 needs squad-lead, Remote security and core-lead review before implementation;
