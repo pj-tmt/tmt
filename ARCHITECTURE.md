@@ -4448,7 +4448,11 @@ scoped signatures, owner-author chains and contiguous hash-linked sequences befo
 folding. One lifetime Web Lock owns each device stream; other tabs relay updates.
 Its writer persists exact envelopes before send and retries those frozen bytes
 across interruption. The socket and Worker share one bounded executor; referenced
-objects have one bounded assembly and an absolute deadline. Last-subscriber release
+objects and membership statements share one bounded assembly and an absolute deadline.
+Statement references bind exact stored envelopes to the model membership hash;
+Admission stages signature/payload/chain and target checks, commits the exact log
+under the existing durable-prefix lock, then publishes its head. Partial or invalid
+transfers publish no head or dependent view. Last-subscriber release
 closes socket, Worker and relay; reconnect reconstructs a fresh verified fold.
 Before a reset page is published, the parent binds its descriptor to the verified
 `epoch.advance`, verifies the management-member-signed sequence-zero baseline

@@ -12,6 +12,7 @@ async function wire(
   context: BrowserContext,
   reset?: { source: string; invalid?: 'commitment' | 'source' | 'descriptor' | 'oldEpoch' },
   compacted?: { invalid?: 'prefix' | 'n' | 'namespace' | 'body' | 'gap' },
+  statementTransfer?: 'valid' | 'hash',
 ) {
   const epoch = reset ? '2' : '1';
   const signer = await crypto.subtle.importKey(
@@ -121,7 +122,7 @@ async function wire(
       json: {
         spaceId: v.space,
         ownerKey: c.encodeBinary(owner),
-        revision: reset ? '3' : '2',
+        revision: String(head.head.revision),
         pages: [{ pageId: v.page, epoch, sharing: 'private', history: 'current', archived: false }],
       },
     }),
@@ -212,6 +213,43 @@ async function wire(
     );
     head = await advance.verifyNext(v.space, owner, head.head);
   }
+  let largeStatement: c.statement.Envelope | null = null;
+  if (statementTransfer) {
+    // Another page's large transition leaves this fixture's requested epoch intact.
+    const pageId = '00000000-0000-4000-8000-000000000099',
+      revision = String(head.head.revision + 1n),
+      value = json({
+        pageId,
+        epoch: '2',
+        cuts: [],
+        wraps: [],
+        baseline: {
+          pageId,
+          epoch: '2',
+          membershipRevision: revision,
+          title: 'x'.repeat(250 * 1024),
+          sourceDigest: c.encodeBinary(new Uint8Array(32)),
+          baselineCommitment: c.encodeBinary(new Uint8Array(32)),
+          objectEnvelopeHash: c.encodeBinary(new Uint8Array(32)),
+        },
+      }),
+      input = c.statement.input({
+        space: v.space,
+        operation: 'epoch.advance',
+        revision,
+        previousHash: head.head.hash,
+        payloadDigest: await c.digest(value),
+      });
+    largeStatement = c.statement.Envelope.fromJson(
+      json({
+        statement: c.encodeBinary(input),
+        payload: c.encodeBinary(value),
+        signature: c.encodeBinary(await c.sign(signer, input)),
+      }),
+    );
+    head = await largeStatement.verifyNext(v.space, owner, head.head);
+    expect(largeStatement.toJson().length).toBeGreaterThan(64 * 1024);
+  }
   const initial = await c.Envelope.seal(
     {
       space: v.space,
@@ -220,7 +258,7 @@ async function wire(
       kind: 'update',
       namespace: 'content',
       authorDevice: v.device,
-      membershipRevision: reset ? '3' : '2',
+      membershipRevision: String(head.head.revision),
       streamSeq: '1',
       prevHash: new Uint8Array(32),
     },
@@ -342,7 +380,8 @@ async function wire(
     drop = false,
     retries = 0,
     chunked = 0,
-    hellos = 0;
+    hellos = 0,
+    statementChunks = 0;
   const outgoing = new Map<WebSocketRoute, { frames: string[]; waiting: boolean }>();
   const pump = (socket: WebSocketRoute) => {
     const state = outgoing.get(socket);
@@ -417,11 +456,11 @@ async function wire(
               : [];
           send(socket, 'catchup', {
             membershipHead: {
-              revision: reset ? '3' : '2',
+              revision: String(head.head.revision),
               statementHash: c.encodeBinary(head.head.hash),
               ownerKey: c.encodeBinary(owner),
               statements,
-              more: false,
+              more: statements.length > 0 && largeStatement !== null,
             },
             baseline: baseline
               ? c.encodeBinary(
@@ -457,6 +496,28 @@ async function wire(
                 count,
                 bytes: c.encodeBinary(bytes.slice(index * 32768, (index + 1) * 32768)),
               });
+          }
+          if (statements.length && largeStatement) {
+            const bytes = largeStatement.toJson(),
+              count = Math.ceil(bytes.length / 32768),
+              statementHash =
+                statementTransfer === 'hash'
+                  ? c.encodeBinary(new Uint8Array(32))
+                  : c.encodeBinary(await largeStatement.hash());
+            send(socket, 'catchup', {
+              membership: { statements: [{ statementHash }], more: false },
+              streams: [],
+              more: true,
+            });
+            for (let index = 0; index < count; index++) {
+              statementChunks++;
+              send(socket, 'chunk', {
+                statementHash,
+                index,
+                count,
+                bytes: c.encodeBinary(bytes.slice(index * 32768, (index + 1) * 32768)),
+              });
+            }
           }
           send(socket, 'catchup', {
             chains: [{ deviceId: v.device, chain: c.encodeBinary(json(chain)) }],
@@ -573,6 +634,10 @@ async function wire(
   });
   return {
     entries,
+    statement: largeStatement ? c.encodeBinary(largeStatement.toJson()) : null,
+    get statementChunks() {
+      return statementChunks;
+    },
     get hellos() {
       return hellos;
     },
@@ -811,3 +876,61 @@ for (const invalid of ['prefix', 'n', 'namespace', 'body', 'gap'] as const)
     await expect(page.getByRole('alert')).toBeVisible();
     await expect(page.locator('iframe')).toHaveCount(0);
   });
+async function persistedLog(page: import('@playwright/test').Page) {
+  return page.evaluate(async (space) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('tmt-colab', 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      return await new Promise<string[]>((resolve, reject) => {
+        const tx = db.transaction('keys'),
+          request = tx.objectStore('keys').get(`log:${space}`);
+        tx.oncomplete = () => resolve(request.result);
+        tx.onabort = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  }, v.space);
+}
+test('baseline finishes before a signed large statement; exact owner log survives reload', async ({
+  page,
+  context,
+}) => {
+  const source = '<h1>Statement fixture</h1>' + 'x'.repeat(40_000),
+    f = await wire(context, { source }, undefined, 'valid');
+  await page.goto(mount);
+  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Statement fixture' }),
+  ).toBeVisible();
+  const log = await persistedLog(page);
+  expect(log).toHaveLength(4);
+  expect(log[3]).toBe(f.statement);
+  expect(f.statementChunks).toBeGreaterThan(8);
+  const chunks = f.statementChunks;
+  await page.reload();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Statement fixture' }),
+  ).toBeVisible();
+  expect(await persistedLog(page)).toEqual(log);
+  expect(f.statementChunks).toBe(chunks);
+  await page.getByRole('link', { name: 'Space home' }).click();
+  await expect.poll(() => f.connections).toBe(0);
+});
+test('tampered statement reference preserves the verified prefix and publishes no renderer', async ({
+  page,
+  context,
+}) => {
+  const f = await wire(context, undefined, undefined, 'hash');
+  await page.goto(mount);
+  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await expect(page.getByRole('alert')).toBeVisible();
+  await expect(page.locator('iframe')).toHaveCount(0);
+  const log = await persistedLog(page);
+  expect(log).toHaveLength(2);
+  expect(log).not.toContain(f.statement);
+  await expect.poll(() => f.connections).toBe(0);
+});

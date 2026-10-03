@@ -3360,7 +3360,13 @@ is authenticated for the chain only, with an explicit parent notice; it never
 enters the decoder. The shared `checkpoint-v1.json` fixture also runs through the
 bounded native decoder child (`cargo test --manifest-path rust/Cargo.toml --locked
 -p tmt-colab --test checkpoint_vectors`). Native bootstrap supplies paired checkpoints, their full
-cross-namespace tail and the matching stored baseline object. This is signed
+cross-namespace tail and the matching stored baseline object. Statement
+fixtures cover signed envelopes above 64 KiB across ACK-paced frames, baseline-first
+ordering, exact durable log/reload and rejection before renderer publication.
+Admission units cover hash/signature/payload/target/chain substitutions, write failure
+and durable-prefix conflicts without head advancement; framing units cover shared
+assembly identity/order/size limits, interleaving, the absolute deadline and cleanup.
+This is signed
 protocol-fixture evidence, not native mounted browser E2E: #1250 owns refresh and
 #1253 owns native assets.
 The content Worker suite proves concurrent writer convergence and reload

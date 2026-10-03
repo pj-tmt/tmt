@@ -11,7 +11,7 @@ import {
   strictJson,
   text,
 } from '@tmt/colab-client';
-import type { Admission } from './admission.js';
+import { type Admission, STATEMENT_ENVELOPE_BYTES, StatementTransfer } from './admission.js';
 import { UPDATE_ENVELOPE_BYTES } from './objects.js';
 
 /** One bounded transfer, absolute deadline, no partially admitted envelope. */
@@ -19,7 +19,7 @@ export class Frames {
   #pending: {
     frame: Record<string, unknown>;
     target: Record<string, unknown>;
-    id: string;
+    identity: { kind: 'object'; id: string } | { kind: 'statement' };
     hash: string;
     parts: Uint8Array[];
     size: number;
@@ -36,6 +36,14 @@ export class Frames {
     this.#pending = null;
   }
   receive(raw: unknown): Record<string, unknown> | null {
+    try {
+      return this.#receive(raw);
+    } catch (error) {
+      this.close();
+      throw error;
+    }
+  }
+  #receive(raw: unknown): Record<string, unknown> | null {
     requireValue(typeof raw === 'string');
     const value = strictJson(text(raw), 64 * 1024, true);
     requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
@@ -48,23 +56,24 @@ export class Frames {
         frame.epoch === a.epoch,
     );
     if (frame.type === 'chunk') {
+      const p = this.#pending;
+      requireValue(p !== null);
+      const identity = p.identity;
       exactKeys(frame, [
         'version',
         'type',
         'space',
         'page',
         'epoch',
-        'objectId',
-        'envelopeHash',
+        ...(identity.kind === 'object' ? ['objectId', 'envelopeHash'] : ['statementHash']),
         'index',
         'count',
         'bytes',
       ]);
-      const p = this.#pending;
       requireValue(
-        p !== null &&
-          frame.objectId === p.id &&
-          frame.envelopeHash === p.hash &&
+        (identity.kind === 'object'
+          ? frame.objectId === identity.id && frame.envelopeHash === p.hash
+          : frame.statementHash === p.hash) &&
           Number.isSafeInteger(frame.count) &&
           (frame.count as number) > 0 &&
           (frame.count as number) <= Math.ceil(p.limit / (32 * 1024)) &&
@@ -85,8 +94,12 @@ export class Frames {
       const joined = concat(...p.parts);
       // Valid UTF-8 and JSON are subsequently checked by the envelope model.
       decodeText(joined);
-      requireValue(decodeHeader(Envelope.fromJson(joined).header()).objectId === p.id);
-      p.target.envelope = encodeBinary(joined);
+      if (identity.kind === 'object') {
+        requireValue(decodeHeader(Envelope.fromJson(joined).header()).objectId === identity.id);
+        p.target.envelope = encodeBinary(joined);
+      } else {
+        p.target.statements = [new StatementTransfer(joined, binary(p.hash, 32, 32))];
+      }
       const complete = p.frame;
       this.close();
       return complete;
@@ -107,6 +120,32 @@ export class Frames {
         exactKeys(frame.baselineObject, ['envelopeHash', 'envelope']);
         target = frame.baselineObject;
         limit = MAX_ENVELOPE_JSON;
+      }
+      const membership = Object.hasOwn(frame, 'membershipHead')
+        ? frame.membershipHead
+        : frame.membership;
+      if (membership !== undefined) {
+        requireValue(
+          membership !== null && typeof membership === 'object' && !Array.isArray(membership),
+        );
+        const page = membership as Record<string, unknown>;
+        requireValue(Array.isArray(page.statements) && page.statements.length <= 64);
+        const references = page.statements.filter((entry) => typeof entry !== 'string');
+        if (references.length) {
+          requireValue(
+            page.statements.length === 1 &&
+              target === undefined &&
+              frame.streams.length === 0 &&
+              !Object.hasOwn(frame, 'chains') &&
+              !Object.hasOwn(frame, 'wraps'),
+          );
+          exactKeys(references[0], ['statementHash']);
+          const hash = references[0].statementHash;
+          binary(hash, 32, 32);
+          requireValue(typeof hash === 'string');
+          this.#start(frame, page, { kind: 'statement' }, hash, STATEMENT_ENVELOPE_BYTES);
+          return null;
+        }
       }
       let count = 0;
       for (const stream of frame.streams) {
@@ -132,22 +171,22 @@ export class Frames {
           typeof target.envelopeHash === 'string',
       );
       binary(target.envelopeHash, 32, 32);
-      this.#pending = {
-        frame,
-        target,
-        id,
-        hash: target.envelopeHash,
-        parts: [],
-        size: 0,
-        count: null,
-        limit,
-      };
-      this.#timer = setTimeout(() => {
-        this.close();
-        this.fail(new Error('Object acquisition timed out'));
-      }, 2000);
+      this.#start(frame, target, { kind: 'object', id }, target.envelopeHash, limit);
       return null;
     }
     return frame;
+  }
+  #start(
+    frame: Record<string, unknown>,
+    target: Record<string, unknown>,
+    identity: { kind: 'object'; id: string } | { kind: 'statement' },
+    hash: string,
+    limit: number,
+  ) {
+    this.#pending = { frame, target, identity, hash, parts: [], size: 0, count: null, limit };
+    this.#timer = setTimeout(() => {
+      this.close();
+      this.fail(new Error('Envelope acquisition timed out'));
+    }, 2000);
   }
 }
