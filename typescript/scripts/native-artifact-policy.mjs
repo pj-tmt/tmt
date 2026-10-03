@@ -12,7 +12,7 @@ const executables = {
   squad: 'tmt-squad',
   remote: 'tmt-remote',
   colab: 'tmt-colab',
-    'driver-herdr': 'tmt-driver-herdr',
+  'driver-herdr': 'tmt-driver-herdr',
 };
 /**
  * Executables a product's archive may carry beside its own, installed with
@@ -23,7 +23,14 @@ const executables = {
  * here must declare them all (verify-native-artifact.mjs), while published
  * archives from before a companion existed still read.
  */
-const companions = { cli: ['tmt-driver-herdr'], office: [], squad: [], remote: [], colab: [], 'driver-herdr': [] };
+const companions = {
+  cli: ['tmt-driver-herdr'],
+  office: [],
+  squad: [],
+  remote: [],
+  colab: [],
+  'driver-herdr': [],
+};
 /** The agent-skills tree an extension archive carries under one directory. */
 const skillsRoot = 'skills';
 const skillFileLimit = 1024 * 1024;

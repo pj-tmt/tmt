@@ -9,8 +9,12 @@ import { writeExecutable } from './executable-fixture.mjs';
 const { runtimeFiles, companionFiles } = (await import(
   new URL('../../scripts/native-artifact-policy.mjs', import.meta.url).href
 )) as unknown as {
-  runtimeFiles: (product?: 'cli' | 'office' | 'squad' | 'remote' | 'colab' | 'driver-herdr') => string[];
-  companionFiles: (product?: 'cli' | 'office' | 'squad' | 'remote' | 'colab' | 'driver-herdr') => string[];
+  runtimeFiles: (
+    product?: 'cli' | 'office' | 'squad' | 'remote' | 'colab' | 'driver-herdr'
+  ) => string[];
+  companionFiles: (
+    product?: 'cli' | 'office' | 'squad' | 'remote' | 'colab' | 'driver-herdr'
+  ) => string[];
 };
 
 export type ArtifactFixture = {

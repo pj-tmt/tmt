@@ -29,7 +29,10 @@ const { selectNativeArtifact, withNativeArtifact } = (await import(
 
 const REQUIRED_FILES = ['tmt', 'LICENSE', 'NATIVE-INSTALL.md', 'THIRD-PARTY-NOTICES.txt'];
 /** Product::companions(): executables a product's archive carries beside its own. */
-const COMPANIONS: Record<'cli' | 'office' | 'squad' | 'remote' | 'colab' | 'driver-herdr', readonly string[]> = {
+const COMPANIONS: Record<
+  'cli' | 'office' | 'squad' | 'remote' | 'colab' | 'driver-herdr',
+  readonly string[]
+> = {
   cli: ['tmt-driver-herdr'],
   office: [],
   squad: [],
@@ -95,7 +98,7 @@ async function createArchiveFixture(
     cli: 'tmt',
     office: 'tmt-office',
     squad: 'tmt-squad',
-  remote: 'tmt-remote',
+    remote: 'tmt-remote',
     colab: 'tmt-colab',
     'driver-herdr': 'tmt-driver-herdr',
   }[options.product ?? 'cli'];
