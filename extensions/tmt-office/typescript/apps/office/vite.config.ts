@@ -1,3 +1,4 @@
+import { lintConfig } from '../../../../../typescript/scripts/lint-config.mjs';
 import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv } from 'vite-plus';
 import { officeDeployment } from './src/auth/firebase-config.js';
@@ -7,6 +8,7 @@ export default defineConfig(({ mode }) => {
   const fileName = '.well-known/tmt-office.json';
   const source = deployment ? `${JSON.stringify(deployment)}\n` : undefined;
   return {
+    lint: lintConfig,
     fmt: {
       semi: true,
       singleQuote: true,

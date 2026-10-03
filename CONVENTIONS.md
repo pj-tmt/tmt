@@ -73,8 +73,8 @@ Remote state gets one owner, not mirrored Query/Jotai/Firestore copies. See
 [Office architecture](extensions/tmt-office/docs/architecture.md) before adding a service,
 contract, drawing dependency or cross-package abstraction.
 
-The separate Office Functions package uses NodeNext TypeScript, Vitest, Oxlint
-and the Vite+ formatter. Keep SDK initialization in its entry point, transactions in the store
+The separate Office Functions package uses NodeNext TypeScript and Vite+ for
+Vitest, bundled Oxlint and formatting. Keep SDK initialization in its entry point, transactions in the store
 and credential signing outside transaction retries. Do not import service/Admin
 code into SPA production source. Combined emulator fixtures may import the
 service's test-only owner and have an explicit E2E type-check target.

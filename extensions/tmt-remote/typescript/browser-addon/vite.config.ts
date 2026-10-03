@@ -1,5 +1,7 @@
+import { lintConfig } from '../../../../typescript/scripts/lint-config.mjs';
 import { defineConfig } from 'vite-plus';
 export default defineConfig({
+  lint: lintConfig,
   fmt: {
     singleQuote: true,
     trailingComma: 'all',
