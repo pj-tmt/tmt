@@ -18,6 +18,7 @@ x25519-dalek = "=3.0.0"
 libc = "=0.2.189"
 tmt-sys = { path = "crates/tmt-sys" }
 time = { version = "=0.3.55", default-features = false }
+jiff = { version = "=0.2.37", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 roxmltree = "=0.20.0"
 taffy = { version = "=0.7.7", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "content_size"] }
 tungstenite = { version = "=0.30.0", default-features = false, features = ["handshake"] }

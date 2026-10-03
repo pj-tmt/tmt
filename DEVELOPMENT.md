@@ -1632,6 +1632,13 @@ from a squad without a lead. The Docker Squad lifecycle test kills temporary and
 saved panes before the first list read, then checks both the returned roster and
 SQLite retirement/binding state. Run lifecycle coverage twice to check cleanup.
 
+The Squad-owned cron library's focused checks are
+`cargo test --locked -p tmt-squad --lib cron`. Schedule tables cover five-field
+syntax, named-zone calendars, DST gaps/folds and elapsed anchors. Storage cases
+use disposable roots and check durable counters, exact messages, permissions,
+competing writers and rejected publication without touching the core database
+or `squad.toml`. CLI, notices and clock integration are not connected yet.
+
 Tab parity is checked by `built_in_board_documents_equal_ls_tab_documents` and
 `user_board_and_ls_share_members_sections_bindings_and_failed_reads`: board views
 and `ls --tab` must have identical projected documents and row-grid metadata,
