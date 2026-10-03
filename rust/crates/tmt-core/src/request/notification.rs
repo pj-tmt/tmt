@@ -34,11 +34,13 @@ pub struct OriginatorHint {
     pub timeout_ms: u64,
 }
 
-/// Originator-owned request context for notice presentation; never a final body.
+/// Request context for notice presentation. `reply` is the retained final body,
+/// present only when the caller asked for it and the read is still available.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NoticeContext {
     pub recipient_id: Option<String>,
     pub prompt: Option<String>,
+    pub reply: Option<String>,
     pub result_id: String,
 }
 

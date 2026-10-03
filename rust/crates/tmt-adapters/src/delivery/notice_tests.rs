@@ -201,3 +201,40 @@ fn blocked_notice_is_final_without_fallback_and_later_members_still_deliver() {
         );
     }
 }
+
+#[test]
+fn immediate_hint_sends_driver_text_to_the_driver_and_paste_text_to_the_host() {
+    let directory = TestDirectory::new();
+    let mut storage = Storage::open(directory.path.join("hint.db")).unwrap();
+    let identity = create_or_resolve(&mut storage, "Sender", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    let entry = BindingEntry {
+        identity,
+        binding: None,
+    };
+    let calls = Rc::new(RefCell::new(Vec::new()));
+    let harness = HarnessId::new("hint-test").unwrap();
+    let mut registry = RuntimeRegistry::default();
+    registry
+        .register(
+            harness.clone(),
+            "hint-test",
+            0,
+            Approvals {
+                calls: Rc::clone(&calls),
+                accepted: Rc::default(),
+                blocked: String::new(),
+            },
+        )
+        .unwrap();
+    let messages = Messages::Single {
+        registered: "channel text",
+        host: "paste text",
+    };
+    let storage = RefCell::new(&mut storage);
+    let outcome = messages.registered(&mut registry, &harness, &entry, &storage);
+    assert!(matches!(outcome, ActionResult::Completed(_)));
+    assert_eq!(*calls.borrow(), ["channel text"]);
+    assert_eq!(messages.rendered(), "paste text");
+}

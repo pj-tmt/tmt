@@ -1072,8 +1072,12 @@ of dead-sender recovery and attempted-frame no-replay assertions.
 `cargo test --locked -p tmt-adapters delivery::notices` verifies original-request
 previews, control stripping, Unicode character limits and aligned columns,
 expired-prompt fallback, render-time prefix collisions, and exactly one ID per
-reply row and both timeout forms inside their runnable result commands. Poisoned
-final bytes prove these reads never decode responder bodies. The architecture
+reply row and both timeout forms inside their runnable result commands. They also
+cover inlined reply bodies: exact and one-over limits per transport (2048 bytes on
+a channel, 500 characters on paste, never splitting a character), quoting of
+hostile bodies, the 2000-character batch budget with body-less rows past it, and
+preview-only fallback for an unreadable final. `notice_context` tests keep the
+request, response and attention rows unchanged after a body read. The architecture
 suite checks that display width dependencies are allowed only in the two
 presentation owners.
 The refusal fixture holds a bound, non-listening socket through the connect attempt;

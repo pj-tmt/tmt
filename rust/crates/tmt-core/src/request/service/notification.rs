@@ -4,11 +4,15 @@ use super::super::notification::{
 use super::*;
 
 impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
-    /// Notice context uses the original prompt and indexed ID selection only.
-    /// It never loads a responder-authored final body or acknowledges attention.
+    /// Notice context is a read: the original prompt, indexed ID selection and,
+    /// on request, the retained final body through the same lookup as `tmt result`.
+    /// It never acknowledges attention or changes retention. A final that cannot
+    /// be read yields no body, so a notice degrades to its preview instead of
+    /// losing the rest of its context.
     pub fn notice_context(
         &mut self,
         request_id: &str,
+        with_reply: bool,
     ) -> Result<Option<NoticeContext>, RequestError<R::Error>> {
         nonempty(request_id)?;
         self.read(|records, now| {
@@ -32,12 +36,21 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                     result_id = short.into();
                 }
             }
+            let reply = if with_reply {
+                match responses::response_lookup(records, request_id, now) {
+                    Ok(ResponseLookup::Available(response)) => Some(response.body),
+                    _ => None,
+                }
+            } else {
+                None
+            };
             Ok(Some(NoticeContext {
                 recipient_id: context.attempt.recipient_identity_id,
                 prompt: match context.prompt {
                     RequestPrompt::Retained(prompt) => Some(prompt.message),
                     RequestPrompt::Expired { .. } | RequestPrompt::Unavailable => None,
                 },
+                reply,
                 result_id,
             }))
         })

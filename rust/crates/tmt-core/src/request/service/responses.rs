@@ -160,7 +160,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
     }
 }
 
-fn response_lookup<E>(
+pub(super) fn response_lookup<E>(
     records: &mut dyn RequestRecords<Error = E>,
     request_id: &str,
     now: u64,

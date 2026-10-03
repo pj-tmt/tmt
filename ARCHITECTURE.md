@@ -2442,12 +2442,17 @@ the core routing policy; accepted, uncertain, denied and approval-required sends
 never fall through. Drivers own fresh runtime proof and sticky-Ended recovery.
 Schema 44 persists fixed reply-notice windows and rendered notice members under
 `storage::requests::reply_batch`, independently of immutable final bodies and X
-attention. At delivery, `request::service::notice_context` projects only the
-originator-owned retained prompt, recipient identity and indexed unique result
-prefix; it never reads final bodies or acknowledges attention.
-`delivery::notices` sanitizes and truncates display fields, renders individual
-frames or aligned host batches, and rederives queued legacy members from request
-keys rather than parsing persisted text. No new schema or scheduling window is
+attention. At delivery, `request::service::notice_context` projects the
+originator-owned retained prompt, recipient identity, indexed unique result
+prefix and, when asked, the retained final body through the `tmt result`
+lookup; it never acknowledges attention or changes retention, and an unreadable
+final yields no body. Queued members persist no body: only immediate and
+send-time rendering read it. `delivery::notices` sanitizes and truncates display
+fields, quotes the body as data under the 2048-byte channel and 500-character
+paste limits (and the 2000-character batch budget), renders individual frames or
+aligned host batches, and rederives queued legacy members from request keys
+rather than parsing persisted text. An immediate hint renders both transport
+texts up front because `delivery` chooses driver or host paste only at send time. No new schema or scheduling window is
 needed. `request::notification::batch` owns the quiet/deadline policy;
 `reply_notice` composes enrollment evidence, enqueue, binding-fenced delivery and
 one-shot settlement. `reply_notice_command` schedules finite detached workers,
