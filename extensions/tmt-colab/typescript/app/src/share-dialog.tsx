@@ -208,8 +208,8 @@ export function ShareDialog({
             <div className="bearer">
               <p>
                 Copy this link ID and seed now. They are shown once and are never stored. Anyone
-                with the seed has bearer access. Reader access arrives with #1310; there is no
-                reader URL yet.
+                with the seed has bearer access. Reader access is not available yet; there is no
+                reader URL.
               </p>
               <label>
                 Link ID
@@ -400,7 +400,7 @@ export function ShareDialog({
                 review(
                   { operation: 'link.add', value: newLink(role, [pageId]) },
                   'Create link',
-                  `Grant ${role} bearer access under ${view.page.history} history. Copy the seed once after verification; reader access is pending #1310.`,
+                  `Grant ${role} bearer access under ${view.page.history} history. Copy the seed once after verification; reader access is not available yet.`,
                 )
               }
             >

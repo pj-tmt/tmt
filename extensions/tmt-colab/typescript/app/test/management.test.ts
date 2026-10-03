@@ -184,6 +184,19 @@ it.each([
   expect(fetcher).toHaveBeenCalledTimes(1);
   expect(records.size).toBe(0);
 });
+it.each([
+  [503, { code: 'UNRECOGNIZED' }],
+  [503, { code: 'INVALID' }],
+  [500, { code: 'UNAVAILABLE' }],
+  [503, { code: 'UNAVAILABLE', detail: 'unexpected field' }],
+])('keeps an unrecognized error reply at status %s uncertain', async (status, body) => {
+  const f = await fixture(),
+    p = await f.client.prepare(f.view, { operation: 'epoch.advance', value: { pageId: v.page } });
+  const fetcher = vi.fn(async () => new Response(JSON.stringify(body), { status }));
+  vi.stubGlobal('fetch', fetcher);
+  await expect(f.client.send(p)).rejects.toMatchObject({ code: 'UNKNOWN' });
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
 it('does not accept a wrong operation, malformed or oversized acknowledgment', async () => {
   const f = await fixture(),
     p = await f.client.prepare(f.view, { operation: 'epoch.advance', value: { pageId: v.page } });

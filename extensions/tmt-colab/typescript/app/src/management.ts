@@ -419,22 +419,28 @@ export class ManagementClient implements ManagementPort {
       throw new ManagementError('UNKNOWN');
     }
     if (!response.ok) {
-      exactKeys(v, ['code']);
-      const status = {
-        INVALID: 400,
-        DENIED: 403,
-        EXPIRED: 403,
-        CONFLICT: 409,
-        STALE_HEAD: 409,
-        CAPACITY: 503,
-        UNAVAILABLE: 503,
-      };
-      requireValue(
-        typeof v.code === 'string' &&
-          Object.hasOwn(status, v.code) &&
-          status[v.code as keyof typeof status] === response.status,
-      );
-      throw new ManagementError(v.code);
+      let code: string;
+      try {
+        exactKeys(v, ['code']);
+        const status = {
+          INVALID: 400,
+          DENIED: 403,
+          EXPIRED: 403,
+          CONFLICT: 409,
+          STALE_HEAD: 409,
+          CAPACITY: 503,
+          UNAVAILABLE: 503,
+        };
+        requireValue(
+          typeof v.code === 'string' &&
+            Object.hasOwn(status, v.code) &&
+            status[v.code as keyof typeof status] === response.status,
+        );
+        code = v.code;
+      } catch {
+        throw new ManagementError('UNKNOWN');
+      }
+      throw new ManagementError(code);
     }
     try {
       exactKeys(v, ['operationId', 'membershipHead']);
