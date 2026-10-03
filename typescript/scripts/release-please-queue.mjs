@@ -115,7 +115,7 @@ function* releasePullRequests(options, execute) {
 }
 
 /** Skip only when every queued release candidate passes the shared notes gate at main HEAD. */
-export async function releasePrQueued(
+export async function queuedReleaseNotesCover(
   options,
   execute = runPackedCommand,
   checkNotes = checkReleaseNotes
@@ -194,7 +194,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     } else {
       if (process.argv[2] !== undefined)
         throw new Error('Usage: release-please-queue.mjs [enable]');
-      const queued = await releasePrQueued(options);
+      const queued = await queuedReleaseNotesCover(options);
       if (queued) {
         if (!process.env.GITHUB_STEP_SUMMARY) throw new Error('GITHUB_STEP_SUMMARY is required.');
         appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${QUEUED_NOTICE}\n`);

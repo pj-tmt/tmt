@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import { parseComponentMap } from '../../scripts/ci-scope.mjs';
-import { releasePrQueued } from '../../scripts/release-please-queue.mjs';
+import { queuedReleaseNotesCover } from '../../scripts/release-please-queue.mjs';
 import { loadReleasePleaseCommitRules } from '../../scripts/release-please-commits.mjs';
 import {
   checkReleaseNotes,
@@ -325,20 +325,20 @@ describe('release notes coverage', () => {
       // The push-event checkout can lag the main ref fetched by a serialized workflow.
       git(['checkout', '--quiet', '--detach', base]);
       expect(await checkReleaseNotes({ pr: pr(body), base, components, reader })).not.toBeNull();
-      expect(await releasePrQueued(options, execute)).toBe(false);
+      expect(await queuedReleaseNotesCover(options, execute)).toBe(false);
       body += notes(late).split('\n').at(-2);
-      expect(await releasePrQueued(options, execute)).toBe(true);
+      expect(await queuedReleaseNotesCover(options, execute)).toBe(true);
       git(['checkout', '--quiet', '--detach', late]);
       const prose = commit('docs: no newly releasable content');
       git(['update-ref', 'refs/remotes/origin/main', prose]);
-      expect(await releasePrQueued(options, execute)).toBe(true);
+      expect(await queuedReleaseNotesCover(options, execute)).toBe(true);
       body = notes(late, 'v5.0.0-alpha.33');
-      expect(await releasePrQueued(options, execute)).toBe(false);
+      expect(await queuedReleaseNotesCover(options, execute)).toBe(false);
       body = notes(base) + notes('f'.repeat(40)).split('\n').at(-2);
-      expect(await releasePrQueued(options, execute)).toBe(false);
+      expect(await queuedReleaseNotesCover(options, execute)).toBe(false);
       queued.mergeQueueEntry = null;
       body = '';
-      expect(await releasePrQueued(options, execute)).toBe(false);
+      expect(await queuedReleaseNotesCover(options, execute)).toBe(false);
     }));
 
   it('rejects an unlinked late fix and passes when the refreshed notes cover the range', () =>

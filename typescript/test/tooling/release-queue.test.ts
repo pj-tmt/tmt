@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   QUEUED_NOTICE,
-  releasePrQueued,
+  queuedReleaseNotesCover,
   enableReleaseAutoMerge,
 } from '../../scripts/release-please-queue.mjs';
 
@@ -67,7 +67,7 @@ function queryExecute(response: unknown) {
   };
 }
 function decision(response: unknown) {
-  return releasePrQueued(
+  return queuedReleaseNotesCover(
     { repository: 'pj-tmt/tmt', token: 'app-token' },
     queryExecute(response),
     coveredNotes
@@ -236,7 +236,7 @@ describe('release PR queue pre-check', () => {
   it('uses workflow credentials for discovery and notes reads, not inherited agent credentials', async () => {
     let calls = 0;
     const response = connection([release(true)]);
-    const queued = await releasePrQueued(
+    const queued = await queuedReleaseNotesCover(
       { repository: 'pj-tmt/tmt', token: 'app-token', env: { GH_TOKEN: 'user-token' } },
       (command, args, options) => {
         if (command !== 'gh' || args[1] !== 'graphql') return queryExecute(response)(command, args);
@@ -282,7 +282,7 @@ describe('release PR queue pre-check', () => {
     const response = connection([release(true)]);
     const acquire = queryExecute(response);
     await expect(
-      releasePrQueued(
+      queuedReleaseNotesCover(
         { repository: 'pj-tmt/tmt', token: 'app' },
         (command, args) => {
           if (command === 'gh' && args[1] !== 'graphql') throw new Error('REST notes unavailable');
@@ -297,7 +297,7 @@ describe('release PR queue pre-check', () => {
     const response = connection([release(true)]);
     const acquire = queryExecute(response);
     await expect(
-      releasePrQueued(
+      queuedReleaseNotesCover(
         { repository: 'pj-tmt/tmt', token: 'app' },
         (command, args) => {
           const value = acquire(command, args);
@@ -398,11 +398,11 @@ describe('release PR queue pre-check', () => {
     const unexpected = () => {
       throw new Error('must not execute');
     };
-    await expect(releasePrQueued({ repository: 'pj-tmt/tmt' }, unexpected)).rejects.toThrow(
+    await expect(queuedReleaseNotesCover({ repository: 'pj-tmt/tmt' }, unexpected)).rejects.toThrow(
       'RELEASE_TOKEN'
     );
     await expect(
-      releasePrQueued({ repository: 'pj-tmt/tmt/extra', token: 'app' }, unexpected)
+      queuedReleaseNotesCover({ repository: 'pj-tmt/tmt/extra', token: 'app' }, unexpected)
     ).rejects.toThrow('GITHUB_REPOSITORY');
   });
 });
@@ -420,7 +420,7 @@ describe('paginated release discovery', () => {
     ];
     let calls = 0;
     expect(
-      await releasePrQueued(
+      await queuedReleaseNotesCover(
         options,
         (_command, args, config) => {
           if (_command !== 'gh' || args[1] !== 'graphql')
@@ -436,15 +436,17 @@ describe('paginated release discovery', () => {
   });
   it('fails on a second-page API error rather than permitting a rewrite', async () => {
     const pages = [connection([release(false)], true, 'next'), { errors: [{ message: 'denied' }] }];
-    await expect(releasePrQueued(options, () => JSON.stringify(pages.shift()))).rejects.toThrow(
-      'GraphQL errors'
-    );
+    await expect(
+      queuedReleaseNotesCover(options, () => JSON.stringify(pages.shift()))
+    ).rejects.toThrow('GraphQL errors');
   });
   it('rejects cursor cycles, duplicate PRs and exhausted discovery before enabling', async () => {
     const pr = release(false);
     let calls = 0;
     await expect(
-      releasePrQueued(options, () => JSON.stringify(connection([release(false)], true, 'cycle')))
+      queuedReleaseNotesCover(options, () =>
+        JSON.stringify(connection([release(false)], true, 'cycle'))
+      )
     ).rejects.toThrow('pagination cursor');
     expect(() =>
       enableReleaseAutoMerge(options, () => JSON.stringify(connection([pr], true, 'next')))

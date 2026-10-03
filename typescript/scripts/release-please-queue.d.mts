@@ -1,5 +1,5 @@
 export const QUEUED_NOTICE: string;
-export function releasePrQueued(
+export function queuedReleaseNotesCover(
   options: { repository?: string; token?: string; env?: NodeJS.ProcessEnv; cwd?: string },
   execute?: (
     executable: string,
@@ -10,6 +10,6 @@ export function releasePrQueued(
 ): Promise<boolean>;
 
 export function enableReleaseAutoMerge(
-  options: Parameters<typeof releasePrQueued>[0],
-  execute?: Parameters<typeof releasePrQueued>[1]
+  options: Parameters<typeof queuedReleaseNotesCover>[0],
+  execute?: Parameters<typeof queuedReleaseNotesCover>[1]
 ): string;
