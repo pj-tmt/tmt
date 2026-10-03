@@ -432,6 +432,9 @@ revocation returns 403 `DENIED`; stale/future certificate returns 403 `EXPIRED`;
 changed keys or remote identity binding returns 409 `CONFLICT`; state/keyring
 failure returns 503 `UNAVAILABLE`. Success returns JSON `{chain, issuerStatement}`,
 where the issuer statement is the exact revision-1 model envelope as JSON.
+The device certificate's `membershipRevision` is `"1"`, matching that issuer
+anchor; it is not the current owner-log head. Current membership, revocation and
+page policy still govern admission and wraps.
 
 If the owner log is absent, the existing owner transaction creates its initial
 editor management member with no page assignments. Its fixed operation ID is
@@ -454,6 +457,10 @@ returns its exact saved response until fewer than 30 days remain, when fresh
 remote certificates silently renew it. Every retry still requires fresh input
 certificates and current owner context. Registration and local revocation are
 serialized; a context older than the highest observed grant revision is denied.
+A saved, verified certificate naming a later membership revision is renewed on
+authenticated retry with the same keys and revision-1 issuer anchor, regardless
+of its remaining lifetime. Renewal atomically replaces the saved chain and
+response without advancing membership.
 
 The trusted `Registration::revoke(deviceId, grantRevision) -> Result<bool>` callback
 uses the owner engine for a known device: tombstone, cleared registration,
@@ -1656,6 +1663,13 @@ recover authority by retrying. New operations fence the expected owner revision.
 The owner-only `POST /.tmt/colab/management` route takes exactly
 `space, page, expectedRevision, operationId, operation, payload`; revision is canonical
 positive decimal text and payload is canonical base64url of the same typed JSON.
+The root-only `page.create` selection is exactly `{pageId,title,source}`; it accepts
+revision `"0"` only when initializing owner genesis. Browser-signed management
+cannot create pages. Its source/title bounds are 2 MiB/256 KiB in UTF-8; the
+local route has a separate body cap for worst-case JSON escaping plus base64
+(`LOCAL_CREATE_PAYLOAD_BYTES = 6 * (2 MiB + 256 KiB) + 1024`, body cap
+`ceil(payloadCap / 3) * 4 + 2048`). Other management selections retain 16 KiB
+payloads and mounted browser requests retain the 64 KiB body cap.
 It is authorized solely by the owned private Unix socket. Any `tmt-device-context`
 or `tmt-device-event` header, including an empty or malformed value, is DENIED
 with 403 before payload parsing; forwarded headers never grant root authority.
@@ -1739,6 +1753,46 @@ CLI failures add `COLAB_INPUT_INVALID`, `COLAB_CONFIRMATION_REQUIRED`,
 `COLAB_PAGE_NOT_FOUND`, `COLAB_OUTCOME_UNKNOWN`; existing state/schema failures
 keep their codes. Success exits 0. Neither acknowledgments nor unsigned output
 create browser authority; browser refresh still uses verified catchup.
+
+## Root-local page creation
+
+`tmt colab page create --title <title> [--file <path|->] [--json]` creates a private
+page at epoch 1. The title is nonempty and bounded to 256 KiB UTF-8. Omitted
+`--file` means empty source; a file or stdin uses the page-write reader (2 MiB
+UTF-8, five-second stdin EOF deadline). The initial content update is at most
+256 KiB and the isolated decoder keeps its existing 4 MiB composition limit.
+Capacity rejects rather than truncating source or title.
+
+Creation initializes a fresh local space under the serve lifecycle lock. It
+uses the reserved management IPC while serving and the same lifecycle-locked
+owner service when stopped. An uncertain IPC result never falls back, resends
+or creates a replacement page. IDs and selections are frozen once per invocation.
+The Engine prepares the Yjs document in the isolated decoder outside the writer
+reservation, then commits the create-only page row, revision-one owner genesis
+when needed, private `page.share`, epoch secret, eligible owner/device wraps,
+certified local-writer encrypted initial content and exact operation receipt in
+one transaction. An error rolls back that complete page transition; keyring and
+empty database initialization may remain. Deleted page IDs cannot be reused.
+
+Already admitted, unexpired, unrevoked owner devices receive wraps through the
+existing recipient planner. Later owner-device registration supplies missing
+forward wraps for existing non-archived pages inside the same authenticated device
+transaction, without a new log operation. Current history supplies only the current
+key; shared history supplies at most 64 retained epochs. Registration creates at
+most 512 missing wraps per transaction and rejects capacity atomically. Exact
+registration retries reuse existing device/epoch wraps without growth or fresh
+signing; revoked devices receive nothing. These wraps confer no new Remote rights.
+
+JSON success is `{spaceId,pageId,title,path,operationId,membershipHead}` with
+`membershipHead:{revision,statementHash}` (decimal text and canonical base64url
+hash32). `path` is relative to the Remote door address:
+`x/colab/#space=<spaceId>&path=%2Fpages%2F<pageId>`. It pins the space using the
+browser router's existing fragment format; no Remote host discovery is added.
+Human output identifies the page and says to open the path under the Remote door
+address printed by `tmt remote pair`. JSON failures use `{error:{code,message}}`,
+with generated `operationId` and `pageId` when available for inspection after an
+unknown outcome. Existing input/capacity/denial/conflict/stale-head/state/unknown
+codes apply; failures exit 1. The browser home empty state names this command.
 
 ## Root-local page source CLI (#1438)
 

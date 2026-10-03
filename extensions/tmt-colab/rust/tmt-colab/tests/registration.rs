@@ -118,6 +118,31 @@ fn chain(outcome: &[u8]) -> certificate::Chain {
     let v: Value = serde_json::from_slice(outcome).unwrap();
     certificate::Chain::from_json(&serde_json::to_vec(&v["chain"]).unwrap()).unwrap()
 }
+fn assert_browser_registration_anchor(f: &Fixture, outcome: &[u8]) {
+    let key = Keyring::read(&f.layout).unwrap();
+    let v: Value = serde_json::from_slice(outcome).unwrap();
+    let issuer =
+        statement::Envelope::from_json(&serde_json::to_vec(&v["issuerStatement"]).unwrap())
+            .unwrap();
+    let verified = issuer
+        .verify_next(&key.space_id, &key.owner_public(), None)
+        .unwrap();
+    let chain = chain(outcome);
+    let cert = chain.certificate().unwrap();
+    // Browser verifyRegistration authenticates the genesis issuer before sync.
+    assert_eq!(cert.space, key.space_id);
+    assert_eq!(cert.issuer_kind, "member");
+    assert_eq!(cert.issuer_id, verified.head.owner_member.id);
+    assert_eq!(cert.membership_revision, "1");
+    assert_eq!(verified.head.revision, 1);
+    chain
+        .verify(
+            &verified.head.hash,
+            &cert,
+            &verified.head.owner_member.signing_key,
+        )
+        .unwrap();
+}
 #[test]
 fn independent_python_management_keys_and_remote_ext_cert_bytes() {
     let v: Value = serde_json::from_str(include_str!(
@@ -756,5 +781,315 @@ fn archive_preserves_reads_and_delete_denies_admission_catchup_and_queued_delive
         tmt_colab::sync::Code::Denied
     );
     drop(reopened);
+    store.close().unwrap();
+}
+
+fn create_page(
+    f: &mut Fixture,
+    page: &str,
+    operation: &str,
+    expected: u64,
+) -> tmt_colab::transitions::Applied {
+    f.service()
+        .apply_owner(
+            tmt_colab::transitions::OwnerRequest {
+                operation_id: operation,
+                expected_revision: expected,
+                action: tmt_colab::transitions::OwnerAction::Create {
+                    page,
+                    title: "Created title",
+                    source: "<h1>Created source</h1>",
+                },
+                transport_digest: None,
+                scope: None,
+            },
+            NOW,
+        )
+        .unwrap()
+}
+fn browser_reads_created_page(f: &Fixture, page: &str, device: &str) {
+    use tmt_colab_model::{object, wrap};
+    use yrs::{Doc, GetString, Map, ReadTxn, Transact, Update, updates::decoder::Decode};
+    let key = Keyring::read(&f.layout).unwrap();
+    let bytes: Vec<u8> = f.oracle().query_row(
+        "SELECT envelope FROM wraps WHERE page=? AND kind='device' AND recipient=? ORDER BY revision DESC LIMIT 1",
+        [page,device], |r| r.get(0),
+    ).unwrap();
+    let wrapped = wrap::Envelope::from_json(&bytes).unwrap();
+    let secret = wrap::open(
+        &wrapped,
+        &wrapped.header().unwrap(),
+        &wrap::RecipientKey::from_seed(&[11; 32]).unwrap(),
+        &key.owner_public(),
+    )
+    .unwrap();
+    let (bytes,writer): (Vec<u8>,String) = f.oracle().query_row(
+        "SELECT payload,stream FROM receipts WHERE page=? AND namespace='content' ORDER BY seq LIMIT 1", [page],
+        |r| Ok((r.get(0)?,r.get(1)?)),
+    ).unwrap();
+    let record: Vec<u8> = f
+        .oracle()
+        .query_row("SELECT record FROM devices WHERE id=?", [&writer], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    let registered: tmt_colab::store::owner::Device = serde_json::from_slice(&record).unwrap();
+    let chain = certificate::Chain::from_json(&registered.chain).unwrap();
+    let object = object::Envelope::from_json(&bytes).unwrap();
+    let header = object::Header::decode(object.header()).unwrap();
+    let update = object::open(
+        &object,
+        &header.context,
+        &secret,
+        chain.certificate().unwrap().signing_key,
+    )
+    .unwrap();
+    let doc = Doc::new();
+    doc.transact_mut()
+        .apply_update(Update::decode_v1(&update).unwrap())
+        .unwrap();
+    let tx = doc.transact();
+    assert_eq!(
+        tx.get_text("html").unwrap().get_string(&tx),
+        "<h1>Created source</h1>"
+    );
+    assert_eq!(
+        tx.get_map("meta")
+            .unwrap()
+            .get(&tx, "title")
+            .unwrap()
+            .to_string(&tx),
+        "Created title"
+    );
+}
+#[test]
+fn creation_wraps_existing_owner_and_late_registration_opens_only_active_pages_without_retry_growth()
+ {
+    use tmt_colab::transitions::{OwnerAction, OwnerRequest};
+    const PAGE_A: &str = "50000000-0000-4000-8000-000000000001";
+    const PAGE_B: &str = "50000000-0000-4000-8000-000000000002";
+    let mut f = Fixture::new();
+    register(
+        &mut f,
+        Some(&context(DEVICE, 1)),
+        &request(DEVICE, NOW),
+        NOW,
+    )
+    .unwrap();
+    create_page(&mut f, PAGE_A, PAGE_A, 1);
+    browser_reads_created_page(&f, PAGE_A, DEVICE);
+    create_page(&mut f, PAGE_B, PAGE_B, 2);
+    f.service()
+        .apply_owner(
+            OwnerRequest {
+                operation_id: "50000000-0000-4000-8000-000000000003",
+                expected_revision: 3,
+                action: OwnerAction::Archive { page: PAGE_A },
+                transport_digest: None,
+                scope: None,
+            },
+            NOW,
+        )
+        .unwrap();
+    let devices = f.rows("devices");
+    let bindings = f.rows("device_registrations");
+    let wraps = f.rows("wraps");
+    f.oracle().execute_batch("CREATE TRIGGER deny_forward_wrap BEFORE INSERT ON wraps BEGIN SELECT RAISE(FAIL,'forced rollback'); END;").unwrap();
+    assert_eq!(
+        register(&mut f, Some(&context(OTHER, 1)), &request(OTHER, NOW), NOW).unwrap_err(),
+        Code::Unavailable
+    );
+    assert_eq!(f.rows("devices"), devices);
+    assert_eq!(f.rows("device_registrations"), bindings);
+    assert_eq!(f.rows("wraps"), wraps);
+    f.oracle()
+        .execute_batch("DROP TRIGGER deny_forward_wrap")
+        .unwrap();
+    let first = register(&mut f, Some(&context(OTHER, 1)), &request(OTHER, NOW), NOW).unwrap();
+    assert_browser_registration_anchor(&f, &first);
+    browser_reads_created_page(&f, PAGE_B, OTHER);
+    let count: i64 = f
+        .oracle()
+        .query_row(
+            "SELECT count(*) FROM wraps WHERE page=? AND kind='device' AND recipient=?",
+            [PAGE_A, OTHER],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 0);
+    let count = f.rows("wraps");
+    let log = f.rows("membership_log");
+    f.reopen();
+    assert_eq!(
+        register(&mut f, Some(&context(OTHER, 1)), &request(OTHER, NOW), NOW).unwrap(),
+        first
+    );
+    assert_eq!(f.rows("wraps"), count);
+    assert_eq!(f.rows("membership_log"), log);
+    f.service().revoke(OTHER, 2).unwrap();
+    let count = f.rows("wraps");
+    assert_eq!(
+        register(&mut f, Some(&context(OTHER, 3)), &request(OTHER, NOW), NOW).unwrap_err(),
+        Code::Denied
+    );
+    assert_eq!(f.rows("wraps"), count);
+}
+#[test]
+fn create_first_registration_and_saved_head_certificate_retry_use_the_genesis_anchor() {
+    const PAGE: &str = "50000000-0000-4000-8000-000000000005";
+    let mut f = Fixture::new();
+    create_page(&mut f, PAGE, PAGE, 0);
+    let c = context(DEVICE, 1);
+    let first = register(&mut f, Some(&c), &request(DEVICE, NOW), NOW).unwrap();
+    assert_browser_registration_anchor(&f, &first);
+    browser_reads_created_page(&f, PAGE, DEVICE);
+
+    // Reproduce a durable response issued by the previous native implementation:
+    // genuine member signature, same keys and issuer, but the current head (2).
+    let key = Keyring::read(&f.layout).unwrap();
+    let first_chain = chain(&first);
+    let mut old_cert = first_chain.certificate().unwrap();
+    old_cert.membership_revision = "2";
+    let mut old_response: Value = serde_json::from_slice(&first).unwrap();
+    let mut root: [u8; 32] = fs::read(f.layout.directory.join("owner.key"))
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let info = framing::frame(&[
+        b"tmt-colab-management-signing-seed-v1",
+        key.space_id.as_bytes(),
+    ])
+    .unwrap();
+    let mut seed = tmt_colab_model::crypto::derive_key(&root, &[], &info);
+    root.fill(0);
+    let signer = SigningKey::from_bytes(&seed);
+    seed.fill(0);
+    assert_eq!(
+        signer.verifying_key().to_bytes(),
+        key.management_member().unwrap().signing_key
+    );
+    old_response["chain"]["deviceCertificate"] = json!(values::encode_binary(
+        &certificate::input(&old_cert).unwrap()
+    ));
+    old_response["chain"]["issuerSignature"] = json!(values::encode_binary(
+        &signer
+            .sign(&certificate::input(&old_cert).unwrap())
+            .to_bytes()
+    ));
+    let old_chain_bytes = serde_json::to_vec(&old_response["chain"]).unwrap();
+    let old_response = serde_json::to_vec(&old_response).unwrap();
+    let old_chain = chain(&old_response);
+    assert_eq!(old_chain.certificate().unwrap().membership_revision, "2");
+    let device = tmt_colab::store::owner::Device {
+        chain: old_chain_bytes,
+        revoked: false,
+    };
+    let db = f.oracle();
+    let binding: Vec<u8> = db
+        .query_row(
+            "SELECT binding FROM device_registrations WHERE device_id=?",
+            [DEVICE],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let mut binding: Value = serde_json::from_slice(&binding).unwrap();
+    binding["outcome"] = json!(old_response);
+    db.execute(
+        "UPDATE devices SET record=? WHERE id=?",
+        rusqlite::params![serde_json::to_vec(&device).unwrap(), DEVICE],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE device_registrations SET binding=? WHERE device_id=?",
+        rusqlite::params![serde_json::to_vec(&binding).unwrap(), DEVICE],
+    )
+    .unwrap();
+    drop(db);
+    f.reopen();
+    assert_eq!(
+        f.service().active_device(Some(&c), NOW).unwrap(),
+        *old_cert.signing_key
+    );
+    let wraps = f.rows("wraps");
+    let next = register(&mut f, Some(&c), &request(DEVICE, NOW + 1), NOW + 1).unwrap();
+    assert_browser_registration_anchor(&f, &next);
+    assert_eq!(
+        chain(&next).certificate().unwrap().signing_key,
+        old_cert.signing_key
+    );
+    assert_eq!(
+        chain(&next).certificate().unwrap().encryption_key,
+        old_cert.encryption_key
+    );
+    assert_eq!(f.rows("membership_log"), 2);
+    assert_eq!(f.rows("devices"), 2); // local page author plus the browser
+    assert_eq!(f.rows("device_registrations"), 1);
+    assert_eq!(f.rows("wraps"), wraps);
+    browser_reads_created_page(&f, PAGE, DEVICE);
+    f.reopen();
+    assert_eq!(
+        register(&mut f, Some(&c), &request(DEVICE, NOW + 2), NOW + 2).unwrap(),
+        next
+    );
+}
+#[test]
+fn fresh_creation_is_atomic_replayable_and_conflicting_selections_never_create_another_page() {
+    use tmt_colab::transitions::{OwnerAction, OwnerRequest};
+    const PAGE: &str = "50000000-0000-4000-8000-000000000004";
+    let mut f = Fixture::new();
+    f.oracle().execute_batch("CREATE TRIGGER deny_create_receipt BEFORE INSERT ON owner_operations BEGIN SELECT RAISE(FAIL,'forced rollback'); END;").unwrap();
+    let apply = |f: &mut Fixture, title: &str| {
+        f.service().apply_owner(
+            OwnerRequest {
+                operation_id: PAGE,
+                expected_revision: 0,
+                action: OwnerAction::Create {
+                    page: PAGE,
+                    title,
+                    source: "<h1>Created source</h1>",
+                },
+                transport_digest: None,
+                scope: None,
+            },
+            NOW,
+        )
+    };
+    assert!(apply(&mut f, "Created title").is_err());
+    for table in [
+        "pages",
+        "membership_log",
+        "epoch_secrets",
+        "wraps",
+        "receipts",
+        "devices",
+        "owner_operations",
+    ] {
+        assert_eq!(f.rows(table), 0, "{table} was partially committed");
+    }
+    f.oracle()
+        .execute_batch("DROP TRIGGER deny_create_receipt")
+        .unwrap();
+    let first = apply(&mut f, "Created title").unwrap();
+    assert_eq!(first.head.revision, 2);
+    f.reopen();
+    let again = apply(&mut f, "Created title").unwrap();
+    assert!(again.replayed);
+    assert_eq!(first.outcome, again.outcome);
+    assert_eq!(f.rows("pages"), 1);
+    assert_eq!(f.rows("receipts"), 1);
+    assert_eq!(
+        apply(&mut f, "Changed").unwrap_err().code,
+        tmt_colab::transitions::Code::Conflict
+    );
+    assert_eq!(f.rows("pages"), 1);
+    let key = Keyring::read(&f.layout).unwrap();
+    let store = Store::read(&f.layout).unwrap();
+    let mut decoder = tmt_colab::decoder::Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    let page = tmt_colab::page::read(&store, &key, PAGE, &mut decoder).unwrap();
+    assert_eq!(page.source, "<h1>Created source</h1>");
+    assert_eq!(page.title, "Created title");
     store.close().unwrap();
 }

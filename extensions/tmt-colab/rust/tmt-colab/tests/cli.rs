@@ -793,3 +793,154 @@ fn management_read_refuses_unsafe_or_old_state_without_migration() {
     assert!(!output.status.success());
     assert_eq!(fs::read(db).unwrap(), before);
 }
+
+#[test]
+fn create_initializes_fresh_space_then_read_write_and_list_work_offline_and_serving() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        assert_eq!(pilot.call(&["ls", "--json"])["pages"], json!([]));
+        if serving {
+            pilot.start();
+        }
+        let source = "<h1>Created 🐈</h1>\r\n";
+        let file = pilot.root.join("initial.html");
+        fs::write(&file, source).unwrap();
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Fresh 🐈",
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        let id = created["pageId"].as_str().unwrap();
+        tmt_colab_model::values::generated_id(id).unwrap();
+        assert_eq!(created["title"], "Fresh 🐈");
+        assert_eq!(
+            created["path"],
+            format!(
+                "x/colab/#space={}&path=%2Fpages%2F{id}",
+                created["spaceId"].as_str().unwrap()
+            )
+        );
+        assert_eq!(created["membershipHead"]["revision"], "2");
+        let read = pilot.call(&["page", "read", id, "--json"]);
+        assert_eq!(read["source"], source);
+        assert_eq!(read["title"], "Fresh 🐈");
+        assert_eq!(read["epoch"], "1");
+        fs::write(&file, "<p>Edited</p>").unwrap();
+        pilot.call(&[
+            "page",
+            "write",
+            id,
+            "--file",
+            file.to_str().unwrap(),
+            "--expected-revision",
+            read["revision"].as_str().unwrap(),
+            "--json",
+        ]);
+        let edited = pilot.call(&["page", "read", id, "--json"]);
+        assert_eq!(edited["source"], "<p>Edited</p>");
+        assert_eq!(edited["title"], "Fresh 🐈");
+        let listed = pilot.call(&["ls", "--json"]);
+        assert_eq!(listed["pages"].as_array().unwrap().len(), 1);
+        assert_eq!(listed["pages"][0]["pageId"], id);
+        assert_eq!(listed["pages"][0]["title"], "Fresh 🐈");
+        assert_eq!(listed["pages"][0]["sharing"], "private");
+        if serving {
+            pilot.stop();
+        }
+    }
+}
+#[test]
+fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state_creation() {
+    let pilot = Pilot::new(None);
+    let invalid = pilot
+        .command()
+        .args(["page", "create", "--title", "", "--json"])
+        .output()
+        .unwrap();
+    assert!(!invalid.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&invalid.stdout).unwrap()["error"]["code"],
+        "COLAB_INPUT_INVALID"
+    );
+    assert!(!pilot.root.join("selected/colab").exists());
+    let file = pilot.root.join("invalid.html");
+    fs::write(&file, [0xff]).unwrap();
+    let invalid = pilot
+        .command()
+        .args([
+            "page",
+            "create",
+            "--title",
+            "Bad",
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!invalid.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&invalid.stdout).unwrap()["error"]["code"],
+        "COLAB_INPUT_INVALID"
+    );
+    assert!(!pilot.root.join("selected/colab").exists());
+    let created = pilot.call(&["page", "create", "--title", "Empty", "--json"]);
+    let read = pilot.call(&[
+        "page",
+        "read",
+        created["pageId"].as_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(read["source"], "");
+    assert_eq!(read["title"], "Empty");
+    let mut child = pilot
+        .command()
+        .args([
+            "page", "create", "--title", "Stdin", "--file", "-", "--json",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"<p>From stdin</p>")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let created: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        pilot.call(&[
+            "page",
+            "read",
+            created["pageId"].as_str().unwrap(),
+            "--json"
+        ])["source"],
+        "<p>From stdin</p>"
+    );
+    let help = pilot
+        .command()
+        .args(["help", "page", "create"])
+        .output()
+        .unwrap();
+    assert!(help.status.success());
+    assert!(String::from_utf8_lossy(&help.stdout).contains("--title"));
+    let human = pilot
+        .command()
+        .args(["page", "create", "--title", "Human"])
+        .output()
+        .unwrap();
+    assert!(human.status.success(), "{human:?}");
+    assert!(human.stderr.is_empty());
+    let message = String::from_utf8(human.stdout).unwrap();
+    assert!(message.contains("PAGE CREATED"));
+    assert!(message.contains("Open x/colab/#space="));
+    assert!(message.contains("under your Remote door address (the one tmt remote pair printed)."));
+}

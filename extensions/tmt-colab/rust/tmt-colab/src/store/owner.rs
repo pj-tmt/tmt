@@ -238,6 +238,23 @@ impl Store {
     }
 }
 impl OwnerTransaction<'_> {
+    /// Create-only page identity, committed with its authority, secret and content.
+    pub(crate) fn create_page(&mut self, page: &str) -> Result<()> {
+        values::generated_id(page)?;
+        if self.page_epoch(page)?.is_some() {
+            return Err(OwnerFault::Conflict.into());
+        }
+        let count: i64 = self
+            .tx
+            .query_row("SELECT count(*) FROM pages", [], |r| r.get(0))?;
+        if count >= crate::limits::PAGES as i64 {
+            return Err(OwnerFault::Capacity.into());
+        }
+        self.tx
+            .execute("INSERT INTO pages VALUES (?,'1')", [page])?;
+        Ok(())
+    }
+
     pub(crate) fn page_epoch(&self, page: &str) -> Result<Option<String>> {
         Ok(self
             .tx
@@ -463,6 +480,35 @@ impl OwnerTransaction<'_> {
             ],
         )?;
         Ok(())
+    }
+    /// Existing recipient/epoch coverage survives unrelated owner-head changes.
+    pub(crate) fn device_wrap_exists(
+        &self,
+        page: &str,
+        epoch: u64,
+        id: &str,
+        key: &[u8; 32],
+    ) -> Result<bool> {
+        let bytes: Option<Vec<u8>> = self.tx.query_row(
+            "SELECT envelope FROM wraps WHERE page=? AND epoch=? AND kind='device' AND recipient=? ORDER BY revision DESC LIMIT 1",
+            params![page,sequence(epoch),id], |r| r.get(0),
+        ).optional()?;
+        let Some(bytes) = bytes else {
+            return Ok(false);
+        };
+        let wrapped = wrap::Envelope::from_json(&bytes)?;
+        wrapped.verify_owner(self.root)?;
+        let h = wrapped.header()?;
+        if h.space != self.space
+            || h.page != page
+            || h.epoch != epoch.to_string()
+            || h.recipient_kind != "device"
+            || h.recipient_id != id
+            || h.recipient_key != *key
+        {
+            return Err(OwnerFault::Conflict.into());
+        }
+        Ok(true)
     }
     pub fn wrap(&self, header: &wrap::Header) -> Result<Option<wrap::Envelope>> {
         header.encode()?;

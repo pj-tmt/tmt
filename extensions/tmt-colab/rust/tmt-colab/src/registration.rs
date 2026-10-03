@@ -5,7 +5,7 @@ use crate::{
     keyring::Keyring,
     store::{
         Store,
-        owner::{Device, Mutation, OwnerTransaction, Recipient},
+        owner::{Device, Mutation, OwnerTransaction},
     },
     transitions::Engine,
 };
@@ -283,7 +283,7 @@ impl Registration {
         self.genesis().map_err(map_error)?;
         let keyring = &self.keyring;
         let apply = |tx: &mut OwnerTransaction<'_>| -> Result<Vec<u8>> {
-            let (initial, member, membership_revision) = issuer(tx, keyring)?;
+            let (initial, member, current_revision) = issuer(tx, keyring)?;
             let old_device = tx.device(&context.device_id)?;
             if old_device.as_ref().is_some_and(|d| d.revoked) {
                 return Err(Code::Denied.into());
@@ -309,25 +309,27 @@ impl Registration {
                     &initial,
                     &member,
                     &saved,
-                    membership_revision,
+                    current_revision,
                     &keyring.space_id,
                 )?;
                 if now < cert.issued_at {
                     return Err(Code::Expired.into());
                 }
-                if cert.expires_at.saturating_sub(now) >= RENEWAL_MS {
+                if cert.membership_revision == "1"
+                    && cert.expires_at.saturating_sub(now) >= RENEWAL_MS
+                {
                     saved.context = context;
                     tx.put_registration(
                         &saved.context.device_id,
                         &serde_json::to_vec(&saved)?,
                         saved.context.grant_revision,
                     )?;
+                    forward_owner_wraps(tx, keyring, &saved.context.device_id, &encryption)?;
                     return Ok(saved.outcome);
                 }
             } else if old_device.is_some() {
                 return Err(Code::Conflict.into());
             }
-            let revision = membership_revision.to_string();
             let cert = certificate::Certificate {
                 space: &keyring.space_id,
                 issuer_kind: "member",
@@ -335,7 +337,9 @@ impl Registration {
                 device_id: &context.device_id,
                 signing_key: &signing,
                 encryption_key: &encryption,
-                membership_revision: &revision,
+                // The chain resolves the management member's revision-1 member.add,
+                // while current_revision still fences live admission above.
+                membership_revision: "1",
                 issued_at: now,
                 expires_at: now.checked_add(CERTIFICATE_MS).ok_or(Code::Invalid)?,
             };
@@ -370,6 +374,7 @@ impl Registration {
                 &serde_json::to_vec(&binding)?,
                 binding.context.grant_revision,
             )?;
+            forward_owner_wraps(tx, keyring, &binding.context.device_id, &encryption)?;
             Ok(outcome)
         };
         self.store
@@ -385,20 +390,7 @@ impl Registration {
         {
             return Ok(());
         }
-        let member = key.management_member()?;
-        let recipient = Recipient {
-            kind: "member".into(),
-            id: member.id,
-            role: Some("editor".into()),
-            signing_key: member.signing_key,
-            encryption_key: member.encryption_key,
-            pages: vec![],
-            revoked: false,
-        };
-        let payload = serde_json::to_vec(
-            &serde_json::json!({"memberId":recipient.id,"role":"editor",
-            "signKey":values::encode_binary(&recipient.signing_key),"encKey":values::encode_binary(&recipient.encryption_key),"pages":[]}),
-        )?;
+        let (_, payload) = crate::transitions::owner_genesis(key)?;
         self.store.owner_transaction(
             &key.space_id,
             &key.owner_public(),
@@ -408,10 +400,9 @@ impl Registration {
                 expected_revision: 0,
             },
             |tx| {
-                let initial = key.sign_statement(None, "member.add", &payload)?;
-                tx.append_statement(&initial)?;
-                tx.put_recipient(&recipient)?;
-                Ok(initial.to_json()?)
+                Ok(crate::transitions::initialize_owner(tx, key)?
+                    .ok_or(Code::Unavailable)?
+                    .to_json()?)
             },
         )?;
         Ok(())
@@ -700,6 +691,59 @@ impl crate::sync::Admission for OwnerAdmission {
                     .unwrap_or(SyncCode::Denied)
             })
     }
+}
+
+/// Registration admission already authenticated the owner device and its pinned keys.
+/// Wrap additions share its device transaction; failed capacity/signing publishes none.
+fn forward_owner_wraps(
+    tx: &mut OwnerTransaction<'_>,
+    key: &Keyring,
+    device: &str,
+    recipient_key: &[u8; 32],
+) -> Result<()> {
+    let head = tx.head().ok_or(Code::Unavailable)?.clone();
+    let pages = tx.pages()?;
+    if pages.len() > crate::limits::PAGES {
+        return Err(Code::Capacity.into());
+    }
+    let mut added = 0;
+    for page in pages {
+        let policy = tx.page_policy_at(&page, head.revision)?;
+        if !policy.writable() {
+            continue;
+        }
+        let epochs = tx.recent_secrets(&page, policy.epoch)?;
+        for (epoch, mut secret) in epochs {
+            let result = (|| -> Result<()> {
+                if (policy.history_current && epoch != policy.epoch)
+                    || tx.device_wrap_exists(&page, epoch, device, recipient_key)?
+                {
+                    return Ok(());
+                }
+                added += 1;
+                if added > crate::limits::OWNER_WRAPS {
+                    return Err(Code::Capacity.into());
+                }
+                tx.put_wrap(&key.seal_wrap(
+                    &tmt_colab_model::wrap::Header {
+                        space: key.space_id.clone(),
+                        page: page.clone(),
+                        epoch: epoch.to_string(),
+                        recipient_kind: "device".into(),
+                        recipient_id: device.into(),
+                        recipient_key: *recipient_key,
+                        signer_key: key.owner_public(),
+                        membership_revision: head.revision.to_string(),
+                    },
+                    &secret,
+                )?)?;
+                Ok(())
+            })();
+            secret.fill(0);
+            result?;
+        }
+    }
+    Ok(())
 }
 
 fn issuer(
