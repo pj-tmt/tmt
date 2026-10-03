@@ -374,7 +374,7 @@ export function renderCutSummary(plan) {
       `### ${row.product}: ${row.status}`,
       '',
       row.reason ??
-        `Next tag: \`${row.tag}\`; previous cut: \`${row.previous}\`; authorization: ${row.authorization}.`,
+        `Next tag: \`${row.tag}\`; release boundary: \`${row.previous}\`; authorization: ${row.authorization}.`,
       ''
     );
     if (row.notes)

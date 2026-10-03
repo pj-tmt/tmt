@@ -51,6 +51,13 @@ reserve numbers but never advance that boundary. Concurrent cuts can therefore
 repeat note items; inherited unpublished migrations remain counted and inherited
 unapproved breaking changes stay held by the existing owner gate.
 
+The allocation workflow has GitHub's single-pending concurrency behavior: a third
+main push can replace an intermediate pending allocation. The next admitted job
+captures the newer main HEAD and covers all releasable commits since the newest
+published ancestor, including the replaced push. It loses an intermediate cut,
+not release coverage. Once allocated, tag-keyed pipelines never displace another
+tag's pending pipeline.
+
 Non-publishing `prepare` rehearsals and installation fixtures derive
 `<committed major.minor.patch>-alpha.999999` through the single
 `release-versions.syntheticAlphaVersion` helper. This deliberately synthetic

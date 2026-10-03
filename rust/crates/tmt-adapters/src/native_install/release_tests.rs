@@ -425,7 +425,12 @@ fn alpha_channel_selects_the_highest_version_after_out_of_order_publication() {
     let selected = call_download(&mut fixture, Channel::Alpha, None, TARGET).unwrap();
     assert_eq!(selected.version.to_string(), "5.0.0-alpha.50");
     assert_eq!(fixture.calls[1].url, exact_url("5.0.0-alpha.50"));
-    assert!(fixture.calls.iter().all(|call| !call.url.contains("/releases/latest")));
+    assert!(
+        fixture
+            .calls
+            .iter()
+            .all(|call| !call.url.contains("/releases/latest"))
+    );
 }
 
 #[test]

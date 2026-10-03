@@ -17,7 +17,7 @@
 // Both run with a token that can see drafts, so they run this repository's main and only read the
 // release commit's data through git and the API, never its code.
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { readReleaseSourceAtRef } from './release-source-at-ref.mjs';
@@ -103,7 +103,7 @@ export function checkImmutability({ releases }) {
     : fail(`the newest published release ${newest.tag_name} is not immutable`);
 }
 
-/** Stable latest remains monotonic; alpha tags are unique and never move latest. */
+/** Stable latest remains monotonic; alpha tags are unique and converge latest separately. */
 export function checkMonotonic({ releases, product, tag }) {
   if (isAlphaVersion(versionOfTag(tag, product))) {
     return releases.some((release) => release.draft !== true && release.tag_name === tag)
@@ -165,7 +165,7 @@ export function isBreaking({ subject, body = '', breaking = false }) {
 /**
  * Holds a release that carries a breaking change, and outside the alpha channel one that carries
  * a new migration: `counts` are the entries of each of the component's migration files at the
- * candidate's commit and at its previous ancestor cut (`previous.counts`), `commits` the
+ * candidate's commit and at its newest published ancestor release (`previous.counts`), `commits` the
  * release's own commits. An alpha publishes its migrations, which are forward-only, so it only
  * reports them.
  */

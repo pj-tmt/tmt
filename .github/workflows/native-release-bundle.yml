@@ -3,7 +3,7 @@ name: Native release bundle
 # One pipeline for one product: build and verify the four targets, assemble the
 # authoritative manifest, verify the final bundle on matching hosts and, for a draft
 # release, attach it, evaluate the publication gates, publish it and check the published
-# release. Called once per draft by `native-release.yml`, which owns the per-product concurrency
+# release. Called once per draft by `native-release.yml`, which owns the per-tag concurrency
 # group; a group here would cancel the legs of its own caller. A draft that passes the gates is
 # published under the owner's standing alpha authorization (the release skill); one that fails
 # is held and stays a draft until the owner acts.
@@ -47,8 +47,8 @@ permissions:
 jobs:
   check:
     name: Check ${{ inputs.tag || 'main commit' }}
-    # A draft is only built while it has no bundle and no recorded failure. The run planned
-    # before it held the product's group, so this is the check that counts.
+    # Re-read this tag's draft before building: no verified bundle or recorded failure
+    # may appear between planning and this final build decision.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

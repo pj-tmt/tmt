@@ -79,7 +79,6 @@ function fixture() {
     draftVisibility: 'trusted',
     capturedAt: '2026-10-03T12:00:00Z',
     releases,
-    runs: [],
   };
   const client: CutClient = {
     main: vi.fn(() => cut),
@@ -253,7 +252,6 @@ describe('live release cut lifecycle', () => {
         target_commitish: f.previous,
         assets: [{ name }],
       });
-      f.state.runs!.push({ id: 1, status: 'in_progress', display_title: 'unknown pipeline' });
       const result = await runReleaseCuts({ ...f, live: true });
       expect(result.actions[0]).toMatchObject({ status: 'created', tag: 'v5.0.0-alpha.50' });
       expect(f.client.dispatch).toHaveBeenCalledWith('cli', 'v5.0.0-alpha.50');
@@ -311,6 +309,7 @@ describe('live cut REST boundary', () => {
     expect(execute.mock.calls[1][1]).toContain(
       'repos/pj-tmt/tmt/actions/workflows/native-release.yml/dispatches'
     );
+    expect(execute.mock.calls[1][1]).toContain('inputs[tag]=v5.0.0-alpha.49');
     for (const [executable, args, options] of execute.mock.calls) {
       expect(executable).toBe('gh');
       expect(args).not.toContain('fixture-secret');
@@ -329,13 +328,13 @@ describe('live cut REST boundary', () => {
     createCutClient(
       { repository: 'pj-tmt/tmt', token: 'token', ref: 'refs/heads/main' },
       execute
-    ).dispatch('cli');
+    ).dispatch('cli', 'v5.0.0-alpha.49');
     expect(execute).toHaveBeenCalledTimes(1);
     expect(() =>
       createCutClient(
         { repository: 'pj-tmt/tmt', token: 'token', ref: 'refs/heads/feature' },
         execute
-      ).dispatch('cli')
+      ).dispatch('cli', 'v5.0.0-alpha.49')
     ).toThrow('main-only');
     expect(execute).toHaveBeenCalledTimes(1);
   });

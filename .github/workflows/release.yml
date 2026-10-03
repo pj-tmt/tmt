@@ -29,7 +29,7 @@ on:
 permissions:
   contents: read
 
-# Each pending run recomputes main and release state. A replaced pending run loses no cut.
+# Each pending run recomputes main and release state. A replaced pending run loses no releasable commit coverage.
 concurrency:
   group: release-cut
   cancel-in-progress: false

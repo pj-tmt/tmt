@@ -10,6 +10,7 @@ import {
   parseReleaseCommits,
   planReleaseCuts,
   readCutRange,
+  releaseCutHistory,
   renderCutNotes,
   renderCutSummary,
   type CutCommit,
@@ -69,6 +70,12 @@ describe('direct component-map cut attribution', () => {
           JSON.stringify({
             components: {
               ...definitions,
+              never: {
+                owns: ['tooling'],
+                package: 'private-tool',
+                release: false,
+                releaseStatus: 'never',
+              },
               private: { ...definitions.private, releaseConsumers: consumers },
             },
           })
@@ -226,7 +233,6 @@ function planningFixture() {
       { tag_name: 'v5.0.0-alpha.46', draft: false },
       { tag_name: 'tmt-squad-v0.1.0-alpha.13', draft: false },
     ],
-    runs: [],
   };
   const git = vi.fn((args: string[]) => {
     if (args[0] === 'merge-base') return '';
@@ -289,24 +295,20 @@ describe('immutable plans and independent cuts', () => {
     const diffs = fixture.git.mock.calls.filter(([args]) => args[0] === 'diff');
     expect(diffs.every(([args]) => args.at(-2) === sha(0))).toBe(true);
   });
-  it.each(['queued', 'in_progress', 'requested', 'waiting', 'pending'])(
-    'does not refuse a new cut for native status %s or an unrelated active run',
-    async (status) => {
-      const fixture = planningFixture();
-      fixture.metadata.runs!.push({ id: 1, status, display_title: 'ambiguous pipeline' });
-      fixture.metadata.releases!.push({
-        tag_name: 'v5.0.0-alpha.47',
-        draft: true,
-        target_commitish: sha(0),
-      });
-      const result = await planReleaseCuts(fixture);
-      expect(result.components[0]).toMatchObject({
-        status: 'proposed',
-        tag: 'v5.0.0-alpha.48',
-        previousTag: 'v5.0.0-alpha.46',
-      });
-    }
-  );
+  it('does not refuse a new cut for an existing unpublished draft', async () => {
+    const fixture = planningFixture();
+    fixture.metadata.releases!.push({
+      tag_name: 'v5.0.0-alpha.47',
+      draft: true,
+      target_commitish: sha(0),
+    });
+    const result = await planReleaseCuts(fixture);
+    expect(result.components[0]).toMatchObject({
+      status: 'proposed',
+      tag: 'v5.0.0-alpha.48',
+      previousTag: 'v5.0.0-alpha.46',
+    });
+  });
   it('counts orphan Git tags as well as drafts before allocating an alpha number', async () => {
     const fixture = planningFixture();
     const original = fixture.git.getMockImplementation()!;
@@ -319,6 +321,54 @@ describe('immutable plans and independent cuts', () => {
       tag: 'v5.0.0-alpha.50',
       previousTag: 'v5.0.0-alpha.46',
     });
+  });
+  it('retains unpublished breaking changes in later notes and authorization', async () => {
+    const fixture = planningFixture();
+    fixture.metadata.releases!.push({
+      tag_name: 'v5.0.0-alpha.47',
+      draft: true,
+      target_commitish: sha(1),
+    });
+    const original = fixture.git.getMockImplementation()!;
+    fixture.git.mockImplementation((args) =>
+      args[0] === 'log' ? `${sha(1)}\0feat!: held contract change\n\0\n` : original(args)
+    );
+    expect((await planReleaseCuts(fixture)).components[0]).toMatchObject({
+      tag: 'v5.0.0-alpha.48',
+      previousTag: 'v5.0.0-alpha.46',
+      breaking: true,
+      authorization: 'owner-required',
+      commits: [sha(1)],
+    });
+  });
+  it('chooses a published ancestor rather than a later published descendant, without ignoring history errors', () => {
+    const fixture = planningFixture();
+    const releases = [
+      { tag_name: 'v5.0.0-alpha.49', draft: false },
+      { tag_name: 'v5.0.0-alpha.48', draft: false },
+    ];
+    const git = (args: string[]) => {
+      if (args[0] === 'tag') return '';
+      if (args[0] === 'rev-parse') return args[2].includes('alpha.49') ? sha(3) : sha(0);
+      if (args[0] === 'merge-base' && args[2] === sha(3))
+        throw new Error('not ancestor', { cause: { status: 1 } });
+      return '';
+    };
+    expect(releaseCutHistory({ releases, product: 'cli', cut: fixture.metadata.cut, git })).toEqual(
+      { highestVersion: '5.0.0-alpha.49', previous: { tag: 'v5.0.0-alpha.48', sha: sha(0) } }
+    );
+    expect(() =>
+      releaseCutHistory({
+        releases,
+        product: 'cli',
+        cut: fixture.metadata.cut,
+        git: (args) => {
+          if (args[0] === 'merge-base')
+            throw new Error('missing history', { cause: { status: 128 } });
+          return git(args);
+        },
+      })
+    ).toThrow('missing history');
   });
   it('reports missing first-release seed, stable authorization and unavailable evidence explicitly', async () => {
     const fixture = planningFixture();
@@ -403,7 +453,7 @@ describe('bounded REST-only state acquisition', () => {
           : [{ id: 101, tag_name: 'v5.0.0-alpha.101', draft: true }];
         return JSON.stringify(releases);
       }
-      return JSON.stringify({ workflow_runs: [], total_count: 0 });
+      throw new Error('Unexpected metadata endpoint: ' + endpoint);
     });
     const result = readCutMetadata(input, execute);
     expect(result.releases).toHaveLength(101);

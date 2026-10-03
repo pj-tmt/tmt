@@ -3075,8 +3075,8 @@ The ordinary metadata path is one refs request and one release lookup, preservin
 unauthenticated request capacity. Optional Link pagination stays on the same
 product endpoint under one metadata byte budget and deadline; incomplete discovery
 fails closed. DEVELOPMENT owns page/request bounds and verification cases.
-GitHub's latest pointer cannot select stable: CLI alphas are normal releases marked
-latest. Acquisition retains the existing immutable release, product prerelease
+GitHub's latest pointer cannot select a channel: it tracks the highest published
+CLI version under the [main release model](#main-release-cuts). Acquisition retains the existing immutable release, product prerelease
 flag, asset digest and manifest checks before installation. The shared
 `release_http::Https` adapter classifies API 403/429 responses only when primary
 rate-limit headers report zero remaining requests with a reset header, or a
@@ -4344,15 +4344,14 @@ development versions. `release-cut.mjs` is the pure cut planner, and
 `release-cut-live.mjs` owns bounded REST draft creation and native dispatch. The
 adapter captures main HEAD once, exports tracked X, warms its locked dependencies
 with the pinned acquisition toolchain, then reads its component map and offline
-Cargo graph,
-and rechecks draft/run state immediately before each component mutation. Missing
-history, incomplete pagination or unknown active-run identity fails closed.
+Cargo graph, and rechecks the release catalog immediately before each component
+mutation. Missing history or incomplete metadata fails closed.
 
 Attribution adds product binary transitive normal/build workspace dependencies to
 the shared released-root membership rule; dev dependencies do not count. Private
 non-Rust consumers remain additive. CI selection is unchanged. Pinned conventional
 parser/renderer dependencies produce notes for the releasable first-parent commits
-in (newest published ancestor product tag, X]; linked SHAs equal that set by construction.
+across the shared range below; linked SHAs equal that set by construction.
 A short serialized allocation section counts existing drafts and Git tags to
 reserve the next alpha number; each allocated tag then owns its independent pipeline. Explicit owner-selected
 versions must advance it; first release requires a reviewed bootstrap and seed.

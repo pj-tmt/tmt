@@ -1,4 +1,4 @@
-// The shadow's only network boundary: bounded REST GETs, never a publishing client.
+// Cut metadata's only network boundary: bounded REST GETs, never a publishing client.
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,13 +11,13 @@ export function readCutMetadata(
   execute = runPackedCommand
 ) {
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository ?? '') || !SHA.test(cut ?? ''))
-    throw new Error('Shadow metadata needs a repository and exact main cut SHA.');
+    throw new Error('Cut metadata needs a repository and exact main cut SHA.');
   if (!token || draftVisibility !== 'trusted')
     throw new Error('Draft visibility requires the trusted contents-write metadata reader.');
   let requests = 0;
   const deadline = Date.now() + 90_000;
   const get = (path) => {
-    if (++requests > 60 || Date.now() >= deadline) throw new Error('Shadow REST budget exceeded.');
+    if (++requests > 60 || Date.now() >= deadline) throw new Error('Cut REST budget exceeded.');
     return JSON.parse(
       execute('gh', ['api', `repos/${repository}/${path}`, '--method', 'GET'], {
         cwd: process.cwd(),
@@ -31,16 +31,16 @@ export function readCutMetadata(
     for (let page = 1; page <= 10; page += 1) {
       const result = get(`${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`);
       const batch = result;
-      if (!Array.isArray(batch) || batch.length > 100) throw new Error('Invalid shadow REST page.');
+      if (!Array.isArray(batch) || batch.length > 100) throw new Error('Invalid cut REST page.');
       rows.push(...batch);
       if (batch.length < 100) {
         const ids = rows.map((row) => row.id);
         if (ids.some((id) => !Number.isSafeInteger(id)) || new Set(ids).size !== ids.length)
-          throw new Error('Missing or duplicate shadow REST records.');
+          throw new Error('Missing or duplicate cut REST records.');
         return rows;
       }
     }
-    throw new Error('Incomplete shadow REST pagination.');
+    throw new Error('Incomplete cut REST pagination.');
   };
   const releases = list('releases').map(({ id, tag_name, draft, body, target_commitish }) => ({
     id,
@@ -74,7 +74,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   try {
     result = readCutMetadata(input);
   } catch (error) {
-    // An unavailable snapshot is visible, never interpreted as an empty draft/run list.
+    // An unavailable snapshot is visible, never interpreted as an empty release list.
     result = {
       schema: 1,
       repository: input.repository,
