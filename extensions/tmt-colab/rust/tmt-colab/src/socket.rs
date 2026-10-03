@@ -307,7 +307,11 @@ fn serve(
         return;
     }
     if request.path == management::PATH || request.path == management::LOCAL_PATH {
-        let result = if request.method != "POST" || request.upgrade {
+        let result = if request.path == management::LOCAL_PATH
+            && (request.context.is_some() || request.event.is_some())
+        {
+            Err(management::Code::Denied)
+        } else if request.method != "POST" || request.upgrade {
             Err(management::Code::Invalid)
         } else {
             apply_management(&request, space_id, sync)

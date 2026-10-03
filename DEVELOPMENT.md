@@ -3400,7 +3400,8 @@ boundaries, wrong sender, duplicate/unknown fields, computed-field rejection,
 canonical encodings, sorted page scopes and retention bounds. Mounted socket tests
 use real temporary SQLite/keyring state and the existing foreground fixture. They
 prove signed owner outcomes, replay after later commits, changed-byte conflicts,
-stale heads, root-local IPC without fabricated context, epoch/Reset subscription closure, link
+stale heads, root-local IPC without fabricated context, no-effect denial of forwarded
+context/event headers before payload parsing, epoch/Reset subscription closure, link
 add/remove/Reset, seed non-disclosure and rollback on receipt failure. Reserved
 page-policy actions return UNAVAILABLE without partial state until #1160; archive
 subscriber acceptance belongs to that policy slice. Lifecycle cases run twice and remove their socket
