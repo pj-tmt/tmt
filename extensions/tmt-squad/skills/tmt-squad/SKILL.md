@@ -526,6 +526,8 @@ board, in **1m / 5m / 60m windows**. The default member grid adds the current
 session model and those three totals. Custom row grids stay unchanged; board-only
 `tok_1`, `tok_2`, `tok_3` fields are available for explicit custom columns.
 One-shot `tmt sq ls` has no window history and its JSON stays unchanged.
+On narrow default member grids, PR steps aside first, then the longest, middle
+and shortest configured windows, and finally MODEL.
 
 Input and output count once; cached input is already included in input, and
 normalized reasoning in output. Mixed providers sum reported token units, not
