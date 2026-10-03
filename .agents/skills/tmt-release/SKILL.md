@@ -251,13 +251,6 @@ gates, the markers and the procedures; this section owns who may publish what.
   with `prepare` off publishes every draft of the product that passes its gates, and so does
   its `hold` input for the released draft; `prepare` on (one bundle, no draft), `release.yml`
   with `dry_run` on and the upgrade proof are not publication.
-- The CLI upgrade gate covers the last published source and the exact support floor declared
-  in `native-release-policy.mjs`, deduplicating identical sources. Keep its pre-publication
-  protocol-1 candidate probe for handoff-capable candidate sources, source-owned receipt, actual legacy inventory rejection and
-  bootstrap recovery checks, and injected-acquisition real-archive adapter acceptance
-  exercising production candidate delegation and real candidate execution for handoff-capable sources.
-  Offline installation is not a delegation proof; public source upgrade remains the
-  post-publication smoke. DEVELOPMENT owns the proof's checks and ten-minute host budget.
 - A held draft carries `publication-held.json` with the gate, the reason and the run. Read it,
   then follow the guide: the owner publishes by hand, or releases the hold by dispatch, which
   skips only the gate the marker names. An owner-authorized `rerun` instead re-proves
@@ -280,3 +273,43 @@ gates, the markers and the procedures; this section owns who may publish what.
   published releases for tooling changes, never a publishing dispatch. Keep the
   post-publication Project dispatch gated on successful smoke and historical failure issues
   visible to the release monitor. Never dispatch publication to recover a smoke failure.
+
+## CLI upgrade proof
+
+`native-release-policy.mjs::upgradeSupportFloor` declares the exact published CLI
+floor (alpha.36). For candidates above it, `release-upgrade.mjs` stages both the
+floor and last published source, deduplicating identical sources, and the candidate
+`install.sh`; every archive, manifest and bootstrap must retain its recorded
+GitHub digest. Candidates at or below the floor keep their historical single-source proof.
+
+Candidate `native_install/handoff.rs::VERSION` owns probe applicability. Protocol-1
+sources require the exact successful candidate probe in
+[the handoff contract](../../../contracts/native-install-handoff-v1.md); malformed,
+failed or unsupported probes cannot become legacy evidence. Each source creates
+its own receipt and application state. An offline source installer that rejects
+added inventory must emit its actual `NATIVE_INSTALL_FAILED` / `Unexpected native
+archive asset inventory.` error and preserve the complete installation and SQLite.
+The actual candidate bootstrap then recovers with only curl acquisition replaced
+by the exact staged versioned assets, retaining old bytes and migrating state cleanly.
+Offline installation remains strict and does not prove self-upgrade delegation.
+
+Every distinct source also passes the existing managed lifecycle/migration checks
+and actual-archive adapter acceptance. Compile the candidate's adapter lib tests
+once per host; require exactly one discovered ignored test and one passing execution
+per source. Acquisition is injected; production candidate delegation and real
+candidate execution are exercised by the candidate adapter. Public downloads and
+`tmt upgrade` remain the separate post-publication smoke.
+
+Keep each prove job's ten-minute timeout, read-only dependency cache and per-source
+bootstrap/adapter plus compile durations. For tooling changes, use a PR-only,
+read-only/no-secrets four-host rehearsal against a pinned real main source and
+actual cargo-dist archives; remove temporary rehearsal machinery before readiness.
+Do not dispatch a publishing workflow to obtain proof.
+
+Focused checks from the repository root:
+
+```sh
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/release-upgrade.test.ts test/tooling/native-upgrade-proof.test.ts test/tooling/native-release-policy.test.ts test/tooling/native-bootstrap.test.ts test/tooling/intel-verification.test.ts test/tooling/xcrun-warmup.test.ts test/tooling/release-workflow.test.ts test/tooling/repository-layout.test.ts)
+(cd typescript && corepack pnpm check:tooling)
+actionlint .github/workflows/native-release-upgrade.yml
+```

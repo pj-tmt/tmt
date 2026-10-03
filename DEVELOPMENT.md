@@ -2236,7 +2236,7 @@ Verify uploaded SHA-256 digests before publishing each draft. Verify
 and `gh release verify-asset`); the pipeline does this for its own publications. Never combine product manifests, replace an
 immutable release's assets or move its tag. A repair needs a new reviewed version.
 
-Also verify **upgrading from the last published release and the declared CLI support floor**, not only fresh installs.
+Also verify **upgrading from the last published release**, not only fresh installs.
 `Native release upgrade proof` (`.github/workflows/native-release-upgrade.yml`) does this
 on the four matching hosts with real bytes, and runs by hand (`workflow_dispatch`) for any
 draft or published tag, from `main` only. Its `fetch` job, which holds the write token that
@@ -2244,23 +2244,7 @@ can see draft assets and runs `main`'s code, downloads the release's archive and
 those of the newest published release of the same product below it, each checked against the
 digest GitHub recorded, and hands them over as a run artifact; the read-only `prove` jobs
 re-check the digests and run the scripts of the release's own commit on them. A CLI release
-newer than `native-release-policy.mjs`'s `upgradeFloor` additionally stages that exact published
-floor and the digest-checked candidate `install.sh`; a missing floor or staged asset fails
-closed. If the floor is also the previous release, it is proved once. Historical candidates
-at or below the floor retain the single-source proof. A candidate whose source contains
-`rust/crates/tmt-adapters/src/native_install/handoff.rs` declaring protocol 1 must answer
-`__native-install --handoff-version 1 --probe --json` with exactly `{"protocol":1}` before
-publication; missing historical handoff source reports the probe as not applicable. A
-present marker with an unsupported protocol or a failed/malformed probe fails the gate.
-For each source, its own executable creates the initial receipt and application
-state. A source whose offline installer rejects the candidate's added assets must report its
-actual legacy `NATIVE_INSTALL_FAILED` / `Unexpected native archive asset inventory.` error;
-the pointer, receipt, executable bytes, release directories and SQLite must stay unchanged.
-The actual candidate bootstrap then recovers the installation, retaining old bytes and state
-and migrating that state cleanly when the candidate opens it. Only curl acquisition is
-replaced with the exact staged versioned assets. Offline `__native-install --archive` keeps
-the invoked installer's inventory policy; this source/bootstrap control does not claim
-public self-upgrade or candidate delegation. Every source also goes through
+goes through
 `verify-native-installation.mjs`: the previous archive is installed pinned, the candidate
 is refused while pinned and installed with `--unpin`, the exact skills are served, SQLite is
 unchanged by the installation, the old executable is preserved, a repeat is a no-op and a
@@ -2296,24 +2280,19 @@ the `upgrade` hold marker carries that reason with the run URL.
 
 For CLI, each `prove` host also runs the real-archive adapter acceptance test after
 the installer/migration proof, using the same digest-checked previous and candidate
-archives, once for each distinct source (floor and previous). `release-upgrade.mjs acceptance` compiles only `tmt-adapters`' lib tests
+archives. `release-upgrade.mjs acceptance` compiles only `tmt-adapters`' lib tests
 from `rust/` to select its pinned toolchain, with no debug information or
 incremental compilation, then
-requires exactly one discovered ignored test and one executed passing test per source. The existing
+requires exactly one discovered and executed passing ignored test. The existing
 read-only `native-rust` dependency cache is restored without another writer. The
-job retains its ten-minute timeout; compilation happens once per host, and per-source
-bootstrap and adapter durations and the test's output appear
+job retains its ten-minute timeout; compile duration and the test's output appear
 in the run summary and proof log. A compiler, discovery or test failure fails the
 upgrade gate. CI uses Cargo's available workers; local developers export
 `CARGO_BUILD_JOBS=2`, which the verifier preserves. Extension proofs do not compile
 or run this CLI test.
 
 The adapter proof injects canonical acquisition responses into the release's
-upgrade adapter and executes real old/new binaries in isolated state. For a source
-containing the installer handoff, the existing
-`native_install::upgrade::artifact_tests::cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts`
-test exercises production candidate delegation and real candidate execution; it
-does not add an acquisition seam or production endpoint override. It verifies
+upgrade adapter and executes real old/new binaries in isolated state. It verifies
 receipt provenance, download cleanup, retained old bytes, exact candidate skill
 bytes, conflict preservation, partial refresh failure and repair. If the two
 embedded skill texts match, only differential content-transition coverage is
