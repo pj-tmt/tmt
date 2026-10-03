@@ -30,7 +30,12 @@ use tmt_cli_style::{
 };
 
 /// Extensions first, then the CLI that is running this command.
-const PRODUCTS: [Product; 3] = [Product::Office, Product::Squad, Product::Cli];
+fn products_in_removal_order() -> impl Iterator<Item = Product> {
+    Product::ALL
+        .into_iter()
+        .filter(|product| *product != Product::Cli)
+        .chain([Product::Cli])
+}
 
 pub fn execute(purge: bool, yes: bool, prefix: Option<&str>, mode: OutputMode) -> io::Result<u8> {
     match run(purge, yes, prefix, mode) {
@@ -204,8 +209,7 @@ fn run(purge: bool, yes: bool, requested: Option<&str>, mode: OutputMode) -> Res
             .map_err(failure)?,
         skills: skill_installation::plan_uninstall(&environment, &paths.global_dir)
             .map_err(failure)?,
-        products: PRODUCTS
-            .into_iter()
+        products: products_in_removal_order()
             .map(|product| {
                 Ok((
                     product,
@@ -436,8 +440,7 @@ mod presentation_tests {
             office_running: false,
             hooks: Vec::new(),
             skills: SkillsRemoval::default(),
-            products: PRODUCTS
-                .into_iter()
+            products: products_in_removal_order()
                 .map(|product| {
                     let mut removed: Vec<_> = product
                         .links()
@@ -476,7 +479,7 @@ mod presentation_tests {
                 .iter()
                 .filter(|(label, _)| *label == "files")
                 .count(),
-            PRODUCTS.len()
+            Product::ALL.len()
         );
         for (product, removal) in &plan.products {
             for path in &removal.removed {

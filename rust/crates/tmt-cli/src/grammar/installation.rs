@@ -11,7 +11,8 @@ pub(in crate::grammar) fn extension() -> Command {
         "Manage consented extension integrations",
         [
             "List official extensions" => "tmt extension ls",
-            "Install Squad" => "tmt extension install squad",
+            "Install Remote" => "tmt extension install remote",
+            "Install Colab" => "tmt extension install colab",
         ]
     ))
     .subcommand_required(true)
@@ -59,10 +60,11 @@ pub(in crate::grammar) fn extension() -> Command {
     .subcommand(
         extension_target(general(spec!(
             "install",
-            "Install an official extension (office, squad)",
+            "Install an official extension (squad, remote, colab)",
             [
                 "Install Squad" => "tmt extension install squad",
-                "Install without a prompt" => "tmt extension install squad --yes",
+                "Install Remote" => "tmt extension install remote",
+                "Install Colab" => "tmt extension install colab",
             ]
         )))
         .arg(channel_option())

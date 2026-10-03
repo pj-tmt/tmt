@@ -14,6 +14,19 @@ means the operation returned a resource; exit 1 returns
 interface, not remote authorization. The [architecture contract](../ARCHITECTURE.md#local-extension-api-v1)
 owns compatibility, transport and persistence rules.
 
+Official executable installation is a local CLI operation (`tmt extension
+install|upgrade|rm`), separate from this process API and its `skills.install`
+operation. Installer registration may precede a product's first published
+archive: `tmt extension ls` reports registered products, while install requires a
+verified release. Remote and Colab use that shared installer; installation does
+not start either extension, pair a device, grant remote operation authority or
+access their private `<dataRoot>/remote/` and `<dataRoot>/colab/` state. Colab's
+settled package contract embeds its app in the executable, with no separate
+installer data tree; build-time embedding and publication remain separate owner
+gates. The [native installation
+contract](../ARCHITECTURE.md#managed-skills-and-native-installation) owns archive,
+receipt, consent and unavailable-release behavior.
+
 Every request has `version`, `operation` and `input`. Writes (`dispatch.create`,
 `rooms.write`, `rooms.retire`) additionally name exactly one originator: `identity`, an active
 identity UUID or name, or `"originator":"anonymous"`, which stores no writer identity,

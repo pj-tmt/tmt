@@ -237,6 +237,167 @@ fn accept_release(_: &std::path::Path, _: &semver::Version) -> io::Result<()> {
     Ok(())
 }
 
+fn extension_fixture(product: super::Product, version: &str, payload: &[u8]) -> Fixture {
+    let root = format!("tmux-team-{version}-aarch64-apple-darwin");
+    let mut entries = valid_entries(&root);
+    entries[0] = Entry::File {
+        path: format!("{root}/{}", product.executable()),
+        bytes: payload.to_vec(),
+        mode: 0o755,
+    };
+    product_fixture_at(entries, product.package(), &product.files(), version)
+}
+
+#[test]
+fn extension_receipt_round_trip_repeat_upgrade_and_removal_leave_cli_and_state_unchanged() {
+    use super::{Product, inspect_product, uninstall_extension};
+    for product in [Product::Remote, Product::Colab] {
+        let cli = fixture(valid_entries("tmux-team-1.2.3-aarch64-apple-darwin"));
+        let prefix = cli.directory.path.join("prefix");
+        let cli_report = install_fixture(&cli, &prefix, Product::Cli).unwrap();
+        let state = cli.directory.path.join("data").join(product.as_str());
+        fs::create_dir_all(&state).unwrap();
+        fs::write(state.join("machine.key"), b"retained machine key").unwrap();
+        fs::write(state.join("state.db"), b"retained grants").unwrap();
+        let first = extension_fixture(product, "1.2.3", b"extension 1.2.3\n");
+        let report = install_fixture(&first, &prefix, product).unwrap();
+        assert!(report.changed);
+        assert_eq!(
+            fs::read_link(&report.executable).unwrap(),
+            PathBuf::from(product.link_target())
+        );
+        let installed = inspect_product(product, &report.executable).unwrap();
+        assert_eq!(installed.state.version.to_string(), "1.2.3");
+        assert_eq!(
+            installed.state.channel,
+            tmt_core::native_install::Channel::Stable
+        );
+        assert!(installed.state.pinned_version.is_none());
+        for other in Product::ALL.into_iter().filter(|other| *other != product) {
+            assert!(inspect_product(other, &report.executable).is_err());
+        }
+        let repeat = install_fixture(&first, &prefix, product).unwrap();
+        assert!(!repeat.changed);
+        assert_eq!(repeat.active_executable, report.active_executable);
+        let newer = extension_fixture(product, "1.2.4", b"extension 1.2.4\n");
+        assert!(install_fixture(&newer, &prefix, product).unwrap().changed);
+        assert_eq!(
+            fs::read(&report.active_executable).unwrap(),
+            b"extension 1.2.3\n"
+        );
+        assert_eq!(fs::read(&report.executable).unwrap(), b"extension 1.2.4\n");
+        assert!(install_fixture(&first, &prefix, product).is_err());
+        assert!(uninstall_extension(&prefix, product).unwrap());
+        assert!(!prefix.join("bin").join(product.executable()).exists());
+        assert_eq!(
+            fs::read_dir(prefix.join(product.namespace()).join("releases"))
+                .unwrap()
+                .count(),
+            2
+        );
+        assert_eq!(
+            inspect_product(Product::Cli, &cli_report.executable)
+                .unwrap()
+                .active_executable,
+            cli_report.active_executable
+        );
+        assert_eq!(
+            fs::read(state.join("machine.key")).unwrap(),
+            b"retained machine key"
+        );
+        assert_eq!(
+            fs::read(state.join("state.db")).unwrap(),
+            b"retained grants"
+        );
+    }
+}
+
+#[test]
+fn extensions_reject_wrong_packages_tampering_and_foreign_command_links() {
+    use super::{Product, inspect_product, uninstall_extension};
+    for product in [Product::Remote, Product::Colab] {
+        let extension = extension_fixture(product, "1.2.3", b"extension bytes");
+        let prefix = extension.directory.path.join("prefix");
+        for other in Product::ALL.into_iter().filter(|other| *other != product) {
+            assert!(install_fixture(&extension, &prefix, other).is_err());
+            assert!(!prefix.exists());
+        }
+        let report = install_fixture(&extension, &prefix, product).unwrap();
+        fs::write(&report.active_executable, b"modified bytes").unwrap();
+        assert!(inspect_product(product, &report.executable).is_err());
+        assert!(install_fixture(&extension, &prefix, product).is_err());
+        fs::remove_file(&report.executable).unwrap();
+        fs::write(&report.executable, b"user-owned command").unwrap();
+        assert!(uninstall_extension(&prefix, product).is_err());
+        assert_eq!(fs::read(&report.executable).unwrap(), b"user-owned command");
+    }
+}
+
+#[test]
+fn interrupted_extension_activation_retains_the_previous_receipt_and_cleans_staging() {
+    use super::Product;
+    for product in [Product::Remote, Product::Colab] {
+        let extension = extension_fixture(product, "1.2.3", b"extension old");
+        let prefix = extension.directory.path.join("prefix");
+        let report = install_fixture(&extension, &prefix, product).unwrap();
+        let root = prefix.join(product.namespace());
+        let current = fs::read_link(root.join("current")).unwrap();
+        let receipt = fs::read(
+            report
+                .active_executable
+                .parent()
+                .unwrap()
+                .join("receipt.json"),
+        )
+        .unwrap();
+        let newer = extension_fixture(product, "1.2.4", b"extension new");
+        let mut calls = 0;
+        let error = super::install_product(
+            product,
+            super::InstallRequest {
+                archive: &newer.archive,
+                manifest: &newer.manifest,
+                prefix: &prefix,
+                target: TARGET,
+                channel: tmt_core::native_install::Channel::Stable,
+                pin: tmt_core::native_install::PinAction::Preserve,
+            },
+            None,
+            || {
+                calls += 1;
+                if calls == 4 {
+                    Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"))
+                } else {
+                    Ok(())
+                }
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+        assert_eq!(fs::read_link(root.join("current")).unwrap(), current);
+        assert_eq!(fs::read(&report.executable).unwrap(), b"extension old");
+        assert_eq!(
+            fs::read(
+                report
+                    .active_executable
+                    .parent()
+                    .unwrap()
+                    .join("receipt.json")
+            )
+            .unwrap(),
+            receipt
+        );
+        assert_eq!(fs::read_dir(root.join("releases")).unwrap().count(), 1);
+        assert!(!fs::read_dir(&root).unwrap().any(|entry| {
+            entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".staging-")
+        }));
+    }
+}
+
 #[test]
 fn office_installation_and_exact_retry_preserve_cli_ownership_and_bytes() {
     let cli = fixture(valid_entries("tmux-team-1.2.3-aarch64-apple-darwin"));

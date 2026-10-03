@@ -231,7 +231,7 @@ describe('frozen Office extension lifecycle', () => {
         expect(after.status).toBe(0);
         expect(
           (parseWholeStdout(after).extensions as Array<{ name: string }>).map((row) => row.name)
-        ).toEqual(['squad']);
+        ).toEqual(['squad', 'remote', 'colab']);
       });
     }
   );

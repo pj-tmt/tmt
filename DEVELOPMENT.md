@@ -1424,6 +1424,14 @@ build both packages; the shared raw-runtime artifact carries both executables,
 and tooling restores executable mode after download. Drivers are independent
 release components, outside the `tmt extension` inventory.
 
+Shared extension archive scenarios also require the debug Squad, Remote and Colab
+executables. Both full and Squad-scoped process CI run those scenarios and build
+Squad followed by `cargo build --locked -p tmt-remote -p tmt-colab --bins`.
+Both scopes also build the shared `runtime-caller-fixture` ancestry launcher;
+full scope builds it beside the storage probe, while Squad scope builds it explicitly.
+Keep these fixture builds in the process job itself; another job's workspace build
+or a warm local target does not supply its executables.
+
 Squad context fixtures separate successful core-invocation evidence from deadline
 termination. Cold/fresh reads and a promptly returning stale-context sentinel
 assert the cache-only gate independently. Timeout scenarios establish a gated
@@ -2791,6 +2799,40 @@ embedded skill, unchanged SQLite bytes during installation and the migration of 
 previous release wrote. Its temporary
 prefix/application state is always invocation-owned and removed afterward.
 
+#### Remote and Colab installer registration
+
+Core recognizes `remote` and `colab` separately from archive publication. Test their product
+policy, product-prefixed discovery, receipt and activation with the existing
+native fixtures (from `rust/`):
+
+```sh
+CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-core native_install
+CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters native_install
+CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli extension_install_command
+CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli parser::tests::native_install
+```
+
+For process fixtures, build CLI, Squad, Remote and Colab independently in the worktree's
+`rust/target`, then run `extension-install.test.ts` through the native test config.
+The fixture uses the built `tmt-remote` and `tmt-colab`, never a substitute CLI executable. It
+covers consent, repeat/forward install, retained releases and private Remote
+and Colab state, plus independent pinned participation in root upgrade and root
+uninstall cleanup. Frozen Office and legacy skill fixtures keep their assertions
+while listing both new registrations. Synthetic archives
+prove installer behavior, not published archive linkage or runtime versioning.
+
+A registered product may have no published archive yet. Inject empty Remote refs
+or a Remote tag without a published release for that case: assert no asset
+acquisition or prefix creation. The CLI must report `EXTENSION_RELEASE_UNAVAILABLE`
+with "No published remote release yet" rather than an installation-damage hint.
+Malformed published/local archives retain verification errors. Remote uses the
+same prerelease rule as Squad; keep cross-product and immutable-release refusals.
+The [installation architecture](ARCHITECTURE.md#managed-skills-and-native-installation)
+owns namespaces, receipts and the separation from private state. Remote/Colab owners and infra provide packaging and release gates; publish the
+supporting CLI alpha before testing either public install/upgrade with it.
+Colab's #1421 embeds the built app in its executable; these synthetic fixtures
+prove installer lifecycle, not that embedding or installed SPA serving.
+
 ### Native curl bootstrap verification
 
 Generate the release-specific script only after final cargo-dist archives and
@@ -3349,8 +3391,12 @@ socket/process lifecycle acceptance twice. No real model/account/DB is used.
 
 The private local-build Colab executable serves an owner-only mounted socket,
 owner-browser registration and stream sync, and lists local-space metadata.
-Owner requests load the built browser app when its local output is available.
-No installer exists. Rust builds and tests do not require a browser build.
+Owner requests use the embedded browser app when built with `TMT_COLAB_APP_DIR`,
+or load local checkout output when it is available. Without either, the local
+build shows a build-hint placeholder. Published `tmt-colab` artifacts must embed
+the app. Core registers Colab with the shared installer; packaging/publication
+remain separate gates. Rust builds and tests do not require a browser build.
+See [installer registration](#remote-and-colab-installer-registration).
 Build and verify it from the repository root:
 
 ```bash

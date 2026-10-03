@@ -1033,6 +1033,10 @@ relocated door and `/r/<prefix>/x/<extension>/` route mounting are implemented (
 colab allowlisted. Colab serves only its owner-only socket and has no door of its own; an owner
 session's device context reaches it through the mount (#1039).
 
+Core recognizes Remote through the shared native installer. Installation does
+not start `serve`, pair a device, grant operation authority or change
+`<dataRoot>/remote/` state. Archive publication remains separately gated.
+
 ## Conformance and acceptance
 
 Later fixtures pin canonical envelope/enrollment bytes and SHA-256 digests, Ed25519 public/signature

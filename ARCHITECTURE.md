@@ -3031,8 +3031,7 @@ Native executable installation is a different owner under
 
 Core's fixed `native_install::Product` policy owns package identity, inventory,
 installation namespace and command links for the CLI and the official extensions
-(Office, and Squad with its two links `tmt-squad` and `tmt-sq`). It has no
-filesystem or network effects, and archive data never adds a product. The hidden
+(Office, Squad with its two links `tmt-squad` and `tmt-sq`, Remote with `tmt-remote`, and Colab with `tmt-colab`). It has no filesystem or network effects, and archive data never adds a product. The hidden
 offline installer accepts an explicit product (CLI by default), and every product
 uses the same acquisition, receipt and atomic publication path. Each extension's
 command links, lock and current release are independent of the CLI's; existing
@@ -3042,8 +3041,8 @@ path also serves public Office installation. `office_command` owns consent and
 typed composition, not a second downloader. Default Office prefix is the user's
 `.local`, independent of application configuration; `--prefix` selects another
 owned installation. Public distribution and pairing remain separate gates.
-GitHub selection discovers matching refs under CLI `v`, Office `tmt-office-v`
-and Squad `tmt-squad-v` independently, rather than scanning repository-wide
+GitHub selection discovers matching refs under CLI `v`, Office `tmt-office-v`,
+Squad `tmt-squad-v`, Remote `tmt-remote-v` and Colab `tmt-colab-v` independently, rather than scanning repository-wide
 release history. Complete bounded ref discovery precedes core channel filtering
 and semantic-version precedence selection. Exact-tag release lookups skip only
 confirmed missing releases or explicit drafts and stop at the highest published
@@ -3079,7 +3078,9 @@ of every command link, refuses a foreign same-named command, and deactivates the
 links without deleting releases or application data. It is recoverable, not a multi-file atomic deletion:
 a missing command link with a retained activation is reported by `extension ls`
 as `partiallyRemoved` with an exact removal command, and explicit uninstall
-can finish that state. Listing this state does not execute or mutate it.
+can finish that state. Listing this state does not execute or mutate it. Root `tmt uninstall` derives
+its product removal order from `Product::ALL`, keeping extensions before the
+running CLI; adding an official product cannot omit it from that cleanup.
 
 `tmt extension install|upgrade|rm|ls` (`tmt-cli::extension_install_command`)
 is the public surface for the official extensions over this path. Its facade
@@ -3087,8 +3088,15 @@ retains dispatch, consent, errors, interruption, rendering and uninstall; privat
 `extension_install_command/` modules own install, repair, list/upgrade and skills
 settlement through the existing native-installer and owned-skill adapters. The names
 come from the fixed product table, never from PATH or archive data. Installable
-eligibility is separate from historical product recognition: Office is frozen,
-so install and explicit extension upgrade refuse before consent or acquisition.
+eligibility is separate from historical product recognition and publication:
+Squad, Remote and Colab are installable; registering a product does not create a
+published archive. Without a published Remote or Colab release in the selected channel, install
+returns `EXTENSION_RELEASE_UNAVAILABLE`, names the unavailable channel and leaves
+the installation unchanged. Complete discovery marks that absence with
+`release::ReleaseUnavailable`; missing files, assets or finalization failures
+after selection remain installation errors. Invalid archive bytes remain
+verification failures.
+Office is frozen, so install and explicit extension upgrade refuse before consent or acquisition.
 Root upgrade skips Office without inspecting its installation. Listing omits an
 absent Office, marks an existing or partially removed Office as frozen, and never
 looks up an Office upgrade, even with `--check`. Historical receipts and Office
@@ -3104,7 +3112,7 @@ guard before entering the Office handler, retaining one frozen rule and message.
 The facade's status and removal operations keep their Office-specific flow.
 
 An extension's agent skills belong to one owner named after it (`squad`,
-`office`) in the owned-skill registry (`skill_installation::owned`). After
+`office`, `remote`, `colab`) in the owned-skill registry (`skill_installation::owned`). After
 activation, `native_install::release_skills` re-reads the release's skills tree
 under the installation lock and checks every byte against the receipt; a damaged
 tree publishes nothing. `install --skills` publishes the whole tree; a terminal
@@ -3222,6 +3230,16 @@ execution candidate; no automatic retention cleanup is implemented. A healthy
 repair is a no-op. Local receipts remain installation evidence, not signatures;
 repair does not claim protection from a hostile same-UID writer. Provider skill
 refresh remains with the existing verified-tree/skill-owner composition.
+
+Remote and Colab use the same `dist-manifest.json` selection and `receipt.json`
+format under independent `lib/tmt-remote` and `lib/tmt-colab` namespaces. Neither
+carries a companion or agent-skills tree today or requires an Office handshake.
+Colab's settled package contract embeds its app in `tmt-colab`; #1421 owns that
+build-time embedding, so the installer admits no separate app directory.
+Installation, extension removal and upgrade never execute either `serve` command
+or open their private `<dataRoot>/remote/` or `<dataRoot>/colab/` state. Each
+extension owns its explicit foreground lifecycle. Cargo-dist packaging and
+release publication are separate extension/infra responsibilities.
 
 The active executable is the authority for a managed update. Installer receipts
 are anchored to the installation prefix/current executable, not to
@@ -4476,8 +4494,9 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 
 ## Remote extension pilot
 
-`extensions/tmt-remote/rust/tmt-remote` is a local-build-only executable reached
-as `tmt remote`. `main` owns style/foreground composition and two bounded
+`extensions/tmt-remote/rust/tmt-remote` is a separate executable reached as
+`tmt remote`. Core registers official installer support; the current binary
+remains source-only until packaging and publication pass their separate gates. `main` owns style/foreground composition and two bounded
 startup calls: capabilities and `storage.root`. `core::CoreClient` owns fixed public `api`/`ls`
 subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
 `rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf. Request-carried launch options preserve environment inheritance by default or explicitly clear it and copy only named allowlisted caller variables, preserving OS-string bytes and leaving the caller environment unchanged. This policy is configured through the existing invocation entry point; it supplies no memory sandbox or resource-limit guarantee. `LaunchOptions::process_group` defaults to `New`, preserving owned group creation/termination. Explicit `InheritCaller` omits group creation; a started failure detaches and returns `Cleanup::CallerOwned` without signalling or waiting for cleanup. Pre-start failures remain `NotStarted`. The caller must supervise that group. Squad's context wrapper retains its live group-leader check and whole-group abort on a started failure; capture/deadlines/caps remain invoke-owned. Ordinary Squad, Remote and Colab calls use `New`. The shared 20 ms `PULSE` bounds stop-flag observation latency; each wait is also bounded by the remaining request deadline.
@@ -4718,8 +4737,9 @@ pairing or backends. Pairing/authentication/log/SDK behavior remains proposed un
 its implementation slices land; the `canonical` and `remote-client` builders below
 follow the channel contract's device enrollment, receipt-proof and fingerprint rules.
 `firestore` and `cloudflare` are not permitted until their edge admission and
-encryption profile are specified. Core never owns a listener or remote state. Official
-product/release registration is deferred. Its private component owner excludes
+encryption profile are specified. Core never owns a listener or remote state. Core recognizes Remote as an
+official installation product; archive publication and cargo-dist activation
+remain separate gates. Its private component owner excludes
 remote versions from real-product releases; cargo-dist excludes this pilot binary.
 For shell ownership, see the [browser add-on shell](#browser-add-on-shell).
 
@@ -4771,14 +4791,16 @@ the owner-local epoch engine is implemented; the browser page preview runs on a 
 `extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
 owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
 bridge policy and acceptance gates. The #828 design owns product/UI choices;
-#829/#830 are bounded spike evidence. The executable is local-build-only; no deployment or official release is registered.
+#829/#830 are bounded spike evidence. Core registers Colab with the shared native installer; the executable remains
+source-only until packaging and publication pass their separate
+gates. No deployment or official archive publication is claimed.
 The [channel boundary](extensions/tmt-colab/contracts/colab-v1.md#channel-boundary) marks which colab-v1 sections move to remote, stay or retire.
 
 Current executable dependencies are `tmt-invoke`, `tmt-cli-style`, the pure
 `tmt-colab-model` space-ID derivation and reviewed workspace pins. The model owns
 canonical bytes/codecs/crypto without I/O or core access. The
 executable owns CLI composition, foreground door, SQLite/files and keyring;
-the browser build is loaded at foreground startup; the bridge remains proposed. Core access is only through the absolute invoking
+the browser build is embedded when `TMT_COLAB_APP_DIR` selects validated build output; otherwise a local build may load checkout output at foreground startup. Published artifacts must embed the built app. The bridge remains proposed. Core access is only through the absolute invoking
 `$TMT_EXECUTABLE api` and documented JSON commands via the invoke leaf; no
 `tmt-core`, `tmt-adapters`, Office or Remote behavior dependencies, core SQLite
 or pane scraping. Shared crypto extraction requires actual consumers and review.
