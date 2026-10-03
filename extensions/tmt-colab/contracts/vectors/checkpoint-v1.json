@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "producer": "Yjs 13.6.32; fixed test client 1280; mergeUpdates of only this writer",
+  "prefixSeq": "4",
+  "contentUpdates": [
+    "AQKACgAEAQRodG1sDTxwPmJlZm9yZTwvcD4oAQRtZXRhBXRpdGxlAXcKQ2hlY2twb2ludAA",
+    "AQGACg7EgAoIgAoJBWFmdGVyAYAKAQMG"
+  ],
+  "checkpoint": "AQOACgAEAQRodG1sDTxwPmJlZm9yZTwvcD4oAQRtZXRhBXRpdGxlAXcKQ2hlY2twb2ludMSACgiACgkFYWZ0ZXIBgAoBAwY",
+  "tail": "AQGAChPEgAoSgAoJBSB0YWlsAYAKAQMG",
+  "sourceAtPrefix": "<p>after</p>",
+  "sourceAfterTail": "<p>after tail</p>",
+  "title": "Checkpoint",
+  "negativeBodies": [
+    {
+      "name": "not-update-v1",
+      "bytes": "_w"
+    }
+  ]
+}

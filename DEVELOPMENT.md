@@ -3284,8 +3284,19 @@ uses the eight-frame ACK window described in the sync section. It covers unprune
 from sequence one, plus signed reset-baseline fixtures. The baseline suite covers
 chunked retrieval, descriptor/log binding, exact baseline struct identity, subsequent
 edits/reload and rejection of commitment/source/descriptor/old-epoch substitution
-without partial rendering. Checkpoints and own data remain unsupported (#1280);
-native bootstrap supplies the matching stored baseline object. This is signed
+without partial rendering. Paired-checkpoint fixtures cover raw merged update-v1
+bytes above 256 KiB, chunked retrieval, interleaved content/own tails, reload/edit
+continuity and
+rejection of prefix sequence/hash, namespace, body and gap substitutions. Signed
+revocation tests require exact pinned checkpoints and cut endpoints. Checkpoints
+use single-item Worker steps bounded by its 4 MiB state cap (also the aggregate
+checkpoint catchup cap); tails remain bounded to 200 updates/256 KiB. Dependency
+resolution is required at the final tail step, before any renderer publication. Own ciphertext
+is authenticated for the chain only, with an explicit parent notice; it never
+enters the decoder. The shared `checkpoint-v1.json` fixture also runs through the
+bounded native decoder child (`cargo test --manifest-path rust/Cargo.toml --locked
+-p tmt-colab --test checkpoint_vectors`). Native bootstrap supplies paired checkpoints, their full
+cross-namespace tail and the matching stored baseline object. This is signed
 protocol-fixture evidence, not native mounted browser E2E: #1250 owns refresh and
 #1253 owns native assets.
 The content Worker suite proves concurrent writer convergence and reload

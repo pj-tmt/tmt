@@ -722,6 +722,27 @@ tail from `n+1` in both namespaces for chain verification and exact retries.
 Never delete another namespace's payload solely because its sequence falls in
 the prefix. A failed partner publication leaves the prior pair and updates
 intact; this rule needs no new ledger or checkpoint schema.
+
+For browser bootstrap, every observed namespace checkpoint for an author stream
+MUST agree on one prefix sequence n and signed update head hash(n). Deliver all
+checkpoints before the retained tail; that tail MUST be contiguous from n+1
+across both namespaces. Receipt
+ledgers support retries, not browser authority; no additional ledger proof or
+signature scheme is required. Checkpoint plaintext is raw merged update-v1 bytes.
+The browser MUST bound each checkpoint and their aggregate catchup plaintext by
+the existing 4 MiB Worker state budget, independently of the retained tail's
+200-update/256 KiB budget. Apply checkpoints as single-item Worker steps before
+the tail. Those unpublished steps may retain cross-writer pending dependencies;
+the final tail step MUST resolve them and validate complete content before
+publishing any view. The existing 2 MiB source projection cap remains in force.
+The owner-browser reader authenticates own envelopes for chain continuity but
+MUST NOT decrypt or fold them; it MUST visibly state that own data is not displayed.
+Historical revoked-device objects MUST predate revocation and remain within the
+exact signed namespace cut; checkpoint replacements require the cut's exact
+envelope hash, and catchup MUST reach every nonempty signed tail endpoint before
+publishing a view. Named-member, link and bridge author policy remains outside
+this owner-browser slice (#1111/#1160).
+
 Crash before deletion retains replay-safe redundant data; concurrent tail
 updates survive. A gone device's stream remains as signed data within quotas.
 There is no cross-writer compaction checkpoint in v1; the epoch baseline above
@@ -1153,8 +1174,9 @@ the requested epoch, and are bounded by 512 entries and 60 KiB encoded bytes per
 page. An empty list means no wraps exist. Each stream-object page carries
 `chains:[{deviceId,chain}]` with exact chain transport as canonical base64url for
 its author if not already sent on the connection (at most 64 per page). Retained
-revoked-author chains can be delivered: clients must reject them using the
-verified log before applying objects. A chain never grants current authority.
+revoked-author chains can be delivered: clients MUST enforce the verified log's
+[signed-cut restrictions](#decoder-isolation-compaction-and-limits) on historical
+objects before applying them. A chain never grants current authority.
 
 `baseline` is null or canonical base64url of exact model baseline-descriptor
 JSON, bounded to 8 KiB. Its scope/revision must match the admitted page/epoch and

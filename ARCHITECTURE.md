@@ -4408,10 +4408,23 @@ content document; tails are restricted to that epoch. Baseline objects share the
 bounded assembly owner with updates but use the model's non-update envelope cap.
 Native bootstrap delivers the exact scoped baseline object; signed browser
 fixtures do not establish native mounted browser E2E. Absent wraps, invalid registration/
-pins, checkpoints and own-namespace data remain visible blocking states. Catchup has a 200-update/256 KiB plaintext
-budget; the live reader retains at most 4,096 sequence hashes. #1280 owns interleaved namespace chains and paired checkpoint loading; own grammar
-and folding remain deferred to #1110.
-The native placeholder is unchanged: #1248/#1250/#1253 own bootstrap/refresh/assets.
+pins remain visible blocking states. The browser authenticates both namespaces against one
+author chain, with separate namespace cursors. Paired checkpoints agree on the
+signed prefix sequence/head; their content bodies are raw merged update-v1 bytes
+passed to the Worker as single checkpoint steps before the contiguous
+cross-namespace tail. Checkpoints have the existing 4 MiB Worker state bound
+(per item and aggregate catchup); the retained tail keeps its separate 200-update/
+256 KiB budget. Checkpoint steps may retain unresolved dependencies until the final
+tail step verifies complete content before publication. Historical
+revoked-device material must satisfy exact owner-signed cuts, including the pinned
+checkpoint envelope and retained tail endpoints. Own objects are admitted for
+chain continuity without decryption or folding; parent chrome displays an explicit
+notice. Author policy remains the owner-browser subset; named-member, link and
+bridge admission belong to #1111/#1160, and own grammar/folding to #1110.
+The live reader retains at most 4,096 sequence hashes. Native bootstrap delivers
+paired checkpoints before the full cross-namespace tail; signed browser fixtures
+do not establish native mounted browser E2E.
+Native refresh and assets remain owned by #1250/#1253.
 
 The content-only Yjs decoder lives in a dedicated Worker. It accepts bounded
 plaintext/edit requests and validates exhaustive roots/types before committing a

@@ -8,6 +8,8 @@ import {
   requireValue,
   statement,
   payload,
+  streamCut,
+  type Context,
   wrap,
 } from '@tmt/colab-client';
 import { record } from './storage.js';
@@ -102,11 +104,7 @@ export class Admission {
           c.issuerId === this.head.ownerMember.id &&
           issuer !== undefined &&
           c.issuedAt <= Date.now() &&
-          c.expiresAt > Date.now() &&
-          !this.#log.some(
-            (v) =>
-              v.payload.operation === 'device.revoke' && v.payload.value.deviceId === c.deviceId,
-          ),
+          c.expiresAt > Date.now(),
       );
       await chain.verify(issuer.head.hash, c, this.head.ownerMember.signingKey);
       const prior = this.#authors.get(c.deviceId);
@@ -163,6 +161,57 @@ export class Admission {
     for (const field of Object.keys(expected) as (keyof payload.Baseline)[])
       requireValue(value[field] === expected[field]);
     return this.head.ownerMember.signingKey.slice();
+  }
+  cuts(device?: string) {
+    return this.#log.flatMap((v) =>
+      v.payload.operation === 'device.revoke' &&
+      (device === undefined || v.payload.value.deviceId === device)
+        ? v.payload.value.cuts
+            .filter((c) => c.pageId === this.page && c.epoch === this.epoch)
+            .map((c) => ({ revision: v.head.revision, cut: streamCut.decode(binary(c.cut, 1024)) }))
+        : [],
+    );
+  }
+  readAuthor(context: Context, envelopeHash: Uint8Array): Uint8Array {
+    const revision = decimal(context.membershipRevision);
+    const c = this.#authors.get(context.authorDevice);
+    if (!this.head || revision > this.head.revision || !c)
+      throw new Error('Fresh membership catchup required');
+    requireValue(
+      c.issuerKind === 'member' &&
+        c.issuerId === this.head.ownerMember.id &&
+        decimal(c.membershipRevision) <= revision &&
+        c.issuedAt <= Date.now() &&
+        c.expiresAt > Date.now(),
+    );
+    for (const statement of this.#log) {
+      if (
+        statement.payload.operation !== 'device.revoke' ||
+        statement.payload.value.deviceId !== context.authorDevice
+      )
+        continue;
+      requireValue(revision < statement.head.revision);
+      const wrapped = statement.payload.value.cuts.find(
+        (c) =>
+          c.pageId === this.page &&
+          c.epoch === this.epoch &&
+          c.namespace === context.namespace &&
+          streamCut.decode(binary(c.cut, 1024)).streamId === context.authorDevice,
+      );
+      requireValue(wrapped !== undefined);
+      const cut = streamCut.decode(binary(wrapped.cut, 1024)),
+        seq = decimal(context.streamSeq);
+      requireValue(seq <= decimal(cut.tailHeadSeq, true));
+      if (context.kind === 'checkpoint')
+        requireValue(
+          context.streamSeq === cut.checkpointSeq &&
+            cut.checkpointHash !== null &&
+            equal(cut.checkpointHash, envelopeHash),
+        );
+      else if (context.streamSeq === cut.tailHeadSeq)
+        requireValue(equal(envelopeHash, cut.tailHeadHash));
+    }
+    return c.signingKey.slice();
   }
   author(device: string, revision: string): Uint8Array {
     const c = this.#authors.get(device);
