@@ -402,13 +402,18 @@ checking with the command above, rather than cascading implicit-any diagnostics.
 The guard only reads files; it never installs packages. Direct `pnpm type:check` and
 release-config test runs also require the explicit install.
 
-Private leaves declare `releaseConsumers` in the component map; today only TUI names Squad.
+Private leaves declare `releaseConsumers` in the component map; TUI, CLI style and invoke name Squad.
+The config generator checks the Cargo metadata graph it already reads: every external production
+workspace dependency of a declared consumer, including transitive links, needs a private component
+with that consumer in `releaseConsumers`. A missing declaration fails with the leaf, consumer and
+map change needed after ownership review. New Squad workspace dependencies must pass this guard.
 The release workflow uses `release-please-run.mjs` with the pinned API to attribute these commits
 before the ordinary splitter, excludes and product release cutoffs. No `additional-paths` option
 exists in 17.11.2. An upgrade must re-verify the API shape and run
 `pnpm exec vp test run --config vitest.config.ts test/tooling/release-please-config.test.ts` from `typescript/`:
-the suite exercises real release candidates, TUI-only and unrelated/private controls, mixed commits
-and independent release cutoffs. Ownership, CI selection and version/lock updates remain separate.
+the suite exercises real release candidates, shared-only and unrelated/private controls, mixed commits
+and independent release cutoffs. Style and invoke keep CLI attribution while also selecting Squad;
+TUI keeps its CLI exclusion. Ownership, CI selection and version/lock updates remain separate.
 
 For the separate Office Auth/Firestore environment, follow
 [`extensions/tmt-office/typescript/services/office/README.md`](extensions/tmt-office/typescript/services/office/README.md). It uses Docker-contained

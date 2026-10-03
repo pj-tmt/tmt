@@ -359,6 +359,8 @@ describe('component map', () => {
     [['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'new-owner/file.ts'], 'full'],
     [['extensions/tmt-squad-other/file.rs'], 'full'],
     [['rust/crates/tmt-core/src/lib.rs'], 'full'],
+    [['rust/crates/tmt-cli-style/src/lib.rs'], 'full'],
+    [['rust/crates/tmt-invoke/src/lib.rs'], 'full'],
     [['extensions/tmt-office/rust/tmt-office/src/main.rs'], 'full'],
     [['ARCHITECTURE.md', 'DEVELOPMENT.md'], 'none'],
     [['extensions/tmt-office/typescript/apps/office/src/main.tsx'], 'none'],

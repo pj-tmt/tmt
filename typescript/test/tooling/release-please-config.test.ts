@@ -561,7 +561,12 @@ describe('private leaf release attribution with pinned release-please', () => {
 
   it('keeps source ownership private and validates declared consumers before running', () => {
     const map = components();
-    expect(releaseConsumption(map)).toEqual([{ source: leafPath, target: squadPath }]);
+    expect(releaseConsumption(map)).toEqual(
+      ['tmt-tui', 'tmt-cli-style', 'tmt-invoke'].map((name) => ({
+        source: `rust/crates/${name}`,
+        target: squadPath,
+      }))
+    );
     expect(
       ownerOf(`${leafPath}/src/binding.rs`, parseComponentMap(read('.github/components.json')))
     ).toBe('tmt-tui');
@@ -572,6 +577,50 @@ describe('private leaf release attribution with pinned release-please', () => {
       map.map((c) => (c.name === 'tmt-tui' ? { ...c, releaseConsumers: ['cli'] } : c)),
     ])
       expect(() => releaseConsumption(changed)).toThrow();
+  });
+
+  it.each(['tmt-tui', 'tmt-cli-style', 'tmt-invoke'])(
+    'rejects missing Squad attribution for the linked %s leaf using Cargo metadata',
+    (name) => {
+      const workspace = readWorkspace();
+      const map = components().map((c) => (c.name === name ? { ...c, releaseConsumers: [] } : c));
+      expect(() => generateReleasePleaseConfig({ components: map, workspace })).toThrow(
+        `Workspace leaf ${name} linked by release consumer squad has no release attribution. Declare a private component owning rust/crates/${name} with releaseConsumers: ["squad"] in .github/components.json after ownership review.`
+      );
+    }
+  );
+
+  it('requires reviewed attribution for new direct and transitive production links', () => {
+    const workspace = readWorkspace();
+    for (const dependencyOwner of ['tmt-squad', 'tmt-invoke']) {
+      const changed = {
+        ...workspace,
+        lockNames: new Set([...workspace.lockNames, 'new-leaf']),
+        crates: [
+          ...workspace.crates.map((c) =>
+            c.name === dependencyOwner ? { ...c, dependencies: [...c.dependencies, 'new-leaf'] } : c
+          ),
+          crate('new-leaf', 'rust/crates/new-leaf', [], true, false),
+        ],
+      };
+      expect(() =>
+        generateReleasePleaseConfig({ components: components(), workspace: changed })
+      ).toThrow('Workspace leaf new-leaf linked by release consumer squad');
+      const declared = parseComponentMap(
+        JSON.stringify({
+          components: {
+            leaf: { owns: ['rust/crates/new-leaf'], release: false, releaseConsumers: ['squad'] },
+          },
+        })
+      ).components;
+      const result = generateReleasePleaseConfig({
+        components: [...components(), ...declared],
+        workspace: changed,
+      });
+      expect(Object.keys(result.packages)).toEqual(
+        Object.keys(readJson('release-please-config.json').packages)
+      );
+    }
   });
 
   it('plans both commands in dry mode without calling mutation methods', async () => {
@@ -613,9 +662,12 @@ describe('private leaf release attribution with pinned release-please', () => {
     wrapped = true,
     legacyAlpha = false,
     taglessPaths: string[] = [],
-    versions: Record<string, string> = { '.': '5.0.0-alpha.8', [squadPath]: '0.1.0-alpha.8' }
+    versions: Record<string, string> = { '.': '5.0.0-alpha.8', [squadPath]: '0.1.0-alpha.8' },
+    excluded: Record<string, string[]> = {}
   ) {
     const config = readJson('release-please-config.json');
+    for (const [packagePath, paths] of Object.entries(excluded))
+      config.packages[packagePath]['exclude-paths'] = paths;
     if (legacyAlpha) {
       config['prerelease-type'] = 'alpha';
       for (const entry of Object.values(config.packages) as Record<string, unknown>[])
@@ -683,6 +735,61 @@ describe('private leaf release attribution with pinned release-please', () => {
     commit('squad-release', [`${squadPath}/Cargo.toml`], 'chore: release squad'),
     commit('cli-release', ['rust/Cargo.toml'], 'chore: release cli'),
   ];
+
+  it.each(['tmt-cli-style', 'tmt-invoke'])(
+    'adds Squad to a %s-only fix while retaining the original CLI candidate and updates',
+    async (name) => {
+      const file = `rust/crates/${name}/src/lib.rs`;
+      const changes = history([file]);
+      const plain = await candidates(changes, false);
+      const wrapped = await candidates(changes);
+      expect(plain).toHaveLength(1);
+      expect(wrapped).toHaveLength(2);
+      const cli = wrapped.find((pr) => pr.version?.toString() === '5.0.0-alpha.9')!;
+      expect(cli.body.toString()).toBe(plain[0].body.toString());
+      expect(cli.updates).toEqual(plain[0].updates);
+      const squad = wrapped.find((pr) => pr.version?.toString() === '0.1.0-alpha.9')!;
+      expect(squad.body.toString()).toContain('correct bound text');
+      expect(squad.updates.map(({ path }) => path)).not.toContain('rust/Cargo.toml');
+      expect(changes[0].files).toEqual([file]);
+    }
+  );
+
+  it.each(['tmt-cli-style', 'tmt-invoke'])(
+    'uses independent CLI and Squad cutoffs for %s in either release order',
+    async (name) => {
+      for (const [newer, older, expected] of [
+        ['squad-release', 'cli-release', '5.0.0-alpha.9'],
+        ['cli-release', 'squad-release', '0.1.0-alpha.9'],
+      ]) {
+        const proposed = await candidates([
+          commit(newer, [], 'chore: release'),
+          commit('shared-fix', [`rust/crates/${name}/src/lib.rs`]),
+          commit(older, [], 'chore: release'),
+        ]);
+        expect(proposed.map((pr) => pr.version?.toString())).toEqual([expected]);
+      }
+    }
+  );
+
+  it('respects consumer excludes and deduplicates mixed shared-leaf attribution', async () => {
+    const changes = history([
+      'rust/crates/tmt-cli-style/src/lib.rs',
+      'rust/crates/tmt-invoke/src/lib.rs',
+      `${leafPath}/src/lib.rs`,
+      `${squadPath}/src/view.rs`,
+    ]);
+    const proposed = await candidates(changes);
+    expect(proposed).toHaveLength(2);
+    for (const pr of proposed)
+      expect(pr.body.toString().match(/correct bound text/g)).toHaveLength(1);
+    const { manifest } = await candidateManifest(changes, true, false, [], undefined, {
+      [squadPath]: [squadPath],
+    });
+    expect((await manifest.buildPullRequests()).map((pr) => pr.version?.toString())).toEqual([
+      '5.0.0-alpha.9',
+    ]);
+  });
 
   // #1365 / run 37103448408: only SCM acquisition/mutations are fixtures.
   // The pending-release guard, label transition and file updaters are the real pin.
@@ -994,6 +1101,8 @@ describe('private leaf release attribution with pinned release-please', () => {
       'rust/crates/tmt-core/src/lib.rs',
       'extensions/tmt-remote/rust/tmt-remote/src/main.rs',
       `${leafPath}-other/src/lib.rs`,
+      'rust/crates/tmt-cli-style-other/src/lib.rs',
+      'rust/crates/tmt-invoke-other/src/lib.rs',
     ]) {
       const plain = await candidates(history([file]), false);
       const wrapped = await candidates(history([file]));
