@@ -441,7 +441,7 @@ describe('fetchUpgrade and proveStaged', () => {
       expect(calls[1].cwd).toBe(calls[0].cwd);
       expect(calls[2].cwd).toBe(calls[0].cwd);
       expect(calls[0].args).not.toContain('--release');
-      expect(calls[0].env.CARGO_BUILD_JOBS).toBe('2');
+      expect(calls[0].env.CARGO_BUILD_JOBS).toBeUndefined();
       expect(calls[0].env.CARGO_TARGET_DIR).toBe('/shared/task-target');
       expect(calls[0].env.TMT_UPGRADE_OLD_ARCHIVE).toBe(
         path.join(fixture.directory, TARGET, 'previous', `tmt-cli-${TARGET}.tar.gz`)
@@ -452,6 +452,21 @@ describe('fetchUpgrade and proveStaged', () => {
       expect(calls[1].executable).toBe(binary);
       expect(calls[1].args).toEqual([ACCEPTANCE_TEST, '--exact', '--ignored', '--list']);
       expect(calls[2].args).toEqual([ACCEPTANCE_TEST, '--exact', '--ignored', '--nocapture']);
+    });
+
+    it('preserves an exported local Cargo worker limit', () => {
+      const jobs: (string | undefined)[] = [];
+      expect(
+        proveArchiveAcceptance({
+          ...input(),
+          environment: { CARGO_BUILD_JOBS: '2' },
+          execute: (_executable, _args, options) => {
+            jobs.push(options.env.CARGO_BUILD_JOBS);
+            return [compiled, listed, passed][jobs.length - 1];
+          },
+        })
+      ).toEqual({ outcome: 'proved' });
+      expect(jobs).toEqual(['2', '2', '2']);
     });
 
     it('compiles and executes the release adapter from sourceRoot on a rerun', () => {

@@ -263,7 +263,6 @@ export function proveArchiveAcceptance({
   const rustRoot = path.join(root, 'rust');
   const env = {
     ...environment,
-    CARGO_BUILD_JOBS: '2',
     CARGO_PROFILE_DEV_DEBUG: '0',
     CARGO_INCREMENTAL: '0',
     TMT_UPGRADE_OLD_ARCHIVE: before.archive,

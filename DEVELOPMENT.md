@@ -2020,13 +2020,15 @@ the `upgrade` hold marker carries that reason with the run URL.
 For CLI, each `prove` host also runs the real-archive adapter acceptance test after
 the installer/migration proof, using the same digest-checked previous and candidate
 archives. `release-upgrade.mjs acceptance` compiles only `tmt-adapters`' lib tests
-from `rust/` to select its pinned toolchain, with two Cargo workers, no debug
-information or incremental compilation, then
+from `rust/` to select its pinned toolchain, with no debug information or
+incremental compilation, then
 requires exactly one discovered and executed passing ignored test. The existing
 read-only `native-rust` dependency cache is restored without another writer. The
 job retains its ten-minute timeout; compile duration and the test's output appear
 in the run summary and proof log. A compiler, discovery or test failure fails the
-upgrade gate. Extension proofs do not compile or run this CLI test.
+upgrade gate. CI uses Cargo's available workers; local developers export
+`CARGO_BUILD_JOBS=2`, which the verifier preserves. Extension proofs do not compile
+or run this CLI test.
 
 The adapter proof injects canonical acquisition responses into the release's
 upgrade adapter and executes real old/new binaries in isolated state. It verifies
