@@ -3633,8 +3633,8 @@ Tab/Shift-Tab select links in focused notes (Tab keeps pane traversal when none)
 explicit configured bindings win. A first click selects/previews, a click on the
 selected occurrence activates, and Escape clears selection. Plain mode is inert.
 Only `tmt:jump/back/talk/answer/open/copy/annotate` are admitted. Except `back`,
-`/<member-name-or-id>` must resolve to a current row. Optional `?text=` is bounded
-percent-decoded composer text for talk/answer/annotate only. Those verbs reuse
+`/<member-name-or-id>` must resolve to a current row or the separately projected
+lead. Optional `?text=` is bounded percent-decoded composer text for talk/answer/annotate only. Those verbs reuse
 existing prompts/request pickers; submission revalidates sender, squad, member,
 lead or open request after refresh. Answer uses the existing public core answer
 adapter. Undefined/invalid schemes are plain and cannot dispatch.

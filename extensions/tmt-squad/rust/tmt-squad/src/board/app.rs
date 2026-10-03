@@ -1156,6 +1156,11 @@ impl App {
             .iter()
             .flat_map(|section| section["rows"].as_array().into_iter().flatten())
             .find(|row| row["name"].as_str() == Some(name) || row["id"].as_str() == Some(name))
+            .or_else(|| {
+                let lead = &self.view.as_ref()?.document["squad"]["lead"];
+                (lead["name"].as_str() == Some(name) || lead["id"].as_str() == Some(name))
+                    .then_some(lead)
+            })
     }
 
     pub(super) fn selected_link(&self) -> Option<super::markdown::Link> {
@@ -3055,6 +3060,7 @@ mod link_tests {
             assert!(app.input.is_none());
             app.activate_link();
             app.view.as_mut().unwrap().document["sections"][0]["rows"] = json!([]);
+            app.view.as_mut().unwrap().document["squad"]["lead"] = serde_json::Value::Null;
             assert_eq!(enter(&mut app), Effect::None);
             assert!(app.notice.as_ref().unwrap().contains("nothing sent"));
         }
@@ -3106,6 +3112,13 @@ mod link_tests {
             assert_eq!(app.activate_link(), Effect::None);
             assert!(app.input.is_none() && app.menu.is_none());
         }
+        let mut lead = app("tmt:jump/Lead");
+        lead.view.as_mut().unwrap().document["squad"]["lead"] =
+            json!({"id":"lead-id", "name":"Lead"});
+        assert_eq!(
+            lead.activate_link(),
+            Effect::Act(Request::Jump("Lead".into()))
+        );
         let mut app = app("tmt:jump/auth-fix");
         assert_eq!(
             app.activate_link(),
