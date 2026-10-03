@@ -1,0 +1,67 @@
+---
+source: site/src/chapters/drv-codex.mdx
+sourceRevision: fc0f8b7b6a08b2b55775302b0aa147fb1c986ec6
+title: Codex
+---
+
+import { Cmd } from "../../components/Cmd";
+import { components as Mdx } from "../../components/mdx";
+import { DriverCard } from "../../components/samples";
+
+<DriverCard
+  name="Codex"
+  kind="runtime driver"
+  spec={[
+    [
+      "認得什麼",
+      "透過 Codex hook 取得每個 thread 的 id。不論 Codex 獨自在窗格裡執行，或多個窗格共用同一個 Codex app server，都能運作。",
+    ],
+    [
+      "共用伺服器",
+      <>
+        tmt 只相信精確的 thread 比對，所以不會把同一台伺服器上的兩個 agent 搞混。
+        如果分不清楚，會明說，並要求指定 <code>--identity</code>。
+      </>,
+    ],
+    [
+      "恢復",
+      <>
+        <code>tmt resume &lt;name&gt;</code> 會用同一個模型重新開啟屬於這個 identity 的 thread。
+      </>,
+    ],
+    ["設定", <code>tmt setup codex</code>],
+  ]}
+/>
+
+<Mdx.h3 id="connect-it">接上 tmt</Mdx.h3>
+
+<Cmd>{`
+$ tmt setup codex           # 列出確切的設定變更，再詢問你
+$ tmt run builder codex     # 以 "builder" 的名稱啟動 Codex
+$ tmt resume builder        # 重新開啟 builder 自己的 thread
+`}</Cmd>
+
+Setup 會為 tmt 加入 Codex 的生命週期 hook。Codex 第一次會詢問你是否信任新的 hook，這是正常的。`tmt setup codex --remove` 會移除它們。
+
+<Mdx.h3 id="message-delivery">訊息傳送</Mdx.h3>
+
+`tmt run <name> codex` 和 `tmt resume <name>` 預設用一般的貼上方式傳送訊息。加上 `--channel` 才會使用 Codex 原生的訊息通道。使用通道時，`talk` 會透過私有 app-server 將輸入排入佇列，不會貼進窗格，也不會打斷你的輸入。每個通道 session 都會多啟動一個由 tmt 管理的 app-server 行程與一個 supervisor；前景程式結束時，包括按下 Ctrl-C，tmt 都會清理它們。
+
+[啟動與恢復的選項](/working#tmt-run)讓你選擇一般貼上傳送，或要求使用通道。
+
+<Cmd>{`
+$ tmt run --channel builder codex    # 選擇使用通道
+$ tmt resume --channel builder       # 要求這個確切的 thread 使用通道
+`}</Cmd>
+
+如果 tmt 尚未測試你的 Codex 版本，或無法在啟動前安全地建立指定通道，`--channel` 就會失敗。Codex 0.160.0 目前用通道啟動新的 session 時，會在接上程式的過程中失敗；這個問題修好前，請使用預設的一般啟動方式。如果窗格可能已經接上通道，tmt 不會改用貼上方式。加入通道後，通道尚未就緒或無法傳送都會回報錯誤；tmt 不會改把訊息貼進該窗格。
+
+Codex 可能會詢問你是否信任啟動時的資料夾。請自己在它的 TUI 回答。tmt 不會代答或變更信任設定；已被佇列接受的輸入，可能會等你完成連接才送出。直接執行 `codex` 的方式不變；為了加入通道，tmt 不會變更任何全域 Codex 設定、認證或 hook。
+
+<Mdx.h3 id="codex-s-sandbox">Codex 的沙箱</Mdx.h3>
+
+在 Codex 的 workspace-write 沙箱裡，Codex 預設無法寫入 tmt 的資料目錄。tmt 會用 `STORAGE_NOT_WRITABLE` 清楚回報目錄路徑，不會當掉。你可以允許存取該目錄，例如把它加入 Codex 的 `writable_roots`，或讓 Codex 透過自己的權限提升機制執行指令。tmt 不會變更 Codex 的沙箱設定；agent 也不應在未經你同意時變更它。
+
+<Mdx.h3 id="usage-counters">用量計數</Mdx.h3>
+
+`tmt setup codex --usage` 會加入一個每輪結束時執行的 hook，記錄 Codex 的 context 大小與已完成請求使用的 token 數；欄位請看[用量計數](/drivers#usage-counters)。Codex 會回報 context window，所以 `windowTokens` 會有值。Codex 的計數沿用 provider 自己持續累加的總量：第一次讀取作為起點，之後的輪次再加上去。
