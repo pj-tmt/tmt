@@ -218,8 +218,8 @@ describe('Remote owner-device operations (#1055)', () => {
           // changed authority, not a stale session or replayed request.
           const expired = await owner.post('append', owner.opening(device, paired));
           expect(expired.status).toBe(404);
-          expect(expired.rawBody).toBe('');
-          expect(expired.body).toBeNull();
+          expect(expired.rawBody).toBe('{}');
+          expect(expired.body).toEqual({});
           expect(expired.headers['set-cookie']).toBeUndefined();
           expect(owner.coreCalls().filter((call) => call.operation === 'dispatch.create')).toEqual(
             effects
@@ -280,8 +280,9 @@ describe('Remote owner-device operations (#1055)', () => {
           ).toMatchObject({ identities: [{ id: allowed, found: true }] });
           const check = await session.append('check', { agentId: allowed, lines: 10 });
           const localCheck = expectJsonResult(
-            await fixture.runJsonCli(['check', allowed, '--lines', '10'])
+            await fixture.runJsonCli(['check', 'remote-read', '--lines', '10'])
           );
+          expect(check).toMatchObject({ target: 'remote-read', lines: 10 });
           expect(check).toEqual(localCheck);
           expect(await session.append('result', { requestId })).toEqual({
             state: 'pending',
