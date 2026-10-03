@@ -3995,9 +3995,11 @@ bundle, `verification-failed.json` parks a failed draft), so a replaced or cance
 loses nothing and a known-bad commit is not rebuilt. `release.yml` runs release-please
 (the CLI pinned in `.github/release-please`, configured by the generated
 `release-please-config.json`) on every push to `main`, documentation included: it
-opens one release pull request per component, enables auto-merge on at most one (through
-required checks and the merge queue), creates the draft release for a merged
-one, and starts the per-product run for each product that has a draft without a bundle. A
+reconciles merged release PRs through `github-release` first, checks fresh REST
+draft evidence (including drafts created in this run), prepares/dequeues stale
+queued candidates, then refreshes one release PR per unheld component and enables
+auto-merge on at most one (through required checks and the merge queue). It starts
+the per-product run for each product that has a draft without a bundle. A
 GitHub App token, created only in that job and only in a live run on `main`, is what lets
 the release pull requests run the required checks; the job runs in the `release`
 Environment and the App credentials are secrets of that Environment, restricted to `main`.
@@ -4006,11 +4008,11 @@ Until they exist every push is a dry run that opens, merges, creates and starts 
 single-active auto-merge selection under the workflow's existing concurrency group.
 The pre-check completes discovery and skips `release-pr` only when the queued
 candidates' head-matched REST notes pass `checkReleaseNotes` against fetched
-`origin/main`, preserving the candidate and continuing `github-release`. Proven invalid or incomplete
+`origin/main`, preserving the candidate after `github-release` has run. Proven invalid or incomplete
 notes require the queue owner to recheck the observed PR identity, head and queue entry,
 then dequeue it once with the release App token before regeneration. A failed or
 unverified dequeue skips generation and auto-merge enabling with a visible recovery
-summary, while `github-release` and downstream draft processing continue. Dry runs
+summary after `github-release`, while downstream draft processing continues. Dry runs
 only report the planned dequeue. Acquisition and metadata failures during initial
 coverage discovery remain visible failures. Full checkout history and tags support the
 shared safety owner; the queue owner has no second coverage policy. Complete discovery precedes
@@ -4040,7 +4042,8 @@ before verifying their title/repository/base metadata and current notes in the
 cumulative pending range. Ordinary PR metadata mismatches do not fail this gate.
 Body/title edits do not restart full PR CI; the merge-group REST read gates the current body.
 Missing or inconsistent anchors, notes, queue data and bounded discovery fail visibly.
-The same owner checks every manifest component version before release-please:
+The same owner checks every manifest component version after `github-release`
+and before `release-pr`, using fresh REST reads:
 a visible matching draft without an exact git tag holds only its manifest path.
 The workflow passes held paths to the pinned wrapper, whose ManifestPlugin hook
 filters those path-aware candidates before separate PRs are emitted or updated.

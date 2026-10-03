@@ -241,6 +241,31 @@ describe('release workflow (release.yml)', () => {
     );
   });
 
+  it('reconciles merged releases before fresh draft discovery, queue preparation and PR refresh', () => {
+    const please = job(release, 'release-please');
+    const names = [
+      'Create releases for merged release pull requests',
+      'Check for a tagless manifest draft',
+      'Run release-please',
+      'Enable auto-merge for one release pull request',
+    ];
+    const positions = names.map((name) => please.indexOf(`- name: ${name}`));
+    for (let index = 1; index < positions.length; index++)
+      expect(positions[index]).toBeGreaterThan(positions[index - 1]);
+    const reconcile = releasePleasePart(please, names[0]);
+    expect(reconcile).toContain('release-please-run.mjs github-release');
+    expect(reconcile).toContain('github-release failed; release-pr was not attempted.');
+    expect(reconcile).toContain('exit "$status"');
+    const draft = releasePleasePart(please, names[1]);
+    expect(draft).toContain('RELEASE_TOKEN: ${{ steps.app.outputs.token || github.token }}');
+    const refresh = releasePleasePart(please, names[2]);
+    expect(refresh.indexOf('release-please-queue.mjs')).toBeLessThan(
+      refresh.indexOf('release-please-run.mjs release-pr')
+    );
+    expect(refresh).toContain('TAGLESS_DRAFT_PATHS: ${{ steps.draft.outputs.held_paths }}');
+    expect(refresh).not.toContain('release-please-run.mjs github-release');
+  });
+
   it('holds the release App token in one step of one job, only in a live run, pinned by commit', () => {
     const uses = [...release.matchAll(/uses: actions\/create-github-app-token@(\S+) # (v\S+)/g)];
     expect(uses).toHaveLength(1);
@@ -300,12 +325,12 @@ describe('release workflow (release.yml)', () => {
     const releasePlease = job(release, 'release-please');
     expect(releasePlease).toContain('pnpm install --frozen-lockfile --ignore-scripts');
     expect(releasePlease).toContain('working-directory: .github/release-please');
-    expect(releasePlease).toContain('for command in release-pr github-release; do');
     expect(releasePlease).toContain('LIVE: ${{ steps.mode.outputs.live }}');
     expect(releasePlease).toContain('set -o pipefail');
-    expect(releasePlease).toContain(
-      'node ../../typescript/scripts/release-please-run.mjs "$command"'
-    );
+    for (const command of ['github-release', 'release-pr'])
+      expect(releasePlease).toContain(
+        `node ../../typescript/scripts/release-please-run.mjs ${command}`
+      );
     // Candidate construction and dry/live mutation controls are exercised by release-config tests.
     expect(releasePlease).not.toMatch(/googleapis\/release-please-action/);
   });

@@ -79,6 +79,25 @@ jobs:
       - name: Install the pinned release-please
         working-directory: .github/release-please
         run: pnpm install --frozen-lockfile --ignore-scripts
+      # Reconcile merged release PRs first: the pin refuses PR updates while one is untagged.
+      - name: Create releases for merged release pull requests
+        working-directory: .github/release-please
+        env:
+          RELEASE_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          LIVE: ${{ steps.mode.outputs.live }}
+        run: |
+          set -o pipefail
+          dry=" (dry run)"
+          if [ "$LIVE" = true ]; then dry=; fi
+          printf '### release-please github-release%s\n\n```\n' "$dry" >> "$GITHUB_STEP_SUMMARY"
+          if node ../../typescript/scripts/release-please-run.mjs github-release 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"; then
+            printf '```\n\n' >> "$GITHUB_STEP_SUMMARY"
+          else
+            status=$?
+            printf '```\n\ngithub-release failed; release-pr was not attempted.\n' | tee -a "$GITHUB_STEP_SUMMARY" >&2
+            exit "$status"
+          fi
+      # Fresh App-token REST reads include tagless drafts created by github-release in this run.
       - name: Check for a tagless manifest draft
         id: draft
         env:
@@ -97,24 +116,17 @@ jobs:
           printf 'queue_skipped=false\nqueue_blocked=false\n' >> "$GITHUB_OUTPUT"
           dry=" (dry run)"
           if [ "$LIVE" = true ]; then dry=; fi
-          for command in release-pr github-release; do
-            if [ "$command" = release-pr ]; then
-              decision=$(node ../../typescript/scripts/release-please-queue.mjs)
-              if [ "$decision" = blocked ]; then
-                printf 'queue_skipped=true\nqueue_blocked=true\n' >> "$GITHUB_OUTPUT"
-                continue
-              fi
-              if [ "$decision" = skip ]; then
-                printf 'queue_skipped=true\n' >> "$GITHUB_OUTPUT"
-                continue
-              fi
-              if [ "$TAGLESS_DRAFT" = true ]; then continue; fi
-            fi
-            printf '### release-please %s%s\n\n```\n' "$command" "$dry" >> "$GITHUB_STEP_SUMMARY"
-            # The wrapper uses the pinned API; config, manifest and component map come from main.
-            node ../../typescript/scripts/release-please-run.mjs "$command" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          decision=$(node ../../typescript/scripts/release-please-queue.mjs)
+          if [ "$decision" = blocked ]; then
+            printf 'queue_skipped=true\nqueue_blocked=true\n' >> "$GITHUB_OUTPUT"
+          elif [ "$decision" = skip ]; then
+            printf 'queue_skipped=true\n' >> "$GITHUB_OUTPUT"
+          elif [ "$TAGLESS_DRAFT" != true ]; then
+            printf '### release-please release-pr%s\n\n```\n' "$dry" >> "$GITHUB_STEP_SUMMARY"
+            # The wrapper uses a fresh pinned Manifest against main after release reconciliation.
+            node ../../typescript/scripts/release-please-run.mjs release-pr 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
             printf '```\n\n' >> "$GITHUB_STEP_SUMMARY"
-          done
+          fi
       # Only one release PR is enabled at a time: separate components share the manifest.
       # The merge queue tests current main without rewriting an unchanged PR's CI head.
       - name: Enable auto-merge for one release pull request
