@@ -10,7 +10,7 @@ use crate::{
     attention::Attention,
     config::{BoardMode, NotesRender, Pane, TabColors},
     requests::{BODIES, age},
-    rows::{Cell as RowCell, Rows},
+    rows::Rows,
     split::Split,
 };
 use ratatui::{
@@ -23,7 +23,7 @@ use ratatui::{
 use serde_json::Value;
 use tmt_cli_style::{
     Role,
-    grid::{self, Align, Truncate},
+    grid::{Align, Truncate},
     mark::Mark,
 };
 use unicode_width::UnicodeWidthStr;
@@ -194,17 +194,12 @@ fn help_lines(app: &App) -> Vec<String> {
 
 /// Exactly `width` display cells: truncated with an ellipsis, or padded.
 pub fn fit(text: &str, width: usize) -> String {
-    grid::fit(text, width, Align::Left, Truncate::End)
-}
-
-/// A row's value for a field: `member` is its name, `pending` what it waits
-/// on you for; anything else comes from its fields.
-fn cell_text<'a>(row: &'a Value, field: &str) -> Option<&'a str> {
-    match field {
-        "member" => row["name"].as_str(),
-        "pending" => row["pending"].as_str(),
-        field => row["fields"][field].as_str(),
-    }
+    tmt_tui::text::fit_line(
+        text,
+        width.min(usize::from(u16::MAX)) as u16,
+        tmt_tui::style::TextFlow::Truncate,
+        Align::Left,
+    )
 }
 
 /// Space between grid columns.
@@ -217,26 +212,27 @@ const GAP: usize = 1;
 fn grid_line(
     look: crate::look::Look,
     rows: &Rows,
-    widths: &[Option<usize>],
-    cells: &[RowCell],
+    layout: &crate::markup::Grid,
+    admitted: &tmt_tui::binding::Node,
     row: &Value,
-    first: bool,
+    line: usize,
     selected: bool,
 ) -> Option<Vec<Vec<Span<'static>>>> {
+    let first = line == 0;
     let mut fitted = Vec::new();
     let mut position = 0;
     let mut shown_any = false;
-    for cell in cells {
+    for (cell, admitted) in rows.lines[line]
+        .iter()
+        .zip(&admitted.children[line].children)
+    {
         let range = position..position + cell.span;
         position += cell.span;
-        if widths[range.clone()].iter().all(Option::is_none) {
+        let Some(box_width) = layout.span(range.clone()) else {
             continue;
-        }
-        let width = grid::span(widths, range.clone(), GAP);
-        let value = cell
-            .field
-            .as_deref()
-            .and_then(|field| cell_text(row, field));
+        };
+        let width = box_width.visible;
+        let value = admitted.text.as_deref();
         shown_any |= value.is_some_and(|value| !value.is_empty());
         let text = match (value, &cell.field, first) {
             (Some(value), _, _) => value,
@@ -272,13 +268,7 @@ fn grid_line(
                     .is_some_and(|role| matches!(role, Role::Waiting | Role::Blocked)));
         let style = look.row_span(selected, style, emphasize);
         fitted.push((
-            grid::fit_lines(
-                text,
-                width,
-                column.align,
-                column.truncate,
-                column.overflow.unwrap_or_default(),
-            ),
+            crate::markup::fitted(text, box_width, admitted.style.text_flow, column.align),
             style,
             width,
         ));
@@ -1348,6 +1338,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         frame.render_widget(Paragraph::new(message), area);
         return;
     };
+    let Some(tab) = app.shown_tab() else { return };
     let rows = &view.rows;
     let mut derived = view.derived.borrow_mut();
     let available = usize::from(area.width).saturating_sub(2);
@@ -1362,10 +1353,10 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
             app.items()
                 .into_iter()
                 .filter_map(|item| match item {
-                    Item::Row(row) => cell_text(row, field),
+                    Item::Row(row) => crate::markup::value(row, field),
                     Item::Header(_) => None,
                 })
-                // Measured as drawn: `grid::fit` shows control characters escaped.
+                // Content demand is unwrapped; measured width is a capped upper bound.
                 .map(|value| tmt_cli_style::table::escape(value).width())
                 .chain([rows.columns[index].title.width()])
                 .max()
@@ -1375,7 +1366,13 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         // mark when a row has one, unless that would hide a column: then the
         // marks give way.
         let available = usize::from(area.width).saturating_sub(2);
-        let widths = rows.solve(natural, available, GAP);
+        let layout = match crate::markup::Grid::compile(rows, natural, available) {
+            Ok(layout) => layout,
+            Err(error) => {
+                frame.render_widget(Paragraph::new(format!("Row layout: {error}")), area);
+                return;
+            }
+        };
         let ages = app
             .items()
             .into_iter()
@@ -1385,37 +1382,56 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
             })
             .map(|age| age.width() + GAP)
             .max();
-        let widths = match ages {
+        let layout = match ages {
             Some(age) => {
-                let reserved = rows.solve(natural, available.saturating_sub(age), GAP);
-                let shown = |widths: &[Option<usize>]| widths.iter().flatten().count();
-                if shown(&reserved) == shown(&widths) {
-                    reserved
-                } else {
-                    widths
+                match crate::markup::Grid::compile(rows, natural, available.saturating_sub(age)) {
+                    Ok(reserved)
+                        if reserved.columns.iter().flatten().count()
+                            == layout.columns.iter().flatten().count() =>
+                    {
+                        reserved
+                    }
+                    _ => layout,
                 }
             }
-            None => widths,
+            None => layout,
+        };
+        let cells = match crate::markup::row_values(rows, tab, app.rows()) {
+            Ok(cells) => cells,
+            Err(error) => {
+                frame.render_widget(Paragraph::new(format!("Row values: {error}")), area);
+                return;
+            }
         };
         derived.grid = Some(super::derived::Grid {
             width: available,
             search: app.search.clone(),
-            widths,
+            layout,
+            cells,
         });
     }
-    let widths = &derived.grid.as_ref().expect("prepared grid").widths;
+    let layout = &derived.grid.as_ref().expect("prepared grid").layout;
     let mut lines = vec![Line::from(Span::styled(
         format!(
             "  {}",
             rows.columns
                 .iter()
-                .zip(widths)
-                .filter_map(|(column, width)| width.map(|width| grid::fit(
-                    &column.title,
-                    width,
-                    column.align,
-                    column.truncate
-                )))
+                .enumerate()
+                .filter_map(|(index, column)| {
+                    layout.span(index..index + 1).map(|box_width| {
+                        crate::markup::fitted(
+                            &column.title,
+                            box_width,
+                            if column.truncate == Truncate::Middle {
+                                tmt_tui::style::TextFlow::Middle
+                            } else {
+                                tmt_tui::style::TextFlow::Truncate
+                            },
+                            column.align,
+                        )
+                        .remove(0)
+                    })
+                })
                 .collect::<Vec<_>>()
                 .join(&" ".repeat(GAP))
         ),
@@ -1451,10 +1467,17 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 } else {
                     Style::new()
                 };
-                for (index, cells) in rows.lines.iter().enumerate() {
+                for index in 0..rows.lines.len() {
                     let first = index == 0;
-                    let Some(cells) = grid_line(look, rows, widths, cells, row, first, selected)
-                    else {
+                    let Some(cells) = grid_line(
+                        look,
+                        rows,
+                        layout,
+                        &derived.grid.as_ref().expect("prepared grid").cells[row_index],
+                        row,
+                        index,
+                        selected,
+                    ) else {
                         continue;
                     };
                     for (visual, cells) in cells.into_iter().enumerate() {
@@ -1638,6 +1661,110 @@ mod tests {
     }
 
     #[test]
+    fn admitted_ids_belong_to_the_shown_view_during_load_resize_and_search() {
+        use crate::board::app::tests::snapshot;
+        let sections = json!([{"title":null,"rows":[{"id":"member-a","name":"worker","fields":{"task":"work"}}]}]);
+        let mut app = App::new(Some("product".into()));
+        assert_eq!(app.shown_tab(), None);
+        draw(&app, 120, 30);
+        assert!(app.view.is_none());
+        app.apply(snapshot("product", sections.clone()));
+        let id = |app: &App| {
+            let view = app.view.as_ref().unwrap();
+            let derived = view.derived.borrow();
+            derived.grid.as_ref().unwrap().cells[0].id.clone().unwrap()
+        };
+        draw(&app, 120, 30);
+        let a = id(&app);
+        assert_eq!(&a[..3], &["tab:product", "section-0", "squad:product"]);
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)),
+            Effect::Load("infra".into())
+        );
+        assert!(app.loading());
+        app.search = "worker".into();
+        for width in [80, 120] {
+            draw(&app, width, 30);
+            assert_eq!(id(&app), a);
+        }
+        app.apply(snapshot("infra", sections));
+        draw(&app, 80, 30);
+        let b = id(&app);
+        assert_eq!(&b[..3], &["tab:infra", "section-0", "squad:infra"]);
+        assert_ne!(a, b);
+        assert!(!app.loading());
+        app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        draw(&app, 120, 30);
+        assert_eq!(id(&app), a);
+        assert!(!app.loading(), "cached switch restores the view's identity");
+    }
+
+    #[test]
+    fn admitted_rows_reuse_selection_cache_and_resize_at_scale() {
+        use std::time::Instant;
+        for sample in 0..7 {
+            for count in [10, 100, 1000] {
+                let members: Vec<_> = (0..count)
+                    .map(|i| {
+                        row(
+                            &format!("worker-{i}"),
+                            "working",
+                            "wide 文件 e\u{301}👩‍💻 task",
+                            json!({"id":format!("member-{i}")}),
+                        )
+                    })
+                    .collect();
+                let mut app = board(json!([{"title":null,"rows":members}]));
+                let start = Instant::now();
+                draw(&app, 120, 30);
+                let cold = start.elapsed();
+                let (pointer, ids) = {
+                    let derived = app.view.as_ref().unwrap().derived.borrow();
+                    let cells = &derived.grid.as_ref().unwrap().cells;
+                    assert_eq!(cells.len(), count);
+                    (
+                        cells.as_ptr(),
+                        cells.iter().map(|cell| cell.id.clone()).collect::<Vec<_>>(),
+                    )
+                };
+                app.selected = count - 1;
+                let start = Instant::now();
+                draw(&app, 120, 30);
+                let selected = start.elapsed();
+                assert_eq!(
+                    app.view
+                        .as_ref()
+                        .unwrap()
+                        .derived
+                        .borrow()
+                        .grid
+                        .as_ref()
+                        .unwrap()
+                        .cells
+                        .as_ptr(),
+                    pointer
+                );
+                let start = Instant::now();
+                draw(&app, 80, 30);
+                let resize = start.elapsed();
+                let derived = app.view.as_ref().unwrap().derived.borrow();
+                let cells = &derived.grid.as_ref().unwrap().cells;
+                assert_eq!(
+                    cells.iter().map(|cell| cell.id.clone()).collect::<Vec<_>>(),
+                    ids
+                );
+                assert_eq!(
+                    cells.last().unwrap().row_id.as_deref(),
+                    Some(format!("member-{}", count - 1).as_str())
+                );
+                println!(
+                    "markup rows sample={sample} count={count} cold={cold:?} selection={selected:?} resize={resize:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn uncovered_source_columns_do_not_squeeze_the_drawn_grid() {
         let config: toml_edit::DocumentMut = include_str!("../rows/fixtures/uncovered-tracks.toml")
             .parse()
@@ -1671,7 +1798,8 @@ mod tests {
                     .grid
                     .as_ref()
                     .unwrap()
-                    .widths[4..],
+                    .layout
+                    .columns[4..],
                 [None, None]
             );
         }
@@ -1774,7 +1902,8 @@ mod tests {
                 .grid
                 .as_ref()
                 .unwrap()
-                .widths
+                .layout
+                .columns
                 .clone();
             assert!(
                 widths[..3].iter().all(Option::is_some),
@@ -1796,7 +1925,7 @@ mod tests {
         draw(&app, 80, 42);
         let view = app.view.as_ref().unwrap();
         let derived = view.derived.borrow();
-        let widths = &derived.grid.as_ref().unwrap().widths;
+        let widths = &derived.grid.as_ref().unwrap().layout.columns;
         assert!(widths[..3].iter().all(Option::is_some));
         assert!(widths[3..].iter().all(Option::is_none));
     }
@@ -2195,8 +2324,16 @@ columns = [{ name = "member", width = "30%" },
         for state in ["blocked", "blocked-on-ci"] {
             let row =
                 json!({"state": state, "fields": {"state": state}, "colors": {"state": "review"}});
-            let spans =
-                grid_line(look, &rows, &[Some(20)], &rows.lines[0], &row, true, false).unwrap();
+            let spans = grid_line(
+                look,
+                &rows,
+                &crate::markup::Grid::compile(&rows, |_| 20, 20).unwrap(),
+                &crate::markup::row_values(&rows, "product", vec![(0, &row)]).unwrap()[0],
+                &row,
+                0,
+                false,
+            )
+            .unwrap();
             assert_eq!(spans.len(), 1);
             assert_eq!(spans[0][0].style.fg, look.named("review").fg);
             assert_eq!(spans[0][0].content.trim(), state);
@@ -2204,10 +2341,10 @@ columns = [{ name = "member", width = "30%" },
             let spans = grid_line(
                 look,
                 &rows,
-                &[Some(20)],
-                &rows.lines[0],
+                &crate::markup::Grid::compile(&rows, |_| 20, 20).unwrap(),
+                &crate::markup::row_values(&rows, "product", vec![(0, &plain)]).unwrap()[0],
                 &plain,
-                true,
+                0,
                 false,
             )
             .unwrap();
@@ -2279,8 +2416,10 @@ lines = [
                 let selection = look.selection();
                 let view = app.view.as_ref().unwrap();
                 let derived = view.derived.borrow();
-                let widths = &derived.grid.as_ref().unwrap().widths;
-                let grid_width = 2 + grid::span(widths, 0..view.rows.columns.len(), GAP);
+                let widths = &derived.grid.as_ref().unwrap().layout.columns;
+                let grid_width = 2
+                    + widths.iter().flatten().sum::<usize>()
+                    + GAP * widths.iter().flatten().count().saturating_sub(1);
                 for y in first..end {
                     // The first line's age extends to the edge; later lines
                     // keep the existing fixed-width grid extent.

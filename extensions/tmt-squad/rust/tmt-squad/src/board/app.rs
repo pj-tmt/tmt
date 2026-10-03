@@ -344,7 +344,7 @@ impl App {
     }
 
     /// Section index and row for every row matching the search.
-    fn rows(&self) -> Vec<(usize, &Value)> {
+    pub(super) fn rows(&self) -> Vec<(usize, &Value)> {
         let Some(view) = &self.view else {
             return Vec::new();
         };
@@ -395,6 +395,11 @@ impl App {
         self.follow = true;
         self.reconcile_folds();
         self.clamp();
+    }
+
+    /// Tab owning the retained view, even while another tab loads.
+    pub(super) fn shown_tab(&self) -> Option<&str> {
+        self.shown.as_deref()
     }
 
     /// The view on screen belongs to another squad while a switch loads.

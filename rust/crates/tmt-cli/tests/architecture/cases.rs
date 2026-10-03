@@ -1674,9 +1674,18 @@ fn tui_admission_is_an_internal_presentation_leaf() {
     assert!(
         policy::dependency_violations(&package(
             "tmt-squad",
-            vec![dependency("tmt-tui", "dev", None, None)]
+            vec![dependency("tmt-tui", "normal", None, None)]
         ))
         .is_empty()
+    );
+    assert_eq!(
+        policy::dependency_violations(&package(
+            "tmt-squad",
+            vec![dependency("tmt-tui", "dev", None, None)]
+        ))
+        .len(),
+        1,
+        "the production row owner must not regress to a dev-only edge"
     );
     assert_exact(
         &[syntax("tmt-squad", "markup.rs", "use tmt_tui::binding;")],

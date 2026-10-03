@@ -1191,7 +1191,11 @@ caller-owned selection, clipped identity precedence, wide edge blanks and
 recorded-width/fractional measure–paint agreement. Run the architecture test for
 dependency changes, and
 `cargo test --locked -p tmt-squad` for its in-memory source adapter and frozen
-board/list parity fixture.
+board/list parity fixture, projected and retained-view loading identities,
+coverage, priority and CSS clamp/default-min mapping. Board fitting uses the shared grapheme owner;
+CLI lists retain their scalar fitter. `text::measure` width is a capped upper
+bound, not the widest wrapped line: derive intrinsic demand from unwrapped
+escaped content; measurement and fitting share the recorded text width.
 The parity harness captures the three explicit presets and the team default at
 120×30, 80×30 and 120×30 again,
 including every cell's style/state, hits, row starts and list text/JSON. Its source
@@ -1209,8 +1213,9 @@ The internal utilities use one spelling per value kind:
   `grow-N`, `shrink-N`, `gap-N`, `gap-x-N`, `gap-y-N`, `p-N`, `px-N`, `py-N`,
   `col-span-N`, `line-clamp-N`; also `grow`, `shrink`, `w-full`, `h-full`.
 - Percentages/tracks: `w-[N%]`, `h-[N%]`, `basis-[N%]`, `grid-cols-[tracks]`.
-  Grid tracks are underscore-separated cells, percentages, integer `Nfr`, or
-  `minmax(a,b)` (no fr minimum).
+  Grid tracks are underscore-separated cells, percentages, integer `Nfr`, `auto`,
+  or `minmax(a,b)` (no fr minimum). `auto` is also admitted as the minimum in
+  `minmax(auto,N)`; it is not admitted as a minmax maximum.
 
 `N` is ASCII decimal 0..4096, in terminal cells or integer weights/counts;
 spans/clamps must be positive. Percentages are integers 0..100. Unlike Tailwind,
@@ -1226,7 +1231,8 @@ Sizes/basis default to auto, gaps/padding/grow to zero, and shrink to one.
 Text defaults to clipping; leaf `wrap="true"`/`"false"` conflicts with all
 text-flow utilities. `token` names a shared `Role`; omission preserves inheritance.
 
-Geometry consumes already selected tracks: Squad owns priority hiding (#774).
+Geometry consumes already selected tracks: Squad owns priority hiding. Optional
+tracks must fit their full mapped minimums; only non-priority overflow can cut.
 CSS percentages use the parent's content box; gaps can cause grid overflow.
 Earlier tracks retain sizes; the cut cell needs four visible cells or hides whole.
 One injected scalar measurer owns intrinsic metrics and wrapping/clamp; paint

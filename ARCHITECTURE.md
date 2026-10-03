@@ -44,7 +44,7 @@ layout permission does not change component ownership, CI selection or release p
 | `contracts/`              | Core public contracts and their normative fixtures.                                                                                    |
 | `scripts/`                | Shared root shell/build/development helpers.                                                                                           |
 | `skills/`                 | Canonical bundled user-agent guidance.                                                                                                 |
-| `site/`                   | User handbook and its build; handbook text remains owned by tmt-lead. Translated pages: `site/src/i18n/<lang>/`.                       |
+| `site/`                   | User handbook and its build; handbook text remains owned by tmt-design-lead. Translated pages: `site/src/i18n/<lang>/`.                |
 | `design/`                 | Shared design tokens and CLI style guidance.                                                                                           |
 
 Homes of moved guidance:
@@ -888,15 +888,14 @@ Text measurement and painting share its recorded integer width; fractional
 spare cells are styled blanks inside hits; alignment uses the recorded width.
 A cut grid cell preserves its logical width/height, exposes at least four visible
 cells or hides whole; painting fits each visual line to the clip with end/middle
-ellipsis. Squad owns priority selection before geometry, not Taffy; production
-adoption remains later slices. Markup percentages use CSS content-box shares
-with gaps in addition. The
-existing board/list solver retains its after-gap percentage base and largest-
-remainder rounding until board adoption (#774); no percent adapter or correction
-loop joins the models. The guard permits XML parsing, borrowed JSON, shared style,
+ellipsis. Squad owns priority selection before geometry, not Taffy: optional
+tracks fit their mapped minimums whole or step aside; only non-priority overflow
+can cut. Markup and board percentages use CSS content-box shares with gaps in
+addition. CLI lists retain their after-gap percentage base and largest-remainder
+rounding; no percent adapter or correction loop joins these surface policies. The guard permits XML parsing, borrowed JSON, shared style,
 private Taffy geometry and Ratatui buffer painting, never core, adapters, CLI or
 extension behavior.
-`text` owns markup-only grapheme measurement and fitting; `paint` consumes geometry
+`text` owns markup and board grapheme measurement and fitting; `paint` consumes geometry
 preorder into a caller-owned Ratatui buffer. Both use `Cell::text_width`, never the
 rounded spare cell. Cuts ellipsize already measured lines without rewrapping;
 wide graphemes crossing clip edges leave styled blanks. Theme/Depth are injected,
@@ -905,11 +904,16 @@ the complete selected-role style: Squad's Look remains the selection policy owne
 Hits borrow scoped IDs and semantic row IDs, inherit identity, intersect visible
 buffer clips, omit zero areas and resolve in reverse paint order. No input dispatch,
 terminal lifecycle, markdown or provider acquisition lives in this leaf.
-Squad is the sole reviewed product edge, with a test-scoped adapter until the
-row-track compiler adopts it. In #774, the board moves to this grapheme fitter and
-retires its scalar `grid::fit/fit_lines` path; existing CLI lists keep that path.
-The two fitters must not coexist as production policies for the board. Existing
-board and list production paths remain unchanged; `tmt-cli-style::grid` remains the sole row sizing policy.
+Squad is the sole reviewed product edge, through a normal dependency. Its row
+compiler binds already projected display values into bounded admitted cells,
+without acquiring or formatting sources. Occurrence IDs contain tab, authored
+section slot, source squad and member UUID, followed by static line/column keys;
+member order is never identity. `App::shown_tab` supplies the retained view owner
+while another tab loads; resize/search never substitutes the requested tab.
+UUID-free display rows have no actionable IDs.
+Taffy is the board's only row sizing owner and `text` its only scalar fitter;
+`grid::fit/fit_lines` remain only for CLI lists. Squad retains styled row spans,
+selection, scrolling and actions; full markup paint/hit adoption is still #776.
 The private component has no release; its inherited version/lock entry follows
 the workspace, while product notices include only their actual dependency graph.
 
@@ -3107,10 +3111,10 @@ reached through the external command contract as `tmt squad` and, through a
 `tmt-sq` link to the same file, `tmt sq`. Its command name is fixed, never taken
 from argv[0], so both spellings share one help text, error set and completion.
 It is a workspace member for the shared lockfile and toolchain only. Its reviewed
-runtime TMT dependencies are the neutral leaves `tmt-cli-style` and `tmt-invoke`.
-Its `tmt-tui` dev dependency supplies a test-scoped binding adapter borrowing acquired `Member`
-values and reusing `ColumnSource`/`Format`, with no core/provider acquisition or sorting.
-`tmt-tui` becomes a normal dependency when production adopts it (#774/#776).
+runtime TMT dependencies are the neutral leaves `tmt-cli-style`, `tmt-invoke`
+and `tmt-tui`. The production row compiler binds projected display values; the
+test-only source adapter still borrows acquired `Member` values and reuses
+`ColumnSource`/`Format`. Neither compiler acquires core/provider data or sorts.
 No TMT crate depends on Squad; the architecture guard enforces both directions
 for Cargo dependencies and source references. Squad reaches TMT
 through `TMT_EXECUTABLE` (or `tmt` on PATH), using public `--json` commands and
@@ -3194,20 +3198,22 @@ row's `failed` list after a failed run. Readers never run providers: `ls` reads
 the cache (`--refresh-fields` runs what is due first), and the board hands each
 load's members to one fetcher thread that runs due work off the paint path and
 again at the shortest `every`; a save moves the cache directory's stamp, which
-`board::changes` watches, so the board reloads early. The board sizes it with `tmt-cli-style`'s one solver
-(`grid::solve`, `grid::span`, `grid::fit`, `grid::fit_lines`). `rows::Column`
-uses `grid::Basis` for cell or percent widths; bounds stay in cells. `rows::Rows`
-owns positional coverage: cells start at track zero, so the maximum line span
-covers a prefix, including empty cells. `Rows::solve` passes only that prefix to
-the shared solver and pads uncovered trailing positions with `None`, retaining
-span indices. Uncovered columns remain projection sources; their JSON metadata
+`board::changes` watches, so the board reloads early. `markup::Grid` compiles the board's covered tracks
+and configured spans through TUI admission and one Taffy grid computation.
+Squad resolves configured CSS clamp bases and selects priority tracks before
+sizing; growing tracks reuse `rows::NARROWEST` as their default minimum.
+The grid retains geometry's logical text widths and clips for fitting; no
+arithmetic span solver or scalar `grid::fit/fit_lines` remains in the board.
+`rows::Column` still uses `grid::Basis` for cell/percent configuration, with
+cell bounds. `rows::Rows` owns prefix coverage, including empty cells; original
+span positions survive hiding. Uncovered columns remain projection sources; their JSON metadata
 adds optional `valueOnly: true`, omitted for covered columns. `Column::display`
 ignores their sizing settings so flat text lists retain natural values. No shared
-solver or all-covered output contract changes. The solver
-resolves percentages against data width after marks/borders/gaps, rounds by
-largest remainder, clamps cell bounds (percent columns default to a four-cell minimum, capped by an explicit max), then grows. Hiding recomputes the shown set.
-`grid::fit_lines` owns escaped, exact-cell-width bounded wrapping, with a final
-end ellipsis. Column metadata preserves percent strings and adds `overflow`
+CLI solver contract changes. Lists keep after-gap percentages, largest-remainder
+rounding, cell bounds and growth; their hiding recomputes the shown set.
+`grid::fit_lines` remains the list wrapping owner. The board's immutable-view
+width/search cache retains admitted projected row cells and geometry together;
+selection-only frames change styles without rebuilding templates or sizing. Column metadata preserves percent strings and adds `overflow`
 and wrap `max_lines` only when opted in; full row values never change.
 `rows::ListSizing` chooses the text sizing policy once from shown column
 settings: without percent/overflow it keeps legacy list sizing and complete
