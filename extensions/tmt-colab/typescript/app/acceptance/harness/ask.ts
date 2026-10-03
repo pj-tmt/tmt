@@ -4,12 +4,18 @@ import type { Door, PairedBrowser } from './browser.js';
 import type { AcceptanceWorld } from './world.js';
 
 /** Run a real binary with the world's environment; fails with its output. */
-export function run(world: AcceptanceWorld, binary: string, args: string[]): string {
+export function run(
+  world: AcceptanceWorld,
+  binary: string,
+  args: string[],
+  input?: string,
+): string {
   try {
     return execFileSync(binary, args, {
       env: world.env(),
       encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
+      input,
+      stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     });
   } catch (error) {
     const failed = error as { stdout?: string; stderr?: string };
@@ -17,13 +23,6 @@ export function run(world: AcceptanceWorld, binary: string, args: string[]): str
       cause: error,
     });
   }
-}
-
-export function spaceId(world: AcceptanceWorld): string {
-  const listing = JSON.parse(run(world, world.binaries.colab, ['spaces', '--json'])) as {
-    spaces: { spaceId: string }[];
-  };
-  return listing.spaces[0].spaceId;
 }
 
 /** The paired device's Remote client ID, for `devices revoke`. */
@@ -36,25 +35,33 @@ export function clientId(world: AcceptanceWorld, name: string): string {
   return device.clientId;
 }
 
-/**
- * PENDING: v1 has no product path to create a page (tracked by the lead as a
- * `tmt colab page create` bug). Until that command exists this fails visibly;
- * the harness never seeds a page with a test-only producer.
- */
-export function createPage(_world: AcceptanceWorld, _html: string): string {
-  throw new Error('Pending: tmt colab page create is not available yet');
+export interface CreatedPage {
+  pageId: string;
+  /** Relative to the Remote door address: `x/colab/#space=<space>&path=%2Fpages%2F<page>`. */
+  path: string;
 }
 
-/** Open a page in the mounted app as this paired device. */
+/** Create a private page through the real `tmt colab page create` (source on stdin). */
+export function createPage(world: AcceptanceWorld, title: string, html: string): CreatedPage {
+  const created = JSON.parse(
+    run(
+      world,
+      world.binaries.colab,
+      ['page', 'create', '--title', title, '--file', '-', '--json'],
+      html,
+    ),
+  ) as { pageId: string; path: string };
+  return { pageId: created.pageId, path: created.path };
+}
+
+/** Open a created page under the Remote door as this paired device. */
 export async function openPage(
-  world: AcceptanceWorld,
   door: Door,
   browser: PairedBrowser,
-  pageId: string,
+  created: CreatedPage,
 ): Promise<Page> {
   const page = await browser.context.newPage();
-  const path = encodeURIComponent(`/pages/${pageId}`);
-  await page.goto(`${door.mounts}colab/#space=${spaceId(world)}&path=${path}`);
+  await page.goto(`${door.address}/${created.path}`);
   return page;
 }
 

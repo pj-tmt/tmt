@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { openColab, pairBrowser, startDoor } from './harness/browser.js';
-import { withWorld } from './harness/with-world.js';
+import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
+
+test.afterEach(disposeActiveWorlds);
 
 // Proves the harness itself, independent of the Ask agent code: real binaries,
 // real pairing of two browser devices, a recipient whose durable counter and
