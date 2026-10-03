@@ -2783,6 +2783,7 @@ dependencies = [
  "tmt-test-support",
  "toml_edit",
  "tungstenite",
+ "unicode-width",
  "ureq",
  "uuid",
 ]

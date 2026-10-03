@@ -34,6 +34,14 @@ pub struct OriginatorHint {
     pub timeout_ms: u64,
 }
 
+/// Originator-owned request context for notice presentation; never a final body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NoticeContext {
+    pub recipient_id: Option<String>,
+    pub prompt: Option<String>,
+    pub result_id: String,
+}
+
 /// Persisted advisory reply batches and their one-shot transport claims.
 pub mod batch;
 

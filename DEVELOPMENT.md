@@ -1069,6 +1069,13 @@ must fail the positive control. Registry maximum selection is checked with
 `cargo test --locked -p tmt-adapters runtime::tests::maximum_send_duration`.
 Existing `storage::requests::service_tests::notification` tests retain ownership
 of dead-sender recovery and attempted-frame no-replay assertions.
+`cargo test --locked -p tmt-adapters delivery::notices` verifies original-request
+previews, control stripping, Unicode character limits and aligned columns,
+expired-prompt fallback, render-time prefix collisions, and exactly one ID per
+reply row and both timeout forms inside their runnable result commands. Poisoned
+final bytes prove these reads never decode responder bodies. The architecture
+suite checks that display width dependencies are allowed only in the two
+presentation owners.
 The refusal fixture holds a bound, non-listening socket through the connect attempt;
 it never releases a port for a parallel test to claim. It uses the existing nix
 Unix dev-dependency with `net`, without a new runtime dependency. These tests do

@@ -1499,8 +1499,10 @@ pane. Saved inactive target recovery remains a targeted
 `output::table` is the single plain human-table renderer for binding, identity,
 exchange and configuration reports. Callers own columns and typed projections;
 the renderer owns control-character escaping, Unicode display-width measurement
-and spacing. The CLI-only `unicode-width` dependency does not enter domain or
-adapter policy. Tables preserve complete values without terminal probing,
+and spacing. The pinned `unicode-width` dependency is confined to presentation:
+`tmt-cli-style` owns report tables and `tmt-adapters::delivery::notices` owns
+plain delivered notice columns. Domain policy and command orchestration do not
+depend on it. Tables preserve complete values without terminal probing,
 truncation or color; narrow terminals may wrap. JSON and exact prompt, final,
 profile and diagnostic bodies bypass table rendering.
 
@@ -2443,7 +2445,13 @@ the core routing policy; accepted, uncertain, denied and approval-required sends
 never fall through. Drivers own fresh runtime proof and sticky-Ended recovery.
 Schema 44 persists fixed reply-notice windows and rendered notice members under
 `storage::requests::reply_batch`, independently of immutable final bodies and X
-attention. `request::notification::batch` owns the quiet/deadline policy;
+attention. At delivery, `request::service::notice_context` projects only the
+originator-owned retained prompt, recipient identity and indexed unique result
+prefix; it never reads final bodies or acknowledges attention.
+`delivery::notices` sanitizes and truncates display fields, renders individual
+frames or aligned host batches, and rederives queued legacy members from request
+keys rather than parsing persisted text. No new schema or scheduling window is
+needed. `request::notification::batch` owns the quiet/deadline policy;
 `reply_notice` composes enrollment evidence, enqueue, binding-fenced delivery and
 one-shot settlement. `reply_notice_command` schedules finite detached workers,
 with process-incarnation CAS claims before waits, sealed batch membership, and

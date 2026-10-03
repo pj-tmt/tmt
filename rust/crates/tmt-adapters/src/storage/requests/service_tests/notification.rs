@@ -698,3 +698,28 @@ fn proven_dead_sender_releases_the_pane_without_replaying_attempted_input() {
         tmt_core::request::ResponseLookup::Available(_)
     ));
 }
+
+#[test]
+fn notice_context_preserves_final_attention_and_notification_claims() {
+    let mut fixture = fixture(false, true);
+    service(&mut fixture)
+        .submit_response_with_hint(reply(), None)
+        .unwrap();
+    let before = request_snapshot(&fixture.database);
+    let notification = service(&mut fixture).notification("notify").unwrap();
+    let context = service(&mut fixture)
+        .notice_context("notify")
+        .unwrap()
+        .unwrap();
+    assert_eq!(context.prompt.as_deref(), Some("prompt for notify"));
+    assert_eq!(
+        context.recipient_id.as_deref(),
+        Some(fixture.identity_id.as_str())
+    );
+    assert_eq!(context.result_id, "notify");
+    assert_eq!(request_snapshot(&fixture.database), before);
+    assert_eq!(
+        service(&mut fixture).notification("notify").unwrap(),
+        notification
+    );
+}

@@ -1,9 +1,48 @@
 use super::super::notification::{
-    HintKind, NotificationPolicy, NotificationRecord, OriginatorHint,
+    HintKind, NoticeContext, NotificationPolicy, NotificationRecord, OriginatorHint,
 };
 use super::*;
 
 impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
+    /// Notice context uses the original prompt and indexed ID selection only.
+    /// It never loads a responder-authored final body or acknowledges attention.
+    pub fn notice_context(
+        &mut self,
+        request_id: &str,
+    ) -> Result<Option<NoticeContext>, RequestError<R::Error>> {
+        nonempty(request_id)?;
+        self.read(|records, now| {
+            let Some(context) = context(records, request_id, now)? else {
+                return Ok(None);
+            };
+            let mut result_id = request_id.to_owned();
+            if let Some(uuid) = request_id
+                .strip_prefix("req_")
+                .filter(|id| crate::dispatch::canonical_id(id))
+            {
+                let short = &uuid[..8];
+                let (lower, upper) =
+                    responses::prefix_range(short)?.expect("canonical UUID prefix");
+                let matches = records.retained_request_ids(&lower, &upper, now, 2)?;
+                // Result selection preserves exact legacy IDs before prefix lookup.
+                // A same-spelled retained exact ID must not shadow this command.
+                let exact = records.find_request(short)?;
+                let shadowed = exact.is_some_and(|attempt| now < attempt.retention_expires_at_ms);
+                if !shadowed && matches.ids.as_slice() == [request_id] {
+                    result_id = short.into();
+                }
+            }
+            Ok(Some(NoticeContext {
+                recipient_id: context.attempt.recipient_identity_id,
+                prompt: match context.prompt {
+                    RequestPrompt::Retained(prompt) => Some(prompt.message),
+                    RequestPrompt::Expired { .. } | RequestPrompt::Unavailable => None,
+                },
+                result_id,
+            }))
+        })
+    }
+
     /// Called before external delivery. Missing rows mean explicit queue-only,
     /// anonymous or pre-migration requests, and never acquire notification rights.
     pub fn enable_notifications(

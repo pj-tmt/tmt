@@ -106,16 +106,29 @@ if (configIndex >= 0) {
           database.close();
         }
       }
-      const hint = /\btmt result (\S+)/.exec(content);
+      const hint = /\btmt result (\S+)$/.exec(content);
       if (process.env.MOCK_RESULT_ON_HINT === '1' && hint) {
         // The response is committed before the hint is sent, so the row exists by
         // the time the hint first reaches the provider. Read-only, no side effects.
         const database = new Database(process.env.MOCK_DB, { readonly: true });
         try {
-          const row = database
-            .prepare('SELECT body FROM request_responses WHERE request_id = ?')
-            .get(hint[1]);
-          log({ event: 'hint-response', requestId: hint[1], body: row?.body ?? null });
+          // Correlate a short result operand independently against request IDs,
+          // with exact IDs taking precedence. A timeout also carries a result
+          // command; it must not manufacture response evidence before a final.
+          const ids = database
+            .prepare(
+              'SELECT request_id FROM request_attempts WHERE request_id = ? OR substr(request_id, 1, 12) = ?'
+            )
+            .all(hint[1], /^[0-9a-f]{8}$/.test(hint[1]) ? `req_${hint[1]}` : '');
+          const exact = ids.find((row) => row.request_id === hint[1]);
+          const selected = exact ?? (ids.length === 1 ? ids[0] : undefined);
+          if (selected) {
+            const row = database
+              .prepare('SELECT body FROM request_responses WHERE request_id = ?')
+              .get(selected.request_id);
+            if (row)
+              log({ event: 'hint-response', requestId: selected.request_id, body: row.body });
+          }
         } finally {
           database.close();
         }
