@@ -6,14 +6,22 @@ import { HandoffScene } from "./HandoffScene";
 
 export function Hero() {
   const { home } = useStrings();
-  // What tmt runs with today, and what is on the way. Planned ones are labeled.
-  const chips: { name: string; note?: string }[] = [
-    { name: "Claude Code" },
-    { name: "Codex" },
-    { name: "tmux" },
-    { name: "Herdr" },
-    { name: home.yourHarness, note: home.planned },
-    { name: home.yourServer, note: home.designing },
+  // Agents from different tools mix freely; the built-in drivers are examples,
+  // not the list of what works. Planned ones are labeled.
+  const groups: { label: string; mix?: boolean; chips: { name: string; note?: string }[] }[] = [
+    {
+      label: home.agents,
+      mix: true,
+      chips: [{ name: "Claude Code" }, { name: "Codex" }, { name: home.anyAgent }],
+    },
+    { label: home.hosts, chips: [{ name: "tmux" }, { name: "Herdr" }] },
+    {
+      label: home.next,
+      chips: [
+        { name: home.yourHarness, note: home.planned },
+        { name: home.yourServer, note: home.designing },
+      ],
+    },
   ];
   return (
     <div className="pb-14">
@@ -29,22 +37,35 @@ export function Hero() {
             {home.tagline}
           </p>
           <p className="mb-4 text-[17px] leading-normal sm:text-[18px]">{home.lede}</p>
-          <ul
+          <dl
             aria-label={home.worksWith}
-            className="m-0 mb-6 flex list-none flex-wrap gap-1.5 p-0 font-mono text-xs"
+            className="m-0 mb-6 grid grid-cols-[9ch_minmax(0,1fr)] items-baseline gap-x-2 gap-y-1.5 font-mono text-xs"
           >
-            {chips.map((chip) => (
-              <li
-                key={chip.name}
-                className={`border-[1.5px] bg-sheet px-2.5 py-1 ${
-                  chip.note ? "border-dashed border-dim text-muted" : "border-text text-text"
-                }`}
-              >
-                {chip.name}
-                {chip.note && <Tag kind="planned">{chip.note}</Tag>}
-              </li>
+            {groups.map((group) => (
+              <div key={group.label} className="contents">
+                <dt className="text-dim">{group.label}</dt>
+                <dd className="m-0 flex flex-wrap items-center gap-1.5">
+                  {group.chips.map((chip, i) => (
+                    <span key={chip.name} className="flex items-center gap-1.5">
+                      {group.mix && i > 0 && (
+                        <span aria-hidden="true" className="text-accent">
+                          ⇄
+                        </span>
+                      )}
+                      <span
+                        className={`border-[1.5px] bg-sheet px-2.5 py-1 ${
+                          chip.note ? "border-dashed border-dim text-muted" : "border-text text-text"
+                        }`}
+                      >
+                        {chip.name}
+                        {chip.note && <Tag kind="planned">{chip.note}</Tag>}
+                      </span>
+                    </span>
+                  ))}
+                </dd>
+              </div>
             ))}
-          </ul>
+          </dl>
           <p className="m-0 font-mono text-sm">
             <LocalLink
               to="/"
