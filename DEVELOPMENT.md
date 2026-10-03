@@ -1881,10 +1881,12 @@ unchanged; only after all gates pass is it removed, followed by normal publicati
 attestation and public-install smoke checks. The
 [release skill](.agents/skills/tmt-release/SKILL.md#automated-alpha-publication) owns rerun authorization.
 
-Rerun uses the main commit selected by the dispatch for verifier scripts and their
-locked dependencies. Archives, manifest, version and digests come from the draft;
-CLI expected skill bytes and migration counts come from a separate read-only checkout
-of its release SHA (`release-source`). No scripts from that checkout run in rerun.
+Rerun uses the main commit selected by the dispatch for Node verifier scripts and
+their locked dependencies. Archives, manifest, version and digests come from the
+draft; CLI expected skill bytes, migration counts and applicable Rust adapter
+acceptance code come from a separate checkout of its release SHA (`release-source`).
+The read-only proof job compiles that source's adapter test with its own locked
+dependencies and toolchain pin; release-source Node verifier scripts do not run.
 Ordinary upgrade proof retains release-commit tooling. This separates repaired tooling
 from the unchanged candidate under test without rebuilding or replacing its assets.
 
@@ -2032,10 +2034,13 @@ receipt provenance, download cleanup, retained old bytes, exact candidate skill
 bytes, conflict preservation, partial refresh failure and repair. If the two
 embedded skill texts match, only differential content-transition coverage is
 reported as skipped; the other assertions still run. An owner-authorized rerun
-compiles current main's repaired tooling. If its separate `release-source`
-checkout predates the test, this sub-proof reports `predates; not applicable`
-without blocking the rerun or claiming a pass. The installer/migration proof
-remains required; a missing release-source checkout is an error.
+uses current main's repaired tooling to compile and execute the release's own
+adapter from `release-source/rust`, selecting that source's toolchain pin. If the
+release-source checkout predates the post-#575 release-gate test form (including
+the #563 variant that requires differing text), this sub-proof reports
+`predates; not applicable` without blocking the rerun or claiming a pass. The
+installer/migration proof remains required; a missing release-source checkout is
+an error.
 
 Neither pre-publication proof runs public `tmt upgrade` downloads or a public
 installer: the candidate has no published release to find, and production has no

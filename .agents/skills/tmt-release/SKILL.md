@@ -135,8 +135,8 @@ procedures referenced below; DEVELOPMENT owns ordinary native checks.
 - Every CLI or extension release also passes the guide's upgrade from the last
   published release, not only a fresh install. Old receipts must stay readable.
   The pre-publication CLI proof requires installation, migration and real-archive
-  adapter acceptance on all four hosts. Follow the guide's distinction between
-  injected acquisition, skipped differential skill coverage for identical text,
+  acceptance of the release's own adapter on all four hosts. Follow the guide's
+  distinction between injected acquisition, skipped differential skill coverage for identical text,
   older-source rerun applicability and separate public installer/upgrade smoke.
 - For curl bootstrap, follow the guide's native curl bootstrap verification.
   Generate from final verified cargo-dist artifacts and invoke the existing
@@ -213,8 +213,9 @@ gates, the markers and the procedures; this section owns who may publish what.
 - A held draft carries `publication-held.json` with the gate, the reason and the run. Read it,
   then follow the guide: the owner publishes by hand, or releases the hold by dispatch, which
   skips only the gate the marker names. An owner-authorized `rerun` instead re-proves
-  every gate with current main tooling against the draft's existing assets and release-source
-  expectations, preserving the marker on failure and removing it only after all pass.
+  every gate with current main tooling against the draft's existing assets and its
+  release-source expectations and adapter code, preserving the marker on failure
+  and removing it only after all pass.
   `rerun` requires the owner's explicit authorization, like `hold`.
 - After it publishes, the pipeline reads the release back (public, immutable, the policy's
   flags, the tag on the release commit, GitHub's attestation for the release and every asset).

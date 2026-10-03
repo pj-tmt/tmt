@@ -227,10 +227,11 @@ const ACCEPTANCE_SOURCE = 'rust/crates/tmt-adapters/src/native_install/upgrade_a
 export function acceptanceApplicability(sourceRoot) {
   if (!existsSync(sourceRoot)) throw new Error('The release-source checkout is missing.');
   const file = path.join(sourceRoot, ACCEPTANCE_SOURCE);
-  return existsSync(file) &&
-    /fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts\(\)/.test(
-      readFileSync(file, 'utf8')
-    )
+  if (!existsSync(file)) return 'predates';
+  const source = readFileSync(file, 'utf8');
+  return /fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts\(\)/.test(
+    source
+  ) && source.includes('skill-content transition: skipped (old and candidate text are identical)')
     ? 'applicable'
     : 'predates';
 }
@@ -254,11 +255,12 @@ export function proveArchiveAcceptance({
   }
   if (sourceRoot && acceptanceApplicability(sourceRoot) === 'predates') {
     report(
-      'Real-archive adapter acceptance: predates; not applicable (release source predates the test). Existing installer/migration proof remains required.'
+      'Real-archive adapter acceptance: predates; not applicable (release source predates the release-gate test form). Existing installer/migration proof remains required.'
     );
     return { outcome: 'predates' };
   }
-  const root = path.resolve(here, '../..');
+  const root = sourceRoot ? path.resolve(sourceRoot) : path.resolve(here, '../..');
+  const rustRoot = path.join(root, 'rust');
   const env = {
     ...environment,
     CARGO_BUILD_JOBS: '2',
@@ -285,7 +287,7 @@ export function proveArchiveAcceptance({
       '--no-run',
       '--message-format=json',
     ],
-    { cwd: path.join(root, 'rust'), env, timeoutMs: 600_000 }
+    { cwd: rustRoot, env, timeoutMs: 600_000 }
   );
   report(
     `Real-archive adapter acceptance compile: ${Math.ceil((performance.now() - started) / 1000)} seconds.`
@@ -305,7 +307,7 @@ export function proveArchiveAcceptance({
     .map((item) => item.executable);
   if (binaries.length !== 1)
     throw new Error('Expected exactly one tmt-adapters lib-test executable.');
-  const options = { cwd: root, env, timeoutMs: 120_000 };
+  const options = { cwd: rustRoot, env, timeoutMs: 120_000 };
   const listed = execute(binaries[0], [ACCEPTANCE_TEST, '--exact', '--ignored', '--list'], options);
   const tests = listed.split('\n').filter((line) => line.endsWith(': test'));
   if (tests.length !== 1 || tests[0] !== `${ACCEPTANCE_TEST}: test`) {

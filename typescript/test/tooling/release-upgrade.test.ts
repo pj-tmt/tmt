@@ -437,7 +437,9 @@ describe('fetchUpgrade and proveStaged', () => {
       expect(calls[0].args).toContain('--no-run');
       expect(calls[0].args).toContain('tmt-adapters');
       expect(calls[0].args).toContain('Cargo.toml');
-      expect(calls[0].cwd).toBe(path.join(calls[1].cwd, 'rust'));
+      expect(path.basename(calls[0].cwd)).toBe('rust');
+      expect(calls[1].cwd).toBe(calls[0].cwd);
+      expect(calls[2].cwd).toBe(calls[0].cwd);
       expect(calls[0].args).not.toContain('--release');
       expect(calls[0].env.CARGO_BUILD_JOBS).toBe('2');
       expect(calls[0].env.CARGO_TARGET_DIR).toBe('/shared/task-target');
@@ -450,6 +452,32 @@ describe('fetchUpgrade and proveStaged', () => {
       expect(calls[1].executable).toBe(binary);
       expect(calls[1].args).toEqual([ACCEPTANCE_TEST, '--exact', '--ignored', '--list']);
       expect(calls[2].args).toEqual([ACCEPTANCE_TEST, '--exact', '--ignored', '--nocapture']);
+    });
+
+    it('compiles and executes the release adapter from sourceRoot on a rerun', () => {
+      const sourceRoot = mkdtempSync(path.join(root, 'applicable-release-'));
+      const source = path.join(
+        sourceRoot,
+        'rust/crates/tmt-adapters/src/native_install/upgrade_artifact_tests.rs'
+      );
+      mkdirSync(path.dirname(source), { recursive: true });
+      writeFileSync(
+        source,
+        'fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {}\n' +
+          '// skill-content transition: skipped (old and candidate text are identical)'
+      );
+      const directories: string[] = [];
+      expect(
+        proveArchiveAcceptance({
+          ...input(),
+          sourceRoot,
+          execute: (_executable, _args, options) => {
+            directories.push(options.cwd);
+            return [compiled, listed, passed][directories.length - 1];
+          },
+        })
+      ).toEqual({ outcome: 'proved' });
+      expect(directories).toEqual(Array(3).fill(path.join(sourceRoot, 'rust')));
     });
 
     it.each(['', `${compiled}\n${compiled}`])(
@@ -545,7 +573,26 @@ describe('fetchUpgrade and proveStaged', () => {
       expect(acceptanceApplicability(sourceRoot)).toBe('predates');
       writeFileSync(
         source,
-        'fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {}'
+        'fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() { assert_ne!(new_skill, old_skill); }'
+      );
+      expect(acceptanceApplicability(sourceRoot)).toBe('predates');
+      const legacyMessages: string[] = [];
+      expect(
+        proveArchiveAcceptance({
+          ...input(),
+          sourceRoot,
+          execute: () => {
+            throw new Error('A pre-#575 test must never compile.');
+          },
+          report: (message) => legacyMessages.push(message),
+        })
+      ).toEqual({ outcome: 'predates' });
+      expect(legacyMessages.join('\n')).toMatch(/predates; not applicable/);
+      expect(legacyMessages.join('\n')).not.toContain('acceptance: passed');
+      writeFileSync(
+        source,
+        'fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {}\n' +
+          '// skill-content transition: skipped (old and candidate text are identical)'
       );
       expect(acceptanceApplicability(sourceRoot)).toBe('applicable');
       expect(() => acceptanceApplicability(path.join(sourceRoot, 'missing-checkout'))).toThrow(

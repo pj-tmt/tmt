@@ -148,7 +148,7 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.current-tooling && github.sha || needs.fetch.outputs.sha }}
-      # Candidate data stays at the release commit; none of this checkout's scripts run.
+      # Candidate data and Rust adapter acceptance stay at the release commit on reruns.
       - uses: actions/checkout@v4
         if: inputs.current-tooling
         with:
