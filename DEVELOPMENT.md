@@ -1425,8 +1425,8 @@ TMT_TEST_HERDR=/tmp/hdrbin/herdr TMT_TEST_PREVIOUS_TMT="$(cd ../tmt-previous && 
   pnpm exec vp test run --config test/native/vitest.config.ts test/native/herdr.test.ts
 ```
 
-The Herdr host driver (the `tmt-driver-herdr` library, whose executable is a
-`tmt-cli` bin shipped in the CLI archive) has its own executable test, which
+The Herdr host driver (the independently versioned `tmt-driver-herdr` package,
+with a thin binary and a retained `tmt-cli` companion binary until #1084) has its own executable test, which
 uses the same pinned binary. It runs the protocol
 conformance harness and every declared operation against a private server and
 HOME, and fails if a server process remains. Its prompt case runs a
@@ -1879,7 +1879,7 @@ are not proof of release archives or public installation.
 #### Explicit multi-platform release preparation
 
 `Native release artifacts` (`.github/workflows/native-release.yml`) is the per-product
-release run, dispatched with an explicit `cli` or `squad` product, not part of
+release run, dispatched with an explicit `cli`, `squad` or `driver-herdr` product, not part of
 every PR. Office is frozen: its component is parked and neither preparation nor draft
 publication accepts it; existing releases remain untouched. It has two modes. The default `prepare` builds and verifies one bundle from the
 current main commit without a draft release and attaches nothing: dispatch each authorized
@@ -2035,9 +2035,9 @@ retried for about two minutes. A failed check opens an issue and fails the run; 
 rolled back, because a published release is immutable and a repair needs a new reviewed
 version. A `smoke` job then installs the published release as a user does
 (`.github/workflows/native-release-smoke.yml`, also run by hand with `product` and `tag`, for
-the newest published release of the product only: it installs what the public entry points serve
-now, so any other tag fails its first check and a failed run reports on the issue like any
-other). On the four hosts of the upgrade proof, in an isolated home, state directory
+the newest published CLI/extension release or an exact published driver tag: CLI and
+extension acquisition uses current public entry points, while a driver uses its versioned
+archive URLs. A failed run reports on the issue like any other). On the four hosts of the upgrade proof, in an isolated home, state directory
 and prefix and with no token, a CLI alpha goes through the public
 `releases/latest/download/install.sh`: the installer names the tag's version, the installed `tmt`
 is the one PATH selects and reports that version, the installed shared skills are the tag's
@@ -2045,7 +2045,13 @@ is the one PATH selects and reports that version, the installed shared skills ar
 metadata and reports the installation current (a newer alpha that appeared since passes with a
 note). An extension alpha is installed by the newest published CLI's `tmt extension install
 <extension>` into a separate prefix; `tmt extension list` must report the tag's version and no
-CLI link may appear. The tag is
+CLI link may appear. A Herdr driver alpha downloads its exact tag’s
+`dist-manifest.json` and matching standalone archive through public versioned URLs,
+checks the bounded manifest, digest and inventory, then uses the current public CLI’s
+supported `driver install <extracted-path> --yes --json` and `driver ls` surfaces
+to verify capabilities and durable approval. Its CLI metadata check reuses the
+classified retry below; bare asset HTTP failures do not retry. Named released-driver
+acquisition belongs to #1084. The tag is
 checked out only so its skills can be read; none of its code runs. All smoke acquisition stays
 unauthenticated. Only a native JSON failure with the classified `GitHub API rate limit:
 reset/earliest retry time ...` cause may retry its failed acquisition step: at most two
@@ -2176,7 +2182,14 @@ with `tmt extension install <extension>` and read back with `tmt extension ls`
 (`verify-native-extension-upgrade.mjs`): the version changes, the previous release stays on
 disk, a repeat is a no-op, a downgrade is refused and no CLI link is created. Extensions
 have no install command of their own under `tmt <extension>`; the proof must use the surface
-a user's install runs. The first release of a product has nothing to upgrade from and says
+a user's install runs. A `driver-herdr` release uses
+`verify-native-driver-upgrade.mjs` with both standalone archives and the current
+published CLI: exact capabilities and linkage, previous approval, refused
+replacement without consent, new approval/list digest and version, repeat approval,
+unchanged executable bytes, approval removal and no application SQLite. Path
+approval does not own extension receipts, pinning or downgrade refusal. Those
+checks do not claim the future #1084 named acquisition or PR 2 compatibility gate.
+The first release of a product has nothing to upgrade from and says
 so. A commit that predates these scripts fails the proof with that message; prove it by
 hand as below. A verifier command that fails says, on one line, which command failed, how it
 ended and the first thing it said. A failed host keeps its log as an artifact, and the
@@ -2464,6 +2477,45 @@ releases use `tmt-office-v<version>`. Office is frozen and is
 not accepted by the shared release workflow; local archive verification does not
 authorize publication or a CLI tag.
 
+#### Herdr driver archives
+
+The `driver-herdr` product builds the independent package without building `tmt`:
+
+```sh
+scripts/build-native-artifact.sh aarch64-apple-darwin driver-herdr > /absolute/driver-manifest.json
+node typescript/scripts/verify-native-artifact.mjs --product driver-herdr \
+  --manifest /absolute/driver-manifest.json \
+  --archive target/distrib/tmt-driver-herdr-aarch64-apple-darwin.tar.gz \
+  --target aarch64-apple-darwin \
+  --notices rust/target/native-notices/THIRD-PARTY-NOTICES.txt --license LICENSE
+```
+
+Retain each build's archive, manifest and notices before building another product.
+The standalone archive carries its executable and shared license/install/notices
+files. CLI archives retain the companion; both are checked against their own
+manifest, and current CLI release proof checks the companion's independently
+specified Cargo version. The standalone proof executes protocol capabilities
+with no application state, rather than CLI skill/SQLite commands.
+
+For a local two-version upgrade proof, retain actual separately versioned driver
+archives and the current published CLI archive and run:
+
+```sh
+node typescript/scripts/verify-native-driver-upgrade.mjs --product driver-herdr \
+  --archive /absolute/new/tmt-driver-herdr-aarch64-apple-darwin.tar.gz \
+  --manifest /absolute/new/dist-manifest.json \
+  --previous-archive /absolute/old/tmt-driver-herdr-aarch64-apple-darwin.tar.gz \
+  --previous-manifest /absolute/old/dist-manifest.json \
+  --driver-archive /absolute/cli/tmt-cli-aarch64-apple-darwin.tar.gz \
+  --driver-manifest /absolute/cli/dist-manifest.json --target aarch64-apple-darwin
+```
+
+Use task-owned source copies/worktrees to build each version; do not rewrite the
+implementation checkout or reuse another worktree's Rust target directory.
+Driver tags are only `tmt-driver-herdr-v<semver>`, never `v*`, and are published
+as prereleases with `--latest=false` so the public CLI installer keeps ownership
+of repository latest. Archive proof does not authorize publication.
+
 #### Squad archives
 
 A Squad archive adds one directory to the runtime files: `skills/`, copied from
@@ -2629,6 +2681,27 @@ retain that renderer's behavior. There is no separate type list or entry-count
 policy. Local coverage history is capped at 500 commits with 30-second command
 bounds; missing config, unsupported changelog renderers or incomplete evidence fail
 closed. Missing tags and malformed notes also fail.
+
+A component with no published release must declare `bootstrap-sha` in its
+release-please package; no release and no bootstrap still fails. Coverage uses
+`(bootstrap-sha, candidate base]`. With a nonzero manifest seed, pinned
+release-please 17.11.2 renders a compare from the component's seeded tag to the
+heading's new component tag; a zero seed renders a plain version heading. The
+gate verifies these forms with the pinned renderer and rejects foreign or
+unrelated compare anchors. Once published, the component uses its latest
+published tag and ignores bootstrap, as established components always have.
+
+The generated package option comes from `.github/components.json`'s
+`bootstrapSha`. During a component-registration PR, use that PR's own merge base
+as the provisional value. After merge, replace it with the PR merge commit,
+regenerate with `node typescript/scripts/release-please-config.mjs --write`, and
+verify both files before the component's first release planning/publication.
+The merge commit's parent is the last history before registration. Keep the
+provisional and final SHA reconciliation in the issue/PR handoff. Pinned
+release-please ignores package-level bootstrap options, so the existing wrapper
+applies the cutoff only to that unpublished component's commit list and stops
+history acquisition only after all component boundaries are reached; it never
+uses the new cutoff to truncate an established component's history.
 Existing locked Cargo workers verify the cumulative queue result through the
 [CI selector](ARCHITECTURE.md#ci-selection-and-worker-model), so a later prose-only HEADGREEN tip retains earlier
 release version/lock changes.

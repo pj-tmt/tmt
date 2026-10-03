@@ -15,7 +15,7 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
 - Before any branch mutation, verify the relevant remote refs and ancestry. Never force-push or repoint a long-lived line.
 - A v4 maintenance fix requires a tracked issue, a dedicated branch and worktree, and a reviewable pull request. Keep the fix on the v4 line unless an explicitly scoped backport is requested.
 - Use the checks available on the v4 line for maintenance pull requests; do not require contexts that the target branch cannot produce. Record any coverage gap in the issue.
-- The native version is owned by `rust/Cargo.toml` and exposed through Cargo's package version; there is no TypeScript fallback. Keep any retained developer package version and public release instructions consistent when changing versions. The native skill ships with the CLI; there is no separately versioned plugin or marketplace.
+- The CLI version is owned by `rust/Cargo.toml` and exposed through Cargo's package version; there is no TypeScript fallback. Keep any retained developer package version and public release instructions consistent when changing versions. The native skill ships with the CLI; there is no separately versioned plugin or marketplace.
 - Follow `AGENTS.md` for GitHub issue state, branch and pull-request links, verification evidence, and safe worktree cleanup.
 
 ## Private-leaf attribution
@@ -31,7 +31,10 @@ or upgrading release-please. This does not change publication authorization or p
 
 Release PRs must pass `Code quality`'s notes gate before merge: compare from the
 component's newest published tag, with every linked commit inside its ancestry
-range through the candidate base. COVERAGE requires a link for every commit the
+range through the candidate base. A component without a published release must
+declare package `bootstrap-sha`; use the candidate-base bootstrap range and the
+pinned first-release header form described in DEVELOPMENT. Follow its provisional
+merge-base to merge-commit reconciliation before first release planning. COVERAGE requires a link for every commit the
 pinned release-please renderer lists for the component in that range. Use its
 parser, path splitter, exclusions and private-leaf attribution with the
 candidate-base config's changelog sections or pinned defaults; do not introduce
@@ -149,16 +152,19 @@ procedures referenced below; DEVELOPMENT owns ordinary native checks.
   public installer before promoting README instructions. Publish with the
   bundle's `release-publication.json` flags: the CLI release is a normal release
   marked latest (the README's `releases/latest/download/install.sh` depends on
-  it); Office and Squad releases stay prereleases with `--latest=false`. After
+  it); Office, Squad and Herdr driver releases stay prereleases with `--latest=false`. After
   a manual publication, run the guide's `--check-latest` check (the pipeline checks
   its own publications). Do not equate a
   downloadable CI bundle with a published or accepted release.
-- Every CLI or extension release also passes the guide's upgrade from the last
-  published release, not only a fresh install. Old receipts must stay readable.
+- Every CLI, extension or driver release also passes the guide's upgrade from the last
+  published release using the product-specific proof in DEVELOPMENT, not only a
+  fresh install. Old CLI/extension receipts must stay readable.
   The pre-publication CLI proof requires installation, migration and real-archive
   acceptance of the release's own adapter on all four hosts. Follow the guide's
   distinction between injected acquisition, skipped differential skill coverage for identical text,
   older-source rerun applicability and separate public installer/upgrade smoke.
+  A standalone driver uses previous/candidate archives and the current published
+  CLI's path approval surface.
 - For curl bootstrap, follow the guide's native curl bootstrap verification.
   Generate from final verified cargo-dist artifacts and invoke the existing
   native publisher; do not enable a competing stock installer. Test an actual

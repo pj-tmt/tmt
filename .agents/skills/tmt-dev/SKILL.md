@@ -65,7 +65,9 @@ modules under scripts and test directories are developer tooling. Keep Office,
 native process, Docker and tooling checks distinct,
 and never substitute obsolete TypeScript coverage percentages for native
 verification. A raw-binary platform smoke does not replace the release archive,
-bootstrap or upgrade gates. Keep their shared runtime proof in one owner.
+bootstrap or upgrade gates. Independently released drivers use DEVELOPMENT’s
+product-specific archive and approval proof using the current published CLI. Keep the shared
+runtime proof in one owner.
 
 Formatter migrations preserve DEVELOPMENT's per-owner options and separate
 code/docs selections, with mechanical output isolated from configuration changes.
