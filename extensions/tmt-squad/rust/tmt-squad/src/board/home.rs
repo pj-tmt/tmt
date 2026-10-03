@@ -280,3 +280,6 @@ mod controller;
 mod paint;
 pub(super) use controller::{CRON, Target};
 pub(super) use paint::{age_label, hints, render, summary};
+
+#[cfg(test)]
+mod tiles;
