@@ -135,6 +135,12 @@ Filters combine fields with `=`, `!=`, `not`, `and`, `or` and parentheses, and `
 
 `tmt sq ls --tab needs-me` prints the same rows, and `--json` gives the board's full document. If a roster or inbox read fails, the board and the list say the result is partial, so an empty partial tab doesn't mean nobody waits on you.
 
+### See your settings
+
+Press `,` to see the settings that apply to the current squad or tab (`?` shows the key if you changed it). Each value says where it comes from: a preset, the default, your `squad.toml` (its path is at the top), or tmt's own theme setting. Nothing in this view runs or changes; commands appear as text. Scroll with the arrow keys, j/k, PgUp/PgDn, Home/End or the wheel, and close it with Esc. It shows the settings as they were when you opened it, so reopen it after you edit the file.
+
+`tmt sq config show` prints the same from the command line: board defaults on its own, one squad with `--squad product`, or one tab with `--tab all` (or `leads`, or a tab you named). Use one of the two flags at a time. `--json` gives the full values and where each comes from.
+
 ### Board views
 
 A view arranges panes and their initial folds. It keeps the squad's states, rows, providers, reminders, token meter and theme. List the five factory views with `tmt sq view ls` (or bare `tmt sq view`):
@@ -273,7 +279,7 @@ lines = [
 ]
 `}</Code>
 
-**Panes** use the same rules one level up: a split is a row or a column of panes, each with a percentage or a `{ grow = n }` share of what the percentages leave, and splits can nest up to three levels. Tab moves through them in reading order. The `mode`, `direction` and `sizes` keys above are the simple form of it; use one form or the other.
+**Panes** use the same rules one level up: a split is a row or a column of panes, each with a percentage or a `{ grow = n }` share of what the percentages leave, and splits can nest up to three levels. Tab moves through them in reading order. The `mode`, `direction` and `sizes` keys above are the simple form of it; use one form or the other. Nested percentages are worked out from the parent's exact share and rounded to whole cells only at the end, so two halves can differ by a row.
 
 <Code>{`
 [squad.product.board]
