@@ -37,10 +37,7 @@ runs:
         PHASE: ${{ inputs.phase }}
       run: |
         case "$PHASE" in prepare|verify) ;; *) echo 'Unknown version-injection phase.' >&2; exit 1 ;; esac
-    - uses: actions/setup-node@v4
-      if: inputs.phase == 'prepare'
-      with:
-        node-version: 22.23.2
+    # The caller owns pinned Node setup, including x64 selection for Rosetta verification.
     - name: Build the reviewed TOML helper and inject the draft version
       id: inject
       if: inputs.phase == 'prepare'

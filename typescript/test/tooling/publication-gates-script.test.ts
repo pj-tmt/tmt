@@ -536,7 +536,8 @@ describe('held-draft rerun publication decisions', () => {
         hold: { gate: 'upgrade', reason: 'original cause' },
       });
       const marker = readState().assetTexts['150'];
-      expect(run([...early, '--rerun']).status).toBe(0);
+      const planned = run([...early, '--rerun']);
+      expect(planned.status, planned.stderr).toBe(0);
       const decision = run(finish(result, 'proved', ['--rerun-gate', 'upgrade']));
       expect(decision.status).toBe(0);
       expect(decision.output).toContain('held=upgrade');

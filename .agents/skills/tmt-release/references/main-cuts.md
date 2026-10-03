@@ -47,8 +47,10 @@ workflow token for draft visibility, creation and native dispatch; it requires n
 release-PR App token. Normal primary review, pinned-head checks and queue protection remain required.
 
 The persistent `release-version-injection.yml` PR check proves CLI, Squad, Remote and Colab on
-four native hosts. It reuses `.github/actions/inject-release-version`, fetches
-locked dependencies, captures the source/version contract, proves full locked
+four native hosts. Callers provide pinned Node through `setup-tooling`, selecting
+x64 for Intel verification. `.github/actions/inject-release-version` consumes that
+Node without reinstalling it or changing its architecture. The proof reuses the
+action, fetches locked dependencies, captures the source/version contract, proves full locked
 metadata rejects a changed-version stale lock, updates only implied entries
 offline, then verifies the source, dist plan/build and extracted binary. Tagless
 preparation uses the shared synthetic version and retains the same gates.
@@ -155,6 +157,8 @@ are developer dependencies, not runtime owners.
 format-version-1 metadata acquisition, with no Git logic or handwritten manifest
 parser. It exposes resolved versions, manifest paths/directories, binary targets,
 dist metadata and normal/build/dev workspace edges with cycle-safe closure.
+Its `--quiet` invocation suppresses informational package-cache lock waits;
+command failures and unexpected diagnostics still reject incomplete evidence.
 The private infra-owned `tmt-release-tool` owns TOML parsing and
 format-preserving version edits (`serde_json`/`toml_edit` only); it is neither
 published nor distributed, and no product may depend on it in any dependency

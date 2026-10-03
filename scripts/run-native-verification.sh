@@ -10,8 +10,22 @@ if [ "$1" = x86_64-apple-darwin ]; then
   verification=$(mktemp "${TMPDIR:-/tmp}/tmt-native-verification.XXXXXX")
   trap 'rm -f "$verification"' 0
   cat > "$verification" <<'HOST'
-test "$(/usr/bin/uname -m)" = x86_64
-test "$(node -p process.arch)" = x64
+if ! host_arch=$(/usr/bin/uname -m); then
+  echo 'Intel verification host check failed: uname -m could not run.' >&2
+  exit 1
+fi
+if [ "$host_arch" != x86_64 ]; then
+  printf 'Intel verification host check failed: uname -m expected x86_64, got %s.\n' "$host_arch" >&2
+  exit 1
+fi
+if ! node_arch=$(node -p process.arch); then
+  echo 'Intel verification host check failed: node -p process.arch could not run.' >&2
+  exit 1
+fi
+if [ "$node_arch" != x64 ]; then
+  printf 'Intel verification host check failed: Node process.arch expected x64, got %s (node: %s).\n' "$node_arch" "$(command -v node)" >&2
+  exit 1
+fi
 HOST
   cat >> "$verification"
   /usr/bin/arch -x86_64 /bin/bash --noprofile --norc -euo pipefail "$verification"

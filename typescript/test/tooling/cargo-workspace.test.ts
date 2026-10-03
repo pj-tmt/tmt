@@ -4,6 +4,16 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
 
+const { runPackedCommand } = (await import(
+  new URL('../../scripts/packed-command.mjs', import.meta.url).href
+)) as {
+  runPackedCommand: (
+    command: string,
+    args: string[],
+    options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number }
+  ) => string;
+};
+
 describe('Cargo workspace reader', () => {
   it('preserves resolved facts and distinguishes aliased, build and dev workspace edges with cycle-safe closure', () => {
     const root = mkdtempSync(join(tmpdir(), 'tmt-cargo-reader-'));
@@ -38,6 +48,7 @@ describe('Cargo workspace reader', () => {
         'cargo',
         [
           'metadata',
+          '--quiet',
           '--format-version',
           '1',
           '--offline',
@@ -70,6 +81,53 @@ describe('Cargo workspace reader', () => {
       ).toEqual(['dev', 'product']);
       expect(() => workspace.closure('missing', ['normal'])).toThrow('Unknown Cargo');
       expect(() => workspace.closure('product', [])).toThrow('Invalid Cargo closure');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('suppresses Cargo lock progress while preserving strict status and diagnostic checks', () => {
+    const root = mkdtempSync(join(tmpdir(), 'tmt-cargo-reader-'));
+    try {
+      mkdirSync(join(root, 'rust'));
+      const metadata = JSON.stringify({
+        workspace_members: ['product'],
+        packages: [
+          {
+            id: 'product',
+            name: 'product',
+            version: '1.2.3',
+            manifest_path: join(root, 'rust/Cargo.toml'),
+            targets: [],
+            dependencies: [],
+          },
+        ],
+      });
+      const read = (diagnostic = '', status = 0) =>
+        readCargoWorkspace(root, {
+          runner: (
+            _executable: string,
+            args: string[],
+            options: Parameters<typeof runPackedCommand>[2]
+          ) =>
+            runPackedCommand(
+              process.execPath,
+              [
+                '-e',
+                // Pinned Cargo suppresses this progress message under --quiet, including during a wait.
+                `if (!process.argv.includes('--quiet')) process.stderr.write(${JSON.stringify('    Blocking waiting for file lock on package cache\n')});
+           process.stderr.write(${JSON.stringify(diagnostic)});
+           process.stdout.write(${JSON.stringify(metadata)});
+           process.exit(${status});`,
+                '--',
+                ...args,
+              ],
+              options
+            ),
+        });
+      expect(read().packages[0].version).toBe('1.2.3');
+      expect(() => read('error: offline dependency unavailable\n', 1)).toThrow('exited 1');
+      expect(() => read('unexpected Cargo diagnostic\n')).toThrow('unexpected diagnostics');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

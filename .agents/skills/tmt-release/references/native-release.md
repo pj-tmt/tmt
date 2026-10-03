@@ -21,7 +21,10 @@ and target and written by `main` only. cargo-dist merges the downloaded manifest
 (`dist build --artifacts global --output-format=json --no-local-paths`): never hand-merge
 artifact JSON. For the CLI pass a complete `dist plan` as bootstrap `--plan` so a missing
 matrix target cannot shrink the release. Intel candidate verification fails closed without
-the Rosetta tooling.
+the Rosetta tooling. The wrapper reports whether `uname -m` or Node
+`process.arch` admission failed, including the resolved Node path for a wrong
+architecture. Check the caller's x64 `setup-tooling` selection; version injection
+keeps that Node unchanged.
 
 ## Building and verifying archives
 

@@ -113,8 +113,7 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.sha || github.sha }}
           path: release-source
-      - name: Set up Node.js and pnpm for embedded app assets
-        if: inputs.product == 'office' || inputs.product == 'colab'
+      - name: Set up Node.js and pnpm
         uses: ./.github/actions/setup-tooling
       - name: Install embedded Office build dependencies
         if: inputs.product == 'office'
