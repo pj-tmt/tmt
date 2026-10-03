@@ -2,6 +2,7 @@ import { writeExecutable } from '../support/executable-fixture.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import net from 'node:net';
 import { syncBuiltinESMExports } from 'node:module';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { createSandbox, runCli, withSandbox } from '../support/cli-process.js';
@@ -320,18 +321,41 @@ process.stdout.write(String(fs.readFileSync(0).length));
 
 it('cancellation before setup starts closes and removes the private control socket', async () => {
   const prefix = `tmt-cli-parent-${process.pid}-`;
-  const before = fs.readdirSync('/tmp').filter((name) => name.startsWith(prefix));
+  const makeDirectory = fs.mkdtempSync.bind(fs);
+  const directories = vi.spyOn(fs, 'mkdtempSync');
+  const servers = vi.spyOn(net, 'createServer');
+  syncBuiltinESMExports();
   const failure = new Error('callback failed before setup');
   let root = '';
-  await expect(
-    withSandbox((sandbox) => {
-      root = sandbox.root;
-      void runCli(sandbox, []);
-      throw failure;
-    })
-  ).rejects.toBe(failure);
-  expect(fs.existsSync(root)).toBe(false);
-  expect(fs.readdirSync('/tmp').filter((name) => name.startsWith(prefix))).toEqual(before);
+  let peerRoot = '';
+  try {
+    await expect(
+      withSandbox((sandbox) => {
+        root = sandbox.root;
+        void runCli(sandbox, []);
+        // Threaded workers share a PID. Another worker's live socket directory
+        // is not evidence that this run leaked its own transport.
+        peerRoot = makeDirectory(`/tmp/${prefix}`);
+        roots.push(peerRoot);
+        fs.writeFileSync(path.join(peerRoot, 'marker'), 'foreign control');
+        throw failure;
+      })
+    ).rejects.toBe(failure);
+    const controlRoots = directories.mock.calls.flatMap(([template], index) =>
+      String(template) === `/tmp/${prefix}` ? [directories.mock.results[index].value] : []
+    );
+    expect(controlRoots).toHaveLength(1);
+    expect(typeof controlRoots[0]).toBe('string');
+    expect(fs.existsSync(controlRoots[0])).toBe(false);
+    expect(servers).toHaveBeenCalledOnce();
+    expect(servers.mock.results[0].value.listening).toBe(false);
+    expect(fs.existsSync(root)).toBe(false);
+    expect(fs.readFileSync(path.join(peerRoot, 'marker'), 'utf8')).toBe('foreign control');
+  } finally {
+    directories.mockRestore();
+    servers.mockRestore();
+    syncBuiltinESMExports();
+  }
 });
 
 it('resolves a scenario executable on its declared PATH and preserves access errors', async () => {
