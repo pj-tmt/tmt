@@ -840,6 +840,35 @@ fn every_workspace_crate_reviews_new_dev_dependencies() {
 }
 
 #[test]
+fn release_toml_example_dependencies_are_exact_dev_edges() {
+    for name in ["serde_json", "toml_edit"] {
+        assert!(
+            policy::dependency_violations(&package(
+                "tmt-test-support",
+                vec![dependency(name, "dev", None, None)]
+            ))
+            .is_empty()
+        );
+        for (kind, target, rename) in [
+            ("normal", None, None),
+            ("build", None, None),
+            ("dev", Some("cfg(unix)"), None),
+            ("dev", None, Some("release_tool")),
+        ] {
+            assert_eq!(
+                policy::dependency_violations(&package(
+                    "tmt-test-support",
+                    vec![dependency(name, kind, target, rename)]
+                ))
+                .len(),
+                1,
+                "{name}: {kind} {target:?} {rename:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn fixture_publication_has_exactly_six_dev_consumers_and_no_product_edges() {
     for owner in [
         "tmt-adapters",

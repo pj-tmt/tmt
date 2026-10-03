@@ -1,4 +1,5 @@
 name: Native release artifacts
+run-name: 'Native release: ${{ inputs.product }}'
 
 # The per-product release run. It builds and verifies the draft releases of one product
 # that lack a verified bundle, attaches the bundle to each draft, evaluates its publication

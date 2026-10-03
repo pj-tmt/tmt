@@ -18,6 +18,15 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
 - The CLI version is owned by `rust/Cargo.toml` and exposed through Cargo's package version; there is no TypeScript fallback. Keep any retained developer package version and public release instructions consistent when changing versions. The native skill ships with the CLI; there is no separately versioned plugin or marketplace.
 - Follow `AGENTS.md` for GitHub issue state, branch and pull-request links, verification evidence, and safe worktree cleanup.
 
+## Release-cut shadow migration
+
+Follow the [architecture's shadow contract](../../../ARCHITECTURE.md#release-cut-shadow)
+and [verification procedure](../../../DEVELOPMENT.md#release-cut-shadow-verification)
+for #1399. Shadow computation and the read-only native injection check confer no
+publication, release/tag mutation, owner-hold override or workflow-dispatch
+authorization. Preserve the active release path and its gates until the separately
+reviewed switch; authorization below continues to apply.
+
 ## Private-leaf attribution
 
 The component map's `releaseConsumers` attributes private TUI, CLI style and invoke changes to Squad.

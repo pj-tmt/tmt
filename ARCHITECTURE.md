@@ -38,7 +38,7 @@ layout permission does not change component ownership, CI selection or release p
 | Repository root           | Short entry points, contributor guidance, license and required repository/tool configuration; no product source or generated evidence. |
 | `.agents/`                | Repository contributor procedures.                                                                                                     |
 | `.github/`                | Component ownership, layout allowlist, workflows, shared Actions and isolated release tooling.                                         |
-| `rust/`                   | Native CLI, core, adapters, shared Rust leaves, fixture publication and the release archive note; extensions retain their own crates.  |
+| `rust/`                   | Native CLI, core, adapters, shared Rust leaves, private fixtures and the release archive note; extensions retain their own crates.     |
 | `typescript/`             | Private developer tooling, tests and shared fixture support; no product-runtime fallback.                                              |
 | `extensions/<extension>/` | Feature-owned runtimes, contracts, skills, documentation and assets.                                                                   |
 | `contracts/`              | Core public contracts and their normative fixtures.                                                                                    |
@@ -3978,7 +3978,7 @@ Retained tests are organized under `typescript/test/native/`, `typescript/test/e
 their owners. Office real-companion stress cases use `office-*` filenames and the
 component map's stress `selectedBy` glob; retained-release setup uses the private
 installer, while public acquisition refusal stays in the native lifecycle suite.
-`rust/crates/tmt-test-support` owns only fixture-executable publication for
+The `rust/crates/tmt-test-support` library owns fixture-executable publication for
 [DEVELOPMENT's ETXTBSY case 2](DEVELOPMENT.md#rust-checks), not general test utilities.
 Its one `write_executable` helper sends exact bytes and the caller's permission
 mode to a short-lived shell through `tmt-invoke`'s bounded execution and
@@ -3989,7 +3989,10 @@ The unpublished, `dist = false` library is a private component, with no release
 consumers. Only Adapters, CLI, Squad, Office, Colab and Office Command may declare
 its canonical untargeted dev-dependency; no production or build edge may consume
 it. The architecture guard checks those exact edges, production references and
-publication metadata. Its only dependency is the neutral `tmt-invoke` leaf.
+publication metadata. Its only production dependency is the neutral `tmt-invoke` leaf.
+Its developer-only `release-version` example owns the release TOML tool described
+[below](#release-cut-shadow), with exact untargeted `serde_json`/`toml_edit` dev edges;
+these dependencies cannot enter the library or become production/build edges.
 Owner-local test modules retain readiness, scenario assertions and case-3 retries.
 
 The CLI's `tests/support` module owns the isolated environment and
@@ -4166,6 +4169,60 @@ checks the locked version and vendored bytes, then writes a config with an absol
 local file path. It never alters registry contents or fetches license text.
 Cargo-about retains target filtering and `--offline --locked --fail`; the final
 artifact verifier still rejects placeholder attribution.
+
+### Release-cut shadow
+
+The [#1399 migration](https://github.com/pj-tmt/tmt/issues/1399) is in shadow mode.
+The existing release-please path still creates release PRs and native drafts;
+`release-cut.yml` performs no publication or queue mutations. Its trusted-main
+metadata job uses bounded REST GETs to obtain complete releases (including drafts)
+and active native runs. Draft visibility requires contents-write permission;
+only sanitized metadata crosses to the read-only planner, never credentials.
+`native-release.yml` names each run with its product so queued/running work is
+attributable. Older or unknown active run identities block the shadow plan.
+
+`release-cut.mjs` owns the proposed cut computation. It captures one main SHA X,
+reads the component map at X through `parseComponentMap`/`ownerOf`, and attributes
+paths by ownership, exclusions, selected globs and declared `releaseConsumers`.
+Private-leaf consumers add attribution without replacing matching released-root
+membership: style/invoke remain CLI plus Squad, while explicitly CLI-excluded
+TUI is Squad only. `releasedComponentsForPath` in `ci-scope.mjs` owns released-root
+membership for both this planner and the Project release sweep; `ownerOf` supplies
+the selected owner and its declared consumers from the same parsed map.
+There is no generated release-config path expansion. Direct pinned conventional
+parser/renderer dependencies produce notes from first-parent commits in
+(previous product tag, X]; their linked SHA set must equal the releasable set.
+The last published product tag supplies the next alpha number. Stable/core-version
+changes and a first release without an approved initial version are reported as
+requiring the owner; missing history or draft/run evidence cannot mean an empty
+range or an idle component. A draft blocks that component. Breaking notes remain
+explicitly owner-required.
+
+`release-version-injection.mjs` owns the shadow checkout version contract. It
+discovers Cargo inheritance, edits only the selected version declaration, and
+verifies full offline locked resolution against the tag. All tracked source
+hashes, the exact manifest edit and semantic lock entries are checked; only local
+package versions and their implied qualified dependency references may change.
+The developer-only `tmt-test-support` example `release-version` is the single TOML owner:
+workspace-pinned `toml_edit` parses manifests/locks and preserves formatting and
+comments while editing the version. It is not a shipped product command.
+The Linux x64 runtime producer transfers this example as a separate fixture
+artifact to ordinary tooling tests; product runtime artifacts retain their existing shape.
+The dist plan, build manifest and extracted binary must agree with the tag. The
+four-host PR workflow builds fixture versions without committing, tagging,
+dispatching or publishing. The independently versioned private Herdr fixture stays unchanged.
+
+Historical comparison fixtures carry the public release bodies and source-map
+snapshots for CLI alpha.44→45/45→46 and Squad alpha.12→13. Their cuts are those
+historical release PRs' merge parents, only in the fixtures; the production planner
+uses ordinary tag/main ancestry. Those comparisons and one main-push shadow run
+gate the later switch, rather than new old-path publications. Live cut creation,
+production injection, fixed main development versions and old-path removal remain
+future migration phases. Procedures belong to
+[DEVELOPMENT](DEVELOPMENT.md#release-cut-shadow-verification); authorization belongs
+to the [release skill](.agents/skills/tmt-release/SKILL.md).
+
+### Release-to-Project tracking
 
 `project-release.mjs` owns release-to-Project delivery evidence, separately from
 publication. Each daily or explicit main-only dispatch performs a full sweep of

@@ -609,12 +609,13 @@ describe('private leaf release attribution with pinned release-please', () => {
       const declared = parseComponentMap(
         JSON.stringify({
           components: {
+            ...readJson('.github/components.json').components,
             leaf: { owns: ['rust/crates/new-leaf'], release: false, releaseConsumers: ['squad'] },
           },
         })
       ).components;
       const result = generateReleasePleaseConfig({
-        components: [...components(), ...declared],
+        components: declared,
         workspace: changed,
       });
       expect(Object.keys(result.packages)).toEqual(
