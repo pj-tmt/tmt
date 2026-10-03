@@ -4510,7 +4510,7 @@ Current executable dependencies are `tmt-invoke`, `tmt-cli-style`, the pure
 `tmt-colab-model` space-ID derivation and reviewed workspace pins. The model owns
 canonical bytes/codecs/crypto without I/O or core access. The
 executable owns CLI composition, foreground door, SQLite/files and keyring;
-native app embedding and the bridge remain proposed. Core access is only through the absolute invoking
+the browser build is loaded at foreground startup; the bridge remains proposed. Core access is only through the absolute invoking
 `$TMT_EXECUTABLE api` and documented JSON commands via the invoke leaf; no
 `tmt-core`, `tmt-adapters`, Office or Remote behavior dependencies, core SQLite
 or pane scraping. Shared crypto extraction requires actual consumers and review.
@@ -4567,7 +4567,7 @@ bridge admission belong to #1111/#1160, and own grammar/folding to #1110.
 The live reader retains at most 4,096 sequence hashes. Native bootstrap delivers
 paired checkpoints before the full cross-namespace tail; signed browser fixtures
 do not establish native mounted browser E2E.
-Native refresh and assets remain owned by #1250/#1253.
+The native socket serves the built app when its local output is available and supplies owner discovery and ACK-paced bootstrap; #1250 owns session refresh/SDK integration.
 
 The content-only Yjs decoder lives in a dedicated Worker. It accepts bounded
 plaintext/edit requests and validates exhaustive roots/types before committing a
@@ -4656,7 +4656,19 @@ long for a Unix socket and removes its own socket on exit. Remote mounts it at
 trusts `tmt-device-context` because only the owner can reach the socket. It
 keeps the relocated door's bounds (16 request workers, 8 KiB/32 header fields,
 64 KiB bodies, acquisition/response deadlines, drained replies) and answers the
-placeholder page for owner and non-owner requests. It accepts a `colab-sync-v1`
+private guidance page to non-owner root requests. `assets::App` owns the bounded
+immutable app inventory: main selects the compile-time checkout-relative Vite output
+or an explicit absolute `serve --app-dir`, canonicalizes and loads it before creating
+state. A missing or incomplete default keeps serve available with owner-only build
+instructions; invalid explicit output returns `COLAB_APP_UNAVAILABLE`. Directory-
+anchored no-follow opens admit only nonempty regular generated files, at most 128
+files and 16 MiB in total. HTTP requests resolve exact in-memory keys, never paths
+on disk. Owner context is sufficient to load the app before Colab device registration;
+other asset requests are denied. Vite uses relative asset URLs beneath the remote
+mount. The app response CSP is owned by colab-v1, including the inline permissions
+needed by the opaque renderer's inherited policy. Files remain outside the binary
+and data root; a rebuild is adopted on restart. There is no installer or release
+change. It accepts a `colab-sync-v1`
 WebSocket upgrade only with an active registered owner context, version 13 and a well-formed
 16-byte key, computing the accept value with the workspace `tungstenite`
 handshake, then drives the shared sync server (16 tunnels at most, closed after

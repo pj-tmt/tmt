@@ -12,6 +12,7 @@ export default defineConfig({
     sortImports: false,
     sortPackageJson: false,
   },
+  base: './',
   plugins: [react(), designTokens()],
   build: { license: { fileName: 'THIRD-PARTY-NOTICES.txt' } },
 });

@@ -321,3 +321,26 @@ fn only_a_stale_own_socket_is_replaced_and_long_paths_refuse() {
             .contains("door.sock")
     );
 }
+
+#[test]
+fn invalid_explicit_app_path_fails_before_creating_state() {
+    let pilot = Pilot::new(None);
+    for directory in [pilot.root.join("missing"), PathBuf::from("relative")] {
+        let output = pilot
+            .command()
+            .args(["serve", "--json", "--app-dir"])
+            .arg(directory)
+            .output()
+            .unwrap();
+        assert!(!output.status.success() && output.stderr.is_empty());
+        let error: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(error["error"]["code"], "COLAB_APP_UNAVAILABLE");
+        assert!(
+            error["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains(tmt_colab::assets::BUILD_HINT)
+        );
+        assert!(!pilot.root.join("selected").exists());
+    }
+}

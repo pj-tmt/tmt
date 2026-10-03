@@ -6,6 +6,7 @@
 //! bounded single-request reader and the drained reply are unchanged.
 use crate::{
     Result,
+    assets::{self, App},
     keyring::{Layout, StateFault},
     limits,
     registration::{self, OwnerAdmission, Registration},
@@ -97,10 +98,15 @@ pub struct MountSocket {
     pub path: PathBuf,
     /// The bound socket's inode, so cleanup never removes a replacement.
     identity: (u64, u64),
-    space_id: String,
+    browser: Browser,
     tunnels: Tunnels,
     registration: Option<Arc<Mutex<Registration>>>,
     sync: Option<Server<OwnerAdmission>>,
+}
+#[derive(Clone)]
+struct Browser {
+    space_id: String,
+    app: Option<Arc<App>>,
 }
 struct Worker {
     socket: UnixStream,
@@ -140,11 +146,18 @@ impl MountSocket {
             listener,
             identity: (metadata.dev(), metadata.ino()),
             path,
-            space_id: space_id.to_owned(),
+            browser: Browser {
+                space_id: space_id.to_owned(),
+                app: None,
+            },
             tunnels,
             registration: None,
             sync: None,
         })
+    }
+    pub fn with_app(mut self, app: Option<App>) -> Self {
+        self.browser.app = app.map(Arc::new);
+        self
     }
     pub fn with_registration(
         mut self,
@@ -162,7 +175,7 @@ impl MountSocket {
         let mut workers: Vec<Worker> = Vec::new();
         let live = Arc::new(AtomicUsize::new(0));
         let active = Arc::new(Mutex::new(Vec::new()));
-        let space_id: Arc<str> = self.space_id.as_str().into();
+        let browser = Arc::new(self.browser.clone());
         let result = (|| -> Result<()> {
             while !stop.load(Ordering::Acquire) {
                 for i in (0..workers.len()).rev() {
@@ -197,8 +210,8 @@ impl MountSocket {
                         continue;
                     }
                     let retained = socket.try_clone()?;
-                    let (live, space_id, tunnels) =
-                        (Arc::clone(&live), Arc::clone(&space_id), self.tunnels);
+                    let (live, browser, tunnels) =
+                        (Arc::clone(&live), Arc::clone(&browser), self.tunnels);
                     let registration = self.registration.clone();
                     let sync = self.sync.clone();
                     let active = Arc::clone(&active);
@@ -208,7 +221,7 @@ impl MountSocket {
                             .spawn(move || {
                                 serve(
                                     socket,
-                                    &space_id,
+                                    &browser,
                                     &live,
                                     tunnels,
                                     registration.as_ref(),
@@ -264,7 +277,7 @@ struct Request {
 }
 fn serve(
     mut socket: UnixStream,
-    space_id: &str,
+    browser: &Browser,
     live: &AtomicUsize,
     tunnels: Tunnels,
     registration: Option<&Arc<Mutex<Registration>>>,
@@ -430,15 +443,35 @@ fn serve(
         live.fetch_sub(1, Ordering::AcqRel);
         return;
     }
+    if request.method == "GET"
+        && request.owner.is_some()
+        && let Some((kind, bytes)) = browser.app.as_ref().and_then(|app| app.find(&request.path))
+    {
+        let _ = response_with_policy(&mut socket, 200, bytes, kind, assets::POLICY);
+        return;
+    }
+    if request.path.starts_with("/assets/")
+        || request.path == "/index.html"
+        || request.path == "/THIRD-PARTY-NOTICES.txt"
+    {
+        let (status, bytes): (_, &[u8]) = if request.owner.is_none() {
+            (403, b"DENIED")
+        } else {
+            (404, b"NOT FOUND")
+        };
+        let _ = response(&mut socket, status, bytes, false);
+        return;
+    }
     if request.method != "GET" || request.path != "/" {
         let _ = response(&mut socket, 404, b"NOT FOUND", false);
         return;
     }
     let text = match &request.owner {
         Some(name) => format!(
-            "Colab space {} is running. You are signed in as {}. Co-editing arrives with the next colab slice.",
-            escape(space_id),
-            escape(name)
+            "Colab space {} is running. You are signed in as {}. {}.",
+            escape(&browser.space_id),
+            escape(name),
+            assets::BUILD_HINT
         ),
         None => "This colab space is private. Open it from a browser paired with tmt remote pair, or use a share link.".into(),
     };
@@ -650,9 +683,18 @@ fn response_as(
     body: &[u8],
     kind: &str,
 ) -> std::io::Result<()> {
+    response_with_policy(socket, status, body, kind, POLICY)
+}
+fn response_with_policy(
+    socket: &mut UnixStream,
+    status: u16,
+    body: &[u8],
+    kind: &str,
+    policy: &str,
+) -> std::io::Result<()> {
     let deadline = Instant::now() + limits::RESPONSE;
     let bytes = format!(
-        "HTTP/1.1 {status} Response\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Security-Policy: {POLICY}\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n\r\n",
+        "HTTP/1.1 {status} Response\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Security-Policy: {policy}\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n\r\n",
         body.len()
     );
     for mut bytes in [bytes.as_bytes(), body] {
@@ -785,6 +827,15 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
         }
     }
     if !request.path.starts_with('/') || request.path.contains(['?', '#', '%']) {
+        return Err(400);
+    }
+    if request
+        .path
+        .split('/')
+        .any(|part| matches!(part, "." | ".."))
+        || request.path.contains('\\')
+        || request.path.starts_with("//")
+    {
         return Err(400);
     }
     // Drop header borrows before acquiring the bounded body; no body is interpreted.

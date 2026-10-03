@@ -3130,7 +3130,8 @@ socket/process lifecycle acceptance twice. No real model/account/DB is used.
 
 The private local-build Colab executable serves an owner-only mounted socket,
 owner-browser registration and stream sync, and lists local-space metadata.
-The browser page remains a placeholder. No installer exists.
+Owner requests load the built browser app when its local output is available.
+No installer exists. Rust builds and tests do not require a browser build.
 Build and verify it from the repository root:
 
 ```bash
@@ -3177,6 +3178,8 @@ is available separately through the isolated decoder library.
 
 ```bash
 (cd rust && cargo build --offline --locked -p tmt-cli -p tmt-colab)
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app install --frozen-lockfile --ignore-scripts
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app build
 PATH="$PWD/rust/target/debug:$PATH" tmt colab spaces --json
 PATH="$PWD/rust/target/debug:$PATH" tmt colab serve --json
 ```
@@ -3195,6 +3198,22 @@ keys; before first serve it returns `{"spaces":[]}`. Use an isolated normal TMT
 data root for manual tests. Browsers reach colab through `tmt remote serve` at
 `/r/<prefix>/x/colab/`; remote owns Host and Origin admission and forwards the
 paired owner's device context.
+
+By default, `serve` loads `extensions/tmt-colab/typescript/app/dist` relative to
+its compile-time crate directory, canonicalized at startup. This is a local-build
+binary: moving the checkout requires rebuilding it or passing
+`serve --app-dir /absolute/path/to/dist`. The override is optional; an invalid
+explicit directory fails with `COLAB_APP_UNAVAILABLE` before creating Colab state.
+A missing, unsafe or incomplete default instead starts the socket and shows owners
+`build the app: corepack pnpm --dir typescript --filter @tmt/colab-app build`.
+Build and restart serve to adopt new assets. Files are snapshotted in memory, with
+128-file/16-MiB total bounds, no symlinks and no request-time filesystem access.
+Asset access needs remote's owner context, not prior Colab registration. Anonymous
+root requests retain private-space guidance; other asset requests are denied.
+App resources use same-origin relative URLs. The current font stacks fall back to
+installed/system fonts without third-party font requests; the server also supports
+bundled WOFF/WOFF2/TTF/OTF output. The exact app CSP and static route behavior are
+owned by [colab-v1](extensions/tmt-colab/contracts/colab-v1.md#implemented-mounted-browser-assets-1253).
 
 The socket bounds are named in `src/limits.rs`: 16 request workers, 8 KiB/32
 header fields, 64 KiB HTTP bodies, 2-second total acquisition and 1-second total
@@ -3482,6 +3501,17 @@ are public test data. This foundation does not satisfy the complete L1 gates.
 ### Colab browser verification
 
 The private local page app has its own package and Chromium isolation suite.
+Build `tmt-colab` before `test:browser` so the real-socket asset scenario can start
+`rust/target/debug/tmt-colab`; `COLAB_SERVE_EXECUTABLE` optionally selects an
+absolute test binary built from this checkout. The scenario runs twice with a
+temporary data root and a test HTTP-to-Unix-socket adapter, comparing actual built HTML/JS/CSS bytes, MIME
+types, nested mount loading, default/override selection, owner asset denial and
+process/socket cleanup. It also exercises the opaque sample renderer under the served app CSP, and proves
+cross-origin requests are blocked with a same-browser capture-server positive
+control. The adapter supplies owner context and a fixed core storage-root response; it does not mock
+static assets or add product API routes. The mounted shell reaches its existing
+blocked state because the test door does not serve Remote's SDK. This is native asset-serving evidence, not Remote pairing
+or complete native co-editing acceptance.
 Its test/build/dev entry points use workspace-pinned Vite+; `vitest.config.ts`
 keeps app unit discovery separate. TypeScript retains its existing check responsibility;
 bundled Oxlint retains the app's lint selection, React plugin and deny-warning policy.
@@ -3551,8 +3581,8 @@ Admission units cover hash/signature/payload/target/chain substitutions, write f
 and durable-prefix conflicts without head advancement; framing units cover shared
 assembly identity/order/size limits, interleaving, the absolute deadline and cleanup.
 This is signed
-protocol-fixture evidence, not native mounted browser E2E: #1250 owns refresh and
-#1253 owns native assets.
+protocol-fixture evidence, not native mounted browser E2E: #1250 owns refresh;
+the separate real-socket scenario verifies native assets.
 The content Worker suite proves concurrent writer convergence and reload
 reconstruction, rejects malformed/mixed roots, checks termination/cleanup and
 proves prepared edits cannot leak through committed projections.

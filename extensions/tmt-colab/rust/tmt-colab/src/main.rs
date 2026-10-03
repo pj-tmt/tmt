@@ -7,7 +7,9 @@ use std::{
 };
 use tmt_cli_style::{CommandSpec, Example, OutputModes, Route};
 use tmt_colab::{
-    Result, core,
+    Result,
+    assets::App,
+    core,
     keyring::{Keyring, Layout},
     registration::Registration,
     socket::{MountSocket, Tunnels},
@@ -23,7 +25,7 @@ fn grammar() -> Command {
             note: "Run the local foreground space",
         }],
         outputs: OutputModes::Human,
-        details: "The space is reached through tmt remote, which mounts it for paired browsers. Sync is not available in this slice.",
+        details: "The space is reached through tmt remote, which mounts it for paired browsers. Build the browser app to open the mounted space.",
     };
     const SERVE: CommandSpec = CommandSpec {
         name: "serve",
@@ -58,7 +60,15 @@ fn grammar() -> Command {
     tmt_cli_style::command(&ROOT)
         .bin_name("tmt colab")
         .subcommand_required(true)
-        .subcommand(tmt_cli_style::command(&SERVE))
+        .subcommand(
+            tmt_cli_style::command(&SERVE).arg(
+                Arg::new("app-dir")
+                    .long("app-dir")
+                    .value_name("DIRECTORY")
+                    .value_parser(clap::value_parser!(std::path::PathBuf))
+                    .help("Use an absolute app build directory instead of this checkout's build"),
+            ),
+        )
         .subcommand(tmt_cli_style::command(&SPACES))
         .subcommand(
             tmt_cli_style::command(&EXPORT)
@@ -91,6 +101,10 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         if command == "export" {
             return export(&root, args);
         }
+        let app = App::selected(
+            args.get_one::<std::path::PathBuf>("app-dir")
+                .map(|path| path.as_path()),
+        )?;
         let layout = Layout::open(&root)?;
         let _lock = layout.serve_lock()?;
         let keyring = Keyring::open(&layout)?;
@@ -103,7 +117,8 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
             std::env::current_exe()?,
         )?));
         let socket = MountSocket::bind(&layout, &space_id, Tunnels::PRODUCT)?
-            .with_registration(&layout, Arc::clone(&registration))?;
+            .with_registration(&layout, Arc::clone(&registration))?
+            .with_app(app);
         if json_output {
             writeln!(
                 output,
@@ -308,6 +323,11 @@ fn main() -> ExitCode {
                     error
                         .downcast_ref::<tmt_colab::export::Fault>()
                         .map(|e| e.code())
+                })
+                .or_else(|| {
+                    error
+                        .downcast_ref::<tmt_colab::assets::AssetFault>()
+                        .map(|_| "COLAB_APP_UNAVAILABLE")
                 })
                 .unwrap_or_else(|| {
                     if matches!(
