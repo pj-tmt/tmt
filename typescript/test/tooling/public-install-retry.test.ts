@@ -81,6 +81,30 @@ describe('deferred anonymous public-install retry', () => {
     expect(selected.groups[0].hosts).toHaveLength(4);
   });
 
+  it('plans only the driver CLI acquisition failure, preserving archive and mixed failures', () => {
+    const input = hosts().map((host) => ({
+      ...host,
+      product: 'driver-herdr',
+      tag: 'tmt-driver-herdr-v0.1.0-alpha.0',
+    }));
+    input[0].failed = [{ ...limit(), check: 'current public CLI' }];
+    expect(plan(input).matrix.include).toEqual([
+      {
+        product: 'driver-herdr',
+        tag: 'tmt-driver-herdr-v0.1.0-alpha.0',
+        target: TARGETS[0],
+        runner: 'macos-15',
+      },
+    ]);
+    input[0].failed = [{ ...limit(), check: 'driver public archive and approval' }];
+    expect(plan(input).matrix.include).toEqual([]);
+    input[0].failed = [
+      { ...limit(), check: 'current public CLI' },
+      { check: 'driver public archive and approval', reason: 'HTTP 403' },
+    ];
+    expect(plan(input).matrix.include).toEqual([]);
+  });
+
   it('waits once until the last selected reset, then allows the single target re-proofs', async () => {
     const input = hosts();
     input[2].failed = [limit(1791000600)];

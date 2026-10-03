@@ -2104,6 +2104,9 @@ each selected target then repeats the public install on its matching host with `
 which allows one acquisition attempt without another rate-limit retry. Source and retry
 install jobs share `.github/actions/public-install-smoke`: it owns the tag data
 checkout, Node setup and verifier invocation, including any host architecture wrapper.
+For Herdr, that shared action also installs archive-verification dependencies.
+Only its `current public CLI` classified acquisition failure is retryable; standalone
+archive HTTP failures and mixed failures retain their original failure conclusions.
 Fixtures require the source matrix's target/runner pairs to equal the retry planner's `TARGETS`.
 The source dispatch finishes promptly; the long wait runs solely in the independent workflow, whose
 source-run/attempt/product/tag `public-install-retry-...` group never holds `release-<product>`

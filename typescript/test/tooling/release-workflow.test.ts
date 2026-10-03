@@ -741,6 +741,16 @@ describe('public install smoke (native-release-smoke.yml)', () => {
     );
   });
 
+  it('loads Herdr archive dependencies in the shared source/retry host owner', () => {
+    expect(host).toContain("if: inputs.product == 'driver-herdr'");
+    expect(host).toContain('uses: ./.github/actions/setup-tooling');
+    expect(host).toContain('pnpm install --frozen-lockfile --ignore-scripts');
+    expect(smoke).not.toContain('pnpm install');
+    expect(read('.github/workflows/native-release-smoke-retry.yml')).toContain(
+      'uses: ./.github/actions/public-install-smoke'
+    );
+  });
+
   it('keeps what failed as data and reports it with the only issue write access, in a job of its own', () => {
     expect(smoke).toMatch(
       /if: always\(\)\n {8}uses: actions\/upload-artifact@v4\n {8}with:\n {10}name: smoke-failures-\$\{\{ inputs\.product \}\}-\$\{\{ inputs\.tag \}\}-\$\{\{ matrix\.target \}\}/

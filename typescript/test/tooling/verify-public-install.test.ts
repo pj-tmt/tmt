@@ -611,6 +611,38 @@ describe('public standalone driver smoke', () => {
     expect(JSON.stringify(registry)).toContain('0.1.0-alpha.0');
   });
 
+  it('uses one CLI acquisition attempt for a deferred driver re-proof', async () => {
+    let downloads = 0;
+    const attempt = run(
+      {
+        upgradeFailures: 1,
+        upgradeCause:
+          'GitHub API rate limit: reset/earliest retry time 2030-01-01T00:00:01Z (UTC epoch 1893456001); the single retry was exhausted. Retry later or optionally set GITHUB_TOKEN.',
+      },
+      {
+        product: 'driver-herdr',
+        tag: 'tmt-driver-herdr-v0.1.0-alpha.0',
+        retry: true,
+        download: async () => {
+          downloads++;
+          throw new Error('unexpected archive acquisition');
+        },
+      }
+    );
+    expect(failed(await attempt.results)).toEqual([
+      expect.objectContaining({
+        check: 'current public CLI',
+        infrastructure: 'github-api-rate-limit',
+        reason: expect.stringContaining('attempt bound exceeded (1 attempts)'),
+      }),
+    ]);
+    expect(attempt.waits).toEqual([]);
+    expect(downloads).toBe(0);
+    expect(
+      readFileSync(path.join(attempt.root, 'work', 'home', 'upgrade-count'), 'utf8').trim()
+    ).toBe('1');
+  });
+
   it('fails immediately on an unclassified public archive HTTP failure', async () => {
     let downloads = 0;
     const attempt = run(
