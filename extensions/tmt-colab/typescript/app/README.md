@@ -6,9 +6,13 @@ mount uses Remote's session/key certification, Colab registration and verified
 bootstrap, with a bounded Worker and live content binding. Comments and agent
 operations remain later slices.
 
-The local-build executable serves the `dist` output at startup, with optional
-`serve --app-dir` override; build and restart serve to adopt changes. Vite emits
-relative asset URLs for the nested Remote mount. The app uses installed/system
+The executable serves an immutable app inventory at startup. Build with
+`TMT_COLAB_APP_DIR=/absolute/path/to/dist` to embed the complete Vite output,
+including its dependency notices; the resulting binary needs no app directory at
+runtime. An invalid supplied build fails compilation. `serve --app-dir` overrides
+embedded bytes; without either, source builds try the checkout's `dist`, then show
+the build hint. Rebuilding embedded assets requires rebuilding the binary.
+Vite emits relative asset URLs for the nested Remote mount. The app uses system
 font fallbacks and makes no third-party asset requests. The static route, fallback
 and CSP contract is owned by
 [colab-v1](../../contracts/colab-v1.md#implemented-mounted-browser-assets-1253).

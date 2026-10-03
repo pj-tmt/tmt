@@ -1344,6 +1344,25 @@ fn collector_fails_closed_for_missing_ambiguous_invalid_and_remapped_modules() {
         "the explicit generated Office asset collector must remain supported"
     );
 
+    let colab_assets = FixtureDirectory::new();
+    colab_assets.write(
+        "assets.rs",
+        "include!(concat!(env!(\"OUT_DIR\"), \"/colab_assets.rs\"));\n",
+    );
+    assert!(source::collect("tmt-colab", &colab_assets.root().join("assets.rs")).is_ok());
+    assert!(
+        source::collect("fixture", &colab_assets.root().join("assets.rs")).is_err(),
+        "the generated asset allowance must remain package-specific"
+    );
+    colab_assets.write(
+        "lib.rs",
+        "include!(concat!(env!(\"OUT_DIR\"), \"/colab_assets.rs\"));\n",
+    );
+    assert!(
+        source::collect("tmt-colab", &colab_assets.root().join("lib.rs")).is_err(),
+        "the generated asset allowance must remain module-specific"
+    );
+
     let verbatim = FixtureDirectory::new();
     verbatim.write("lib.rs", "pub fn declaration_only();\n");
     let error = source::collect("fixture", &verbatim.root().join("lib.rs"))

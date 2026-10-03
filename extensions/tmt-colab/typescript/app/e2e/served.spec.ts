@@ -1,13 +1,16 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, readFile, readdir, rm, writeFile, access } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile, access, mkdir } from 'node:fs/promises';
 import { createServer, request, type Server } from 'node:http';
 import { type AddressInfo } from 'node:net';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
+import { writeExecutable } from '../../../../../typescript/test/support/executable-fixture.mjs';
 
-const app = fileURLToPath(new URL('../dist/', import.meta.url));
+const checkout = fileURLToPath(new URL('../dist/', import.meta.url));
+const app = process.env.COLAB_SERVE_APP_DIR ?? checkout;
+const embedded = process.env.COLAB_SERVE_EMBEDDED === '1';
 const binary =
   process.env.COLAB_SERVE_EXECUTABLE ??
   fileURLToPath(new URL('../../../../../rust/target/debug/tmt-colab', import.meta.url));
@@ -75,7 +78,16 @@ const request = JSON.parse(fs.readFileSync(0, 'utf8'));
 if (request.version !== 1 || request.operation !== 'storage.root') process.exit(9);
 console.log(JSON.stringify({dataRoot: ${JSON.stringify(root)}}));`,
     );
-    child = spawn(binary, ['serve', '--json', ...(explicit ? ['--app-dir', app] : [])], {
+    let executable = binary;
+    if (embedded) {
+      // The existing isolated publisher closes all writable handles before exec.
+      await mkdir(`${root}/install`);
+      executable = `${root}/install/tmt-colab`;
+      writeExecutable(executable, await readFile(binary));
+      await expect(access(`${root}/install/colab-app`)).rejects.toThrow();
+      if (!explicit) await expect(access(checkout)).rejects.toThrow();
+    }
+    child = spawn(executable, ['serve', '--json', ...(explicit ? ['--app-dir', app] : [])], {
       cwd: root,
       env: { ...process.env, TMT_EXECUTABLE: process.execPath },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -133,7 +145,7 @@ for (let run = 1; run <= 2; run++) {
     page,
     context,
   }) => {
-    // Prove both the explicit override and the checkout-relative default.
+    // Prove override plus checkout default, or relocated embedded default when selected.
     const server = await serve(run === 1);
     let capture: Server | undefined;
     const requests: string[] = [];
@@ -163,6 +175,16 @@ for (let run = 1; run <= 2; run++) {
           expect(asset.headers()['content-type']).toBe('text/javascript; charset=utf-8');
         if (name.endsWith('.css'))
           expect(asset.headers()['content-type']).toBe('text/css; charset=utf-8');
+      }
+      const roots = await readdir(app);
+      for (const name of ['THIRD-PARTY-NOTICES.txt', 'renderer.html']) {
+        if (!roots.includes(name)) continue;
+        const asset = await context.request.get(server.origin + mount + name);
+        expect(asset.status()).toBe(200);
+        expect(await asset.body()).toEqual(await readFile(app + '/' + name));
+        expect(asset.headers()['content-type']).toBe(
+          name.endsWith('.html') ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8',
+        );
       }
       expect(requests.every((url) => new URL(url).origin === server.origin)).toBe(true);
       const anonymous = await fetch(server.origin + mount + 'assets/' + files[0]);

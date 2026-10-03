@@ -344,3 +344,16 @@ fn invalid_explicit_app_path_fails_before_creating_state() {
         assert!(!pilot.root.join("selected").exists());
     }
 }
+
+#[test]
+fn package_version_exits_without_core_or_state_access() {
+    for flag in ["--version", "-V"] {
+        let output = Command::new(BINARY).env_clear().arg(flag).output().unwrap();
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        assert_eq!(
+            output.stdout,
+            format!("colab {}\n", env!("CARGO_PKG_VERSION")).as_bytes()
+        );
+    }
+}

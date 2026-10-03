@@ -1,4 +1,4 @@
-use clap::{Arg, Command};
+use clap::{Arg, ArgAction, Command};
 use serde_json::json;
 use std::{
     io::Write,
@@ -25,7 +25,7 @@ fn grammar() -> Command {
             note: "Run the local foreground space",
         }],
         outputs: OutputModes::Human,
-        details: "The space is reached through tmt remote, which mounts it for paired browsers. Build the browser app to open the mounted space.",
+        details: "The space is reached through tmt remote, which mounts it for paired browsers. Serve the bundled browser app, or build it for local development.",
     };
     const SERVE: CommandSpec = CommandSpec {
         name: "serve",
@@ -59,6 +59,8 @@ fn grammar() -> Command {
     };
     tmt_cli_style::command(&ROOT)
         .bin_name("tmt colab")
+        .version(env!("CARGO_PKG_VERSION"))
+        .arg(tmt_cli_style::version_arg(ArgAction::Version))
         .subcommand_required(true)
         .subcommand(
             tmt_cli_style::command(&SERVE).arg(
@@ -66,7 +68,9 @@ fn grammar() -> Command {
                     .long("app-dir")
                     .value_name("DIRECTORY")
                     .value_parser(clap::value_parser!(std::path::PathBuf))
-                    .help("Use an absolute app build directory instead of this checkout's build"),
+                    .help(
+                        "Override embedded or checkout app bytes with an absolute build directory",
+                    ),
             ),
         )
         .subcommand(tmt_cli_style::command(&SPACES))
@@ -291,7 +295,10 @@ fn main() -> ExitCode {
     let matches = match command.try_get_matches() {
         Ok(m) => m,
         Err(e) => {
-            let help = matches!(e.kind(), clap::error::ErrorKind::DisplayHelp);
+            let help = matches!(
+                e.kind(),
+                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
+            );
             if json_output && !help {
                 let _ = writeln!(
                     tmt_cli_style::stream::stdout(true),
