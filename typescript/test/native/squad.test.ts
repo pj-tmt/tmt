@@ -2764,3 +2764,202 @@ sort = ["-name"]
     });
   });
 });
+
+describe('Squad cron management', () => {
+  it('admits the user and lead, preserves exact jobs, and records announcements independently', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const user = await identity(sandbox, 'Ben');
+      const lead = await identity(sandbox, 'Sol');
+      const worker = await identity(sandbox, 'worker');
+      const reviewer = await identity(sandbox, 'reviewer');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      expect((await squad(sandbox, ['lead', 'Sol'])).status).toBe(0);
+      expect((await squad(sandbox, ['add', 'worker', 'reviewer'])).status).toBe(0);
+      const announcements = () => {
+        const db = new Database(sandbox.database, { readonly: true });
+        try {
+          return db
+            .prepare(`SELECT recipient_identity_id AS recipient, originator_identity_id AS actor,
+            message_text AS message, request_kind AS kind FROM request_attempts ORDER BY rowid`)
+            .all() as { recipient: string; actor: string | null; message: string; kind: string }[];
+        } finally {
+          db.close();
+        }
+      };
+      const message = 'literal {time}\n! reminder';
+      const added = await squad(sandbox, [
+        'cron',
+        'add',
+        'product',
+        'worker',
+        '--every',
+        '30m',
+        message,
+      ]);
+      expect(added.status, JSON.stringify(added.body)).toBe(0);
+      expect(added.body).toMatchObject({
+        changed: true,
+        warnings: [],
+        job: { id: 'c1', ownerId: worker, message, state: 'on', revision: 1 },
+      });
+      expect(announcements()).toMatchObject([
+        { recipient: worker, actor: user, kind: 'announcement' },
+      ]);
+      const activeText = await runCli(sandbox, ['squad', 'cron', 'show', 'product', 'c1']);
+      expect(activeText.status).toBe(0);
+      expect(activeText.stdout).toContain('schedule');
+      expect(activeText.stdout).not.toMatch(/^\s+pause\s/m);
+      const root = parseWholeStdout(
+        await runCli(sandbox, ['api'], {
+          stdin: JSON.stringify({ version: 1, operation: 'storage.root', input: {} }),
+        })
+      ).dataRoot as string;
+      const store = path.join(root, 'squad', 'cron', 'jobs.json');
+      expect(JSON.parse(readFileSync(store, 'utf8')).jobs[0].message).toBe(message);
+      expect(statSync(store).mode & 0o777).toBe(0o600);
+      const config = path.join(sandbox.globalDir, 'squad.toml');
+      const originalConfig = readFileSync(config, 'utf8');
+      const denied = await squad(sandbox, [
+        'cron',
+        'pause',
+        'product',
+        'c1',
+        '--identity',
+        'worker',
+      ]);
+      expect(denied.status).toBe(1);
+      expect(denied.body.error.code).toBe('SQUAD_CRON_PERMISSION_DENIED');
+      expect(announcements()).toHaveLength(1);
+      const paused = await squad(sandbox, ['cron', 'pause', 'product', 'c1', '--identity', 'Sol']);
+      expect(paused.body.job).toMatchObject({ state: 'paused', pause: { by: lead }, revision: 2 });
+      const pausedText = await runCli(sandbox, ['squad', 'cron', 'show', 'product', 'c1']);
+      expect(pausedText.status).toBe(0);
+      expect(pausedText.stdout).toMatch(/^\s+pause\s/m);
+      expect(pausedText.stdout).toContain(lead);
+      expect((await squad(sandbox, ['cron', 'resume', 'product', 'c1'])).body.job.state).toBe('on');
+      expect((await squad(sandbox, ['cron', 'reassign', 'product', 'c1', 'reviewer'])).status).toBe(
+        0
+      );
+      expect(announcements().slice(-2)).toMatchObject([
+        { recipient: worker },
+        { recipient: reviewer },
+      ]);
+      expect(announcements().at(-1)!.message).toContain('literal {time}\\n! reminder');
+      expect(
+        (await squad(sandbox, ['cron', 'show', 'product', 'c1'])).body.job.nextMs
+      ).toHaveLength(3);
+      expect(
+        (await squad(sandbox, ['cron', 'edit', 'product', 'c1', '--message', ' \n'])).body.error
+          .code
+      ).toBe('SQUAD_CRON_MESSAGE_INVALID');
+      expect((await squad(sandbox, ['cron', 'reassign', 'product', 'c1', 'Sol'])).status).toBe(0);
+      const count = announcements().length;
+      expect(
+        (await squad(sandbox, ['cron', 'pause', 'product', 'c1', '--identity', 'Sol'])).status
+      ).toBe(0);
+      expect(
+        (await squad(sandbox, ['cron', 'rm', 'product', 'c1', '--identity', 'Sol'])).status
+      ).toBe(0);
+      expect(announcements()).toHaveLength(count);
+      expect(readFileSync(config, 'utf8')).toBe(originalConfig);
+      expect(
+        (
+          await squad(sandbox, [
+            'cron',
+            'add',
+            'product',
+            'worker',
+            '--at',
+            '09:00',
+            '--on',
+            'weekdays',
+            'check',
+          ])
+        ).body.job.id
+      ).toBe('c2');
+      writeFileSync(config, originalConfig + '\n[tabs]\nhide=["product"]\n');
+      expect((await squad(sandbox, ['cron', 'ls'])).body.jobs).toHaveLength(1);
+      for (const notice of announcements()) {
+        expect(notice.kind).toBe('announcement');
+        expect(notice.message.startsWith('▚ ⏱')).toBe(true);
+        expect(notice.message).not.toContain('\n');
+      }
+    });
+  }, 60_000);
+
+  it('pauses retired ownership, acknowledges its hook and never follows a reused room name', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'Ben');
+      const lead = await identity(sandbox, 'Sol');
+      const worker = await identity(sandbox, 'worker');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      expect((await squad(sandbox, ['lead', 'Sol'])).status).toBe(0);
+      expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+      const added = await squad(sandbox, [
+        'cron',
+        'add',
+        'product',
+        'worker',
+        '--every',
+        '1h',
+        'check',
+      ]);
+      const oldRoom = added.body.job.roomId;
+      expect((await runCli(sandbox, ['rm', 'worker', '--force', '--json'])).status).toBe(0);
+      const retired = await squad(sandbox, ['cron', 'show', 'product', 'c1']);
+      expect(retired.status, JSON.stringify(retired.body)).toBe(0);
+      expect(retired.body.job).toMatchObject({
+        state: 'no owner',
+        ownerId: null,
+        revision: 2,
+        nextMs: [],
+      });
+      const db = new Database(sandbox.database, { readonly: true });
+      try {
+        expect(
+          db
+            .prepare(
+              "SELECT state FROM identity_hooks WHERE consumer='squad-cron' AND identity_id=?"
+            )
+            .get(worker)
+        ).toEqual({ state: 'delivered' });
+        expect(
+          db
+            .prepare(
+              'SELECT recipient_identity_id AS recipient, originator_identity_id AS actor, message_text AS message FROM request_attempts ORDER BY rowid DESC LIMIT 1'
+            )
+            .get()
+        ).toMatchObject({
+          recipient: lead,
+          actor: null,
+          message: expect.stringContaining('worker retired'),
+        });
+      } finally {
+        db.close();
+      }
+      expect((await squad(sandbox, ['cron', 'resume', 'product', 'c1'])).body.error.code).toBe(
+        'SQUAD_CRON_NO_OWNER'
+      );
+      expect((await runCli(sandbox, ['room', 'rm', oldRoom, '--json'])).status).toBe(0);
+      expect((await squad(sandbox, ['init', 'product'])).status).toBe(0);
+      expect((await squad(sandbox, ['cron', 'ls'])).body.jobs).toEqual([]);
+      expect((await squad(sandbox, ['cron', 'show', 'product', 'c1'])).body.error.code).toBe(
+        'SQUAD_CRON_NOT_FOUND'
+      );
+      expect((await squad(sandbox, ['add', 'Sol'])).status).toBe(0);
+      const replacement = await squad(sandbox, [
+        'cron',
+        'add',
+        'product',
+        'Sol',
+        '--every',
+        '1h',
+        'new room',
+      ]);
+      expect(replacement.body.job.id).toBe('c2');
+      expect(replacement.body.job.roomId).not.toBe(oldRoom);
+    });
+  }, 60_000);
+});
