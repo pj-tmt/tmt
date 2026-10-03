@@ -98,6 +98,7 @@ pub fn load(
                     settings: config.token_rate(&squad.name)?,
                     input: super::rate::Input {
                         room: squad.room_id.clone(),
+                        names: Default::default(),
                         resumes: acquired
                             .member_ids(&squad.name)
                             .map(|id| (id.to_owned(), Value::Null))
