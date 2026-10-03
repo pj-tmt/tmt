@@ -1,0 +1,66 @@
+---
+source: site/src/chapters/drv-claude.mdx
+sourceRevision: 44f7c122826138af7e784079ba61766762cba41f
+title: Claude Code
+---
+
+import { components as Mdx } from "../../components/mdx";
+import { Cmd } from "../../components/Cmd";
+import { DriverCard } from "../../components/samples";
+
+<DriverCard
+  name="Claude Code"
+  kind="runtime driver"
+  spec={[
+    ["了解", "通过 Claude Code 文档中说明的 SessionStart 和 SessionEnd 钩子，获取每个会话的 ID。"],
+    [
+      "恢复",
+      <>
+        <code>tmt resume &lt;name&gt;</code> 使用原来的模型，重新打开属于这个 identity
+        的会话，而不只是文件夹中最新的会话。
+      </>,
+    ],
+    ["上下文", "启动时，会话会收到简短摘要：自己是谁，以及有哪些待办。"],
+    ["设置", <code>tmt setup claude</code>],
+  ]}
+/>
+
+<Mdx.h3 id="connect-it">连接 Claude Code</Mdx.h3>
+
+<Cmd>{`
+$ tmt setup claude          # 显示具体的设置变更，然后询问
+$ tmt run reviewer claude   # 以 "reviewer" 的名称启动 Claude Code
+$ tmt resume reviewer       # 重新打开 reviewer 自己的会话
+`}</Cmd>
+
+setup 为 tmt 添加三个 Claude Code 钩子（会话开始、会话结束和提交提示词），不会修改其他设置。这些钩子不会阻塞 Claude Code：如果 tmt 响应慢或不存在，会话仍会正常启动，只是不带摘要。`tmt setup claude --remove` 可以移除这些钩子。
+
+设置了 `CLAUDE_CONFIG_DIR` 时，tmt 会用该文件夹存放 Claude 的设置和技能，并从中读取会话记录，不再使用 `~/.claude`。相对路径以运行 tmt 时所在的文件夹为起点。
+
+setup 不会编辑符号链接指向的设置文件，也不会修改链接或目标。若仍要添加 tmt 钩子，请先备份链接指向的文件。然后将 `CLAUDE_CONFIG_DIR` 指向一个空文件夹，运行 `tmt setup claude`，再将生成的 tmt 钩子条目手动复制到实际使用的设置文件中。
+
+如果 tmt 无法识别会话结束的原因，就不会据此认定会话已结束，而会检查 Claude 进程本身。
+
+<Mdx.h3 id="what-you-get">你会得到什么</Mdx.h3>
+
+- **恢复正确的会话**，即使多个 agent 在同一个文件夹中工作。
+- **启动时的简短说明：**agent 的名称、角色和待办事项。
+- 在 `tmt ls` 和窗格徽标中显示**运行中或已结束**。
+
+<Mdx.h3 id="message-channel">消息通道</Mdx.h3>
+
+默认情况下，tmt 将请求粘贴到 agent 窗格中。对于 Claude Code，你可以在启动时选择改用它的消息通道：
+
+<Cmd>{`
+$ tmt run --channel reviewer claude   # 选项放在名称前面；不能与 --resume 一起使用
+`}</Cmd>
+
+这需要 Claude Code 2.x 系列中的 2.1.285 或更新版本。tmt 会在启动任何程序之前检查：如果版本过旧，或无法为给定命令安排启动流程，就会拒绝启动。对于尚未测试过消息通道的较新版本，启动时会在 stderr 上显示提示。Claude 启动时也会显示它自己的开发通道警告。tmt 只为这一次启动添加通道，不会修改任何 Claude 设置。
+
+- **已接入通道的窗格绝不会收到粘贴内容。** 这适用于所有命令：`talk`、回复通知和直接指定窗格地址，都必须使用通道，否则停止。如果通道无法传送请求（尚未就绪、无法访问或启动的进程已结束），`talk` 会说明没有发送、也没有粘贴任何内容，请求会留在 agent 的收件箱中等待。
+- **没有投递回执。** Claude 不会确认通道消息。写入成功后，`talk` 会报告投递尚未确认，并继续等待 agent 的 `tmt reply`。tmt 绝不会重发。
+- **启动的进程崩溃后，记录可能仍然保留。** 如果 tmt 无法确定那次启动的 Claude 是否仍在窗格中运行，`talk` 会拒绝粘贴，并输出用于检查或恢复的 `tmt channel` 命令。`tmt channel inspect` 会显示记录中的信息；确认那次启动的 Claude 已不在窗格中运行后，再运行输出的 `tmt channel recover`。它只移除该记录，不会停止进程或粘贴内容，并且只有确认记录中所有进程都已结束后才会执行。重复运行也是安全的。
+
+<Mdx.h3 id="usage-counters">用量计数器</Mdx.h3>
+
+`tmt setup claude --usage` 添加一个每轮结束时运行的钩子，记录 Claude 的上下文大小和已完成请求使用的 token 数；字段说明见[用量计数器](/drivers#usage-counters)。Claude Code 不报告上下文窗口大小，因此 `windowTokens` 保持为空。Claude 的计数器从钩子首次看到的会话文件末尾开始，每个新请求只计一次，不会计入之前的轮次。
