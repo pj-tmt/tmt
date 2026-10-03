@@ -124,7 +124,7 @@ impl DoorSessions {
         let session_id = uuid_v4().ok()?;
         let payload = json!({"sessionId":session_id,"serverTimeMs":now,"grantRevision":control.grant.revision,"expiresAtMs":control.grant.expires_at_ms});
         let response = self
-            .signed_response(&control.message, &session_id, 1, &payload, now)
+            .signed_response(control.message.envelope(), &session_id, 1, &payload, now)
             .ok()?;
         {
             let mut live = self.live.lock().ok()?;
@@ -236,8 +236,8 @@ impl DoorSessions {
         .ok()?;
         Some(grant)
     }
-    /// This boundary is available to the later journal owner. Routes still
-    /// refuse normal application work until that owner is wired.
+    /// Admit one signed message for the journal/application owner; bindings
+    /// never obtain authority to invoke core themselves.
     pub fn admit(
         self: &Arc<Self>,
         action: BindingAction,
@@ -420,6 +420,46 @@ impl DoorSessions {
             self.ready.notify_all();
         }
     }
+    /// Publish operation metadata under its original ID to the currently live session.
+    pub(crate) fn operation_response(
+        &self,
+        grant: &Grant,
+        id: &str,
+        payload: &Value,
+    ) -> Result<Option<Vec<u8>>, RemoteError> {
+        let live = self.live.lock().map_err(|_| {
+            RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote session unavailable.")
+        })?;
+        let Some(session) = live
+            .by_client
+            .get(&grant.client_id)
+            .filter(|session| !live.stopped && session.state.idle() < self.idle)
+        else {
+            return Ok(None);
+        };
+        let now = now_ms()?;
+        let sequence = self
+            .store
+            .lock()
+            .map_err(|_| RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote state unavailable."))?
+            .response_sequence(&grant.client_id, &session.id, &self.window_id)?;
+        let input = Envelope {
+            kind: "request",
+            id,
+            correlation_id: None,
+            machine_id: &self.machine_id,
+            window_id: &self.window_id,
+            client_id: &grant.client_id,
+            session_id: &session.id,
+            sequence: "1",
+            timestamp_ms: now,
+            origin: &grant.origin,
+            operation: "dispatch.create",
+            payload: b"{}",
+        };
+        self.signed_response(input, &session.id, sequence, payload, now)
+            .map(Some)
+    }
     pub(crate) fn response(
         &self,
         request: &SignedMessage,
@@ -434,17 +474,19 @@ impl DoorSessions {
                 RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote state is unavailable.")
             })?
             .response_sequence(input.client_id, input.session_id, &self.window_id)?;
-        self.signed_response(request, input.session_id, sequence, payload, now)
+        {
+            let session_id = input.session_id;
+            self.signed_response(input, session_id, sequence, payload, now)
+        }
     }
     fn signed_response(
         &self,
-        request: &SignedMessage,
+        input: Envelope<'_>,
         session_id: &str,
         sequence: u64,
         payload: &Value,
         now: u64,
     ) -> Result<Vec<u8>, RemoteError> {
-        let input = request.envelope();
         let id = uuid_v4()?;
         let sequence = sequence.to_string();
         let payload = serde_json::to_vec(payload).expect("JSON value");

@@ -1,6 +1,6 @@
 //! Remote binding routes on the door: `/pair` enrollment and the `session.open`
 //! control on `/append`, plus signed subscribe/ack.
-//! Application adoption remains closed.
+//! Application effects belong to the explicitly composed operation owner.
 use crate::{
     canonical,
     error::RemoteError,
@@ -67,6 +67,10 @@ impl Routes {
     pub fn with_sessions(mut self, sessions: Arc<DoorSessions>) -> Self {
         self.transport = LoopbackTransport::new(Arc::clone(&sessions), self.input_limit);
         self.sessions = Some(sessions);
+        self
+    }
+    pub fn with_operations(mut self, operations: Arc<crate::operations::Operations>) -> Self {
+        self.transport = self.transport.with_operations(operations);
         self
     }
     /// Route prefix; not a credential.

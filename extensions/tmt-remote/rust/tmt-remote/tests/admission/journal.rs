@@ -54,7 +54,7 @@ fn adopt_wire(
     wire: &Value,
     frozen: Option<&[u8]>,
 ) -> Result<tmt_remote::journal::Owned, tmt_remote::error::RemoteError> {
-    owner.admit(wire).ok().unwrap().adopt(frozen)
+    owner.admit(wire).ok().unwrap().adopt(frozen, &[])
 }
 fn adopted(
     owner: &OwnerDoor,
@@ -302,5 +302,5 @@ fn another_store_can_revoke_after_signed_admission_before_adoption() {
     let permit = owner.admit(&wire).ok().unwrap();
     let mut other = Store::open(&owner._serving).unwrap();
     other.revoke(&owner.grant.client_id).unwrap();
-    assert_eq!(permit.adopt(None).unwrap_err().code, "REMOTE_CLOSED");
+    assert_eq!(permit.adopt(None, &[]).unwrap_err().code, "REMOTE_CLOSED");
 }

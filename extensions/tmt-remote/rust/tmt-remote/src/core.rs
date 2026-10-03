@@ -67,6 +67,22 @@ impl CoreClient {
             OUTPUT_LIMIT,
         )
     }
+    pub(crate) fn check(
+        &self,
+        agent: &str,
+        lines: Option<u64>,
+        stop: &AtomicBool,
+    ) -> Result<Value, RemoteError> {
+        let count = lines.map(|value| value.to_string());
+        let mut argv = vec!["check", agent, "--json"];
+        if let Some(count) = count.as_deref() {
+            argv.extend(["--lines", count]);
+        }
+        self.call(&argv, &[], stop, Duration::from_secs(15), OUTPUT_LIMIT)
+    }
+    pub(crate) fn api(&self, input: &[u8], stop: &AtomicBool) -> Result<Value, RemoteError> {
+        self.call(&["api"], input, stop, Duration::from_secs(15), OUTPUT_LIMIT)
+    }
     fn call(
         &self,
         argv: &[&str],
@@ -109,7 +125,10 @@ fn failure(message: &str) -> RemoteError {
 }
 fn invocation_error(error: InvokeError) -> RemoteError {
     if matches!(error.cleanup, Cleanup::Unconfirmed(_)) {
-        return failure("Core cleanup could not be confirmed; outcome is unknown.");
+        return RemoteError::new(
+            "REMOTE_CORE_UNCERTAIN",
+            "Core cleanup could not be confirmed; outcome is unknown.",
+        );
     }
     match error.kind {
         FailureKind::Spawn => failure("Could not start the supplied tmt executable."),

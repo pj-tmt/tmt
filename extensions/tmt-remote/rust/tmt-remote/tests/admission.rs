@@ -49,6 +49,9 @@ impl OwnerDoor {
         Self::with_policy(scopes, "direct")
     }
     fn with_policy(scopes: Vec<String>, mode: &str) -> Self {
+        Self::with_limits(scopes, mode, "all".into(), None)
+    }
+    fn with_limits(scopes: Vec<String>, mode: &str, agents: String, expiry: Option<u64>) -> Self {
         let root = AdmissionRoot::new();
         let layout = Layout::open(&root.0).unwrap();
         let serving = layout.serve_lock().unwrap();
@@ -64,11 +67,11 @@ impl OwnerDoor {
             kind: "cli".into(),
             origin: "cli".into(),
             name: "Test device".into(),
-            agents: "all".into(),
+            agents,
             scopes,
             mode: mode.into(),
             issued_at_ms: now_ms().unwrap(),
-            expires_at_ms: None,
+            expires_at_ms: expiry,
             revision: 1,
             disabled: false,
         };
@@ -516,3 +519,6 @@ fn strict_payload_admission_preserves_native_json_number_values() {
 
 #[path = "admission/journal.rs"]
 mod journal;
+
+#[path = "admission/operations.rs"]
+mod operations;

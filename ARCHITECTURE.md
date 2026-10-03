@@ -4477,9 +4477,40 @@ serialize one normal message per session, and durably consume its expected seque
 `journal` owns client/machine/incarnation-scoped MAC cursors, metadata catch-up and
 monotonic observed-prefix checkpoints. Subscribe/ack return signed batches/checkpoints;
 controls never create journal entries. Long polls recheck live authority after each wake
-and wake on session replacement/end or door shutdown. Application append still returns
-signed `REMOTE_CLOSED` refusals; the internal permit adoption boundary is not wired to
-public operations, approval or sends. Startup discovery is not a remote operation.
+and wake on session replacement/end or door shutdown. Foreground composition supplies
+`operations`, which admits strict single-recipient anonymous `dispatch.create`,
+journal-owned `dispatch.show`/`operation.show`, and the named public reads `agents.list`,
+`identities.status`, `check`, `requests.show` and `result`. Signed discovery advertises
+this implemented subset. Agent listing projects only permitted UUID/name/presence and
+core-published delivery; status/check restrict UUID inputs to the grant's allowlist.
+Result state follows public request history, including an empty retained final, with
+no terminal completion fallback. Bounded reads hold an authorized transaction against
+cross-process revocation. Other application operations remain refused. The frozen public
+core envelope includes
+one device provenance line. Adoption commits the exact intent digest, recipient references,
+audit and direct/held state before effects. Direct sends and explicit same-ID retries
+recover through core `dispatch.show` before any `dispatch.create`; read-only operation
+observation never retries. Core owns immutable acceptance, its one-shot advisory wake
+and enrolled-pane input protection. Remote treats wake uncertainty separately from
+accepted request IDs and never infers readiness from terminal output.
+
+`approval` owns local held-operation confirmation through the existing owner-only
+control socket. `tmt remote approve <operationId>` shows frozen source/recipient/message
+and requires one explicit confirmation; `cancel` and refusal create no core request.
+The IMMEDIATE held claim has one winner. Grant revision/liveness, talk scope and recipient
+policy are checked again at the transaction-held core invocation fence. Stop/restart
+cancel unconfirmed holds. After a possible effect, failure preserves the original ID
+and frozen intent as uncertain; accepted/cancelled operations release their prompt copy.
+Transitions retain bounded signed metadata without copying prompt/final text into audit.
+
+Foreground serve explicitly makes its private lock inheritable by the existing
+`tmt-invoke` child. Closing the parent's file never explicitly unlocks the shared lease;
+restart cannot acquire it while an original invocation survives owner death. Confirmed
+child termination plus definitive core absence permits only an explicit retry of the
+same ID and bytes. Unconfirmed cleanup disables writes until a fresh lease-owning run.
+The runner and core are unchanged. Native tests exercise real signatures/private SQLite
+with deterministic public-process fixtures and a SIGKILL lease probe; they do not claim
+isolated real-core/private-tmux/mock-agent acceptance.
 `audit` writes bounded, sanitized metadata in the adoption/refusal transaction;
 `budgets` persists fixed-window call/send/approval counters without resetting on clock
 rollback. No core DB is opened. The foreground door has no default deadline;
@@ -4691,6 +4722,16 @@ tests drive it against a node:crypto stand-in door. A Playwright Chromium smoke
 browser with a real `tmt remote serve` and checks the cookie, the forwarded
 device context, both certificate purposes and silent session reopening, then verifies that
 revocation removes owner context and refuses reopening while retained signatures remain valid.
+
+The separately owned #1055 E acceptance feature uses E2EFixture through `harness.ts`.
+Its proposed `remote-device` peer is test-only, pinned to independent Python/WebCrypto
+vectors and imports no SDK. `remote-owner` consumes fixture coordinates and owns selected
+real core/Remote binaries, isolated HOME/XDG/private tmux, HTTP and joined process teardown.
+Its transparent test-only `TMT_EXECUTABLE` wrapper forwards exact argv/stdin/actual output;
+grants may be seeded only in Remote's database after serve and owned core children stop,
+never in core storage. Integrated acceptance is limited to #1055's six bullets plus one
+permitted/refused read scenario, and remains pending the separate E PR and booked Docker
+verification.
 
 ## Colab extension proposal
 

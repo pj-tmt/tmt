@@ -167,7 +167,10 @@ fn invocation_errors_keep_public_mappings_and_cleanup_uncertainty() {
             cause: None,
             cleanup: Cleanup::Unconfirmed(std::io::Error::other("denied"))
         }),
-        failure("Core cleanup could not be confirmed; outcome is unknown.")
+        RemoteError::new(
+            "REMOTE_CORE_UNCERTAIN",
+            "Core cleanup could not be confirmed; outcome is unknown."
+        )
     );
     assert_eq!(
         invocation_error(InvokeError {
@@ -190,17 +193,15 @@ fn invocation_errors_keep_public_mappings_and_cleanup_uncertainty() {
 // Re-exec owns the lock in a separate process: SIGKILL bypasses Rust destructors.
 #[test]
 fn invocation_lease_probe_child() {
-    use nix::fcntl::{FcntlArg, FdFlag, fcntl};
     let Some(root) = std::env::var_os("TMT_REMOTE_LEASE_PROBE") else {
         return;
     };
     let root = PathBuf::from(root);
     let layout = crate::state::Layout::open(&root).unwrap();
-    let file = layout.file("serve.lock").unwrap();
+    let serving = layout.serve_lock().unwrap();
     if std::env::var_os("TMT_REMOTE_LEASE_INHERIT").is_some() {
-        fcntl(&file, FcntlArg::F_SETFD(FdFlag::empty())).unwrap();
+        serving.retain_for_invocations().unwrap();
     }
-    let _lock = nix::fcntl::Flock::lock(file, nix::fcntl::FlockArg::LockExclusiveNonblock).unwrap();
     CoreClient::at(root.join("tmt"))
         .unwrap()
         .capabilities(&AtomicBool::new(false))
@@ -225,10 +226,10 @@ fn existing_invoke_preserves_explicit_lease_after_owner_crash() {
         fn drop(&mut self) {
             let _ = self.owner.kill();
             let _ = self.owner.wait();
-            if let Ok(text) = fs::read_to_string(self.root.join("pid")) {
-                if let Ok(pid) = text.trim().parse::<i32>() {
-                    let _ = killpg(Pid::from_raw(pid), Signal::SIGKILL);
-                }
+            if let Ok(text) = fs::read_to_string(self.root.join("pid"))
+                && let Ok(pid) = text.trim().parse::<i32>()
+            {
+                let _ = killpg(Pid::from_raw(pid), Signal::SIGKILL);
             }
         }
     }
@@ -250,6 +251,7 @@ fn existing_invoke_preserves_explicit_lease_after_owner_crash() {
                 "--nocapture",
             ])
             .env("TMT_REMOTE_LEASE_PROBE", &fixture.0)
+            .env_remove("TMT_REMOTE_LEASE_INHERIT")
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         if inherit {
@@ -261,10 +263,10 @@ fn existing_invoke_preserves_explicit_lease_after_owner_crash() {
         };
         let deadline = Instant::now() + Duration::from_secs(5);
         let pid = loop {
-            if let Ok(text) = fs::read_to_string(fixture.0.join("pid")) {
-                if let Ok(pid) = text.trim().parse::<i32>() {
-                    break pid;
-                }
+            if let Ok(text) = fs::read_to_string(fixture.0.join("pid"))
+                && let Ok(pid) = text.trim().parse::<i32>()
+            {
+                break pid;
             }
             assert!(
                 Instant::now() < deadline,
@@ -303,5 +305,6 @@ fn existing_invoke_preserves_explicit_lease_after_owner_crash() {
             "stopped\n"
         );
         assert!(layout.serve_lock().is_ok(), "lease must end with the child");
+        fs::remove_file(fixture.0.join("pid")).unwrap();
     }
 }

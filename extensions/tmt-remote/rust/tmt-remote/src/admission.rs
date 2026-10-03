@@ -76,8 +76,12 @@ impl MessagePermit {
             .with_store(&self.grant, &self.message, now_ms()?, action)
             .map(|value| value.0)
     }
-    /// Internal message-owner adoption; bindings keep application append closed in B.
-    pub fn adopt(&self, frozen: Option<&[u8]>) -> Result<crate::journal::Owned, RemoteError> {
+    /// Commit sanitized metadata and frozen send ownership before the bounded core call.
+    pub fn adopt(
+        &self,
+        frozen: Option<&[u8]>,
+        resources: &[String],
+    ) -> Result<crate::journal::Owned, RemoteError> {
         let input = self.message.envelope();
         let phase = if input.operation == "dispatch.create" {
             if self.grant.mode == "hold" {
@@ -92,8 +96,16 @@ impl MessagePermit {
             &json!({"requestEnvelopeId":input.id,"operation":input.operation,"state":phase}),
         )?;
         let now = now_ms()?;
-        let result = self
-            .with_store(|store| store.adopt(&self.grant, &self.message, frozen, &metadata, now))?;
+        let result = self.with_store(|store| {
+            store.adopt(
+                &self.grant,
+                &self.message,
+                frozen,
+                resources,
+                &metadata,
+                now,
+            )
+        })?;
         self.sessions.changed();
         Ok(result)
     }

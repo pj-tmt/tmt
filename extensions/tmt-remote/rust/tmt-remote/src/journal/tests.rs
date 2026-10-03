@@ -52,8 +52,14 @@ impl Fixture {
         SignedMessage::decode(body.to_string().as_bytes(), 1024).unwrap()
     }
     fn adopt(&mut self, message: &SignedMessage, now: u64) -> Result<Owned, RemoteError> {
-        self.store
-            .adopt(&self.grant, message, Some(&message.payload), b"{}", now)
+        self.store.adopt(
+            &self.grant,
+            message,
+            Some(&message.payload),
+            &[],
+            b"{}",
+            now,
+        )
     }
 }
 fn count(store: &Store, table: &str) -> i64 {
@@ -187,7 +193,7 @@ fn send_budget_survives_restart_and_an_explicit_retry_spends_once() {
     let mut store = Store::open(&f._serving).unwrap();
     assert_eq!(
         store
-            .adopt(&f.grant, &next, Some(b"frozen"), b"{}", f.now)
+            .adopt(&f.grant, &next, Some(b"frozen"), &[], b"{}", f.now)
             .unwrap_err()
             .code,
         "REMOTE_RATE_LIMITED"
@@ -234,7 +240,7 @@ fn revoke_commit_wins_while_adoption_waits_for_the_immediate_transaction() {
             })
         });
         store.connection.busy_handler(Some(busy)).unwrap();
-        let result = store.adopt(&f.grant, &message, Some(b"frozen"), b"{}", f.now);
+        let result = store.adopt(&f.grant, &message, Some(b"frozen"), &[], b"{}", f.now);
         assert_eq!(count(&store, "operations"), 0);
         result
     });
