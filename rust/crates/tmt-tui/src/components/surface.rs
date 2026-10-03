@@ -1,10 +1,10 @@
 //! Component admission lowers into the existing schema, geometry and painter.
 //! Implements Full-screen interaction's overlay, key-help and scroll contracts.
-use super::{Modal, Placement, ScrollState};
+use super::{ListFrame, ListRow, ListState, Modal, Placement, ScrollState, collection};
 use crate::{
     Error, Kind, MarkupElement,
     binding::{self, Node, Schema, Sources},
-    geometry::{self, Cell},
+    geometry::{self},
     paint,
     style::{Direction, Extent},
     text,
@@ -28,6 +28,7 @@ fn fail(file: &str, element: &MarkupElement, message: impl Into<String>) -> Erro
 enum ModalSlot {
     Footer,
     Status,
+    Query,
 }
 
 #[derive(Clone)]
@@ -35,6 +36,7 @@ struct Spec {
     modal: Modal,
     help_ids: Vec<Vec<String>>,
     slots: Vec<ModalSlot>,
+    list: Option<collection::ListSpec>,
 }
 impl Spec {
     fn has(&self, slot: ModalSlot) -> bool {
@@ -51,9 +53,10 @@ pub struct ModalSurface {
     node: Node,
     position: Node,
     spec: Spec,
+    rows: Vec<ListRow>,
 }
 
-/// A surface is one modal with one scroll body and optional footer/status text.
+/// A surface is one modal or picker with one scroll body and fixed text slots.
 /// Components cannot occur in repeats yet; primitive templates inside the
 /// scroll remain lexical and fully bounded by the normal binding owner.
 pub fn compile<A: Sources>(
@@ -64,16 +67,59 @@ pub fn compile<A: Sources>(
 ) -> Result<Template<A::Source>, Error> {
     if parsed.kind != Kind::View
         || parsed.children.len() != 1
-        || parsed.children[0].kind != Kind::Modal
+        || !matches!(parsed.children[0].kind, Kind::Modal | Kind::Picker)
     {
         return Err(fail(
             file,
             parsed,
-            "component surface requires exactly one tmt-modal inside tmt-view",
+            "component surface requires one tmt-modal or tmt-picker inside tmt-view",
         ));
     }
     let mut lowered = parsed.clone();
     let element = &mut lowered.children[0];
+    if element.kind == Kind::Picker {
+        let mut choices = None;
+        let mut query = false;
+        for (index, child) in element.children.iter().enumerate() {
+            if matches!(child.kind, Kind::List | Kind::Table) {
+                if choices.replace(index).is_some() {
+                    return Err(fail(file, child, "picker requires exactly one list/table"));
+                }
+            } else if child.kind == Kind::Text
+                && child
+                    .attributes
+                    .get("slot")
+                    .is_some_and(|slot| slot == "query")
+            {
+                query = true;
+            } else if child.kind != Kind::Text {
+                return Err(fail(
+                    file,
+                    child,
+                    "picker children must be list/table and query/footer/status text",
+                ));
+            }
+        }
+        let index = choices.ok_or_else(|| fail(file, element, "picker requires one list/table"))?;
+        if !query {
+            return Err(fail(
+                file,
+                element,
+                "picker requires a query slot (may be empty for selection-only)",
+            ));
+        }
+        let child = element.children.remove(index);
+        let mut body = crate::parse(
+            file,
+            r#"<tmt-view version="1"><tmt-scroll id="picker-body"/></tmt-view>"#,
+        )?
+        .children
+        .remove(0);
+        body.location = element.location;
+        body.children.push(child);
+        element.children.insert(0, body);
+        element.kind = Kind::Modal;
+    }
     let title = element
         .attributes
         .remove("title")
@@ -100,6 +146,7 @@ pub fn compile<A: Sources>(
         modal: Modal { title, placement },
         help_ids: Vec::new(),
         slots: Vec::new(),
+        list: None,
     };
     let mut scrolls = 0;
     for child in &mut element.children {
@@ -112,7 +159,8 @@ pub fn compile<A: Sources>(
                 let kind = match slot.as_str() {
                     "footer" => ModalSlot::Footer,
                     "status" => ModalSlot::Status,
-                    _ => return Err(fail(file, child, "slot must be footer or status")),
+                    "query" => ModalSlot::Query,
+                    _ => return Err(fail(file, child, "slot must be query, footer or status")),
                 };
                 if spec.has(kind) {
                     return Err(fail(file, child, format!("duplicate {slot} slot")));
@@ -137,26 +185,15 @@ pub fn compile<A: Sources>(
         _ => 1,
     });
     let mut ids = Vec::new();
-    lower(file, &mut lowered, &mut ids, false, &mut spec, &mut [0, 0])?;
-    fn bounds(
-        file: &str,
-        element: &MarkupElement,
-        depth: usize,
-        nodes: &mut u32,
-    ) -> Result<(), Error> {
-        *nodes += 1;
-        if depth >= crate::MAX_DEPTH || *nodes > crate::MAX_NODES {
-            return Err(fail(
-                file,
-                element,
-                "lowered component template exceeds markup depth/node limits",
-            ));
-        }
-        for child in &element.children {
-            bounds(file, child, depth + 1, nodes)?;
-        }
-        Ok(())
-    }
+    lower(
+        file,
+        &mut lowered,
+        &mut ids,
+        false,
+        &mut spec,
+        &mut [0, 0],
+        schema,
+    )?;
     bounds(file, &lowered, 0, &mut 0)?;
     let position = crate::parse(
         file,
@@ -174,6 +211,26 @@ pub fn compile<A: Sources>(
     })
 }
 
+pub(crate) fn bounds(
+    file: &str,
+    element: &MarkupElement,
+    depth: usize,
+    nodes: &mut u32,
+) -> Result<(), Error> {
+    *nodes += 1;
+    if depth >= crate::MAX_DEPTH || *nodes > crate::MAX_NODES {
+        return Err(fail(
+            file,
+            element,
+            "lowered component template exceeds markup depth/node limits",
+        ));
+    }
+    for child in &element.children {
+        bounds(file, child, depth + 1, nodes)?;
+    }
+    Ok(())
+}
+
 fn lower(
     file: &str,
     element: &mut MarkupElement,
@@ -181,10 +238,14 @@ fn lower(
     dynamic: bool,
     spec: &mut Spec,
     counts: &mut [usize; 2],
+    schema: &Schema,
 ) -> Result<(), Error> {
     let dynamic =
         dynamic || element.kind == Kind::Repeat || element.attributes.contains_key("id-bind");
-    let component = matches!(element.kind, Kind::Modal | Kind::Scroll | Kind::KeyHelp);
+    let component = matches!(
+        element.kind,
+        Kind::Modal | Kind::Scroll | Kind::KeyHelp | Kind::List | Kind::Table
+    );
     if component && (dynamic || !element.attributes.contains_key("id")) {
         return Err(fail(
             file,
@@ -210,6 +271,17 @@ fn lower(
             element.kind = Kind::Col;
             element.style.direction = Direction::Column;
         }
+        Kind::List | Kind::Table => {
+            if spec.list.is_some() {
+                return Err(fail(
+                    file,
+                    element,
+                    "one scroll surface supports one list/table",
+                ));
+            }
+            spec.list = Some(collection::lower(file, element, ids, schema)?);
+        }
+        Kind::Picker => return Err(fail(file, element, "picker must be the surface root")),
         Kind::KeyHelp => {
             if !element.children.is_empty() {
                 return Err(fail(
@@ -293,7 +365,7 @@ fn lower(
         ));
     }
     for child in &mut element.children {
-        lower(file, child, ids, dynamic, spec, counts)?;
+        lower(file, child, ids, dynamic, spec, counts, schema)?;
     }
     ids.truncate(length);
     Ok(())
@@ -306,8 +378,20 @@ impl<S> Template<S> {
         data: &Value,
         sources: &A,
     ) -> Result<ModalSurface, Error> {
+        let mut node = self.binding.materialize(file, data, sources)?;
+        let rows = if let Some(spec) = &self.spec.list {
+            collection::extract(
+                file,
+                &mut node,
+                spec,
+                crate::Location { line: 1, column: 1 },
+            )?
+        } else {
+            Vec::new()
+        };
         Ok(ModalSurface {
-            node: self.binding.materialize(file, data, sources)?,
+            node,
+            rows,
             position: self
                 .position
                 .materialize(file, &serde_json::json!({}), sources)?
@@ -328,6 +412,8 @@ pub struct Hit {
 pub struct FrameMap {
     pub areas: super::ModalAreas,
     pub hits: Vec<Hit>,
+    pub list: Option<ListFrame>,
+    pub query: Rect,
 }
 pub struct RenderStyle<'a> {
     pub theme: &'a Theme,
@@ -403,24 +489,6 @@ fn prepare(node: &mut Node, ids: &[Vec<String>], width: u16, in_help: bool, key_
     }
 }
 
-fn translate(cells: &mut [Cell<'_>], area: Rect, offset: usize) {
-    let dx = i32::from(area.x);
-    let dy = i32::from(area.y).saturating_sub(offset.min(i32::MAX as usize) as i32);
-    let clip = geometry::Rect {
-        x: i32::from(area.x),
-        y: i32::from(area.y),
-        width: u32::from(area.width),
-        height: u32::from(area.height),
-    };
-    for cell in cells {
-        for rect in [&mut cell.rect, &mut cell.content, &mut cell.clip] {
-            rect.x = rect.x.saturating_add(dx);
-            rect.y = rect.y.saturating_add(dy);
-        }
-        cell.clip = cell.clip.intersect(clip);
-    }
-}
-
 fn paint_node(
     node: &Node,
     area: Rect,
@@ -433,7 +501,7 @@ fn paint_node(
         return Ok(());
     }
     let mut cells = geometry::layout(node, [area.width, area.height], text::measure)?;
-    translate(&mut cells, area, 0);
+    collection::translate(&mut cells, area, 0);
     paint::paint(&cells, buffer, theme, depth, selection);
     Ok(())
 }
@@ -448,6 +516,45 @@ pub fn render(
     buffer: &mut Buffer,
     style: RenderStyle<'_>,
     mut selection: impl FnMut(Role) -> Style,
+) -> Result<FrameMap, String> {
+    if scene.spec.list.is_some() {
+        return Err("list/table surfaces require render_list and caller ListState".into());
+    }
+    render_inner(scene, scroll, body, buffer, style, &mut selection, None)
+}
+
+pub fn render_list(
+    scene: &ModalSurface,
+    state: &mut ListState,
+    body: Rect,
+    buffer: &mut Buffer,
+    style: RenderStyle<'_>,
+    mut selection: impl FnMut(Role) -> Style,
+) -> Result<FrameMap, String> {
+    if scene.spec.list.is_none() {
+        return Err("render_list requires a list/table surface".into());
+    }
+    state.reconcile(scene.rows.clone())?;
+    let selected = state.selected().map(str::to_owned);
+    render_inner(
+        scene,
+        &mut state.scroll,
+        body,
+        buffer,
+        style,
+        &mut selection,
+        Some(selected.as_deref()),
+    )
+}
+
+fn render_inner(
+    scene: &ModalSurface,
+    scroll: &mut ScrollState,
+    body: Rect,
+    buffer: &mut Buffer,
+    style: RenderStyle<'_>,
+    selection: &mut impl FnMut(Role) -> Style,
+    selected: Option<Option<&str>>,
 ) -> Result<FrameMap, String> {
     let RenderStyle { theme, depth } = style;
     let modal_node = &scene.node.children[0];
@@ -471,13 +578,23 @@ pub fn render(
             .saturating_add(6)
             .min(usize::from(u16::MAX)) as u16,
     };
+    if let Some(spec) = &scene.spec.list {
+        collection::select(&mut content, spec, selected.flatten());
+    }
     let demand_height = body.height;
-    let areas = scene.spec.modal.areas(
+    let mut areas = scene.spec.modal.areas(
         body.intersection(buffer.area),
         [demand_width, demand_height],
         scene.spec.has(ModalSlot::Footer),
         scene.spec.has(ModalSlot::Status),
     );
+    if scene.spec.has(ModalSlot::Query) {
+        areas.content.y = areas
+            .content
+            .y
+            .saturating_add(u16::from(areas.content.height > 0));
+        areas.content.height = areas.content.height.saturating_sub(1);
+    }
     let key_width = help_width(&content, &scene.spec.help_ids);
     prepare(
         &mut content,
@@ -502,19 +619,44 @@ pub fn render(
     let demand_height = rows
         .saturating_add(
             3 + usize::from(scene.spec.has(ModalSlot::Footer))
-                + usize::from(scene.spec.has(ModalSlot::Status)),
+                + usize::from(scene.spec.has(ModalSlot::Status))
+                + usize::from(scene.spec.has(ModalSlot::Query)),
         )
         .min(usize::from(u16::MAX)) as u16;
-    let areas = scene.spec.modal.areas(
+    let mut areas = scene.spec.modal.areas(
         body.intersection(buffer.area),
         [demand_width, demand_height],
         scene.spec.has(ModalSlot::Footer),
         scene.spec.has(ModalSlot::Status),
     );
-    scroll.update(areas.content, rows, None);
-    translate(&mut cells, areas.content, scroll.offset());
+    let query = if scene.spec.has(ModalSlot::Query) {
+        let query = Rect {
+            height: u16::from(areas.content.height > 0),
+            ..areas.content
+        };
+        areas.content.y = areas.content.y.saturating_add(query.height);
+        areas.content.height = areas.content.height.saturating_sub(query.height);
+        query
+    } else {
+        Rect::default()
+    };
+    let list = if selected.is_some() {
+        Some(collection::publish(
+            &cells,
+            &scene.spec.list.as_ref().expect("list render").id,
+            scroll,
+            &scene.rows,
+            selected.flatten(),
+            areas.content,
+            rows,
+        ))
+    } else {
+        scroll.update(areas.content, rows, None);
+        None
+    };
+    collection::translate(&mut cells, areas.content, scroll.offset());
     scene.spec.modal.paint(areas, buffer, theme, depth);
-    let hits = paint::paint(&cells, buffer, theme, depth, &mut selection)
+    let hits = paint::paint(&cells, buffer, theme, depth, &mut *selection)
         .into_iter()
         .filter_map(|hit| {
             hit.id.map(|id| Hit {
@@ -530,12 +672,12 @@ pub fn render(
         })
         .collect();
     for (child, slot) in modal_node.children.iter().skip(1).zip(&scene.spec.slots) {
-        let area = if *slot == ModalSlot::Footer {
-            areas.footer
-        } else {
-            areas.status
+        let area = match slot {
+            ModalSlot::Footer => areas.footer,
+            ModalSlot::Status => areas.status,
+            ModalSlot::Query => query,
         };
-        paint_node(child, area, buffer, theme, depth, &mut selection)?;
+        paint_node(child, area, buffer, theme, depth, &mut *selection)?;
     }
     let mut position = scene.position.clone();
     position.text = Some(scroll.position());
@@ -545,9 +687,14 @@ pub fn render(
         buffer,
         theme,
         depth,
-        &mut selection,
+        &mut *selection,
     )?;
-    Ok(FrameMap { areas, hits })
+    Ok(FrameMap {
+        areas,
+        hits,
+        list,
+        query,
+    })
 }
 
 #[cfg(test)]
