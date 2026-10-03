@@ -20,7 +20,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     sync::{
-        Arc, Mutex,
+        Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
@@ -46,9 +46,12 @@ pub struct DoorSessions {
     idle: Duration,
     clock: IdleClock,
     live: Mutex<Live>,
+    ready: Condvar,
 }
 #[derive(Default)]
 struct Live {
+    generation: u64,
+    stopped: bool,
     by_client: HashMap<String, Session>,
     /// Cookie token SHA-256 to client ID.
     by_token: HashMap<[u8; 32], String>,
@@ -94,6 +97,7 @@ impl DoorSessions {
             idle,
             clock: Arc::new(Instant::now),
             live: Mutex::default(),
+            ready: Condvar::new(),
         }
     }
     /// Integration-test seam for advancing session idle time deterministically.
@@ -108,6 +112,11 @@ impl DoorSessions {
     pub fn open(&self, request_origin: Option<&str>, body: &[u8]) -> Option<Opened> {
         let now = now_ms().ok()?;
         let control = self.control(request_origin, body, now)?;
+        self.store
+            .lock()
+            .ok()?
+            .charge_call(&control.grant.client_id, now)
+            .ok()?;
         let token = (control.grant.kind == "browser")
             .then(random::<32>)
             .transpose()
@@ -119,6 +128,9 @@ impl DoorSessions {
             .ok()?;
         {
             let mut live = self.live.lock().ok()?;
+            if live.stopped {
+                return None;
+            }
             let validity = 2 * CLOCK_SKEW.as_millis() as u64;
             live.nonces.retain(|_, forget| *forget > now);
             let key = (control.grant.client_id.clone(), control.nonce.clone());
@@ -149,6 +161,7 @@ impl DoorSessions {
                 },
             );
         }
+        self.changed();
         Some(Opened {
             response,
             cookie: token.map(|token| {
@@ -165,6 +178,8 @@ impl DoorSessions {
     pub fn end_device(&self, client_id: &str) {
         if let Ok(mut live) = self.live.lock() {
             remove(&mut live, client_id);
+            live.generation = live.generation.wrapping_add(1);
+            self.ready.notify_all();
         }
     }
     /// Strict envelope admission against the live grant. The signature is
@@ -245,7 +260,8 @@ impl DoorSessions {
                 .by_client
                 .get(&grant.client_id)
                 .ok_or(MessageRefusal::Unauthenticated)?;
-            if session.id != message.envelope().session_id
+            if live.stopped
+                || session.id != message.envelope().session_id
                 || session.grant_revision != grant.revision
             {
                 return Err(MessageRefusal::Unauthenticated);
@@ -256,6 +272,20 @@ impl DoorSessions {
             }
             (Arc::clone(&session.busy), Arc::clone(&session.state))
         };
+        let charge = {
+            self.store
+                .lock()
+                .map_err(|_| MessageRefusal::Unauthenticated)?
+                .charge_call(&grant.client_id, now)
+        };
+        charge.map_err(|error| {
+            admission::refusal(
+                self,
+                &message,
+                &error.code,
+                "Authenticated call budget exhausted.",
+            )
+        })?;
         let deny = |code, text| admission::refusal(self, &message, code, text);
         if !action.matches(&message) {
             return Err(deny(
@@ -320,29 +350,75 @@ impl DoorSessions {
         message: &SignedMessage,
         now: u64,
     ) -> Result<(), RemoteError> {
+        self.with_store(expected, message, now, |_| Ok(()))
+            .map(|_| ())
+    }
+    /// Hold the live-session and Store owners through the bounded durable fence.
+    pub(crate) fn with_store<T>(
+        &self,
+        expected: &Grant,
+        message: &SignedMessage,
+        now: u64,
+        action: impl FnOnce(&mut Store) -> Result<T, RemoteError>,
+    ) -> Result<(T, u64), RemoteError> {
         let live = self.live.lock().map_err(|_| {
-            RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote session is unavailable.")
+            RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote session unavailable.")
         })?;
-        if !live
-            .by_client
-            .get(&expected.client_id)
-            .is_some_and(|session| {
-                session.id == message.envelope().session_id && session.state.idle() < self.idle
-            })
+        if live.stopped
+            || !live
+                .by_client
+                .get(&expected.client_id)
+                .is_some_and(|session| {
+                    session.id == message.envelope().session_id && session.state.idle() < self.idle
+                })
         {
             return Err(RemoteError::new("REMOTE_CLOSED", "Device session ended."));
         }
-        let current = self
-            .store
-            .lock()
-            .map_err(|_| {
-                RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote state is unavailable.")
-            })?
-            .grant(&expected.client_id)?;
-        if !current.is_some_and(|grant| grant.revision == expected.revision && grant.live_at(now)) {
+        let mut store = self.store.lock().map_err(|_| {
+            RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote state unavailable.")
+        })?;
+        if !store
+            .grant(&expected.client_id)?
+            .is_some_and(|grant| grant.revision == expected.revision && grant.live_at(now))
+        {
             return Err(RemoteError::new("REMOTE_CLOSED", "Device authority ended."));
         }
+        Ok((action(&mut store)?, live.generation))
+    }
+    pub(crate) fn changed(&self) {
+        if let Ok(mut live) = self.live.lock() {
+            live.generation = live.generation.wrapping_add(1);
+            self.ready.notify_all();
+        }
+    }
+    pub(crate) fn wait(&self, generation: u64, deadline: Instant) -> Result<(), RemoteError> {
+        let live = self.live.lock().map_err(|_| {
+            RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote session unavailable.")
+        })?;
+        let (live, _) = self
+            .ready
+            .wait_timeout_while(
+                live,
+                deadline.saturating_duration_since(Instant::now()),
+                |live| live.generation == generation && !live.stopped,
+            )
+            .map_err(|_| {
+                RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote session unavailable.")
+            })?;
+        if live.stopped {
+            return Err(RemoteError::new("REMOTE_CLOSED", "Door stopped."));
+        }
         Ok(())
+    }
+    pub fn shutdown(&self) {
+        if let Ok(mut live) = self.live.lock() {
+            live.stopped = true;
+            for (_, session) in live.by_client.drain() {
+                session.state.end();
+            }
+            live.by_token.clear();
+            self.ready.notify_all();
+        }
     }
     pub(crate) fn response(
         &self,
