@@ -149,6 +149,7 @@ h1:lang(zh-Hans),
 h2:lang(zh-Hans),
 h3:lang(zh-Hans) {
   word-break: keep-all;
+  overflow-wrap: anywhere;
   text-wrap: balance;
 }
 h1:lang(ja),
