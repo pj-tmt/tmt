@@ -9,8 +9,9 @@
 
 use super::{
     CAPABILITY, CONTENT_LIMIT, Frame, NOTIFICATION_METHOD, PROTOCOL_VERSION, Process,
-    RECORD_VERSION, Reply, SERVER_NAME, ensure_private_directory, locked, parent_incarnation,
-    read_line_until, read_record, remaining, socket_fits, socket_path, write_record, write_until,
+    RECORD_VERSION, Record, Reply, SERVER_NAME, ensure_private_directory, locked,
+    parent_incarnation, read_line_until, read_record, remaining, socket_fits, socket_path,
+    write_record, write_until,
 };
 use crate::runtime::channel::ServeRequest;
 use serde_json::{Value, json};
@@ -331,7 +332,7 @@ fn converse(
             (Some("initialize"), Some(id)) => {
                 write_message(output, &initialize_result(id, &message))?;
             }
-            (Some("notifications/initialized"), None) => publish(request, owner, ready),
+            (Some("notifications/initialized"), None) => publish(request, owner, ready)?,
             (Some("ping"), Some(id)) => {
                 write_message(output, &json!({"jsonrpc": "2.0", "id": id, "result": {}}))?;
             }
@@ -370,27 +371,44 @@ fn initialize_result(id: Value, message: &Value) -> Value {
 /// only then can `send` route through the channel. The read-modify-write runs
 /// under the directory lock and only while the record is still this server's
 /// enrollment, generation and launch owner, so it can never overwrite a newer
-/// one.
-pub(super) fn publish(request: &ServeRequest<'_>, owner: &Process, ready: &AtomicBool) {
+/// one. Admission precedes the ready record's rename: a sender that observes
+/// that record must never find ingress still unready. A failed publication ends
+/// the conversation before queued frames can be written.
+pub(super) fn publish(
+    request: &ServeRequest<'_>,
+    owner: &Process,
+    ready: &AtomicBool,
+) -> io::Result<()> {
+    publish_with(request, owner, ready, write_record)
+}
+
+/// The record writer is injected only to exercise the visibility and failure
+/// boundary without relying on filesystem scheduling.
+pub(super) fn publish_with(
+    request: &ServeRequest<'_>,
+    owner: &Process,
+    ready: &AtomicBool,
+    write: impl FnOnce(&Path, &Record) -> io::Result<()>,
+) -> io::Result<()> {
     let Some(claude) = parent_incarnation(Instant::now() + PARENT_DEADLINE) else {
-        return;
+        return Ok(());
     };
-    let published = locked(request.directory, || {
+    locked(request.directory, || {
         let Ok(Some(mut record)) = read_record(request.directory, request.binding_id) else {
-            return false;
+            return Ok(());
         };
         if record.generation != request.generation
             || record.binding_id != request.binding_id
             || record.launch_owner != *owner
         {
-            return false;
+            return Ok(());
         }
         record.claude = Some(Process::of(&claude));
-        write_record(request.directory, &record).is_ok()
-    });
-    if published.unwrap_or(false) {
         ready.store(true, Ordering::SeqCst);
-    }
+        // A write can fail after rename, when readers already see readiness.
+        // Never clear admission on that path; the caller ends the conversation.
+        write(request.directory, &record)
+    })?
 }
 
 #[cfg(test)]

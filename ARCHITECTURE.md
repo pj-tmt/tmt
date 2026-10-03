@@ -2606,7 +2606,12 @@ ownership map.
   `file_lock::exclusive`. Apart from `enroll`'s own takeover rule, each proceeds
   only while the record still carries the caller's generation and launch owner, so a
   stale launcher or server can never replace or remove a newer enrollment. The
-  server's calling thread is its only output writer, and it can only complete an
+  server enables ingress admission under that lock before the ready record becomes
+  visible; record visibility therefore implies admission. Its calling thread is
+  its only output writer and finishes publication before processing admitted
+  frames. A publication error ends the conversation without writing queued frames
+  or reporting them written, and never clears admission while a renamed ready
+  record may be visible. The server can only complete an
   enrollment that `enroll` created.
 - `tmt run --channel` (`run_command/channel.rs`, `run_command/run.rs`) is the only
   entry point that enrolls. It probes the provider version and shows the driver's
