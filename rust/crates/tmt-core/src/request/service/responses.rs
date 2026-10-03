@@ -127,21 +127,95 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         if request_id.is_empty() {
             return Err(RequestError::Response(ResponseRejection::InputInvalid));
         }
+        self.read(|records, now| response_lookup(records, request_id, now))
+    }
+
+    /// CLI selection only: observers and receipt-based replies keep exact IDs.
+    /// Selection and body retrieval use one retention sample and transaction.
+    pub fn get_response_by_prefix(
+        &mut self,
+        input: &str,
+    ) -> Result<(String, ResponseLookup), RequestError<R::Error>> {
+        if input.is_empty() {
+            return Err(RequestError::Response(ResponseRejection::InputInvalid));
+        }
         self.read(|records, now| {
-            if let Some(response) = records
-                .find_response(request_id)?
-                .filter(|response| now < response.response_expires_at_ms)
-            {
-                return Ok(ResponseLookup::Available(Box::new(response)));
+            // Historical service clients may have stored non-UUID IDs. Exact
+            // retained IDs take precedence and keep their original spelling.
+            if records.find_request(input)?.is_some() || records.find_response(input)?.is_some() {
+                return Ok((input.into(), response_lookup(records, input, now)?));
             }
-            if records.find_request(request_id)?.is_some_and(|attempt| {
-                attempt.kind == RequestKind::Announcement && now < attempt.retention_expires_at_ms
-            }) {
-                return Ok(ResponseLookup::NotRequired);
+            let Some((lower, upper)) = prefix_range(input)? else {
+                return Ok((input.into(), ResponseLookup::Unavailable));
+            };
+            let matches = records.retained_request_ids(&lower, &upper, now, 5)?;
+            match matches.ids.as_slice() {
+                [] => Ok((input.into(), ResponseLookup::Unavailable)),
+                [id] => Ok((id.clone(), response_lookup(records, id, now)?)),
+                _ => Err(RequestError::ResultSelection(
+                    ResultSelectionRejection::Ambiguous(matches),
+                )),
             }
-            Ok(ResponseLookup::Unavailable)
         })
     }
+}
+
+fn response_lookup<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    request_id: &str,
+    now: u64,
+) -> Result<ResponseLookup, RequestError<E>> {
+    if let Some(response) = records
+        .find_response(request_id)?
+        .filter(|response| now < response.response_expires_at_ms)
+    {
+        return Ok(ResponseLookup::Available(Box::new(response)));
+    }
+    if records.find_request(request_id)?.is_some_and(|attempt| {
+        attempt.kind == RequestKind::Announcement && now < attempt.retention_expires_at_ms
+    }) {
+        return Ok(ResponseLookup::NotRequired);
+    }
+    Ok(ResponseLookup::Unavailable)
+}
+
+fn prefix_range<E>(input: &str) -> Result<Option<(String, String)>, RequestError<E>> {
+    let prefix = input.strip_prefix("req_").unwrap_or(input);
+    // A complete prefixed ID retains exact lookup semantics, including case.
+    if input.starts_with("req_") && prefix.len() == 36 {
+        return Ok(None);
+    }
+    if prefix.is_empty() {
+        return Err(RequestError::ResultSelection(
+            ResultSelectionRejection::PrefixTooShort,
+        ));
+    }
+    // Non-UUID identifiers remain exact-only for historical service clients.
+    if prefix.len() > 36
+        || !prefix.bytes().enumerate().all(|(i, byte)| {
+            if [8, 13, 18, 23].contains(&i) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
+    {
+        return Ok(None);
+    }
+    if prefix.bytes().filter(u8::is_ascii_hexdigit).count() < 8 {
+        return Err(RequestError::ResultSelection(
+            ResultSelectionRejection::PrefixTooShort,
+        ));
+    }
+    let lower = format!("req_{}", prefix.to_ascii_lowercase());
+    // Valid prefixes are ASCII; advancing the last byte gives the exclusive
+    // lexicographic successor, including a trailing hyphen or an f nibble.
+    let mut upper = lower.as_bytes().to_vec();
+    *upper.last_mut().expect("nonempty prefix") += 1;
+    Ok(Some((
+        lower,
+        String::from_utf8(upper).expect("ASCII successor"),
+    )))
 }
 
 /// Why `attempt` cannot take a first final at `now`, if it cannot. Final
@@ -187,4 +261,34 @@ fn validate_proof<E>(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::prefix_range;
+
+    #[test]
+    fn uuid_prefix_range_has_an_exclusive_ascii_successor() {
+        for (input, lower, upper) in [
+            ("12345678", "req_12345678", "req_12345679"),
+            ("req_FFFFFFFF", "req_ffffffff", "req_fffffffg"),
+            ("ffffffff-", "req_ffffffff-", "req_ffffffff."),
+            ("12345678-9abc", "req_12345678-9abc", "req_12345678-9abd"),
+        ] {
+            assert_eq!(
+                prefix_range::<()>(input).unwrap(),
+                Some((lower.into(), upper.into()))
+            );
+        }
+        for input in [
+            "request-old",
+            "req_12345678-0000-4000-8000-000000000000",
+            "req_xyz",
+            "12345678%",
+        ] {
+            assert_eq!(prefix_range::<()>(input).unwrap(), None);
+        }
+        assert!(prefix_range::<()>("1234567").is_err());
+        assert!(prefix_range::<()>("req_").is_err());
+    }
 }

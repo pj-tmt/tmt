@@ -169,6 +169,19 @@ pub enum ResponseLookup {
     NotRequired,
 }
 
+/// A bounded, ordered sample of retained IDs and the total range cardinality.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequestIdMatches {
+    pub ids: Vec<String>,
+    pub total: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResultSelectionRejection {
+    PrefixTooShort,
+    Ambiguous(RequestIdMatches),
+}
+
 pub struct PreambleReservation {
     pub identity_id: String,
     pub every: u64,
@@ -336,6 +349,15 @@ pub trait RequestRecords {
     ) -> Result<u64, Self::Error>;
     fn find_attempt(&self, attempt_id: &str) -> Result<Option<RequestAttempt>, Self::Error>;
     fn find_request(&self, request_id: &str) -> Result<Option<RequestAttempt>, Self::Error>;
+    /// Indexed half-open request-ID range, narrowed by the stored metadata horizon.
+    /// Return at most `limit` IDs and the total, counting overflow only when needed.
+    fn retained_request_ids(
+        &self,
+        lower: &str,
+        upper: &str,
+        now_ms: u64,
+        limit: u64,
+    ) -> Result<RequestIdMatches, Self::Error>;
     fn wake_state(&self, request_id: &str) -> Result<Option<WakeState>, Self::Error>;
     fn claim_wake(&mut self, request_id: &str) -> Result<bool, Self::Error>;
     fn settle_wake(&mut self, request_id: &str, state: WakeState) -> Result<bool, Self::Error>;
@@ -464,6 +486,7 @@ pub enum RequestError<E> {
     Response(ResponseRejection),
     Attention(attention::AttentionRejection),
     Answer(inbox::AnswerRejection),
+    ResultSelection(ResultSelectionRejection),
     Repository(E),
 }
 
@@ -495,6 +518,12 @@ impl<E> fmt::Display for RequestError<E> {
             }
             Self::Answer(inbox::AnswerRejection::Ambiguous(_)) => {
                 f.write_str("Several open requests from this originator are waiting on you.")
+            }
+            Self::ResultSelection(ResultSelectionRejection::PrefixTooShort) => {
+                f.write_str("Request-ID prefixes require at least 8 hex characters.")
+            }
+            Self::ResultSelection(ResultSelectionRejection::Ambiguous(_)) => {
+                f.write_str("Request-ID prefix matches several retained requests.")
             }
             Self::Repository(_) => f.write_str("Could not access request state."),
         }

@@ -84,8 +84,22 @@ remain storage failures. There is no cancellation operation or automatic retry r
 
 ```text
 tmt reply <request-id> --receipt <receipt> (--message <text> | --file <path> | --stdin) [--json]
-tmt result <request-id> [--json]
+tmt result <request-id-or-prefix> [--json]
 ```
+
+`result` accepts a full request ID or a unique prefix of its UUID, with or
+without `req_`, containing at least eight hex characters. When extending beyond
+the first eight characters, retain the UUID's hyphens (for example
+`82d3556e-0`). Prefix hex letters are case-insensitive; full prefixed IDs retain
+exact lookup semantics. Selection is installation-wide among logically retained
+request metadata, including pending requests and announcements, and is not scoped
+to a caller identity or only completed finals. A late retained final extends its
+request's metadata horizon, so it remains selectable after prompt expiry.
+Too-short and ambiguous prefixes return `USAGE_ERROR` (exit 1). Ambiguity lists
+at most five full IDs in request-ID order, followed by `…and N more` when needed;
+no candidate is selected. An unknown prefix uses the existing unavailable-result
+error (exit 3). A uniquely selected result reports the full ID, even when pending
+or an announcement. Reads neither acknowledge nor renew expiry.
 
 Native talk emits compact v2 receipts; bounded v1 input remains supported as
 defined below. Receipts are correlation, not authentication. The recipient must use the supplied receipt, not infer

@@ -22,7 +22,7 @@ use tmt_core::{
     exact_text::{MAX_EXCHANGE_TEXT_BYTES, validate_exact_text},
     request::{
         FinalResponse, RequestError, RequestService, ResponseLookup, ResponseRejection,
-        SubmitResponse,
+        ResultSelectionRejection, SubmitResponse,
     },
 };
 
@@ -74,6 +74,24 @@ pub(crate) fn response_failure(
         }
         other => other,
     };
+    if let RequestError::ResultSelection(reason) = &error {
+        let message = match reason {
+            ResultSelectionRejection::PrefixTooShort => error.to_string(),
+            ResultSelectionRejection::Ambiguous(matches) => {
+                let more = matches.total.saturating_sub(matches.ids.len() as u64);
+                format!(
+                    "Request-ID prefix is ambiguous: {}{}",
+                    matches.ids.join(", "),
+                    if more > 0 {
+                        format!("; …and {more} more")
+                    } else {
+                        String::new()
+                    }
+                )
+            }
+        };
+        return Failure::new("USAGE_ERROR", message, 1).caused_by(error);
+    }
     let RequestError::Response(reason) = &error else {
         return unavailable(error);
     };
@@ -169,17 +187,17 @@ fn run(request: Invocation) -> Result<Report, Failure> {
             })
         }
         None => RequestService::new(&mut storage, wall_time_ms)
-            .get_response(&request_id)
+            .get_response_by_prefix(&request_id)
             .map_err(|error| response_failure(error, &paths.global_dir, false))
-            .and_then(|record| match record {
+            .and_then(|(resolved_id, record)| match record {
                 ResponseLookup::Available(response) => Ok(Report::Completed(*response)),
-                ResponseLookup::NotRequired => Ok(Report::NotRequired(request_id.clone())),
+                ResponseLookup::NotRequired => Ok(Report::NotRequired(resolved_id.clone())),
                 ResponseLookup::Unavailable => Err(Failure::new(
                     "RESPONSE_NOT_AVAILABLE",
-                    format!("Response for request '{request_id}' is not available."),
+                    format!("Response for request '{resolved_id}' is not available."),
                     3,
                 )
-                .with_request(request_id.clone(), Some("unavailable"))),
+                .with_request(resolved_id, Some("unavailable"))),
             }),
     };
     after_cleanup(pending, || storage.close()).map_err(|error| {
