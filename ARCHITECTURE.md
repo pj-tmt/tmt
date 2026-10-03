@@ -672,7 +672,8 @@ product registration remains a later slice.
 
 ## Runtime layers
 
-The Rust crates have deliberately narrow responsibilities:
+The Rust crates have deliberately narrow responsibilities. Module-level rules for
+the core crates live in the [tmt-core-runtime skill](.agents/skills/tmt-core-runtime/SKILL.md).
 
 | Layer             | Owner                           | Responsibility                                                                                                                                                                                                  |
 | ----------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -683,29 +684,17 @@ The Rust crates have deliberately narrow responsibilities:
 `rust/crates/tmt-command-output` owns shared command output/error values and
 formatting. It renders human text through `rust/crates/tmt-cli-style`, the one
 implementation of the [CLI style](design/cli-style.md) (palette, themes over the
-design tokens, marks, values, messages, lists, tables, the one column-width solver `grid` that tables and
-extension boards share, the help registration contract and the one
-interaction decision, `Interaction`). Migrated command
-modules, starting with `binding_command` (`tmt ls`, `name`, `add`, `rm`,
-`whoami`, `unbind`), also render through it directly and write through its
-`stream`. That crate is a leaf with no TMT dependency, so extension CLIs may
-share it; the architecture guard enforces both. `mark::Mark` owns each shared
-mark's symbol, canonical description and style token. Theme tests compare the
-design registry against those descriptions; board-only registry entries remain
-outside the shared enum. `extensions/tmt-office/rust/tmt-office-command` owns the public Office
-grammar, typed requests and handlers. Core's reserved `tmt office` facade mounts
-that grammar and calls the same handlers through an in-process `CoreAccess` port.
-`tmt-cli/src/office_facade.rs` is the sole core registration and command-library
-dependency; grammar, translation and invocation types are pure forwards through it;
-direct `tmt-office` uses a bounded process implementation over public core JSON
-commands. Both entry points keep the existing public Office command behavior.
-The command crate also owns the companion invocation boundary (`office_companion`),
-the CLI's bounded Office file readers and snapshot export, and `verify_release`,
-the Office release verifier it hands to native installation.
-`extensions/tmt-office/rust/tmt-office-service` owns the loopback service
-lifecycle and its private receipt, shared by the Office commands, Office storage's
-switch and the companion. No core crate declares an `office_*` module except the
-facade, which PR B of #355 removes.
+design tokens, marks, values, messages, lists, tables, the column-width solver
+`grid` that tables and extension boards share, the help registration contract and
+`Interaction`). Both are leaves with no TMT dependency so extension CLIs can share
+them; the architecture guard enforces that. `mark::Mark` owns each shared mark's
+symbol, description and style token.
+
+Office is frozen and lives outside core: see
+[`extensions/tmt-office/docs/architecture.md`](extensions/tmt-office/docs/architecture.md).
+Core keeps only the reserved `tmt office` facade (`tmt-cli/src/office_facade.rs`),
+retained extraction debt tracked by #355 and #328; the architecture guard lists the
+remaining `office_*` adapter modules and rejects any new one.
 
 `rust/crates/tmt-tui` is an internal, unpublished presentation leaf for TMT
 markup. Its version-1 structural admission accepts bounded XML and produces a
@@ -791,2457 +780,284 @@ selection, scrolling and actions; full markup paint/hit adoption is still #776.
 The private component has no release; its inherited version/lock entry follows
 the workspace, while product notices include only their actual dependency graph.
 
-`rust/crates/tmt-cli/tests/architecture.rs` is a test-only import and
-dependency guard. One reviewed manifest table owns both the fixed workspace
-package names and their documented manifest locations. It follows the actual
-Rust module tree, checks reviewed layer edges and shared declaration ownership. Its policy owns an exact dev-dependency
-ledger (crate, canonical name and target, with a reason per row); aliases are rejected,
-and the invoke leaf remains guarded for every dependency kind. The guard fails closed for unsupported
-module remapping or incomplete discovery. It also checks that the CLI crates
-reach the terminal only through `tmt_cli_style::stream`, and a grammar walk in
-each CLI checks every command's help against the style
-([enforcement](design/cli-style.md#enforcement)). It is a syntactic guard and never
-replaces review of behavior or effects.
+`rust/crates/tmt-cli/tests/architecture.rs` is a test-only import and dependency
+guard. One reviewed manifest table owns the fixed workspace package names and
+their manifest locations. The guard follows the actual Rust module tree, checks
+reviewed layer edges and shared declaration ownership, and keeps an exact
+dev-dependency ledger (crate, canonical name and target, with a reason per row);
+aliases are rejected and the invoke leaf is guarded for every dependency kind. It
+fails closed on unsupported module remapping or incomplete discovery, checks that
+CLI crates reach the terminal only through `tmt_cli_style::stream`, and walks each
+CLI's grammar against the style ([enforcement](design/cli-style.md#enforcement)).
+It is a syntactic guard and never replaces review of behavior or effects.
+`tmt-sys` is the single audited `unsafe` boundary: only `tmt-adapters` may depend
+on it and every other crate forbids unsafe code.
 
-The optional `extensions/tmt-office/rust/tmt-office` executable remains a member
-of the `rust/` Cargo workspace, with the same lockfile and `rust/target` output.
-This package owns the companion entry point, embedded SPA and local HTTP service.
-`extensions/tmt-office/rust/tmt-office-model` owns Office domain values, strict
-codecs, immutable catalogs and data-only admission. It depends on core identity
-syntax, numeric limits and content digests, never on Storage or runtime adapters.
-Retained Storage imports that owner directly; there are no core Office re-exports.
-Codecs own in-memory PNG processing, the companion's world reply admission and
-snapshot projection, and the board wire limits; filesystem reads, publication and
-process/config access remain adapters. Acquisition errors may retain
-an `io::Error` value without giving the model an I/O operation.
-
-`extensions/tmt-office/rust/tmt-office-storage` owns Office storage at
-`<global>/office/office.db` (#353). Its schema v1 repeats the core schema 35
-definitions of the 14 Office-owned tables, so migration copies raw cells, minus
-the two `identities(id)` references that Office replaces with preflight. It adds
-an Office-local retired-identity marker and a migration record; schema v2 adds the
-activation marker written when `office.db` becomes authoritative, and v3 adds
-the retired-room marker. Switched storage from an earlier Office schema upgrades
-when opened. The crate reaches
-core only through public owners: `config`, `file_lock`, the process runner and the
-`StorageError` type with its `classify` mapping. It owns the Office repositories
-(worlds and legacy blocks, profiles, prop and avatar catalogs, the discussion board
-and whiteboards) on `OfficeStore`, and the `access` operations shared by the
-one-shot companion protocol and the local HTTP service. Production opens go
-through `OfficeStore::open_configured(&StorageLayout)`, which selects the store
-from Office's own files and the receipt the migration coordinator maintains:
-an existing `office.db` is finished (activation) or, if recovery reverts it,
-skipped; otherwise the coordinator's fresh path runs, and an install whose
-Office tables hold nothing but the seeded catalogs switches immediately
-(`migration::switch_fresh`, the normal decision transaction and receipt, skipping
-only the backup and service quiesce because there is no user data to protect and no
-service can be running against an unswitched store). Any user data keeps the legacy
-store on the shared core file until `tmt office storage migrate`. A receipt
-without usable storage fails with the recovery error rather than recreating it.
-The single-file constructor is test-only, so no production path can bypass a
-switched store. The CLI side keeps only file readers, reply
-decoders and wire limits in `tmt-adapters`; the core `tmt office` facade still
-reaches storage only by invoking the installed companion.
-
-Office reads core-owned identities and rooms only through the UUID-keyed
-`tmt-office-storage::core_references::CoreReferences` port (`identity`,
-`active_identities`, `room`, and a batch `resolve`), separate from the CLI selector
-port `CoreAccess`. Production implements it as `ProcessReferences`: it runs the
-invoking `tmt` (`TMT_EXECUTABLE`, else `tmt` on `PATH`, never itself) through the
-supervised process runner, using `tmt --json identity ls` and the
-`references.resolve` API operation, so the Office binary never opens or migrates
-the core database. The in-process `CoreStore` is compiled only for tests and the
-`in-process-core` feature, and a crate test forbids `Storage::open` and
-`CoreStore::open` anywhere else. Core sets `TMT_EXECUTABLE` for one-shot companion
-launches and for the local service when started from `tmt`: core declares its own
-executable at startup (`core_executable`), so a CLI installed under any name hands
-down its own path, and a non-core process (the companion's direct mode) passes on the
-`tmt` that launched it.
-
-The local service reaches core only through `local_service::core::LocalCore`, whose
-production implementation runs the same `tmt` through `CoreClient`
-(`tmt-office-storage::core_client`): startup readiness, request dispatch with its
-advisory wake, request history and receipts, room save/retire/list, notebooks, and
-profile presence and self-reported status. The browser is the local owner, so its
-writes use the API's `"originator":"anonymous"` (no writer identity, exactly like the
-CLI without `--identity`; it grants nothing beyond same-user CLI calls). Each handler
-maps core's error codes through an explicit status table and reports anything else as
-unavailable storage. Presence comes from `tmt ls --json`, which verifies tmux
-endpoints, and status from the batch `identities.status` operation, so a profile poll
-is two processes. Unit tests run the same operations in-process behind `LocalCore`;
-a crate test forbids `Storage::open` and `tmt_adapters::storage` in service code.
-The one remaining path check, `retirement_consumer`'s "does core's file exist" stat,
-reads no contents so that `office sync` does not make core create it.
-Each write preflights its references and then commits in its own Office
-transaction; no Office SQL names a core table outside the migration modules, and a
-crate test enforces that. This accepts a window: a reference retired between
-preflight and commit leaves exactly the state of the legal serial order "Office
-commit, then retirement", because identities are never deleted, rooms are retired
-rather than removed, and core retirement never changes Office rows. References
-that are already retired or missing at preflight keep their existing errors.
-
-Retirement reaches pairing through the `office_pairing::RetirementFence` port,
-implemented by `tmt-office-storage::retirement` and injected by the companion. An
-identity is fenced when Office's `office_retired_identities` marker in `office.db`
-records it or core reports it retired (before the switch only core decides, and
-marking changes nothing). The durable hook consumer lives in the companion
-(`tmt-office::retirement_consumer`): it reads its pending deliveries, records each
-attempt and acknowledges through the consumer-scoped `tmt api` hook operations,
-and settles each delivery with `office_pairing::settle_scope` under the pairing
-scope lock in order: mark, revoke, then acknowledge, so an interruption leaves the
-hook pending and a retry repeats only idempotent steps; a revoked record stays as
-the secret-free receipt, so a retry repeats no remote work. `office_pairing`
-never opens core storage (a test enforces it): active-identity checks and hook
-registration go through the `PairingCore` port, which the companion implements
-with `tmt --json identity show -- <uuid>` (accepting only the exact UUID) and
-`identityHooks.register`. Core launches one-shot companion operations with
-`TMT_EXECUTABLE` set to itself, so the companion reaches the same `tmt`. Every write that grants or extends pairing authority (pair-begin,
-pair-poll's claim reservation and completion, and the refresh and renewal on
-inspect and block operations) passes the fence under the same lock; only unpair
-and the consumer's own refresh, which reduce authority, are exempt, and a test
-pins those sites. Known debt owned by #355: the remaining `office_*` modules in
-`tmt-adapters` (the architecture guard lists them and rejects any new one), and
-removing the retained Office rows and fences from core. The migration coordinator is the single
-documented exception that opens the legacy core database (see below); it is a
-legacy path, removed after the release that stops shipping schema ≤ 35 upgrades.
-
-Reconciliation v1 (`tmt-office-storage::reconciliation`) compares every identity
-and room UUID Office stores (local profiles, legacy blocks, world personal and
-meeting areas, board identity authors and room categories) with core through
-`CoreReferences`, and records the ones core confirms retired in the monotonic
-`office_retired_identities` and `office_retired_rooms` markers of `office.db`
-(Office schema v3). It never erases or rewrites content: an unknown UUID is not
-retired, and a lookup error stops the run before anything is written, so failure
-means "retry", never "deleted". It runs at local-service start and before each
-one-shot write command; reads never reconcile, and a failure never blocks the
-command (the one-shot protocol keeps stderr empty, so only the service reports
-it). Office transactions that write an identity or room reference (profile and
-block apply, world save, board post and reply) check the markers inside the same
-transaction, closing both orderings: a mark recorded after preflight blocks the
-in-flight write, and a write that committed first is found by the next run.
-Point-of-use reads apply the markers through `retirement::MarkedReferences`, so
-a marked reference reads as retired, never missing, and history stays visible
-without granting new authority. Before the switch the shared core file has no
-markers and core stays authoritative. There is no queue or continuation: a full
-run over 50 identities, 20 rooms and 2,000 board entries takes about 13 ms in a
-release build. Add batching only if a run exceeds 100 ms or the inventory
-exceeds about 10,000 stored references.
-
-The migration coordinator is the one Office component that opens the core
-database for its own reads outside the store: query-only,
-without checkpoint-on-close, inside a single read snapshot. `prepare`, `copy` and
-`verify` each hold `office/migration.lock` and commit atomically in a private
-staging database. The copy preserves storage classes, TEXT and BLOB bytes and
-rowids. Verification compares every typed cell against a fresh snapshot; the
-manifest digest only detects a changed source. Rooms and the
-dispatch ledger remain core-owned even though their tables are named `office_*`.
-
-`migration::switch` makes a verified copy authoritative. Under the migration lock
-it stops the local Office service through a `Quiesce` port and holds the service
-lock, then writes a verified backup: `VACUUM INTO`
-`<global>/backups/office-storage-<UTC stamp>/tmux-team.db` after a free-space check,
-checked for integrity, migration history and the verified Office manifest, plus
-copies of the global `config.json` and the protected top-level `office/` files
-(never `runtime/`, locks or databases). It then opens one immediate core
-transaction, recomputes the Office manifest, publishes staging (upgraded to the
-current Office schema) as `office.db` with file and directory fsyncs, and inserts
-core's `extension_storage_cutovers` receipt. That commit is the single decision
-point, and the receipt is the one sanctioned Office write to the core database,
-confined by the crate guard to `migration/switch.rs`. This legacy exception is
-removed after the release that stops shipping schema ≤ 35 upgrades. Core schema 36 triggers then reject every write to the
-14 retained Office tables, including from already-open older connections; core
-reads the receipt through `Storage::extension_storage_cutover`. Activation writes
-the marker and moves `office.db` to WAL. Recovery derives the outcome from the
-receipt and the marker: no receipt renames `office.db` back to staging, a receipt
-without a marker finishes activation, and a receipt with missing, replaced or
-unreadable storage reports `OFFICE_STORAGE_RECOVERY_REQUIRED` naming the newest
-backup. Users reach the switch through `tmt office storage migrate`: the
-companion's `storage-plan` operation reports the plan without taking locks or
-creating files, and `storage-migrate` runs prepare, copy, verify and switch only
-when the recomputed plan digest equals the one the user confirmed
-(`OFFICE_STORAGE_PLAN_CHANGED` otherwise). The hidden diagnostic entry remains for
-disposable roots.
-
-The architecture guard freezes the exact remaining adapter consumer paths in
-`office_consumer`; core grammar and parser no longer import the Office model.
-New core-to-Office model consumers, command-library edges outside the facade,
-dependency aliases, adapter re-exports and
-reverse model dependencies are rejected. Office runtime adapters remain retained
-extraction debt, not a second implementation or a storage migration.
-`tmt_office_command::core_access::CoreAccess` limits Office handlers to identity selection
-and historical room lookup. Its in-process implementation delegates verified
-caller selection and room resolution to the existing core CLI owners; its direct
-entry point invokes `whoami --json`, `identity show --json` and `room show --json`
-through the bounded process owner. Handlers do not reopen core storage for these
-lookups or duplicate caller policy. The process port preserves child errors except
-for two exact-code mappings to existing Office semantics: `whoami`'s
-`PANE_NOT_FOUND` becomes `IDENTITY_REQUIRED`, and explicit `identity show`'s
-`INVALID_NAME` becomes `NAME_NOT_FOUND`. Neither mapping retries or changes targets.
-The executable is independently versioned and
-exposes the compatibility probe and typed one-shot pairing/status/inspect/sync operations.
-It depends on core and the existing adapters, not the CLI.
-`extensions/tmt-office/rust/tmt-office-pairing` owns validated deployment decoding,
-bounded HTTP, protected pairing records and explicit platform credential stores
-(`office_deployment`, `office_http`, `office_pairing`); no core crate depends on it,
-so the CLI never links the credential-store backends. Serde derives reject duplicate/unknown descriptor fields; the URL
-Standard library matches browser URL interpretation instead of introducing a
-handwritten parser. Neither dependency enters core. The probe acquires no
-credentials or network data. `tmt-office-model::office_protocol` owns the fixed typed
-handshake; `tmt-office-command::office_companion` verifies active installation ownership
-and starts the existing bounded subprocess under the installer lock, then waits
-outside that lock and validates the version selected at launch.
-Its contract is [native companion handshake](extensions/tmt-office/contracts/native-companion.md).
-Local presentation profiles are a separate UUID-owned resource: `tmt-office-model::office_profile`
-owns the literal default catalog, text bounds, optional immutable `avatarRef` grammar and
-deterministic default; SQLite schema 15 owns only the canonical override and CAS revision.
-Native commands and authenticated loopback HTTP reuse that owner. A profile change to a
-different custom reference and its catalog admission are checked in one immediate SQLite
-transaction. A retained reference remains editable when its pack is removed or corrupt,
-and exact reinstall restores its art without rewriting the profile. Layout, role, notes,
-identity and presence are never profile fields. Browser SVG and canvas share the default
-`profiles/avatar-art` projection and `profiles/avatar-layout` display metrics; admitted
-custom art keeps its immutable raster. The bundled v2 default uses named material
-slots and the same palette-tint operation as furniture; these authoring slots do
-not add a catalog or installed-pack schema. Avatar v1/v2 preserve their own versioned
-digest domains and one-/two-digit encodings within the same file, cell and catalog
-budgets. Native `office_avatar::avatar_format` owns versioned admission and summary
-dimensions; browser `avatars/avatar-contract::avatarRaster` preserves encoding for
-catalog resolution and previews. `rendering/indexed-raster` draws
-inert pixels for both avatars and admitted props; avatar artwork never enters the prop
-catalog. Identity and shirt text remain separate accessible text overlays, never executable
-artwork.
-The public `office` subtree composes installation, identity resolution and bounded
-pairing observation, never credentials or HTTP. `office_pairing` separates wire
-values, remote Auth/resource access, vault access, local installation metadata,
-record transitions and one-shot composition. Resource access refreshes Auth and
-performs bounded lease renewal separately; only an exact authenticated issuer
-readback can replace the local expiry. No timer or background process renews
-grants, and local status stays network-free. `office_http` shares bounded JSON
-transport with deployment discovery. Existing ConfigPaths, identity storage,
-file locks and process owners remain authoritative. One protected scope record
-owns pending proof or credentials; SQLite hooks contain only its opaque scope
-reference, never a duplicate credential or grant. OS random
-bytes create proofs; explicit Keychain/Secret Service backends fail closed.
-Background connection and resource editing remain unimplemented.
-
-Explicit `office unpair` reuses the record's reduction-only revocation path and
-scope lock. Only a confirmed revoked receipt can be replaced by a new explicit
-pair request. Owner cancellation of an unknown public request uses the existing
-issuer transaction to write a disabled pairing, never a second cancellation store.
-Browser request snapshots share the existing contract decoder across state and
-transport; uncertain cancellation prevents switching back to approval.
-
-Identity retirement remains the existing binding transaction's responsibility.
-`tmt-core::identity_hooks` owns typed subscriptions and delivery state;
-`storage::identity_hooks` registers subscriptions and atomically queues retirement
-notifications from that same transaction. It has no Office dependency. Consumers
-run after commit: `office_pairing::hooks` uses the existing protected-record and
-per-scope lock owners to revoke, retain a secret-free receipt, then acknowledge.
-No SQL transaction spans remote work. Office pair/inspect and explicit `office
-sync` consume bounded batches; ordinary identity commands only enqueue locally.
-No background or punctual remote cleanup is implied. The
-[native pairing lifecycle contract](extensions/tmt-office/contracts/native-pairing.md#identity-retirement-hooks)
-owns delivery order, retries and compatibility limitations. This is a retirement
-hook, not an arbitrary executable event bus.
-
-Workspace quality checks cover the unified feature graph. Native process
-fixtures build products separately to retain ordinary CLI feature isolation;
-[Development](DEVELOPMENT.md#rust-checks) owns their symbol/profile selection.
+Workspace quality checks cover the unified feature graph. Native process fixtures
+build products separately to keep ordinary CLI feature isolation;
+[Development](DEVELOPMENT.md#rust-checks) owns their selection.
 
 ## Public command boundary
 
-`rust/crates/tmt-cli/src/grammar.rs` owns the ordered core command registrations,
-shared spec/option helpers and public help projection, and mounts the Office subtree
-from `tmt-office-command::grammar`. Private modules under `grammar/` own command
-builders by group: `launch.rs`, `presence.rs`, `rooms.rs`, `requests.rs`,
-`identity.rs`, `settings.rs` and `installation.rs`. Root help/API, retired-command
-and internal-completion registrations stay in the root. Group modules share root
-helpers and do not import from each other.
-`grammar/completion.rs` and `grammar/extensions.rs` retain completion and external
-command recognition. Each visible core command
-is registered from a `CommandSpec` (summary and examples) through
-`tmt_cli_style::apply`; hidden internal commands have no help page. Squad registers each
-command from a `CommandSpec` in `extensions/tmt-squad/rust/tmt-squad/src/specs.rs` through
-`tmt_cli_style::command` and resolves `tmt squad help <command>` with `tmt_cli_style::route`.
-Each owner's parser turns
-its grammar into typed invocations; both publish through `tmt-command-output`.
-Hidden commands are still
-parsed for controlled internal workflows but are omitted from public help and
-completion.
-
-Help retains its selected public command path. The grammar-aware presentation scan
-shares option-value boundaries with error-mode recovery, so `-h`/`--help` can bypass
-required operands without interpreting payload data as flags. Public help and
-completion use command-owned options, not inherited placement-only options. The
-public projection preserves command-owned supplemental help instead of adding
-per-command presentation branches. Every public core option has a nonblank,
-single-line description, checked recursively against that projection; extension-owned
-grammars retain their own review boundary. Help
-for core commands never enters runtime dispatch or skill-drift inspection; JSON
-core help remains unsupported.
+The grammar (`rust/crates/tmt-cli/src/grammar.rs` and its `grammar/` modules) owns
+core command registration, option placement and rejection, and the help projection;
+each owner's parser turns its grammar into typed invocations and publishes through
+`tmt-command-output`. Hidden commands parse for internal workflows but never appear
+in help or completion. Handlers never search raw argv or reinterpret payload text
+as flags. JSON and human output use the same typed result and status contracts.
+Command dispatch, help and completion rules are in the
+[extension surface reference](.agents/skills/tmt-core-runtime/references/extension-surface.md).
 
 ### External command contract (v1)
 
-An unknown root command named `[a-z0-9][a-z0-9-]*` resolves `tmt-<name>` on
-PATH. The CLI reserves every grammar name and alias, including hidden commands;
-the core always wins a collision. The adapter owns executable lookup and process
-replacement. On Unix it uses `exec`, not the supervised child model used by
-`run`: the extension inherits stdin, stdout, stderr, TTY and signal behavior,
-and its exit status is the command's exit status. Exec failure is a normal error.
-`TMT_EXECUTABLE` is the absolute invoking TMT executable path. There is no registry,
-manifest, daemon, implicit install or extension state in core.
-
-Only arguments after the extension name are passed verbatim, including non-UTF-8
-arguments; TMT does not interpret their options. Root options before an extension
-are rejected with an option-placement hint when the extension exists. A missing
-executable retains the existing unknown-command diagnostic and presentation mode.
-`tmt help <extension>` executes
-`tmt-<extension> --help`. Root help lists discovered extensions in its `Extensions`
-section, including executable names shadowed by core, which it marks ignored. PATH directory enumeration happens only for root help,
-root completion and unknown-command suggestions; exact extension dispatch probes
-only the requested filename. Ordinary core commands do not enumerate PATH.
-
-Extensions may ignore completion v1. When offered, TMT calls
-`tmt-<name> __complete -- <words after the name, including the current word>`
-with `TMT_EXECUTABLE`, a one-second deadline and a 64 KiB combined output bound.
-Successful stdout is newline-separated literal UTF-8 candidates, with no tags,
-descriptions or version field. Empty output, nonzero exit, invalid UTF-8/NUL,
-timeout or excess output falls back to file completion. Shell adapters quote the
-literal candidates; they never evaluate them. Extension completion uses the shared
-bounded process owner, not the unbounded interactive exec path.
-
-This generic dispatch does not extract the reserved `office` command; Office
-domain/storage extraction is tracked separately in #328.
+An unknown root command named `[a-z0-9][a-z0-9-]*` resolves `tmt-<name>` on PATH;
+core wins every collision. On Unix the adapter `exec`s, so the extension inherits
+stdio, TTY and signals and its exit status is the command's. `TMT_EXECUTABLE` names
+the invoking executable. Core keeps no registry, manifest, daemon or extension
+state. Only arguments after the name are passed, verbatim. Completion v1 is
+optional, bounded and falls back to file completion on any failure.
 
 ### Local extension API (v1)
 
 `tmt api` is the public, same-user process port for machine-shaped gaps in the
-ordinary CLI. One invocation reads one versioned JSON request from stdin and
-returns one JSON resource or structured error on stdout. It is neither an
-authentication boundary nor a daemon, batch processor or streaming connection.
-Extensions use `TMT_EXECUTABLE` rather than assuming an installed binary path.
-
-The CLI owns bounded stdin acquisition (EOF within five seconds), JSON publication
-and exit status. `tmt-adapters::api` owns envelope admission and composition.
-Its `api.rs` facade retains the dispatcher, protocol bounds, settings selection
-and storage lifetime. API faults retain typed storage-open causes for CLI presentation,
-including notebook reads. Other in-process consumers retain their existing fault
-projection; adapters never depend on command output. Private `api/` modules own operation-family inputs and
-composition for requests, dispatch, rooms, notes, changes, identity hooks, skills,
-references and identity status. Identity, room, request history, dispatch and
-notes retain their existing domain, transaction and resource encoders. The same
-one-shot delivery helper serves Office and API dispatch. Explicit identity selects write attribution, not privilege.
-Capabilities and unsupported-version discovery never open application storage.
-Input and output bounds are advertised in capabilities; canonical content limits
-still apply independently of JSON escaping.
-
-Protocol major 1 accepts additive operations and response fields; clients ignore
-unknown response fields. Removing operations or incompatible semantics requires
-a new major. Unsupported majors return `API_VERSION_UNSUPPORTED` with the supported
-range. Human-shaped identity, presence, room inspection/retirement, reply/result
-and attention operations remain their ordinary JSON commands, not duplicate API
-implementations. This port does not move Office storage or remove its core facade.
-
-`rooms.roster` composes a room's effective members with their prefix-filtered
-metadata and self-reported status from one deferred SQLite read snapshot
-(`storage::room_roster`): selection, membership, metadata and status cannot
-disagree within a response. The read itself performs no writes or acknowledgment;
-opening storage follows the same policy as every other API operation.
-Presence is deliberately excluded because it requires host observation and
-binding reconciliation owned by `ls`; consumers join `ls --room --json`.
-Adapter `identity_projection` owns the identity summary and metadata map shared
-by CLI JSON and this operation, so both transports emit identical bytes.
-
-`identityHooks.register|pending|attempt|ack` expose core's durable
-identity-retirement subscriptions to their consumer. Every operation is scoped to
-the named consumer and keeps the storage semantics: registration after retirement
-is pending at once, delivered is terminal, and attempts or acknowledgments on
-another consumer's hooks return `HOOK_NOT_FOUND`. The API layer reads the hook
-state only to report not-found and not-pending distinctly; transitions stay in
-`storage::identity_hooks`.
-
-History reads use the existing `(preparedAtMs, requestId)` keyset, not a frozen
-snapshot or change feed. X attention retains its separate revision cursor.
-Inspection does not acknowledge work or renew retention. Dispatch operation IDs
-recover immutable acceptance; replay never wakes again. Clients must recover a
-receipt or current room revision after interrupted writes, not invent a new
-operation ID and resend. See [extension API usage](contracts/extension-api.md).
-Its [dispatch readiness and input-safety section](contracts/extension-api.md#dispatch-readiness-and-input-safety)
-owns the public safety limits: observations grant no input lease, core owns send-time evidence,
-enrolled uncertainty never permits paste, and legacy pane input has no universal typing gate.
-Remote consumes this process/JSON contract without importing host adapters or inferring readiness
-from pane buffers. Direct-default grants and opt-in hold remain Remote's admission policy.
+ordinary CLI: one versioned JSON request on stdin, one JSON resource or error on
+stdout. It is neither an authentication boundary nor a daemon, batch or stream.
+`tmt-adapters::api` owns envelope admission and composition; the CLI owns bounded
+stdin, publication and exit status. Protocol major 1 accepts additive operations and
+fields; incompatible changes need a new major. Human-shaped operations remain their
+ordinary JSON commands, not duplicate API implementations. The
+[extension API contract](contracts/extension-api.md) owns operations, bounds,
+dispatch readiness and input safety, history and consumption semantics.
 
 ### Local MCP (v1)
 
-`tmt mcp --identity <saved-name-or-uuid>` is an agent-launched stdio interface
-for the existing exchange. The [MCP contract](contracts/mcp-v1.md) owns its wire,
-schemas, bounds and qualified protocol revisions. `tmt-adapters::mcp` owns typed
-admission, lifecycle and bounded framing; `tmt-cli::mcp_command` pins one saved
-identity UUID and application data root, then composes the existing identity,
-inbox/answer, incoming X inspection/acknowledgment, result and API dispatch
-command owners in-process.
-The same JSON encoders serve the CLI and tools. Identity selection is local
-attribution, not same-user authentication; incoming reads retain participant
-scope. No MCP-only exchange state, persistence, dependency or retry semantics
-is introduced. Dispatch uses its existing operation UUID and immutable acceptance;
-answer derives its existing recipient proof; ack requires the observed revision.
-The API wire is unchanged: its internal dispatch selection distinguishes local
-name/UUID lookup from an exact saved UUID, preventing retirement/name fallback
-from retargeting a pinned writer. Provider setup and blocking talk remain later work.
-
-This process is separate from the private Claude channel server, whose framing
-and behavior remain unchanged. It provides no runtime enrollment, server push notifications,
-network listener or remote authentication. Native channels and the proposed
-remote door retain their own owners. Each call closes storage before publishing;
-EOF and framing failure end only this stdio invocation.
+`tmt mcp --identity <saved-name-or-uuid>` is an agent-launched stdio interface over
+the existing exchange. The [MCP contract](contracts/mcp-v1.md) owns its wire,
+schemas and bounds; `tmt-adapters::mcp` owns admission and framing and
+`tmt-cli::mcp_command` composes the existing command owners in process. It adds no
+exchange state, persistence or retry semantics and is separate from the private
+Claude channel server.
 
 ### Extension hooks (v1)
 
-`tmt-adapters::extension_hooks` owns consented, best-effort lifecycle
-observations. PATH discovery alone never runs a hook: `tmt extension hooks
-enable <name>` resolves `tmt-<name>`, requires a regular executable owned by the
-current user with neither the file nor its directory writable by others, probes
-`tmt-<name> __tmt-hooks 1 capabilities` (a `TMT-HOOKS/1` header and a token set,
-1 s, 1 KiB), and records the canonical path, SHA-256 digest, a metadata
-fingerprint and the capabilities in `<global>/extension-hooks.json` (0600,
-replaced atomically). Before each delivery core re-checks ownership and the
-fingerprint; any change skips the extension until it is enabled again. The
-grammar stays composable under `tmt extension` for installation commands.
-
-Capture is per connection and transactional. When the process allows capture
-(only the `tmt` CLI does) and an enabled extension offers
-`lifecycle_observations_v1`, `Storage::open` installs temporary triggers that
-record typed evidence in a temporary table: `identity.created`,
-`identity.renamed` and `identity.retired` (UUID, lifetime, retired) and
-`room.created`, `room.updated`
-and `room.retired` (UUID, revision, retired), never names, messages or payloads.
-Temporary tables take part in the transaction, so rolled-back changes leave no
-evidence and nothing is persisted. Storage drains the table on close or drop;
-after the command the CLI runs `tmt-<name> __tmt-hooks 1 observe` for each
-still-verified observer with the events on stdin, through the supervised process
-owner under one aggregate 500 ms deadline and 4 KiB output budget. Output is
-discarded, and no exit status, timeout or failure changes the command's result;
-consumers must converge through their own reconciliation. Every hook call
-carries `TMT_HOOK_DELIVERY=1`, and a `tmt` process that sees it captures
-nothing, so an extension calling `tmt` cannot cause nested delivery.
-
-Rehydration context (`tmt whoami --context` and provider injection, which
-share `context_command::verified_document`) asks each verified extension that
-negotiated `context_v1` for one line, only for a verified, bound identity:
-`tmt-<name> __tmt-hooks 1 context` with `{"version":1,"identityId":…}` and
-`TMT_HOOK_DELIVERY=1`, under one 300 ms deadline (capped by the provider hook's
-remaining budget) and 1 KiB of output per extension, bounded before parsing.
-Only `{"summary":"…"}` with at most 240 characters is accepted; anything else,
-a timeout, or an absent, changed or disabled executable omits that
-contribution. The host attributes each `{extension, summary}` by its consent
-name. Summaries are untrusted, informational data: text output labels them
-`Extension <name> (informational): "…"` with the same escaping as role and
-notes, and the 4 KiB bound drops extension contributions before role or notes
-and never loses core counts or inspect commands. Unbound, ambiguous and
-unavailable callers never invoke extensions. Office answers with a read-only
-line about the identity's desk and meeting-area count from its own world
-layout, opening both databases read-only and never through
-`OfficeStore::open_configured`, so context never migrates, activates,
-reconciles or creates files.
-
-Provider `UserPromptSubmit` hooks use the same generic callback and aggregate
-budget, returning attributed extension lines and, only when nonzero, one incoming
-unacknowledged-attention count with an explicit-identity inbox pull command as
-event-specific `additionalContext`. The count reuses the existing read-only
-context snapshot; it is not a count of unsent or unanswered requests. No worker,
-new counter or automatic delivery is created. Zero attention with no extension
-contributions emits nothing. Hooks require an already running, verified binding whose
-provider session and runtime incarnation match the caller, and recheck the
-binding/preferences after callbacks before handing context to the provider.
-They neither admit a session nor replay the SessionStart identity preamble.
-Setup includes one synchronous prompt-submit entry in its consented plan;
-existing SessionStart and Stop behavior retain their owners.
-
-With no consent file or no enabled observer, a command performs at most one read
-attempt of the consent file, on its first storage open, and spawns nothing;
-commands that never open storage do no hook work at all. Office implements the
-protocol by running its full reconciliation on `observe`, and stays inactive
-until the user enables it.
+`tmt-adapters::extension_hooks` delivers consented, best-effort lifecycle
+observations and context lines to verified `tmt-<name>` executables
+([wire contract](contracts/extension-api.md#lifecycle-hooks)). PATH discovery alone
+never runs a hook; ownership and a stat fingerprint are re-checked before each
+delivery. Capture is per connection and transactional, delivery is bounded and
+never changes a command's result, and a nested `tmt` captures nothing. Extension
+summaries are untrusted informational data. With no consent file a command spawns
+nothing.
 
 ### Core command surface
 
-The Clap grammar owns primary names and accepted aliases. Listing uses `ls`,
-removal uses `rm`, identity renaming uses `mv`, and record display uses `show`.
-Long spellings remain hidden aliases and resolve to the same typed invocation;
-help, examples and guidance use the primaries. Root `uninstall` remains distinct
-from identity retirement. Core names and all aliases, including `mv`, are reserved
-before external PATH dispatch. The recursive listing guard in `tmt-cli-style::audit`
-covers core, embedded Office and the separate Squad grammar. Options, operation
-enums, JSON API method names and persistence semantics are unchanged by spelling.
-
-The maintained public surface is:
-
-- `init`, `config`, `completion`, `learn` and `install` for local setup and
-  guidance;
-- identity and binding commands: `identity` create/show/ls/mv and metadata
-  set/show/ls/rm with exact filters, `ls`, `add`, `name`/`this`,
-  `whoami`, `unbind`, `rm`, `mv`;
-- saved-identity notes through `notes path`;
-- the versioned local extension interface through `api`;
-- profile and exchange commands: `role`, `preamble`, `x ls|show|ack|ackall`,
-  `reply`, `result`, `inbox`, `answer`, `talk`/`send`, `check`/`read`;
-- `focus <identity|pane>`, which shows a verified pane in the
-  invoking user's own tmux client and reports that client (see the driver
-  `focus` action), and the read-only `focus --client`, which names the same
-  client and the pane it shows without switching;
-- managed native updates through `upgrade`/`update`, with the hidden
-  `__native-install` and `__native-refresh-skills` composition points used by
-  verified release tooling;
-- optional `office`, `office install|upgrade|status|uninstall`, local layout and
-  local discussion-board operations. Installation
-  requires consent; bare `office` and `office status` inspect the installed
-  companion and service without downloading, starting or pairing.
-
-The grammar owns option placement and rejection. Handlers do not search raw
-argv, create competing option parsers, or reinterpret payload text as flags.
-JSON and human output use the same typed result and status contracts.
-`identity show <name>` remains a storage-only named read. Without a name it
-uses the shared verified-caller selector before opening storage; an unavailable
-or unbound caller does not fall back to a working directory, active pane or sole
-stored identity. `identity ls` and bare `preamble show` remain collection reads.
-`OutputMode` contains only the supported JSON selection. Unsupported
-`--verbose`/`-v` and `--debug` flags are absent from the grammar and fail with
-`USAGE_ERROR` before effects; literal message/option-value text is unchanged.
-
-`skill_reminder` presents at most one best-effort human stderr line after a
-successful typed result: a newly created temporary or saved identity, a newly
-started local Office, or terminal-only managed-skill drift. Repeated no-op
-commands do not create a discovery transition; `TMT_HINTS=off` disables optional
-transition hints without hiding error recovery or managed-skill drift. This
-owner does not add fields to JSON, alter raw stdout, persist cooldown state or
-scan tmux for discovery. Identity creation outcomes carry the stored display name
-from the successful command result. Hints quote that name as a shell word: only
-temporary identities receive save guidance, while saved identities receive a named
-listen command. Saving by name also works when the new binding belongs to another
-pane. Saved inactive target recovery remains a targeted
-`NAME_NOT_FOUND` suggestion in the existing error presenter.
-
-`output::table` is the single plain human-table renderer for binding, identity,
-exchange and configuration reports. Callers own columns and typed projections;
-the renderer owns control-character escaping, Unicode display-width measurement
-and spacing. The pinned `unicode-width` dependency is confined to presentation:
-`tmt-cli-style` owns report tables and `tmt-adapters::delivery::notices` owns
-plain delivered notice columns. Domain policy and command orchestration do not
-depend on it. Tables preserve complete values without terminal probing,
-truncation or color; narrow terminals may wrap. JSON and exact prompt, final,
-profile and diagnostic bodies bypass table rendering.
+The grammar owns primary names and accepted aliases (`ls`, `rm`, `mv`, `show`; long
+spellings are hidden aliases). Core names and aliases are reserved before external
+dispatch. The maintained surface is: local setup and guidance (`init`, `config`,
+`completion`, `learn`, `install`); identity and binding commands (`identity`, `ls`,
+`add`, `name`/`this`, `whoami`, `unbind`, `rm`, `mv`, `notes path`); the local
+extension interface (`api`, `mcp`); profile and exchange commands (`role`,
+`preamble`, `x`, `reply`, `result`, `inbox`, `answer`, `talk`/`send`,
+`check`/`read`); `focus`; managed native updates (`upgrade`/`update`, with hidden
+`__native-install` and `__native-refresh-skills`); and `extension` and the frozen
+`office` facade. Output is plain-table, JSON or both from one typed result;
+`identity show` without a name uses the shared verified-caller selector and never
+falls back to a working directory, active pane or sole identity.
 
 ## Domain and state ownership
 
 ### Identity, names and bindings
 
-`tmt-core::names` owns canonical identity classification (pane-target syntax
-belongs to each host, `tmt-core::host`),
-including the pinned normalization/casing behavior and bounded name rules.
-Canonicalization is ECMAScript whitespace trim, NFKC and root-locale default
-lowercase using pinned ICU data, not case folding or compiler-dependent casing.
-Dependency upgrades must not renormalize stored keys.
-`tmt-core::identity` owns lifetime and storage-only create/promote policy.
-`tmt-core::identity_metadata` owns validated string keys and values, exact-match
-filters, typed results and shared metadata operations. Metadata is descriptive,
-untrusted data; it does not grant permissions, capabilities, availability or
-prompt authority.
-`tmt-core::identity_status` owns typed self-reported activity/mood, byte limits,
-expiry and set/show/clear semantics. `storage::identity_status` stores one atomic
-record per active UUID in schema 29; it neither promotes identities nor mutates
-their timestamps, appearance or requests. Expired data stays inspectable but is
-not current activity. `identity_command::status` reuses verified caller resolution;
-`tmt-adapters::identity_status` owns the shared JSON projection. The
-[status contract](contracts/identity-status-v1.md) distinguishes this state from
-presence and completion. The Office directory reads active UUID statuses in one
-batch and composes that projection beside, never inside, appearance snapshots.
-`identities/use-status-clock` schedules the next expiry for the mounted directory;
-scene cues and Info consume the same observation. Appearance revision merging
-preserves independent status observations. No actor polling or status writes occur
-in the renderer.
-`tmt-core::binding` owns evidence evaluation, retirement authorization and
-binding use cases. Unknown or conflicting endpoint evidence is never treated as
-proof of death. Saved identities detach and remain offline; temporary identities
-may retire only after conclusive evidence.
-
-A pane's binding marker (`@tmux-team.agent`) proves ownership by its IDs alone:
-identity, binding, server and pane process. Its name is informational. It must be
-a well-formed name consistent with its canonical form, but it may lag the stored
-name, and every reader resolves the identity by ID and shows the stored name.
-Rename (`binding::rename_identity`) changes the name and canonical name of an
-unretired identity in the immediate binding transaction, under the same global
-uniqueness as creation, so everything keyed by the UUID follows. A marker that
-still carries the earlier name stays active; the post-commit cosmetic refresh
-(`Tmux::update_binding_cosmetics`, used by rename, bind, run and `pane_badge`)
-rewrites it to the stored name only when the marker is still this binding's.
-Read paths such as `ls` and `talk` never write it.
-
-`binding::session` separates remembered identity-owned harness/session preferences
-from binding-owned runtime observations. Schema 33 retains the former independently
-of a binding row; deleting/replacing that row resets its observation to unknown.
-An idempotent bind retains the row and its observations. Updates use the existing
-immediate binding transaction and exact binding ID, so an observation for a removed
-binding cannot update its replacement. Retiring an identity, for either lifetime,
-clears its remembered session and driver state in the retiring transaction; the
-launch preference stays hidden behind the active-identity port. Neither a provider
-session ID nor a running observation grants binding ownership or delivery authority.
-Resume coordinates pair the session ID with its harness and driver-owned runtime
-mode, separately from the preferred harness. Changing that preference cannot
-silently reinterpret a saved session as belonging to another runtime.
-
-Schema 37 keeps driver-owned resume state beside the remembered session: a
-bounded (1 KiB), versioned document that core stores but never parses, plus a
-stale mark for a session a resume found gone. The session and harness stay
-columns because core correlates hook events on them. One identity has one current
-runtime: only starting provider events replace the session (clearing a stale
-mark, and keeping driver state only under the same driver), and a confirmed
-launch under another runtime driver drops the previous driver's session and
-state. Persistence is an optional driver interface: `RuntimeLifecycle::reads_state`
-names the versions a driver reads, and `RuntimeRegistry::reconcile` discards state
-it cannot read and drops sessions of unregistered drivers, which
-`Storage::purge_unregistered_sessions` also sweeps. Driver state holds resume
-essentials only (the model and, opted in, usage numbers), never transcript
-content, arguments or secrets.
-
-Schema 38 adds a resume-pending mark. A resume launch sets it on the exact
-remembered session before the child starts, and any starting provider event clears
-it with the stale mark. At exit, in one transaction, the session goes stale only
-if that same session is still pending, the exit was non-zero and not 128+n, and
-the provider's TMT SessionStart hook was installed at launch
-(`setup::start_hook_installed`, read-only). Otherwise only the mark clears, so a
-crashed launcher leaves a harmless pending mark, never a false stale one.
-`tmt resume` and its `run --resume` alias never fall back to a fresh start. Only
-that resume path purges unregistered drivers' sessions and reconciles unreadable
-state, and it reports each change once. Read-only projections (`identity show`,
-`ls --json`) read preferences without a write transaction and ask the session's
-own driver for its model.
-
-Schema 39 admits a second terminal host (Herdr, #479):
-
-- `bindings.transport` accepts `tmux` and `herdr`. SQLite cannot alter a CHECK,
-  so the migration rebuilds the table with only that CHECK changed, from a
-  verbatim copy of its schema-38 definition. It refuses a table that differs
-  from that copy, or any view or trigger that depends on it, rather than drop
-  custom columns or rules.
-- `request_attempts.host` and `request_responses.host` record the request
-  fence's host. NULL is tmux, the only host that wrote earlier rows, so
-  history is never rewritten; inbox routes carry no host.
-- `host_servers` holds TMT's UUIDv4 for each server incarnation (socket, PID
-  and start time) of a host without a server-level store of its own;
-  `Storage::host_server_id` gets or creates it. tmux keeps its ID in a server
-  option and has no rows there.
-
-Binding queries still read tmux rows only until the core endpoint types carry
-the host.
-
-Schema 40 adds the change cursor behind the `changes.cursor` API operation
-(contract in [extension-api.md](contracts/extension-api.md)). It is a one-row
-`change_cursor` counter. Every core-owned table has three AFTER triggers,
-`<table>_advances_change_cursor_on_{insert,update,delete}`, that advance it
-inside the writing transaction, so no write path can forget. Migration
-bookkeeping and the Office tables fenced by the schema-36 cutover have none.
-An update counts only when some column's value differs (`WHEN OLD.c IS NOT
-NEW.c OR ...`), so a reconcile that rewrites a row with the same values is not
-a change, and `bindings.last_verified_at`, which `ls` refreshes while
-reconciling presence, is not compared at all. A later migration that adds a
-core table or a column, or rebuilds a table (as schema 39 rebuilt
-`bindings`), must create or recreate its triggers: `change_cursor_tests` fails
-until every table is covered or deliberately excluded and every column is
-compared.
-
-Schema 41 admits any host an approved driver serves (#570). The host columns
-of `bindings`, `request_attempts`, `request_responses` and `host_servers`
-accept any host name (1 to 32 of `[a-z0-9-]`, starting with a letter); inbox
-routes still carry no host, and `host_servers` still has no tmux rows. Each
-table is rebuilt from its own stored definition with exactly that one CHECK
-replaced, its rows copied unchanged, and its stored indexes and triggers
-(schema 40's change-cursor triggers among them) replayed. The source must
-match what migrations 1 through 40 make in a fresh database, for these tables
-and everything that mentions them; anything customized is refused. Like
-schema 9, the rebuild runs with foreign keys off, so dropping
-`request_attempts` does not cascade into `request_notifications`, then checks
-them, all in one immediate transaction that rolls back to schema 40 on any
-failure; foreign keys are restored on every exit.
-
-Schema 42 adds `bindings.pane_incarnation`, beside `pane_pid`. It holds the
-start token of the `ProcessIncarnation` that core observes for the pane shell
-when a binding is created (`BindingEndpoint::pane_incarnation`). It never comes
-from a host's or driver's text.
-
-- **Existing rows:** bindings made before schema 42 keep NULL until they rebind;
-  there is no backfill.
-- **Verification:** `evaluate_binding` treats a known recorded value and a known
-  observed value that differ as a reused pid, which is `EndpointLost`. NULL, or a
-  failed observation, is unknown and proves neither loss nor sameness; the pid
-  and marker rules decide as before.
-- **Read paths don't observe:** on macOS one `ps` costs about 110 ms, so tmux
-  reads (`ls`, status, send) leave the observed value unknown and never
-  compare; its pane IDs are already unique within a server incarnation.
-- **Cost:** recording costs one `ps` per new binding.
-- **External hosts:** pane IDs are declared by the driver, so external hosts will
-  observe on verification, scoped to the binding's pane.
-- **Format:** the column admits 1 to 256 printable ASCII bytes, not all blank,
-  matching what `ProcessIncarnation` accepts.
-- **Cursor:** the bindings cursor update trigger compares the column.
-
-Schema 46 adds `consumption_sources` and `consumption_buckets`. The source row
-retains only provider-relative locator/correlation and the last normalized read;
-no transcript content or absolute provider path is stored. History retains five-second
-base buckets for two hours, with at most 1,440 closed buckets and one open bucket
-per identity. `storage::consumption_history` owns normalized delta, coverage,
-retention and the binding/preferences compare-and-set; provider parsing remains
-with the driver. The opaque cursor, normalized counter and its exact history
-change commit in the same immediate transaction. Losing sample/Stop races write
-nothing. Expired reads are filtered immediately; writes prune the active identity
-and bounded expired inactive rows. Migration does not backfill. Both tables use
-the durable change cursor. The [extension API](contracts/extension-api.md#consumption-history)
-owns public batch bounds, seed watermark and coverage semantics, with a shared
-normative fixture for Squad. It never exports the source locator or driver cursor.
-
-Schema 45 adds nullable `identity_session_preferences.channel`, the effective
-channel/plain choice for the preferred harness, recorded by an admitted fresh
-launch or an explicit channel flag on an admitted resume.
-Legacy null keeps the driver's default. Exact resume reuses the matching
-harness preference, with true resolved as Required (never a paste fallback)
-and false as Disabled. Explicit resume flags overwrite the preference after
-successful admission: `--channel` records true only after enrollment succeeds,
-and `--no-channel` records false. A flagless resume does not rewrite the choice,
-including legacy null. Failed launches do not record a new channel choice; changing
-harness clears it, and forgetting the session clears it. Hook observations
-preserve it for the same harness. The existing preferences transaction and
-change-cursor trigger own persistence; no channel lease or endpoint is reused.
-
-Schema 43 adds `identities.auto_named`, a private boolean defaulting to false.
-Only an unnamed registered-runtime launch inserts true, independently of temporary
-or saved lifetime. No name pattern or user-editable metadata grants this provenance.
-The identities change-cursor trigger includes it. Existing identities remain explicit.
-Caller-scoped `name`/`this` checks the exact live binding and this flag inside one
-binding transaction, checks name uniqueness, renames the same UUID, optionally
-promotes its lifetime and consumes the flag. Binding/session rows are unchanged;
-ordinary binding and `add`/`marked` keep their existing conflict behavior. An ordinary
-`mv` also consumes provenance when it changes the name.
-
-The claude and codex drivers implement persistence with one document
-(`runtime::driver_state`): version 1 is `{"model": <slug>}`, and version 2 adds
-`"usage": {"tokens", "windowTokens"?, "observedAtMs"}` (the model is then
-optional). Version 3 additionally stores session-scoped main-turn activity,
-including the exact provider session and process incarnation. Documents without
-activity retain versions 1/2, byte for byte. Version 4 adds optional cumulative
-consumption and its private source cursor; all four versions are read. Optional
-consumption is omitted if it would exceed the existing 1 KiB DriverState cap,
-preserving model/context/activity evidence. Reading versions 1–3 retains their
-model/context/activity without inventing counters; their first consumption
-observation starts a new epoch with gap=true and complete=false. Older readers discard an unknown
-version under the existing reconciliation contract. The model's only source is the `model` field
-of a starting hook event, which both providers document (see
-`runtime/fixtures/README.md`). Claude may omit it, for example after `/clear`, and
-then the previous model stays. When a provider sends no model, nothing is stored.
-A model is never inferred from transcripts or arguments. Resume replays a stored
-model (`claude --resume <id> --model <m>`, `codex resume -m <m> <id>`, following
-each CLI's recorded usage) only when the document is readable and the slug is a
-safe single argv value. Otherwise it resumes with the provider's default.
-
-A launched Claude process can be admitted before its first provider session is
-known. Its first resumed SessionStart may attach that session only when the
-same process is Running, has a launch owner and has no provider session yet.
-Known-session switches still require the preliminary continuation transition;
-ended or conflicting incarnations cannot use this first-session path.
-
-Main-turn activity (#656) comes from TMT's own UserPromptSubmit/Stop command
-hooks as installed by `tmt setup`. Claude runs these synchronously: admitted
-transitions commit inside the hook call, before it returns. Ordering relies on
-that provider contract, not a TMT sequence or receipt-time guess. Changing an
-owned entry to `async` is a user-modification edge detected by setup inspection;
-the event path does not re-read effective user/project/plugin settings. Codex
-also requires its first-party turn ID; a Stop for another turn changes no
-activity. Provider-only extras are deferred (`providers: {}`). The driver fixture
-README owns source/version provenance and the documented-contract limitation.
-
-`binding::session::activity` owns normalized transitions and clock validation;
-`runtime::driver_state` owns their opaque persistence. Model/usage retention never
-transfers activity across sessions or process incarnations. SessionStart resets
-activity; start/end events do not establish a binding. Duplicate events do not
-renew timestamps. The existing binding/preferences transaction checks the full
-snapshot, and expired handlers do not begin a write. No detached writer exists.
-
-Public `ls --json` rows expose `session.activity` with `state`, `sinceMs`,
-`lastActivityMs`, and `providers`. Working/idle describe the last admitted
-main-turn event, not all background tasks. Runtime uncertainty is unknown;
-ended requires a conclusive core process observation. Timestamps are accepted
-observation times, never inferred from silence, usage, terminal text or probes.
-The state clock has no stalled threshold. Storage-only identity output does not
-assert activity liveness. The Stop entry is included in consented setup by default; `--no-usage`
-disables it. Without it, no end event can be recorded.
-
-Context usage (#519) and consumption are included in the same consented
-`tmt setup` plan as lifecycle hooks. `--no-usage` removes the TMT `Stop` entry
-and records the disabled choice; `--usage` explicitly enables it again.
-The existing setup record owns the optional per-driver/settings-path `usage`
-boolean. New unrecorded installations default on. Legacy records without the
-field preserve the installed Stop state: absence could reflect an old explicit
-opt-out and cannot safely be distinguished from omission. Successful setup
-records the resolved choice; full hook removal forgets it. Invalid records stop
-setup before settings publication. Settings and record publication remain
-separate: a record failure reports the already-applied settings and a retry.
-`tmt setup [provider] --status` reads settings without consent, record adoption,
-provider execution or database access. Setup and status report disabled
-collection with the exact `tmt setup <provider> --usage` command. Consent names
-context usage, consumption and activity, and explains the transcript read.
-A turn end is not
-a session transition. The worker verifies the caller exactly as for a lifecycle
-event, and writes only when the binding's current conversation is the
-remembered one the event names. It replaces the remembered state in one
-compare-and-set transaction, and prints nothing, even on failure. Driver lifecycle observations and foreground sampling read only their own
-provider's transcript (`runtime::transcript`), and only for usage numbers:
-
-- the path must be a regular `.jsonl` file under the driver's own tree
-  (`$CLAUDE_CONFIG_DIR/projects`, otherwise `~/.claude/projects`;
-  or `$CODEX_HOME/sessions`);
-- it is opened without following a final symlink and without blocking;
-- context usage reads at most the last MiB, skipping a line cut by that window;
-- Codex consumption reads at most one additional MiB from its latest tail;
-- Claude consumption reads only the appended range within the latest MiB under
-  the deadline and record bound below (plus a boundary byte). A cursor outside
-  that tail rebaselines at EOF with a gap; multi-MiB catch-up is not supported.
-
-Unusable context usage writes nothing for that value. A start that changes the context
-(startup, clear, compact) drops usage; a resumed Claude start records the
-`context_tokens` it reports. Core never parses the document:
-`RuntimeRegistry::remembered_usage` projects it as `resume.usage`.
-
-Completed-request consumption (#872) is separate from context size.
-RuntimeLifecycle/RuntimeRegistry project the driver's counters as optional
-`resume.consumption` in ls/identity JSON: `inputTokens`, `outputTokens`,
-`cachedInputTokens`, epoch, sequence, `observedAtMs`, complete and gap.
-Cached input is a subset of input. Claude input adds uncached input, cache-read
-and cache-creation; cached input is cache-read. Codex uses `total_token_usage`
-input/output/cached fields; reasoning is already in output. Input plus output
-counts provider-reported token units, not cost or interchangeable text volume.
-These are accepted completed-request observations, not streaming throughput.
-
-The first Claude observation baselines at current EOF with zero counters and
-retains the last main message ID's hash; historical requests are not replayed.
-The append-only scan counts each new contiguous `message.id` group once, carries
-the last ID across reads, cross-checks `requestId` and usage equality, and skips
-sidechains/synthetic records. Private dev/inode/offset and hashed IDs retain
-equality without transcript text or paths. Counter evidence and its cursor use
-the same trusted descriptor and captured file end. Noncontiguous older ID repeats are
-not expected and may count again: exact historical-ID dedup is deliberately
-outside the bounded one-KiB contract. In-place rewrites that retain inode and
-do not shrink also violate the append-only assumption. A partial final line
-waits for its newline, with `complete=false` and `gap=false`. Cursor loss, shrink,
-replacement, record-limit exhaustion, invalid main records or overflow starts a new
-epoch at current EOF with `gap=true` and `complete=false`; a cut fragment is
-discarded through its next newline, and history is never recounted.
-
-Claude's incremental scan (#887) receives the hook owner's absolute `Instant`
-through `RuntimeLifecycle::turn_state`. After the existing context-tail read,
-it allocates half the remaining hook time to consumption, leaving the other
-half for state handling and the existing commit guard. The latest-MiB tail bound takes precedence over the earlier multi-MiB
-catch-up behavior; the two-second supervisor remains the hard time authority. An 8 KiB buffered reader stops at the captured end, reusing one
-line buffer capped at the existing one-MiB `TAIL_LIMIT` (including newline).
-The admitted appended range is at most one MiB; candidate JSON allocations are
-also bounded by that single-record cap. Clearly foreign unescaped lines receive
-syntax validation without constructing their JSON values; assistant candidates,
-escapes and deeply nested/ambiguous evidence use the existing full validation.
-Malformed foreign records still cause gaps. Time is checked around bounded reads
-and candidate validation. If time expires with records still pending, validated
-counts and the last complete-record cursor are retained in the same epoch with
-`complete=false` and `gap=false`. Buffered but unvalidated bytes are reread on
-the next Stop; contiguous-message deduplication carries across these checkpoints.
-Successive Stops can catch up without new appends, and validating the captured
-EOF marks the scan complete. No-progress retries retain the existing observation
-once it is already incomplete. Real evidence loss still resets at EOF as above.
-A single bounded parse or filesystem operation can cross the cooperative scan
-deadline; the hook supervisor remains the hard termination/cleanup owner.
-
-Codex's first observation baselines at the provider's cumulative totals.
-Unterminated final records wait for a newline with complete=false; an invalid
-newest token_count is unavailable rather than falling back to older totals.
-A component decrease, file shrink or replacement starts a new epoch/gap.
-Epochs and sequence are driver measurement coordinates, not provider IDs;
-sequence increases within an epoch when source evidence advances.
-`observedAtMs` is acceptance time, not token generation time or a heartbeat.
-Duplicate hooks without source changes retain the counter's timestamp/sequence.
-A later complete scan clears the gap flag within its new epoch. Every start
-resets consumption; failed reads leave it absent or unchanged rather than
-inventing zero. Rate consumers baseline first/reset/gap observations and never
-differentiate context usage. Driver-owned source parsing stays separate from normalized history arithmetic.
-The existing hook owner and new foreground sampling worker share the same full
-binding/preferences CAS, preserving exactly-once publication for races and
-supported contiguous groups. No per-request dedup store is added.
-
-`run_command/run.rs` uses `InteractiveChild::wait_with_ticks` every five seconds
-while its admitted direct child runs. `consumption_sample_command` launches one
-supervised worker with a two-second deadline; it revalidates the captured identity,
-full binding, provider session, owner/runtime process incarnations, pane evidence
-and effective owned Stop hook before parsing. It closes SQLite before source
-reads, then commits against the complete captured snapshot. Sampling updates
-consumption/context evidence without inferring activity. Missing or failed source
-reads create gaps, never measured zero. The start/prompt hooks remember admitted
-relative locators; Claude can establish an empty-file baseline at prompt submission.
-Codex resolves an exact UUID-bearing rollout file within its sessions tree when
-no path is supplied, bounded to 4,096 directory entries and three nested levels;
-ambiguous matches, symlink directories or exhausted discovery are unavailable.
-The driver enforces the same descriptor trust boundary for every read.
-
-The foreground wait preserves child exit status, signal forwarding and direct-child
-cleanup. Exit is checked before a tick; overdue ticks are skipped and degraded
-waiting stops ticks. There is no listing-time provider access, detached timer or
-persistent service. Old wrappers and hook-only launches stay Stop-only until
-relaunched through this foreground owner. Sampling respects the existing
-`--no-usage`/legacy collection choice; no new Codex hook event is installed.
-
-Runtime observations retain a driver-supplied PID/start-identity pair and an
-optional provider session ID. Schema 34 additionally retains an optional launch
-owner PID/start-identity pair alongside the provider observation key in the binding
-state. Same-incarnation hook admission and transitions preserve that owner;
-admitting a new incarnation clears it. Hook-admitted runtimes without a wrapper
-retain an absent owner. Admission needs fresh live evidence; inconclusive
-admission preserves the previous observation, including known-ended state.
-Clear and in-process resume remain nonterminal transitions and may change the
-session ID within one incarnation. End/compact events must match the exact current
-key. Observation writes compare the complete expected observation inside the binding transaction;
-late updates for a superseded conversation cannot overwrite a newer one. Drivers
-own process verification and event mapping; core does not interpret hook ancestry.
-
-`tmt-adapters::runtime` registers pure executable recognition on the driver port.
-First-party and community registrations share the same API; descending priority
-and then harness ID resolve competing claims deterministically. Registration is
-in-process, not dynamic plugin discovery. Explicit launches preserve every argv
-byte (`tmt run --channel` lets the driver append its own provider flags after the
-user's and never rewrites theirs); the registry neither executes recognition nor
-remembers arguments or paths.
-Bare relaunch resolves the registered executable through PATH with no arguments.
-Exact resume is runtime-owned, including the mode: the shared constants are
-Claude `default` and Codex `shared`/`embedded`. Provider hooks must record those
-same tokens. First-party resume validates the UUID-shaped IDs observed in #321;
-community drivers own their opaque-ID contracts.
-
-`tmt-adapters::setup` owns consent-plan inputs and bounded provider settings
-publication. The CLI owns one approval and presentation, not provider JSON
-rewriting. Hook entries are generated by the Claude and Codex runtime drivers; only exact
-owned entries may be replaced or removed. Settings edits retain opaque user
-values as raw JSON, refuse malformed/conflicting documents, compare the planned
-input again under the setup lock, and keep a recoverable byte-exact backup before
-atomic replacement. Final settings symlinks are refused explicitly, including
-dangling links; the diagnostic names the link and target and directs manual target
-editing with a byte-exact backup, never automatic target resolution. New backups
-are owner-only files in an owner-only, non-symlink `.tmt-setup-backups` directory
-beside settings, synchronized before settings publication. More than 32 retained
-backups produces a directory/manual-cleanup warning in human and JSON setup output;
-it never blocks publication. Reruns that change no settings create no backup.
-Existing adjacent backups are retained without migration, and no backup is
-automatically deleted. Independent editors do not participate in that advisory
-lock; setup rechecks immediately before publication but is not a filesystem-wide
-transaction. The selected PATH launcher remains an unresolved stable symlink,
-never a resolved release path. Re-running setup repairs an obsolete owned path.
-After publishing, setup records the driver, settings file and launcher in
-`<global>/setup-record.json` (`setup::record`), and `setup --remove` drops that
-entry. An entry is fully determined by driver and launcher, so the record
-stores no JSON. Hooks installed before the record existed are adopted when
-setup finds exactly what it generates. An invalid record is preserved and
-stops setup before any provider file changes.
-
-Guided `tmt setup` (no driver, `setup_command/guided.rs`) plans from
-`Registry::detect`, which reads only the filesystem:
-
-- `Present` and `ConfigOnly` drivers get core skills in their skill roots
-  (`skill_installation::plan_core`, then `publish_core`), and recorded extension
-  skills are linked into roots that lack them (`plan_owned`, `publish_owned`).
-  Apply publishes exactly the planned targets: `publish_core` classifies each
-  target again under the installer lock and skips one that changed since
-  planning. A target that is not TMT's is kept and reported, never replaced. A
-  link into another TMT home's `skill-assets/<bundle>/<name>`, whose skill
-  declares that name, is an outdated TMT skill: the plan names it, and apply
-  backs it up before linking the current one;
-- `Present` drivers with hooks get `setup::plan`, then `apply` and the record.
-
-It prints only what is missing, asks once (`SETUP_CONSENT_REQUIRED` without a
-terminal or `--yes`), and applies skills before hooks.
-
-`tmt uninstall` (`uninstall_command`) plans every removal read-only, then
-asks once; `--yes` never implies `--purge`. A running local Office service is
-found in the plan; if its state cannot be confirmed, the plan stops with a
-`tmt office stop` hint. Uninstall then works in order:
-
-0. stops that service through Office's own stop path
-   (`office_facade::service_control`);
-1. hooks: the recorded ones, plus exact TMT hooks found without a record
-   (`setup::removal`); removal is the exact inverse of setup's own edits, and
-   a file left holding only `{}` is deleted; once no TMT hook is left in a
-   directory, setup's `.tmt-setup.lock` there is removed while held;
-2. owners' skills and bundled skill links, then the skill stores and records
-   (`skill_installation::uninstall`);
-3. extensions, then the CLI: links and release directories
-   (`native_install::remove_product`);
-4. the setup record;
-5. with `--purge`, the data directory.
-
-An unreadable record stops the run before any change. Anything that differs
-from what TMT wrote is kept and reported, and so are the settings backups
-(legacy adjacent `settings.tmt-backup-*.json` and new files under
-`.tmt-setup-backups`) that setup and uninstall write. A failed step stops the run, and
-running it again resumes.
-
-Claude SessionStart/SessionEnd decoding, context encoding and runtime ancestry
-belong to `drivers::claude`. An unknown `SessionEnd` reason is rejected without
-an observation or state mutation: it can leave a lifecycle observation gap,
-but rejection does not prove that the runtime ended. Independent process
-observation still determines liveness. New reasons require provider evidence
-and fixture provenance; live Claude lifecycle acceptance remains pending
-explicit maintainer consent. A hook supplies observation only: an existing binding
-must match fresh tmux server/pane/marker evidence, and a live Claude ancestor must
-belong to that pane's process chain. Payload session IDs never create bindings or
-move identities. The CLI coordinator commits the existing session CAS and exact
-remembered resume coordinates together. Clear/in-process-resume preliminary ends
-retain the binding and mark runtime observation Unknown until the next start;
-terminal ends and compact observations require the matching process/session key.
-Another live or unverifiable process cannot be overwritten by hook admission.
-Session-only interfaces and executable feature-extension observers remain deferred.
-
-Codex uses the existing runtime-caller host classification. Independent hosts
-require the same verified pane and fresh process-chain evidence as Claude. Shared
-app-server hooks never select a binding through inherited pane/ancestry: they
-require one existing exact Codex provider-session mapping, then revalidate that
-recorded binding's endpoint and full session CAS. Missing or duplicate mappings
-produce no context or write. An exact foreground shared resume may transfer its
-owned client observation to the server while retaining the verified launch owner;
-arbitrary live attachments cannot be replaced. Observed host mode is stored with
-resume coordinates. A shared client exit is Unknown, not a provider SessionEnd.
-Provider IDs only correlate existing observations and never create identities.
-Codex setup owns `hooks.json` under `CODEX_HOME` (otherwise `~/.codex`), not
-provider trust approvals or unrelated `config.toml` settings.
-
-The runtime registry resolves optional `RuntimeLifecycle` implementations by
-harness ID. Drivers own payload decoding, observation proposals, context encoding,
-host classification, mode and foreground-client exit policy. The lifecycle port's
-`activity_process` maps attribution only and never rewrites the binding. Its
-no-effect default returns the observed process; Codex channels verify their private
-Ready/session/original-process evidence under the same hook deadline to attribute
-app-server prompt/Stop callbacks to the admitted foreground. These probes run
-before `turn_state`, leaving the scan half of the actual remaining deadline.
-CLI hook/run owners
-only coordinate provider-neutral evidence, process ownership and storage CAS;
-adding a lifecycle driver does not add provider switches to those coordinators.
-Commands without registered lifecycle policy retain the ordinary owned-child exit
-behavior. Codex currently recognizes only the observed `other` SessionEnd reason;
-unknown reasons do not establish terminal state.
-
-The provider-facing hook entrypoint always exits zero without permission/decision output.
-It supervises a short-lived internal worker through the existing process owner,
-with the existing two-second work budget and bounded cleanup for Claude/plain
-hooks; provider settings allow three seconds. Codex channel hooks request a
-shorter shared work deadline through `RuntimeLifecycle::hook_work_duration`,
-derived in the driver from that installed timeout minus the named margin and
-process cleanup reserve. Its read-only generation gate runs through
-`wait_for_hook_admission` inside that deadline, capped by the driver at one second.
-Ready, unrelated sessions and drivers with the default no-op gate do not wait.
-The CLI passes only the remaining budget to its private worker through a typed
-hidden argument; it never alters payload bytes or restarts the parent deadline.
-The worker's absolute deadline also reaches `turn_state`, so usage scans spend
-half the actual remainder. The owning [Codex contract](contracts/codex-channel-v1.md)
-defines timing and provider-version evidence. This bounds process, SQLite and
-context work without a daemon or late
-background context writer. Worker probes stay inside the supervisor-owned worker
-group. A failed worker terminates its own group before exiting; the supervisor
-owns deadline termination and reaping, so nested probes cannot escape cleanup.
-Hooks open only existing compatible storage, use a short lock wait, and never
-migrate it. Timeout/error emits no context and at most
-one fixed stderr line. No resolvable caller pane is a normal silent outcome,
-without context or diagnostics. A verified empty pane receives only user-facing
-information, never an instruction for an agent to bind itself.
-Successful starts reuse the read-only context formatter;
-ends emit no stdout. Provider configuration is changed only by consented setup,
-not by a hook, ordinary command, or skill installation.
-
-The CLI foreground owner (`run_command`) keeps its public entry points, caller and
-configuration selection, and storage startup/close in the facade. Private
-`run_command/run.rs` owns the bound foreground launch and completion;
-`run_command/resume.rs` owns command selection, resume pending marks and settlement.
-The existing flow separates command selection, binding, spawn and runtime admission.
-A first operand recognized as a registered bare runtime executable selects an
-auto-named launch only when no active identity holds that token. A colliding bare
-or flag-bearing shorthand refuses with explicit named-command alternatives; the
-explicit name plus executable form retains its meaning. The parser admits opaque
-provider tails, while authoritative identity lookup and runtime recognition stay
-in launch composition. Auto-name creation uses the normal binding lifecycle and
-prints one line before spawn. Failed spawn retires only its exact unchanged,
-new temporary automatic binding; saved identities and renamed/replaced bindings
-remain. Provider hooks, foreground completion and channel enrollment retain the
-same UUID/binding owners across naming, without a separate anonymous session store.
-A verified live or stopped previous runtime prevents a second launch.
-An inconclusive previous-runtime probe permits a degraded launch only after
-fencing that same attachment's stored Running state to Unknown; known Ended is
-preserved. This prevents a recovered probe from reviving delivery into the new
-command. Admission failure never restarts or kills a successfully launched child.
-After waiting, completion rereads the binding in an immediate transaction and
-ends only the matching binding, child incarnation and launch owner, using the
-current provider key even if a hook changed it. The SQLite handle is closed
-before the interactive wait and reopened for completion; storage diagnostics
-never replace the actual child exit code.
-An owned, unreaped child that has already exited can retain its real start
-identity for direct Ended recording; it never authorizes delivery. If a child
-exits after the live admission probe, delivery still revalidates process evidence
-and the foreground owner records Ended when it reaps the child.
-The coordinator invokes its injected `HookObserver` only for committed session
-observations, outside storage transactions. Fast exit emits start then end from
-one committed Ended record; a failed admission emits neither, and an already
-recorded end is not emitted twice. Observer failure is diagnostic, never a veto
-or a reason to restart the command. CLI composition currently supplies an empty
-observer; registered feature-extension dispatch belongs to the extension envelope,
-not runtime recognition or the foreground process owner.
-
-`Storage::identity_candidates` is the storage-only discovery owner for completion
-and identity pickers. It opens existing storage read-only, without migration,
-creation or presence reconciliation, and returns active identities in saved-first
-canonical order with optional literal-prefix and remembered-session filters.
-Unavailable discovery is not evidence that an identity does not exist; binding
-and launch still perform their normal authoritative checks.
-Public `completion` guides and checks startup-file configuration; its `installed`
-JSON field is textual evidence, never a claim about parent-shell functions.
-`completion_command` owns presentation. `config::ConfigPaths::shell_startup`
-resolves bash, zsh (`ZDOTDIR`) and fish (`XDG_CONFIG_HOME`) paths;
-`completion_install` owns bounded, read-only regular-file inspection. No completion
-command writes startup files. Duplicate and ambiguous lines produce guidance.
-Zsh initialization guidance is advisory because sourced frameworks can initialize
-completion; a literal compinit call provides ordering evidence only.
-Only the hidden `__completion-script <shell>` emits generated scripts. Public
-`completion` always guides or checks, including when output is piped.
-Top-level terminal help adds a final completion tip when the detected shell is
-not configured. Piped output, JSON, unsupported shells and inspection errors
-suppress this best-effort hint; help never executes startup-file contents.
-
-The CLI's hidden completion query resolves the unfinished operand through the
-same public Clap grammar and emits only a context tag, candidate names or command
-offset. Shell adapters retain generated static completion and delegate `run` arguments
-to the command's own shell completion. Launch completion includes registered
-executables and identities; its storage-only composition resolves whether the
-command begins at the first operand or after an explicit identity. They do not own a
-second TMT parser or runtime-driver list. Discovery failures are silent and do
-not initialize storage. `run -s` uses the existing binding lifetime promotion;
-without it a new identity is temporary and an existing saved one stays saved.
-
-`tmt-core::driver` defines optional typed actions and observation-only hook values.
-Unsupported actions are distinct from accepted, queued, failed, denied, approval-
-blocked and uncertain outcomes; only unsupported has automatic fall-through in
-this contract. Concrete adapters must bound their effects through the existing
-process owner. These contracts do not discover or execute plugins, install provider
-hooks or replace the durable retirement receipts in `identity_hooks`. Container
-interfaces remain the existing tmux binding records; the session interface kind
-is reserved, not a shipped session-only binding store. Current
-public messaging still uses its existing tmux transport and request lifecycle,
-except that a session that opted into a provider channel (`tmt run --channel`) is
-reached through it and never pasted to (see "Provider channels").
-Implicit caller selection first consults the runtime driver's `identify_caller`
-action. `drivers::codex::caller` owns Codex thread markers and bounded process
-ancestry inspection. It takes one PID/parent/command snapshot and walks it in
-memory, reading arguments only for Codex ancestors. Both caller and runtime-start
-observations share the fixed-path/locale `process::ps` runner and its missing-only
-executable fallback. Tmux continues to own server, pane and marker verification.
-Selected multi-process start observations use
-`process::process_info` through optional evidence methods on `CommandRunner`.
-The real runners acquire macOS BSD info through `tmt-sys::bsd_info` or Linux
-bounded `/proc/<pid>/stat` reads. Start tokens retain the UTC, second-resolution
-`ps-v1` representation; Linux combines boot seconds and process clock ticks.
-Native acquisition is deadline-checked, not cached. If any selected native read
-is unavailable, the entire batch uses its existing bounded ps fallback, retaining
-batch-wide failure and cleanup semantics. Scripted runners default to that
-fallback. Individual runtime checks and whole-table ancestry scans still use ps.
-`tmt-sys`, owned by core, is the workspace's single audited unsafe boundary.
-Only `tmt-adapters` may depend on it; the architecture guard rejects every
-other consumer, including extension, dev, build and renamed dependency edges.
-It is a leaf depending only on libc, with no build script and one macOS-only
-safe function wrapping `proc_pidinfo`. Its fixed `proc_bsdinfo` buffer is
-zero-initialized, and only an exact returned byte count is accepted. Every
-unsafe block documents its buffer, initialization and size-check safety.
-All other workspace crates retain `unsafe_code=forbid`; the architecture guard
-checks manifest inheritance, the leaf dependency and the absence of build
-scripts. The leaf denies unsafe by default and permits it only in that audited
-function. Linux acquisition remains safe Rust in the adapters.
-A shared app-server's inherited pane is not evidence of the invoking conversation.
-A positively observed shared app-server rejects required implicit attribution
-before binding/configuration effects. No Codex ancestor means Unsupported even
-with an inherited or malformed thread marker, preserving normal host verification.
-An unavailable probe fails closed only when a thread marker is present; without
-one it is Unsupported. A malformed marker does not override an observed independent
-runtime. Optional senders can remain anonymous, with one stderr attribution notice
-(including JSON mode, whose stdout document is unchanged).
-`run_command` applies this same guard before caller resolution or launch state
-access; a rejected caller cannot bind an identity or start the supplied command.
-Explicit identity or pane selectors bypass
-that inference, not their normal validation. A thread ID is only a correlation
-hint: the current selector does not derive identity from remembered session
-preferences. Automatic current-session correlation remains dependent on the
-runtime hook integration. No caller probe changes bindings or sends input.
-The action port's policy is written once, in `host::driver`, over each host's
-`HostDriver` (see the host port below). Status delegates to the same full
-server/pane/marker evidence evaluator, and send requires present evidence
-before invoking the host's paste-and-Enter transport once. It preserves that
-transport's preparation-versus-uncertain failure distinction. `focus` (a
-default-`Unsupported` driver action returning the shown and previous interface IDs
-and the host's name for the view that moved)
-requires the same present evidence but no running agent, then switches only the
-invoker's client: the client showing the session of `TMUX_PANE`, or, without
-`TMUX_PANE` (key-binding jobs) or for a display-popup whose own pane has no
-session, the session named in `TMUX`, choosing
-the most recently active such client. A bare tmux "current client" is never used, a
-foreign or unidentifiable client is `HOST_UNSUPPORTED`, and focus sends no buffer,
-paste or key input. `Tmux::invoker_client` is that resolution alone, read-only,
-and backs `focus --client`. Runtime-only actions remain unsupported; a live pane does not
-establish a running provider session. Known-ended runtimes reject input as offline.
-Missing or conflicting interface evidence masks the reported runtime to unknown
-without rewriting stored evidence. Recorded running processes are rechecked through
-the bounded `process::runtime` observer before input. It uses a fixed-locale,
-fixed-timezone `ps` start identity (second resolution), not a PID alone or provider
-transcript. `tmt_core::endpoint::ProcessIncarnation` (a PID and that opaque start
-token, from core's own inspection) is the one value for comparing a local process:
-runtimes, launch owners, notification waiters and external host servers use it, each with
-its own stored columns and lifecycle. Process disappearance, zombie state or a changed start identity reports
-ended. Stopped/traced processes remain unknown rather than ended, allowing later
-resumption without sending input to the shell meanwhile. Inconclusive checks also
-remain unknown and do not permit fallback to legacy unobserved delivery. The probe
-uses `/usr/bin/env` and fixed `/bin/ps`, then `/usr/bin/ps` only when the first
-executable is missing, within the same deadline. Systems without these utilities
-cannot verify a recorded runtime. The observer does not prove interface ownership;
-the driver must establish that separately. For wrapper-launched runtimes, a
-surviving child also requires a live matching launch owner before input is allowed.
-Missing, reused, stopped or inconclusive owner evidence makes the runtime unknown,
-not ended: the child may survive while the shell has reclaimed the terminal. Child
-death still reports ended regardless of owner liveness. Owner fields participate in
-the same full-observation CAS.
-
-The concrete implementations are `storage::{identities,identity_metadata,identity_status,bindings}`
-and `tmux::{metadata,evidence,binding,caller,transport}`.
-`binding_command` performs caller/target preflight and composes those owners.
-The tmux adapter owns opt-in badge markup derived from recorded session state:
-green running dot, dim ended badge, plain unknown label. Names are sanitized
-before generated style markup is added. Adapter `pane_badge` refreshes the current
-binding's projection after committed launch, exit, provider-hook and recovery
-transitions, sharing hook deadlines. It is bounded, best-effort presentation,
-never routing evidence; no polling, theme mutation or independent state store.
-Presence is observation, not routing permission; an explicit socket or pane
-marker cannot authorize a different identity.
-`context_command` composes `whoami --context` separately from mutating binding
-reconciliation. `storage::context` opens SQLite read-only and reads the binding,
-role and unacknowledged X counts in one transaction; fresh driver evidence must still
-establish presence before those identity details are rendered. The projection
-does not create storage, migrate schemas, refresh binding timestamps, acknowledge
-requests or run retention cleanup. Originated and incoming counts use their
-independent per-item and bulk attention watermarks, matching the corresponding
-X lists. Expired requests are filtered at read time. Runtime caller evidence gates
-implicit host attribution; `tmux::observe_snapshot` never initializes server
-metadata. Ambiguous, missing or failed evidence renders no human context, not an
-unbound hint. Only a verified empty pane gets that hint. `notes::existing_path`
-uses the existing no-follow path traversal without opening the notebook content
-or creating a notebook. CLI presentation bounds the complete human/JSON output
-to 4 KiB, preserves counts and inspect commands when shortening role/path content,
-and marks truncation. No request IDs, bodies, receipts or notebook contents enter context.
-Consented extension contributions share this bounded context owner as defined
-above. Session-only interfaces remain unimplemented as above.
-Binding SQLite reads and writes reuse `endpoint::valid_process_id` with checked
-signed/unsigned conversion. Invalid stored PIDs fail decoding
-without repair or retirement, and invalid inputs fail before insertion.
-
-Names are global within the selected local database, not folder-scoped. Plain
-`name`/`add`/`marked` creates temporary bindings; `-s` saves/promotes the same
-identity UUID. `marked` resolves one `pane_marked` observation on the
-invocation-selected tmux server, then passes frozen server and pane ID/PID
-evidence through the existing binding coordination. Later focus or mark changes
-cannot redirect the operation; lost, replaced or conflicting endpoint evidence
-fails closed. The resolver never substitutes a caller/active pane, searches a
-different server or mutates the user's mark.
-A bind commits identity creation before its binding transaction. When that second
-step is refused deterministically (`PaneAlreadyBound`, `NameAlreadyActive`,
-`PaneNotFound`, `TargetChanged`), core retires the temporary identity this
-invocation created, in one transaction that re-checks it is still temporary,
-unretired and unbound, through the ordinary retirement path (role/preamble
-removed, exchanges kept). Existing and saved identities are never touched, and
-uncertain outcomes (`Unverified`, endpoint failure, deadline) keep the row for a
-retry. A failed retirement is reported as a secondary diagnostic
-(`BindingError::CleanupFailed`), never in place of the bind error.
-Conclusive pane/server death or explicit unbind retires temporary names without
-erasing retained exchanges; saved identities remain available offline. Saved
-removal requires explicit force. Neither removal nor unbind kills a pane.
-`ls` may show verified foreign-server identities, but `talk`/`check` routing
-remains current-server-only: an absent name reads as not found, while an existing
-name bound on another host reads as not active
-without asking the caller's host, and one on another socket fails closed. Pane number, presentation title and socket pathname
-alone are not endpoint identity. Publication and recovery preserve the full
-server/pane process evidence; ambiguous observations fail closed.
+- `tmt-core::names` owns canonical identity classification; pane-target syntax
+  belongs to each host. `identity` owns lifetime and storage-only create/promote
+  policy, `identity_metadata` and `identity_status` own descriptive, untrusted data
+  that grants no authority, and `binding` owns evidence evaluation, retirement
+  authorization and binding use cases.
+- Unknown or conflicting endpoint evidence is never proof of death. Saved
+  identities detach and stay offline; temporary identities retire only on
+  conclusive evidence or explicit unbind, and exchanges are kept. Presence is
+  observation, not routing permission: a marker or socket cannot authorize a
+  different identity, and the pane marker proves ownership by IDs, never by name.
+- `binding::session` separates identity-owned session preferences from
+  binding-owned runtime observations, and observation writes are compare-and-set
+  inside the binding transaction. Drivers own process verification, event mapping
+  and driver-state persistence; core stores driver state without parsing it.
+- Provider hooks supply observation only: they never create bindings or move
+  identities, they run under a bounded supervised worker that always exits zero,
+  and provider configuration changes only through consented `tmt setup`.
+- `tmt-core::endpoint::ProcessIncarnation` (PID plus core's own start token) is the
+  one value for comparing local processes. `tmt-sys` is the single `unsafe`
+  boundary.
+- Concrete implementations: `storage::{identities,identity_metadata,identity_status,bindings}`
+  and `tmux::{metadata,evidence,binding,caller,transport}`; `binding_command`
+  performs caller/target preflight and composes them. Per-module rules (names,
+  rename and marker, resume and activity, consumption, setup/uninstall, foreground
+  launch, caller identification) are in the
+  [identity and bindings reference](.agents/skills/tmt-core-runtime/references/identity-bindings.md).
 
 ### Saved identity notes
 
-`tmt-core::identity::NotesIdentityId` is the capability boundary for notebook
-storage: construction requires a saved identity and a canonical RFC 4122 UUIDv4.
-Display names never become path components. `notes_command` resolves the active
-identity before requesting filesystem work; omission uses only a verified tmux
-caller and explicit selection can use an offline saved identity.
-
-`ConfigPaths` is the sole layout owner. `tmt-adapters::notes` exclusively creates
-`<global_dir>/notes/<identity-uuid>/notes.md`, returning an absolute path. It
-creates one directory component at a time with owner-only modes, uses exclusive
-no-follow file creation, rejects linked/non-directory subtree components and
-nonregular targets, and never opens an existing notebook for writing. The file
-body, edit concurrency, and retention are ordinary user-filesystem concerns;
-there is no SQLite body copy, revision protocol, watcher, lock, file-size policy,
-per-agent isolation, or secure deletion claim.
-
-The local Office notebook extension reads that same file through `notes::read`,
-which revalidates active saved identity eligibility. It pins directory handles,
-refuses symlinks/nonregular files and delegates to `bounded_file::read_opened`;
-it never initializes missing notes. The authenticated loopback GET adapter exposes
-only UUID/name/exact UTF-8 content, not caller-selected paths or writes. Its separate
-1 MiB viewer ceiling does not restrict agent file edits. The browser port and
-read-only panel own response admission and cancellable read lifetime, not storage.
-See the [notebook contract](extensions/tmt-office/contracts/notebook-v1.md).
-
-Identity retirement deliberately leaves notebooks in place. A later same-name
-identity has a different UUID and therefore a different path. No command moves
-notebooks for pane, tmux presentation, role, working-directory, or Office
-changes, and no garbage collector is implied.
+`NotesIdentityId` (a saved identity's canonical UUIDv4) is the capability boundary
+for notebook storage; display names never become paths. `ConfigPaths` is the sole
+layout owner and `tmt-adapters::notes` alone creates
+`<global_dir>/notes/<identity-uuid>/notes.md` with owner-only, no-follow creation.
+The file body, concurrency and retention are ordinary user-filesystem concerns:
+there is no SQLite copy, lock, size policy or secure deletion, and retirement leaves
+notebooks in place.
 
 ### Settings and configuration
 
-`tmt-adapters::config::ConfigPaths` is the sole application path owner.
+`tmt-adapters::config::ConfigPaths` is the sole application path owner;
 `config::document` preserves unknown JSON fields and validates known settings
-through `tmt-core::settings`. `init` exclusively creates the selected local
-file as `{}\n`; it neither loads configuration nor opens SQLite or tmux.
-Human `config show` derives the effective source and CLI capability from the
-resolved settings and editable-key policy. The three `defaults.*` settings are
-global-file-only; showing them does not make them CLI-editable. JSON projection
-and targeted write validation remain unchanged.
-Existing files, directories and links are refused without mutation.
-Configuration errors retain their stable public codes and useful paths only at
-the adapter boundary.
-
-The global file's `theme` object is presentation, not a core setting.
-`ConfigFiles::theme` checks only its shape (an object of strings), reporting a
-wrong one as a `ThemeProblem` rather than a configuration error, and never
-affects loading the other settings; `tmt-core` knows nothing of colors. The CLI
-(`appearance`) gives it meaning through `tmt_cli_style::Theme::parse`: `config
-show` reports it resolved with its source and names a bad key in `themeError`
-(an `error:` line in text) while still succeeding, because Squad reads `config
-show` to find its own file; and at startup, only when stdout or stderr is a terminal and the user
-set `theme.base`, `tmt` sets the process theme once
-(`tmt_cli_style::theme::configure`), which `stream::stdout` and
-`stream::stderr` apply at the stream's color depth. A missing or invalid theme
-leaves every command on the terminal's own 16 colors. The Squad board reads the
-same resolved theme from `config show` and layers `[squad.<name>.theme]` over it
-(`look`), defaulting to `auto`; a bad global theme is a notice on the board, a
-bad squad theme a `squad.toml` error. The global `appearance::parse` rejects
-`auto` with a board-only hint; the shared parser accepts it for `squad.toml`
-`[board.theme]` and `[squad.<name>.theme]`, including both picker scopes. No CLI
-auto resolution path exists. `tmt-cli-style::theme::background` owns pure COLORFGBG/OSC 11 parsing and
-luminance classification. Its bounded reader takes injected read/clock functions;
-it opens no terminal and retains received bytes for the caller's input owner.
-`Base::Auto` and `Theme::resolve` consume a supplied background signal without
-changing token overrides or `Theme::default()`. The executable owns environment
-observation, query eligibility, terminal I/O and detection lifetime. Squad's
-`board::terminal` queries after raw-mode entry and before the input and refresh
-workers start, then `look` caches the optional signal for this process. Concrete
-bases do not query; COLORFGBG wins without I/O. The 100 ms query discards received
-startup input, and its input-thread filter removes late OSC 11 responses before
-board actions. Picker previews consume the same cached signal. Plain theme
-listings read COLORFGBG only, report an unknown resolved base as null, and retain
-configuration provenance separately from detected provenance.
-Only `tmt-cli-style` names colors: the
-native architecture test (`colors`) rejects color literals in other production
-code, the Rust extensions included. `Look::row_span` owns the board's selected
-reverse-fallback span policy: cells, pending text/mark and age labels share one
-foreground, with semantic bold; real-background and unselected spans keep their
-original styles. The view supplies selection and semantic context, never a
-second depth/fallback decision.
-
-`json_document` owns editable config/tmux metadata number compatibility:
-IEEE-754 values with non-finite opaque values serialized as null. Known invalid
-settings still fail. Raw object order is retained on targeted edits; this is not
-an exact reply/body transformation or the receipt decoder's policy.
+through `tmt-core::settings`; `init` creates the local file exclusively and never
+opens SQLite or tmux. The global `theme` object is presentation, interpreted only by
+`tmt-cli-style` (and read by Squad through `config show`); a bad theme never fails
+configuration loading. Only `tmt-cli-style` names colors. Details are in the
+[storage and requests reference](.agents/skills/tmt-core-runtime/references/requests-storage.md#configuration-and-theme).
 
 ### SQLite and durable exchanges
 
-`tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 44, WAL/foreign-key/FTS5 setup, busy and transaction
-boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
-provenance are evidence, not a second implementation. The adapter keeps raw
-connections private and exposes narrow ports to core services.
-WAL setup retries only classified Busy within one five-second contention budget,
-including SQLite's own bounded busy waits, and verifies the returned journal mode
-is `wal` before migration. Success restores the normal five-second busy timeout;
-exhaustion preserves the original Busy error. Other setup and transaction failures
-are not retried by this policy.
-It classifies OS-denied writes and SQLite read-only/WAL failures as a typed
-not-writable error; a generic CANTOPEN needs independent permission evidence.
-An existing data directory without owner write permission is reported, not repaired.
-Public core command storage-open failures reuse `tmt-command-output::Failure::storage_access`.
-Only the typed not-writable cause changes the command's public code to
-`STORAGE_NOT_WRITABLE`; other causes retain command-specific diagnostics.
-Best-effort provider hooks, context snapshots and internal workers retain their
-existing absence/diagnostic policies. Office composition is outside this projection.
-CLI failure projection names the selected data directory and preserves the
-pre-transport versus uncertain-delivery distinction. The tmux adapter similarly
-classifies socket access denial before CLI presentation.
-Migrations preserve recorded names and historical retention backfills. Schema 9
-promotes existing identities to saved without changing UUIDs; unsupported custom
-identity-table definitions are rejected rather than silently rebuilt. Old
-schema-8 writers cannot share the migrated database. Frozen inputs retain their
-own provenance in `typescript/test/fixtures/storage-history`, not in this architecture map.
-Schema 10 adds identity hook subscriptions and terminal delivery receipts;
-registration after retirement queues immediately, and delivered subscriptions
-cannot be resurrected by registration retries.
-Schema 12 adds a typed inbox route and recipient-scoped attention without
-fabricating tmux endpoint evidence. One request/final lifecycle remains the
-source of truth; originator and recipient acknowledgment are independent.
-Schema 13 adds UUID-owned identity metadata with one unique value per key and an
-exact `(key, value, identity_id)` search index. Adapter operations revalidate the
-active UUID, serialize writes with the existing immediate transaction owner and
-enforce the 64-entry limit atomically. Retirement hides metadata; explicit
-content removal deletes it, while a same-name replacement receives a new UUID
-and inherits nothing.
-Schema 14 adds the installation-owned local Office discussion board. Pure bounded
-values, actors, receipts and cursor policy live in `tmt-office-model::office_board`;
-`tmt-office-storage::office_board` owns active-UUID preflight, owner-world revalidation, immediate
-transactions, soft deletion, board-local idempotency receipts, the single board
-revision and indexed keyset pages. The Office command library crosses the verified
-`tmt-office` one-shot protocol, while the stopped-service-independent companion and authenticated
-loopback HTTP adapter call the same repository. Repository categories are
-credential-free Git remote identifiers, not permissions; `tmt-core::repository_id`
-owns their canonical grammar for both remote resolution and the board. Category discovery
-is a synthetic-general plus stored-root projection rather than a registry.
-Schema 30 generalizes the stored category identifier and adds canonical room UUID
-categories to this same board store. It transactionally preserves existing roots,
-replies, tombstones, sequence/revision values and operation receipts. New room
-threads require an existing room, not room membership; retained threads and exact
-operation replays remain readable after room removal. Room scope is classification,
-not access control. Category discovery uses the same indexed keyset ordering for
-repository and room identifiers; pre-upgrade category cursors require a fresh page.
-Office `--room` selection reuses the canonical room resolver through `CoreAccess`.
-The browser discussion
-binding selects General or an explicit room UUID in that same store; placement
-changes cannot retarget it. `local/board-navigation` aggregates form-owned leave
-protection for category, thread and spatial-entry switches. `use-board-mutation`
-owns a frozen operation per form; refresh and ordering preserve selection and
-unconfirmed writes. Confirmed discard resets forms, not stored content. Closing
-the panel retains its mounted session, while explicit retry reuses the original
-scope, entry revision and operation UUID.
+`tmt-adapters::storage` owns one private synchronous `rusqlite` connection, the
+schema migrations, WAL/foreign-key/FTS5 setup, busy and transaction boundaries and
+cleanup, and exposes narrow ports to core services. Migrations keep recorded names
+and retention, refuse customized table definitions instead of rebuilding them, and
+every core-owned table advances the durable change cursor through triggers that a
+test requires new tables and columns to extend. Typed not-writable storage failures
+are classified once and projected through `tmt-command-output::Failure::storage_access`.
 
-`tmt-core::request::RequestService` owns preparation, delivery-state
-transitions, exact final submission, waiter release, attention revisions and
-bounded retention housekeeping. It samples clocks at the transaction boundary,
-never holds a transaction across transport, and treats uncertain delivery as
-uncertain rather than as a replay authorization. `storage::requests` owns SQL,
-row decoding and ordered bounded cleanup; `request::attention` owns the pure
-attention contract. Prompt/final content, attempt metadata, retention and
-acknowledgment state have independent lifecycle rules.
-
-The request service reserves cadence together with a durable attempt before
-sending, then records definitely-failed, sent or uncertain delivery. Only a
-definite failure permits the defined reservation refund; timeouts are not proof
-of non-delivery. Final bodies are immutable: identical retries are idempotent,
-conflicting second finals fail, and terminal text is never used as completion
-evidence. `talk` waits for a stored final unless detached or timed out;
-`result` reads by request, while identity-owned `x` exposes outstanding attention.
-CLI result selection also accepts a unique UUID prefix with at least eight hex
-characters, optionally prefixed by `req_`. `RequestService::get_response_by_prefix`
-resolves and reads under one transaction and clock sample; exact service reads
-used by observers and receipt-based submission remain unchanged. The narrow
-`RequestRecords::retained_request_ids` port uses the existing request-ID index
-for a half-open range with a bounded sample. It filters logical metadata expiry
-before limiting, counts the same range only on sample overflow, and returns at
-most five ordered ambiguity candidates plus the total. CLI maps short and
-ambiguous prefixes to `USAGE_ERROR`; unknown prefixes keep unavailable-result
-semantics. No schema, acknowledgment or retention-renewal policy changes.
-Reads do not acknowledge. `ackall` acknowledges one snapshot, so a later final
-becomes unread again. Acknowledgment means handled, not successful or cancelled.
-Retention is frozen per attempt; bounded lazy housekeeping must respect active
-waiters, preserve the defined acceptance deadline and never resurrect an expired
-submission. The settings owner defines retention defaults and limits.
-
-Whether a request still accepts a first final is one service rule,
-`first_final_refusal`: final submission enforces it, and the open-request read
-(`open_requests`) applies it to what `storage::requests` narrows by the same
-columns. "Waiting on you" is therefore an open-request question, not an
-attention one: acknowledgment and live delivery settle attention but leave a
-request open until a final or its acceptance deadline. `answer_target` selects
-one open request by recipient and originator, never guessing among several, and
-derives the route proof in-process from the recorded attempt, so `tmt answer`
-submits through the same acceptance path as `reply` without exposing a receipt
-([contract](contracts/request-response-v1.md#inbox-and-answer)).
-
-`RequestRoute` distinguishes unbound direct-pane delivery from durable identity inbox
-queueing. Identified talk is Inbox-first with one claimed full-payload live wake;
-its public live output remains sent/completed. Pane attempts retain server/pane evidence; inbox attempts retain only
-the resolved active recipient UUID and settle as `queued`, never `sent`.
-`RequestService::enqueue` prepares the attempt, stores its exact prompt and
-publishes recipient attention in one repository transaction. CLI inbox sends use
-this path; pane effects retain the separate prepare/send/settle lifecycle.
-`talk_command` preserves explicit inbox selection separately from its offline or
-live-wake projection. Pending explicit-inbox output says no notification was
-attempted and recipient pull is required; this presentation never changes the
-route, claims, attention or queue acceptance. The public output contract is in
-[contracts/request-response-v1.md](contracts/request-response-v1.md).
-Both paths reuse the same preparation and queue-transition policy. Database
-errors roll back all enqueue writes. A recipient found inactive commits a failed,
-non-waiting attempt without recipient attention, matching the prepared queue path.
-Interrupting a sender after publication only releases its wait; it does not
-retract queued recipient work.
-Full request delivery settles the request's recipient attention, not the
-originator's response attention; an advisory Office wake leaves it unread.
-Delivery failure cannot rewrite the receipt-bound route. Runtime return does not
-schedule a second wake. Preamble reservations are prepared once and refunded only
-for proven non-delivery; transport still owns literal-input protection.
-The recipient revision is allocated atomically with the `queued` transition, so
-a merely prepared attempt cannot wake a listener and every newly eligible item
-advances that identity's shared participant sequence. Recipient request attention
-is projected from the same attempt, while a final
-written by another participant reuses the originator response attention.
-`storage::requests` provides an indexed watermark and one bounded snapshot;
-`exchange_command` owns the monotonic hard deadline and trailing debounce.
-Listener polls perform no tmux inventory, retention cleanup, body scan or held
-transaction, and introduce no daemon or event bus.
-
-Schema 35 adds optional request notification policy and one-shot reply/timeout
-claims under the existing request service transaction. No row means no callback:
-historical, anonymous and explicit queue-only requests are not opted in. First
-final acceptance may reserve a callback only without a live blocking waiter.
-Process evidence is observed outside the transaction and matched against stored
-waiter ownership inside it. Acceptance and notification outcomes remain separate.
-`delivery` composes registered runtime send with verified host fallback through
-the core routing policy; accepted, uncertain, denied and approval-required sends
-never fall through. Drivers own fresh runtime proof and sticky-Ended recovery.
-Schema 44 persists fixed reply-notice windows and rendered notice members under
-`storage::requests::reply_batch`, independently of immutable final bodies and X
-attention. At delivery, `request::service::notice_context` projects the
-originator-owned retained prompt, recipient identity, indexed unique result
-prefix and, when asked, the retained final body through the `tmt result`
-lookup; it never acknowledges attention or changes retention, and an unreadable
-final yields no body. Queued members persist no body: only immediate and
-send-time rendering read it. `delivery::notices` sanitizes and truncates display
-fields, quotes the body as data under the 2048-byte channel and 500-character
-paste limits (and the 2000-character batch budget), renders individual frames or
-aligned host batches, and rederives queued legacy members from request keys
-rather than parsing persisted text. An immediate hint renders both transport
-texts up front because `delivery` chooses driver or host paste only at send time. No new schema or scheduling window is
-needed. `request::notification::batch` owns the quiet/deadline policy;
-`reply_notice` composes enrollment evidence, enqueue, binding-fenced delivery and
-one-shot settlement. `reply_notice_command` schedules finite detached workers,
-with process-incarnation CAS claims before waits, sealed batch membership, and
-per-frame attempt evidence before transport. Its competing-waiter transport grace
-is derived from the computed registry maximum of `Driver::maximum_send_duration`,
-not a CLI timeout constant. Drivers derive this single-send declaration from their
-enforced stage budgets; the port has a conservative 30-second default. Core permits
-`std::time::Duration` as pure budget data; `Instant`, `SystemTime`, clock reads and
-broad `std::time` imports remain forbidden by the architecture guard. The grace
-extends the existing typing limit and is only an observer allowance: expiry keeps
-untouched notices queued and cannot release a live sender or replay input. A
-multi-frame batch or host routing can outlast one declared driver send; the worker
-retains the same bounded observer and durable recovery behavior.
-An approval-blocked registered frame is settled definitely unsent and does not
-stop independent later frames; joined host notices retain the host's single final approval result without input fallback.
-A unique SQLite sending claim serializes worker transport per binding, including
-separate zero-window notices.
-Only exact process-death evidence may release a stranded sending claim; attempted
-frames retire uncertain and untouched members remain queued. Workers hold no
-transaction while sleeping or probing. A failed send never replays; later eligible enqueue can
-recover a proven-dead worker's never-attempted frames while settling its unresolved
-attempted frames uncertain. Clean workers remove their own logs; failed workers
-retain them.
-Channel enrollment bypasses enqueue, and enrollment beginning during a window
-keeps individual driver notices. The delivery owner retains all routing and paste
-gates. `HostDriver::input_activity` reports elapsed real key evidence or Unknown;
-core applies the configured quiet period. Ordinary missing evidence is Unknown;
-failed probe cleanup aborts the worker and retains diagnostics. tmux matches attached clients' current
-pane and reads `client_activity`; other hosts explicitly report Unknown. No
-screen contents or provider prompt buffer is interpreted as typing. See
-[request notification behavior](contracts/request-response-v1.md) for timing and limits.
-
-`process::detached` owns startup acknowledgment and failure cleanup for one
-request deadline observer or reply notice worker, and the worker's removal of its
-own stderr log
-after a clean exit, only when the path still names that same file (device and
-inode). Failed and crashed observers keep their log as bounded diagnostics;
-there is no sweeper. `request_observer_command` owns the per-request log path
-and composes durable reads, the timeout claim and delivery outside locks. It has
-no restart policy, daemon, provider-specific branch or permission to re-send a
-request.
-
-`reply_receipt` is the one maintained receipt codec. `response_command` and
-`talk_command` compose it with the request service; neither adds a repository,
-schema, connection or alternate final-submission path. Input is bounded and
-validated before storage effects. A malformed receipt, a stale revision, an
-unknown identity and an uncertain transport outcome remain distinct failures.
-The [request contract](contracts/request-response-v1.md#talk-completion) owns talk interruption
-and retry guidance on either side of preparation.
-
-Talk preparation renders `<tmt-reply from="…">` using the same resolved
-originator's display name (explicit identity before verified caller), or
-`unknown`. The attribute is XML-escaped presentation, not authentication,
-routing or a strict XML document. It introduces no extra identity lookup or
-stored field; original message bytes, originator UUID/kind and reply correlation
-remain owned by the existing request contract.
+`tmt-core::request::RequestService` owns preparation, delivery-state transitions,
+exact final submission, waiter release, attention revisions and bounded retention
+housekeeping; `storage::requests` owns SQL and cleanup and `request::attention` the
+pure attention contract. It samples clocks at the transaction boundary, never holds
+a transaction across transport, and treats uncertain delivery as uncertain, never as
+replay authorization. Final bodies are immutable and terminal text is never
+completion evidence. Reads never acknowledge; originator and recipient
+acknowledgment are independent. `RequestRoute` separates unbound pane delivery from
+the durable identity inbox, which settles `queued`. Reply notices are persisted
+batch windows composed by `request::notification` and `delivery::notices`, with
+detached finite workers owned by `process::detached`. Public behavior and limits are
+in the [request contract](contracts/request-response-v1.md); module rules are in the
+[storage and requests reference](.agents/skills/tmt-core-runtime/references/requests-storage.md).
 
 ### Tmux and process effects
 
-`tmt-adapters::process` is the shared bounded subprocess owner. It enforces
-output caps, monotonic deadlines, process-group cleanup and wait/reap behavior.
-Its owned running-command handle separates launch from wait when a caller needs
-to release a selection lock; synchronous execution uses that same path. The
-original deadline and cleanup ownership survive the split. An abandoned handle
-stops and reaps its child without introducing a second runner or background task.
-`process::interactive` owns direct-terminal children separately from bounded
-probes: inherited streams and the shell's foreground process group are preserved.
-Invocation-scoped signal notifications wake its wait without a timer. Terminal
-interrupts reach the child directly; wrapper-directed TERM/HUP are forwarded to
-the owned child only. A notification failure reports degraded supervision and
-waits for the child normally instead of killing a live agent. Abandonment first
-requests termination, then kills if necessary and reaps that child, never the shared
-process group. Harness-created descendants and wrapper SIGKILL are outside this
-cleanup guarantee. The CLI `run` owner uses this adapter for foreground commands.
-`interrupt::Interrupt` owns invocation-local signal callbacks and descriptor
-cleanup.
+`tmt-adapters::process` is the one bounded subprocess owner (output caps, monotonic
+deadlines, process-group cleanup, reaping); `process::interactive` owns direct
+terminal children without taking the shared process group. `tmux` uses explicit
+socket/server evidence, bounded budgets and no ambient host fallback; a failed paste
+or Enter is uncertain and never retried as unsent.
 
-The CLI and the `delivery` and `pane_badge` adapters reach the terminal host
-only through `tmt-adapters::host::Host`. Extensions never do: they read presence
-from `tmt ls --json` and the caller from `tmt whoami`, and the architecture
-guard rejects any extension source, test code included, that names the host
-port, the tmux module, or core's `binding`, `endpoint` or `host`
-model. The host port holds the binding session (the core `BindingEndpoint`
-and `Driver` ports), caller and target resolution, snapshots, capture, send,
-focus and pane cosmetics, over the built-in `tmt-adapters::tmux` and every
-external host through its approved driver (`host::external`, #570); Herdr is
-one of those since #1082. A handle has a primary host; its session observes
-new panes there, and probes, marks and clears every stored binding on that
-binding's own host, so presence is complete from any host. Each host
-implements `host::driver::HostDriver`: snapshot, probe, publish, clear, the
-runtime in a pane, input and focus, at the driver protocol's granularity
-(#570). The session picks the driver of an entry's host and runs one binding
-policy over it: `host::driver::{status, send, focus}` decide which evidence
-makes a binding present, when a runtime blocks input, and what a failure
-means. A host without input (`has_input`) is `Unsupported` before any evidence
-is read, and `focus_preflight` refuses before any evidence is read too. A send
-that passes the evidence and runtime checks first offers the message to the
-agent the host recognizes in the pane (`prompt`); only `Unsupported` (no
-agent-aware input, or no agent seen) falls back to raw pane input (`input`),
-and any other answer, such as an agent that is blocked or not ready, is final.
-tmux recognizes no agents, so every tmux send is raw input. `DeliveryError`
-(`host::delivery`) is the host-neutral input failure: the stage that failed,
-whether text may have reached the pane, and the host's own cause. The
-out-of-process client of #570 slice 3 implements the same trait. `HostError` and
-the host `ActionError` wrap each host's error and read exactly as it. The
-architecture guard rejects production references to the host modules outside
-`host.rs` and their own directories. Post-commit pane cosmetics are tmux's
-badge and marker refresh; on an external host only the marker's name is kept
-current after a rename (`host::driver::refresh_marker_name`, which republishes
-only this binding's stale marker). A caller's external pane is labeled by the
-public target the driver's `snapshot` reports for it (`Host::caller_label`),
-read without resolving or recording a server.
-
-Herdr was a built-in host until #1082. Its stored token, pane IDs (terminal
-IDs), markers and `host_servers` rows are unchanged: the token parses as
-`HostKind::External(herdr)`, whose server rows key on the same host, socket,
-server pid and start, so bindings made by the built-in host carry over with no
-migration once its driver is approved. Until then such a binding is unknown,
-never lost, and nothing is deleted. A command run in a Herdr pane
-(`HERDR_PANE_ID` and `HERDR_SOCKET_PATH` set) while no approved driver serves
-Herdr keeps its result and adds the hint `Herdr panes need the Herdr driver:
-tmt driver install herdr` on stderr, once a day for each pane
-(`hint_cadence`, `<global>/hints.json`); `TMT_HINTS=off`, `--json`, completion,
-driver management and installation plumbing never show it.
-
-Endpoint identity is opaque to everything but its host. `tmt-core::host::HostKind`
-is the pure-data list of hosts, like the driver descriptors: each owns its stored
-token, its pane-ID syntax (`is_pane_id`) and the text it reads as a pane target
-(`is_target`), and `names::is_pane_target` asks every host. `ServerEvidence`
-carries its host, so bindings, target evidence and request fences do too; core
-stores and compares pane IDs as opaque strings. Evidence from another host is
-`Unknown`, never proof of loss, and presence is grouped and scoped by host and
-socket (`ServerSelector`). Storage writes `bindings.transport` and new request
-fences' `host` from the endpoint. A stored host is only its name: tmux, or
-`HostKind::External` for any other valid host name, which reads whether or not
-its driver is installed, and a NULL fence host is tmux. An external host's
-pane-ID and target syntax come from the approved drivers, which the CLI
-registers once at start (`host::external::register_approved`) in core's one
-write-once registry; until its driver is registered, no pane ID or target is
-its own. Whether a driver serves a host is decided in the adapters that run
-drivers, not stored in the core type. A `Host` handle states why it was chosen:
-`for_caller` (a caller-scoped command), `for_server` (a stored binding or request
-endpoint) or `for_target` (an explicit pane target); its methods take endpoints,
-never loose socket or pane strings. Only `tmt-core/src/host.rs`,
-`tmt-adapters/src/host.rs` and `tmux/` may spell a built-in host's name, which
-the architecture guard enforces for every crate but Squad (its tmux-only hotkeys
-and clipboard are extension features). Names that an approved driver's host
-reads as targets (Herdr's `wN:pM`) are refused only as new names: an identity
-that already holds one keeps it for lookup and marker checks, and explicit
-resolution prefers it. A process with no Herdr driver approved doesn't reserve
-`wN:pM`: such text is an ordinary name, new or existing.
-
-`tmux` uses explicit socket/server evidence, bounded command budgets,
-owned buffers and no ambient host fallback. Explicit target resolution preserves
-command deadline, I/O, spawn, output-limit and signal failures through the host
-port as `RECONCILIATION_FAILED` (exit 1), rather than `PANE_NOT_FOUND` (exit 3).
-A completed unsuccessful lookup or a successful reply without a valid pane ID
-still yields no target; socket denial remains `TMUX_PERMISSION_DENIED` (exit 1),
-and failed cleanup is never suppressed. A failed socket-connect diagnostic supplies
-only the socket path: metadata/search errors and effective-user write-access checks
-confirm OS denial, independently of localized strerror text. Missing paths and
-accessible sockets cannot become denial merely because stderr says permission denied.
-The adapter preserves all child locale variables, including `LC_ALL` and `LC_CTYPE`,
-so diagnostics do not alter UTF-8 capture/send or a newly started server's panes.
-Optional caller evidence retains its
-best-effort absence policy. A failed paste or Enter is an
-uncertain delivery and is never retried as if unsent.
-Message delivery changes ASCII `!` to fullwidth `！` to avoid agent bash-mode
-shortcuts (`tmt_core::driver::pane_input_text`). It is core's delivery policy
-for any text typed into a pane, raw input or a prompt, on every host; hosts
-and drivers add nothing. It is not arbitrary output rewriting. `check`
-remains bounded terminal diagnostics, not a fallback response channel.
-
-`response_input` owns bounded file/stdin acquisition and regular-file checks. It
-polls against the deadline before each read and never mutates stdin descriptor
-flags. The public CLI exclusively owns stdin during acquisition. These adapters
-do not invent background threads or a second process runner.
+The CLI and the `delivery` and `pane_badge` adapters reach a terminal only through
+`tmt-adapters::host::Host`; extensions never do (they read `tmt ls --json` and
+`tmt whoami`), and the architecture guard rejects extension code that names the host
+port, the tmux module or core's `binding`, `endpoint` or `host` model. Every host,
+the built-in tmux and external drivers alike, implements `host::driver::HostDriver`,
+and one binding policy in `host::driver::{status, send, focus}` decides which
+evidence makes a binding present and when input is blocked. Endpoint identity is
+opaque to everything but its host: `HostKind` is pure data, evidence from another
+host is `Unknown`, and only `tmt-core/src/host.rs`, `tmt-adapters/src/host.rs` and
+`tmux/` may spell a built-in host's name. Core's delivery policy rewrites ASCII `!` to
+fullwidth `！` in any text typed into a pane. Details are in the
+[hosts and drivers reference](.agents/skills/tmt-core-runtime/references/hosts-drivers.md).
 
 ### Agent drivers
 
-Each agent driver is one declarative descriptor plus one adapter module:
-
-- `tmt-core/src/driver/descriptor.rs` holds every `DriverDescriptor` and
-  `tmt_core::driver::ALL`. A descriptor lists the name, executables, hook format
-  and display hue. It is pure data, so parsing, completion and style read it
-  without the adapters.
-- `tmt-adapters/src/drivers/<name>.rs` holds the behavior keyed by that
-  descriptor: `locate` (the configuration directories, skills root, legacy
-  guidance and hook settings file, resolved against one captured
-  `ProviderEnvironment`), and the runtime (claim, resume, lifecycle and caller
-  recognition) when the driver has one. Claude resolves a nonempty
-  `CLAUDE_CONFIG_DIR` against the captured working directory, otherwise uses
-  `~/.claude`; settings, skills, legacy guidance, detection and transcript
-  admission share that root. Empty values count as unset.
-- `drivers::Registry` joins the two in descriptor order. Setup, detection,
-  skill targets, `run`, the runtime registry and caller recognition iterate it.
-  A test requires exactly one adapter module per descriptor.
-
-`tmt_core::driver::detection` decides from the filesystem alone whether a
-driver is `Present` (an executable on `PATH`), `ConfigOnly` (configuration
-directories but no executable), `Absent`, or `Broken` (on `PATH` but not
-executable). `Registry::detect` gathers that evidence and never starts an
-agent; guided setup (#333) and every status or install path use it.
-`Registry::probe_versions` additionally runs one bounded `--version` per
-present driver (5 s, 4 KiB, empty stdin) for diagnostics only: running an
-agent can write under `HOME` (Codex creates `~/.codex/tmp`), so setup, install
-and status commands never call it.
-
-Only those two places spell a driver's name. The tmt-cli architecture test
-fails on a production string literal equal to a driver name anywhere else.
-Stored harness IDs are the descriptor names, so storage is unchanged.
-
-### Codex native channel
-
-`drivers/codex/queue` owns exact native request/receipt validation, while
-`drivers/codex/transport` owns synchronous WebSocket framing and the absolute
-I/O deadline of each stage. `delivery` retains a three-second preparation budget
-for qualification and its final recheck, then passes one fresh three-second
-absolute deadline to the consuming queue attempt on the same connection.
-`transport` sets that delivery deadline once on its client and stream; fragmented
-receipts cannot renew it. Expired preparation sends no queue frame, and delivery
-uncertainty remains terminal even when an attempted write did not reach the peer.
-The only new transport dependency is adapter-local tungstenite,
-exactly pinned with default features disabled and `handshake` enabled; no TLS
-or async runtime enters core or shared ports. The architecture dependency guard
-permits it only in adapters. The [Codex channel contract](contracts/codex-channel-v1.md)
-owns limits, exact-build qualification and receipt semantics. Binary preflight
-and owned-endpoint initialization enforce the qualified builds at their respective
-boundaries; a preflight advisory never qualifies an endpoint. Provider-private
-enrollment and the shared launcher establish authority before
-this transport is used; no arbitrary endpoint becomes a delivery target.
-
-`drivers/codex/record` adds provider-private opt-in/readiness persistence (#737),
-using the existing nonblocking file lock for compare/write/remove. It stores
-exact launch/process/thread coordinates but no capability material and owns no
-binding transaction. The launcher must validate new-launch authority before
-calling it; record-level takeover and withdrawal remain generation/incarnation
-scoped. The same contract owns this persistence definition and its launcher/crash-cleanup rules. The registered consumer composes these records through the shared channel port.
-
-`drivers/codex/server` and `attachment` own endpoint/foreground
-planning. A launch-owned process group and private capability share one
-cleanup owner; process cleanup precedes inode-checked file removal. Attachment
-planning resolves cwd once. Fresh remote TUIs create their own thread; a
-one-time loaded-list gate requires one exact non-ephemeral thread with matching
-cwd before admission. Exact resume names its supplied thread. Typed exact resume travels
-through the private supervisor startup request; Codex uses `thread/resume` and
-validates the returned UUID against the selected session before foreground
-attachment, never inferring a session from arbitrary user argv or creating a
-replacement thread. The channel contract owns
-the startup, credential and failure limits; live-provider continuity and model-free product routing have separate evidence.
-Codex owns folder-trust onboarding: its user answers the TUI prompt; the channel
-never approves it or writes trust configuration (see the channel contract).
-
-`drivers/codex/lease`, `supervisor`, `delivery` and `channel_hooks` compose the
-native consumer (#739). The supervisor owns the original
-endpoint process handle; launcher EOF requests endpoint cleanup but preserves
-the provider enrollment. Explicit withdrawal is reserved for no-child or
-confirmed foreground reap. Pre-handoff startup failures retire only after
-confirmed cleanup; a complete Ready frame may already have escaped, so a later
-flush failure retains evidence. Provider records retain the pre-spawn pane address
-and Unknown/Known foreground state; app-server readiness is never foreground
-lifetime proof. Fresh records retain endpoint/candidate evidence while unready.
-The shared launch owner calls the default no-op `foreground_admitted` only after
-committed Running admission of its original child and storage closure; Codex
-then publishes Ready under its generation lock. Callback failure warns and
-retains the admitted child and unready evidence, without rollback or paste.
-Enrollment pruning probes record snapshots outside publication locks, then locks
-only ended candidates and revalidates the exact snapshot and ended proof before
-removal. Live-record probes never exclude another startup's publication. The
-channel contract owns takeover, pruning and recovery limits.
-`drivers/codex/recovery` implements `inspect` and `recover` through
-`Store::recover`, which removes the exact observed record under its per-binding
-lock, and cleans a generation directory file by known file (the names
-`server.rs` owns) only when its app-server was recorded and is gone. Codex registers through the shared `Runtime.channel` port; native enrollment
-selects the one terminal route before provider preference. Both the identity and
-raw-pane paste boundaries query provider evidence, including reply notifications.
-The shared launcher owns admission and confirmed-only withdrawal; the provider
-owns its endpoint, record, foreground planning and one-shot queue transport.
-For its first lifecycle hook, `ChannelObservation::verified_binding` selects
-stored binding evidence from the private record's exact ready thread and known
-foreground. `provider_hook_command::verified_caller` alone uses the read-only
-`Storage::context_by_binding` snapshot, then retains the existing host probe,
-server/owner/foreground/thread checks and transactional compare-and-set before
-context or persistence. Hooks own remembered sessions and reported models;
-launcher admission seeds only the live binding key. Ordinary shared hooks and
-prompt/turn hooks still require the remembered-session lookup. The architecture
-guard confines this locator to Codex's private channel observation and this
-storage selector to `verified_caller`.
-The contract distinguishes accepted provider attachment evidence from the real
-CLI/router tests. Permission options configure the owned thread and server,
-not remote resume; unsupported forms fail in enroll before any spawn.
+Each agent driver is one declarative `DriverDescriptor` (name, executables, hook
+format, display hue; pure data in `tmt-core/src/driver/descriptor.rs`, listed in
+`tmt_core::driver::ALL`) plus one adapter module in
+`tmt-adapters/src/drivers/<name>.rs` holding `locate` and the runtime.
+`drivers::Registry` joins them in descriptor order for setup, detection, skill
+targets, `run`, the runtime registry and caller recognition, and a test requires one
+adapter module per descriptor. Detection reads only the filesystem and never starts
+an agent. Only those two places spell a driver's name; the tmt-cli architecture test
+fails on a production string literal equal to one elsewhere.
 
 ### Provider channels
 
-An optional driver port lets a launch hand talk payloads to a running agent
-without terminal paste. [`contracts/claude-channel-v1.md`](contracts/claude-channel-v1.md)
-owns the behavior and the shipped-versus-planned status (#329); this is the
-ownership map.
+An optional driver port hands talk payloads to a running agent without terminal
+paste. [`contracts/claude-channel-v1.md`](contracts/claude-channel-v1.md) and
+[`contracts/codex-channel-v1.md`](contracts/codex-channel-v1.md) own behavior,
+limits and shipped-versus-planned status; this is the ownership map.
 
-- The launcher chooses one `ChannelMode` (Default, Disabled, Required) from
-  mutually exclusive run/resume flags. `RuntimeChannel::enabled_by_default`
-  advertises only the driver's default; CLI policy contains no provider-name
-  branch. Codex and Claude both advertise opt-in defaults.
-  Claude rejects typed resume enrollment in its driver until #783 is decided.
-  `ChannelError::Unsupported` carries the driver's reason; the launcher maps it
-  to `CHANNEL_UNSUPPORTED` without interpreting provider names or arguments.
-  `run_command::channel` owns launcher policy and stable strict errors; each
-  driver classifies preflight outcomes as unavailable or informational.
-  Informational outcomes use the existing diagnostic presenter and permit
-  enrollment. The Codex adapter owns a bounded, read-only local folder-trust
-  advisory; its source coverage and limits live in
-  [`contracts/codex-channel-v1.md`](contracts/codex-channel-v1.md).
-  Default failure before foreground startup can use only the original command,
-  with one paste-delivery reason line, after binding authority and existing
-  pane-enrollment evidence permit it. Failed-start provider cleanup retains
-  evidence when unconfirmed; the launcher never recovers it to obtain fallback.
-- `tmt_adapters::runtime::channel` defines the port. Preflight receives the
-  selected `RuntimeCommand` and optional launch cwd as provider-neutral facts;
-  unavailable cwd evidence skips cwd-dependent advice without changing selection;
-  interpreting provider flags belongs to the adapter. `RuntimeChannel` verifies
-  the provider (`preflight`) and enrolls one launch (`enroll`) into a lease,
-  `ChannelEnrollment`: the foreground command the launcher spawns verbatim, the
-  provider child's environment (never ambient or persisted), optionally the
-  provider session the driver created before the child starts, `foreground_started`
-  and a consuming `withdraw`. `ChannelPlan` carries the identity and a `PaneAddress`
-  (tmux server incarnation, pane ID, pane process), plus an optional typed exact
-  resume session selected by the launcher. The driver persists pane attribution in
-  enrollment before the child starts. The launcher calls `foreground_started` once
-  with the exact child incarnation it spawned and observed, before admission, and
-  retires the lease only when no child was spawned or its wait returned; on any other
-  path it drops the lease and the record stays. The driver
-  plans the command from the user's command and owns everything that proves a
-  cleanup is for exactly that launch; the CLI neither parses provider arguments
-  nor inspects the lease. A driver registers it in `Runtime.channel`, which
-  `RuntimeRegistry` exposes as `channel(harness)`. The directory for endpoint
-  records is `ConfigPaths::channel_directory()`. The port and core stay free of
-  provider and transport dependencies.
-- Recovery is part of the same port. `RuntimeChannel::inspect` reports one
-  binding's enrollment as an `EnrollmentReport` (record, generation, pane, every
-  recorded process with an exact `observe_recorded` observation, what recovery would
-  remove and keep, and the driver's verification text), and `recover` removes exactly
-  one named generation under the driver's own lock, returning `Recovery` or
-  `RecoveryError`. The defaults describe a channel that keeps no records; every
-  driver that writes records implements both. `inspect_command`, `recover_command`
-  and `valid_enrollment_id` are the single owners of the command text drivers print
-  and of the ID shape. `RuntimeRegistry::channels` lists every registered channel
-  for the CLI, since an enrollment names its driver only in its own record.
-- Delivery stays in the existing routing. The driver's `send` is the preferred
-  action of `delivery::send`, whose `send_preferred` falls back only after
-  `Unsupported` or `NotSent`. An enrollment applies only to the exact launch that
-  created it: with none, or with one that a different launch, positively proven
-  current, has outlived, a driver's `send` returns `Unsupported` and the baseline
-  transport runs; a session that opted in never gets `NotSent`, and when the
-  launch cannot be verified its outcome is `Denied`. Other outcomes are
-  `Uncertain` or `Completed`, and a completed write without a provider receipt
-  is `DeliveryAcceptance::Unacknowledged`, a terminal acceptance that routing
-  never retries or falls back from. The record layout and the launch comparison
-  stay inside each driver.
-- A paste never runs on "no record under this binding" alone. `RuntimeChannel::enrolled_in_pane`
-  asks each registered driver, by the pane address its enrollments persisted and
-  never through a stored binding (observation deletes the binding of a pane that
-  lost its marker), whether a live or unconfirmed enrollment belongs to this pane. It
-  returns `PaneEvidence` (`enrolled`, plus `skipped` records no driver could
-  attribute) or an `EvidenceError` (fault, record at fault, the driver's recovery
-  text). `RuntimeRegistry::enrolled_in_pane` merges the drivers (first error wins),
-  and `delivery::guarded_paste` and `delivery::pane_channel_evidence` are the only
-  gates in front of the two places that paste: the baseline fallback of
-  `delivery::send` and the raw-pane path of `talk`. Which driver carries an
-  identity's delivery is decided by `RuntimeRegistry::enrolled_harness` (an
-  enrollment names its driver before any preferred harness exists) and only
-  otherwise by the preference.
-- `delivery::Delivery` carries `Unacknowledged` and `ChannelUnavailable(EvidenceError)`,
-  and `delivery::send` returns an `Attempt` (the `Delivery` plus the skipped records
-  to report). `Unacknowledged` settles as an uncertain wake and `talk` keeps waiting
-  for the durable reply; `ChannelUnavailable` stops the request with
-  `CHANNEL_NOT_READY`, `CHANNEL_UNREACHABLE` or `CHANNEL_ENROLLMENT_ENDED`
-  (`DELIVERY_PREPARATION_FAILED` for other evidence), and `talk` shows the driver's
-  record and recovery text. `Failure` carries an optional additive `deliveryState`.
-- `drivers::claude::channel` owns the Claude record and the send classification
-  behind `ClaudeRuntime::send`. It reads the stored binding and the per-binding
-  record under the channel directory, applies the launch-applicability rule, waits
-  a bounded time for a channel that is not ready, and exchanges one frame over the
-  owner-only socket; the record grants nothing unless it matches the binding's
-  launch owner and runtime observation. Without the discovered configuration the
-  outcome is `Denied`, never `NotSent`.
-- The same module owns enrollment, the pane lookup and the stdio MCP server
-  (`channel/server.rs`). `ClaudeChannel::enroll` writes the per-launch record (with
-  identity, pane address and, later, the published foreground) and returns a lease
-  that withdraws only what it wrote and keeps the record while a recorded provider
-  process may still run. `enrolled_in_pane` reads only `<uuid>.json` records and
-  observes only the exact process incarnations an attributed record names (launch
-  owner, foreground, provider): a record whose recorded processes are gone has
-  ended, one that never recorded a foreground is unknown and terminal for its own
-  pane, naming the exact `tmt channel recover`, and a record that names no pane is
-  skipped and reported. `channel/recovery.rs` implements `inspect` and `recover` for
-  Claude records over the same reader and lock. `enroll` takes over a record of the same binding only when it is
-  positively over, or when only its owner was recorded and the launch is in the very
-  pane it names, and prunes other ended launches from one process snapshot.
-  Every mutation of a record or socket (the enroll write, the lease's foreground
-  publication and withdraw, the server's readiness publish, bind and socket
-  removal, and recovery) runs under one lock file in the channel directory, taken through
-  `file_lock::exclusive`. Apart from `enroll`'s own takeover rule, each proceeds
-  only while the record still carries the caller's generation and launch owner, so a
-  stale launcher or server can never replace or remove a newer enrollment. The
-  server enables ingress admission under that lock before the ready record becomes
-  visible; record visibility therefore implies admission. Its calling thread is
-  its only output writer and finishes publication before processing admitted
-  frames. A publication error ends the conversation without writing queued frames
-  or reporting them written, and never clears admission while a renamed ready
-  record may be visible. The server can only complete an
-  enrollment that `enroll` created.
-- `tmt run --channel` (`run_command/channel.rs`, `run_command/run.rs`) is the only
-  entry point that enrolls. It probes the provider version and shows the driver's
-  advisory before binding, enrolls after binding and before the spawn, publishes
-  the child through `foreground_started`, and retires the lease only on a failed
-  spawn or a reaped child. The hidden `__channel-server` command
-  (`channel_server_command.rs`) parses its argv into a `ServeRequest` and calls the
-  driver's `serve`. A session that never opted in has no record and keeps its
-  existing transport.
-- `tmt channel inspect|recover` (`channel_command.rs`) resolves a target through
-  the shared `target::resolve` or takes `--binding` as given, asks each registered
-  channel, and renders the reports and outcomes. It holds no record logic: each
-  driver applies the recovery rule the
-  [Claude channel contract](contracts/claude-channel-v1.md#recovery) owns.
+- `tmt run --channel` is the only entry that enrolls. The launcher picks one
+  `ChannelMode`; CLI policy has no provider-name branch, and drivers own preflight,
+  enrollment, the lease and recovery through the `tmt_adapters::runtime::channel`
+  port (`preflight`, `enroll`, `inspect`/`recover`, `enrolled_in_pane`, `send`).
+- Delivery stays in the existing routing: the driver's `send` is preferred and falls
+  back to paste only after `Unsupported` or `NotSent`. An enrollment applies only to
+  the exact launch that created it, an opted-in session is never `NotSent`, and a
+  completed write without a provider receipt is `Unacknowledged`, terminal and never
+  retried.
+- A paste never runs on "no record under this binding" alone: `delivery::guarded_paste`
+  and `delivery::pane_channel_evidence` are the only gates in front of the two paste
+  places, and they ask each driver, by the pane address its enrollments persisted,
+  whether an enrollment belongs to the pane.
+- Claude (`drivers::claude::channel`) and Codex (`drivers/codex/*`) keep their record
+  layout, lock and launch comparison private; every record or socket mutation proves
+  the caller's generation and launch owner, so a stale launcher or server never
+  replaces a newer enrollment. `tmt channel inspect|recover` renders what each driver
+  reports and holds no record logic. Module detail is in the
+  [hosts and drivers reference](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#provider-channels).
 
 ### Driver protocol
 
-Terminal hosts that TMT doesn't build in run out of process as host drivers
-(#570), and coding agents will run as runtime drivers (#1083).
-[`contracts/driver-protocol-v1.md`](contracts/driver-protocol-v1.md) owns the
-wire format for both kinds. `rust/crates/tmt-driver-protocol` encodes it for
-both sides:
+Terminal hosts TMT does not build in run out of process as host drivers (#570), and
+coding agents will run as runtime drivers (#1083).
+[`contracts/driver-protocol-v1.md`](contracts/driver-protocol-v1.md) owns the wire
+format for both. `rust/crates/tmt-driver-protocol` holds wire types, bounded strict
+`decode`, `serve`/`serve_runtime` and conformance checks over `serde` and
+`serde_json` only; `rust/crates/tmt-host-grammar` (a dependency-free leaf) defines
+host name, pane-ID and target grammar once, and `tmt-core` may depend on it. The
+architecture guard allows exactly those edges. A runtime driver's hook path is
+declarative (`RuntimeDeclaration` plus `decode_hook`, no driver process), and only
+`locations`, `resume` and `usage` run the driver; runtime launch, hooks and setup
+consumers stay unwired until PR B2 of #1266.
 
-- wire types and per-operation limits, in one `Op` set: a driver answers
-  `unsupported` to the other kind's operations;
-- `decode`, which is core's bounded, strict parsing and validation of each
-  answer against what the driver declared (the `Answer` trait's
-  `Declaration`): a host driver's pane-ID and target grammar, or a runtime
-  driver's `RuntimeDeclaration`;
-- `serve` and `serve_runtime`, a driver's entry point for each kind;
-- `conformance::check` and `conformance::check_runtime`, which run through
-  any invoker.
-
-A runtime driver's hook-path work is declarative: `RuntimeDeclaration` holds
-its executables (what it claims), its session variable and its hook layout
-(JSON Pointers and event effects), and `decode_hook` turns a provider hook's
-payload into a `HookObservation` without starting the driver. Measured on the
-#1083 issue, that decode costs about 1 µs, against 0.3 µs for the built-in
-Claude decoder and 1–2 ms (up to 0.5 s for a binary's first exec) for a
-driver process. Only `locations`, `resume` and `usage` run the driver. Core
-approves both kinds through `tmt-adapters::driver_protocol`, the shared registry
-and process owner extracted from the host adapter. Its declaration enum stores
-raw capabilities, retaining existing host record bytes; runtime records also
-hold the locations answer disclosed at approval. The runtime client validates
-that answer and calls `within(home)` before admitting write targets. The CLI
-shows claims, executables, argv policy, hooks, paths and environment names before
-consent. Optional `claims: false` permits skills-only declarations without runtime
-recognition. Runtime launch, hooks and setup/detection consumers remain unwired
-until PR B2 of #1266; approval alone writes no provider files.
-
-A host's name, pane-ID prefix and target template (parsing, matching and the
-overlap check between hosts) are defined once in `rust/crates/tmt-host-grammar`,
-a leaf with no dependencies at all. The protocol crate wraps it with the
-environment `caller` may read, and `tmt-core` may depend on it to recognize an
-external host's stored pane IDs without taking on the wire crate or serde. The
-protocol crate otherwise depends only on `serde` and `serde_json`, so a
-community driver builds against these two small crates alone. The architecture
-guard allows exactly those edges.
-
-`rust/crates/tmt-driver-herdr` is the first driver built this way (#479). The
-library depends on the protocol crate, `tmt-invoke` (its bounded process
-owner), `serde_json` and `semver`, and never on core or the adapters; the
-architecture guard holds it to those edges. Its independently versioned package
-owns a thin `tmt-driver-herdr` binary calling `tmt_driver_herdr::serve_call`.
-The CLI archive still carries that package's executable as a companion through
-its first standalone release; its artifact build stages the driver package's
-binary for cargo-dist. Named acquisition remains #1084.
-There is only one binary target and no `tmt-cli -> tmt-driver-herdr` dependency.
-CI process fixture builds select both packages, and raw-runtime artifacts carry
-both executables for tooling acquisition and archive tests. A driver release
-component remains outside the extension command's inventory.
-Its executable conformance tests belong to the driver package. It answers `caller`,
-`server`, `resolve-target`, `snapshot`, `publish`, `clear`, `capture`, `input`
-and `prompt` through Herdr's documented CLI (floor 0.9.1) and `ps`. Its children get an allowlisted
-environment without `TMT_DRIVER_CALL`. Herdr reports no server pid, so `server`
-names the parent of a pane's shell, and a server with no pane reads as no
-server. `publish` refuses with `not_found` unless the pane still runs `panePid`,
-then reads the marker back. The marker tokens are the former built-in Herdr
-host's, byte for byte, as its fixture recorded them
-(`tmt-driver-herdr/src/fixtures/builtin-marker.json`). `input` takes one
-line: Herdr's `send-text` types raw, so a line break would submit before core's
-Enter, and text with CR or LF is refused as `bad_request` before any effect. A
-message reaches an agent pane through `prompt`: Herdr's `agent prompt` pastes
-the whole text (bracketed when the agent enabled it) and submits it. Its
-`agent_not_found`, `agent_blocked` and `agent_not_ready` become `no_agent`,
-`blocked` and `not_ready`, and no other operation answers those codes. Both
-pass the text as the last argument: Herdr reads it literally even when it
-looks like an option, and it has no `--` separator. A plain
-pane gets single-line input, otherwise the inbox. The driver doesn't declare
-`focus` (Herdr has no command that focuses a pane by ID).
-
-`tmt-adapters::driver_protocol` owns shared approval and bounded calls;
-`tmt-adapters::host::external` owns host composition:
-
-- **`registry`:** the approved drivers in `<global>/drivers.json`. Approval
-  refuses a declaration that a built-in host or another approved driver would
-  read as its own. It is two steps: `inspect` runs every check (ownership,
-  digest, one `capabilities` probe that may take up to 10 s while the driver
-  is still told the protocol's deadline, conflicts) and writes nothing, and
-  `commit` checks the conflicts again against the registry as it is then and
-  writes the record. `state` reports an approved driver as `ok`, `changed`
-  (fingerprint, ownership or digest no longer as approved) or `missing`.
-  A record's `source` is `path` (the default, not written) or `firstParty`.
-  A path approval is pinned to its digest. A first-party approval
-  (`inspect_first_party`) is of the driver the running release ships as a
-  companion, whose bytes must match the receipt digest. It follows that
-  release: `resolve_first_party` uses the record while the release ships
-  the approved digest. After an upgrade it describes the new driver (its
-  receipt digest and one `capabilities` probe) and adopts it under the same
-  approval, asking nothing, only when it declares nothing beyond what the
-  user approved: the same protocol and pane-ID and target syntax, and no
-  operation or `callerEnv` variable outside the approved ones. Same name and
-  syntax leave every conflict check as it was. Anything else is a gap: a
-  release that ships none reads `missing`, and a driver that asks for more,
-  is renamed or doesn't match its receipt reads `changed`. Either way it is
-  unavailable at run time until approved again, and `state` returns the
-  reason, which `tmt driver ls` shows. Every read-modify-write of
-  `drivers.json` (approval, removal, adoption) holds `drivers.lock`, and the
-  write is a staged file renamed into place.
-- **`tmt driver` (`tmt-cli/src/driver_command.rs`):** the registry's front
-  end. A record is written only with explicit consent, never by product install
-  or upgrade. `install <path>`, or `install <name>` for a first-party driver
-  (a bare name with no `/`), refuses before asking, then shows a detail view
-  (`detail::write`) of the version, protocol, executable, SHA-256,
-  operations and the environment `caller` reads for hosts, or the runtime disclosure
-  described above, and asks `Approve <kind> driver <name>? [y/N]` through the
-  shared consent prompt. `--yes` skips the question. A run that can't ask
-  (no terminal, or `--json`) refuses with `DRIVER_CONSENT_REQUIRED` and writes
-  nothing. `ls` retains `HOST DRIVERS` for host-only lists and uses `DRIVERS` when
-  runtime approvals are present: a row per driver with
-  its state mark (`●` ok, `✗` changed, `○` missing), name, version, state
-  and path, `tmt driver install <path>` (or `<name>` for a first-party
-  one) as the trailing action of a changed or missing one, and a note with
-  each such driver's reason (`reason` in JSON). `rm` withdraws an approval without asking; an
-  unknown name is `DRIVER_NOT_FOUND`. Bindings on a removed driver's host
-  stay stored and read as unavailable.
-- **`DriverProcess`:** shared by both kinds, runs one operation through the bounded process owner,
-  under the operation's deadline and output bound, with `TMT_DRIVER_CALL=1`. It
-  decodes the answer against the host grammar or runtime declaration.
-- **Trust:** `executable_trust` is shared with extension hooks. It checks
-  ownership and the stat fingerprint before every call, and the digest once per
-  process.
-- **Recursion guard:** a `tmt` started with `TMT_DRIVER_CALL` refuses every
-  command but help and `--version` (`DRIVER_CALL_REFUSED`).
-- **`Drivers` and `ExternalDriver`:** a `Host` carries the approved drivers
-  (production constructors read the registry; the test `_with` constructors
-  approve none). A binding session opens one driver per external host on first
-  use and serves it as an ordinary `HostDriver`: `snapshot`, `publish`, `clear`,
-  runtime and the pane incarnation. A host without a usable driver, removed or
-  changed since approval, answers `Unavailable`, which never proves loss.
-- **Core-led evidence:** an external server's identity is core's own `ps` start
-  token for the pid the driver's `server` names; the driver's `startTime` is
-  advisory and never stored. A probe is decided by core: the recorded server
-  process gone or replaced is Dead, the same process plus the driver's snapshot
-  is Live, anything else is Unknown. The driver's optional `probe` operation is
-  not called. `process::runtime::observe_starts` covers the server and scoped
-  pane shells using native process evidence, with a bounded batched ps fallback.
-- **Caller and targets:** `CallerEnvironment` carries only the variables
-  approved drivers declare for `caller` (`driver_env`). A driver's `caller`
-  names a pane; core counts it only when that pane's shell is an ancestor of
-  the caller (`process::ancestry`), and the nearest verified pane wins across
-  tmux and external hosts. Without a verified external pane the host is tmux. The handle then keeps that pane and its socket
-  for `caller_pane`, server resolution and `resolve-target`. `Host::for_target`
-  picks the host whose registered grammar reads the text as a target (tmux, the
-  broadest, is the default), and an external target resolves through the
-  driver on the caller's server or the driver's default one. Only a definite
-  answer (no such pane, no server, no approved driver) is "not found"; a
-  driver that fails or runs late is a failure (`RECONCILIATION_FAILED`).
-  Caller detection stays best-effort: a failing driver is just not the
-  caller.
-- **Delivery and inspection:** a driver that declares `input` takes messages.
-  The prompt-first `send` asks its `prompt` when declared and maps the answer
-  as the contract says (`no_agent` or `unsupported` falls back to raw input;
-  `blocked` is `AwaitingApproval`; `not_ready`, `not_found` and `bad_request`
-  were not sent; anything else is uncertain). Raw input is staged like tmux:
-  paste with `enter: false`, core's paste-to-Enter delay, then Enter alone,
-  each call with its operation's own deadline. A pane-addressed message
-  (`Host::send`), `check` (`capture`) and `focus` go through the driver too;
-  focus on an external host needs no tmux client, and its `viewer` names the
-  server whose views moved.
-
-The atomic owner-only replacement of such settings files is `private_file`,
-shared with the extension hook consents. The approved drivers' syntax is
-registered with core at start (see the host section above). Bindings on an
-external host are made from its caller or an explicit target, and read,
-published, cleared, messaged, captured and focused through its driver. A driver
-without `input` keeps today's behavior: a send is `Unsupported`, the request is
-kept, and `--inbox` queues.
+`tmt-adapters::driver_protocol` owns shared approval and bounded calls and
+`host::external` owns host composition. Drivers are approved only with explicit
+consent (`tmt driver install`, never product install or upgrade) into
+`<global>/drivers.json`, pinned by digest, with executable ownership and fingerprint
+checked before every call; a first-party driver follows its release only while it
+declares nothing beyond what the user approved. Core, not the driver, decides
+evidence: server identity is core's own process start token and a missing or changed
+driver is `Unavailable`, never proof of loss. `rust/crates/tmt-driver-herdr` is the
+first driver; its library depends only on the protocol crate, `tmt-invoke`,
+`serde_json` and `semver`, and the CLI archive carries its executable as a
+companion. Details are in the
+[hosts and drivers reference](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#external-host-drivers).
 
 ## Managed skills and native installation
 
-Managed agent guidance is a separate filesystem concern. The canonical
-`tmt_core::skill_catalog` is the one list of bundled skill names and groups
-(core or Office), in bundle digest order. `skill_installation::catalog` pairs
-each name with its embedded bytes and records the earlier bundle layouts that
-upgrades still verify. `Catalog::new` joins owned skills from owner records
-without letting an owner shadow a core name. Names, sources, inventories and
-ownership checks derive from these, and the tmt-cli architecture test fails on
-a list of skill names anywhere else. The `tmux-team`, focused `tmt-inbox`, and
-optional `tmt-office` skills are embedded as one versioned asset bundle by
-`skill_installation::assets`; digest-addressed
-materialization, provider detection, target selection, links, backups, registry,
-drift and lock handling live under
-`rust/crates/tmt-adapters/src/skill_installation/`. Core install exposes only
-`tmux-team` and `tmt-inbox`. Explicit Office install or upgrade exposes
-`tmt-office` in detected provider roots and any custom root that still contains
-an owned core skill. CLI upgrades refresh recorded Office links without creating
-missing integrations. The driver descriptors (see Agent drivers) are the only
-provider inventory. Skill installation does not open application configuration, SQLite
-or tmux, and never silently replaces an unmanaged path.
-Ownership requires a matching known skill name and a link into this TMT home's
-canonical `skill-assets` store. Existing generations retain digest and inventory
-validation; a missing generation is a dangling TMT link, eligible for refresh or
-removal. A real directory, mismatched name, outside link, or modified source is
-preserved as a conflict. Historical bundled Office target intents join owner
-records for explicit extension removal, and completed removal retires those
-intents, including preserved user conflicts, so core refresh cannot resurrect
-or reclaim an integration the user removed.
+Managed agent guidance is a filesystem concern separate from application state.
+`tmt_core::skill_catalog` is the one list of bundled skill names; the bundle is
+embedded and materialized by digest under `skill_installation`, and the
+architecture test fails on a skill-name list anywhere else. Core install exposes
+only `tmux-team` and `tmt-inbox`. Skill installation never opens configuration,
+SQLite or tmux and never silently replaces an unmanaged path: a real directory,
+mismatched name, outside link or modified source is preserved as a conflict.
+Extension-owned skills arrive as bytes through `skills.install`/`skills.remove`
+(explicit consent), are stored per owner and linked into the same roots; the first
+owner of a name keeps it until an explicit force and core names are reserved.
 
-Extension-owned skills arrive as bytes through the local API
-(`skills.install`/`skills.remove`, both requiring explicit `consent: true` from
-a caller that asked the user). `skill_installation::owned` validates them,
-materializes each under `skill-assets/owners/<owner>/<digest>/<name>` (verified
-by recomputing the digest) and links it into the same roots as the optional
-Office skills. `skill-owners.json`, separate from the target intents that core
-refresh reads, records each name's owner, digest and targets. Core's names are
-reserved; the first owner of any other name keeps it until an explicit force.
-Because the same-user API cannot authenticate its caller, install and remove
-refuse targets another owner holds rather than trusting the stated owner.
-Claims and unmanaged paths are checked for every target before any effect.
-Office links published from the core bundle are adopted by owner `office`
-without force (any other owner needs force), and core's bundle then leaves held names alone: Office facade
-installs skip them and CLI refresh reports them as skipped. Removal is by owner, or
-by a named subset of that owner's skills (`skills.remove`'s optional `skills`), so an
-extension can retract one optional skill without touching the rest. It deletes
-only links into the owner's store; drift reports owned targets that no longer
-point at their owner's current content.
-
-The core skill sources stay under `skills/`; the three Office skill sources live
-under `extensions/tmt-office/skills/`. `skill_installation::assets` still embeds
-those Office sources into the core bundle, so core compiles bytes from the
-extension tree. This is retained core-to-extension extraction debt owned by a
-later #328 slice, not a second skill source or a provider-specific copy.
-
-Native executable installation is a different owner under
-`tmt-adapters::native_install`:
-
-Core's fixed `native_install::Product` policy owns package identity, inventory,
-installation namespace and command links for the CLI and the official extensions
-(Office, Squad with its two links `tmt-squad` and `tmt-sq`, Remote with `tmt-remote`, and Colab with `tmt-colab`). It has no filesystem or network effects, and archive data never adds a product. The hidden
-offline installer accepts an explicit product (CLI by default), and every product
-uses the same acquisition, receipt and atomic publication path. Each extension's
-command links, lock and current release are independent of the CLI's; existing
-CLI receipts retain their format. Manifest selection uses product and
-target together, rejecting ambiguous or multiply owned artifacts. This internal
-path also serves public Office installation. `office_command` owns consent and
-typed composition, not a second downloader. Default Office prefix is the user's
-`.local`, independent of application configuration; `--prefix` selects another
-owned installation. Public distribution and pairing remain separate gates.
-GitHub selection discovers matching refs under CLI `v`, Office `tmt-office-v`,
-Squad `tmt-squad-v`, Remote `tmt-remote-v` and Colab `tmt-colab-v` independently, rather than scanning repository-wide
-release history. Complete bounded ref discovery precedes core channel filtering
-and semantic-version precedence selection. Exact-tag release lookups skip only
-confirmed missing releases or explicit drafts and stop at the highest published
-precedence group; distinct published versions of equal precedence are ambiguous.
-The ordinary metadata path is one refs request and one release lookup, preserving
-unauthenticated request capacity. Optional Link pagination stays on the same
-product endpoint under one metadata byte budget and deadline; incomplete discovery
-fails closed. DEVELOPMENT owns page/request bounds and verification cases.
-GitHub's latest pointer cannot select a channel: it tracks the highest published
-CLI version under the [main release model](#main-release-cuts). Acquisition retains the existing immutable release, product prerelease
-flag, asset digest and manifest checks before installation. The shared
-`release_http::Https` adapter classifies API 403/429 responses only when primary
-rate-limit headers report zero remaining requests with a reset header, or a
-secondary limit supplies Retry-After. It permits one jittered wait and retry per
-client under the caller's unchanged absolute deadline, including all metadata,
-asset and redirect requests. Invalid timing, a wait beyond that deadline or a
-second limit fails with a sanitized reset/earliest-retry diagnostic. Optional
-`GITHUB_TOKEN` authorization is rebuilt per hop only for `api.github.com`; asset
-hosts never receive it. Discovery and installation policy remain with their
-existing owners. The generated shell bootstrap downloads fixed-version assets
-without API discovery and retains its unauthenticated download policy.
-
-Downloaded bytes feed the shared bounded artifact verifier. CLI self-upgrade
-then stages verified bytes for the candidate-owned handoff described below;
-extension installation retains direct in-process verification and publication.
-Publication runs the caller's release verifier on the written candidate before its receipt, so a rejection keeps the
-previous release current. A product whose row requires a verifier (Office) is
-refused without one before anything is written. Office callers pass the bounded
-versioned probe from `tmt-office-command`; core's installers (`tmt extension`
-and the hidden `__native-install --product office`) borrow it through the
-facade's `release_verifier` until PR B of #355.
-Removal (`uninstall_extension`, for any extension product) validates ownership
-of every command link, refuses a foreign same-named command, and deactivates the
-links without deleting releases or application data. It is recoverable, not a multi-file atomic deletion:
-a missing command link with a retained activation is reported by `extension ls`
-as `partiallyRemoved` with an exact removal command, and explicit uninstall
-can finish that state. Listing this state does not execute or mutate it. Root `tmt uninstall` derives
-its product removal order from `Product::ALL`, keeping extensions before the
-running CLI; adding an official product cannot omit it from that cleanup.
-
-`tmt extension install|upgrade|rm|ls` (`tmt-cli::extension_install_command`)
-is the public surface for the official extensions over this path. Its facade
-retains dispatch, consent, errors, interruption, rendering and uninstall; private
-`extension_install_command/` modules own install, repair, list/upgrade and skills
-settlement through the existing native-installer and owned-skill adapters. The names
-come from the fixed product table, never from PATH or archive data. Installable
-eligibility is separate from historical product recognition and publication:
-Squad, Remote and Colab are installable; registering a product does not create a
-published archive. Without a published Remote or Colab release in the selected channel, install
-returns `EXTENSION_RELEASE_UNAVAILABLE`, names the unavailable channel and leaves
-the installation unchanged. Complete discovery marks that absence with
-`release::ReleaseUnavailable`; missing files, assets or finalization failures
-after selection remain installation errors. Invalid archive bytes remain
-verification failures.
-Office is frozen, so install and explicit extension upgrade refuse before consent or acquisition.
-Root upgrade skips Office without inspecting its installation. Listing omits an
-absent Office, marks an existing or partially removed Office as frozen, and never
-looks up an Office upgrade, even with `--check`. Historical receipts and Office
-skill catalog names remain available for listing and consented removal. Other
-install, upgrade and uninstall operations require consent (`--yes`, or an interactive prompt), and refuse a
-non-interactive run without it. `ls` reads local receipts only. `--check` adds a
-bounded release lookup (`latest_release_version`, metadata only), and a failed
-lookup reports `unknown`. Shadowing canonicalizes every `tmt-<name>` on PATH and
-reports those that resolve elsewhere, without executing them. Root help groups
-discovered extension names that resolve to the same file (`squad (also: sq)`).
-`tmt office install|upgrade` calls the same CLI-owned `require_installable`
-guard before entering the Office handler, retaining one frozen rule and message.
-The facade's status and removal operations keep their Office-specific flow.
-
-An extension's agent skills belong to one owner named after it (`squad`,
-`office`, `remote`, `colab`) in the owned-skill registry (`skill_installation::owned`). After
-activation, `native_install::release_skills` re-reads the release's skills tree
-under the installation lock and checks every byte against the receipt; a damaged
-tree publishes nothing. `install --skills` publishes the whole tree; a terminal
-install without it asks once; any other run names the skills and how to publish
-them. Install and upgrade refresh the tree skills the owner already holds and
-remove, by name, those the new release dropped, so other skills the owner holds
-(such as playbooks) are untouched. `uninstall` removes every skill the owner
-holds, from every target, because a skill that points at a removed command is
-broken guidance; its single consent prompt names the skills and targets.
-
-A release may also carry a companion executable beside its own
-(`Product::companions()`): the CLI carries `tmt-driver-herdr`, the
-first-party Herdr host driver (#479). `typescript/scripts/native-artifact-policy.mjs`
-mirrors the list and reads an archive against its own manifest, as the
-installer does: published archives from before a companion existed (CLI
-5.0.0-alpha.39 and older), such as an upgrade proof's previous release or CLI
-driver, still read. An archive under release is selected with `release: true`
-by every verifier and the bootstrap generator, so it must declare and carry
-every companion; the artifact verifier also runs the driver (`capabilities`:
-name `herdr`, the CLI's version, system-only linkage). The installer treats a
-companion as optional, so a release from before it existed still verifies:
-
-- the manifest may declare it once, and the archive must then hold it as an
-  executable regular file; an archived companion that isn't declared, or a
-  declared one that isn't archived, rejects the release;
-- publication writes it beside the executable (0755);
-- the receipt records its digest exactly when the release carries it, and
-  inspection re-verifies it. A file without a recorded digest, a recorded
-  digest without the file, a changed file or a lost execute bit fails closed.
-
-CLI self-upgrade separates transport safety from installation policy. The running
-binary checks immutable release metadata, product/tag/target identity, manifest
-and archive digests, and bounded archive safety before executing any candidate.
-The shared decoder admits only canonical relative paths, regular files and their
-containing directories, rejects links, duplicate/conflicting paths and special
-permissions, and bounds compressed bytes, expanded bytes and entry count. It does
-not use the running binary's file or companion inventory for this handoff.
-The complete verified tree is materialized in a private invocation-owned directory.
-Executing this candidate before activation has the same trust as installing that
-verified release; SHA-256 does not protect against a compromised release origin.
-
-The candidate's `__native-install` entry point owns strict inventory, companion
-policy, receipt creation and the existing atomic publisher. The
-[versioned handoff contract](contracts/native-install-handoff-v1.md) owns
-probe, request, report, unsupported-candidate diagnostics and bounds. The candidate
-revalidates the staged bytes and checks the expected receipt under the existing
-installation lock. Acquisition and the parent process hold no installation lock
-across the child. The parent validates the selected release and paths without
-interpreting the candidate's receipt inventory. The process runner owns deadlines
-and reaping;
-the invocation owns staging cleanup. Pre-activation failures preserve the previous
-release. Reported post-activation failures retain the active-installation result;
-a missing completed report is uncertain and asks the user to inspect before retrying.
-
-Root upgrade updates the CLI first and lets that CLI judge extension inventories
-and run the existing consented extension phase. Extensions do not implement the
-CLI installer handoff. Core registers each product's files before that product
-publishes them; the supporting CLI release must reach users first.
-
-`native_install::active_companion` names a companion of the running, active
-CLI release and its receipt digest by reading only the receipt, cheap enough
-for every command; whoever runs the companion checks its bytes.
-
-An extension release (never the CLI) may carry a bounded agent-skills tree,
-`skills/<name>/<path>` (`native_install::skills_tree`). It has the binaries'
-integrity:
-
-- the manifest declares the tree with the single asset `skills`, the form
-  cargo-dist gives an included directory; the CLI may not declare it, and an
-  archived tree that is not declared, or a declaration with no tree, rejects
-  the release;
-- the file inventory comes only from the archive, whose SHA-256, verified
-  before parsing, covers every byte; the bounds below apply while decoding,
-  before any file is kept;
-- extraction accepts only regular files under `skills/` and directories that
-  hold one;
-- paths follow the owned-skill name and canonical path rules
-  (`skill_installation::valid_skill_name`/`valid_skill_file`);
-- bounds are 16 skills of at most 64 files, 1 MiB each, with a `SKILL.md` per skill.
-
-Any violation rejects the whole release before publication. The receipt records a
-digest per skill file, and inspection re-verifies them. Any unrecorded file,
-link or special entry fails with "Installed release inventory has changed", the
-same error a reader that predates the tree raises, so both fail closed. Extension
-receipts are bounded by a limit derived from the skill bounds; the CLI receipt
-stays at 16 KiB.
-
-- `artifact` consumes cargo-dist metadata and a matching archive, checking
-  target, manifest membership, SHA-256, bounded compressed/expanded input,
-  notices and executable contents;
-- `publication` stages a release under an invocation-owned prefix, writes
-  receipt/current/command links atomically under the installer lock, and keeps
-  old owned releases until ownership and integrity checks permit cleanup;
-- `receipt`, `release`, `managed` and `upgrade` implement local provenance,
-  active-release inspection, channel/pin policy, verified HTTPS acquisition and
-  forward-only activation; which GitHub prerelease flag a release may carry is
-  per product (`Product::accepts_prerelease_flag`, matching the publication
-  policy in `native-release-policy.mjs`); a receipt's recorded repository must
-  be `pj-tmt/tmt` or its historical names `wkh237/tmt` and `wkh237/tmux-team`
-  (read-only compatibility for existing receipts); release lookups and new receipts
-  always use `pj-tmt/tmt`;
-- `native_install_command` and `native_upgrade_command` are thin CLI
-  compositions. Application data and provider skills are separate owners.
-
-`native_upgrade_command` upgrades the CLI and refreshes its managed skills before
-asking the newly installed executable to upgrade installed official products.
-Managed-skill refresh acquires and validates the active installation in that new
-executable, so the old reader never revalidates a newer receipt inventory.
-The bounded hidden `__native-upgrade-extensions --json --plan` command supplies
-pending versions; the parent owns one terminal consent question and sends that
-exact plan on stdin to the new executable with `--yes`. It validates the bounded
-plan/result reports and exit status. Unsupported older targets fail with a rerun
-hint; old-process extension logic is never used as a fallback.
-`extension_install_command::upgrade_all` in the new executable discovers products
-in its managed CLI prefix and retains each channel/pin. A selected
-version uses the same native acquisition/activation path without creating an exact
-version pin; extension verification and skill settlement retain their existing owners.
-JSON/non-terminal runs without `--yes` report `consentRequired` without mutation.
-Product failures remain independent in the aggregate report; CLI failure stops the
-extension phase, while a pinned CLI permits it. No rollback or second installer exists.
-`NATIVE_UPGRADE_FAILED` includes an explicit diagnostic `cause` in JSON. HTTPS
-failures retain the transport cause or diagnostic class without echoing rejected
-URI/proxy credentials. Managed-skill conflict reports retain the path array and
-provide one shell-quoted backup command per preserved entry; recovery moves the
-entry outside skill discovery without changing its source.
-
-Explicit extension `install --repair` is a separate recovery composition in
-`native_install::repair`, for GitHub and local-archive receipts. `receipt`
-separates bounded metadata/recorded-path validation from payload verification;
-normal readers still require both. An eligible verification failure carries
-`RepairRequired` to the CLI, which owns the single quoted repair-command hint.
-Repair admits only safe owned layouts and no-follow regular files/directories,
-acquires the exact recorded artifact with matching provenance and digests, and
-preserves version/channel/pin. Observation parses the same bounded receipt bytes
-used for revalidation. Local repair requires the original archive and matching
-manifest; it retains local provenance and cannot replace a GitHub source.
-Acquisition holds no installation lock; the stable lock and a pre-activation
-current/receipt revalidation fence publication.
-`publication` shares candidate staging, durable activation, cleanup and typed
-post-activation failures between normal installs and repair. The damaged release
-is retained untouched at its original path, including foreign entries, rather
-than treated as content TMT may overwrite or delete. It is never a verified
-execution candidate; no automatic retention cleanup is implemented. A healthy
-repair is a no-op. Local receipts remain installation evidence, not signatures;
-repair does not claim protection from a hostile same-UID writer. Provider skill
-refresh remains with the existing verified-tree/skill-owner composition.
-
-Remote and Colab use the same `dist-manifest.json` selection and `receipt.json`
-format under independent `lib/tmt-remote` and `lib/tmt-colab` namespaces. Neither
-carries a companion or agent-skills tree today or requires an Office handshake.
-Colab's settled package contract embeds its app in `tmt-colab`; #1421 owns that
-build-time embedding, so the installer admits no separate app directory.
-Installation, extension removal and upgrade never execute either `serve` command
-or open their private `<dataRoot>/remote/` or `<dataRoot>/colab/` state. Each
-extension owns its explicit foreground lifecycle. Cargo-dist packaging and
-release publication are separate extension/infra responsibilities.
-
-The active executable is the authority for a managed update. Installer receipts
-are anchored to the installation prefix/current executable, not to
-`ConfigPaths.global_dir`; changing runtime config roots must not fabricate or
-discard binary ownership evidence. Installation uses staged publication,
-expected-current checks, explicit checkpoints and bounded cleanup. A failed
-validation or cancellation leaves the previous current release and receipt
-intact; a post-activation skill failure reports partial completion rather than
-claiming an atomic application-wide transaction.
-
-Public Office installation reports companion activation and optional skill
-publication as separate outcomes: a guidance conflict never rolls back an
-already activated companion or overwrites user content. `--force` authorizes a
-recoverable target backup, not source replacement. Office deactivation retains
-managed guidance; it does not silently remove an agent integration. The hidden
-offline product installer remains binary-only.
-
-The generated curl bootstrap is release tooling around this same native
-installer. It derives archive facts from cargo-dist metadata and does not own a
-second target catalog, archive parser, package manager, or production manifest.
+Native executable installation is a different owner under `tmt-adapters::native_install`.
+The fixed `Product` policy owns package identity, inventory, namespace and command
+links for the CLI and the official extensions (Squad, Remote, Colab and the frozen
+Office); archive data never adds a product. Every product uses one acquisition,
+receipt and atomic-publication path with independent links, lock and current
+release, and the active executable is the authority for a managed update: receipts
+anchor to the installation prefix, not to configuration roots. Verification precedes
+execution, publication runs the release verifier before the receipt so a rejection
+keeps the previous release, and failure or cancellation never leaves a half-published
+current release. CLI self-upgrade hands a verified candidate its own
+`__native-install` under the
+[handoff contract](contracts/native-install-handoff-v1.md) and then lets that CLI
+run the consented extension phase; there is no rollback or second installer.
+`tmt extension install|upgrade|rm|ls` is the public surface for extensions and
+requires consent. Acquisition, receipts, companions, skills trees, repair and the
+upgrade handoff are in the
+[installer architecture reference](.agents/skills/tmt-core-runtime/references/install-architecture.md);
+build, publication and verification procedures are in the
+[tmt-release skill](.agents/skills/tmt-release/SKILL.md).
 
 ## Squad extension
 
