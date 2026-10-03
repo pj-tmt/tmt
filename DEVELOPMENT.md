@@ -1615,7 +1615,9 @@ fallback. It observes rooms and metadata through an independent SQLite reader.
 A workspace `cargo build --locked` produces the default executable. Squad unit
 tests run with `cargo test --locked -p tmt-squad`. For dependency changes,
 compare `cargo tree -p tmt-cli -e normal,build -f '{p} {f}'` with `main` and the
-package-scoped release `tmt` (see Rust checks) to prove the CLI is unchanged.
+package-scoped release `tmt` (see Rust checks) to prove the CLI is unchanged. Notebook link checks cover wrapped Unicode
+hits, target previews, configured overrides, inert unknown schemes, argv isolation
+and sender/member/open-request revalidation. Parsing and paint must perform no actions.
 
 Native Squad tests verify leadership selection and clearing without membership
 or role loss, repeated additions without overwriting state, and explicit recovery

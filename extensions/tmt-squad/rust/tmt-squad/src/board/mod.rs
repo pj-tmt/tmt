@@ -140,6 +140,9 @@ fn execute(core: &Core, request: Request) -> Result<String, String> {
         Request::Open { link, opener } => {
             effects::open(&link, opener.as_deref()).map(|()| format!("Opened {link}"))
         }
+        Request::OpenFile { path, opener } => {
+            effects::open_file(&path, opener.as_deref()).map(|()| format!("Opened {path}"))
+        }
         Request::Copy { text, program } => {
             effects::copy(&text, program.as_deref(), effects::tmux_socket().as_deref())
                 .map(|copied| copied.describe().to_owned())

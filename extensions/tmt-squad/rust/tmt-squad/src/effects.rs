@@ -83,6 +83,29 @@ pub fn open(link: &str, opener: Option<&[String]>) -> Result<(), String> {
     spawn(&argv)
 }
 
+/// Local notes paths use the opener's path route, never a URI program scheme.
+pub fn open_file(path: &str, opener: Option<&[String]>) -> Result<(), String> {
+    if !(path.starts_with('/') || path.starts_with("./") || path.starts_with("../"))
+        || path.chars().any(char::is_control)
+    {
+        return Err("Only explicit local paths open.".into());
+    }
+    let path =
+        std::fs::canonicalize(path).map_err(|error| format!("Cannot open {path}: {error}"))?;
+    let mut argv = opener.map(<[String]>::to_vec).unwrap_or_else(|| {
+        vec![
+            if cfg!(target_os = "macos") {
+                "open"
+            } else {
+                "xdg-open"
+            }
+            .into(),
+        ]
+    });
+    argv.push(path.to_string_lossy().into_owned());
+    spawn(&argv)
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Copied {
     Program,

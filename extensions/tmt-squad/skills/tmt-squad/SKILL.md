@@ -377,6 +377,17 @@ Every displayed continuation of the selected source line uses the full-width
 selection appearance, including reverse video with `NO_COLOR`. A fixed two-cell
 gutter holds the sent marker or blanks, so notebook text stays aligned.
 
+In Markdown notes, Tab/Shift-Tab select links; the footer previews kind and target.
+Enter or clicking the selected link activates it; the first click selects only.
+Esc clears link selection, and configured bindings take precedence. With no links,
+Tab moves to the next pane. Plain notes and undefined schemes stay inert.
+Built-ins are `tmt:jump/back/talk/answer/open/copy/annotate`; except `back`, append
+`/<current-member-name-or-id>`. Talk/answer/annotate open the existing prompt,
+optionally prefilled by bounded percent-encoded `?text=`; Enter submits, Esc cancels.
+Custom programs require your own `[links]` entries such as
+`gh = "run gh issue view {path}"`: argv only, one argument per template, no shell.
+Bare #N remains plain; full GitHub issue/PR URLs are selectable.
+
 In focused notes, the annotate binding (`a` by default) opens a composer addressed
 to the lead, quoting the line number and a bounded excerpt. Enter sends only
 nonempty text; Esc cancels. The line shows `✎` while your request to the current

@@ -3624,6 +3624,25 @@ every escape sequence, control character and hidden bidi/format character before
 display, since notes are agent-written. `board::markdown` is a thin
 pulldown-cmark view over that sanitized text: it styles headings, lists,
 emphasis, inline code and links, and shows every other construct as its source.
+`links` classifies explicit Markdown destinations as web, GitHub issue/PR, local
+path, built-in `tmt:` or user-configured scheme. The same Markdown pass retains
+destination occurrences and wrapped display-cell ranges; unsupported constructs
+remain source text. Every admitted label uses the existing Link role and
+underline; kind and full destination appear in the footer before activation.
+Tab/Shift-Tab select links in focused notes (Tab keeps pane traversal when none);
+explicit configured bindings win. A first click selects/previews, a click on the
+selected occurrence activates, and Escape clears selection. Plain mode is inert.
+Only `tmt:jump/back/talk/answer/open/copy/annotate` are admitted. Except `back`,
+`/<member-name-or-id>` must resolve to a current row. Optional `?text=` is bounded
+percent-decoded composer text for talk/answer/annotate only. Those verbs reuse
+existing prompts/request pickers; submission revalidates sender, squad, member,
+lead or open request after refresh. Answer uses the existing public core answer
+adapter. Undefined/invalid schemes are plain and cannot dispatch.
+Only user-file `[links] scheme = "run program {path}"` grants a custom program:
+validated literal executable and one argv element per template, no shell or
+option injection. Reload replaces that authority. Existing detached spawn/reaper
+owns programs; explicit local paths use a canonical filesystem path opener route.
+Neither parsing nor paint opens files, fetches URLs or invokes commands.
 Its mapped rendering retains each painted line's notebook source line without a
 second Markdown parser. `App` keeps one notes cursor per visible/hidden squad,
 anchored to the complete sanitized source line (nearest match for duplicates,
