@@ -2,6 +2,7 @@ import { text } from './strings.js';
 
 /** Exact HTML source byte limit, owned by colab-v1 Resource bounds. */
 export const MAX_RENDER_SOURCE_BYTES = 2 * 1024 * 1024;
+export const MAX_SELECTION_BYTES = 16 * 1024;
 export type RenderState = 'ready' | 'navigation' | 'failed';
 export interface RenderSnapshot {
   readonly renderId: string;
@@ -31,6 +32,7 @@ export async function mountRenderer(
   options: {
     signal: AbortSignal;
     onState(state: RenderState): void;
+    onSelection?(text: string): void;
   },
 ): Promise<{ readonly snapshot: RenderSnapshot; destroy(): void }> {
   const snapshot = await captureRender(source);
@@ -42,7 +44,8 @@ export async function mountRenderer(
   frame.dataset.renderId = snapshot.renderId;
   frame.dataset.sourceDigest = snapshot.sourceDigest;
   let stopped = false,
-    loads = 0;
+    loads = 0,
+    ready = false;
   const channel = new MessageChannel();
   const destroy = () => {
     if (stopped) return;
@@ -54,6 +57,7 @@ export async function mountRenderer(
     channel.port1.close();
     channel.port2.close();
     frame.remove();
+    options.onSelection?.('');
   };
   const stop = (state: RenderState) => {
     destroy();
@@ -65,13 +69,27 @@ export async function mountRenderer(
     if (!data || typeof data !== 'object' || Array.isArray(data)) return;
     const value = data as Record<string, unknown>;
     if (
+      ready &&
+      Object.keys(value).length === 3 &&
+      value.type === 'colab.render.selection' &&
+      value.renderId === snapshot.renderId &&
+      typeof value.text === 'string' &&
+      value.text.length <= MAX_SELECTION_BYTES &&
+      new TextEncoder().encode(value.text).length <= MAX_SELECTION_BYTES
+    ) {
+      // Text is untrusted: only a later parent click can create a preview.
+      options.onSelection?.(value.text);
+      return;
+    }
+    if (
+      ready ||
       Object.keys(value).length !== 2 ||
       value.type !== 'colab.render.bound' ||
       value.renderId !== snapshot.renderId
     )
       return;
     clearTimeout(deadline);
-    window.removeEventListener('message', bound);
+    ready = true;
     options.onState('ready');
   };
   // No port inbound commands are implemented in this slice; unknown traffic has no effects.

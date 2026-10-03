@@ -24,6 +24,7 @@ export interface RemoteSdk {
   certifyKey(purpose: 'sign' | 'enc', publicKey: Uint8Array): Promise<CertifiedKey>;
 }
 export interface Registration {
+  remoteSession?: unknown;
   deviceId: string;
   keys: DeviceKeys;
   chain: certificate.Chain;
@@ -62,7 +63,7 @@ export async function jsonResponse(response: Response, cap: number) {
 /** Remote alone pairs/reopens sessions. GET session is the Colab-owned echo
  * endpoint, not permission to inspect the Remote SDK's persistence schema. */
 export async function register(mount: URL, sdk: RemoteSdk): Promise<Registration> {
-  await sdk.reopenSession();
+  const remoteSession = await sdk.reopenSession();
   const session = await jsonResponse(
     await fetch(new URL('api/session', mount), { signal: AbortSignal.timeout(10_000) }),
     8192,
@@ -109,7 +110,7 @@ export async function register(mount: URL, sdk: RemoteSdk): Promise<Registration
       equal(c.signingKey, keys.signPublic) &&
       equal(c.encryptionKey, keys.enc.publicKey()),
   );
-  return { deviceId, keys, chain, issuer };
+  return { deviceId, keys, chain, issuer, remoteSession };
 }
 /** Call only with the root bound to the selected space, before trusting registration. */
 export async function verifyRegistration(value: Registration, space: string, owner: Uint8Array) {

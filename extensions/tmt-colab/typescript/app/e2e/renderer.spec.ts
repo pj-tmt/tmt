@@ -43,6 +43,13 @@ async function mount(page: Page, source: string) {
         onState: (state: string) => {
           host.dataset.state = state;
         },
+        onSelection: (text: string) => {
+          host.dataset.selection = text;
+          host.dataset.selections = JSON.stringify([
+            ...(JSON.parse(host.dataset.selections ?? '[]') as string[]),
+            text,
+          ]);
+        },
       });
       // Test-owned handles never exist in the production entry point.
       Object.assign(window, { probe: { handle, controller } });
@@ -344,4 +351,55 @@ test('renderer bootstrap ignores sibling and later messages; only the parent ini
   await target.evaluate(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
   await expect(page.frameLocator('#target').getByText('Parent source')).toBeVisible();
   await expect(page.frameLocator('#target').getByText('Later source')).toHaveCount(0);
+});
+
+test('selection admits bounded text from the current frame, rejects foreign and stale render IDs, and clears on teardown', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const captured = await mount(page, '<p id="quote">An exact selected quote</p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const frame = page.frames().find((frame) => frame.url().endsWith('/renderer.html'))!;
+  await frame.evaluate(() => {
+    const range = document.createRange();
+    range.selectNodeContents(document.getElementById('quote')!);
+    getSelection()!.removeAllRanges();
+    getSelection()!.addRange(range);
+  });
+  await expect(page.locator('#probe')).toHaveAttribute('data-selection', 'An exact selected quote');
+  // Same-shape wrong-window traffic is ordered before an explicit barrier.
+  await page.evaluate(async (renderId) => {
+    const sibling = document.createElement('iframe');
+    const received = new Promise<void>((resolve) => {
+      const listener = (event: MessageEvent) => {
+        if (event.source !== sibling.contentWindow) return;
+        window.removeEventListener('message', listener);
+        resolve();
+      };
+      window.addEventListener('message', listener);
+    });
+    sibling.srcdoc = `<script>parent.postMessage({type:'colab.render.selection',renderId:${JSON.stringify(renderId)},text:'foreign'},'*')</script>`;
+    document.body.append(sibling);
+    await received;
+    sibling.remove();
+  }, captured.renderId);
+  await expect(page.locator('#probe')).toHaveAttribute('data-selection', 'An exact selected quote');
+  await frame.evaluate(async (renderId) => {
+    parent.postMessage({ type: 'colab.render.selection', renderId: 'stale', text: 'stale' }, '*');
+    parent.postMessage({ type: 'colab.render.selection', renderId, text: 'é'.repeat(8193) }, '*');
+    // The parent receives all three messages in order; valid final text proves
+    // the channel remains live after both rejected inputs.
+    parent.postMessage({ type: 'colab.render.selection', renderId, text: 'barrier' }, '*');
+  }, captured.renderId);
+  await expect(page.locator('#probe')).toHaveAttribute('data-selection', 'barrier');
+  expect(JSON.parse((await page.locator('#probe').getAttribute('data-selections'))!)).toEqual([
+    'An exact selected quote',
+    'barrier',
+  ]);
+  await page.evaluate(() => {
+    const probe = (window as unknown as { probe: { controller: AbortController } }).probe;
+    probe.controller.abort();
+  });
+  await expect(page.locator('#probe iframe')).toHaveCount(0);
+  await expect(page.locator('#probe')).toHaveAttribute('data-selection', '');
 });

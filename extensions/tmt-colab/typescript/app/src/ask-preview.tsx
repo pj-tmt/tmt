@@ -1,13 +1,31 @@
 import { useEffect, useRef, useState } from 'react';
-import { AskAttempt, type AskState } from './ask-attempt.js';
+import type { LedgerState } from './ask-records.js';
+import type { FrozenAsk } from './ask-intent.js';
+
+/** UI-facing explicit action. Browser fixture facades and the live controller
+ * expose the same view without moving persistence or Remote policy into React. */
+export interface PreviewAttempt {
+  readonly preview: FrozenAsk;
+  readonly available: boolean;
+  readonly state: Readonly<{ state: LedgerState | 'preview' | 'preparing' }>;
+  send(): Promise<Readonly<{ state: LedgerState | 'preview' | 'preparing' }>>;
+}
 import { escapedPreview } from './ask-intent.js';
 import { text } from './strings.js';
 
 /** Trusted parent component. The caller supplies an already-admitted, frozen
- * selection; it is not connected to renderer messages, sync or production sends. */
-export function AskPreview({ attempt, close }: { attempt: AskAttempt; close(): void }) {
-  const [state, setState] = useState<Readonly<AskState>>(attempt.state);
-  const current = useRef<AskAttempt | null>(attempt);
+ * selection. The renderer never receives this component or its signing handle. */
+export function AskPreview({
+  attempt,
+  close,
+  blocked = false,
+}: {
+  attempt: PreviewAttempt;
+  close(): void;
+  blocked?: boolean;
+}) {
+  const [state, setState] = useState(attempt.state);
+  const current = useRef<PreviewAttempt | null>(attempt);
   useEffect(() => {
     current.current = attempt;
     setState(attempt.state);
@@ -15,9 +33,24 @@ export function AskPreview({ attempt, close }: { attempt: AskAttempt; close(): v
       current.current = null;
     };
   }, [attempt]);
+  const [expired, setExpired] = useState(false);
+  useEffect(() => {
+    const expiresAt = Math.min(
+      attempt.preview.expiresAt,
+      attempt.preview.view.grantExpiresAt ?? Infinity,
+    );
+    const remaining = expiresAt - Date.now();
+    setExpired(remaining <= 0);
+    const timer = setTimeout(() => setExpired(true), Math.max(0, remaining));
+    return () => clearTimeout(timer);
+  }, [attempt]);
   const view = attempt.preview.view;
+  const offline = blocked || view.online === 'offline';
   const outcome = {
     preparing: text.askPreparing,
+    dispatching: text.askDispatching,
+    expired: text.askExpiredState,
+    abandoned: text.askAbandoned,
     failed: text.askFailed,
     held: text.askHeld,
     accepted: text.askAccepted,
@@ -32,7 +65,12 @@ export function AskPreview({ attempt, close }: { attempt: AskAttempt; close(): v
     if (current.current === attempt) setState(next);
   }
   return (
-    <section className="ask-preview" aria-label={text.askPreview}>
+    <section
+      className="ask-preview"
+      aria-label={text.askPreview}
+      data-testid="ask-preview"
+      data-operation-id={view.operationId}
+    >
       <h2>{text.askPreview}</h2>
       <dl>
         <dt>{text.askMachine}</dt>
@@ -43,26 +81,31 @@ export function AskPreview({ attempt, close }: { attempt: AskAttempt; close(): v
         </dd>
         <dt>{text.askAgent}</dt>
         <dd>
-          {view.agentName} · {text[view.delivery ?? 'deliveryUnknown']}
+          {view.agentName}
           <br />
           <code>{view.agent}</code>
         </dd>
       </dl>
       <p>{text.askVisible}</p>
       {view.mode === 'hold' && <p>{text.askHold}</p>}
-      <pre aria-label={text.askMessage}>{view.message}</pre>
+      <pre aria-label={text.askMessage} data-testid="ask-preview-text">
+        {view.deliveredMessage}
+      </pre>
       <details>
         <summary>{text.askEscaped}</summary>
-        <pre>{escapedPreview(attempt.preview.finalBytes())}</pre>
+        <pre>{escapedPreview(attempt.preview.deliveredBytes())}</pre>
       </details>
-      <p className="isolation-note">{text.askAdaptation}</p>
+      {view.message.includes('!') && <p className="isolation-note">{text.askAdaptation}</p>}
+      {offline && <p role="status">{text.askOffline}</p>}
+      {expired && <p role="status">{text.askExpired}</p>}
       {!attempt.available && <p role="status">{text.askUnavailable}</p>}
       {state.state !== 'preview' && <p role="status">{outcome[state.state]}</p>}
       <div className="ask-actions">
         <button
-          disabled={!attempt.available || state.state !== 'preview'}
+          data-testid="ask-send"
+          disabled={!attempt.available || offline || expired || state.state !== 'preview'}
           onClick={(event) => {
-            if (event.isTrusted) void send();
+            if (event.isTrusted && !offline && !expired) void send();
           }}
         >
           {text.askSend}

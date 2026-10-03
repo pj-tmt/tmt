@@ -16,16 +16,23 @@ test('trusted preview is inert, shows exact frozen/control bytes, and only an ex
   page,
 }) => {
   await page.goto('/');
-  await mount(page, { delivery: 'channel' });
-  await expect(page.getByText('Channel ready', { exact: false })).toBeVisible();
+  await mount(page, {});
+  await expect(page.getByText('Delivery status unavailable', { exact: false })).toHaveCount(0);
   await expect(
     page.getByText('Your ask and the agent’s reply are visible', { exact: false }),
+  ).toBeVisible();
+  await expect(page.getByText('Approval policy unavailable.')).toHaveCount(0);
+  await expect(
+    page.getByText(
+      "Terminal delivery may escape '!' characters; the agent still receives the exact text above.",
+    ),
   ).toBeVisible();
   const initial = await proof(page);
   expect(initial.sends).toEqual([]);
   expect(initial.draft).toBeUndefined();
-  expect(await page.getByLabel('Exact message').textContent()).toBe(initial.message);
+  expect(await page.getByLabel('Exact message').textContent()).toBe(initial.deliveredMessage);
   expect(initial.message).not.toContain('#secret');
+  expect(initial.deliveredMessage).toBe(`[remote: Fixture browser]\n${initial.message}`);
   expect(await page.locator('#ask-fixture script').count()).toBe(0);
   await page.getByText('Show hidden characters').click();
   await expect(page.locator('#ask-fixture details pre')).toContainText(
@@ -41,7 +48,7 @@ test('trusted preview is inert, shows exact frozen/control bytes, and only an ex
   });
   expect((await proof(page)).draft).toBeUndefined();
   await page.evaluate(async (path) => (await import(path)).editLive(), fixture);
-  expect(await page.getByLabel('Exact message').textContent()).toBe(initial.message);
+  expect(await page.getByLabel('Exact message').textContent()).toBe(initial.deliveredMessage);
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('status')).toHaveText('Accepted; awaiting the agent’s reply.');
   const final = await proof(page);
@@ -72,12 +79,12 @@ test('trusted preview is inert, shows exact frozen/control bytes, and only an ex
   await expect(page.getByRole('region', { name: 'Ask agent — preview' })).toHaveCount(0);
 });
 
-test('a persisted draft survives reload without dispatch; explicit adoption cannot resend it', async ({
+test('test-persisted own records survive reload without dispatch; explicit adoption cannot resend it', async ({
   page,
 }) => {
   await page.goto('/');
-  await mount(page, { delivery: 'paste' });
-  await expect(page.getByText('Paste only', { exact: false })).toBeVisible();
+  await mount(page, {});
+  await expect(page.getByText('Delivery status unavailable', { exact: false })).toHaveCount(0);
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('Accepted');
   const first = await proof(page);
@@ -85,12 +92,11 @@ test('a persisted draft survives reload without dispatch; explicit adoption cann
   await mount(page, {
     operationId: first.operationId,
     issuedAt: first.issuedAt,
-    delivery: 'paste',
   });
   expect((await proof(page)).sends).toEqual([]);
   expect((await proof(page)).draft).toEqual(first.draft);
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Delivery is uncertain');
+  await expect(page.getByRole('status')).toContainText('Accepted');
   expect((await proof(page)).sends).toEqual([]);
 });
 
@@ -98,16 +104,10 @@ test('status is remote-supplied, hold is explicit, and absent runtime never sign
   page,
 }) => {
   await page.goto('/');
-  for (const [delivery, label] of [
-    ['not_ready', 'Not ready'],
-    ['not_running', 'Not running'],
-    [undefined, 'Delivery status unavailable'],
-  ] as const) {
-    await mount(page, { delivery, unavailable: true });
-    await expect(page.getByText(label, { exact: false })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
-    expect((await proof(page)).draft).toBeUndefined();
-  }
+  await mount(page, { unavailable: true });
+  await expect(page.getByText('Delivery status unavailable', { exact: false })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  expect((await proof(page)).draft).toBeUndefined();
   await mount(page, { hold: true, mode: 'held' });
   await expect(page.getByText('This send waits for approval on your machine.')).toBeVisible();
   await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -134,12 +134,12 @@ test('two tabs adopting one frozen operation have only one send winner', async (
       other.getByRole('button', { name: 'Send', exact: true }).click(),
     ]);
     await Promise.all([
-      expect(page.getByRole('status')).toContainText(/Accepted|uncertain/),
-      expect(other.getByRole('status')).toContainText(/Accepted|uncertain/),
+      expect(page.getByRole('status')).toContainText(/Accepted/),
+      expect(other.getByRole('status')).toContainText(/Accepted/),
     ]);
     const [a, b] = await Promise.all([proof(page), proof(other)]);
     expect(a.sends.length + b.sends.length).toBe(1);
-    expect([a.state, b.state].sort()).toEqual(['accepted', 'uncertain']);
+    expect([a.state, b.state].sort()).toEqual(['accepted', 'accepted']);
     expect(a.draft).toEqual(b.draft);
   } finally {
     await other.close();

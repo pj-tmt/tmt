@@ -342,3 +342,90 @@ footer {
   cursor: default;
   opacity: 0.6;
 }
+
+.ask-control {
+  margin-bottom: 16px;
+}
+.ask-control > .isolation-note {
+  display: inline-block;
+  margin: 0 0 0 16px;
+}
+.ask-compose,
+.ask-panel {
+  padding: 20px;
+  margin: 16px 0;
+  background: var(--c-sheet);
+  border: 1px solid var(--c-text);
+}
+.ask-compose h2,
+.ask-panel h2 {
+  margin-top: 0;
+  font-size: 18px;
+}
+.ask-compose blockquote,
+.ask-panel pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+}
+.ask-compose blockquote {
+  margin: 16px 0;
+  padding-left: 16px;
+  border-left: 3px solid var(--c-accent);
+}
+.ask-compose textarea {
+  display: block;
+  width: 100%;
+  min-height: 80px;
+  padding: 12px;
+  margin: 8px 0 16px;
+  background: var(--c-paper);
+  color: var(--c-text);
+  border: 1px solid var(--c-text);
+}
+.ask-agent-option {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.ask-agent-option small {
+  display: block;
+  color: var(--c-muted);
+  font: 11px/1.65 var(--f-mono);
+}
+.ask-panel article {
+  border-top: 1px solid var(--c-rule);
+  padding-top: 16px;
+  margin-top: 20px;
+}
+.ask-panel pre {
+  font: 12px/1.65 var(--f-mono);
+}
+.ask-control button:disabled,
+.ask-panel button:disabled {
+  cursor: default;
+  opacity: 0.6;
+  box-shadow: none;
+}
+
+.ask-preview code {
+  font-size: 11px;
+  color: var(--c-muted);
+}
+.ask-identities {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 16px;
+  font: 11px/1.65 var(--f-mono);
+  overflow-wrap: anywhere;
+}
+.ask-identities dd {
+  margin: 0;
+}
+.ask-panel h4 small {
+  display: block;
+  margin: 8px 0;
+  font-weight: normal;
+}

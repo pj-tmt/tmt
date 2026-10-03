@@ -32,7 +32,18 @@
           // No effectful commands exist on this port. Page scripts may forge the
           // acknowledgement; it grants no app authority or selection truth.
           event.ports[0].onmessage = () => {};
-          const acknowledgement = `<script>addEventListener('load',()=>parent.postMessage({type:'colab.render.bound',renderId:${JSON.stringify(value.renderId)}},'*'),{once:true})<\/script>`;
+          const acknowledgement = `<script>(()=>{
+            const renderId=${JSON.stringify(value.renderId)};
+            addEventListener('load',()=>{
+              parent.postMessage({type:'colab.render.bound',renderId},'*');
+              document.addEventListener('selectionchange',()=>{
+                const text=String(getSelection()??'');
+                if(text.length<=16*1024&&new TextEncoder().encode(text).length<=16*1024)
+                  parent.postMessage({type:'colab.render.selection',renderId,text},'*');
+                else parent.postMessage({type:'colab.render.selection',renderId,text:''},'*');
+              });
+            },{once:true});
+          })()<\/script>`;
           // document.open/write retains this document's response policy. The
           // trusted acknowledgement precedes author HTML; scripts run normally.
           document.open();
