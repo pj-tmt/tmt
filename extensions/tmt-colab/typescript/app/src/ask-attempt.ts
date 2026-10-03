@@ -3,11 +3,13 @@ import { FrozenAsk, type AdmittedSelection, type AskDestination } from './ask-in
 import {
   refusalReason,
   SessionEndedError,
+  ReadRefusedError,
   sessionEndedReason,
   type RemoteClient,
   type RemoteAgent,
   type RemoteContext,
   type ResultState,
+  type SendState,
 } from './ask-remote.js';
 import { AskRecordStore } from './ask-record-store.js';
 import { ASK_MESSAGE_BYTES, ASK_REPLY_BYTES, type AskLedgerView } from './ask-records.js';
@@ -188,19 +190,34 @@ export class AskController {
       if (view.state !== 'accepted') {
         if (view.state === 'dispatching')
           view = await store.state(id, 'uncertain', null, 'OBSERVATION_INTERRUPTED');
-        const state = await remote.operation(id);
+        let state: SendState;
+        try {
+          state = await remote.operation(id);
+        } catch (error) {
+          if (error instanceof SessionEndedError) {
+            if (error.code === 'REMOTE_SEQUENCE_UNAVAILABLE')
+              await store.state(id, 'uncertain', view.requestId, error.code);
+            this.#endSession();
+          }
+          throw error;
+        }
+        if (state.state === 'refused') {
+          if (state.reason === 'REMOTE_SESSION_ENDED') {
+            this.#endSession();
+            throw new SessionEndedError('REMOTE_SESSION_ENDED');
+          }
+          throw new ReadRefusedError(refusalReason(state.reason));
+        }
         requireValue(state.operationId === id);
         view = await store.state(
           id,
           state.state,
           state.state === 'accepted' ? state.requestId : null,
-          state.state === 'refused'
-            ? refusalReason(state.reason)
-            : state.state === 'cancelled'
-              ? 'REMOTE_CANCELLED'
-              : state.state === 'uncertain'
-                ? (state.reason ?? null)
-                : null,
+          state.state === 'cancelled'
+            ? 'REMOTE_CANCELLED'
+            : state.state === 'uncertain'
+              ? (state.reason ?? (view.state === 'dispatching' ? 'OBSERVATION_INTERRUPTED' : null))
+              : null,
         );
         if (state.state === 'uncertain' && sessionEndedReason(state.reason)) {
           this.#endSession();

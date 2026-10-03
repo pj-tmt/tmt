@@ -1124,12 +1124,16 @@ decimal strings, ordered numerically. `requestId` and `reason` are explicitly
 null when absent. Reasons are bounded sanitized codes, never raw transport
 errors. Verified pre-effect Remote refusals preserve `REMOTE_SCOPE_DENIED`,
 `REMOTE_INPUT_INVALID`, `REMOTE_RATE_LIMITED`, `REMOTE_INTENT_CONFLICT`,
-`REMOTE_CLOSED` or `REMOTE_SESSION_ENDED`; unknown refusal codes become
+`REMOTE_CLOSED`, `REMOTE_SESSION_ENDED`, `REMOTE_INPUT_TOO_LARGE`,
+`REMOTE_STATE_UNAVAILABLE` or `REMOTE_CORE_UNAVAILABLE`; unknown refusal codes become
 `REMOTE_REFUSED`. A session-end refusal or a typed SDK `sequence_unavailable` outcome becomes
 uncertain (`REMOTE_SESSION_ENDED` or `REMOTE_SEQUENCE_UNAVAILABLE`) and signals
 Registration to reconnect. The adapter never reopens. A session-ending result
 read leaves the existing accepted record unchanged and stops observation until
-reconnect. A fresh preview is required for later Send. Unknown-effect errors
+reconnect. Every refused operation/result read leaves the ledger unchanged;
+missing operations do not prove absence. Transient state/core-unavailable refusals
+continue bounded backoff. Read refusal copy is ephemeral, never an own-state
+transition. A fresh preview is required for later Send. Unknown-effect errors
 remain uncertain. SDK error handling branches only on the exported class and
 reviewed code, never text or an unverified error-shaped object. Records are immutable under
 the parent-owned publication API.

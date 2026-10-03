@@ -24,6 +24,9 @@ export const REMOTE_REFUSAL_CODES = [
   'REMOTE_INTENT_CONFLICT',
   'REMOTE_CLOSED',
   'REMOTE_SESSION_ENDED',
+  'REMOTE_INPUT_TOO_LARGE',
+  'REMOTE_STATE_UNAVAILABLE',
+  'REMOTE_CORE_UNAVAILABLE',
 ] as const;
 export type RemoteRefusalCode = (typeof REMOTE_REFUSAL_CODES)[number];
 export type SessionEndCode = 'REMOTE_SESSION_ENDED' | 'REMOTE_SEQUENCE_UNAVAILABLE';
@@ -38,10 +41,16 @@ export class SessionEndedError extends Error {
   }
 }
 type SdkError = abstract new (...args: never[]) => Error & { code: string };
-export function refusalReason(reason: string | undefined): string {
+export function refusalReason(reason: string | undefined): RemoteRefusalCode | 'REMOTE_REFUSED' {
   return reason !== undefined && (REMOTE_REFUSAL_CODES as readonly string[]).includes(reason)
-    ? reason
+    ? (reason as RemoteRefusalCode)
     : 'REMOTE_REFUSED';
+}
+/** Verified read refusals are transient observations, never new ledger states. */
+export class ReadRefusedError extends Error {
+  constructor(readonly code: RemoteRefusalCode | 'REMOTE_REFUSED') {
+    super(code);
+  }
 }
 export type ResultState =
   | { state: 'pending'; requestId: string }
@@ -140,6 +149,8 @@ export async function createRemoteClient(
     } catch (error) {
       const code = sessionFault(error);
       if (code) throw new SessionEndedError(code);
+      if (sdk.RefusalError && error instanceof sdk.RefusalError)
+        throw new ReadRefusedError(refusalReason(error.code));
       throw error;
     }
   };
@@ -203,8 +214,9 @@ export async function createRemoteClient(
     operation: async (id) => {
       generatedId(id);
       try {
-        return normalize(await ops.operation(id), id);
+        return state(await observe(() => ops.operation(id)), id);
       } catch (error) {
+        if (error instanceof SessionEndedError || error instanceof ReadRefusedError) throw error;
         return { state: 'uncertain', operationId: id, reason: sessionFault(error) };
       }
     },

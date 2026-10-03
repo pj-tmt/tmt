@@ -5,7 +5,7 @@ import { AskController } from '../src/ask-attempt.js';
 import { AskRecordStore } from '../src/ask-record-store.js';
 import { readAskViews, type AskLedgerView } from '../src/ask-records.js';
 import { FrozenAsk } from '../src/ask-intent.js';
-import { createRemoteClient, SessionEndedError } from '../src/ask-remote.js';
+import { createRemoteClient, SessionEndedError, ReadRefusedError } from '../src/ask-remote.js';
 import type { OwnState } from '../src/fold-protocol.js';
 import { destination, id, RemoteDouble, selection } from './ask-fixtures.js';
 const draft = new Map<string, unknown>();
@@ -412,4 +412,58 @@ it('mis-correlated effects stay uncertain; held reads do not grow the ledger or 
     }
     expect(remote.sends).toHaveLength(1);
   }
+});
+
+it('interrupted sends become uncertain, then refused reads preserve that record and later reads can recover', async () => {
+  for (const state of ['dispatching', 'uncertain'] as const) {
+    const { store, remote, key, own } = await setup();
+    const frozen = FrozenAsk.capture(selection(), destination());
+    await store.adopt(await frozen.signed(key));
+    await store.state(frozen.view.operationId, state);
+    const controller = new AskController({ store, remote, key, selection });
+    const before = structuredClone(own);
+    remote.operation = async (operationId) => ({
+      state: 'refused',
+      operationId,
+      reason: 'REMOTE_STATE_UNAVAILABLE',
+    });
+    await expect(controller.recover(frozen.view.operationId)).rejects.toBeInstanceOf(
+      ReadRefusedError,
+    );
+    if (state === 'uncertain') expect(own).toEqual(before);
+    else {
+      expect((await store.view(frozen.view.operationId)).state).toBe('uncertain');
+      expect((await store.view(frozen.view.operationId)).reason).toBe('OBSERVATION_INTERRUPTED');
+    }
+    const interrupted = structuredClone(own);
+    await expect(controller.recover(frozen.view.operationId)).rejects.toBeInstanceOf(
+      ReadRefusedError,
+    );
+    expect(own).toEqual(interrupted);
+    remote.operation = async (operationId) => ({
+      state: 'accepted',
+      operationId,
+      requestId: `req_${id(8)}`,
+    });
+    expect((await controller.recover(frozen.view.operationId)).reply?.body).toBe('');
+    expect(remote.sends).toEqual([]);
+  }
+});
+
+it('transient result refusals preserve accepted state and allow the next read to publish a final', async () => {
+  const { controller, remote, own } = await setup();
+  await controller.destinations();
+  const frozen = controller.prepare(destination());
+  await controller.send(frozen);
+  const before = structuredClone(own);
+  remote.result = async () => {
+    throw new ReadRefusedError('REMOTE_CORE_UNAVAILABLE');
+  };
+  await expect(controller.recover(frozen.view.operationId)).rejects.toBeInstanceOf(
+    ReadRefusedError,
+  );
+  expect(own).toEqual(before);
+  remote.result = async (requestId) => ({ state: 'replied', requestId, message: '' });
+  expect((await controller.recover(frozen.view.operationId)).reply?.body).toBe('');
+  expect(remote.sends).toHaveLength(1);
 });
