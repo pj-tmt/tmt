@@ -23,6 +23,7 @@ interface Session {
   pane: string;
   log: string;
   status: string;
+  channel: boolean;
 }
 interface Event {
   event: string;
@@ -82,7 +83,7 @@ function start(
     .join(' ');
   f.tmux(['send-keys', '-t', pane, '-l', `${command}; printf '%s' "$?" > ${quote(status)}`]);
   f.tmux(['send-keys', '-t', pane, 'Enter']);
-  return { pane, log, status };
+  return { pane, log, status, channel: channel === true };
 }
 function events(s: Session, name: string): Event[] {
   return fs.existsSync(s.log)
@@ -107,6 +108,23 @@ async function ready(f: E2EFixture, s: Session) {
     if (Date.now() >= deadline)
       throw new Error(`Foreground not admitted: ${result.stdout}${result.stderr}`);
     await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  if (s.channel) {
+    const foreground = events(s, 'started')[0].pid;
+    expect(foreground).toBeGreaterThan(0);
+    // Running admits the foreground; channel Ready is published afterwards.
+    // Match this launch so another ready session cannot satisfy the gate.
+    await f.waitFor(
+      () =>
+        records(f).some(
+          ({ record }) =>
+            record.foreground.state === 'known' &&
+            record.foreground.process?.pid === foreground &&
+            !!record.ready?.thread
+        ),
+      Math.max(0, deadline - Date.now()),
+      'channel Ready published for the admitted foreground'
+    );
   }
 }
 async function quit(s: Session) {
