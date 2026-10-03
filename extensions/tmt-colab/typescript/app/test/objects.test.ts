@@ -40,7 +40,11 @@ it('verifies scope/signature/hash and chain continuity; exact replay applies not
     objects = new Objects(f.admission),
     one = await f.seal(),
     row = await f.entry(one);
-  expect(await objects.admit(f.context.authorDevice, row)).toEqual(new Uint8Array([1, 2]));
+  expect(await objects.admit(f.context.authorDevice, row)).toEqual({
+    namespace: 'content',
+    writer: f.context.authorDevice,
+    update: new Uint8Array([1, 2]),
+  });
   expect(await objects.admit(f.context.authorDevice, row)).toBeNull();
   await expect(
     objects.admit(f.context.authorDevice, {
@@ -51,9 +55,11 @@ it('verifies scope/signature/hash and chain continuity; exact replay applies not
   const wrong = await f.seal({ ...f.context, streamSeq: '2', prevHash: new Uint8Array(32) });
   await expect(objects.admit(f.context.authorDevice, await f.entry(wrong))).rejects.toThrow();
   const two = await f.seal({ ...f.context, streamSeq: '2', prevHash: await one.hash() });
-  expect(await objects.admit(f.context.authorDevice, await f.entry(two))).toEqual(
-    new Uint8Array([1, 2]),
-  );
+  expect(await objects.admit(f.context.authorDevice, await f.entry(two))).toEqual({
+    namespace: 'content',
+    writer: f.context.authorDevice,
+    update: new Uint8Array([1, 2]),
+  });
   const conflict = await f.seal(
     { ...f.context, streamSeq: '2', prevHash: await one.hash() },
     new Uint8Array([3]),
@@ -66,14 +72,22 @@ it('verifies scope/signature/hash and chain continuity; exact replay applies not
     new Objects(f.admission).admit(f.context.authorDevice, await f.entry(envelope)),
   ).rejects.toThrow();
 });
-it('authenticates own ciphertext without decoding, and rejects author substitution and gaps', async () => {
+it('opens own ciphertext only after admission, and rejects author substitution and gaps', async () => {
   const f = await fixture(),
     objects = new Objects(f.admission);
   const gap = await f.seal({ ...f.context, streamSeq: '3' });
   await expect(objects.admit(f.context.authorDevice, await f.entry(gap))).rejects.toThrow();
   const own = await f.seal({ ...f.context, namespace: 'own' });
-  f.admission.root = null; // Own continuity needs no content key or decryption.
-  expect(await objects.admit(f.context.authorDevice, await f.entry(own))).toBeNull();
+  const root = f.admission.root;
+  f.admission.root = null;
+  await expect(objects.admit(f.context.authorDevice, await f.entry(own))).rejects.toThrow();
+  expect(objects.head(f.context.authorDevice).seq).toBe(0n);
+  f.admission.root = root;
+  expect(await objects.admit(f.context.authorDevice, await f.entry(own))).toEqual({
+    namespace: 'own',
+    writer: f.context.authorDevice,
+    update: new Uint8Array([1, 2]),
+  });
   expect(objects.ownData).toBe(true);
   expect(objects.head(f.context.authorDevice).seq).toBe(1n);
   await expect(
@@ -161,10 +175,14 @@ it('paired checkpoints bind one prefix and preserve the cross-namespace tail cha
   });
   expect(
     await objects.admit(f.context.authorDevice, await f.entry(cp), 'checkpoint', 'content'),
-  ).toEqual(new Uint8Array([1, 2]));
+  ).toEqual({
+    namespace: 'content',
+    writer: f.context.authorDevice,
+    update: new Uint8Array([1, 2]),
+  });
   expect(
     await objects.admit(f.context.authorDevice, await f.entry(own), 'checkpoint', 'own'),
-  ).toBeNull();
+  ).toEqual({ namespace: 'own', writer: f.context.authorDevice, update: new Uint8Array([1, 2]) });
   expect(objects.head(f.context.authorDevice).hash).toEqual(prefix);
   const tailOwn = await f.seal({
     ...f.context,
@@ -177,10 +195,16 @@ it('paired checkpoints bind one prefix and preserve the cross-namespace tail cha
     streamSeq: '6',
     prevHash: await tailOwn.hash(),
   });
-  expect(await objects.admit(f.context.authorDevice, await f.entry(tailOwn))).toBeNull();
-  expect(await objects.admit(f.context.authorDevice, await f.entry(tailContent))).toEqual(
-    new Uint8Array([1, 2]),
-  );
+  expect(await objects.admit(f.context.authorDevice, await f.entry(tailOwn))).toEqual({
+    namespace: 'own',
+    writer: f.context.authorDevice,
+    update: new Uint8Array([1, 2]),
+  });
+  expect(await objects.admit(f.context.authorDevice, await f.entry(tailContent))).toEqual({
+    namespace: 'content',
+    writer: f.context.authorDevice,
+    update: new Uint8Array([1, 2]),
+  });
   expect(objects.cursors().map((x) => [x.namespace, x.seq])).toEqual([
     ['content', '6'],
     ['own', '5'],

@@ -11,7 +11,7 @@ import {
 import type { Admission } from './admission.js';
 import { Catchup } from './catchup.js';
 import { Fold } from './fold.js';
-import type { Projection } from './fold-protocol.js';
+import type { AdmittedUpdate, Projection } from './fold-protocol.js';
 import type { PageView } from './transport.js';
 import { Frames } from './frames.js';
 import { Objects, position, UPDATE_ENVELOPE_BYTES, type ObjectEntry } from './objects.js';
@@ -29,7 +29,7 @@ export class Connection {
   #tasks = Promise.resolve();
   #queued = 0;
   #complete = false;
-  #projection: Projection = { source: '', title: '' };
+  #projection: PageView = { source: '', title: '' };
   #stopped = false;
   #receipts = new Map<
     string,
@@ -124,9 +124,17 @@ export class Connection {
     requireValue(text(raw).length <= 64 * 1024 && this.#socket.bufferedAmount <= 1024 * 1024);
     this.#socket.send(raw);
   }
-  #emit(projection: Projection) {
+  #emit(projection: PageView) {
     this.#projection = projection;
     this.publish({ ...projection, ownData: this.objects.ownData });
+  }
+  #batch(values: AdmittedUpdate[]) {
+    return {
+      updates: values.filter((v) => v.namespace === 'content').map((v) => v.update),
+      own: values
+        .filter((v) => v.namespace === 'own')
+        .map(({ writer, update }) => ({ writer, update })),
+    };
   }
   async #apply(stream: string, entry: ObjectEntry) {
     const update = await this.objects.admit(stream, entry);
@@ -135,10 +143,10 @@ export class Connection {
       return;
     }
     try {
-      const projection = await this.fold.run({ type: 'apply', updates: [update] });
+      const projection = await this.fold.run({ type: 'apply', ...this.#batch([update]) });
       if (!this.#stopped) this.#emit(projection);
     } finally {
-      update.fill(0);
+      update.update.fill(0);
     }
   }
   async #receive(frame: Record<string, unknown>) {
@@ -177,8 +185,12 @@ export class Connection {
           requireValue(result.source === baseline.source && result.title === baseline.title);
         }
         for (const update of this.#catchup.checkpoints)
-          await this.fold.run({ type: 'checkpoint', update });
-        const projection = await this.fold.run({ type: 'apply', updates });
+          await this.fold.run({
+            type: 'checkpoint',
+            update: update.update,
+            writer: update.namespace === 'own' ? update.writer : undefined,
+          });
+        const projection = await this.fold.run({ type: 'apply', ...this.#batch(updates) });
         requireValue(!this.#stopped);
         this.#complete = true;
         clearTimeout(this.#timer);
@@ -187,9 +199,9 @@ export class Connection {
       } finally {
         this.#catchup.baseline?.update.fill(0);
         this.#catchup.baseline = null;
-        this.#catchup.checkpoints.forEach((v) => v.fill(0));
+        this.#catchup.checkpoints.forEach((v) => v.update.fill(0));
         this.#catchup.checkpoints = [];
-        updates.forEach((v) => v.fill(0));
+        updates.forEach((v) => v.update.fill(0));
         this.#catchup.updates = [];
       }
       return;

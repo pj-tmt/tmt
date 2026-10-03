@@ -4560,17 +4560,24 @@ cross-namespace tail. Checkpoints have the existing 4 MiB Worker state bound
 256 KiB budget. Checkpoint steps may retain unresolved dependencies until the final
 tail step verifies complete content before publication. Historical
 revoked-device material must satisfy exact owner-signed cuts, including the pinned
-checkpoint envelope and retained tail endpoints. Own objects are admitted for
-chain continuity without decryption or folding; parent chrome displays an explicit
-notice. Author policy remains the owner-browser subset; named-member, link and
-bridge admission belong to #1111/#1160, and own grammar/folding to #1110.
+checkpoint envelope and retained tail endpoints. Own objects use the same authenticated admission before decryption, carrying
+namespace and writer metadata into the single Worker. It owns a separate own document
+per verified writer and returns detached raw maps through the trusted binding;
+parent chrome retains the explicit not-displayed notice. Author policy remains the owner-browser subset; named-member, link and
+bridge admission belong to #1111/#1160, and typed own grammar/UI/effects to #1110.
 The live reader retains at most 4,096 sequence hashes. Native bootstrap delivers
 paired checkpoints before the full cross-namespace tail; signed browser fixtures
 do not establish native mounted browser E2E.
 The native socket serves the built app when its local output is available and supplies owner discovery and ACK-paced bootstrap; #1250 owns session refresh/SDK integration.
 
-The content-only Yjs decoder lives in a dedicated Worker. It accepts bounded
-plaintext/edit requests and validates exhaustive roots/types before committing a
+The content and per-writer own Yjs documents live in a single dedicated Worker.
+The Worker and parent validate own raw JSON maps and UTF-8 message bounds; both
+browser and native page folds sum the 1,000-thread limit across writers. Browser
+state (including pending fragments) and combined projection each have a 4 MiB
+aggregate bound. Candidate cloning preserves pending structs/delete sets; final
+catchup checks every document before publishing. Live failures commit no candidate.
+References and record author fields never choose a document or grant effects.
+It accepts bounded plaintext/edit requests and validates exhaustive roots/types before committing a
 candidate document. Prepared local edits and relay checks do not commit decoder
 state; only an admitted broadcast or matching durable receipt commits local bytes.
 The source UI rejects a stale editing base instead of overwriting unseen changes.

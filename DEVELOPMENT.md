@@ -3569,9 +3569,14 @@ rejection of prefix sequence/hash, namespace, body and gap substitutions. Signed
 revocation tests require exact pinned checkpoints and cut endpoints. Checkpoints
 use single-item Worker steps bounded by its 4 MiB state cap (also the aggregate
 checkpoint catchup cap); tails remain bounded to 200 updates/256 KiB. Dependency
-resolution is required at the final tail step, before any renderer publication. Own ciphertext
-is authenticated for the chain only, with an explicit parent notice; it never
-enters the decoder. The shared `checkpoint-v1.json` fixture also runs through the
+resolution is required at the final tail step, before any renderer publication. Own ciphertext is authenticated and opened before isolated per-writer folding;
+the parent notice still explains that no comments/activity UI displays it. Shared
+`own-v1.json` bytes and projection oracles run in the app Worker tests and native
+isolated child (`--test own_vectors`); the native transitions suite proves the
+page-wide 1,000-thread boundary and one-over rollback. App tests cover colliding
+writer record/client IDs, raw JSON normalization, dependency/delete-set preservation,
+late own failures, detached binding output and aggregate input/state bounds.
+The same single-Worker deadline and last-subscriber cleanup apply to both namespaces. The shared `checkpoint-v1.json` fixture also runs through the
 bounded native decoder child (`cargo test --manifest-path rust/Cargo.toml --locked
 -p tmt-colab --test checkpoint_vectors`). Native bootstrap supplies paired checkpoints, their full
 cross-namespace tail and the matching stored baseline object. Statement
