@@ -3285,7 +3285,15 @@ The grid retains geometry's logical text widths and clips for fitting; no
 arithmetic span solver or scalar `grid::fit/fit_lines` remains in the board.
 `rows::Column` still uses `grid::Basis` for cell/percent configuration, with
 cell bounds. `rows::Rows` owns prefix coverage, including empty cells; original
-span positions survive hiding. Uncovered columns remain projection sources; their JSON metadata
+span positions survive hiding. Its cells optionally carry a typed shared `Role`,
+read from `token` with strict semantic-name validation and published only when
+configured. `markup::row_values` admits that token on each cell; the board
+resolves the admitted role through Look before projected field decoration.
+Missing/empty values and failed providers without projected colors keep Dim;
+stale-row inheritance remains intact. `Look::row_span` still overrides cell
+colors and Dim for reverse selection. Team alone opts in with `waiting` on its
+pending cell; text values, geometry and CLI list styling are unchanged.
+Uncovered columns remain projection sources; their JSON metadata
 adds optional `valueOnly: true`, omitted for covered columns. `Column::display`
 ignores their sizing settings so flat text lists retain natural values. No shared
 CLI solver contract changes. Lists keep after-gap percentages, largest-remainder

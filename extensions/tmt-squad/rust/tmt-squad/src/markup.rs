@@ -184,8 +184,11 @@ pub fn row_values(
         for (at, cell) in cells.iter().enumerate() {
             let key = format!("v{line}_{at}");
             fields.insert(key.clone(), Schema::Scalar);
+            let token = cell
+                .token
+                .map_or_else(String::new, |role| format!(" token='{}'", role.name()));
             body.push_str(&format!(
-                "<tmt-cell id='column-{position}' class='col-span-{}' bind='$.{key}'/>",
+                "<tmt-cell id='column-{position}' class='col-span-{}' bind='$.{key}'{token}/>",
                 cell.span
             ));
             position += cell.span;
