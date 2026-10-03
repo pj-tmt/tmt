@@ -18,6 +18,7 @@ pub mod recovery;
 pub mod server;
 pub mod supervisor;
 pub mod transport;
+mod trust;
 
 pub use crate::runtime::hook_protocol::encode_context;
 use serde::Deserialize;

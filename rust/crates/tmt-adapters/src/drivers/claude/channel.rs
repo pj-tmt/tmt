@@ -244,11 +244,12 @@ pub struct ClaudeChannel;
 impl RuntimeChannel for ClaudeChannel {
     fn preflight(
         &self,
-        executable: &OsStr,
+        command: &RuntimeCommand,
+        _: &Path,
         directory: &Path,
         deadline: Instant,
     ) -> Result<Option<String>, ChannelError> {
-        check_provider(&UnixCommandRunner, executable, directory, deadline)
+        check_provider(&UnixCommandRunner, &command.executable, directory, deadline)
     }
 
     fn enroll(&self, plan: &ChannelPlan<'_>) -> Result<Box<dyn ChannelEnrollment>, ChannelError> {

@@ -2702,6 +2702,7 @@ dependencies = [
  "tmt-driver-protocol",
  "tmt-office-model",
  "tmt-sys",
+ "toml_edit",
  "tungstenite",
  "ureq",
  "uuid",

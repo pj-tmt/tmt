@@ -2533,12 +2533,18 @@ ownership map.
   to `CHANNEL_UNSUPPORTED` without interpreting provider names or arguments.
   `run_command::channel` owns launcher policy and stable strict errors; each
   driver classifies preflight outcomes as unavailable or informational.
+  Informational outcomes use the existing diagnostic presenter and permit
+  enrollment. The Codex adapter owns a bounded, read-only local folder-trust
+  advisory; its source coverage and limits live in
+  [`contracts/codex-channel-v1.md`](contracts/codex-channel-v1.md).
   Default failure before foreground startup can use only the original command,
   with one paste-delivery reason line, after binding authority and existing
   pane-enrollment evidence permit it. Failed-start provider cleanup retains
   evidence when unconfirmed; the launcher never recovers it to obtain fallback.
-- `tmt_adapters::runtime::channel` defines the port. `RuntimeChannel` verifies the
-  provider (`preflight`) and enrolls one launch (`enroll`) into a lease,
+- `tmt_adapters::runtime::channel` defines the port. Preflight receives the
+  selected `RuntimeCommand` and launch cwd as provider-neutral facts;
+  interpreting provider flags belongs to the adapter. `RuntimeChannel` verifies
+  the provider (`preflight`) and enrolls one launch (`enroll`) into a lease,
   `ChannelEnrollment`: the foreground command the launcher spawns verbatim, the
   provider child's environment (never ambient or persisted), optionally the
   provider session the driver created before the child starts, `foreground_started`

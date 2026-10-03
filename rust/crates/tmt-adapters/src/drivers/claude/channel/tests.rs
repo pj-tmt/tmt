@@ -1306,7 +1306,11 @@ fn preflight_accepts_the_range_and_advises_only_about_untested_builds() {
         );
     }
     let missing = ClaudeChannel.preflight(
-        scratch.0.join("absent").as_os_str(),
+        &RuntimeCommand {
+            executable: scratch.0.join("absent").into(),
+            args: Vec::new(),
+        },
+        &scratch.0,
         &scratch.0,
         Instant::now() + Duration::from_secs(5),
     );
@@ -1318,11 +1322,27 @@ fn preflight_refuses_a_directory_whose_socket_path_cannot_fit() {
     let deadline = Instant::now() + Duration::from_secs(1);
     let long = PathBuf::from(format!("/tmp/{}", "d".repeat(80)));
     assert_eq!(
-        ClaudeChannel.preflight("claude".as_ref(), &long, deadline),
+        ClaudeChannel.preflight(
+            &RuntimeCommand {
+                executable: "claude".into(),
+                args: Vec::new()
+            },
+            Path::new("/launch"),
+            &long,
+            deadline
+        ),
         Err(ChannelError::PathTooLong)
     );
     assert_eq!(
-        ClaudeChannel.preflight("claude".as_ref(), Path::new("relative"), deadline),
+        ClaudeChannel.preflight(
+            &RuntimeCommand {
+                executable: "claude".into(),
+                args: Vec::new()
+            },
+            Path::new("/launch"),
+            Path::new("relative"),
+            deadline
+        ),
         Err(ChannelError::PathTooLong)
     );
 }

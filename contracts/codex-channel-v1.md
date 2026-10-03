@@ -28,7 +28,7 @@ regardless of the advertised default and fails if unavailable. The run and
 resume CommandSpec examples include both flags so the grammar audit covers them.
 
 For Default, any reason enrollment cannot happen before channel foreground
-startup, including an unqualified build, a preflight advisory, no supported
+startup, including an unqualified build, no supported
 app-server, unsupported arguments or a failed exact resume, selects the original
 plain command and prints exactly one visible notice line saying that the session
 uses paste delivery and naming the reason:
@@ -37,6 +37,7 @@ its unqualified-build advisory as unavailable for enrollment, even if a later ha
 reports the same reasons as errors with stable codes: `CHANNEL_UNSUPPORTED` for
 an absent channel port, `CHANNEL_PROVIDER_UNSUPPORTED` for a refused build or
 qualification advisory, and `CHANNEL_UNAVAILABLE` for other enrollment failures.
+An informational preflight advisory permits enrollment and never selects fallback.
 
 Plain fallback after an enrollment attempt requires confirmed owned-endpoint
 cleanup and the existing pane-enrollment evidence to establish that no live or
@@ -65,10 +66,41 @@ the channel neither answers it nor changes trust configuration, and queued input
 may wait until the user completes attachment. Plain `codex` and global provider
 config, authentication and hooks are unchanged.
 
+Before an explicit channel launch with supported fresh-launch arguments, the
+Codex adapter may print: "Codex may ask you to trust this folder in its own
+window." This optional, read-only advisory inspects only the selected local
+`CODEX_HOME/config.toml` (default `~/.codex/config.toml`), bounded to 1 MiB. A
+relative `CODEX_HOME` resolves against the invocation cwd; the adapter interprets
+`-C`/`--cd` to select the provider cwd. It reads project trust fields without
+reading credentials, displaying config contents, creating config, or recording
+trust. Missing config stays missing.
+
+Lookup tries canonical then original cwd, followed by canonical then original
+repository root. An exact cwd entry, including one without a trust level, masks
+the root entry. Arbitrary trusted ancestors do not confer trust. Ordinary Git
+checkouts use their repository root. Linked worktrees and separate git
+directories produce no prediction unless an exact cwd entry already resolves
+trust. Unreadable, malformed, oversized or symlinked config and unsupported
+launch arguments produce no prediction.
+Trusted local evidence suppresses the note. Otherwise known local evidence may
+produce it, including an explicit untrusted entry. System, managed/MDM, cloud,
+profile and command-line configuration may override this local evidence: the
+advisory does not claim complete effective configuration resolution or that a
+prompt will appear. It does not add a prompt, start a thread/model, qualify an
+endpoint, retry attachment, change routing, or authorize paste fallback.
+
+This lookup is source-qualified for 0.159.2, 0.159.3 and 0.160.0. Their
+`config/src/project_trust.rs` and `git-utils/src/trust.rs` are identical at the
+release commits
+[`01fc69f`](https://github.com/openai/codex/blob/01fc69f4026735edfdf6789820549727a4867b11/codex-rs/config/src/project_trust.rs),
+[`ff6aec9`](https://github.com/openai/codex/blob/ff6aec96948b70d94983af2641a6b67c94faeff5/codex-rs/config/src/project_trust.rs),
+and [`a956835`](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/config/src/project_trust.rs).
+This source qualification is separate from live channel qualification.
+
 Acceptance covers plain default launch without enrollment, explicit opt-in,
 explicit opt-out and its positive paste control, generic advertised-default
-unavailable/advisory fallback with one reason line, strict stable
-errors, terminal enrolled-but-not-ready routing, exact opt-in resume without
+unavailable/qualification fallback with one reason line, informational advisories
+permitting enrollment, strict stable errors, terminal enrolled-but-not-ready routing, exact opt-in resume without
 thread substitution, cleanup on exit and Ctrl-C, and a test that toggles a
 driver's advertised default without a CLI provider-name change. Native fixture
 and product-routing evidence remain separate from live provider qualification.

@@ -149,13 +149,7 @@ pub(super) fn run_bound(
         .unwrap_or(&NoLifecycle);
     // Policy is selected once; the driver only advertises its Default choice.
     let mode = channel;
-    let mut channel = preflight(
-        &registry,
-        mode,
-        claim.as_ref(),
-        &launch.command.executable,
-        paths,
-    )?;
+    let mut channel = preflight(&registry, mode, claim.as_ref(), &launch.command, paths)?;
     host.resolve_servers(storage).map_err(endpoint_failure)?;
     let bound = if auto_named {
         binding::bind_auto_identity(storage, &mut host.session(), pane, name, save)

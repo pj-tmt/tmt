@@ -768,7 +768,8 @@ mod tests {
     impl crate::runtime::channel::RuntimeChannel for Evidence {
         fn preflight(
             &self,
-            _: &std::ffi::OsStr,
+            _: &crate::runtime::RuntimeCommand,
+            _: &Path,
             _: &Path,
             _: Instant,
         ) -> Result<Option<String>, crate::runtime::channel::ChannelError> {
@@ -839,7 +840,8 @@ mod tests {
     impl crate::runtime::channel::RuntimeChannel for InPane {
         fn preflight(
             &self,
-            _: &std::ffi::OsStr,
+            _: &crate::runtime::RuntimeCommand,
+            _: &Path,
             _: &Path,
             _: Instant,
         ) -> Result<Option<String>, crate::runtime::channel::ChannelError> {

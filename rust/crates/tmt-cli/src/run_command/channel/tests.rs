@@ -308,10 +308,14 @@ impl RuntimeChannel for Advertised {
     }
     fn preflight(
         &self,
-        _: &OsStr,
+        command: &tmt_adapters::runtime::RuntimeCommand,
+        working_directory: &std::path::Path,
         _: &std::path::Path,
         _: Instant,
     ) -> Result<Option<String>, ChannelError> {
+        assert_eq!(command.executable, "agent");
+        assert_eq!(command.args, [std::ffi::OsString::from("--fixture")]);
+        assert_eq!(working_directory, std::env::current_dir().unwrap());
         self.probes.set(self.probes.get() + 1);
         match self.outcome {
             0 => Ok(None),
@@ -363,7 +367,10 @@ fn default_policy_follows_only_the_advertised_driver_default() {
         super::prepare(
             Some(&port),
             mode,
-            OsStr::new("agent"),
+            &RuntimeCommand {
+                executable: "agent".into(),
+                args: vec!["--fixture".into()],
+            },
             PathBuf::from("/fixture"),
         )
     };
@@ -394,7 +401,10 @@ fn unavailable_and_advisory_preflight_fall_back_only_under_default() {
         let prepared = prepare(
             Some(&port),
             ChannelMode::Default,
-            OsStr::new("agent"),
+            &RuntimeCommand {
+                executable: "agent".into(),
+                args: vec!["--fixture".into()],
+            },
             "/fixture".into(),
         )
         .unwrap();
@@ -403,7 +413,10 @@ fn unavailable_and_advisory_preflight_fall_back_only_under_default() {
         let error = prepare(
             Some(&port),
             ChannelMode::Required,
-            OsStr::new("agent"),
+            &RuntimeCommand {
+                executable: "agent".into(),
+                args: vec!["--fixture".into()],
+            },
             "/fixture".into(),
         )
         .err()
@@ -413,7 +426,10 @@ fn unavailable_and_advisory_preflight_fall_back_only_under_default() {
     let error = prepare(
         None,
         ChannelMode::Required,
-        OsStr::new("agent"),
+        &RuntimeCommand {
+            executable: "agent".into(),
+            args: vec!["--fixture".into()],
+        },
         "/fixture".into(),
     )
     .err()
@@ -422,7 +438,10 @@ fn unavailable_and_advisory_preflight_fall_back_only_under_default() {
     let absent = prepare(
         None,
         ChannelMode::Default,
-        OsStr::new("agent"),
+        &RuntimeCommand {
+            executable: "agent".into(),
+            args: vec!["--fixture".into()],
+        },
         "/fixture".into(),
     )
     .unwrap();
@@ -441,7 +460,16 @@ fn informational_advisory_does_not_gate_an_available_driver() {
         outcome: 4,
     };
     for mode in [ChannelMode::Default, ChannelMode::Required] {
-        let prepared = prepare(Some(&port), mode, OsStr::new("agent"), "/fixture".into()).unwrap();
+        let prepared = prepare(
+            Some(&port),
+            mode,
+            &RuntimeCommand {
+                executable: "agent".into(),
+                args: vec!["--fixture".into()],
+            },
+            "/fixture".into(),
+        )
+        .unwrap();
         assert!(prepared.channel.is_some());
         assert!(prepared.notice.is_none());
     }

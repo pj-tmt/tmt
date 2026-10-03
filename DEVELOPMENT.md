@@ -1049,6 +1049,15 @@ isolated shell stand-ins and check observable process/file cleanup; cwd probes
 compare relative and absolute `-C`. They do not start Codex or a model and do not
 replace the final live foreground continuity gate.
 
+Read-only Codex folder-trust advice (#781) is checked with
+`cargo test --locked -p tmt-adapters drivers::codex::trust` and
+`cargo test --locked -p tmt-adapters drivers::codex::channel`. Temporary local
+config fixtures verify cwd/root precedence, alternate `CODEX_HOME`, unknown
+inputs and unchanged config/credentials. The injected version runner permits
+only `--version`; these tests never start Codex or a model. Shared informational
+preflight behavior is checked with
+`cargo test --locked -p tmt-cli run_command::channel`.
+
 The adapter `process::cleanup_policy_tests` must pass under both `cargo test` and
 nextest: isolated re-exec cases prove timeout cleanup regardless of whether the
 test runner makes its harness a process-group leader.
