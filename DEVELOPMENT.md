@@ -1706,6 +1706,13 @@ package-scoped release `tmt` (see Rust checks) to prove the CLI is unchanged. No
 hits, target previews, configured overrides, inert unknown schemes, argv isolation
 and sender/member/open-request revalidation. Parsing and paint must perform no actions.
 
+Help regression tests cover modal key/mouse capture, close-event consumption,
+base focus/selection/scroll preservation, opaque component chrome and End/Home
+scrolling at 160/100/80 columns. Verify real private-tmux captures in `tmt`,
+`tmt-light` and `NO_COLOR`, at the top and end, with isolated HOME,
+TMUX_TEAM_HOME and XDG cache. Settings tests retain raw binding JSON while
+checking shared description metadata.
+
 Native Squad tests verify leadership selection and clearing without membership
 or role loss, repeated additions without overwriting state, and explicit recovery
 from a squad without a lead. The Docker Squad lifecycle test kills temporary and

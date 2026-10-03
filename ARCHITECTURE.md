@@ -940,7 +940,8 @@ clipped hits. No terminal acquisition, clock, settings persistence, markdown or
 provider acquisition lives in this leaf. Components implement the
 [full-screen interaction guideline](design/cli-style.md#full-screen-interaction);
 application-owned descriptions and effective bindings supply their text. List/table
-and picker components and Squad's overlay migrations remain subsequent #1465 work.
+and picker components and Squad's remaining overlay migrations remain subsequent
+#1465 work; Squad help uses the modal, scroll and key-help components.
 Squad is the sole reviewed product edge, through a normal dependency. Its row
 compiler binds already projected display values into bounded admitted cells,
 without acquiring or formatting sources. Occurrence IDs contain tab, authored
@@ -3551,6 +3552,18 @@ board refresh; close/reopen reads later configuration. It remains read-only.
 Aggregate tabs expose fixed grids and global appearance without squad providers.
 CLI `config show` without scope inspects board defaults; `--squad` and `--tab`
 are exclusive.
+
+`board::help` projects navigation, effective bindings and meter explanations into
+shared `tmt-tui::components::KeyHelp` sections. `Action::description` owns binding
+wording for help and settings; settings retain their literal JSON value and source
+separately from presentation prose. Meter input retains observed roster names,
+including the lead and members omitted from displayed rows, for excluded labels.
+The admitted help surface uses body placement and shared opaque modal chrome,
+one all-section key column, wrapping and a fixed inside footer. Its caller-owned
+scroll and focus state routes keys and mouse before board actions; close is
+consumed, Ctrl-C quits, and base cursors and scrolls remain with their existing
+owners. Refresh replaces help data and clamps the shared viewport without
+performing reads or actions in paint.
 
 `config::edit` owns the shared settings edit policy and disposable validated
 Config draft. `sq config set KEY VALUE` accepts only layout preset, flat split

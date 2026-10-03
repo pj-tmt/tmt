@@ -91,16 +91,6 @@ pub(crate) fn hints(width: usize) -> String {
     }
 }
 
-pub(crate) const HELP: &[&str] = &[
-    "↑↓ / j k    move one cursor through attention rows, then squads",
-    "Tab         next section; Shift-Tab previous section",
-    "Enter       jump to a member or open the selected squad",
-    "a           answer a real request; otherwise annotate for the squad lead",
-    "← →         switch tabs; s opens the switcher; / searches names and squads",
-    "obs age     time since observed unchanged task/state, not time blocked",
-    "?           help; q or Esc closes the board",
-];
-
 pub(crate) fn render(frame: &mut Frame, app: &App, area: Rect) {
     render_at(frame, app, area, crate::status::now_ms());
 }

@@ -251,7 +251,7 @@ fn window_hint_is_conditional_whole_and_help_discloses_semantics() {
         input: input(100),
     });
     let help = help_lines(&app).join("\n");
-    assert!(help.contains("5s window -> 40s trend, 1m -> 80s"));
+    assert!(help.contains("5s window → 40s trend, 1m → 80s"));
     assert!(help.contains("no data hides; measured zero is 0"));
     app.meter.as_mut().unwrap().settings.enabled = false;
     app.view.as_mut().unwrap().token_rate = None;

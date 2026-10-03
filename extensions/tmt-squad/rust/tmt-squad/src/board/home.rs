@@ -247,4 +247,4 @@ mod tests;
 mod controller;
 mod paint;
 pub(super) use controller::{Send, Target};
-pub(super) use paint::{HELP, age_label, hints, render, summary};
+pub(super) use paint::{age_label, hints, render, summary};
