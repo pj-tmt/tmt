@@ -1162,10 +1162,34 @@ at most 64 per page. While head/membership `more` is true, later pages carry
 head is the target for this catchup; unknown, missing or above-head revisions
 return `RESYNC_REQUIRED`. Clients independently verify owner signatures, chain,
 root pin and target hash; a client-side fork cannot be detected from the unsigned
-revision alone. Whole statements must fit one 64 KiB frame: pages use at most
-60 KiB of encoded statement data (less on the first page to reserve its baseline
-fields), an individual stored envelope at most 44 KiB;
-oversized statements fail `CAPACITY`, never truncate. Chunked membership statements are deferred to #1285.
+revision alone. A statement entry is either an inline canonical base64url string
+or exactly `{statementHash}`, with a canonical base64url hash32 reference to the
+model membership hash. Envelopes above 32 KiB use references. A referenced
+statement is the only entry on its membership page and is followed immediately
+by scoped server `chunk` frames with exactly `statementHash, index, count, bytes`
+beyond the common fields. Object chunks retain their separate
+`objectId, envelopeHash, index, count, bytes` shape; mixed identities and unknown
+fields reject. The transferred bytes are exact stored statement-envelope JSON,
+not reconstructed payloads or a new raw-JSON hash.
+
+Membership pages contain at most 64 entries and 60 KiB of encoded inline data;
+the first page additionally respects its metadata/baseline wire budget. When the
+first page references a baseline object, inline statements may fit that budget,
+but any statement reference is deferred to the next membership page. Baseline
+chunks stay consecutive first, so there is only one pending assembly.
+
+Statement envelope admission uses the existing model cap:
+`floor((768 KiB + 1 KiB) * 4 / 3) + 2 KiB`, or 1,051,989 bytes and at most 33
+chunks. SQL checks that cap before loading the transfer bytes. Chunk bytes/order,
+consecutive delivery and frame credit follow the object-transfer rules below;
+assembly uses the same absolute two-second deadline. Partial bytes never advance
+or persist the referenced statement. Before admission, clients check strict model
+syntax and payload digest, the reference's model statement hash, pinned owner
+root/space, owner signature, next revision and previous hash. The completed
+membership page must agree with its advertised target head before log persistence
+and dependent chain/wrap/content admission. Invalid/oversized/interrupted transfers
+discard partial bytes without truncating durable statements; payload admission
+remains 768 KiB.
 
 After membership, pages carry `wraps` addressed to this device or its member,
 ordered by numeric epoch, kind, recipient and revision. They include retained
