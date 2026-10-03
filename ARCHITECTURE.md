@@ -939,9 +939,21 @@ injects Theme/Depth and the existing selection policy, and returns current-frame
 clipped hits. No terminal acquisition, clock, settings persistence, markdown or
 provider acquisition lives in this leaf. Components implement the
 [full-screen interaction guideline](design/cli-style.md#full-screen-interaction);
-application-owned descriptions and effective bindings supply their text. List/table
-and picker components and Squad's remaining overlay migrations remain subsequent
-#1465 work; Squad help uses the modal, scroll and key-help components.
+application-owned descriptions and effective bindings supply their text.
+`ListState` reconciles stable row identity across refresh/reorder, chooses the
+nearest enabled survivor after removal, and reveals the whole wrapped row.
+List/table admission requires a row template and typed `id: StableId` and
+`disabled: Boolean` fields; table cells use the existing grid tracks. Disabled
+and empty rows cannot activate. Ordinary panes use `collection::compile/render`;
+modal lists and picker query/list/footer slots use `surface::compile/render_list`.
+Their clipped row maps retain the painted model and scroll offset; stale mouse
+geometry cannot activate. `Picker` owns bounded grapheme query editing and returns
+query changes, selection changes, confirmation or cancellation. The application
+filters projected data, routes focused fields, and owns previews, saves and rollback.
+The rendering pipeline keeps semantic roles under caller-owned selection styling,
+including reverse/bold fallback. Squad's remaining surface migrations stay
+consumer-owned #1465 work; Squad help uses the modal, scroll and key-help
+components.
 Squad is the sole reviewed product edge, through a normal dependency. Its row
 compiler binds already projected display values into bounded admitted cells,
 without acquiring or formatting sources. Occurrence IDs contain tab, authored

@@ -1287,10 +1287,48 @@ Use `placement="body"` for references, `"center"` for small overlays,
 or `"docked"` for prompts. `surface::render` accepts caller-owned ScrollState,
 body Rect/Buffer, RenderStyle (Theme/Depth) and selection styling. It returns
 visible scoped hits; route current input through `app::route` before base handlers.
-The caller performs effects, owns editable-field behavior, invalidates old hits on
+The caller performs effects, routes editable fields, invalidates old hits on
 resize/data changes, and may keep component state behind one RefCell for an
 immutable application render interface. `components::footer` fits priority-ordered
 effective-key hints as whole pairs. The shared style guideline owns roles/sizing.
+List/table/picker tests cover identity reconciliation, disabled/empty activation,
+whole-row wrapped selection, visual-range paging, clipped/stale mouse hits,
+query editing/confirm/cancel, fixed picker query/footer, tiny areas and reverse
+selection with bold attention marks. `tmt-list`/`tmt-table` bind a root collection
+whose rows declare `id: StableId`, `disabled: Boolean` and projected display fields.
+Each contains exactly one `tmt-row` template using the `as` alias (default `row`);
+components own row identity/selection. A table row declares shared grid tracks:
+
+```xml
+<tmt-view version="1">
+  <tmt-table id="items" bind="$.rows" as="item" empty="(no items)">
+    <tmt-row class="grid grid-cols-[2_1fr] gap-1">
+      <tmt-cell bind="item.mark" token="accent" />
+      <tmt-cell bind="item.description" wrap="true" />
+    </tmt-row>
+  </tmt-table>
+</tmt-view>
+```
+
+For an ordinary pane use `components::collection::compile`, its compiled
+`Table::materialize` and `collection::render` with caller `ListState`. In a modal,
+put the same list/table inside its scroll body and use `surface::render_list`;
+`FrameMap.list` contains current row geometry. `tmt-picker` instead contains a
+query text slot, one list/table, and optional footer/status text; it supplies the
+modal and scroll body. Bind `Picker::query_visible(width)` to the fixed query
+slot. `Picker::input_field` follows the caller's FocusStack Query/List field;
+printable navigation/close keys are text in the query. On `QueryChanged`, filter
+application data and call `Picker::reconcile` before handling another action.
+`Changed(id)` is a preview request, `Confirm(id)` an application action, and
+`Cancel` requests caller rollback/close. `PickerInput::Captured` consumes an
+accepted key without an event (cursor motion, a boundary or a bounded edit),
+so its focused-field handler still returns a handled value to `app::route`.
+Rendering never runs those effects.
+Discard row maps on resize/model replacement; mouse routing also rejects changed
+row models or painted offsets. Ordinary panes reserve a dim `N more ↓` line while
+content overflows. One list/table is supported per scroll surface; component IDs
+remain literal, outside repeats. Generated templates obey the primitive budgets.
+
 Run `cargo test --locked -p tmt-squad` for its in-memory source adapter and frozen
 board/list parity fixture, projected and retained-view loading identities,
 coverage, priority and CSS clamp/default-min mapping. Board fitting uses the shared grapheme owner;

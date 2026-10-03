@@ -14,6 +14,7 @@ pub const MAX_ID_BYTES: usize = 256;
 #[derive(Debug, Clone)]
 pub enum Schema {
     Scalar,
+    Boolean,
     StableId,
     Object(BTreeMap<String, Schema>),
     Collection(Box<Schema>),
@@ -21,6 +22,7 @@ pub enum Schema {
 #[derive(Clone, Copy)]
 enum Shape {
     Scalar,
+    Boolean,
     StableId,
     Object,
     Collection,
@@ -29,6 +31,7 @@ impl Schema {
     fn shape(&self) -> Shape {
         match self {
             Self::Scalar => Shape::Scalar,
+            Self::Boolean => Shape::Boolean,
             Self::StableId => Shape::StableId,
             Self::Object(_) => Shape::Object,
             Self::Collection(_) => Shape::Collection,
@@ -41,6 +44,7 @@ impl Shape {
             Self::Scalar => {
                 value.is_null() || value.is_string() || value.is_boolean() || value.is_number()
             }
+            Self::Boolean => value.is_boolean(),
             Self::StableId => value.as_str().is_some_and(stable_id),
             Self::Object => value.is_object(),
             Self::Collection => value.is_array(),
@@ -112,6 +116,13 @@ impl Path {
         Some(value)
     }
 }
+/// Component models are outside dynamic scopes; normal path syntax still has
+/// one owner. Return the declared type for a root-only component model path.
+pub(crate) fn root_schema<'a>(schema: &'a Schema, path: &str) -> Result<&'a Schema, String> {
+    Path::parse(path)?
+        .schema(&BTreeMap::from([("$".into(), schema)]))
+        .ok_or_else(|| "unknown root model path".into())
+}
 fn identifier(text: &str) -> bool {
     let mut bytes = text.bytes();
     bytes
@@ -119,7 +130,7 @@ fn identifier(text: &str) -> bool {
         .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
         && bytes.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
 }
-fn stable_id(text: &str) -> bool {
+pub(crate) fn stable_id(text: &str) -> bool {
     !text.is_empty()
         && text.len() <= MAX_ID_BYTES
         && text.trim() == text
@@ -147,6 +158,9 @@ fn fail(file: &str, element: &MarkupElement, message: impl Into<String>) -> Erro
         Kind::Modal => "tmt-modal",
         Kind::Scroll => "tmt-scroll",
         Kind::KeyHelp => "tmt-key-help",
+        Kind::List => "tmt-list",
+        Kind::Table => "tmt-table",
+        Kind::Picker => "tmt-picker",
     };
     Error {
         file: file.into(),
@@ -181,8 +195,10 @@ fn check<A: Sources>(
     // parse guarantees repeat keys; binding paths below index only present attributes.
     let attrs = &element.attributes;
     let error = |message| fail(file, element, message);
-    if matches!(element.kind, Kind::Modal | Kind::Scroll | Kind::KeyHelp)
-        || attrs.contains_key("slot")
+    if matches!(
+        element.kind,
+        Kind::Modal | Kind::Scroll | Kind::KeyHelp | Kind::List | Kind::Table | Kind::Picker
+    ) || attrs.contains_key("slot")
     {
         return Err(error(
             "component markup must be lowered by components::surface::compile".into(),
@@ -217,9 +233,10 @@ fn check<A: Sources>(
                 (key, compiled.schema(scopes)),
                 ("id-bind" | "row-bind", Some(Schema::StableId))
                     | (
-                        "bind" | "token-bind",
-                        Some(Schema::Scalar | Schema::StableId)
+                        "bind",
+                        Some(Schema::Scalar | Schema::Boolean | Schema::StableId)
                     )
+                    | ("token-bind", Some(Schema::Scalar | Schema::StableId))
             );
             if !valid {
                 return Err(error(format!(
