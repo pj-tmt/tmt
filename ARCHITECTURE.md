@@ -4430,6 +4430,20 @@ whose remote caller still owns access/history admission. Decoder batch limits
 fail closed rather than truncating a fold. Link transitions share that atomic engine; browser/CLI management composition
 remains #1111 and sharing/history/retention operations remain #1160.
 
+`transitions::Engine::apply` is the root-local dispatcher for caller-admitted
+`OwnerRequest` values. The request owner normalizes member/link/device/epoch
+actions and binds an optional transport digest and request scope with independent
+framing domains. One runner owns read-only receipt replay, bounded preparation
+retries and the existing owner transaction; preparation stays outside its writer
+reservation. Legacy root-local digests are unchanged when both additions are
+absent. `Applied` returns the exact saved outcome, its original signed head and
+replay status, even after later mutations. Scoped reductions check the target's
+stored page assignment during planning and again inside the writer transaction;
+revoked projections and operation receipts remain available for exact retries.
+The caller owns admission and lock composition: sync before Registration.
+The stable DTO reserves page-policy actions for the following #1160 slice;
+this prerequisite returns `UNAVAILABLE` for them without signing or mutation.
+
 `transitions::membership` shares epoch preparation/commit with explicit advance.
 Member add, remove and role changes use one owner transaction across affected
 pages. A shared join receives at most the current epoch plus 63 retained earlier

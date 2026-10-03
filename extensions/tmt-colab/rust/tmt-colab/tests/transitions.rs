@@ -1932,3 +1932,346 @@ fn link_add_rejects_private_pages_stale_head_and_invalid_role_or_pages_without_w
     }
     assert_eq!(f.counts(), before);
 }
+
+// Runner admission uses the same real fixtures as membership/links/epochs.
+use tmt_colab::transitions::{MemberAction, OwnerAction, OwnerRequest, RequestScope};
+fn request_scope(pages: Vec<String>) -> RequestScope {
+    RequestScope {
+        initiating_page: pages[0].clone(),
+        affected_pages: pages,
+    }
+}
+#[test]
+fn runner_replays_transport_scope_and_original_head_after_later_writes() {
+    let mut f = Fixture::new();
+    let update = f.object(
+        1,
+        [0; 32],
+        "update",
+        "content",
+        &source("frozen runner view"),
+    );
+    f.append(&update);
+    let id = operation(100);
+    let request = || OwnerRequest {
+        operation_id: &id,
+        expected_revision: 2,
+        action: OwnerAction::EpochAdvance { page: PAGE },
+        transport_digest: Some([100; 32]),
+        scope: Some(request_scope(vec![PAGE.into()])),
+    };
+    let first = f
+        .engine
+        .apply(&mut f.store, &f.key, request(), 100)
+        .unwrap();
+    assert!(!first.replayed);
+    assert_eq!(first.head.revision, 3);
+    assert_eq!(baseline_source(&f, 2), "frozen runner view");
+    f.advance(&operation(101), 3).unwrap();
+    let reopened = Store::open(&f.layout).unwrap();
+    std::mem::replace(&mut f.store, reopened).close().unwrap();
+    let before = f.counts();
+    let replay = f
+        .engine
+        .apply(&mut f.store, &f.key, request(), 101)
+        .unwrap();
+    assert!(replay.replayed);
+    assert_eq!(replay.head, first.head);
+    assert_eq!(replay.outcome, first.outcome);
+    assert_eq!(revision(&f), 4);
+    assert_eq!(f.counts(), before);
+    for changed in 0..4 {
+        let mut r = request();
+        match changed {
+            0 => r.transport_digest = Some([101; 32]),
+            1 => r.transport_digest = None,
+            2 => {
+                r.scope = Some(request_scope(vec![
+                    "10000000-0000-4000-8000-000000000002".into(),
+                ]))
+            }
+            _ => {
+                r.action = OwnerAction::Member(MemberAction::Remove {
+                    member_id: MEMBER.into(),
+                })
+            }
+        }
+        assert_eq!(
+            f.engine
+                .apply(&mut f.store, &f.key, r, 100)
+                .err()
+                .unwrap()
+                .code,
+            Code::Conflict
+        );
+        assert_eq!(f.counts(), before);
+    }
+}
+#[test]
+fn scoped_member_and_link_reductions_fence_assignments_and_replay_revoked_targets() {
+    use tmt_colab::transitions::LinkAction;
+    for action in 0..4 {
+        let (mut f, expected) = if action < 2 {
+            (Fixture::new(), 2)
+        } else {
+            let (f, _, rev) = link_fixture(false);
+            (f, rev)
+        };
+        let id = operation(102 + action);
+        let selected = || match action {
+            0 => OwnerAction::Member(MemberAction::Remove {
+                member_id: MEMBER.into(),
+            }),
+            1 => OwnerAction::Member(MemberAction::Role {
+                member_id: MEMBER.into(),
+                role: "viewer".into(),
+            }),
+            2 => OwnerAction::Link(LinkAction::Remove { link_id: LINK }),
+            _ => OwnerAction::Link(LinkAction::Reset {
+                link_id: LINK,
+                replacement: None,
+            }),
+        };
+        let before = f.counts();
+        for pages in [
+            vec!["10000000-0000-4000-8000-000000000002".into()],
+            vec![PAGE.into(), "10000000-0000-4000-8000-000000000002".into()],
+        ] {
+            let r = OwnerRequest {
+                operation_id: &id,
+                expected_revision: expected,
+                action: selected(),
+                transport_digest: Some([102; 32]),
+                scope: Some(request_scope(pages)),
+            };
+            assert_eq!(
+                f.engine
+                    .apply(&mut f.store, &f.key, r, 50)
+                    .err()
+                    .unwrap()
+                    .code,
+                Code::StaleHead
+            );
+            assert_eq!(f.counts(), before);
+        }
+        let request = || OwnerRequest {
+            operation_id: &id,
+            expected_revision: expected,
+            action: selected(),
+            transport_digest: Some([102; 32]),
+            scope: Some(request_scope(vec![PAGE.into()])),
+        };
+        let first = f.engine.apply(&mut f.store, &f.key, request(), 50).unwrap();
+        assert!(!first.replayed);
+        let replay = f.engine.apply(&mut f.store, &f.key, request(), 50).unwrap();
+        assert!(replay.replayed);
+        assert_eq!(replay.head, first.head);
+        assert_eq!(replay.outcome, first.outcome);
+        let mut changed = request();
+        changed.scope = None;
+        assert_eq!(
+            f.engine
+                .apply(&mut f.store, &f.key, changed, 50)
+                .err()
+                .unwrap()
+                .code,
+            Code::Conflict
+        );
+    }
+}
+#[test]
+fn unscoped_root_wrappers_preserve_legacy_digests_and_share_receipts_with_apply() {
+    use tmt_colab_model::framing;
+    let mut f = Fixture::new();
+    let id = operation(108);
+    let expected = crypto::digest(
+        &framing::frame(&[
+            b"tmt-colab-local-epoch-request-v1",
+            f.key.space_id.as_bytes(),
+            id.as_bytes(),
+            b"2",
+            PAGE.as_bytes(),
+        ])
+        .unwrap(),
+    );
+    let first = f.advance(&id, 2).unwrap();
+    let saved: Vec<u8> = f
+        .db()
+        .query_row(
+            "SELECT digest FROM owner_operations WHERE id=?",
+            [&id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(saved, expected);
+    let replay = f
+        .engine
+        .apply(
+            &mut f.store,
+            &f.key,
+            OwnerRequest {
+                operation_id: &id,
+                expected_revision: 2,
+                action: OwnerAction::EpochAdvance { page: PAGE },
+                transport_digest: None,
+                scope: None,
+            },
+            100,
+        )
+        .unwrap();
+    assert!(replay.replayed);
+    assert_eq!(replay.outcome, first);
+    let mut f = Fixture::new();
+    let id = operation(109);
+    let recipient = joiner(vec![PAGE.into()]);
+    let selected = json!({"memberId":recipient.id,"role":recipient.role,"signKey":values::encode_binary(&recipient.signing_key),"encKey":values::encode_binary(&recipient.encryption_key),"pages":recipient.pages});
+    let expected = crypto::digest(
+        &framing::frame(&[
+            b"tmt-colab-local-transition-v1",
+            f.key.space_id.as_bytes(),
+            id.as_bytes(),
+            b"2",
+            b"member.add",
+            &serde_json::to_vec(&selected).unwrap(),
+        ])
+        .unwrap(),
+    );
+    let first = change(&mut f, 109, 2, MemberAction::Add(recipient)).unwrap();
+    let saved: Vec<u8> = f
+        .db()
+        .query_row(
+            "SELECT digest FROM owner_operations WHERE id=?",
+            [&id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(saved, expected);
+    let replay = f
+        .engine
+        .apply(
+            &mut f.store,
+            &f.key,
+            OwnerRequest {
+                operation_id: &id,
+                expected_revision: 2,
+                action: OwnerAction::Member(MemberAction::Add(joiner(vec![PAGE.into()]))),
+                transport_digest: None,
+                scope: None,
+            },
+            100,
+        )
+        .unwrap();
+    assert!(replay.replayed);
+    assert_eq!(replay.outcome, first);
+    let before = f.counts();
+    let mismatch = OwnerRequest {
+        operation_id: &operation(110),
+        expected_revision: revision(&f),
+        action: OwnerAction::EpochAdvance { page: PAGE },
+        transport_digest: None,
+        scope: Some(RequestScope {
+            initiating_page: "10000000-0000-4000-8000-000000000002".into(),
+            affected_pages: vec![PAGE.into()],
+        }),
+    };
+    assert_eq!(
+        f.engine
+            .apply(&mut f.store, &f.key, mismatch, 100)
+            .err()
+            .unwrap()
+            .code,
+        Code::StaleHead
+    );
+    assert_eq!(f.counts(), before);
+}
+
+#[test]
+fn scope_is_rechecked_inside_writer_after_baseline_preparation() {
+    use nix::{
+        poll::{PollFd, PollFlags, PollTimeout, poll},
+        sys::stat::Mode,
+        unistd::mkfifo,
+    };
+    use std::{
+        io::{Read, Write},
+        os::{fd::AsFd, unix::fs::PermissionsExt},
+    };
+    let f = Fixture::new();
+    let signal = f.root.join("signal");
+    let release = f.root.join("release");
+    for path in [&signal, &release] {
+        mkfifo(path, Mode::S_IRUSR | Mode::S_IWUSR).unwrap();
+    }
+    let mut ready = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&signal)
+        .unwrap();
+    let mut go = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&release)
+        .unwrap();
+    let proxy = f.root.join("decoder");
+    let script = format!(
+        "#!/bin/sh\nif [ \"$2\" = baseline ] && [ ! -f '{0}/paused' ]; then\n touch '{0}/paused'; printf x > '{0}/signal'; read line < '{0}/release'\nfi\nexec '{1}' \"$@\"\n",
+        f.root.display(),
+        env!("CARGO_BIN_EXE_tmt-colab")
+    );
+    fs::write(&proxy, script).unwrap();
+    fs::set_permissions(&proxy, fs::Permissions::from_mode(0o700)).unwrap();
+    let root = f.root.clone();
+    let thread = std::thread::spawn(move || {
+        let layout = Layout::existing(&root).unwrap().unwrap();
+        let key = Keyring::read(&layout).unwrap();
+        let mut store = Store::open(&layout).unwrap();
+        Engine::new(proxy).unwrap().apply(
+            &mut store,
+            &key,
+            OwnerRequest {
+                operation_id: &operation(111),
+                expected_revision: 2,
+                action: OwnerAction::Member(MemberAction::Remove {
+                    member_id: MEMBER.into(),
+                }),
+                transport_digest: Some([111; 32]),
+                scope: Some(request_scope(vec![PAGE.into()])),
+            },
+            100,
+        )
+    });
+    let mut events = [PollFd::new(ready.as_fd(), PollFlags::POLLIN)];
+    if poll(&mut events, PollTimeout::try_from(5000).unwrap()).unwrap() != 1 {
+        go.write_all(b"cancel\n").unwrap();
+        panic!("baseline barrier absent: {:?}", thread.join().unwrap());
+    }
+    let mut byte = [0];
+    ready.read_exact(&mut byte).unwrap();
+    let db = f.db();
+    let bytes: Vec<u8> = db
+        .query_row(
+            "SELECT record FROM recipients WHERE kind='member' AND id=?",
+            [MEMBER],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let mut recipient: Recipient = serde_json::from_slice(&bytes).unwrap();
+    recipient.pages = vec!["10000000-0000-4000-8000-000000000002".into()];
+    db.execute(
+        "UPDATE recipients SET record=? WHERE kind='member' AND id=?",
+        params![serde_json::to_vec(&recipient).unwrap(), MEMBER],
+    )
+    .unwrap();
+    go.write_all(b"continue\n").unwrap();
+    assert_eq!(thread.join().unwrap().unwrap_err().code, Code::StaleHead);
+    assert_eq!(revision(&f), 2);
+    assert_eq!(f.counts(), vec![2, 1, 0, 0, 1]);
+    let bytes: Vec<u8> = db
+        .query_row(
+            "SELECT record FROM recipients WHERE kind='member' AND id=?",
+            [MEMBER],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(!serde_json::from_slice::<Recipient>(&bytes).unwrap().revoked);
+}
