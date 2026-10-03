@@ -169,6 +169,12 @@ describe('selectPrevious', () => {
   it('refuses a candidate tag of another product', () => {
     expect(() => previous('cli', 'tmt-office-v0.1.0-alpha.4')).toThrow('not a cli tag');
   });
+
+  it('never treats a dev candidate as newer than a published alpha with the same core', () => {
+    expect(previous('cli', 'v5.0.0-dev')).toBeNull();
+    expect(previous('office', 'tmt-office-v0.1.0-dev')).toBeNull();
+    expect(previous('squad', 'tmt-squad-v0.1.0-dev')).toBeNull();
+  });
 });
 
 describe('selectAssets and stageRelease', () => {

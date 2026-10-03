@@ -21,13 +21,15 @@ export function syntheticAlphaVersion(committedVersion) {
   return `${core.join('.')}-alpha.999999`;
 }
 
-/** Semantic Versioning precedence: -1, 0 or 1. A pre-release is lower than its release. */
+/** Semver precedence, except exact -dev is below all same-core releases: -1, 0 or 1. */
 export function compareVersions(left, right) {
   const a = parseVersion(left);
   const b = parseVersion(right);
   for (let index = 0; index < 3; index += 1) {
     if (a.core[index] !== b.core[index]) return a.core[index] < b.core[index] ? -1 : 1;
   }
+  const dev = [a, b].map((version) => version.pre.length === 1 && version.pre[0] === 'dev');
+  if (dev[0] !== dev[1]) return dev[0] ? -1 : 1;
   if (a.pre.length === 0 || b.pre.length === 0) {
     return a.pre.length === b.pre.length ? 0 : a.pre.length === 0 ? 1 : -1;
   }
