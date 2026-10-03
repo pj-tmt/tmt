@@ -33,7 +33,8 @@ common_dir=$(git -C "$path" rev-parse --path-format=absolute --git-common-dir)
 
 [ -z "$(git -C "$path" status --short)" ] || refuse 'it has uncommitted or untracked changes.'
 
-state=$(gh pr view "$pr" --json state -q .state 2> /dev/null || true)
+state=$(cd "$path" && gh api "repos/{owner}/{repo}/pulls/$pr" \
+  --jq 'if .merged_at then "MERGED" else (.state | ascii_upcase) end' 2> /dev/null || true)
 if [ "$state" != MERGED ]; then
   git -C "$path" rev-parse --verify -q '@{u}' > /dev/null \
     || refuse "PR $pr is not merged (state: ${state:-unknown}) and the branch has no upstream."
