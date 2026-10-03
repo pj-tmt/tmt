@@ -322,6 +322,30 @@ describe('full repository-state release sweep', () => {
       });
     }));
 
+  it('waits for the driver publication and attributes a driver-only commit without a CLI release', () =>
+    history(({ directory, git, commit }) => {
+      const driverRoot = map.components.find((component) => component.name === 'driver-herdr')!
+        .owns[0];
+      const sha = commit([`${driverRoot}/src/main.rs`]);
+      git(['tag', 'v5.0.0-alpha.1']);
+      git(['tag', 'tmt-driver-herdr-v0.1.0-alpha.1']);
+      const releases = [release('v5.0.0-alpha.1')];
+      const api = stateApi(project(), releases, new Map([['issue-1', [closingPr(1, sha)]]]));
+      const input = { api, repository, dryRun: true, git: gitEvidence({ cwd: directory }), map };
+      expect(reconcile(input).rows[0]).toMatchObject({
+        status: 'Merged',
+        text: '',
+        waiting: ['Awaiting driver-herdr'],
+      });
+      releases.push(release('tmt-driver-herdr-v0.1.0-alpha.1', 1));
+      expect(reconcile(input).rows[0]).toMatchObject({
+        status: 'Released',
+        text: 'tmt-driver-herdr 0.1.0-alpha.1',
+        waiting: [],
+      });
+      expect(writes(api)).toHaveLength(0);
+    }));
+
   it('uses publication time rather than version precedence, and rejects missing git evidence', () =>
     history(({ directory, git, commit }) => {
       const sha = commit(['rust/input']);
@@ -370,6 +394,13 @@ describe('full repository-state release sweep', () => {
       unpublished: ['tmt-colab'],
     });
     expect(releaseIdentity('tmt-squad-v0.1.0-alpha.9')?.product).toBe('squad');
+    expect(affectedProducts(['rust/crates/tmt-driver-herdr/src/main.rs'], map)).toEqual({
+      products: ['driver-herdr'],
+      unpublished: [],
+    });
+    expect(releaseIdentity('tmt-driver-herdr-v0.1.0-alpha.1')?.label).toBe(
+      'tmt-driver-herdr 0.1.0-alpha.1'
+    );
     for (const tag of ['v4.2.1', 'v5.bad', 'unknown-v1.0.0'])
       expect(releaseIdentity(tag)).toBeUndefined();
   });

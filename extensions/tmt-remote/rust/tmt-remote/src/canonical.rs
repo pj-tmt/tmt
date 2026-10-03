@@ -48,6 +48,10 @@ fn core_id(value: &str) -> Result<()> {
             && value.bytes().any(|b| b != b'0' && b != b'-'),
     )
 }
+/// Core UUID references may have any version or variant, but are canonical and non-nil.
+pub fn is_core_id(value: &str) -> bool {
+    core_id(value).is_ok()
+}
 fn uuid(value: &str) -> Result<()> {
     core_id(value)?;
     require(

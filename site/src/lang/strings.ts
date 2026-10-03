@@ -42,6 +42,14 @@ export const english = {
       receipt: "receipt",
       reply: "reply",
       tied: "the receipt ties the reply to its request",
+      result: "result",
+      spatial: "3D exchange",
+      flat: "static exchange",
+      steps: "Exchange steps",
+      play: "Play",
+      pause: "Pause",
+      local: "TMT / LOCAL EXCHANGE",
+      note: "Illustrative output · Claude Code + Codex · tmux or Herdr",
     },
     // The start chapter's three concepts, mapped to the commands that make them.
     concepts: {

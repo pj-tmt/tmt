@@ -50,7 +50,11 @@ function steps(workflow: string, job: string): string[] {
 
 describe('macOS toolchain warm-up before the native runtime proof', () => {
   it('finds the proof consumers the workflows run', () => {
-    expect(proofConsumers()).toEqual(['verify-native-artifact.mjs', 'verify-native-runtime.mjs']);
+    expect(proofConsumers()).toEqual([
+      'verify-native-artifact.mjs',
+      'verify-native-driver-upgrade.mjs',
+      'verify-native-runtime.mjs',
+    ]);
   });
 
   it.each(['.github/workflows/ci.yml', '.github/workflows/native-release-bundle.yml'])(
@@ -78,6 +82,17 @@ describe('macOS toolchain warm-up before the native runtime proof', () => {
       }
     }
   );
+
+  it('warms the matching-host driver proof before its release-upgrade orchestrator', () => {
+    const workflow = read('.github/workflows/native-release-upgrade.yml');
+    const prove = jobs(workflow).get('prove')!;
+    expect(runsOnMacOs(workflow, prove)).toBe(true);
+    const list = steps(workflow, prove);
+    const warm = list.findIndex((step) => step.includes(warmUp));
+    const run = list.findIndex((step) => step.includes('release-upgrade.mjs prove'));
+    expect(warm).toBeGreaterThanOrEqual(0);
+    expect(run).toBeGreaterThan(warm);
+  });
 
   it('keeps runner selection independent from shared steps and rejects missing anchors', () => {
     const text = read('.github/workflows/ci.yml');

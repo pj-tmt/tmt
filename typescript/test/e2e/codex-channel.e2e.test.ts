@@ -52,7 +52,7 @@ function start(
   const status = `${log}.status`;
   const executable = path.join(f.wrapperDir, 'codex');
   if (!fs.existsSync(executable)) {
-    if (extra.MOCK_HOOK_MODEL) {
+    if (extra.MOCK_HOOK_MODEL || extra.MOCK_EAGER_HOOK_MODEL) {
       // This scenario needs real Codex-named app-server ancestry for its hooks.
       writeExecutable(executable, fs.readFileSync(mock));
     } else {
@@ -158,7 +158,104 @@ function gone(pid: number): boolean {
   }
 }
 
+async function assertTurnActivity(
+  f: E2EFixture,
+  s: Session,
+  name: string,
+  foreground: { pid: number; start: string }
+) {
+  const snapshot = () =>
+    sql(f, (db) =>
+      db
+        .prepare(
+          `SELECT b.runtime_state, b.runtime_pid, b.runtime_start_identity, p.driver_state FROM bindings b JOIN identity_session_preferences p ON b.identity_id=p.identity_id JOIN identities i ON i.id=b.identity_id WHERE i.name=?`
+        )
+        .get(name)
+    ) as {
+      runtime_state: string;
+      runtime_pid: number;
+      runtime_start_identity: string;
+      driver_state: string;
+    };
+  await f.waitFor(
+    () => events(s, 'prompt-hook').length === 1,
+    10000,
+    'verified main-thread prompt'
+  );
+  const prompt = events(s, 'prompt-hook')[0];
+  expect(prompt.ok).toBe(true);
+  expect(prompt.stderr).toBe('');
+  expect(prompt.stdout).toBe('');
+  const working = snapshot();
+  expect(JSON.parse(working.driver_state).activity.state).toBe('working');
+  expect(working.runtime_state).toBe('running');
+  expect(working.runtime_pid).toBe(foreground.pid);
+  expect(working.runtime_start_identity).toBe(foreground.start);
+  fs.writeFileSync(`${s.log}.finish-turn`, '');
+  await f.waitFor(() => events(s, 'stop-hook').length === 1, 10000, 'verified main-thread Stop');
+  const stop = events(s, 'stop-hook')[0];
+  expect(stop.ok).toBe(true);
+  expect(stop.stdout).toBe('');
+  expect(stop.stderr).toBe('');
+  const idle = snapshot();
+  expect(JSON.parse(idle.driver_state).activity.state).toBe('idle');
+  expect(idle.runtime_state).toBe('running');
+  expect(idle.runtime_pid).toBe(foreground.pid);
+  expect(idle.runtime_start_identity).toBe(foreground.start);
+}
+
 describe('Codex native channel product routing', { concurrent: false }, () => {
+  it('an eager fresh SessionStart waits for admission and remembers the exact foreground', async () => {
+    await withE2EFixture(async (f) => {
+      const worker = start(f, 'EagerHook', true, {
+        MOCK_EAGER_HOOK_MODEL: 'fixture-eager-model',
+        MOCK_ACTIVITY_HOOKS: '1',
+      });
+      await ready(f, worker);
+      await f.waitFor(
+        () => events(worker, 'hook').length === 1,
+        10000,
+        'eager startup hook completed'
+      );
+      const hook = events(worker, 'hook')[0];
+      const [{ record }] = records(f);
+      expect(hook.thread).toBe(record.ready.thread);
+      expect(hook.ok).toBe(true);
+      expect(hook.stderr).toBe('');
+      expect(hook.elapsedMs).toBeLessThan(2500);
+      expect(JSON.parse(hook.stdout as string).hookSpecificOutput.additionalContext).toContain(
+        'EagerHook'
+      );
+      const saved = sql(f, (db) =>
+        db
+          .prepare(
+            `SELECT b.runtime_pid, b.observed_provider_session_id, p.provider_session_id, p.driver_state FROM bindings b JOIN identity_session_preferences p ON b.identity_id=p.identity_id JOIN identities i ON i.id=b.identity_id WHERE i.name='EagerHook'`
+          )
+          .get()
+      ) as {
+        runtime_pid: number;
+        observed_provider_session_id: string;
+        provider_session_id: string;
+        driver_state: string;
+      };
+      expect(saved.runtime_pid).toBe(record.foreground.process!.pid);
+      expect(saved.observed_provider_session_id).toBe(record.ready.thread);
+      expect(saved.provider_session_id).toBe(record.ready.thread);
+      expect(JSON.parse(saved.driver_state).model).toBe('fixture-eager-model');
+      expect((await talk(f, 'EagerHook', 'prove verified Stop')).code).toBe(0);
+      await assertTurnActivity(f, worker, 'EagerHook', record.foreground.process!);
+      expect(events(worker, 'thread-start')).toHaveLength(1);
+      expect(events(worker, 'thread-resume')).toEqual([]);
+      const server = record.ready.server.pid;
+      await quit(worker);
+      await f.waitFor(
+        () => gone(server) && records(f).length === 0,
+        10000,
+        'eager scenario owned endpoint cleanup'
+      );
+    });
+  });
+
   it('first opt-in channel hook remembers its session and model without replacing foreground admission', async () => {
     await withE2EFixture(async (f) => {
       const worker = start(f, 'HookModel', true, { MOCK_HOOK_MODEL: 'fixture-hook-model' });
@@ -380,7 +477,10 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
           provider_session_id: string;
           driver_state: string;
         };
-      const first = start(f, 'HookModel', true, { MOCK_HOOK_MODEL: 'fixture-first-model' });
+      const first = start(f, 'HookModel', true, {
+        MOCK_HOOK_MODEL: 'fixture-first-model',
+        MOCK_ACTIVITY_HOOKS: '1',
+      });
       await ready(f, first);
       const original = records(f)[0].record.ready.thread;
       const trace = installTmuxTrace(f);
@@ -407,6 +507,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
         expect(saved.observed_provider_session_id).toBe(original);
         expect(saved.provider_session_id).toBe(original);
         expect(JSON.parse(saved.driver_state).model).toBe(model);
+        await assertTurnActivity(f, s, 'HookModel', foreground);
         expect(records(f)[0].record.foreground.process).toEqual(foreground);
         expect(events(s, 'queue')).toHaveLength(1);
         expect(events(s, 'paste')).toEqual([]);
@@ -423,7 +524,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
         f,
         'HookModel',
         true,
-        { MOCK_HOOK_MODEL: 'fixture-resumed-model' },
+        { MOCK_HOOK_MODEL: 'fixture-resumed-model', MOCK_ACTIVITY_HOOKS: '1' },
         first.pane,
         true
       );

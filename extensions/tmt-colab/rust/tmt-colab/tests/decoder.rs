@@ -1,3 +1,4 @@
+mod support;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
 use std::{
@@ -18,7 +19,7 @@ fn program() -> PathBuf {
     env!("CARGO_BIN_EXE_tmt-colab").into()
 }
 fn owner() -> Decoder {
-    Decoder::new(program()).unwrap()
+    Decoder::with_config(support::decoder_config(program())).unwrap()
 }
 fn gone(pid: u32) {
     assert_eq!(
@@ -287,6 +288,7 @@ fn archived_hostile_corpus_is_contained_with_confirmed_cleanup_twice() {
     }
     let mut decoder = Decoder::new(fixture.script.clone()).unwrap();
     for index in [26, 60, 106, 147, 157, 192] {
+        decoder.set_deadline(tmt_colab::decoder::DEADLINE).unwrap();
         match decoder.decode(
             UpdateBatch {
                 namespace: Namespace::Content,
@@ -310,6 +312,7 @@ fn archived_hostile_corpus_is_contained_with_confirmed_cleanup_twice() {
             Err(other) => panic!("saved dump {index} was not contained: {other:?}"),
         }
         gone(fixture.pid());
+        decoder.set_deadline(support::DECODER_DEADLINE).unwrap();
         let reply = decoder
             .decode(
                 UpdateBatch {
@@ -328,6 +331,7 @@ fn archived_hostile_corpus_is_contained_with_confirmed_cleanup_twice() {
 struct FixtureProgram {
     directory: PathBuf,
     script: PathBuf,
+    barrier: Option<(std::fs::File, std::fs::File)>,
 }
 impl FixtureProgram {
     fn new(body: &str) -> Self {
@@ -354,7 +358,62 @@ impl FixtureProgram {
             0o700,
         )
         .unwrap();
-        Self { directory, script }
+        Self {
+            directory,
+            script,
+            barrier: None,
+        }
+    }
+    fn blocked() -> Self {
+        use nix::{sys::stat::Mode, unistd::mkfifo};
+        let mut fixture = Self::new("");
+        let ready = fixture.directory.join("ready");
+        let release = fixture.directory.join("release");
+        for path in [&ready, &release] {
+            mkfifo(path, Mode::S_IRUSR | Mode::S_IWUSR).unwrap();
+        }
+        let open = |path| {
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(path)
+                .unwrap()
+        };
+        fixture.barrier = Some((open(&ready), open(&release)));
+        let directory = fixture.directory.to_string_lossy().replace('\'', "'\\''");
+        let actual = program().to_string_lossy().replace('\'', "'\\''");
+        write_executable(
+            &fixture.script,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$$\" > '{directory}/pid'\nexec 3< '{directory}/release'\nprintf x > '{directory}/ready'\nread line <&3\nexec 3<&-\nexec '{actual}' \"$@\"\n"
+            ).as_bytes(),
+            0o700,
+        )
+        .unwrap();
+        fixture
+    }
+    fn wait_ready(&self) {
+        use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
+        use std::{io::Read, os::fd::AsFd};
+        let (ready, _) = self.barrier.as_ref().unwrap();
+        let mut events = [PollFd::new(ready.as_fd(), PollFlags::POLLIN)];
+        assert_eq!(
+            poll(&mut events, PollTimeout::try_from(30_000).unwrap()).unwrap(),
+            1,
+            "blocked child never reached its FIFO"
+        );
+        let mut byte = [0];
+        (&*ready).read_exact(&mut byte).unwrap();
+        assert_eq!(byte, [b'x']);
+    }
+    fn release(&self) {
+        use std::io::Write;
+        let (_, release) = self.barrier.as_ref().unwrap();
+        (&*release).write_all(b"continue\n").unwrap();
+    }
+    fn assert_blocked_child_was_reaped(&self) {
+        self.wait_ready();
+        gone(self.pid());
     }
     fn pid(&self) -> u32 {
         self.recorded_pid().expect("fixture child recorded its pid")
@@ -398,53 +457,28 @@ fn environment_is_cleared_and_successful_invalid_output_is_rejected() {
         Some(7)
     );
     assert!(matches!(
-        Decoder::new(fixture.script.clone()).unwrap().decode(
-            UpdateBatch {
-                namespace: Namespace::Content,
-                baseline: &[],
-                updates: &[]
-            },
-            Role::Editor,
-            None
-        ),
+        Decoder::with_config(support::decoder_config(fixture.script.clone()))
+            .unwrap()
+            .decode(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &[],
+                    updates: &[]
+                },
+                Role::Editor,
+                None
+            ),
         Err(DecodeFault::InvalidOutput)
     ));
 }
 #[test]
-fn deadline_and_output_backpressure_confirm_cleanup_before_owner_reuse() {
-    for body in [
-        "exec /bin/sleep 60",
-        "exec /usr/bin/head -c 4194305 /dev/zero",
-    ] {
-        let fixture = FixtureProgram::new(body);
-        let mut decoder = Decoder::new(fixture.script.clone()).unwrap();
-        // A child which never reads stdin also exercises bounded input backpressure.
-        let baseline = vec![0; tmt_colab::decoder::BASELINE_BYTES];
-        let error = decoder
-            .decode(
-                UpdateBatch {
-                    namespace: Namespace::Content,
-                    baseline: &baseline,
-                    updates: &[],
-                },
-                Role::Editor,
-                None,
-            )
-            .err()
-            .unwrap();
-        assert!(
-            matches!(error,DecodeFault::Invoke(ref e) if matches!(e.cleanup,Cleanup::Confirmed) && matches!(e.kind,FailureKind::Deadline|FailureKind::OutputLimit(_)))
-        );
-        match fixture.recorded_pid() {
-            Some(pid) => gone(pid),
-            None => assert!(
-                matches!(error, DecodeFault::Invoke(ref e) if e.kind == FailureKind::Deadline),
-                "no pid without a deadline"
-            ),
-        }
-        fixture.actual();
-        let reply = decoder
-            .decode(
+fn fifo_blocked_child_completes_when_explicitly_released() {
+    let fixture = FixtureProgram::blocked();
+    let mut decoder =
+        Decoder::with_config(support::decoder_config(fixture.script.clone())).unwrap();
+    std::thread::scope(|scope| {
+        let work = scope.spawn(|| {
+            decoder.decode(
                 UpdateBatch {
                     namespace: Namespace::Content,
                     baseline: &[],
@@ -453,9 +487,132 @@ fn deadline_and_output_backpressure_confirm_cleanup_before_owner_reuse() {
                 Role::Editor,
                 None,
             )
-            .unwrap();
+        });
+        fixture.wait_ready();
+        fixture.release();
+        let reply = work.join().unwrap().unwrap();
+        assert_eq!(reply.projection["html"], "");
+        assert_eq!(reply.child_pid, fixture.pid());
         gone(reply.child_pid);
-    }
+    });
+}
+
+#[test]
+fn deadline_confirms_cleanup_before_owner_reuse() {
+    let fixture = FixtureProgram::blocked();
+    let mut decoder = Decoder::new(fixture.script.clone()).unwrap();
+    // The FIFO cannot complete on its own. Keep the request minimal so this
+    // measures the deadline rather than the time to serialize a large input.
+    let baseline = [];
+    let error = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline,
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        )
+        .err()
+        .unwrap();
+    assert!(matches!(error, DecodeFault::Invoke(ref e)
+        if e.kind == FailureKind::Deadline && matches!(e.cleanup, Cleanup::Confirmed)));
+    fixture.assert_blocked_child_was_reaped();
+    fixture.actual();
+    decoder.set_deadline(support::DECODER_DEADLINE).unwrap();
+    let reply = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &[],
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    gone(reply.child_pid);
+}
+
+#[test]
+fn interrupted_input_backpressure_confirms_cleanup_before_owner_reuse() {
+    use std::sync::atomic::Ordering;
+    let fixture = FixtureProgram::blocked();
+    let mut decoder =
+        Decoder::with_config(support::decoder_config(fixture.script.clone())).unwrap();
+    let stop = AtomicBool::new(false);
+    // Larger than a pipe buffer; the child signals readiness but never reads stdin.
+    let baseline = vec![0; tmt_colab::decoder::BASELINE_BYTES];
+    std::thread::scope(|scope| {
+        let work = scope.spawn(|| {
+            decoder.decode(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &baseline,
+                    updates: &[],
+                },
+                Role::Editor,
+                Some(&stop),
+            )
+        });
+        fixture.wait_ready();
+        stop.store(true, Ordering::Relaxed);
+        let error = work.join().unwrap().err().unwrap();
+        assert!(matches!(error, DecodeFault::Invoke(ref e)
+            if e.kind == FailureKind::Interrupted && matches!(e.cleanup, Cleanup::Confirmed)));
+        gone(fixture.pid());
+    });
+    fixture.actual();
+    let reply = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &[],
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    gone(reply.child_pid);
+}
+
+#[test]
+fn output_backpressure_confirms_exact_limit_and_cleanup_before_owner_reuse() {
+    let fixture = FixtureProgram::new("exec /usr/bin/head -c 4194305 /dev/zero");
+    let mut decoder =
+        Decoder::with_config(support::decoder_config(fixture.script.clone())).unwrap();
+    let baseline = vec![0; tmt_colab::decoder::BASELINE_BYTES];
+    let error = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline,
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        )
+        .err()
+        .unwrap();
+    assert!(matches!(error, DecodeFault::Invoke(ref e)
+        if e.kind == FailureKind::OutputLimit(tmt_invoke::Stream::Stdout)
+            && matches!(e.cleanup, Cleanup::Confirmed)));
+    gone(fixture.pid());
+    fixture.actual();
+    let reply = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &[],
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    gone(reply.child_pid);
 }
 
 #[test]
@@ -683,12 +840,12 @@ fn baseline_bounds_and_cleanup_use_the_existing_runner() {
     assert_eq!(checked.update, produced.update);
     gone(checked.child_pid);
     for body in [
-        "exec /bin/sleep 60",
         "exec /usr/bin/head -c 4194305 /dev/zero",
         "cat >/dev/null; printf '{}'",
     ] {
         let fixture = FixtureProgram::new(body);
-        let mut decoder = Decoder::new(fixture.script.clone()).unwrap();
+        let mut decoder =
+            Decoder::with_config(support::decoder_config(fixture.script.clone())).unwrap();
         let error = decoder
             .produce_baseline(view(&source, "title"), None)
             .err()
@@ -696,17 +853,11 @@ fn baseline_bounds_and_cleanup_use_the_existing_runner() {
         if body == "cat >/dev/null; printf '{}'" {
             assert!(matches!(error, DecodeFault::InvalidOutput));
         } else {
-            assert!(
-                matches!(error, DecodeFault::Invoke(ref e) if matches!(e.cleanup, Cleanup::Confirmed) && matches!(e.kind, FailureKind::Deadline|FailureKind::OutputLimit(_)))
-            );
+            assert!(matches!(error, DecodeFault::Invoke(ref e)
+                if e.kind == FailureKind::OutputLimit(tmt_invoke::Stream::Stdout)
+                    && matches!(e.cleanup, Cleanup::Confirmed)));
         }
-        match fixture.recorded_pid() {
-            Some(pid) => gone(pid),
-            None => assert!(
-                matches!(error, DecodeFault::Invoke(ref e) if e.kind == FailureKind::Deadline),
-                "no pid without a deadline"
-            ),
-        }
+        gone(fixture.pid());
         fixture.actual();
         let produced = decoder
             .produce_baseline(view(b"reusable", "title"), None)
@@ -717,6 +868,22 @@ fn baseline_bounds_and_cleanup_use_the_existing_runner() {
     assert!(
         matches!(decoder.produce_baseline(view(b"", ""), Some(&stop)), Err(DecodeFault::Invoke(e)) if e.kind == FailureKind::Interrupted)
     );
+}
+
+#[test]
+fn baseline_deadline_confirms_cleanup_before_owner_reuse() {
+    let fixture = FixtureProgram::blocked();
+    let mut decoder = Decoder::new(fixture.script.clone()).unwrap();
+    let error = decoder.produce_baseline(view(b"", ""), None).err().unwrap();
+    assert!(matches!(error, DecodeFault::Invoke(ref e)
+        if e.kind == FailureKind::Deadline && matches!(e.cleanup, Cleanup::Confirmed)));
+    fixture.assert_blocked_child_was_reaped();
+    fixture.actual();
+    decoder.set_deadline(support::DECODER_DEADLINE).unwrap();
+    let produced = decoder
+        .produce_baseline(view(b"reusable", "title"), None)
+        .unwrap();
+    gone(produced.child_pid);
 }
 
 #[test]
@@ -733,7 +900,7 @@ fn baseline_private_child_rejects_digest_and_strict_wire_mutations() {
                 program: &program,
                 args: &args,
                 input,
-                deadline: Instant::now() + Duration::from_secs(2),
+                deadline: Instant::now() + support::DECODER_DEADLINE,
                 max_stream_bytes: STREAM_BYTES,
                 launch: LaunchOptions {
                     environment: EnvironmentPolicy::ClearAllowlist(&[]),

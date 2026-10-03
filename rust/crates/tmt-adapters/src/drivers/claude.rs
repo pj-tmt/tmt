@@ -216,7 +216,7 @@ pub const MODE_DEFAULT: &str = "default";
 
 pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     descriptor: &tmt_core::driver::descriptor::CLAUDE,
-    env: &[],
+    env: &["CLAUDE_CONFIG_DIR"],
     locate,
     runtime: Some(super::Runtime {
         driver: || Box::new(ClaudeRuntime),
@@ -227,13 +227,20 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
 };
 
 fn locate(environment: &crate::skill_installation::ProviderEnvironment) -> super::Locations {
-    let home = environment.home();
+    let root = config_root(environment);
     super::Locations {
-        config_dirs: vec![home.join(".claude")],
-        skills: home.join(".claude/skills"),
-        legacy_skills: vec![home.join(".claude/commands/team.md")],
-        hook_settings: Some(home.join(".claude/settings.json")),
+        config_dirs: vec![root.clone()],
+        skills: root.join("skills"),
+        legacy_skills: vec![root.join("commands/team.md")],
+        hook_settings: Some(root.join("settings.json")),
     }
+}
+
+fn config_root(environment: &crate::skill_installation::ProviderEnvironment) -> std::path::PathBuf {
+    environment.var("CLAUDE_CONFIG_DIR").map_or_else(
+        || environment.home().join(".claude"),
+        |path| environment.resolve(path),
+    )
 }
 
 struct ClaudeRuntime;
@@ -351,7 +358,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         now_ms: u64,
         deadline: std::time::Instant,
     ) -> Option<tmt_core::binding::session::DriverState> {
-        let root = environment.home().join(".claude/projects");
+        let root = config_root(environment).join("projects");
         let path = turn.transcript.as_deref()?;
         let usage = crate::runtime::transcript::latest(&root, path, transcript_usage)
             .and_then(|tokens| crate::runtime::driver_state::Usage::new(tokens, None, now_ms));

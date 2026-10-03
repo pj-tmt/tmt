@@ -13,7 +13,10 @@ use crate::{
 use serde_json::{Value, json};
 #[cfg(test)]
 use tmt_cli_style::grid;
-use tmt_cli_style::grid::{Align, Basis, Overflow, Track, Truncate};
+use tmt_cli_style::{
+    Role,
+    grid::{Align, Basis, Overflow, Track, Truncate},
+};
 use toml_edit::{Item, TableLike};
 
 const MAX_COLUMNS: usize = 12;
@@ -205,11 +208,15 @@ impl Column {
 pub struct Cell {
     pub field: Option<String>,
     pub span: usize,
+    /// Declarative semantic style; omission keeps the projected field color.
+    pub token: Option<Role>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Rows {
     pub columns: Vec<Column>,
+    /// Explicitly hidden original tracks; field values and spans remain intact.
+    pub hidden_columns: Vec<String>,
     /// At least one line; each line's spans cover at most every column.
     pub lines: Vec<Vec<Cell>>,
 }
@@ -256,10 +263,15 @@ impl Rows {
                 .map(|column| Cell {
                     field: Some(column.field.clone()),
                     span: 1,
+                    token: None,
                 })
                 .collect(),
         ];
-        Self { columns, lines }
+        Self {
+            columns,
+            lines,
+            hidden_columns: Vec::new(),
+        }
     }
 
     /// Cells cover consecutive tracks from zero, including empty cells.
@@ -325,7 +337,7 @@ impl Rows {
             Truncate::End => "end",
             Truncate::Middle => "middle",
         };
-        json!({
+        let mut value = json!({
             "columns": self.columns.iter().enumerate().map(|(index, column)| {
                 let mut value = json!({
                 "field": column.field, "title": column.title, "width": width_value(column.width),
@@ -344,10 +356,18 @@ impl Rows {
                 }
                 value
             }).collect::<Vec<_>>(),
-            "lines": self.lines.iter().map(|line| line.iter().map(|cell| json!({
-                "field": cell.field, "span": cell.span,
-            })).collect::<Vec<_>>()).collect::<Vec<_>>(),
-        })
+            "lines": self.lines.iter().map(|line| line.iter().map(|cell| {
+                let mut value = json!({"field": cell.field, "span": cell.span});
+                if let Some(token) = cell.token {
+                    value["token"] = json!(token.name());
+                }
+                value
+            }).collect::<Vec<_>>()).collect::<Vec<_>>(),
+        });
+        if !self.hidden_columns.is_empty() {
+            value["hidden_columns"] = json!(self.hidden_columns);
+        }
+        value
     }
 }
 
@@ -498,7 +518,7 @@ fn width_value(width: Option<Basis>) -> Value {
 pub fn read(squad: Option<&dyn TableLike>, name: &str) -> Result<Rows, SquadError> {
     let rows = squad.and_then(|table| table.get("rows"));
     let columns = squad.and_then(|table| table.get("columns"));
-    let result = match (rows, columns) {
+    let mut result = match (rows, columns) {
         (Some(_), Some(_)) => Err(invalid(format!(
             "`squad.{name}` sets both `rows` and `columns`; keep `rows`."
         ))),
@@ -528,6 +548,36 @@ pub fn read(squad: Option<&dyn TableLike>, name: &str) -> Result<Rows, SquadErro
         return Err(invalid(format!(
             "`squad.{name}` configured column percentages must total at most 100%."
         )));
+    }
+    if let Some(item) = squad
+        .and_then(|s| s.get("board"))
+        .and_then(|b| b.get("hidden_columns"))
+    {
+        let place = format!("squad.{name}.board.hidden_columns");
+        let list = item
+            .as_array()
+            .ok_or_else(|| invalid(format!("`{place}` must list column names.")))?;
+        for (index, item) in list.iter().enumerate() {
+            let field = item
+                .as_str()
+                .filter(|field| {
+                    result.columns[..result.covered_tracks()]
+                        .iter()
+                        .any(|c| c.field == *field)
+                })
+                .ok_or_else(|| {
+                    invalid(format!("`{place}[{index}]` must name a covered column."))
+                })?;
+            if result.hidden_columns.iter().any(|known| known == field) {
+                return Err(invalid(format!("`{place}[{index}]` repeats `{field}`.")));
+            }
+            result.hidden_columns.push(field.into());
+        }
+        if result.hidden_columns.len() == result.covered_tracks() {
+            return Err(invalid(format!(
+                "`{place}` must leave at least one covered track visible."
+            )));
+        }
     }
     Ok(result)
 }
@@ -585,7 +635,11 @@ fn read_rows(
         None => Rows::with_one_line(columns.clone()).lines,
         Some(lines) => read_lines(lines, &format!("{place}.lines"), columns.len())?,
     };
-    Ok(Rows { columns, lines })
+    Ok(Rows {
+        columns,
+        lines,
+        hidden_columns: Vec::new(),
+    })
 }
 
 fn read_column(
@@ -700,17 +754,19 @@ fn read_lines(item: &Item, place: &str, columns: usize) -> Result<Vec<Vec<Cell>>
         .collect()
 }
 
-/// `"field"`, `""` (an empty cell), or `{ field = "…", span = n }`.
+/// `"field"`, `""`, or `{ field = "…", span = n, token = "waiting" }`.
 fn read_cell(cell: &toml_edit::Value, here: &str, columns: usize) -> Result<Cell, SquadError> {
     if let Some(field) = cell.as_str() {
         return match field {
             "" => Ok(Cell {
                 field: None,
                 span: 1,
+                token: None,
             }),
             field if field_name(field) => Ok(Cell {
                 field: Some(field.to_owned()),
                 span: 1,
+                token: None,
             }),
             _ => Err(invalid(format!("`{here}` must be a field name or \"\"."))),
         };
@@ -721,6 +777,7 @@ fn read_cell(cell: &toml_edit::Value, here: &str, columns: usize) -> Result<Cell
     let mut parsed = Cell {
         field: None,
         span: 1,
+        token: None,
     };
     for (key, value) in table.iter() {
         match key {
@@ -739,6 +796,14 @@ fn read_cell(cell: &toml_edit::Value, here: &str, columns: usize) -> Result<Cell
                     .and_then(|span| usize::try_from(span).ok())
                     .filter(|span| (1..=columns).contains(span))
                     .ok_or_else(|| invalid(format!("`{here}.span` must be 1-{columns}.")))?;
+            }
+            "token" => {
+                parsed.token = Some(value.as_str().and_then(Role::parse).ok_or_else(|| {
+                    invalid(format!(
+                        "`{here}.token` must be a semantic theme token: {}.",
+                        Role::ALL.map(Role::name).join(", ")
+                    ))
+                })?);
             }
             other => {
                 return Err(invalid(format!("`{here}.{other}` is not a cell setting.")));

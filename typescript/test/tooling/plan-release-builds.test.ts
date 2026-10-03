@@ -56,6 +56,14 @@ describe('release build plan', () => {
     expect(plan.blocked).toEqual([]);
   });
 
+  it('selects activated standalone driver drafts without planning CLI builds or publication', () => {
+    const releases = [draft('tmt-driver-herdr-v0.1.0-alpha.1', '1'), draft('v5.0.0-alpha.9', '2')];
+    expect(tags(planReleaseBuilds({ product: 'driver-herdr', released: true, releases }))).toEqual([
+      'tmt-driver-herdr-v0.1.0-alpha.1',
+    ]);
+    expect(tags(planReleaseBuilds({ product: 'cli', releases }))).toEqual(['v5.0.0-alpha.9']);
+  });
+
   it('breaks a tie in creation time by tag, so the order is deterministic', () => {
     const same = '2026-09-30T01:00:00Z';
     const plan = planReleaseBuilds({
@@ -440,29 +448,32 @@ describe('plan-release-builds.mjs', () => {
     expect(resume.summary).toContain('await their gates and publication');
   });
 
-  it('plans no run for a product the component map does not release', () => {
-    const directory = mkdtempSync(path.join(os.tmpdir(), 'plan-components-'));
-    try {
-      const map = JSON.parse(readFileSync(componentMap, 'utf8')) as {
-        components: Record<string, { release?: boolean }>;
-      };
-      const drafts = [[draft('tmt-office-v0.1.0-alpha.5', '1', [BUNDLE_ASSET])]];
-      // The committed map parks Office, so its draft is left alone.
-      const result = run(['--product', 'office'], drafts);
-      expect(result.status).toBe(0);
-      expect(result.output).toBe('matrix={"include":[]}\nany=false\n');
-      expect(result.summary).toContain('**Left alone** (office is not released');
-      // A map that releases it plans the run.
-      delete map.components.office.release;
-      const released = path.join(directory, 'components.json');
-      writeFileSync(released, JSON.stringify(map));
-      expect(run(['--product', 'office', '--components', released], drafts).output).toContain(
-        'any=true'
-      );
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
+  it.each(['office', 'driver-herdr'])(
+    'plans no run for parked %s until its map activates it',
+    (product) => {
+      const directory = mkdtempSync(path.join(os.tmpdir(), 'plan-components-'));
+      try {
+        const map = JSON.parse(readFileSync(componentMap, 'utf8')) as {
+          components: Record<string, { release?: boolean }>;
+        };
+        const drafts = [[draft(`tmt-${product}-v0.1.0-alpha.5`, '1', [BUNDLE_ASSET])]];
+        // The committed map parks this product, so its draft is left alone.
+        const result = run(['--product', product], drafts);
+        expect(result.status).toBe(0);
+        expect(result.output).toBe('matrix={"include":[]}\nany=false\n');
+        expect(result.summary).toContain(`**Left alone** (${product} is not released`);
+        // A map that releases it plans the run.
+        map.components[product].release = true;
+        const released = path.join(directory, 'components.json');
+        writeFileSync(released, JSON.stringify(map));
+        expect(run(['--product', product, '--components', released], drafts).output).toContain(
+          'any=true'
+        );
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
     }
-  });
+  );
 
   it('plans no run for a held draft alone', () => {
     const held = run(

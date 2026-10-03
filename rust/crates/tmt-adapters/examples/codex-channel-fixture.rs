@@ -42,12 +42,18 @@ fn main() {
         foreground(&args);
     }
 }
+#[derive(Clone)]
+struct LoadedThread {
+    id: String,
+    cwd: String,
+}
+
 fn server(args: &[String]) {
     let token = fs::read_to_string(flag(args, "--ws-token-file")).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     eprintln!("listening on: ws://{}", listener.local_addr().unwrap());
     event("server-started");
-    let state = Arc::new(Mutex::new(None::<String>));
+    let state = Arc::new(Mutex::new(None::<LoadedThread>));
     for stream in listener.incoming() {
         let token = token.clone();
         let state = state.clone();
@@ -58,7 +64,7 @@ fn server(args: &[String]) {
     clippy::result_large_err,
     reason = "tungstenite requires its handshake HTTP error response by value"
 )]
-fn connection(stream: TcpStream, token: &str, state: Arc<Mutex<Option<String>>>) {
+fn connection(stream: TcpStream, token: &str, state: Arc<Mutex<Option<LoadedThread>>>) {
     stream
         .set_read_timeout(Some(Duration::from_secs(90)))
         .unwrap();
@@ -85,9 +91,25 @@ fn connection(stream: TcpStream, token: &str, state: Arc<Mutex<Option<String>>>)
                 let mut state = state.lock().unwrap();
                 assert!(state.is_none(), "only one thread per owned endpoint");
                 let thread = uuid::Uuid::new_v4().to_string();
-                *state = Some(thread.clone());
+                *state = Some(LoadedThread {
+                    id: thread.clone(),
+                    cwd: fs::canonicalize(request["params"]["cwd"].as_str().unwrap())
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .to_owned(),
+                });
                 log(json!({"event":"thread-start","params":request["params"],"thread":thread}));
                 json!({"cwd":request["params"]["cwd"],"thread":{"id":thread}})
+            }
+            "thread/loaded/list" => {
+                json!({"data":state.lock().unwrap().as_ref().map(|t| vec![t.id.clone()]).unwrap_or_default()})
+            }
+            "thread/read" => {
+                let state = state.lock().unwrap();
+                let loaded = state.as_ref().unwrap();
+                assert_eq!(request["params"]["threadId"], loaded.id);
+                json!({"thread":{"id":loaded.id,"cwd":loaded.cwd,"ephemeral":false}})
             }
             "thread/resume" => {
                 let mut state = state.lock().unwrap();
@@ -105,10 +127,13 @@ fn connection(stream: TcpStream, token: &str, state: Arc<Mutex<Option<String>>>)
                     } else {
                         requested
                     };
-                    *state = Some(returned.to_owned());
+                    *state = Some(LoadedThread {
+                        id: returned.to_owned(),
+                        cwd: request["params"]["cwd"].as_str().unwrap().to_owned(),
+                    });
                     json!({"cwd":request["params"]["cwd"],"thread":{"id":returned}})
                 } else {
-                    assert_eq!(Some(requested), state.as_deref());
+                    assert_eq!(Some(requested), state.as_ref().map(|t| t.id.as_str()));
                     event("attached");
                     json!({})
                 }
@@ -116,7 +141,7 @@ fn connection(stream: TcpStream, token: &str, state: Arc<Mutex<Option<String>>>)
             "thread/queue/add" => {
                 assert_eq!(
                     request["params"]["threadId"].as_str(),
-                    state.lock().unwrap().as_deref()
+                    state.lock().unwrap().as_ref().map(|t| t.id.as_str())
                 );
                 let params = &request["params"];
                 let content = params["input"][0]["text"].as_str().unwrap();
@@ -150,31 +175,29 @@ fn connection(stream: TcpStream, token: &str, state: Arc<Mutex<Option<String>>>)
                     .send(Message::text(json!({"id":id,"result":result}).to_string()))
                     .unwrap();
                 if let Ok(model) = env::var("MOCK_HOOK_MODEL") {
-                    let peer: Value =
-                        serde_json::from_str(&env::var("MOCK_PEER").unwrap()).unwrap();
-                    let mut hook = Command::new(peer["executable"].as_str().unwrap())
-                        .args(
-                            peer["args"]
-                                .as_array()
-                                .unwrap()
-                                .iter()
-                                .map(|arg| arg.as_str().unwrap()),
-                        )
-                        .args(["__hook", "codex"])
-                        .stdin(Stdio::piped())
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::piped())
-                        .spawn()
-                        .unwrap();
-                    let payload = json!({"hook_event_name":"SessionStart","source":"resume","session_id":params["threadId"],"model":model});
-                    hook.stdin
-                        .take()
-                        .unwrap()
-                        .write_all(payload.to_string().as_bytes())
-                        .unwrap();
-                    let result = hook.wait_with_output().unwrap();
-                    log(
-                        json!({"event":"hook","ok":result.status.success(),"stdout":String::from_utf8_lossy(&result.stdout),"stderr":String::from_utf8_lossy(&result.stderr)}),
+                    hook(params["threadId"].as_str().unwrap(), "resume", &model);
+                }
+                if env::var_os("MOCK_ACTIVITY_HOOKS").is_some() {
+                    let turn = uuid::Uuid::new_v4().to_string();
+                    let session = params["threadId"].as_str().unwrap();
+                    run_hook(
+                        session,
+                        "prompt-hook",
+                        json!({"hook_event_name":"UserPromptSubmit","session_id":session,"turn_id":turn,"prompt":"fixture turn"}),
+                    );
+                    let finish = format!("{}.finish-turn", env::var("MOCK_CHANNEL_LOG").unwrap());
+                    let deadline = Instant::now() + Duration::from_secs(15);
+                    while !std::path::Path::new(&finish).exists() {
+                        assert!(
+                            Instant::now() < deadline,
+                            "activity assertion did not release fixture turn"
+                        );
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    run_hook(
+                        session,
+                        "stop-hook",
+                        json!({"hook_event_name":"Stop","session_id":session,"turn_id":turn,"transcript_path":null}),
                     );
                 }
                 log(json!({"event":"channel","content":content}));
@@ -188,14 +211,58 @@ fn connection(stream: TcpStream, token: &str, state: Arc<Mutex<Option<String>>>)
         {
             return;
         }
+        if method == "thread/start"
+            && let Ok(model) = env::var("MOCK_EAGER_HOOK_MODEL")
+        {
+            let id = state.lock().unwrap().as_ref().unwrap().id.clone();
+            hook(&id, "startup", &model);
+        }
     }
+}
+fn hook(session: &str, source: &str, model: &str) {
+    run_hook(
+        session,
+        "hook",
+        json!({"hook_event_name":"SessionStart","source":source,"session_id":session,"model":model}),
+    );
+}
+fn run_hook(session: &str, event: &str, payload: Value) {
+    let peer: Value = serde_json::from_str(&env::var("MOCK_PEER").unwrap()).unwrap();
+    let started = Instant::now();
+    log(json!({"event":"hook-arrived","thread":session}));
+    let mut hook = Command::new(peer["executable"].as_str().unwrap())
+        .args(
+            peer["args"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|arg| arg.as_str().unwrap()),
+        )
+        .args(["__hook", "codex"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    hook.stdin
+        .take()
+        .unwrap()
+        .write_all(payload.to_string().as_bytes())
+        .unwrap();
+    let result = hook.wait_with_output().unwrap();
+    log(
+        json!({"event":event,"thread":session,"elapsedMs":started.elapsed().as_millis(),"ok":result.status.success(),"stdout":String::from_utf8_lossy(&result.stdout),"stderr":String::from_utf8_lossy(&result.stderr)}),
+    );
 }
 fn foreground(args: &[String]) {
     let _attachment = if args.iter().any(|arg| arg == "--remote") {
-        assert!(!args.iter().any(|arg| matches!(
-            arg.as_str(),
-            "-s" | "--sandbox" | "-a" | "--ask-for-approval"
-        )));
+        let resume = args.first().is_some_and(|arg| arg == "resume");
+        if resume {
+            assert!(!args.iter().any(|arg| matches!(
+                arg.as_str(),
+                "-s" | "--sandbox" | "-a" | "--ask-for-approval"
+            )));
+        }
         let endpoint = flag(args, "--remote");
         let thread = args.last().unwrap();
         let mut request = endpoint.into_client_request().unwrap();
@@ -206,10 +273,14 @@ fn foreground(args: &[String]) {
                 .unwrap(),
         );
         let (mut socket, _) = tungstenite::connect(request).unwrap();
+        let (method, params) = if resume {
+            ("thread/resume", json!({"threadId":thread}))
+        } else {
+            ("thread/start", json!({"cwd":flag(args, "-C")}))
+        };
         socket
             .send(Message::text(
-                json!({"id":"attach","method":"thread/resume","params":{"threadId":thread}})
-                    .to_string(),
+                json!({"id":"attach","method":method,"params":params}).to_string(),
             ))
             .unwrap();
         socket.read().unwrap();

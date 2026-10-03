@@ -5,26 +5,82 @@ import {
   STATE_BYTES,
   UPDATE_BYTES,
   validateProjection,
+  validateOwn,
   type FoldCommand,
 } from './fold-protocol.js';
 
-// One document per dedicated Worker; only this module imports/decodes Yjs.
+// One shared content document and one own document per admitted writer; only this module imports/decodes Yjs.
 let committed = new Y.Doc();
 let initialized = false;
+const own = new Map<string, Y.Doc>();
+function ownDoc() {
+  const doc = new Y.Doc();
+  for (const name of ['threads', 'messages', 'intents', 'replies']) doc.getMap(name);
+  return doc;
+}
+function clone(source: Y.Doc, target: Y.Doc) {
+  Y.applyUpdate(target, Y.encodeStateAsUpdate(source));
+  // encodeStateAsUpdate omits pending data. Preserve both pending v2 fragments
+  // across unpublished checkpoint steps until the final dependency check.
+  if (source.store.pendingStructs) Y.applyUpdateV2(target, source.store.pendingStructs.update);
+  if (source.store.pendingDs) Y.applyUpdateV2(target, source.store.pendingDs);
+}
+function stateBytes(doc: Y.Doc) {
+  return (
+    Y.encodeStateAsUpdate(doc).length +
+    (doc.store.pendingStructs?.update.length ?? 0) +
+    (doc.store.pendingDs?.length ?? 0)
+  );
+}
+function projectOwn(doc: Y.Doc, complete: boolean) {
+  const names = ['threads', 'messages', 'intents', 'replies'];
+  if (
+    [...doc.share.keys()].some((key) => !names.includes(key)) ||
+    (complete && (doc.store.pendingStructs || doc.store.pendingDs))
+  )
+    throw new Error('Rejected own roots or unresolved dependencies');
+  return Object.fromEntries(
+    names.map((name) => {
+      const map = doc.getMap(name);
+      if (map._length !== 0) throw new Error('Rejected own list mutation');
+      return [
+        name,
+        Object.fromEntries(
+          [...map.entries()].map(([key, value]) => {
+            // Reject before JSON.stringify can call a shared type's toJSON method.
+            if (value instanceof Y.AbstractType) throw new Error('Rejected shared own value');
+            return [
+              key,
+              // Match yrs Any -> serde_json: undefined/nonfinite become null and byte
+              // buffers become arrays. Shared Yjs values are never plain record data.
+              JSON.parse(
+                JSON.stringify(value, (_key, v: unknown) => {
+                  if (v instanceof Y.AbstractType) throw new Error('Rejected shared own value');
+                  if (v instanceof Uint8Array) return [...v];
+                  if (typeof v === 'bigint') return Number(v);
+                  return v === undefined ? null : v;
+                }),
+              ),
+            ];
+          }),
+        ),
+      ];
+    }),
+  );
+}
 function declare(doc: Y.Doc) {
   doc.getText('html');
   doc.getMap('meta');
 }
 declare(committed);
-function project(doc: Y.Doc) {
+function project(doc: Y.Doc, complete = true) {
   const html = doc.getText('html'),
     meta = doc.getMap('meta');
   if (
     [...doc.share.keys()].some((key) => key !== 'html' && key !== 'meta') ||
     html._map.size !== 0 ||
     meta._start !== null ||
-    doc.store.pendingStructs !== null ||
-    doc.store.pendingDs !== null ||
+    (complete && (doc.store.pendingStructs !== null || doc.store.pendingDs !== null)) ||
     html
       .toDelta()
       .some(
@@ -43,21 +99,42 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: FoldCommand }
   const { id, command } = event.data;
   const candidate = new Y.Doc();
   declare(candidate);
+  const nextOwn = new Map(own),
+    changed = new Map<string, Y.Doc>();
+  function writerDoc(writer: string) {
+    let doc = changed.get(writer);
+    if (!doc) {
+      doc = ownDoc();
+      const previous = own.get(writer);
+      if (previous) clone(previous, doc);
+      changed.set(writer, doc);
+      nextOwn.set(writer, doc);
+    }
+    return doc;
+  }
   try {
-    const state = Y.encodeStateAsUpdate(committed);
-    Y.applyUpdate(candidate, state);
+    clone(committed, candidate);
     let update = new Uint8Array();
     if (command.type === 'baseline') {
       if (initialized || command.update.length > BASELINE_UPDATE_BYTES)
         throw new Error('Invalid baseline state or capacity');
       Y.applyUpdate(candidate, command.update);
+    } else if (command.type === 'checkpoint') {
+      if (command.update.length > STATE_BYTES) throw new Error('Decoder checkpoint capacity');
+      Y.applyUpdate(
+        command.writer === undefined ? candidate : writerDoc(command.writer),
+        command.update,
+      );
     } else if (command.type === 'apply' || command.type === 'check') {
       if (
-        command.updates.length > 200 ||
-        command.updates.reduce((n, item) => n + item.length, 0) > UPDATE_BYTES
+        command.updates.length + (command.own?.length ?? 0) > 200 ||
+        command.updates.reduce((n, item) => n + item.length, 0) +
+          (command.own ?? []).reduce((n, item) => n + item.update.length, 0) >
+          UPDATE_BYTES
       )
         throw new Error('Decoder input capacity');
       for (const item of command.updates) Y.applyUpdate(candidate, item);
+      for (const item of command.own ?? []) Y.applyUpdate(writerDoc(item.writer), item.update);
     } else if (command.type === 'prepare') {
       validateProjection({ source: command.source, title: '' });
       if (command.base !== undefined && command.base !== committed.getText('html').toString())
@@ -85,7 +162,9 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: FoldCommand }
       update = new Uint8Array(Y.encodeStateAsUpdate(candidate, vector));
       if (update.length > UPDATE_BYTES) throw new Error('Edit exceeds update capacity');
     } else throw new Error('Invalid decoder command');
-    const projection = project(candidate);
+    // A writer checkpoint may depend on another writer's checkpoint. Final tail
+    // admission requires complete resolution before the parent publishes anything.
+    const projection = project(candidate, command.type !== 'checkpoint');
     if (
       command.type === 'baseline' &&
       (projection.title !== command.title ||
@@ -103,18 +182,34 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: FoldCommand }
         ))
     )
       throw new Error('Baseline commitment or projection mismatch');
-    if (Y.encodeStateAsUpdate(candidate).length > STATE_BYTES)
+    const ownProjection = Object.fromEntries(
+      [...nextOwn].map(([writer, doc]) => [writer, projectOwn(doc, command.type !== 'checkpoint')]),
+    );
+    validateOwn(ownProjection);
+    if (
+      stateBytes(candidate) + [...nextOwn.values()].reduce((n, doc) => n + stateBytes(doc), 0) >
+        STATE_BYTES ||
+      text(JSON.stringify({ ...projection, own: ownProjection })).length > STATE_BYTES
+    )
       throw new Error('Decoder state capacity');
     // Prepared local bytes have no durable receipt yet. Keep their projection out
     // of committed state so later foreign updates cannot publish an unsaved draft.
-    if (command.type === 'apply' || command.type === 'baseline') {
+    if (command.type === 'apply' || command.type === 'baseline' || command.type === 'checkpoint') {
       initialized = true;
       committed.destroy();
       committed = candidate;
-    } else candidate.destroy();
-    self.postMessage({ id, ...projection, update });
+      for (const [writer, doc] of changed) {
+        own.get(writer)?.destroy();
+        own.set(writer, doc);
+      }
+    } else {
+      candidate.destroy();
+      changed.forEach((doc) => doc.destroy());
+    }
+    self.postMessage({ id, ...projection, own: ownProjection, update });
   } catch {
     candidate.destroy();
+    changed.forEach((doc) => doc.destroy());
     self.postMessage({ id, error: 'Rejected content update' });
   }
 };

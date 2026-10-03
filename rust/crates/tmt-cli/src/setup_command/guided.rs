@@ -177,7 +177,14 @@ fn present(output: &mut impl Write, terminal: Terminal, plan: &Plan) -> std::io:
         changes.row([
             Cell::styled("hooks", Token::Dim),
             Cell::from(home(&hooks.change.path)),
-            Cell::styled(hooks.events(), Token::Dim),
+            Cell::styled(
+                format!(
+                    "{}; backups in {} (warning above 32; manual cleanup only)",
+                    hooks.events(),
+                    home(&setup::backup_directory(&hooks.change.path).expect("settings parent"))
+                ),
+                Token::Dim,
+            ),
         ]);
     }
     let mut kept = Table::new(&[Column::Detail, Column::Detail]);
@@ -246,7 +253,7 @@ fn document(plan: &Plan, applied: bool, skipped: &[PathBuf]) -> serde_json::Valu
     changes.extend(plan.hook_changes().map(
         |hooks| json!({"kind": "hooks", "driver": hooks.provider, "path": hooks.change.path}),
     ));
-    json!({
+    let mut document = json!({
         "detectedProviders": plan.detections.iter().filter(|(_, detection)| gets_skills(detection)).map(|(driver, _)| driver.name()).collect::<Vec<_>>(),
         "integrations": plan.hooks.iter().map(|hooks| {
             let mut integration = json!({
@@ -264,7 +271,16 @@ fn document(plan: &Plan, applied: bool, skipped: &[PathBuf]) -> serde_json::Valu
         "kept": plan.occupied().map(|skill| &skill.target).collect::<Vec<_>>(),
         "applied": applied,
         "skipped": skipped,
-    })
+    });
+    let warnings: Vec<String> = plan
+        .hooks
+        .iter()
+        .filter_map(|hooks| setup::backup_warning(&hooks.change.path))
+        .collect();
+    if !warnings.is_empty() {
+        document["warnings"] = json!(warnings);
+    }
+    document
 }
 
 pub(super) fn run(
@@ -291,6 +307,7 @@ pub(super) fn run(
             writeln!(output, "{}", document(&plan, false, &[])).map_err(failure)?;
         } else {
             message::success(output, terminal, "Everything is set up").map_err(failure)?;
+            backup_warnings(&plan, output, terminal)?;
             closing_hint(output, terminal)?;
         }
         return Ok(());
@@ -319,7 +336,21 @@ pub(super) fn run(
             "reload your agents so they read the new skills",
         )
         .map_err(failure)?;
+        backup_warnings(&plan, output, terminal)?;
         closing_hint(output, terminal)?;
+    }
+    Ok(())
+}
+
+fn backup_warnings(
+    plan: &Plan,
+    output: &mut impl Write,
+    terminal: Terminal,
+) -> Result<(), Failure> {
+    for hooks in &plan.hooks {
+        if let Some(warning) = setup::backup_warning(&hooks.change.path) {
+            message::warning(output, terminal, &warning, None).map_err(failure)?;
+        }
     }
     Ok(())
 }

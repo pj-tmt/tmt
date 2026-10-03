@@ -43,6 +43,66 @@ fn resumes_exact_thread_on_explicit_endpoint_without_prompt_or_fork() {
 }
 
 #[test]
+fn fresh_tui_owns_thread_creation_and_typed_permission_options() {
+    let selected = command(&[
+        "-m",
+        "gpt-6-luna",
+        "-C",
+        "project",
+        "--sandbox",
+        "read-only",
+        "--ask-for-approval",
+        "on-request",
+        "--no-alt-screen",
+    ]);
+    let options = LaunchOptions::parse(&selected, Path::new("/owned")).unwrap();
+    let fresh = options
+        .fresh_foreground(&selected, "ws://127.0.0.1:50000")
+        .unwrap();
+    assert_eq!(fresh.executable, selected.executable);
+    assert_eq!(
+        fresh.args,
+        command(&[
+            "--remote",
+            "ws://127.0.0.1:50000",
+            "--remote-auth-token-env",
+            TOKEN_ENV,
+            "-C",
+            "/owned/project",
+            "-m",
+            "gpt-6-luna",
+            "--no-alt-screen",
+            "--sandbox",
+            "read-only",
+            "--ask-for-approval",
+            "on-request",
+        ])
+        .args
+    );
+}
+
+#[test]
+fn fresh_tui_preserves_provider_permission_defaults() {
+    let selected = command(&[]);
+    let options = LaunchOptions::parse(&selected, Path::new("/owned")).unwrap();
+    assert_eq!(
+        options
+            .fresh_foreground(&selected, "ws://127.0.0.1:50000")
+            .unwrap()
+            .args,
+        command(&[
+            "--remote",
+            "ws://127.0.0.1:50000",
+            "--remote-auth-token-env",
+            TOKEN_ENV,
+            "-C",
+            "/owned"
+        ])
+        .args
+    );
+}
+
+#[test]
 fn initial_input_and_session_switches_are_rejected_before_launch() {
     for args in [
         &["hello"][..],
@@ -115,6 +175,10 @@ fn shared_default_and_nonlocal_endpoints_are_rejected() {
             options.foreground(&selected, endpoint, &thread),
             Err(AttachmentError::InvalidEndpoint)
         );
+        assert_eq!(
+            options.fresh_foreground(&selected, endpoint),
+            Err(AttachmentError::InvalidEndpoint)
+        );
     }
 }
 
@@ -167,19 +231,27 @@ fn relative_and_absolute_cd_have_one_observable_directory_from_either_spawn_cwd(
 }
 
 #[test]
-fn permission_flags_belong_to_thread_start_never_remote_resume() {
+fn permission_flags_belong_to_fresh_tui_never_remote_resume() {
     for args in [
         vec!["-s", "read-only", "-a", "on-request"],
         vec!["--sandbox=read-only", "--ask-for-approval=on-request"],
     ] {
         let selected = command(&args);
         let options = LaunchOptions::parse(&selected, Path::new("/owned")).unwrap();
-        assert_eq!(
-            options.thread_start_params(),
-            serde_json::json!({
-                "cwd":"/owned", "allowProviderModelFallback":false,
-                "sandbox":"read-only", "approvalPolicy":"on-request"
-            })
+        let fresh = options
+            .fresh_foreground(&selected, "ws://127.0.0.1:50000")
+            .unwrap();
+        assert!(
+            fresh
+                .args
+                .windows(2)
+                .any(|pair| pair == command(&["--sandbox", "read-only"]).args)
+        );
+        assert!(
+            fresh
+                .args
+                .windows(2)
+                .any(|pair| pair == command(&["--ask-for-approval", "on-request"]).args)
         );
         let foreground = options
             .foreground(
@@ -214,10 +286,6 @@ fn permission_flags_belong_to_thread_start_never_remote_resume() {
         );
     }
     let options = LaunchOptions::parse(&command(&[]), Path::new("/owned")).unwrap();
-    assert_eq!(
-        options.thread_start_params(),
-        serde_json::json!({"cwd":"/owned", "allowProviderModelFallback":false})
-    );
     assert!(options.server_arguments().is_empty());
 }
 

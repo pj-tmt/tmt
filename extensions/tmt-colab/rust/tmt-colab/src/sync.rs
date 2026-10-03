@@ -132,6 +132,18 @@ impl Peer {
     fn push(&mut self, text: String) {
         self.enqueue(Delivery::Frame(text));
     }
+    fn membership_transfer(&mut self, scope: &SyncScope, transfer: Option<([u8; 32], Vec<u8>)>) {
+        if let Some((hash, bytes)) = transfer {
+            self.enqueue(Delivery::Transfer {
+                scope: scope.clone(),
+                identity: ChunkIdentity::Statement {
+                    statement_hash: values::encode_binary(&hash),
+                },
+                bytes: Arc::new(bytes),
+                index: 0,
+            });
+        }
+    }
     fn enqueue(&mut self, delivery: Delivery) {
         if self.terminal.is_some() {
             return;
@@ -150,10 +162,20 @@ enum Delivery {
     Frame(String),
     Transfer {
         scope: SyncScope,
-        object_id: String,
-        hash: String,
+        identity: ChunkIdentity,
         bytes: Arc<Vec<u8>>,
         index: usize,
+    },
+}
+#[derive(Clone, Serialize)]
+#[serde(untagged, rename_all_fields = "camelCase")]
+enum ChunkIdentity {
+    Object {
+        object_id: String,
+        envelope_hash: String,
+    },
+    Statement {
+        statement_hash: String,
     },
 }
 impl Delivery {
@@ -162,19 +184,18 @@ impl Delivery {
             Self::Frame(text) => Ok((text.clone(), true)),
             Self::Transfer {
                 scope,
-                object_id,
-                hash,
+                identity,
                 bytes,
                 index,
             } => {
                 let count = bytes.len().div_ceil(limits::CHUNK_BYTES);
                 let start = *index * limits::CHUNK_BYTES;
                 let end = (start + limits::CHUNK_BYTES).min(bytes.len());
-                let text = wire::output(
-                    scope,
-                    "chunk",
-                    serde_json::json!({"objectId":object_id,"envelopeHash":hash,"index":index,"count":count,"bytes":values::encode_binary(&bytes[start..end])}),
-                )?;
+                let mut fields = serde_json::to_value(identity).map_err(|_| Code::Invalid)?;
+                fields["index"] = serde_json::json!(index);
+                fields["count"] = serde_json::json!(count);
+                fields["bytes"] = serde_json::json!(values::encode_binary(&bytes[start..end]));
+                let text = wire::output(scope, "chunk", fields)?;
                 *index += 1;
                 Ok((text, *index == count))
             }
@@ -232,8 +253,10 @@ fn delivery(
             serde_json::json!({"objectId":header.object_id}),
             Some(Delivery::Transfer {
                 scope: scope.clone(),
-                object_id: header.object_id,
-                hash: values::encode_binary(&hash),
+                identity: ChunkIdentity::Object {
+                    object_id: header.object_id,
+                    envelope_hash: values::encode_binary(&hash),
+                },
                 bytes: Arc::new(bytes),
                 index: 0,
             }),
@@ -613,6 +636,7 @@ impl<A: Admission> State<A> {
                     limits::WS_FRAME_BYTES
                         .saturating_sub(overhead + 64)
                         .min(60 * 1024),
+                    fields.get("baselineObject").is_none(),
                 )
             })
             .map_err(bootstrap_error)?;
@@ -633,6 +657,7 @@ impl<A: Admission> State<A> {
         if let Some(transfer) = transfer {
             peer.enqueue(transfer);
         }
+        peer.membership_transfer(scope, membership.transfer);
         Ok(())
     }
     /// Scan all namespaces anew each turn. An append to an already visited
@@ -654,7 +679,7 @@ impl<A: Admission> State<A> {
             let membership = self
                 .store
                 .owner_read(&scope.space, &catchup.owner, |tx| {
-                    tx.membership_page(catchup.revision, &catchup.head, 60 * 1024)
+                    tx.membership_page(catchup.revision, &catchup.head, 60 * 1024, true)
                 })
                 .map_err(bootstrap_error)?;
             let text = wire::output(
@@ -665,6 +690,7 @@ impl<A: Admission> State<A> {
             let peer = self.peers.get_mut(&id).ok_or(Code::Denied)?;
             peer.catchup.as_mut().ok_or(Code::Invalid)?.revision = membership.revision;
             peer.push(text);
+            peer.membership_transfer(&scope, membership.transfer);
             return Ok(());
         }
         if !catchup.wraps_done {

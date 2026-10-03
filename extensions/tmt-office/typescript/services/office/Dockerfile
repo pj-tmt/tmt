@@ -36,6 +36,7 @@ USER root
 RUN pnpm --filter @tmt/office exec playwright install --with-deps chromium
 USER node
 COPY --from=emulators --chown=node:node /home/node/office/ /home/node/office/
+COPY --chown=node:node typescript/scripts/lint-config.mjs typescript/scripts/lint-config.d.mts /workspace/typescript/scripts/
 COPY --chown=node:node extensions/tmt-office/typescript/apps/office /workspace/extensions/tmt-office/typescript/apps/office
 COPY --chown=node:node extensions/tmt-office/contracts /workspace/extensions/tmt-office/contracts
 COPY --chown=node:node typescript/test/e2e test/e2e

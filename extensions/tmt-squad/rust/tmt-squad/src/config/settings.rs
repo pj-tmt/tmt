@@ -5,23 +5,7 @@ use crate::{
     split::{Size, Split},
     tabs,
 };
-use serde_json::{Value, json};
-
-fn split_value(split: &Split) -> Value {
-    match split {
-        Split::Pane(pane) => json!(pane.title()),
-        Split::Group {
-            direction,
-            children,
-        } => json!({
-            "direction": match direction { Direction::LeftRight => "left-right", Direction::TopBottom => "top-bottom" },
-            "sizes": children.iter().map(|(size, _)| match size {
-                Size::Percent(n) => json!(n), Size::Grow(n) => json!(format!("{n}fr")),
-            }).collect::<Vec<_>>(),
-            "panes": children.iter().map(|(_, child)| split_value(child)).collect::<Vec<_>>(),
-        }),
-    }
-}
+use serde_json::json;
 
 fn theme_path(squad: &str, name: &str, source: &str) -> String {
     match source {
@@ -33,18 +17,6 @@ fn theme_path(squad: &str, name: &str, source: &str) -> String {
 }
 
 impl Config {
-    fn setting_item(&self, path: &[&str]) -> Option<&Item> {
-        path.iter()
-            .try_fold(self.document.as_item(), |item, key| item.get(key))
-    }
-    fn setting_source(&self, path: &[&str], fallback: &str) -> String {
-        if self.setting_item(path).is_some() {
-            path.join(".")
-        } else {
-            fallback.into()
-        }
-    }
-
     pub fn settings(
         &self,
         context: Option<&str>,
@@ -52,10 +24,11 @@ impl Config {
         section: Option<usize>,
     ) -> Result<BoardSettings, SquadError> {
         let key = context.unwrap_or("");
-        let aggregate = tabs::aggregate(key);
-        let squad = if aggregate { "" } else { key };
-        let layout = self.layout(squad)?;
-        let preset = format!("preset:{}", layout.as_str());
+        if let Some(name) = tabs::user_name(key)
+            && !self.tabs()?.user.iter().any(|tab| tab.name == name)
+        {
+            return Err(SquadError::new("SQUAD_TAB_NOT_FOUND", "Unknown tab key."));
+        }
         let mut out = BoardSettings {
             path: self.path.display().to_string(),
             context: context.map(str::to_owned),
@@ -63,15 +36,13 @@ impl Config {
             entries: Vec::new(),
             notices: Vec::new(),
         };
-        let policy = self.tabs()?;
-        let user = policy
-            .user
-            .iter()
-            .find(|tab| Some(tab.name.as_str()) == tabs::user_name(key));
-        if tabs::user_name(key).is_some() && user.is_none() {
-            return Err(SquadError::new("SQUAD_TAB_NOT_FOUND", "Unknown tab key."));
-        }
-        let board = if aggregate {
+        self.arrangement_settings(key, &mut out)?;
+        self.row_settings(key, &mut out)?;
+        self.notebook_settings(key, &mut out)?;
+        self.meter_settings(key, &mut out)?;
+        self.theme_settings(key, &mut out)?;
+        self.policy_settings(key, &mut out)?;
+        let board = if tabs::aggregate(key) {
             Board::simple(
                 BoardMode::Split,
                 Direction::LeftRight,
@@ -79,36 +50,42 @@ impl Config {
                 &[100],
             )
         } else {
-            self.board(squad)?
+            self.board(key)?
         };
-        let (view, view_source) = self.view_source(squad)?;
-        let arrangement = if aggregate {
-            "aggregate tab".into()
+        for (key, action, source) in self.binding_settings(key, tmux, &board.panes, section)? {
+            out.push(key, json!(action.text), source);
+        }
+        let scope = context.filter(|key| !tabs::aggregate(key));
+        for entry in &mut out.entries {
+            entry.editable = self.can_edit_setting(&entry.key, scope);
+        }
+        Ok(out)
+    }
+    fn arrangement_settings(&self, key: &str, out: &mut BoardSettings) -> Result<(), SquadError> {
+        let aggregate = tabs::aggregate(key);
+        let (board, sources) = if aggregate {
+            (
+                Board::simple(
+                    BoardMode::Split,
+                    Direction::LeftRight,
+                    vec![Pane::Rows],
+                    &[100],
+                ),
+                ["mode", "layout", "panes", "collapsed", "fold_below"]
+                    .into_iter()
+                    .map(|key| (key.into(), "aggregate tab".into()))
+                    .collect(),
+            )
         } else {
-            match view_source {
-                "custom" => format!("squad.{squad}.board"),
-                "squad" => format!("squad.{squad}.board.view"),
-                "board" => "board.view".into(),
-                _ => preset.clone(),
-            }
+            self.board_setting(key)?
         };
         if !aggregate {
-            out.push(
-                "layout",
-                json!(layout.as_str()),
-                self.setting_source(
-                    &["squad", squad, "layout"],
-                    if layout == Layout::Crew {
-                        "simple-board compatibility default"
-                    } else {
-                        &preset
-                    },
-                ),
-            );
+            let (layout, source) = self.layout_setting(key)?;
+            out.push("layout", json!(layout.as_str()), source);
             out.push(
                 "board.view",
-                json!(view.map(|view| view.name())),
-                &arrangement,
+                json!(self.view_source(key)?.0.map(|view| view.name())),
+                &sources["view"],
             );
         }
         for (name, value) in [
@@ -118,136 +95,123 @@ impl Config {
             ("collapsed", json!(board.collapsed.iter().map(|pane| pane.title()).collect::<Vec<_>>())),
             ("fold_below", json!(board.fold_below.as_ref().map(|fold| json!({"width": fold.width, "panes": fold.panes.iter().map(|pane| pane.title()).collect::<Vec<_>>()})))),
         ] {
-            let fallback = match (name, view_source) {
-                ("mode", "custom") => &preset,
-                ("collapsed", "custom") => "default:[]",
-                ("fold_below", "custom") => "default:none",
-                _ => &arrangement,
-            };
-            let source = if aggregate {
-                arrangement.clone()
-            } else if name == "layout" && ["direction", "panes", "sizes"].iter().any(|key| {
-                self.setting_item(&["squad", squad, "board", key]).is_some()
-            }) {
-                format!("squad.{squad}.board (simple split over {preset})")
-            } else if name == "panes"
-                && self.setting_item(&["squad", squad, "board", "layout"]).is_some()
-            {
-                format!("squad.{squad}.board.layout")
-            } else {
-                self.setting_source(&["squad", squad, "board", name], fallback)
-            };
-            out.push(format!("board.{name}"), value, source);
+            out.push(format!("board.{name}"), value, &sources[name]);
         }
-        // Aggregate readers use the tab key for refresh, but never acquire squad panes/providers.
-        let refresh = self.refresh(key)?;
+        if !aggregate
+            && let Split::Group {
+                direction,
+                children,
+            } = &board.split
+            && children.iter().all(|(size, child)| {
+                matches!(size, Size::Percent(_)) && matches!(child, Split::Pane(_))
+            })
+        {
+            out.push(
+                "board.direction",
+                json!(if *direction == Direction::LeftRight {
+                    "left-right"
+                } else {
+                    "top-bottom"
+                }),
+                &sources["direction"],
+            );
+            out.push(
+                "board.sizes",
+                json!(
+                    children
+                        .iter()
+                        .map(|(size, _)| match size {
+                            Size::Percent(n) => *n,
+                            _ => unreachable!(),
+                        })
+                        .collect::<Vec<_>>()
+                ),
+                &sources["sizes"],
+            );
+        }
+        let (refresh, source) = self.refresh_setting(key)?;
         out.push(
             "board.refresh",
-            json!(
-                refresh.map_or_else(|| "off".to_owned(), |every| format!("{}s", every.as_secs()))
-            ),
-            self.setting_source(
-                &["squad", key, "board", "refresh"],
-                &self.setting_source(&["board", "refresh"], "default:5s"),
-            ),
+            json!(refresh.map_or_else(|| "off".into(), |d| format!("{}s", d.as_secs()))),
+            source,
         );
-        let rows = if aggregate {
-            crate::tab_view::rows(key)
+        Ok(())
+    }
+    fn row_settings(&self, key: &str, out: &mut BoardSettings) -> Result<(), SquadError> {
+        if tabs::aggregate(key) {
+            out.push("rows", crate::tab_view::rows(key).value(), "aggregate tab");
         } else {
-            self.rows(squad)?
-        };
-        let row_source = if aggregate {
-            "aggregate tab".into()
-        } else {
-            self.setting_source(
-                &["squad", squad, "rows"],
-                &self.setting_source(&["squad", squad, "columns"], &preset),
-            )
-        };
-        out.push("rows", rows.value(), row_source);
+            let (rows, source, hidden_source) = self.rows_setting(key)?;
+            out.push(
+                "board.hidden_columns",
+                json!(rows.hidden_columns),
+                hidden_source,
+            );
+            out.push("rows", rows.value(), source);
+        }
+        Ok(())
+    }
+    fn notebook_settings(&self, key: &str, out: &mut BoardSettings) -> Result<(), SquadError> {
+        if tabs::aggregate(key) {
+            out.push("notes.render", json!("markdown"), "aggregate tab");
+            return Ok(());
+        }
+        let (render, source) = self.notes_setting(key)?;
         out.push(
             "notes.render",
-            json!(
-                if aggregate || self.notes_render(squad)? == NotesRender::Markdown {
-                    "markdown"
-                } else {
-                    "plain"
-                }
-            ),
-            if aggregate {
-                "aggregate tab".into()
+            json!(if render == NotesRender::Plain {
+                "plain"
             } else {
-                self.setting_source(&["squad", squad, "notes", "render"], "default:markdown")
-            },
+                "markdown"
+            }),
+            source,
         );
-        if !aggregate {
-            let states = self.states(squad, layout)?;
-            let mut names: std::collections::BTreeSet<&str> =
-                layout.states().iter().copied().collect();
-            let own = self.squad_table(squad)?;
-            if let Some(table) = own
-                .and_then(|table| table.get("states"))
-                .and_then(Item::as_table_like)
-            {
-                names.extend(table.iter().map(|(name, _)| name));
-            }
-            for name in names {
-                out.push(
-                    format!("states.{name}.color"),
-                    json!(states.color(Some(name))),
-                    self.setting_source(&["squad", squad, "states", name, "color"], &preset),
-                );
-            }
-            let reminders = self.reminders(squad)?;
+        for (key, value, source) in self.state_settings(key)? {
+            out.push(key, value, source);
+        }
+        let (reminders, sources) = self.reminder_settings(key)?;
+        out.push(
+            "reminders.enabled",
+            json!(reminders.enabled),
+            &sources["enabled"],
+        );
+        out.push(
+            "reminders.stale_after",
+            json!(format!("{}s", reminders.stale_after.as_secs())),
+            &sources["stale_after"],
+        );
+        for (provider, source) in self.provider_settings(key)? {
             out.push(
-                "reminders.enabled",
-                json!(reminders.enabled),
-                self.setting_source(&["squad", squad, "reminders", "enabled"], &preset),
+                format!("fields.{}", provider.name),
+                provider.settings(),
+                source,
             );
-            out.push(
-                "reminders.stale_after",
-                json!(format!("{}s", reminders.stale_after.as_secs())),
-                self.setting_source(&["squad", squad, "reminders", "stale_after"], "default:30m"),
-            );
-            if let Some(item) = own.and_then(|table| table.get("state_patterns")) {
-                out.push(
-                    "state_patterns",
-                    json!(item.to_string()),
-                    format!("squad.{squad}.state_patterns"),
-                );
-            }
-            for provider in self.providers(squad)? {
-                out.push(
-                    format!("fields.{}", provider.name),
-                    provider.settings(),
-                    self.setting_source(&["squad", squad, "fields", &provider.name], &preset),
-                );
-            }
-            let rate = self.token_rate(squad)?;
+        }
+        Ok(())
+    }
+    fn meter_settings(&self, key: &str, out: &mut BoardSettings) -> Result<(), SquadError> {
+        if tabs::aggregate(key) {
+            out.push("board.token_rate.enabled", json!(false), "aggregate tab");
+        } else {
+            let (rate, sources) = self.rate_setting(key)?;
             for (name, value) in [
                 ("enabled", json!(rate.enabled)),
                 ("every", json!(format!("{}s", rate.every.as_secs()))),
                 ("window", json!(rate.window.label())),
                 ("reduced_motion", json!(rate.reduced_motion)),
             ] {
-                out.push(
-                    format!("board.token_rate.{name}"),
-                    value,
-                    self.setting_source(
-                        &["squad", squad, "board", "token_rate", name],
-                        &self.setting_source(&["board", "token_rate", name], &preset),
-                    ),
-                );
+                out.push(format!("board.token_rate.{name}"), value, &sources[name]);
             }
-        } else {
-            out.push("board.token_rate.enabled", json!(false), "aggregate tab");
         }
+        Ok(())
+    }
+    fn theme_settings(&self, key: &str, out: &mut BoardSettings) -> Result<(), SquadError> {
+        let squad = if tabs::aggregate(key) { "" } else { key };
         let (theme, notice) = self.theme(squad)?;
         if let Some(notice) = notice {
             out.notices.push(notice);
         }
-        let theme_source = self.theme_source(squad)?;
-        let base_source = theme_path(squad, "base", theme_source);
+        let base_source = theme_path(squad, "base", self.theme_source(squad)?);
         out.push("theme.base", json!(theme.base.name()), &base_source);
         if theme.base == tmt_cli_style::Base::Auto {
             out.notices
@@ -267,6 +231,10 @@ impl Config {
                 source,
             );
         }
+        Ok(())
+    }
+    fn policy_settings(&self, key: &str, out: &mut BoardSettings) -> Result<(), SquadError> {
+        let (policy, sources) = self.tab_settings()?;
         for (name, value) in [
             ("order", json!(policy.order)),
             ("pin", json!(policy.pin)),
@@ -274,84 +242,15 @@ impl Config {
             ("colors.waiting", json!(policy.colors.waiting)),
             ("colors.blocked", json!(policy.colors.blocked)),
         ] {
-            let path: Vec<_> = std::iter::once("tabs").chain(name.split('.')).collect();
-            out.push(
-                format!("tabs.{name}"),
-                value,
-                self.setting_source(&path, "tab defaults"),
-            );
+            out.push(format!("tabs.{name}"), value, &sources[name]);
         }
         if key != tabs::ALL {
             for name in ["opener", "clipboard"] {
-                out.push(
-                    name,
-                    json!(self.program(name)?),
-                    self.setting_source(&[name], "system default"),
-                );
+                let (value, source) = self.program_setting(name)?;
+                out.push(name, json!(value), source);
             }
         }
-        let sections = if let Some(tab) = user {
-            tab.sections.clone()
-        } else if aggregate {
-            Vec::new()
-        } else {
-            self.sections(squad)?
-        };
-        let bindings = crate::action::effective_bindings(
-            self.bindings_for_tab(key, tmux, &board.panes)?,
-            section
-                .and_then(|index| sections.get(index))
-                .map(|section| &section.bind),
-            !aggregate && self.token_rate(squad)?.enabled,
-        );
-        let tab_name = if key == tabs::ALL {
-            Some("all")
-        } else if key == tabs::LEADS {
-            Some("leads")
-        } else {
-            tabs::user_name(key)
-        };
-        for (event, action) in bindings {
-            let fallback = if key == tabs::ALL {
-                "all-tab preset"
-            } else if tmux {
-                "host preset:tmux"
-            } else {
-                "host preset:plain"
-            };
-            let global = if key == tabs::ALL {
-                fallback.into()
-            } else {
-                self.setting_source(&["bind", &event], fallback)
-            };
-            let mut source = tab_name.map_or(global.clone(), |tab| {
-                self.setting_source(&["tabs", tab, "bind", &event], &global)
-            });
-            if let Some(index) = section.filter(|index| {
-                sections
-                    .get(*index)
-                    .is_some_and(|s| s.bind.contains_key(&event))
-            }) {
-                source = format!(
-                    "{}.section[{index}].bind.{event}",
-                    tab_name.map_or_else(|| format!("squad.{squad}"), |tab| format!("tabs.{tab}"))
-                );
-            }
-            out.push(format!("bind.{event}"), json!(action.text), source);
-        }
-        for (index, section) in sections.iter().enumerate() {
-            for (event, action) in &section.bind {
-                out.push(
-                    format!("section[{index}].bind.{event}"),
-                    json!(action.text),
-                    tab_name.map_or_else(
-                        || format!("squad.{squad}.section[{index}].bind.{event}"),
-                        |tab| format!("tabs.{tab}.section[{index}].bind.{event}"),
-                    ),
-                );
-            }
-        }
-        Ok(out)
+        Ok(())
     }
 }
 
@@ -373,7 +272,7 @@ mod tests {
     #[test]
     fn sources_follow_independent_layers_and_preserve_the_document() {
         let cfg = config(
-            "# kept\n[board]\nview='notes'\nrefresh='1m'\n[board.token_rate]\nevery='10s'\nwindow='5s'\n[squad.x.board]\nrefresh='off'\n[squad.x.theme]\nbase='mono'\nworking='blue'\n[bind]\no='run touch /never-execute'\n",
+            "# kept\n[board]\nview='notes'\nrefresh='1m'\n[board.token_rate]\nevery='10s'\nwindow='1m'\n[squad.x.board]\nrefresh='off'\n[squad.x.theme]\nbase='mono'\nworking='blue'\n[bind]\no='run touch /never-execute'\n",
         );
         let before = cfg.document.to_string();
         let shown = cfg.settings(Some("x"), true, None).unwrap();
@@ -387,13 +286,20 @@ mod tests {
         assert_eq!(entry(&shown, "theme.working").value, "blue");
         assert_eq!(entry(&shown, "board.token_rate.window").value, "1m");
         assert_eq!(entry(&shown, "fields.pr").value["run"][3], "{pr_link}");
-        assert!(shown.entries.iter().all(|entry| !entry.editable));
+        assert!(entry(&shown, "board.refresh").editable);
+        assert!(!entry(&shown, "bind.o").editable);
+        assert!(!entry(&shown, "fields.pr").editable);
         assert_eq!(entry(&shown, "rows").value, cfg.rows("x").unwrap().value());
         let custom = config("[squad.x.board]\npanes=['rows','notes']\n")
             .settings(Some("x"), false, None)
             .unwrap();
         assert_eq!(entry(&custom, "board.mode").source, "preset:crew");
         assert_eq!(entry(&custom, "board.collapsed").source, "default:[]");
+        assert_eq!(entry(&custom, "board.direction").source, "preset:crew");
+        assert_eq!(
+            entry(&custom, "board.sizes").source,
+            "squad.x.board.panes (equal shares)"
+        );
         assert!(
             entry(&custom, "board.layout")
                 .source

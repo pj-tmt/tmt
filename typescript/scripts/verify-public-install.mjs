@@ -54,51 +54,78 @@ async function fetchText(url) {
   return response.text();
 }
 
+/** Public assets are bounded and unauthenticated, including redirects. */
+async function fetchBytes(url, maximum) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(60_000), redirect: 'follow' });
+  if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
+  const chunks = [];
+  let size = 0;
+  const reader = response.body.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > maximum) throw new Error('Public artifact exceeds its byte bound');
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks);
+  } finally {
+    await reader.cancel();
+  }
+}
+
 /** Only the native acquisition diagnostic is retryable; HTTP status alone is not evidence. */
+export function parseRateLimitDiagnostic(diagnostic) {
+  if (
+    typeof diagnostic !== 'string' ||
+    diagnostic.length > 1000 ||
+    !/^GitHub API rate limit: reset\/earliest retry time [^\n]+; the (?:required wait exceeds the remaining deadline|single retry was exhausted)\. Retry later or optionally set GITHUB_TOKEN\.$/.test(
+      diagnostic
+    )
+  )
+    return null;
+  const epoch = diagnostic.match(/\(UTC epoch (\d+)\)/)?.[1];
+  const resetAtMs = epoch === undefined ? NaN : Number(epoch) * 1000;
+  return { diagnostic, resetAtMs: Number.isSafeInteger(resetAtMs) ? resetAtMs : null };
+}
+
 function rateLimitDiagnostic(error) {
   const result = error.cause;
   if (!result || result.status !== 1 || result.stderr !== '') return null;
   try {
     const { error: failure } = JSON.parse(result.stdout);
     if (!['NATIVE_UPGRADE_FAILED', 'EXTENSION_INSTALL_FAILED'].includes(failure?.code)) return null;
-    const cause = failure.cause;
-    if (
-      typeof cause !== 'string' ||
-      !/^GitHub API rate limit: reset\/earliest retry time [^\n]+; the (?:required wait exceeds the remaining deadline|single retry was exhausted)\. Retry later or optionally set GITHUB_TOKEN\.$/.test(
-        cause
-      )
-    )
-      return null;
-    return cause;
+    return parseRateLimitDiagnostic(failure.cause);
   } catch {
     return null;
   }
 }
 
 /** Retry only the failed acquisition, at most once and with at most five minutes of waiting. */
-async function withAttempts(label, step, { wait = sleep, now = Date.now } = {}) {
-  for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
+async function withAttempts(label, step, { wait = sleep, now = Date.now, retry = false } = {}) {
+  const attempts = retry ? 1 : ATTEMPTS;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       return await step();
     } catch (error) {
       const diagnostic = rateLimitDiagnostic(error);
       if (!diagnostic) throw error;
-      const epoch = diagnostic.match(/\(UTC epoch (\d+)\)/)?.[1];
-      const retryAtMs = epoch === undefined ? NaN : Number(epoch) * 1000;
-      const waitMs = Math.max(1000, retryAtMs - now() + 1000);
+      const waitMs = Math.max(1000, diagnostic.resetAtMs - now() + 1000);
       const reason =
-        attempt === ATTEMPTS
-          ? `attempt bound exceeded (${ATTEMPTS} attempts)`
-          : !Number.isSafeInteger(retryAtMs)
+        attempt === attempts
+          ? `attempt bound exceeded (${attempts} attempts)`
+          : diagnostic.resetAtMs === null
             ? 'reset time unavailable'
             : waitMs > MAX_WAIT_MS
               ? `wait bound exceeded (${MAX_WAIT_MS / 1000} seconds)`
               : '';
       if (reason) {
         const failure = new Error(
-          `Public install infrastructure: ${label}: ${reason}; ${diagnostic}`
+          `Public install infrastructure: ${label}: ${reason}; ${diagnostic.diagnostic}`
         );
         failure.infrastructure = 'github-api-rate-limit';
+        failure.rateLimit = diagnostic;
         throw failure;
       }
       await wait(waitMs);
@@ -150,8 +177,11 @@ export async function smokeRelease({
   repository,
   root,
   fetch: read = fetchText,
+  download = fetchBytes,
+  target,
   wait = sleep,
   now = Date.now,
+  retry = false,
   systemPath = ['/usr/bin', '/bin', '/usr/sbin', '/sbin'],
 }) {
   const version = versionOfTag(tag, product);
@@ -187,6 +217,7 @@ export async function smokeRelease({
         ok: false,
         reason,
         ...(error.infrastructure ? { infrastructure: error.infrastructure } : {}),
+        ...(error.rateLimit ? { rateLimit: error.rateLimit } : {}),
         ...(detail === reason ? {} : { detail }),
       });
       return false;
@@ -265,7 +296,7 @@ export async function smokeRelease({
       const stdout = await withAttempts(
         'tmt upgrade',
         () => tmt(['upgrade', '--channel', 'alpha', '--json']),
-        { wait, now }
+        { wait, now, retry }
       );
       const report = JSON.parse(stdout);
       if (resolved(report.executable) !== resolved(binary)) {
@@ -278,6 +309,69 @@ export async function smokeRelease({
         return `note: a newer alpha, ${report.version}, was published meanwhile and is installed`;
       }
       throw new Error(`it reports ${report.version} (changed: ${report.changed}), not ${version}`);
+    });
+    return results;
+  }
+
+  if (product === 'driver-herdr') {
+    // Retain #1204's bounded retry only for the native diagnostic. Asset HTTP errors fail directly.
+    if (
+      !(await check('current public CLI', async () => {
+        const report = JSON.parse(
+          await withAttempts(
+            'tmt upgrade',
+            () => tmt(['upgrade', '--channel', 'alpha', '--json']),
+            { wait, now, retry }
+          )
+        );
+        if (
+          resolved(report.executable) !== resolved(binary) ||
+          report.pathWarning ||
+          compareVersions(report.version, cliVersion) < 0 ||
+          !isAlphaVersion(report.version) ||
+          report.skills?.conflicts?.length
+        )
+          throw new Error('Public CLI upgrade selected an unexpected installation');
+        return report.version;
+      }))
+    )
+      return results;
+    await check('driver public archive and approval', async () => {
+      // #1084 owns named driver acquisition. Exercise today's supported path approval surface.
+      const { selectNativeArtifact, withNativeArtifact } =
+        await import('./native-artifact-policy.mjs');
+      if (!target) throw new Error('Driver public smoke requires a target');
+      const archiveName = `tmt-driver-herdr-${target}.tar.gz`;
+      const directory = path.join(root, 'driver assets');
+      mkdirSync(directory);
+      const manifest = path.join(directory, 'dist-manifest.json');
+      const archive = path.join(directory, archiveName);
+      const url = `https://github.com/${repository}/releases/download/${tag}/`;
+      writeFileSync(manifest, await download(`${url}dist-manifest.json`, 4 * 1024 * 1024), {
+        flag: 'wx',
+      });
+      writeFileSync(archive, await download(`${url}${archiveName}`, 64 * 1024 * 1024), {
+        flag: 'wx',
+      });
+      const metadata = selectNativeArtifact(manifest, archive, target, product, { release: true });
+      if (metadata.version !== version)
+        throw new Error(`Driver manifest version is ${metadata.version}, not ${version}`);
+      await withNativeArtifact(archive, metadata, async (extracted) => {
+        const executable = path.join(extracted, 'tmt-driver-herdr');
+        const report = JSON.parse(tmt(['driver', 'install', executable, '--yes', '--json']));
+        if (report.approved?.name !== 'herdr' || report.approved?.version !== version)
+          throw new Error('Driver approval did not record the published capabilities');
+        const listed = JSON.parse(tmt(['driver', 'ls', '--json'])).drivers.find(
+          (driver) => driver.name === 'herdr'
+        );
+        if (
+          listed?.state !== 'ok' ||
+          listed?.version !== version ||
+          listed?.sha256 !== report.approved.sha256
+        )
+          throw new Error('Durable driver approval differs from the public archive');
+      });
+      return version;
     });
     return results;
   }
@@ -302,7 +396,7 @@ export async function smokeRelease({
             ],
             { timeoutMs: 300_000 }
           ),
-        { wait, now }
+        { wait, now, retry }
       )
     );
     if (report.version !== version)
@@ -344,6 +438,7 @@ async function main(argv, environment) {
       source: { type: 'string' },
       target: { type: 'string', default: process.platform },
       'result-file': { type: 'string', default: '' },
+      retry: { type: 'boolean', default: false },
     },
   });
   for (const name of ['product', 'tag', 'source']) {
@@ -368,6 +463,8 @@ async function main(argv, environment) {
       source: path.resolve(values.source),
       repository,
       root,
+      retry: values.retry,
+      target: values.target,
     });
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -379,7 +476,10 @@ async function main(argv, environment) {
     writeFileSync(
       values['result-file'],
       JSON.stringify({
+        product: values.product,
+        tag: values.tag,
         target: values.target,
+        runAttempt: Number(environment.GITHUB_RUN_ATTEMPT ?? '1'),
         failed: results.filter(({ ok }) => !ok).map(({ ok: _ok, ...failure }) => failure),
       })
     );

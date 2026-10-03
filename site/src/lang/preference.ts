@@ -6,7 +6,8 @@ const KEY = "tmt-site-lang";
 // enough and every page still works when storage is unavailable.
 export function readLangPreference(): LangCode | null {
   try {
-    const stored = localStorage.getItem(KEY);
+    const value = localStorage.getItem(KEY);
+    const stored = value === "zh" ? "zh-hant" : value;
     return languages.find((language) => language.code === stored)?.code ?? null;
   } catch {
     return null;

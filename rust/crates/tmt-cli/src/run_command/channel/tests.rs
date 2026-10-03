@@ -16,6 +16,8 @@ struct Counting {
     withdrawn: Rc<Cell<u32>>,
     started: Rc<RefCell<Vec<ProcessIncarnation>>>,
     refuse_foreground: bool,
+    admitted: Rc<RefCell<Vec<ProcessIncarnation>>>,
+    refuse_admission: bool,
 }
 
 impl ChannelEnrollment for Counting {
@@ -39,6 +41,14 @@ impl ChannelEnrollment for Counting {
         Ok(())
     }
 
+    fn foreground_admitted(&mut self, foreground: &ProcessIncarnation) -> Result<(), ChannelError> {
+        if self.refuse_admission {
+            return Err(ChannelError::Enrollment);
+        }
+        self.admitted.borrow_mut().push(foreground.clone());
+        Ok(())
+    }
+
     fn withdraw(self: Box<Self>) {
         self.withdrawn.set(self.withdrawn.get() + 1);
     }
@@ -52,12 +62,14 @@ fn user() -> RuntimeCommand {
 }
 
 struct Watch {
+    admitted: Rc<RefCell<Vec<ProcessIncarnation>>>,
     withdrawn: Rc<Cell<u32>>,
     started: Rc<RefCell<Vec<ProcessIncarnation>>>,
 }
 
 fn watch() -> Watch {
     Watch {
+        admitted: Rc::new(RefCell::new(Vec::new())),
         withdrawn: Rc::new(Cell::new(0)),
         started: Rc::new(RefCell::new(Vec::new())),
     }
@@ -74,6 +86,8 @@ fn counting(watch: &Watch, refuse_foreground: bool) -> Box<Counting> {
         withdrawn: Rc::clone(&watch.withdrawn),
         started: Rc::clone(&watch.started),
         refuse_foreground,
+        admitted: Rc::clone(&watch.admitted),
+        refuse_admission: false,
     })
 }
 
@@ -514,4 +528,30 @@ fn unsupported_enrollment_keeps_the_driver_reason_and_stable_code() {
         assert_eq!(failure.code, "CHANNEL_UNSUPPORTED");
         assert_eq!(failure.message, reason);
     }
+}
+
+#[test]
+fn admitted_callback_passes_original_child_and_failure_keeps_enrollment() {
+    assert!(HeldLease::default().foreground_admitted(&child()).is_none());
+    let watch = watch();
+    let mut enrollment = counting(&watch, false);
+    enrollment.refuse_admission = true;
+    let mut lease = HeldLease::default();
+    lease.hold(enrollment);
+    assert!(
+        lease
+            .foreground_admitted(&child())
+            .unwrap()
+            .contains("stays unready")
+    );
+    assert_eq!(watch.withdrawn.get(), 0);
+    assert_eq!(lease.command(&user()).args, ["--user", "--planned"]);
+    assert!(lease.provider_session().is_some());
+    drop(lease);
+    assert_eq!(watch.withdrawn.get(), 0);
+
+    let mut lease = HeldLease::default();
+    lease.hold(counting(&watch, false));
+    assert!(lease.foreground_admitted(&child()).is_none());
+    assert_eq!(*watch.admitted.borrow(), [child()]);
 }

@@ -2,14 +2,15 @@ import { exactKeys, requireValue, strictJson, text } from '@tmt/colab-client';
 import { Admission } from './admission.js';
 import { Objects } from './objects.js';
 import { openBaseline, type BaselineInput, type BaselineObject } from './baseline.js';
-import { UPDATE_BYTES } from './fold-protocol.js';
+import { STATE_BYTES, UPDATE_BYTES, type AdmittedUpdate } from './fold-protocol.js';
 
 /** Strict membership-first catchup. Optional content adoption stays behind object admission. */
 export class Catchup {
   #started = false;
   #membershipMore = false;
   #complete = false;
-  updates: Uint8Array[] = [];
+  updates: AdmittedUpdate[] = [];
+  checkpoints: AdmittedUpdate[] = [];
   baseline: BaselineInput | null = null;
   #reset: { descriptor: string; object: BaselineObject } | null = null;
   constructor(
@@ -18,7 +19,9 @@ export class Catchup {
     readonly objects?: Objects,
   ) {}
   close() {
-    this.updates.forEach((v) => v.fill(0));
+    this.checkpoints.forEach((v) => v.update.fill(0));
+    this.checkpoints = [];
+    this.updates.forEach((v) => v.update.fill(0));
     this.updates = [];
     this.baseline?.update.fill(0);
     this.baseline = null;
@@ -112,14 +115,21 @@ export class Catchup {
     if (Object.hasOwn(value, 'wraps')) await a.wraps(value.wraps);
     if (value.streams.length) {
       if (!this.objects) throw new Error('Live page loading is not available yet');
-      this.updates.push(...(await this.objects.streams(value.streams)));
+      const admitted = await this.objects.streams(value.streams);
+      this.checkpoints.push(...admitted.checkpoints);
+      this.updates.push(...admitted.updates);
+      requireValue(
+        this.checkpoints.length <= 256 &&
+          this.checkpoints.reduce((n, v) => n + v.update.length, 0) <= STATE_BYTES,
+      );
       requireValue(
         this.updates.length <= 200 &&
-          this.updates.reduce((n, v) => n + v.length, 0) <= UPDATE_BYTES,
+          this.updates.reduce((n, v) => n + v.update.length, 0) <= UPDATE_BYTES,
       );
     }
     if (!value.more) {
       requireValue(!this.#membershipMore && a.head !== null);
+      this.objects?.finish();
       a.validatePage(this.sharing);
       if (this.#reset) {
         this.baseline = await openBaseline(a, this.#reset.descriptor, this.#reset.object);

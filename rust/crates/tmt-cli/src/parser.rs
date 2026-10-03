@@ -220,6 +220,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["__hook"] => Invocation::ProviderHook {
             provider: text(m, "provider").expect("required provider"),
             worker: flag(m, "worker"),
+            work_budget_ms: m.get_one::<u64>("work-budget-ms").copied(),
         },
         ["__channel-server"] => Invocation::ChannelServer {
             harness: text(m, "harness").expect("required harness"),

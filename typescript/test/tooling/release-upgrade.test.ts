@@ -9,6 +9,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import type { DraftAsset, DraftRelease } from '../../scripts/release-draft-assets.mjs';
 import {
   PROOF_FILES,
+  ACCEPTANCE_TEST,
+  acceptanceApplicability,
   archiveTargets,
   assessUpgrade,
   combineFailures,
@@ -16,6 +18,7 @@ import {
   fetchUpgrade,
   ghAssetDownloader,
   proveStaged,
+  proveArchiveAcceptance,
   releaseCommit,
   selectAssets,
   selectPrevious,
@@ -64,7 +67,9 @@ function release(
     ? 'office'
     : tag.startsWith('tmt-squad-v')
       ? 'squad'
-      : 'cli';
+      : tag.startsWith('tmt-driver-herdr-v')
+        ? 'driver-herdr'
+        : 'cli';
   const asset = (name: string): DraftAsset => {
     const id = nextId++;
     const text = `${tag}:${name}`;
@@ -247,6 +252,8 @@ describe('fetchUpgrade and proveStaged', () => {
     release('tmt-office-v0.1.0-alpha.3', { targets: TARGETS }),
     release('tmt-office-v0.1.0-alpha.4', { draft: true, targets: TARGETS }),
     release('tmt-squad-v0.1.0-alpha.1', { draft: true, targets: TARGETS }),
+    release('tmt-driver-herdr-v0.1.0-alpha.1', { targets: TARGETS }),
+    release('tmt-driver-herdr-v0.1.0-alpha.2', { draft: true, targets: TARGETS }),
   ];
   const download = (asset: DraftAsset, file: string) =>
     writeFileSync(file, contents.get(asset.id) ?? '');
@@ -315,6 +322,29 @@ describe('fetchUpgrade and proveStaged', () => {
     expect(
       readFileSync(path.join(directory, TARGET, 'candidate', `tmt-office-${TARGET}.tar.gz`), 'utf8')
     ).toBe(`tmt-office-v0.1.0-alpha.4:tmt-office-${TARGET}.tar.gz`);
+  });
+
+  it('stages only driver versions and the published CLI, then calls the driver proof', () => {
+    const { plan, directory, downloads } = fetchInto(
+      'driver-herdr',
+      'tmt-driver-herdr-v0.1.0-alpha.2'
+    );
+    expect(plan.previous).toBe('tmt-driver-herdr-v0.1.0-alpha.1');
+    expect(plan.driver).toBe('v5.0.0-alpha.8');
+    expect(downloads.filter((name) => name.endsWith('.tar.gz'))).toHaveLength(3 * TARGETS.length);
+    expect(
+      downloads
+        .filter((name) => name.endsWith('.tar.gz'))
+        .every((name) => name.startsWith('tmt-driver-herdr-') || name.startsWith('tmt-cli-'))
+    ).toBe(true);
+    const { calls } = prove(directory, {
+      product: 'driver-herdr',
+      tag: 'tmt-driver-herdr-v0.1.0-alpha.2',
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].script).toBe('verify-native-driver-upgrade.mjs');
+    expect(value(calls[0].args, '--product')).toBe('driver-herdr');
+    expect(value(calls[0].args, '--driver-archive')).toContain('tmt-cli-');
   });
 
   it('has nothing to fetch for the first release of a product', () => {
@@ -395,6 +425,222 @@ describe('fetchUpgrade and proveStaged', () => {
     expect(value(args, '--target')).toBe(target);
     expect(value(args, '--skill')).toBe('release-source/skills/tmux-team/SKILL.md');
     expect(value(args, '--source-root')).toBe('/candidate-source');
+  });
+
+  describe('real-archive adapter acceptance', () => {
+    const binary = '/task-owned/tmt-adapters-tests';
+    const compiled = JSON.stringify({
+      reason: 'compiler-artifact',
+      target: { name: 'tmt_adapters' },
+      profile: { test: true },
+      executable: binary,
+    });
+    const listed = `${ACCEPTANCE_TEST}: test\n\n1 test, 0 benchmarks\n`;
+    const passed =
+      'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out; finished in 0.01s\n';
+    const input = () => ({
+      directory: fetchInto('cli', 'v5.0.0-alpha.9').directory,
+      product: 'cli',
+      tag: 'v5.0.0-alpha.9',
+      target: TARGET,
+      sourceRoot: undefined,
+      environment: { CARGO_TARGET_DIR: '/shared/task-target' },
+    });
+
+    it('compiles the adapter only, binds verified archives, and executes exactly the ignored test', () => {
+      const calls: { executable: string; args: string[]; env: NodeJS.ProcessEnv; cwd: string }[] =
+        [];
+      const fixture = input();
+      const result = proveArchiveAcceptance({
+        ...fixture,
+        execute: (executable, args, options) => {
+          calls.push({ executable, args, env: options.env, cwd: options.cwd });
+          return [compiled, listed, passed][calls.length - 1];
+        },
+      });
+      expect(result).toEqual({ outcome: 'proved' });
+      expect(calls).toHaveLength(3);
+      expect(calls[0].executable).toBe('cargo');
+      expect(calls[0].args).toContain('--no-run');
+      expect(calls[0].args).toContain('tmt-adapters');
+      expect(calls[0].args).toContain('Cargo.toml');
+      expect(path.basename(calls[0].cwd)).toBe('rust');
+      expect(calls[1].cwd).toBe(calls[0].cwd);
+      expect(calls[2].cwd).toBe(calls[0].cwd);
+      expect(calls[0].args).not.toContain('--release');
+      expect(calls[0].env.CARGO_BUILD_JOBS).toBeUndefined();
+      expect(calls[0].env.CARGO_TARGET_DIR).toBe('/shared/task-target');
+      expect(calls[0].env.TMT_UPGRADE_OLD_ARCHIVE).toBe(
+        path.join(fixture.directory, TARGET, 'previous', `tmt-cli-${TARGET}.tar.gz`)
+      );
+      expect(calls[0].env.TMT_UPGRADE_NEW_MANIFEST).toBe(
+        path.join(fixture.directory, TARGET, 'candidate', 'dist-manifest.json')
+      );
+      expect(calls[1].executable).toBe(binary);
+      expect(calls[1].args).toEqual([ACCEPTANCE_TEST, '--exact', '--ignored', '--list']);
+      expect(calls[2].args).toEqual([ACCEPTANCE_TEST, '--exact', '--ignored', '--nocapture']);
+    });
+
+    it('preserves an exported local Cargo worker limit', () => {
+      const jobs: (string | undefined)[] = [];
+      expect(
+        proveArchiveAcceptance({
+          ...input(),
+          environment: { CARGO_BUILD_JOBS: '2' },
+          execute: (_executable, _args, options) => {
+            jobs.push(options.env.CARGO_BUILD_JOBS);
+            return [compiled, listed, passed][jobs.length - 1];
+          },
+        })
+      ).toEqual({ outcome: 'proved' });
+      expect(jobs).toEqual(['2', '2', '2']);
+    });
+
+    it('compiles and executes the release adapter from sourceRoot on a rerun', () => {
+      const sourceRoot = mkdtempSync(path.join(root, 'applicable-release-'));
+      const source = path.join(
+        sourceRoot,
+        'rust/crates/tmt-adapters/src/native_install/upgrade_artifact_tests.rs'
+      );
+      mkdirSync(path.dirname(source), { recursive: true });
+      writeFileSync(
+        source,
+        'fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {}\n' +
+          '// skill-content transition: skipped (old and candidate text are identical)'
+      );
+      const directories: string[] = [];
+      expect(
+        proveArchiveAcceptance({
+          ...input(),
+          sourceRoot,
+          execute: (_executable, _args, options) => {
+            directories.push(options.cwd);
+            return [compiled, listed, passed][directories.length - 1];
+          },
+        })
+      ).toEqual({ outcome: 'proved' });
+      expect(directories).toEqual(Array(3).fill(path.join(sourceRoot, 'rust')));
+    });
+
+    it.each(['', `${compiled}\n${compiled}`])(
+      'rejects missing or ambiguous compiled test binaries',
+      (output) => {
+        expect(() => proveArchiveAcceptance({ ...input(), execute: () => output })).toThrow(
+          'Expected exactly one tmt-adapters lib-test executable'
+        );
+      }
+    );
+
+    it.each(['0 tests, 0 benchmarks\n', `${listed}\nother: test\n`])(
+      'rejects empty or extra test discovery',
+      (listing) => {
+        let call = 0;
+        expect(() =>
+          proveArchiveAcceptance({ ...input(), execute: () => [compiled, listing][call++] })
+        ).toThrow('Expected exactly one discovered real-archive upgrade acceptance test');
+        expect(call).toBe(2);
+      }
+    );
+
+    it.each([
+      'test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out;',
+      'test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 42 filtered out;',
+    ])('refuses a successful process that executed no acceptance test', (output) => {
+      let call = 0;
+      expect(() =>
+        proveArchiveAcceptance({ ...input(), execute: () => [compiled, listed, output][call++] })
+      ).toThrow('Expected exactly one passing executed real-archive upgrade acceptance test');
+    });
+
+    it('preserves compiler and test execution failures', () => {
+      for (const failingCall of [0, 2]) {
+        let call = 0;
+        expect(() =>
+          proveArchiveAcceptance({
+            ...input(),
+            execute: () => {
+              if (call === failingCall) throw new Error('owned process failed');
+              return [compiled, listed, passed][call++];
+            },
+          })
+        ).toThrow('owned process failed');
+      }
+    });
+
+    it('rechecks staged digests before any compile or historical exemption', () => {
+      const fixture = input();
+      writeFileSync(
+        path.join(fixture.directory, TARGET, 'candidate', 'dist-manifest.json'),
+        'corrupted'
+      );
+      let calls = 0;
+      expect(() =>
+        proveArchiveAcceptance({
+          ...fixture,
+          sourceRoot: '/missing-source',
+          execute: () => {
+            calls++;
+            return '';
+          },
+        })
+      ).toThrow('does not match its recorded digest');
+      expect(calls).toBe(0);
+    });
+
+    it('reports predates as not applicable only for the release-source checkout on a rerun', () => {
+      const sourceRoot = mkdtempSync(path.join(root, 'historical-source-'));
+      const messages: string[] = [];
+      let calls = 0;
+      expect(
+        proveArchiveAcceptance({
+          ...input(),
+          sourceRoot,
+          execute: () => {
+            calls++;
+            return '';
+          },
+          report: (message) => messages.push(message),
+        })
+      ).toEqual({ outcome: 'predates' });
+      expect(calls).toBe(0);
+      expect(messages.join('\n')).toMatch(/predates; not applicable/);
+      expect(messages.join('\n')).not.toContain('acceptance: passed');
+      expect(acceptanceApplicability(sourceRoot)).toBe('predates');
+      const source = path.join(
+        sourceRoot,
+        'rust/crates/tmt-adapters/src/native_install/upgrade_artifact_tests.rs'
+      );
+      mkdirSync(path.dirname(source), { recursive: true });
+      writeFileSync(source, 'fn unrelated_test() {}');
+      expect(acceptanceApplicability(sourceRoot)).toBe('predates');
+      writeFileSync(
+        source,
+        'fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() { assert_ne!(new_skill, old_skill); }'
+      );
+      expect(acceptanceApplicability(sourceRoot)).toBe('predates');
+      const legacyMessages: string[] = [];
+      expect(
+        proveArchiveAcceptance({
+          ...input(),
+          sourceRoot,
+          execute: () => {
+            throw new Error('A pre-#575 test must never compile.');
+          },
+          report: (message) => legacyMessages.push(message),
+        })
+      ).toEqual({ outcome: 'predates' });
+      expect(legacyMessages.join('\n')).toMatch(/predates; not applicable/);
+      expect(legacyMessages.join('\n')).not.toContain('acceptance: passed');
+      writeFileSync(
+        source,
+        'fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {}\n' +
+          '// skill-content transition: skipped (old and candidate text are identical)'
+      );
+      expect(acceptanceApplicability(sourceRoot)).toBe('applicable');
+      expect(() => acceptanceApplicability(path.join(sourceRoot, 'missing-checkout'))).toThrow(
+        'release-source checkout is missing'
+      );
+    });
   });
 
   it('drives an extension with the staged CLI', () => {
@@ -488,7 +734,17 @@ describe('assessUpgrade', () => {
         },
       })
     ).toEqual({ outcome: 'proved', reason: '' });
-    expect(asked).toEqual(PROOF_FILES.map((file) => `typescript/scripts/${file}`));
+    expect(asked).toEqual(
+      PROOF_FILES.filter((file) => file !== 'verify-native-driver-upgrade.mjs').map(
+        (file) => `typescript/scripts/${file}`
+      )
+    );
+    expect(
+      assessUpgrade({
+        plan: { product: 'driver-herdr', previous: 'tmt-driver-herdr-v0.1.0-alpha.1' },
+        hasFileAt: (file) => !file.endsWith('verify-native-driver-upgrade.mjs'),
+      }).outcome
+    ).toBe('predates');
   });
 
   it('names the first missing script and words the reason for the owner', () => {
@@ -716,7 +972,7 @@ describe('release-upgrade.mjs', () => {
     const run = fakeGh([]);
     expect(run(['prove', '--product', 'cli']).stderr).toContain('--tag is required.');
     expect(run(['bogus']).stderr).toContain(
-      'Usage: release-upgrade.mjs resolve|fetch|assess|prove|reason'
+      'Usage: release-upgrade.mjs resolve|fetch|assess|prove|acceptance|reason'
     );
   });
 });

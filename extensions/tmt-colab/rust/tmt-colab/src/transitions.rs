@@ -2,20 +2,24 @@
 mod epoch;
 mod links;
 mod membership;
+mod request;
 use crate::{
     Result,
-    decoder::Decoder,
+    decoder::{Config as DecoderConfig, Decoder},
     fold::Snapshot,
     keyring::Keyring,
     store::{
         Store,
-        owner::{Mutation, OwnerFault},
+        owner::{Mutation, OwnerFault, OwnerTransaction},
     },
 };
 pub use links::{LinkAction, LinkRequest, LinkSpec};
 pub use membership::{DeviceRevoke, MemberAction, MemberRequest};
+pub use request::{
+    Applied, HistoryMode, OwnerAction, OwnerRequest, Publication, RequestScope, ShareMode,
+};
 use std::{collections::BTreeMap, path::PathBuf};
-use tmt_colab_model::{crypto, framing, values};
+use tmt_colab_model::values;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Code {
@@ -95,14 +99,17 @@ pub struct EpochAdvance<'a> {
     pub page: &'a str,
 }
 pub struct Engine {
-    program: PathBuf,
+    decoder_config: DecoderConfig,
     decoders: BTreeMap<String, Decoder>,
 }
 impl Engine {
     pub fn new(program: PathBuf) -> Result<Self> {
-        Decoder::new(program.clone())?;
+        Self::with_decoder_config(DecoderConfig::new(program))
+    }
+    pub fn with_decoder_config(decoder_config: DecoderConfig) -> Result<Self> {
+        Decoder::with_config(decoder_config.clone())?;
         Ok(Self {
-            program,
+            decoder_config,
             decoders: BTreeMap::new(),
         })
     }
@@ -113,8 +120,19 @@ impl Engine {
         request: EpochAdvance<'_>,
         now: u64,
     ) -> std::result::Result<Vec<u8>, TransitionError> {
-        self.advance(store, key, request, now)
-            .map_err(TransitionError::from_error)
+        self.apply(
+            store,
+            key,
+            OwnerRequest {
+                operation_id: request.operation_id,
+                expected_revision: request.expected_revision,
+                action: OwnerAction::EpochAdvance { page: request.page },
+                transport_digest: None,
+                scope: None,
+            },
+            now,
+        )
+        .map(|applied| applied.outcome)
     }
     fn advance(
         &mut self,
@@ -122,65 +140,104 @@ impl Engine {
         key: &Keyring,
         request: EpochAdvance<'_>,
         now: u64,
-    ) -> Result<Vec<u8>> {
+        context: request::OwnerContext<'_>,
+    ) -> Result<(Vec<u8>, bool)> {
         values::generated_id(request.operation_id)?;
         values::generated_id(request.page)?;
         values::time(now)?;
         if request.expected_revision == 0 {
             return Err(OwnerFault::StaleHead.into());
         }
-        let digest = crypto::digest(&framing::frame(&[
-            b"tmt-colab-local-epoch-request-v1",
-            key.space_id.as_bytes(),
-            request.operation_id.as_bytes(),
-            request.expected_revision.to_string().as_bytes(),
-            request.page.as_bytes(),
-        ])?);
-        // Read-only replay fast path avoids creating new baseline identities. The
-        // authoritative writer receipt check still owns conflicting/racing attempts.
-        if let Some(saved) = store.owner_read(&key.space_id, &key.owner_public(), |tx| {
-            tx.saved_operation(request.operation_id, &digest)
-        })? {
-            return Ok(saved);
-        }
-        if !self.decoders.contains_key(request.page) {
-            self.decoders
-                .insert(request.page.into(), Decoder::new(self.program.clone())?);
-        }
-        let decoder = self
-            .decoders
-            .get_mut(request.page)
-            .ok_or(OwnerFault::Invalid)?;
-        for _ in 0..3 {
-            let snapshot = Snapshot::capture(store, key, request.page)?;
-            if snapshot.authority.head.revision != request.expected_revision {
-                return Err(OwnerFault::StaleHead.into());
-            }
-            let prepared = epoch::Prepared::new(
-                snapshot,
-                key,
-                request.page,
-                request
-                    .expected_revision
-                    .checked_add(1)
-                    .ok_or(OwnerFault::Capacity)?,
-                decoder,
-            )?;
-            let committed = store.owner_transaction(&key.space_id,&key.owner_public(),Mutation {
-                operation_id:request.operation_id,digest,expected_revision:request.expected_revision,
-            },|tx| {
+        let digest = context.digest(
+            key,
+            "epoch.advance",
+            &serde_json::json!({"pageId":request.page}),
+        )?;
+        self.run_transition(
+            store,
+            key,
+            Mutation {
+                operation_id: request.operation_id,
+                digest,
+                expected_revision: request.expected_revision,
+            },
+            |engine, store| {
+                let snapshot = Snapshot::capture(store, key, request.page)?;
+                context.check_scope(&[request.page.into()])?;
+                if snapshot.authority.head.revision != request.expected_revision {
+                    return Err(OwnerFault::StaleHead.into());
+                }
+                let decoder = engine.decoder(request.page)?;
+                Ok(Some(epoch::Prepared::new(
+                    snapshot,
+                    key,
+                    request.page,
+                    request
+                        .expected_revision
+                        .checked_add(1)
+                        .ok_or(OwnerFault::Capacity)?,
+                    decoder,
+                )?))
+            },
+            |tx, prepared| {
                 prepared.recheck(tx)?;
-                let (statement, wraps) = prepared.commit(tx, key, &prepared.snapshot.authority, now)?;
-                Ok(serde_json::to_vec(&serde_json::json!({"statements":[serde_json::from_slice::<serde_json::Value>(&statement.to_json()?)?],
-                    "wrapLists":[wraps]}))?)
-            });
-            match committed {
-                Err(error)
-                    if error.downcast_ref::<OwnerFault>() == Some(&OwnerFault::StaleHead) =>
-                {
+                context.check_scope(&[request.page.into()])?;
+                let (statement, wraps) =
+                    prepared.commit(tx, key, &prepared.snapshot.authority, now)?;
+                membership::outcome(&[statement], wraps)
+            },
+        )
+    }
+    fn decoder(&mut self, page: &str) -> Result<&mut Decoder> {
+        if !self.decoders.contains_key(page) {
+            self.decoders.insert(
+                page.into(),
+                Decoder::with_config(self.decoder_config.clone())?,
+            );
+        }
+        self.decoders
+            .get_mut(page)
+            .ok_or_else(|| OwnerFault::Invalid.into())
+    }
+    /// One receipt and writer lifecycle for root-local transitions. Preparation
+    /// never holds the writer reservation; every commit rechecks its snapshots.
+    fn run_transition<P>(
+        &mut self,
+        store: &mut Store,
+        key: &Keyring,
+        mutation: Mutation<'_>,
+        mut prepare: impl FnMut(&mut Self, &Store) -> Result<Option<P>>,
+        mut commit: impl FnMut(&mut OwnerTransaction<'_>, &P) -> Result<Vec<u8>>,
+    ) -> Result<(Vec<u8>, bool)> {
+        if let Some(saved) = store.owner_read(&key.space_id, &key.owner_public(), |tx| {
+            tx.saved_operation(mutation.operation_id, &mutation.digest)
+        })? {
+            return Ok((saved, false));
+        }
+        for _ in 0..3 {
+            let Some(prepared) = prepare(self, store)? else {
+                return Ok((membership::outcome(&[], vec![])?, false));
+            };
+            let mut changed = false;
+            let result = store.owner_transaction(
+                &key.space_id,
+                &key.owner_public(),
+                Mutation {
+                    operation_id: mutation.operation_id,
+                    digest: mutation.digest,
+                    expected_revision: mutation.expected_revision,
+                },
+                |tx| {
+                    let outcome = commit(tx, &prepared)?;
+                    changed = true;
+                    Ok(outcome)
+                },
+            );
+            match result {
+                Err(e) if e.downcast_ref::<OwnerFault>() == Some(&OwnerFault::StaleHead) => {
                     continue;
                 }
-                other => return other,
+                other => return other.map(|outcome| (outcome, changed)),
             }
         }
         Err(OwnerFault::StaleHead.into())

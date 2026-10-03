@@ -1,5 +1,5 @@
 //! Atomic recipient and known-device changes. Remote event admission stays in Registration.
-use super::{Engine, TransitionError, epoch};
+use super::{Engine, OwnerAction, OwnerRequest, TransitionError, epoch, request::OwnerContext};
 use crate::{
     Result,
     decoder::Decoder,
@@ -56,7 +56,7 @@ impl Action<'_> {
             _ => true,
         }
     }
-    fn selected(&self) -> (&'static str, Value) {
+    pub(super) fn selected(&self) -> (&'static str, Value) {
         match self {
             Self::Member(MemberAction::Add(r)) => (
                 "member.add",
@@ -113,16 +113,19 @@ impl Engine {
         request: MemberRequest<'_>,
         now: u64,
     ) -> std::result::Result<Vec<u8>, TransitionError> {
-        self.change(
+        self.apply(
             store,
             key,
-            request.operation_id,
-            request.expected_revision,
-            Action::Member(request.action),
+            OwnerRequest {
+                operation_id: request.operation_id,
+                expected_revision: request.expected_revision,
+                action: OwnerAction::Member(request.action),
+                transport_digest: None,
+                scope: None,
+            },
             now,
         )
-        .map(|(outcome, _)| outcome)
-        .map_err(TransitionError::from_error)
+        .map(|applied| applied.outcome)
     }
     pub fn revoke_device(
         &mut self,
@@ -131,19 +134,22 @@ impl Engine {
         request: DeviceRevoke<'_>,
         now: u64,
     ) -> std::result::Result<Vec<u8>, TransitionError> {
-        self.change(
+        self.apply(
             store,
             key,
-            request.operation_id,
-            request.expected_revision,
-            Action::Device {
-                id: request.device_id,
-                grant: request.grant_revision,
+            OwnerRequest {
+                operation_id: request.operation_id,
+                expected_revision: request.expected_revision,
+                action: OwnerAction::DeviceRevoke {
+                    device_id: request.device_id,
+                    grant_revision: request.grant_revision,
+                },
+                transport_digest: None,
+                scope: None,
             },
             now,
         )
-        .map(|(outcome, _)| outcome)
-        .map_err(TransitionError::from_error)
+        .map(|applied| applied.outcome)
     }
     pub(crate) fn remote_revoke(
         &mut self,
@@ -176,7 +182,18 @@ impl Engine {
                 .owner_head(&key.space_id, &key.owner_public())?
                 .ok_or(OwnerFault::Invalid)?
                 .revision;
-            match self.change(store, key, &op, revision, Action::Device { id, grant }, now) {
+            match self.change(
+                store,
+                key,
+                OwnerContext {
+                    id: &op,
+                    expected: revision,
+                    transport: None,
+                    scope: None,
+                },
+                Action::Device { id, grant },
+                now,
+            ) {
                 Err(e) if e.downcast_ref::<OwnerFault>() == Some(&OwnerFault::StaleHead) => {
                     continue;
                 }
@@ -189,251 +206,232 @@ impl Engine {
         &mut self,
         store: &mut Store,
         key: &Keyring,
-        id: &str,
-        expected: u64,
+        request: OwnerContext<'_>,
         action: Action<'_>,
         now: u64,
     ) -> Result<(Vec<u8>, bool)> {
+        let id = request.id;
+        let expected = request.expected;
         values::generated_id(id)?;
         values::time(now)?;
         let (operation, selected) = action.selected();
-        let digest = crypto::digest(&framing::frame(&[
-            b"tmt-colab-local-transition-v1",
-            key.space_id.as_bytes(),
-            id.as_bytes(),
-            expected.to_string().as_bytes(),
-            operation.as_bytes(),
-            &serde_json::to_vec(&selected)?,
-        ])?);
-        if let Some(saved) = store.owner_read(&key.space_id, &key.owner_public(), |tx| {
-            tx.saved_operation(id, &digest)
-        })? {
-            return Ok((saved, false));
-        }
-        for _ in 0..3 {
-            let plan = store.owner_read(&key.space_id, &key.owner_public(), |tx| {
-                plan(tx, key, &action)
-            })?;
-            // No-op events never write a receipt or require a matching stale log revision.
-            if plan.noop {
-                return Ok((
-                    serde_json::to_vec(&json!({"statements":[],"wrapLists":[]}))?,
-                    false,
-                ));
-            }
-            if plan.authority.head.revision != expected {
-                return Err(OwnerFault::StaleHead.into());
-            }
-            let mut snapshots = BTreeMap::new();
-            for page in &plan.pages {
-                let snapshot = Snapshot::capture(store, key, page)?;
-                if snapshot.authority.head != plan.authority.head {
+        let digest = request.digest(key, operation, &selected)?;
+        self.run_transition(
+            store,
+            key,
+            Mutation {
+                operation_id: id,
+                digest,
+                expected_revision: expected,
+            },
+            |engine, store| {
+                let plan = store.owner_read(&key.space_id, &key.owner_public(), |tx| {
+                    plan(tx, key, &action, request)
+                })?;
+                // No-op events never write a receipt or require a matching stale log revision.
+                if plan.noop {
+                    return Ok(None);
+                }
+                if plan.authority.head.revision != expected {
                     return Err(OwnerFault::StaleHead.into());
                 }
-                if let Action::Link { add: Some(r), .. } = &action
-                    && r.pages.contains(page)
-                    && !fold::eligible(r, &snapshot.authority, page)
-                {
-                    return Err(OwnerFault::WrongOwner.into());
-                }
-                snapshots.insert(page.clone(), snapshot);
-            }
-            let mut prepared = BTreeMap::new();
-            let mut next = expected.checked_add(1).ok_or(OwnerFault::Capacity)?;
-            for (page, snapshot) in snapshots {
-                let rotate = match &action {
-                    Action::Member(MemberAction::Add(_)) => snapshot.authority.history_current,
-                    Action::Member(MemberAction::Role { .. }) => false,
-                    Action::Link { .. } => plan.rotate_pages.contains(&page),
-                    _ => true,
-                };
-                if rotate {
-                    next = next.checked_add(1).ok_or(OwnerFault::Capacity)?;
-                    if !self.decoders.contains_key(&page) {
-                        self.decoders
-                            .insert(page.clone(), Decoder::new(self.program.clone())?);
-                    }
-                    let decoder = self.decoders.get_mut(&page).ok_or(OwnerFault::Invalid)?;
-                    let rotation = epoch::Prepared::new(snapshot, key, &page, next, decoder)?;
-                    prepared.insert(page, Page::Rotate(Box::new(rotation)));
-                } else {
-                    // Authenticate tails/checkpoints before signing cuts without a new baseline.
-                    if matches!(action, Action::Member(MemberAction::Role { .. }))
-                        && action.reduction(&plan.target)
-                    {
-                        if !self.decoders.contains_key(&page) {
-                            self.decoders
-                                .insert(page.clone(), Decoder::new(self.program.clone())?);
-                        }
-                        snapshot.materialize(
-                            key,
-                            &page,
-                            self.decoders.get_mut(&page).ok_or(OwnerFault::Invalid)?,
-                        )?;
-                    }
-                    prepared.insert(page, Page::Keep(Box::new(snapshot)));
-                }
-            }
-            let mut changed = false;
-            let committed = store.owner_transaction(
-                &key.space_id,
-                &key.owner_public(),
-                Mutation {
-                    operation_id: id,
-                    digest,
-                    expected_revision: expected,
-                },
-                |tx| {
-                    if tx.head() != Some(&plan.authority.head)
-                        || tx.pages()? != plan.catalog
-                        || crypto::digest(&serde_json::to_vec(&tx.devices()?)?)
-                            != plan.device_digest
-                    {
+                let mut snapshots = BTreeMap::new();
+                for page in &plan.pages {
+                    let snapshot = Snapshot::capture(store, key, page)?;
+                    if snapshot.authority.head != plan.authority.head {
                         return Err(OwnerFault::StaleHead.into());
                     }
-                    for (page, p) in &prepared {
-                        epoch::recheck(tx, p.snapshot(), page)?;
-                    }
-                    if let Action::Device { id, grant } = &action
-                        && (tx.device(id)?.is_none_or(|d| d.revoked)
-                            || tx
-                                .registration(id)?
-                                .is_some_and(|r| r.revoked || r.grant_revision >= *grant))
+                    if let Action::Link { add: Some(r), .. } = &action
+                        && r.pages.contains(page)
+                        && !fold::eligible(r, &snapshot.authority, page)
                     {
-                        return Err(OwnerFault::StaleHead.into());
+                        return Err(OwnerFault::WrongOwner.into());
                     }
-                    let reduction = action.reduction(&plan.target);
-                    let mut cuts = Vec::<Cut>::new();
-                    if reduction {
-                        for p in prepared.values() {
-                            cuts.extend(
-                                p.snapshot()
-                                    .cuts
-                                    .iter()
-                                    .filter(|c| plan.devices.contains(&c.stream))
-                                    .cloned(),
+                    snapshots.insert(page.clone(), snapshot);
+                }
+                let mut prepared = BTreeMap::new();
+                let mut next = expected.checked_add(1).ok_or(OwnerFault::Capacity)?;
+                for (page, snapshot) in snapshots {
+                    let rotate = match &action {
+                        Action::Member(MemberAction::Add(_)) => snapshot.authority.history_current,
+                        Action::Member(MemberAction::Role { .. }) => false,
+                        Action::Link { .. } => plan.rotate_pages.contains(&page),
+                        _ => true,
+                    };
+                    if rotate {
+                        next = next.checked_add(1).ok_or(OwnerFault::Capacity)?;
+                        if !engine.decoders.contains_key(&page) {
+                            engine.decoders.insert(
+                                page.clone(),
+                                Decoder::with_config(engine.decoder_config.clone())?,
                             );
                         }
-                    }
-                    if cuts.len() > 512 {
-                        return Err(OwnerFault::Capacity.into());
-                    }
-                    tx.pin_cuts(&cuts)?;
-                    let mut payload = selected.clone();
-                    if operation == "link.remove" {
-                        payload
-                            .as_object_mut()
-                            .ok_or(OwnerFault::Invalid)?
-                            .remove("replacement");
-                    }
-                    if operation != "member.add" && operation != "link.add" {
-                        payload["cuts"] =
-                            Value::Array(cuts.iter().map(|c| c.payload()).collect::<Result<_>>()?);
-                    }
-                    if operation == "device.revoke" {
-                        payload
-                            .as_object_mut()
-                            .ok_or(OwnerFault::Invalid)?
-                            .remove("grantRevision");
-                    }
-                    let statement =
-                        key.sign_statement(tx.head(), operation, &serde_json::to_vec(&payload)?)?;
-                    tx.append_statement(&statement)?;
-                    let mut statements = vec![statement];
-                    let mut wraps = Vec::new();
-                    for (page, p) in &prepared {
-                        let mut authority = p.snapshot().authority.clone();
-                        project(&mut authority, key, &action, &plan.target, &statements[0])?;
-                        match p {
-                            Page::Rotate(p) => {
-                                let (s, w) = p.commit(tx, key, &authority, now)?;
-                                statements.push(s);
-                                wraps.extend(w);
+                        let decoder = engine.decoders.get_mut(&page).ok_or(OwnerFault::Invalid)?;
+                        let rotation = epoch::Prepared::new(snapshot, key, &page, next, decoder)?;
+                        prepared.insert(page, Page::Rotate(Box::new(rotation)));
+                    } else {
+                        // Authenticate tails/checkpoints before signing cuts without a new baseline.
+                        if matches!(action, Action::Member(MemberAction::Role { .. }))
+                            && action.reduction(&plan.target)
+                        {
+                            if !engine.decoders.contains_key(&page) {
+                                engine.decoders.insert(
+                                    page.clone(),
+                                    Decoder::with_config(engine.decoder_config.clone())?,
+                                );
                             }
-                            Page::Keep(snapshot)
-                                if operation == "member.add" || operation == "link.add" =>
-                            {
-                                wraps.extend(join_wraps(
-                                    tx,
-                                    key,
-                                    &plan.target,
-                                    page,
-                                    snapshot.epoch,
-                                    snapshot.authority.history_current,
-                                    expected + 1,
-                                )?);
-                            }
-                            _ => {}
+                            snapshot.materialize(
+                                key,
+                                &page,
+                                engine.decoders.get_mut(&page).ok_or(OwnerFault::Invalid)?,
+                            )?;
                         }
+                        prepared.insert(page, Page::Keep(Box::new(snapshot)));
                     }
-                    // Reset's replacement follows every removal/advance, in this same transaction.
-                    if let Action::Link {
-                        remove: Some(_),
-                        add: Some(r),
-                        ..
-                    } = &action
-                    {
-                        let added = key.sign_statement(
-                            tx.head(),
-                            "link.add",
-                            &serde_json::to_vec(&link_payload(r))?,
-                        )?;
-                        tx.append_statement(&added)?;
-                        let revision = tx.head().ok_or(OwnerFault::Invalid)?.revision;
-                        for page in &r.pages {
-                            let snapshot =
-                                prepared.get(page).ok_or(OwnerFault::Invalid)?.snapshot();
-                            let epoch = tx.current_epoch(page)?;
+                }
+                Ok(Some((plan, prepared)))
+            },
+            |tx, (plan, prepared)| {
+                if tx.head() != Some(&plan.authority.head)
+                    || tx.pages()? != plan.catalog
+                    || crypto::digest(&serde_json::to_vec(&tx.devices()?)?) != plan.device_digest
+                {
+                    return Err(OwnerFault::StaleHead.into());
+                }
+                check_scope(tx, request, &action, &plan.target)?;
+                for (page, p) in prepared {
+                    epoch::recheck(tx, p.snapshot(), page)?;
+                }
+                if let Action::Device { id, grant } = &action
+                    && (tx.device(id)?.is_none_or(|d| d.revoked)
+                        || tx
+                            .registration(id)?
+                            .is_some_and(|r| r.revoked || r.grant_revision >= *grant))
+                {
+                    return Err(OwnerFault::StaleHead.into());
+                }
+                let reduction = action.reduction(&plan.target);
+                let mut cuts = Vec::<Cut>::new();
+                if reduction {
+                    for p in prepared.values() {
+                        cuts.extend(
+                            p.snapshot()
+                                .cuts
+                                .iter()
+                                .filter(|c| plan.devices.contains(&c.stream))
+                                .cloned(),
+                        );
+                    }
+                }
+                if cuts.len() > 512 {
+                    return Err(OwnerFault::Capacity.into());
+                }
+                tx.pin_cuts(&cuts)?;
+                let mut payload = selected.clone();
+                if operation == "link.remove" {
+                    payload
+                        .as_object_mut()
+                        .ok_or(OwnerFault::Invalid)?
+                        .remove("replacement");
+                }
+                if operation != "member.add" && operation != "link.add" {
+                    payload["cuts"] =
+                        Value::Array(cuts.iter().map(|c| c.payload()).collect::<Result<_>>()?);
+                }
+                if operation == "device.revoke" {
+                    payload
+                        .as_object_mut()
+                        .ok_or(OwnerFault::Invalid)?
+                        .remove("grantRevision");
+                }
+                let statement =
+                    key.sign_statement(tx.head(), operation, &serde_json::to_vec(&payload)?)?;
+                tx.append_statement(&statement)?;
+                let mut statements = vec![statement];
+                let mut wraps = Vec::new();
+                for (page, p) in prepared {
+                    let mut authority = p.snapshot().authority.clone();
+                    project(&mut authority, key, &action, &plan.target, &statements[0])?;
+                    match p {
+                        Page::Rotate(p) => {
+                            let (s, w) = p.commit(tx, key, &authority, now)?;
+                            statements.push(s);
+                            wraps.extend(w);
+                        }
+                        Page::Keep(snapshot)
+                            if operation == "member.add" || operation == "link.add" =>
+                        {
                             wraps.extend(join_wraps(
                                 tx,
                                 key,
-                                r,
+                                &plan.target,
                                 page,
-                                epoch,
+                                snapshot.epoch,
                                 snapshot.authority.history_current,
-                                revision,
+                                expected + 1,
                             )?);
                         }
-                        tx.put_recipient(r)?;
-                        statements.push(added);
+                        _ => {}
                     }
-                    if matches!(&action, Action::Member(_) | Action::Link { .. }) {
-                        let mut r = plan.target.clone();
-                        match &action {
-                            Action::Member(MemberAction::Remove { .. })
-                            | Action::Link {
-                                remove: Some(_), ..
-                            } => r.revoked = true,
-                            Action::Member(MemberAction::Role { role, .. }) => {
-                                r.role = Some(role.clone())
-                            }
-                            _ => {}
-                        }
-                        tx.put_recipient(&r)?;
-                    }
-                    if operation == "member.remove" || operation == "link.remove" {
-                        for device in &plan.devices {
-                            if let Some(mut d) = tx.device(device)? {
-                                d.revoked = true;
-                                tx.put_device(&d)?;
-                            }
-                        }
-                    }
-                    if let Action::Device { id, grant } = &action {
-                        tx.tombstone(id, *grant)?;
-                    }
-                    changed = true;
-                    outcome(&statements, wraps)
-                },
-            );
-            match committed {
-                Err(e) if e.downcast_ref::<OwnerFault>() == Some(&OwnerFault::StaleHead) => {
-                    continue;
                 }
-                other => return other.map(|outcome| (outcome, changed)),
-            }
-        }
-        Err(OwnerFault::StaleHead.into())
+                // Reset's replacement follows every removal/advance, in this same transaction.
+                if let Action::Link {
+                    remove: Some(_),
+                    add: Some(r),
+                    ..
+                } = &action
+                {
+                    let added = key.sign_statement(
+                        tx.head(),
+                        "link.add",
+                        &serde_json::to_vec(&link_payload(r))?,
+                    )?;
+                    tx.append_statement(&added)?;
+                    let revision = tx.head().ok_or(OwnerFault::Invalid)?.revision;
+                    for page in &r.pages {
+                        let snapshot = prepared.get(page).ok_or(OwnerFault::Invalid)?.snapshot();
+                        let epoch = tx.current_epoch(page)?;
+                        wraps.extend(join_wraps(
+                            tx,
+                            key,
+                            r,
+                            page,
+                            epoch,
+                            snapshot.authority.history_current,
+                            revision,
+                        )?);
+                    }
+                    tx.put_recipient(r)?;
+                    statements.push(added);
+                }
+                if matches!(&action, Action::Member(_) | Action::Link { .. }) {
+                    let mut r = plan.target.clone();
+                    match &action {
+                        Action::Member(MemberAction::Remove { .. })
+                        | Action::Link {
+                            remove: Some(_), ..
+                        } => r.revoked = true,
+                        Action::Member(MemberAction::Role { role, .. }) => {
+                            r.role = Some(role.clone())
+                        }
+                        _ => {}
+                    }
+                    tx.put_recipient(&r)?;
+                }
+                if operation == "member.remove" || operation == "link.remove" {
+                    for device in &plan.devices {
+                        if let Some(mut d) = tx.device(device)? {
+                            d.revoked = true;
+                            tx.put_device(&d)?;
+                        }
+                    }
+                }
+                if let Action::Device { id, grant } = &action {
+                    tx.tombstone(id, *grant)?;
+                }
+                outcome(&statements, wraps)
+            },
+        )
     }
 }
 enum Page {
@@ -456,7 +454,33 @@ fn rank(role: &str) -> u8 {
         _ => 3,
     }
 }
-fn plan(tx: &OwnerTransaction<'_>, key: &Keyring, action: &Action<'_>) -> Result<Plan> {
+fn check_scope(
+    tx: &OwnerTransaction<'_>,
+    request: OwnerContext<'_>,
+    action: &Action<'_>,
+    target: &Recipient,
+) -> Result<()> {
+    if request.scope.is_none() {
+        return Ok(());
+    }
+    let pages = match action {
+        Action::Member(MemberAction::Add(_)) | Action::Link { remove: None, .. } => {
+            target.pages.clone()
+        }
+        _ => {
+            tx.recipient(&target.kind, &target.id)?
+                .ok_or(OwnerFault::StaleHead)?
+                .pages
+        }
+    };
+    request.check_scope(&pages)
+}
+fn plan(
+    tx: &OwnerTransaction<'_>,
+    key: &Keyring,
+    action: &Action<'_>,
+    request: OwnerContext<'_>,
+) -> Result<Plan> {
     let log = tx.log()?;
     let (states, _) = fold::verify_log(&log, key, "")?;
     let authority = states.last().ok_or(OwnerFault::Invalid)?.clone();
@@ -581,6 +605,7 @@ fn plan(tx: &OwnerTransaction<'_>, key: &Keyring, action: &Action<'_>) -> Result
             issuer.recipient.clone()
         }
     };
+    check_scope(tx, request, action, &target)?;
     let pages = match action {
         Action::Member(MemberAction::Add(r))
         | Action::Link {
@@ -749,7 +774,10 @@ fn join_wraps(
     }
     Ok(wraps)
 }
-fn outcome(statements: &[statement::Envelope], wraps: Vec<wrap::Envelope>) -> Result<Vec<u8>> {
+pub(super) fn outcome(
+    statements: &[statement::Envelope],
+    wraps: Vec<wrap::Envelope>,
+) -> Result<Vec<u8>> {
     let mut ordered = BTreeMap::new();
     for w in wraps {
         let h = w.header()?;

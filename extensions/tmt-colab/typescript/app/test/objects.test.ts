@@ -20,7 +20,12 @@ async function fixture() {
     false,
     ['sign'],
   );
-  const admission = { ...context, root, author: () => hex(v.public) } as unknown as Admission;
+  const admission = {
+    ...context,
+    root,
+    readAuthor: () => hex(v.public),
+    cuts: () => [],
+  } as unknown as Admission;
   const seal = (ctx = context, bytes = new Uint8Array([1, 2])) =>
     c.Envelope.seal(ctx, root, signer, bytes);
   const entry = async (envelope: c.Envelope): Promise<ObjectEntry> => ({
@@ -35,7 +40,11 @@ it('verifies scope/signature/hash and chain continuity; exact replay applies not
     objects = new Objects(f.admission),
     one = await f.seal(),
     row = await f.entry(one);
-  expect(await objects.admit(f.context.authorDevice, row)).toEqual(new Uint8Array([1, 2]));
+  expect(await objects.admit(f.context.authorDevice, row)).toEqual({
+    namespace: 'content',
+    writer: f.context.authorDevice,
+    update: new Uint8Array([1, 2]),
+  });
   expect(await objects.admit(f.context.authorDevice, row)).toBeNull();
   await expect(
     objects.admit(f.context.authorDevice, {
@@ -46,9 +55,11 @@ it('verifies scope/signature/hash and chain continuity; exact replay applies not
   const wrong = await f.seal({ ...f.context, streamSeq: '2', prevHash: new Uint8Array(32) });
   await expect(objects.admit(f.context.authorDevice, await f.entry(wrong))).rejects.toThrow();
   const two = await f.seal({ ...f.context, streamSeq: '2', prevHash: await one.hash() });
-  expect(await objects.admit(f.context.authorDevice, await f.entry(two))).toEqual(
-    new Uint8Array([1, 2]),
-  );
+  expect(await objects.admit(f.context.authorDevice, await f.entry(two))).toEqual({
+    namespace: 'content',
+    writer: f.context.authorDevice,
+    update: new Uint8Array([1, 2]),
+  });
   const conflict = await f.seal(
     { ...f.context, streamSeq: '2', prevHash: await one.hash() },
     new Uint8Array([3]),
@@ -61,20 +72,29 @@ it('verifies scope/signature/hash and chain continuity; exact replay applies not
     new Objects(f.admission).admit(f.context.authorDevice, await f.entry(envelope)),
   ).rejects.toThrow();
 });
-it('fails closed on unsupported history, outer author substitution and missing predecessor', async () => {
+it('opens own ciphertext only after admission, and rejects author substitution and gaps', async () => {
   const f = await fixture(),
     objects = new Objects(f.admission);
   const gap = await f.seal({ ...f.context, streamSeq: '3' });
   await expect(objects.admit(f.context.authorDevice, await f.entry(gap))).rejects.toThrow();
   const own = await f.seal({ ...f.context, namespace: 'own' });
-  await expect(objects.admit(f.context.authorDevice, await f.entry(own))).rejects.toThrow(
-    'own-namespace',
-  );
+  const root = f.admission.root;
+  f.admission.root = null;
+  await expect(objects.admit(f.context.authorDevice, await f.entry(own))).rejects.toThrow();
+  expect(objects.head(f.context.authorDevice).seq).toBe(0n);
+  f.admission.root = root;
+  expect(await objects.admit(f.context.authorDevice, await f.entry(own))).toEqual({
+    namespace: 'own',
+    writer: f.context.authorDevice,
+    update: new Uint8Array([1, 2]),
+  });
+  expect(objects.ownData).toBe(true);
+  expect(objects.head(f.context.authorDevice).seq).toBe(1n);
   await expect(
     objects.streams([
       { streamId: f.context.authorDevice, namespace: 'content', checkpoint: {}, tail: [] },
     ]),
-  ).rejects.toThrow('Checkpoint');
+  ).rejects.toThrow();
   await expect(
     objects.admit('00000000-0000-4000-8000-000000000123', await f.entry(await f.seal())),
   ).rejects.toThrow();
@@ -139,4 +159,89 @@ it('reassembles exact bounded chunks, binds referenced ID and enforces an absolu
     frames.close();
     vi.useRealTimers();
   }
+});
+
+it('paired checkpoints bind one prefix and preserve the cross-namespace tail chain', async () => {
+  const f = await fixture(),
+    objects = new Objects(f.admission),
+    prefix = new Uint8Array(32).fill(4);
+  const cp = await f.seal({ ...f.context, kind: 'checkpoint', streamSeq: '4', prevHash: prefix });
+  const own = await f.seal({
+    ...f.context,
+    kind: 'checkpoint',
+    namespace: 'own',
+    streamSeq: '4',
+    prevHash: prefix,
+  });
+  expect(
+    await objects.admit(f.context.authorDevice, await f.entry(cp), 'checkpoint', 'content'),
+  ).toEqual({
+    namespace: 'content',
+    writer: f.context.authorDevice,
+    update: new Uint8Array([1, 2]),
+  });
+  expect(
+    await objects.admit(f.context.authorDevice, await f.entry(own), 'checkpoint', 'own'),
+  ).toEqual({ namespace: 'own', writer: f.context.authorDevice, update: new Uint8Array([1, 2]) });
+  expect(objects.head(f.context.authorDevice).hash).toEqual(prefix);
+  const tailOwn = await f.seal({
+    ...f.context,
+    namespace: 'own',
+    streamSeq: '5',
+    prevHash: prefix,
+  });
+  const tailContent = await f.seal({
+    ...f.context,
+    streamSeq: '6',
+    prevHash: await tailOwn.hash(),
+  });
+  expect(await objects.admit(f.context.authorDevice, await f.entry(tailOwn))).toEqual({
+    namespace: 'own',
+    writer: f.context.authorDevice,
+    update: new Uint8Array([1, 2]),
+  });
+  expect(await objects.admit(f.context.authorDevice, await f.entry(tailContent))).toEqual({
+    namespace: 'content',
+    writer: f.context.authorDevice,
+    update: new Uint8Array([1, 2]),
+  });
+  expect(objects.cursors().map((x) => [x.namespace, x.seq])).toEqual([
+    ['content', '6'],
+    ['own', '5'],
+  ]);
+  objects.finish();
+});
+it('rejects checkpoint prefix/namespace substitutions and replacement envelopes', async () => {
+  const f = await fixture();
+  for (const change of [{ streamSeq: '3' }, { prevHash: new Uint8Array(32).fill(9) }]) {
+    const objects = new Objects(f.admission),
+      cp = await f.seal({
+        ...f.context,
+        kind: 'checkpoint',
+        streamSeq: '4',
+        prevHash: new Uint8Array(32).fill(4),
+      });
+    await objects.admit(f.context.authorDevice, await f.entry(cp), 'checkpoint', 'content');
+    const wrong = await f.seal({
+      ...f.context,
+      kind: 'checkpoint',
+      namespace: 'own',
+      streamSeq: '4',
+      prevHash: new Uint8Array(32).fill(4),
+      ...change,
+    });
+    await expect(
+      objects.admit(f.context.authorDevice, await f.entry(wrong), 'checkpoint', 'own'),
+    ).rejects.toThrow();
+  }
+  const objects = new Objects(f.admission),
+    cp = await f.seal({ ...f.context, kind: 'checkpoint' });
+  await expect(
+    objects.admit(f.context.authorDevice, await f.entry(cp), 'checkpoint', 'own'),
+  ).rejects.toThrow();
+  await objects.admit(f.context.authorDevice, await f.entry(cp), 'checkpoint', 'content');
+  const replacement = await f.seal({ ...f.context, kind: 'checkpoint' });
+  await expect(
+    objects.admit(f.context.authorDevice, await f.entry(replacement), 'checkpoint', 'content'),
+  ).rejects.toThrow();
 });

@@ -26,6 +26,7 @@ on:
         options:
           - cli
           - squad
+          - driver-herdr
       prepare:
         description: Build and verify one bundle from this main commit, without a draft release; nothing is attached
         required: true
@@ -110,7 +111,7 @@ jobs:
     permissions:
       # Granted to the jobs of the called workflow that upload to the draft, publish it, read its
       # commit and open an issue for a failed check of the published release.
-      # Only the called Project-dispatch job requests actions: write.
+      # Only called Project and smoke-retry dispatch jobs request actions: write.
       contents: write
       actions: write
       pull-requests: read

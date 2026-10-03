@@ -43,6 +43,16 @@ pub struct Ready {
     pub thread: String,
 }
 
+/// An owned fresh endpoint exists before its foreground creates a thread.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct FreshEndpoint {
+    pub server: Process,
+    pub port: u16,
+    pub cwd: PathBuf,
+    pub thread: Option<String>,
+}
+
 /// Pre-spawn attribution copied from the launcher's claimed binding.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -137,6 +147,8 @@ pub struct Record {
     pub generation: String,
     pub launch_owner: Process,
     pub ready: Option<Ready>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fresh: Option<FreshEndpoint>,
 }
 
 impl Record {
@@ -150,6 +162,7 @@ impl Record {
             generation: uuid::Uuid::new_v4().to_string(),
             launch_owner: Process::of(owner),
             ready: None,
+            fresh: None,
         })
     }
 
@@ -166,6 +179,7 @@ impl Record {
         gone(foreground)
             && gone(&self.launch_owner)
             && self.ready.as_ref().is_none_or(|ready| gone(&ready.server))
+            && self.fresh.as_ref().is_none_or(|fresh| gone(&fresh.server))
     }
 
     fn same_lease(&self, other: &Self) -> bool {
@@ -182,6 +196,20 @@ impl Record {
             && uuid::Uuid::parse_str(binding).is_ok()
             && uuid::Uuid::parse_str(&self.generation).is_ok()
             && self.launch_owner.incarnation().is_some()
+            && self.fresh.as_ref().is_none_or(|fresh| {
+                fresh.port != 0
+                    && fresh.server.incarnation().is_some()
+                    && fresh.cwd.is_absolute()
+                    && fresh
+                        .thread
+                        .as_ref()
+                        .is_none_or(|id| uuid::Uuid::parse_str(id).is_ok())
+                    && self.ready.as_ref().is_none_or(|ready| {
+                        ready.server == fresh.server
+                            && ready.port == fresh.port
+                            && fresh.thread.as_ref() == Some(&ready.thread)
+                    })
+            })
             && self.ready.as_ref().is_none_or(|ready| {
                 ready.port != 0
                     && ready.server.incarnation().is_some()
@@ -311,6 +339,10 @@ impl Store {
                     .ready
                     .as_ref()
                     .is_some_and(|ready| !process_gone(&ready.server))
+                || previous
+                    .fresh
+                    .as_ref()
+                    .is_some_and(|fresh| !process_gone(&fresh.server))
                 || observe(&previous_owner) != RuntimeLiveness::Gone
             {
                 return Err(io::ErrorKind::AlreadyExists.into());
@@ -326,6 +358,69 @@ impl Store {
             return Err(invalid());
         }
         current.ready = Some(ready);
+        self.write(&current)?;
+        Ok(current)
+    }
+
+    pub fn fresh_endpoint(&self, expected: &Record, endpoint: FreshEndpoint) -> io::Result<Record> {
+        let _lock = self.lock(&expected.binding_id)?;
+        let mut current = self.read(&expected.binding_id)?.ok_or_else(invalid)?;
+        if !current.same_lease(expected) || current.ready.is_some() || current.fresh.is_some() {
+            return Err(invalid());
+        }
+        current.fresh = Some(endpoint);
+        self.write(&current)?;
+        Ok(current)
+    }
+
+    pub fn fresh_thread(&self, expected: &Record, thread: &str) -> io::Result<Record> {
+        let _lock = self.lock(&expected.binding_id)?;
+        let mut current = self.read(&expected.binding_id)?.ok_or_else(invalid)?;
+        if !current.same_lease(expected) || current.foreground != expected.foreground {
+            return Err(invalid());
+        }
+        let fresh = current.fresh.as_mut().ok_or_else(invalid)?;
+        if fresh.thread.is_some() || current.ready.is_some() {
+            return Err(invalid());
+        }
+        fresh.thread = Some(thread.into());
+        self.write(&current)?;
+        Ok(current)
+    }
+
+    /// Publication follows launcher admission; recheck every original process
+    /// while holding the generation lock. Discovery never authorizes delivery.
+    pub fn admit_fresh(
+        &self,
+        expected: &Record,
+        foreground: &ProcessIncarnation,
+        observe: impl Fn(&ProcessIncarnation) -> RuntimeLiveness,
+    ) -> io::Result<Record> {
+        let _lock = self.lock(&expected.binding_id)?;
+        let mut current = self.read(&expected.binding_id)?.ok_or_else(invalid)?;
+        let fresh = current.fresh.as_ref().ok_or_else(invalid)?;
+        if !current.same_lease(expected)
+            || current != *expected
+            || current.foreground != Foreground::Known(Process::of(foreground))
+            || current.ready.is_some()
+            || [
+                &current.launch_owner,
+                &fresh.server,
+                &Process::of(foreground),
+            ]
+            .iter()
+            .any(|p| {
+                p.incarnation()
+                    .is_none_or(|p| observe(&p) != RuntimeLiveness::Alive)
+            })
+        {
+            return Err(invalid());
+        }
+        current.ready = Some(Ready {
+            server: fresh.server.clone(),
+            port: fresh.port,
+            thread: fresh.thread.clone().ok_or_else(invalid)?,
+        });
         self.write(&current)?;
         Ok(current)
     }

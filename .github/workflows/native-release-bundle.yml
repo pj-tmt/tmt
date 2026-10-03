@@ -284,6 +284,13 @@ jobs:
               --archive "target/distrib/tmt-squad-$TARGET.tar.gz" --target "$TARGET" \
               --skills extensions/tmt-squad/skills --license LICENSE \
               --notices "target/distrib/$TARGET-notices.txt"
+          elif [ "$PRODUCT" = driver-herdr ]; then
+            node typescript/scripts/verify-native-artifact.mjs \
+              --product driver-herdr \
+              --manifest target/distrib/dist-manifest.json \
+              --archive "target/distrib/tmt-driver-herdr-$TARGET.tar.gz" --target "$TARGET" \
+              --license LICENSE \
+              --notices "target/distrib/$TARGET-notices.txt"
           else
             node typescript/scripts/verify-native-artifact.mjs \
               --product office \
@@ -510,6 +517,7 @@ jobs:
     permissions:
       contents: read
       issues: write
+      actions: write
     uses: ./.github/workflows/native-release-smoke.yml
     with:
       product: ${{ inputs.product }}

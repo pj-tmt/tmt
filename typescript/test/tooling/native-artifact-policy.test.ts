@@ -17,7 +17,7 @@ const { selectNativeArtifact, withNativeArtifact } = (await import(
     manifestFile: string,
     archiveFile: string,
     target: string,
-    product?: 'cli' | 'office' | 'squad',
+    product?: 'cli' | 'office' | 'squad' | 'driver-herdr',
     options?: { readonly release?: boolean }
   ) => NativeArtifact;
   withNativeArtifact: <T>(
@@ -29,10 +29,11 @@ const { selectNativeArtifact, withNativeArtifact } = (await import(
 
 const REQUIRED_FILES = ['tmt', 'LICENSE', 'NATIVE-INSTALL.md', 'THIRD-PARTY-NOTICES.txt'];
 /** Product::companions(): executables a product's archive carries beside its own. */
-const COMPANIONS: Record<'cli' | 'office' | 'squad', readonly string[]> = {
+const COMPANIONS: Record<'cli' | 'office' | 'squad' | 'driver-herdr', readonly string[]> = {
   cli: ['tmt-driver-herdr'],
   office: [],
   squad: [],
+  'driver-herdr': [],
 };
 const TARGET = 'aarch64-apple-darwin';
 const VERSION = '5.0.0-alpha.1';
@@ -45,7 +46,7 @@ interface NativeArtifact {
 }
 
 interface ArchiveOptions {
-  readonly product?: 'cli' | 'office' | 'squad';
+  readonly product?: 'cli' | 'office' | 'squad' | 'driver-herdr';
   /** Files under `skills/`, by path relative to it. */
   readonly skills?: Record<string, string>;
   /** Whether the manifest declares the `skills` asset (default: when Squad). */
@@ -88,9 +89,12 @@ async function createArchiveFixture(
   const manifestFile = path.join(fixtureRoot, 'manifest.json');
   fs.mkdirSync(root, { recursive: true });
 
-  const executable = { cli: 'tmt', office: 'tmt-office', squad: 'tmt-squad' }[
-    options.product ?? 'cli'
-  ];
+  const executable = {
+    cli: 'tmt',
+    office: 'tmt-office',
+    squad: 'tmt-squad',
+    'driver-herdr': 'tmt-driver-herdr',
+  }[options.product ?? 'cli'];
   const companions = COMPANIONS[options.product ?? 'cli'];
   const files = [executable, ...REQUIRED_FILES.slice(1), ...companions];
   for (const file of files) {
@@ -698,6 +702,24 @@ await withNativeArtifact(process.argv[1], JSON.parse(process.argv[2]), () => con
       expect(extracted).toBeDefined();
       expect(fs.existsSync(extracted as string)).toBe(false);
       expect(fs.readFileSync(sentinel, 'utf8')).toBe('preserve me\n');
+    });
+  });
+});
+
+describe('standalone Herdr archive boundary', () => {
+  it('accepts its own manifest and refuses CLI ownership or undeclared companion bytes', async () => {
+    await withSandbox(async (sandbox) => {
+      const standalone = await createArchiveFixture(sandbox, { product: 'driver-herdr' });
+      await expect(
+        withNativeArtifact(standalone.archiveFile, standalone.metadata, () => 'driver')
+      ).resolves.toBe('driver');
+      expect(() =>
+        selectNativeArtifact(standalone.manifestFile, standalone.archiveFile, TARGET, 'cli')
+      ).toThrow('TMT release');
+      const extra = await createArchiveFixture(sandbox, { product: 'driver-herdr', extra: 'tmt' });
+      await expect(withNativeArtifact(extra.archiveFile, extra.metadata, () => {})).rejects.toThrow(
+        'Unexpected native archive entry'
+      );
     });
   });
 });

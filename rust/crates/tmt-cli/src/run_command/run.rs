@@ -430,10 +430,20 @@ pub(super) fn run_bound(
             "command started, but runtime ownership could not be recorded; automatic delivery is not established.",
         );
     }
-    if storage.close().is_err() {
+    let storage_closed = storage.close().is_ok();
+    if !storage_closed {
         diagnostic(
             "could not close launch state before waiting; the command will not be restarted.",
         );
+    }
+    if let Some((key, tmt_core::binding::session::RuntimeState::Running)) = &admitted
+        && storage_closed
+        && !already_exited
+        && child_incarnation.as_ref() == Some(&key.incarnation)
+        && key.provider_session.as_ref() == lease.provider_session()
+        && let Some(note) = lease.foreground_admitted(&key.incarnation)
+    {
+        diagnostic(&note);
     }
     crate::pane_badge::refresh(
         paths,

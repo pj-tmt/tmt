@@ -1,8 +1,7 @@
 import { requireValue } from '@tmt/colab-client';
 import type { Bootstrap, PageInfo } from './bootstrap.js';
 import type { Registration } from './registration.js';
-import type { PageBinding, PageSnapshot } from './transport.js';
-import type { Projection } from './fold-protocol.js';
+import type { PageBinding, PageSnapshot, PageView } from './transport.js';
 import { Admission } from './admission.js';
 import { Connection } from './connection.js';
 import { Writer } from './writer.js';
@@ -16,8 +15,8 @@ export class Live implements PageBinding {
   #closed = false;
   #connecting = false;
   #attempts = 0;
-  #projection: Projection = { source: '', title: '' };
-  #listeners = new Set<{ publish(value: Projection): void; failed(error: Error): void }>();
+  #projection: PageView = { source: '', title: '' };
+  #listeners = new Set<{ publish(value: PageView): void; failed(error: Error): void }>();
   #error: Error | null = null;
   constructor(
     readonly mount: URL,
@@ -53,8 +52,13 @@ export class Live implements PageBinding {
         this.page.sharing,
         (value) => {
           if (this.#closed) return;
-          this.#projection = { source: value.source, title: value.title };
-          this.#listeners.forEach((v) => v.publish(this.#projection));
+          this.#projection = {
+            source: value.source,
+            title: value.title,
+            ownData: value.ownData,
+            own: structuredClone(value.own),
+          };
+          this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
         },
         (error) => this.#failed(error),
       ));
@@ -88,16 +92,16 @@ export class Live implements PageBinding {
     return {
       id: this.page.pageId,
       sharing: this.page.sharing,
-      ...this.#projection,
+      ...structuredClone(this.#projection),
       title: this.#projection.title || this.page.pageId,
       binding: this,
     };
   }
-  subscribe(publish: (value: Projection) => void, failed: (error: Error) => void) {
+  subscribe(publish: (value: PageView) => void, failed: (error: Error) => void) {
     const listener = { publish, failed };
     this.#listeners.add(listener);
     if (this.#error) failed(this.#error);
-    else publish(this.#projection);
+    else publish(structuredClone(this.#projection));
     return () => {
       this.#listeners.delete(listener);
       // A same-turn subscriber replacement retains the binding (including React's

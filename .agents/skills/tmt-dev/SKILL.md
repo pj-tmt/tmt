@@ -65,11 +65,19 @@ modules under scripts and test directories are developer tooling. Keep Office,
 native process, Docker and tooling checks distinct,
 and never substitute obsolete TypeScript coverage percentages for native
 verification. A raw-binary platform smoke does not replace the release archive,
-bootstrap or upgrade gates. Keep their shared runtime proof in one owner.
+bootstrap or upgrade gates. Independently released drivers use DEVELOPMENT’s
+product-specific archive and approval proof using the current published CLI. Keep the shared
+runtime proof in one owner. Process/archive fixture producers must build both
+`tmt-cli` and `tmt-driver-herdr`; transferring only the CLI leaves the independently
+owned companion unavailable. See DEVELOPMENT’s native fixture build contract.
 
 Formatter migrations preserve DEVELOPMENT's per-owner options and separate
 code/docs selections, with mechanical output isolated from configuration changes.
 Keep exact regeneration and semantic equivalence evidence in the PR.
+Lint migrations preserve per-owner file arguments, plugins, warning severities and
+exit behavior. Compare effective rules and diagnostic multisets, and record newly
+enabled defaults separately; DEVELOPMENT owns the workspace lint commands and shared
+configuration. Keep compiler checks separate until an explicit equivalence decision.
 
 For installed-agent guidance changes, follow DEVELOPMENT's installed guidance
 source ownership: edit the single canonical skill, verify native provider links

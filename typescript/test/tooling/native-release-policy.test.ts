@@ -16,7 +16,7 @@ const { checkLatestTag, productOfTag, publishFlags, releaseFlags, releasePolicy 
 };
 
 describe('native release publication policy', () => {
-  it.each(['cli', 'squad', 'office'])(
+  it.each(['cli', 'squad', 'office', 'driver-herdr'])(
     'gates %s through the component release policy',
     (product) => {
       const result = spawnSync(
@@ -29,11 +29,11 @@ describe('native release publication policy', () => {
         { cwd: os.tmpdir(), encoding: 'utf8', timeout: 10_000, maxBuffer: 64 * 1024 }
       );
       expect(result.error).toBeUndefined();
-      expect(result.status).toBe(product === 'office' ? 1 : 0);
+      expect(result.status).toBe(['office', 'driver-herdr'].includes(product) ? 1 : 0);
       expect(result.stdout).toBe('');
       expect(result.stderr).toBe(
-        product === 'office'
-          ? 'office is not released (release: false in .github/components.json).\n'
+        ['office', 'driver-herdr'].includes(product)
+          ? `${product} is not released (release: false in .github/components.json).\n`
           : ''
       );
     }
@@ -41,7 +41,7 @@ describe('native release publication policy', () => {
 
   it('makes only the CLI the latest release', () => {
     expect(releaseFlags('cli')).toEqual(['--latest=true']);
-    for (const extension of ['office', 'squad']) {
+    for (const extension of ['office', 'squad', 'driver-herdr']) {
       expect(releasePolicy(extension).latest).toBe(false);
       expect(releaseFlags(extension)).toContain('--latest=false');
     }
@@ -59,14 +59,14 @@ describe('native release publication policy', () => {
       )
     ).toEqual({ cli: false, office: true, squad: true });
     expect(releaseFlags('cli')).not.toContain('--prerelease');
-    for (const extension of ['office', 'squad']) {
+    for (const extension of ['office', 'squad', 'driver-herdr']) {
       expect(releaseFlags(extension)).toContain('--prerelease');
     }
   });
 
   it('publishes a draft with every flag explicit, since release-please makes each draft a prerelease', () => {
     expect(publishFlags('cli')).toEqual(['--draft=false', '--prerelease=false', '--latest=true']);
-    for (const extension of ['office', 'squad']) {
+    for (const extension of ['office', 'squad', 'driver-herdr']) {
       expect(publishFlags(extension)).toEqual([
         '--draft=false',
         '--prerelease=true',
@@ -81,6 +81,7 @@ describe('native release publication policy', () => {
     for (const tag of [
       'tmt-office-v0.1.0-alpha.4',
       'tmt-squad-v0.1.0-alpha.2',
+      'tmt-driver-herdr-v99.0.0-alpha.1',
       'install',
       'vnext',
     ]) {
@@ -92,6 +93,7 @@ describe('native release publication policy', () => {
     expect(productOfTag('v5.0.0-alpha.9')).toBe('cli');
     expect(productOfTag('tmt-office-v0.1.0-alpha.4')).toBe('office');
     expect(productOfTag('tmt-squad-v0.1.0-alpha.2')).toBe('squad');
+    expect(productOfTag('tmt-driver-herdr-v0.1.0-alpha.1')).toBe('driver-herdr');
     for (const tag of [
       'install',
       'vnext',

@@ -2,10 +2,12 @@
 //! Named edits pass through one format-preserving writer.
 
 use crate::core::{Core, SquadError};
+use crate::split::{Size, Split};
 use crate::{
     action::{Bindings, parse_bindings, preset},
     filter::{Filter, Row},
 };
+use serde_json::{Value, json};
 use std::{
     fs,
     io::{self, Read, Write},
@@ -15,12 +17,30 @@ use std::{
 };
 use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 
+mod edit;
 mod settings;
+mod sourced;
 mod states;
 pub use states::{Rank, States};
 
 const FILE_LIMIT: u64 = 1024 * 1024;
 const MAX_SECTIONS: usize = 16;
+
+fn split_value(split: &Split) -> Value {
+    match split {
+        Split::Pane(pane) => json!(pane.title()),
+        Split::Group {
+            direction,
+            children,
+        } => json!({
+            "direction": match direction { Direction::LeftRight => "left-right", Direction::TopBottom => "top-bottom" },
+            "sizes": children.iter().map(|(size, _)| match size {
+                Size::Percent(n) => json!(n), Size::Grow(n) => json!(format!("{n}fr")),
+            }).collect::<Vec<_>>(),
+            "panes": children.iter().map(|(_, child)| split_value(child)).collect::<Vec<_>>(),
+        }),
+    }
+}
 
 /// Per-squad observation/reminder policy; enabling never installs hooks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -282,7 +302,7 @@ columns = [
     { name = "pr", width = "24%", min = 12, max = 28, priority = 2 },
     { name = "model", from = "session.model", width = "16%", min = 18, max = 18, priority = 3 },
 ]
-lines = [["member", "state", "task", "pr", "model"], ["", "", { field = "pending", span = 3 }]]
+lines = [["member", "state", "task", "pr", "model"], ["", "", { field = "pending", span = 3, token = "waiting" }]]
 [team.fields.pr]
 preset = "github-pr"
 every = "60s"
@@ -879,6 +899,7 @@ impl Config {
         config.me_id()?;
         config.validate_views()?;
         config.tabs()?;
+        config.links()?;
         Ok(config)
     }
 
@@ -889,9 +910,7 @@ impl Config {
     /// The host preset's bindings, overridden by top-level `[bind]`.
     pub fn bindings(&self, tmux: bool, panes: &[Pane]) -> Result<Bindings, SquadError> {
         let mut bindings = preset(tmux, panes);
-        if let Some(item) = self.document.get("bind") {
-            bindings.extend(bindings_table(item, "bind")?);
-        }
+        bindings.extend(self.configured_bindings()?);
         Ok(bindings)
     }
 
@@ -922,6 +941,14 @@ impl Config {
         Ok(bindings)
     }
 
+    pub fn configured_bindings(&self) -> Result<Bindings, SquadError> {
+        self.document
+            .get("bind")
+            .map(|item| bindings_table(item, "bind"))
+            .transpose()
+            .map(Option::unwrap_or_default)
+    }
+
     /// Top-level `opener` and `clipboard`: programs that replace the system
     /// opener and the built-in clipboard route.
     pub fn program(&self, key: &str) -> Result<Option<Vec<String>>, SquadError> {
@@ -929,6 +956,37 @@ impl Config {
             .get(key)
             .map(|item| program(item, key))
             .transpose()
+    }
+
+    /// Programs authorized only by the user's `[links]` table.
+    pub fn links(&self) -> Result<crate::links::Handlers, SquadError> {
+        let mut handlers = crate::links::Handlers::new();
+        if let Some(item) = self.document.get("links") {
+            let table = item
+                .as_table_like()
+                .ok_or_else(|| invalid("`links` must be a table."))?;
+            if table.len() > 32 {
+                return Err(invalid("`links` allows at most 32 handlers."));
+            }
+            for (name, value) in table.iter() {
+                if !crate::links::scheme(name) || ["http", "https", "file", "tmt"].contains(&name) {
+                    return Err(invalid(format!("`links.{name}` is not a custom scheme.")));
+                }
+                let action = value
+                    .as_str()
+                    .ok_or_else(|| invalid(format!("`links.{name}` must be a run binding.")))?;
+                let action = crate::action::Action::parse(action).map_err(invalid)?;
+                if action.verb != crate::action::Verb::Run {
+                    return Err(invalid(format!("`links.{name}` must use run.")));
+                }
+                // Only {path} is available; reject misspelled/row placeholders at load.
+                action
+                    .argv(&serde_json::json!({"fields":{"path":"example"}}))
+                    .map_err(invalid)?;
+                handlers.insert(name.to_owned(), action);
+            }
+        }
+        Ok(handlers)
     }
 
     /// `[tmux]`: the prefix keys that open the board as a popup (default `S`)
@@ -1102,23 +1160,7 @@ impl Config {
 
     /// Resolve the explicit preset or the compatible default in one place.
     fn resolve_layout(&self, squad: &str) -> Result<Layout, SquadError> {
-        let table = self.squad_table(squad)?;
-        if let Some(item) = table.and_then(|table| table.get("layout")) {
-            return item.as_str().and_then(Layout::parse).ok_or_else(|| {
-                invalid(format!(
-                    "`squad.{squad}.layout` must be crew, pr-queue, minimal or team."
-                ))
-            });
-        }
-        let simple = table
-            .and_then(|table| table.get("board"))
-            .and_then(Item::as_table_like)
-            .is_some_and(|board| {
-                ["direction", "panes", "sizes"]
-                    .iter()
-                    .any(|key| board.get(key).is_some())
-            });
-        Ok(if simple { Layout::Crew } else { Layout::Team })
+        self.layout_setting(squad).map(|resolved| resolved.0)
     }
 
     /// Squads without a layout key use team unless the simple board form keeps crew.
@@ -1331,6 +1373,9 @@ impl Config {
     }
 
     pub fn rows(&self, squad: &str) -> Result<crate::rows::Rows, SquadError> {
+        self.rows_setting(squad).map(|resolved| resolved.0)
+    }
+    fn read_rows(&self, squad: &str) -> Result<crate::rows::Rows, SquadError> {
         crate::rows::read(
             self.preset_settings(squad)?
                 .as_ref()
@@ -1563,6 +1608,9 @@ impl Config {
     /// `[squad.<name>.board]` over the layout's preset. Validated before the
     /// terminal changes mode, so a mistake never leaves a half-drawn screen.
     pub fn board(&self, squad: &str) -> Result<Board, SquadError> {
+        self.board_setting(squad).map(|resolved| resolved.0)
+    }
+    fn read_board(&self, squad: &str) -> Result<Board, SquadError> {
         let layout = self.resolve_layout(squad)?;
         let (view, _) = self.view_source(squad)?;
         let preset = view.map_or_else(|| Board::preset(layout), Board::factory);
@@ -1589,6 +1637,7 @@ impl Config {
                 "fold_below",
                 "token_rate",
                 "view",
+                "hidden_columns",
             ]
             .contains(&key)
             {
@@ -1752,33 +1801,7 @@ impl Config {
     /// then top-level `[board] refresh`, then [`DEFAULT_REFRESH`]. `None` is
     /// "off": only ctrl-r and the board's own actions reload.
     pub fn refresh(&self, squad: &str) -> Result<Option<Duration>, SquadError> {
-        let global = match self.document.get("board") {
-            None => None,
-            Some(item) => {
-                let table = item
-                    .as_table_like()
-                    .ok_or_else(|| invalid("`board` must be a table."))?;
-                if let Some((key, _)) = table
-                    .iter()
-                    .find(|(key, _)| !matches!(*key, "refresh" | "theme" | "token_rate" | "view"))
-                {
-                    return Err(invalid(format!("`board.{key}` is not a board setting.")));
-                }
-                table
-                    .get("refresh")
-                    .map(|item| (item, "board.refresh".to_owned()))
-            }
-        };
-        let own = self
-            .squad_table(squad)?
-            .and_then(|table| table.get("board"))
-            .and_then(Item::as_table_like)
-            .and_then(|table| table.get("refresh"))
-            .map(|item| (item, format!("squad.{squad}.board.refresh")));
-        match own.or(global) {
-            None => Ok(Some(DEFAULT_REFRESH)),
-            Some((item, place)) => refresh(item, &place),
-        }
+        self.refresh_setting(squad).map(|resolved| resolved.0)
     }
 
     /// Preset, then global, then per-squad keys; no implicit second team path.
@@ -1846,26 +1869,7 @@ impl Config {
 
     /// `[squad.<name>.notes] render = "markdown" | "plain"`; markdown by default.
     pub fn notes_render(&self, squad: &str) -> Result<NotesRender, SquadError> {
-        let place = format!("squad.{squad}.notes");
-        let Some(item) = self
-            .squad_table(squad)?
-            .and_then(|table| table.get("notes"))
-        else {
-            return Ok(NotesRender::Markdown);
-        };
-        let table = item
-            .as_table_like()
-            .ok_or_else(|| invalid(format!("`{place}` must be a table.")))?;
-        if let Some((key, _)) = table.iter().find(|(key, _)| *key != "render") {
-            return Err(invalid(format!("`{place}.{key}` is not a notes setting.")));
-        }
-        match table.get("render").map(|value| value.as_str()) {
-            None | Some(Some("markdown")) => Ok(NotesRender::Markdown),
-            Some(Some("plain")) => Ok(NotesRender::Plain),
-            Some(_) => Err(invalid(format!(
-                "`{place}.render` must be markdown or plain."
-            ))),
-        }
+        self.notes_setting(squad).map(|resolved| resolved.0)
     }
 
     /// `[tabs]` (#507): the tab order, hidden tabs, the colors by attention
@@ -2066,6 +2070,30 @@ fn publish(path: &Path, bytes: &[u8]) -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::split::Split;
+
+    #[test]
+    fn link_handlers_are_explicit_validated_run_bindings() {
+        let path = temp("links");
+        fs::write(&path, "[links]\ngh='run gh issue view {path}'").unwrap();
+        assert!(
+            Config::read(path.clone())
+                .unwrap()
+                .links()
+                .unwrap()
+                .contains_key("gh")
+        );
+        for value in [
+            "gh='open {path}'",
+            "tmt='run tmt {path}'",
+            "gh='run {path}'",
+            "gh='run gh {name}'",
+            "gh=42",
+        ] {
+            fs::write(&path, format!("[links]\n{value}")).unwrap();
+            assert!(Config::read(path.clone()).is_err(), "{value}");
+        }
+        fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn reminders_are_per_squad_team_enabled_by_default_and_bounded() {
@@ -2380,6 +2408,181 @@ mod tests {
         let _ = fs::remove_dir_all(&directory);
         fs::create_dir_all(&directory).unwrap();
         directory.join("squad.toml")
+    }
+
+    #[test]
+    fn settings_edits_use_existing_scopes_and_keep_custom_structure() {
+        let path = temp("setting-scopes");
+        fs::write(&path, "[squad.x.board]\ndirection='left-right'\n[squad.x.states.working]\nsort=7 # preserve rank\n[squad.x.columns]\nshow=['member','state','task','pr_link']\npr_link={width=12}\n").unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        let draft = config
+            .preview_setting(Some("x"), "board.direction", "top-bottom")
+            .unwrap();
+        let board = draft.board("x").unwrap();
+        assert_eq!(
+            board.split,
+            Board::simple(
+                BoardMode::Split,
+                Direction::TopBottom,
+                vec![Pane::Rows, Pane::Notes],
+                &[60, 40]
+            )
+            .split
+        );
+        assert_eq!(draft.layout("x").unwrap(), Layout::Crew);
+        let mut writer = config.clone();
+        writer
+            .set_setting(Some("x"), "board.direction", "top-bottom")
+            .unwrap();
+        let pinned = Config::read(path.clone()).unwrap();
+        assert_eq!(pinned.board("x").unwrap().split, board.split);
+        assert_eq!(
+            pinned.document["squad"]["x"]["layout"].as_str(),
+            Some("crew")
+        );
+        for key in ["direction", "panes", "sizes"] {
+            assert!(pinned.document["squad"]["x"]["board"].get(key).is_some());
+        }
+        let resized = draft
+            .preview_setting(Some("x"), "board.sizes", "[70,30]")
+            .unwrap()
+            .settings(Some("x"), false, None)
+            .unwrap();
+        assert_eq!(
+            resized
+                .entries
+                .iter()
+                .find(|entry| entry.key == "board.sizes")
+                .unwrap()
+                .value,
+            serde_json::json!([70, 30])
+        );
+        let draft = config
+            .preview_setting(Some("x"), "states.working.color", "blue")
+            .unwrap();
+        assert!(draft.document["squad"]["x"].get("layout").is_none());
+        assert!(
+            draft
+                .document
+                .to_string()
+                .contains("sort=7 # preserve rank")
+        );
+        assert_eq!(
+            draft
+                .states("x", Layout::Crew)
+                .unwrap()
+                .color(Some("working")),
+            Some("blue")
+        );
+        assert!(
+            config
+                .preview_setting(None, "notes.render", "plain")
+                .is_err()
+        );
+        assert!(
+            config
+                .preview_setting(Some("x"), "states.working.sort", "1")
+                .is_err()
+        );
+        let hidden = config
+            .preview_setting(Some("x"), "board.hidden_columns", "[\"pr_link\"]")
+            .unwrap();
+        assert_eq!(
+            hidden.rows("x").unwrap().columns,
+            config.rows("x").unwrap().columns
+        );
+        assert!(hidden.document.to_string().contains("pr_link={width=12}"));
+        let tabs = config
+            .preview_setting(Some("x"), "tabs.hide", "[\"leads\"]")
+            .unwrap();
+        assert_eq!(tabs.tabs().unwrap().hide, [crate::tabs::LEADS]);
+        assert!(tabs.document.get("tabs").is_some());
+        assert!(tabs.document["squad"]["x"].get("tabs").is_none());
+        fs::write(&path, "[squad.x.board]\nlayout={direction='left-right',sizes=[60,40],panes=['rows',{direction='top-bottom',sizes=[50,50],panes=['notes','detail']}]}\n").unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        let before = config.document.to_string();
+        assert!(!config.can_edit_setting("board.panes", Some("x")));
+        assert!(
+            config
+                .preview_setting(Some("x"), "board.panes", "[\"rows\"]")
+                .err()
+                .unwrap()
+                .message
+                .contains("Nested")
+        );
+        assert_eq!(
+            config
+                .preview_setting(Some("x"), "notes.render", "plain")
+                .unwrap()
+                .board("x")
+                .unwrap(),
+            config.board("x").unwrap()
+        );
+        assert_eq!(config.document.to_string(), before);
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn setting_drafts_preserve_grids_and_refuse_invalid_or_changed_files() {
+        let path = temp("setting-edits");
+        let original = "# kept\nopaque='keep me'\n[squad.x.rows]\ncolumns=[{name='member'},{name='state'},{name='task'},{name='pr_link'}]\nlines=[['member','state',{field='task',span=2}],[{field='member',span=4}]]\n[squad.x.board]\nrefresh='5s' # retain\n";
+        fs::write(&path, original).unwrap();
+        let mut config = Config::read(path.clone()).unwrap();
+        let opening = config.rows("x").unwrap();
+        let draft = config
+            .preview_setting(Some("x"), "board.hidden_columns", "[\"pr_link\"]")
+            .unwrap();
+        assert_eq!(draft.rows("x").unwrap().lines, opening.lines);
+        assert_eq!(draft.rows("x").unwrap().columns, opening.columns);
+        assert_eq!(draft.rows("x").unwrap().hidden_columns, ["pr_link"]);
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        for value in [
+            "[\"unknown\"]",
+            "[\"state\",\"state\"]",
+            "[\"member\",\"state\",\"task\",\"pr_link\"]",
+        ] {
+            let error = config
+                .set_setting(Some("x"), "board.hidden_columns", value)
+                .unwrap_err();
+            assert!(error.message.contains("squad.x.board.hidden_columns"));
+            assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        }
+        assert!(
+            config
+                .set_setting(Some("x"), "bind.o", "run touch /never")
+                .is_err()
+        );
+        assert!(
+            config
+                .set_setting(Some("x"), "board.refresh", "0s")
+                .is_err()
+        );
+        config
+            .set_setting(Some("x"), "board.refresh", "10s")
+            .unwrap();
+        let saved = fs::read_to_string(&path).unwrap();
+        assert!(
+            saved.contains("# kept")
+                && saved.contains("# retain")
+                && saved.contains("opaque='keep me'")
+        );
+        config
+            .set_setting(Some("x"), "board.hidden_columns", "[\"pr_link\"]")
+            .unwrap();
+        config
+            .set_setting(Some("x"), "board.hidden_columns", "[]")
+            .unwrap();
+        assert_eq!(config.rows("x").unwrap(), opening);
+        fs::write(&path, "# external editor\n").unwrap();
+        assert_eq!(
+            config
+                .set_setting(Some("x"), "notes.render", "plain")
+                .unwrap_err()
+                .code,
+            "SQUAD_CONFIG_CHANGED"
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "# external editor\n");
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
@@ -2954,6 +3157,7 @@ sort = ["state", "-name"]
         );
         assert_eq!(rows.lines[1][2].field.as_deref(), Some("pending"));
         assert_eq!(rows.lines[1][2].span, 3);
+        assert_eq!(rows.lines[1][2].token, Some(tmt_cli_style::Role::Waiting));
         assert_eq!(config.providers("x").unwrap()[0].name, "pr");
         assert_eq!(
             config.providers("x").unwrap()[0].every(),

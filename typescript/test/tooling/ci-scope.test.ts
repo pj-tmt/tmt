@@ -1703,14 +1703,29 @@ describe('required CI gate', () => {
     }
   });
 
-  it('builds the selected release CLI without replacing debug Rust verification', () => {
+  it('builds and transfers the driver-owned companion without replacing debug Rust verification', () => {
     const workflow = readFileSync(
       fileURLToPath(new URL('../../../.github/workflows/ci.yml', import.meta.url)),
       'utf8'
     );
     const start = workflow.indexOf('\n  native-clippy:\n');
     const native = workflow.slice(start, workflow.indexOf('\n  unit-tests:\n', start));
-    expect(native).toContain('cargo build --locked --release -p tmt-cli');
+    expect(
+      native.match(/cargo build --locked --release -p tmt-cli -p tmt-driver-herdr --bins/g)
+    ).toHaveLength(2);
+    const runtime = workflow
+      .split('\n  native-runtime-build:\n')[1]
+      .split('\n  native-runtime-build-macos:\n')[0];
+    expect(runtime).toContain(
+      "cargo build --locked --release --target '${{ matrix.target }}' -p tmt-cli -p tmt-driver-herdr --bins"
+    );
+    expect(runtime).toContain('rust/target/${{ matrix.target }}/release/tmt-driver-herdr');
+    const tooling = workflow.split('\n  unit-tests:\n')[1].split('\n  docker-e2e-shard-1:\n')[0];
+    expect(tooling).toContain('name: runtime-x86_64-unknown-linux-musl');
+    expect(tooling).toContain('path: rust/target/debug');
+    expect(tooling).toContain(
+      'chmod +x ../rust/target/debug/tmt ../rust/target/debug/tmt-driver-herdr'
+    );
     expect(native).toContain('rust/target/release/tmt');
     expect(native).toContain('cargo test --locked');
     expect(native).toContain('cargo clippy --locked --workspace --all-targets -- -D warnings');

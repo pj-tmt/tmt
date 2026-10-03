@@ -1,4 +1,8 @@
-import type { Projection } from './fold-protocol.js';
+import type { OwnState, Projection } from './fold-protocol.js';
+export interface PageView extends Projection {
+  readonly ownData?: boolean;
+  readonly own?: OwnState;
+}
 export interface PageSummary {
   readonly id: string;
   readonly title: string;
@@ -7,9 +11,11 @@ export interface PageSummary {
 export interface PageSnapshot extends PageSummary {
   readonly source: string;
   readonly binding?: PageBinding;
+  readonly ownData?: boolean;
+  readonly own?: OwnState;
 }
 export interface PageBinding {
-  subscribe(publish: (value: Projection) => void, failed: (error: Error) => void): () => void;
+  subscribe(publish: (value: PageView) => void, failed: (error: Error) => void): () => void;
   edit(source: string, base: string): Promise<void>;
   close(): void;
 }

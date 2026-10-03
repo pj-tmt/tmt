@@ -234,8 +234,12 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         } => {
             return setup_command::execute(provider, remove, usage, yes, parsed.mode);
         }
-        Invocation::ProviderHook { provider, worker } => {
-            return provider_hook_command::execute(&provider, worker);
+        Invocation::ProviderHook {
+            provider,
+            worker,
+            work_budget_ms,
+        } => {
+            return provider_hook_command::execute(&provider, worker, work_budget_ms);
         }
         Invocation::ReplyNoticeWorker { batch_id, log_id } => {
             return reply_notice_command::execute(&batch_id, &log_id);

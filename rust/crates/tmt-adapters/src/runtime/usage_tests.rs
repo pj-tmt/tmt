@@ -303,3 +303,37 @@ fn only_a_turn_end_is_decoded_as_one() {
         }
     }
 }
+
+#[test]
+fn claude_custom_config_root_admits_only_its_own_transcripts() {
+    let home = TestDirectory::new();
+    let custom = home.path.join("custom-claude");
+    let environment = ProviderEnvironment::from_parts(
+        &home.path,
+        &home.path,
+        Vec::new(),
+        [("CLAUDE_CONFIG_DIR", custom.clone())],
+    );
+    for (root, accepted) in [(custom, true), (home.path.join(".claude"), false)] {
+        let transcript = root.join("projects/workspace/session.jsonl");
+        fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+        fs::write(&transcript, CLAUDE_LINE).unwrap();
+        let turn = claude::ClaudeLifecycle
+            .decode_turn(&stop(Some(&transcript)))
+            .unwrap();
+        let state = claude::ClaudeLifecycle.turn_state(
+            &turn,
+            &environment,
+            None,
+            NOW,
+            std::time::Instant::now() + std::time::Duration::from_secs(2),
+        );
+        assert_eq!(state.is_some(), accepted);
+        if let Some(state) = state {
+            assert_eq!(
+                claude::ClaudeLifecycle.state_usage(&state),
+                Some(drivers()[0].expected)
+            );
+        }
+    }
+}

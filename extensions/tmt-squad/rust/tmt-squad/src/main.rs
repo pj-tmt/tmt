@@ -14,6 +14,7 @@ mod effects;
 mod filter;
 mod hook_protocol;
 mod hotkeys;
+mod links;
 mod look;
 mod markup;
 mod me;
@@ -790,7 +791,7 @@ fn run(
     }
     let mut config = Config::load(&core)?;
     if command == "config" {
-        return settings::run(&config, matches).map(Outcome::from);
+        return settings::run(&mut config, matches).map(Outcome::from);
     }
     if command == "view" {
         return view::run(&mut config, matches).map(Outcome::from);
@@ -977,6 +978,9 @@ fn ls_document(
         let rows = rows.value();
         document["columns"] = rows["columns"].clone();
         document["lines"] = rows["lines"].clone();
+        if let Some(hidden) = rows.get("hidden_columns") {
+            document["hidden_columns"] = hidden.clone();
+        }
         documents.push(document);
     }
     let mut document = match (explicit, <[Value; 1]>::try_from(documents)) {

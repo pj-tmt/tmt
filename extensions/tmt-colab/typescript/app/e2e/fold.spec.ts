@@ -198,3 +198,85 @@ test('baseline vectors reset exact struct identities and reject digest, title an
   }, vectors);
   expect(result).toBe(vectors.length * 3);
 });
+
+test('shared raw checkpoint vectors preserve dependencies and delete sets without cross-writer reattribution', async ({
+  page,
+}) => {
+  const { readFileSync } = await import('node:fs');
+  const v = JSON.parse(
+    readFileSync(new URL('../../../contracts/vectors/checkpoint-v1.json', import.meta.url), 'utf8'),
+  );
+  await page.goto('/');
+  const result = await page.evaluate(async (v) => {
+    const path = '/src/fold.ts',
+      { Fold } = await import(path);
+    const bytes = (s: string) =>
+      Uint8Array.from(atob(s.replaceAll('-', '+').replaceAll('_', '/')), (c) => c.charCodeAt(0));
+    const compacted = new Fold(),
+      original = new Fold();
+    try {
+      const prefix = await compacted.run({ type: 'apply', updates: [bytes(v.checkpoint)] });
+      if (prefix.source !== v.sourceAtPrefix) throw new Error('Wrong checkpoint prefix');
+      const a = await compacted.run({ type: 'apply', updates: [bytes(v.tail)] });
+      const b = await original.run({
+        type: 'apply',
+        updates: [...v.contentUpdates.map(bytes), bytes(v.tail)],
+      });
+      if (a.source !== b.source || a.source !== v.sourceAfterTail || a.title !== v.title)
+        throw new Error('Compaction lost dependency/delete-set state');
+      for (const raw of [v.tail, ...v.negativeBodies.map((n: { bytes: string }) => n.bytes)]) {
+        const reject = new Fold();
+        try {
+          await reject.run({ type: 'apply', updates: [bytes(raw)] }).then(
+            () => {
+              throw new Error('Accepted unresolved or malformed checkpoint');
+            },
+            () => {},
+          );
+        } finally {
+          reject.close();
+        }
+      }
+      return a.source;
+    } finally {
+      compacted.close();
+      original.close();
+    }
+  }, v);
+  expect(result).toBe(v.sourceAfterTail);
+});
+
+test('checkpoint steps retain pending dependencies until the final bounded tail resolves them', async ({
+  page,
+}) => {
+  const { readFileSync } = await import('node:fs');
+  const v = JSON.parse(
+    readFileSync(new URL('../../../contracts/vectors/checkpoint-v1.json', import.meta.url), 'utf8'),
+  );
+  await page.goto('/');
+  const source = await page.evaluate(async (v) => {
+    const path = '/src/fold.ts',
+      { Fold } = await import(path);
+    const bytes = (s: string) =>
+      Uint8Array.from(atob(s.replaceAll('-', '+').replaceAll('_', '/')), (c) => c.charCodeAt(0));
+    const complete = new Fold(),
+      unresolved = new Fold();
+    try {
+      await complete.run({ type: 'checkpoint', update: bytes(v.tail) });
+      await complete.run({ type: 'checkpoint', update: bytes(v.checkpoint) });
+      const result = await complete.run({ type: 'apply', updates: [] });
+      await unresolved.run({ type: 'checkpoint', update: bytes(v.tail) });
+      await unresolved.run({ type: 'apply', updates: [] }).then(
+        () => {
+          throw new Error('Published unresolved checkpoint dependencies');
+        },
+        () => {},
+      );
+      return result.source;
+    } finally {
+      complete.close();
+      unresolved.close();
+    }
+  }, v);
+  expect(source).toBe(v.sourceAfterTail);
+});

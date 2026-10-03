@@ -195,6 +195,7 @@ export async function verifyNativeRuntime({
   subject,
   product = 'cli',
   herdrDriver,
+  herdrVersion,
   matchingHostMessage = `${subject} requires a matching native host`,
 }) {
   assert(fs.statSync(executable).isFile(), `${subject} must be a regular file`);
@@ -214,7 +215,31 @@ export async function verifyNativeRuntime({
     verifyLinkage(executable, cwd, env, subject);
 
     const run = (args) => runPackedCommand(executable, args, { cwd, env });
-    assert(['cli', 'office', 'squad'].includes(product), 'Unknown native runtime product');
+    assert(
+      ['cli', 'office', 'squad', 'driver-herdr'].includes(product),
+      'Unknown native runtime product'
+    );
+    const proveHerdr = (driver, expectedVersion) => {
+      assert.equal(
+        typeof expectedVersion,
+        'string',
+        'Herdr proof requires its independent version'
+      );
+      const answer = JSON.parse(
+        runPackedCommand(driver, ['__tmt-driver', '1', 'capabilities'], { cwd, env })
+      );
+      assert.equal(answer.ok?.name, 'herdr', `${subject} Herdr driver name mismatch`);
+      assert.equal(answer.ok?.kind, 'host', `${subject} Herdr driver kind mismatch`);
+      assert.equal(answer.ok?.version, expectedVersion, `${subject} Herdr driver version mismatch`);
+      assert(answer.ok?.protocols?.includes(1), `${subject} Herdr driver protocol mismatch`);
+    };
+    if (product === 'driver-herdr') {
+      proveHerdr(executable, version);
+      assert(!fs.existsSync(xdg), 'Driver probe must not initialize config state');
+      assert.deepEqual(fs.readdirSync(home), [], 'Driver probe must not create home state');
+      assert.deepEqual(fs.readdirSync(cwd), [], 'Driver probe must not create workspace state');
+      return;
+    }
     if (product === 'squad') {
       assert.equal(typeof squadSkill, 'string', 'Squad runtime proof requires its skill');
       assert.equal(run(['--version']), `squad ${version}\n`, `${subject} version mismatch`);
@@ -268,14 +293,9 @@ export async function verifyNativeRuntime({
       return;
     }
     if (herdrDriver !== undefined) {
-      // The first-party Herdr driver ships beside tmt (Product::companions):
-      // self-contained, and the same release as the CLI it ships with.
+      // The companion remains independently versioned while #1084 keeps it in CLI archives.
       verifyLinkage(herdrDriver, cwd, env, `${subject} Herdr driver`);
-      const answer = JSON.parse(
-        runPackedCommand(herdrDriver, ['__tmt-driver', '1', 'capabilities'], { cwd, env })
-      );
-      assert.equal(answer.ok?.name, 'herdr', `${subject} Herdr driver name mismatch`);
-      assert.equal(answer.ok?.version, version, `${subject} Herdr driver version mismatch`);
+      proveHerdr(herdrDriver, herdrVersion);
     }
     assert.equal(typeof skill, 'string', 'CLI runtime proof requires the canonical skill');
     assert.equal(typeof inboxSkill, 'string', 'CLI runtime proof requires the inbox skill');

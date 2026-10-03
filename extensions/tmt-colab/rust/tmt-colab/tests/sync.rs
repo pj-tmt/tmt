@@ -1204,6 +1204,119 @@ fn chunked_baseline_stays_consecutive_across_the_eight_frame_window() {
 }
 
 #[test]
+fn baseline_first_defers_large_statements_for_fresh_and_resumed_clients() {
+    for size in [20, 270 * 1024] {
+        let f = Fixture::new();
+        let (descriptor, baseline_bytes) = baseline(&f, size);
+        f.server
+            .update_admission(|p| p.baseline = Some(descriptor.clone()))
+            .unwrap();
+        let mut store = Store::open(&Layout::open(&f.root).unwrap()).unwrap();
+        let owner = f.alice.verifying_key();
+        let anchor = store
+            .owner_head(&f.space, owner.as_bytes())
+            .unwrap()
+            .unwrap();
+        let next = tmt_colab_model::statement::sign(
+            &f.space, Some(&anchor), "epoch.advance",
+            &serde_json::to_vec(&json!({"pageId":BOB,"epoch":"2","cuts":[],"wraps":[],"baseline":{
+                "pageId":BOB,"epoch":"2","membershipRevision":"2","title":"x".repeat(250*1024),
+                "sourceDigest":values::encode_binary(&[1;32]),"baselineCommitment":values::encode_binary(&[2;32]),
+                "objectEnvelopeHash":values::encode_binary(&[3;32])}})).unwrap(),
+            &f.alice,
+        ).unwrap();
+        let bytes = next.to_json().unwrap();
+        let hash = values::encode_binary(&next.hash().unwrap());
+        let count = bytes.len().div_ceil(tmt_colab::limits::CHUNK_BYTES);
+        assert!(count > tmt_colab::limits::SEND_QUEUE_FRAMES);
+        store
+            .owner_transaction(
+                &f.space,
+                owner.as_bytes(),
+                tmt_colab::store::owner::Mutation {
+                    operation_id: BOB,
+                    digest: [18; 32],
+                    expected_revision: 1,
+                },
+                |tx| {
+                    tx.append_statement(&next)?;
+                    Ok(Vec::new())
+                },
+            )
+            .unwrap();
+        for revision in ["0", "1"] {
+            let mut peer = f.peer(BOB);
+            send(
+                &mut peer,
+                f.frame(
+                    "hello",
+                    json!({"membershipRevision":revision,"device":BOB,"cursors":[]}),
+                ),
+            );
+            let first = receive(&mut peer);
+            assert!(first.to_string().len() <= tmt_colab::limits::WS_FRAME_BYTES);
+            assert_eq!(first["membershipHead"]["revision"], "2");
+            assert_eq!(first["membershipHead"]["statementHash"], hash);
+            let initial = first["membershipHead"]["statements"].as_array().unwrap();
+            assert_eq!(initial.len(), usize::from(revision == "0"));
+            assert!(initial.iter().all(Value::is_string));
+            assert_eq!(first["membershipHead"]["more"], true);
+            assert_eq!(first["baseline"], values::encode_binary(&descriptor));
+            ack(&mut peer, &first);
+            if size > tmt_colab::limits::CHUNK_BYTES {
+                assert!(first["baselineObject"]["envelope"]["objectId"].is_string());
+                // No statement reference may appear before all baseline chunks.
+                assemble(&mut peer, &baseline_bytes, true);
+            } else {
+                assert_eq!(
+                    first["baselineObject"]["envelope"],
+                    values::encode_binary(&baseline_bytes)
+                );
+            }
+            let page = receive(&mut peer);
+            assert_eq!(page["type"], "catchup");
+            assert!(page.get("baselineObject").is_none());
+            assert!(page.get("baseline").is_none());
+            assert_eq!(
+                page["membership"]["statements"],
+                json!([{"statementHash":hash}])
+            );
+            assert_eq!(page["membership"]["more"], false);
+            assert_eq!(page["streams"], json!([]));
+            ack(&mut peer, &page);
+            let mut joined = Vec::new();
+            for index in 0..count {
+                let chunk = receive(&mut peer);
+                assert_eq!(chunk.as_object().unwrap().len(), 9);
+                assert_eq!(chunk["type"], "chunk");
+                assert_eq!(chunk["space"], f.space);
+                assert_eq!(chunk["page"], PAGE);
+                assert_eq!(chunk["epoch"], "1");
+                assert_eq!(chunk["statementHash"], hash);
+                assert_eq!(chunk["index"], index);
+                assert_eq!(chunk["count"], count);
+                joined.extend(
+                    values::binary(
+                        chunk["bytes"].as_str().unwrap(),
+                        tmt_colab::limits::CHUNK_BYTES,
+                    )
+                    .unwrap(),
+                );
+                ack(&mut peer, &chunk);
+            }
+            assert_eq!(joined, bytes);
+            let completed = tmt_colab_model::statement::Envelope::from_json(&joined).unwrap();
+            let verified = completed
+                .verify_next(&f.space, owner.as_bytes(), Some(&anchor))
+                .unwrap();
+            assert_eq!(values::encode_binary(&verified.head.hash), hash);
+            assert_eq!(verified.head.revision, 2);
+            assert_eq!(receive(&mut peer)["more"], false);
+        }
+    }
+}
+
+#[test]
 fn baseline_missing_mismatched_and_oversized_storage_never_discloses_an_object() {
     for mutation in [
         "missing",

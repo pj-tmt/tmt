@@ -1,6 +1,10 @@
 //! L2 product bounds, distinct from the disposable #830 fixture budgets.
 use std::time::Duration;
 
+/// Immutable app inventory, below remote's per-reply 16 MiB cap.
+pub const APP_BYTES: usize = 16 * 1024 * 1024;
+pub const APP_FILES: usize = 128;
+
 pub const SOCKETS: usize = 16;
 /// Live colab-sync-v1 tunnels, matching the remote door's colab mount cap.
 pub const TUNNELS: usize = 16;
@@ -25,5 +29,7 @@ pub const CHUNK_BYTES: usize = 32 * 1024;
 pub const CHUNK_COUNT: usize = OBJECT_BYTES.div_ceil(CHUNK_BYTES);
 /// Serialized update envelope reserve including base64 expansion and JSON syntax.
 pub const UPDATE_BYTES: usize = (256 * 1024 + 2048) * 4 / 3 + 2048;
+/// Exact signed statement JSON cap, including base64 expansion and framing.
+pub const STATEMENT_BYTES: usize = (tmt_colab_model::payload::MAX_BYTES + 1024) * 4 / 3 + 2048;
 /// Bootstrap descriptor is metadata, not the baseline object itself.
 pub const SYNC_CONTEXT_BYTES: usize = 8 * 1024;

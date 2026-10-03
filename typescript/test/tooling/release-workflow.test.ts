@@ -85,10 +85,12 @@ describe('per-product release run (native-release.yml)', () => {
         0o700
       );
       const search = `${directory}${path.delimiter}${process.env.PATH ?? ''}`;
-      for (const prepare of ['true', 'false']) {
+      for (const [product, prepare] of ['office', 'driver-herdr'].flatMap((product) =>
+        ['true', 'false'].map((prepare) => [product, prepare])
+      )) {
         const result = spawnSync('/bin/sh', ['-eu', '-c', shell], {
           cwd: repository,
-          env: { PATH: search, PRODUCT: 'office', PREPARE: prepare },
+          env: { PATH: search, PRODUCT: product, PREPARE: prepare },
           encoding: 'utf8',
           timeout: 10_000,
         });
@@ -96,7 +98,7 @@ describe('per-product release run (native-release.yml)', () => {
         expect(result.status).toBe(1);
         expect(result.stdout).toBe('');
         expect(result.stderr.trim()).toBe(
-          'office is not released (release: false in .github/components.json).'
+          `${product} is not released (release: false in .github/components.json).`
         );
       }
       for (const product of ['cli', 'squad']) {
@@ -396,8 +398,8 @@ describe('release workflow (release.yml)', () => {
       expect(components[parked].release).toBe(false);
       expect(products).not.toContain(parked);
     }
-    const matrix = /product:\n((?: {10}- [a-z]+\n)+)/.exec(job(release, 'dispatch'))?.[1] ?? '';
-    expect(matrix.match(/[a-z]+(?=\n)/g)?.sort()).toEqual(products);
+    const matrix = /product:\n((?: {10}- [a-z-]+\n)+)/.exec(job(release, 'dispatch'))?.[1] ?? '';
+    expect(matrix.match(/[a-z-]+(?=\n)/g)?.sort()).toEqual(products);
     const config = JSON.parse(read('release-please-config.json')) as {
       packages: Record<string, unknown>;
     };
@@ -511,6 +513,7 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
         'release-versions.mjs',
         'verify-native-installation.mjs',
         'verify-native-extension-upgrade.mjs',
+        'verify-native-driver-upgrade.mjs',
       ].sort()
     );
     // Whether the release's commit has the scripts is decided in fetch, without a checkout, and
@@ -528,6 +531,35 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
     // The macOS toolchain lookup is warmed before the archives run.
     expect(prove.indexOf('warm-xcrun')).toBeGreaterThan(0);
     expect(prove.indexOf('warm-xcrun')).toBeLessThan(prove.indexOf('release-upgrade.mjs prove'));
+  });
+
+  it('requires CLI adapter acceptance after the existing proof on every host, with bounded compilation and read-only caching', () => {
+    const prove = job(upgrade, 'prove');
+    expect(prove).toContain('timeout-minutes: 10');
+    expect(prove).toMatch(
+      /name: Install Rust for CLI adapter acceptance\n {8}if: inputs.product == 'cli'/
+    );
+    expect(prove).toMatch(
+      /name: Restore Rust dependencies for CLI adapter acceptance\n {8}if: inputs.product == 'cli'/
+    );
+    expect(prove).toContain('shared-key: native-rust');
+    expect(prove).toContain('save-if: false');
+    expect(prove).toMatch(
+      /name: Prove the real-archive CLI upgrade adapter\n {8}if: inputs.product == 'cli'/
+    );
+    expect(prove.indexOf('release-upgrade.mjs acceptance')).toBeGreaterThan(
+      prove.indexOf('release-upgrade.mjs prove')
+    );
+    expect(prove).toContain('2>&1 | tee -a "$RUNNER_TEMP/upgrade-proof.log"');
+    expect(prove).not.toContain('continue-on-error:');
+    expect(prove).toContain('CARGO_TARGET_DIR: ${{ github.workspace }}/rust/target');
+    const acceptance = prove.slice(
+      prove.indexOf('- name: Prove the real-archive CLI upgrade adapter'),
+      prove.indexOf('- name: Keep the log')
+    );
+    expect(acceptance).toContain('if [ "$CURRENT_TOOLING" = true ]; then');
+    expect(acceptance).toContain('source_args=(--source-root "$GITHUB_WORKSPACE/release-source")');
+    expect(acceptance).toContain('--directory "$RUNNER_TEMP/upgrade" "${source_args[@]}"');
   });
 });
 
@@ -650,6 +682,7 @@ describe('publication (native-release-bundle.yml)', () => {
 describe('public install smoke (native-release-smoke.yml)', () => {
   const smoke = job(smokeWorkflow, 'smoke');
   const report = job(smokeWorkflow, 'report');
+  const host = read('.github/actions/public-install-smoke/action.yml');
   const upgrade = read('.github/workflows/native-release-upgrade.yml');
   const targets = (workflow: string) =>
     [...workflow.matchAll(/- target: (\S+)\n\s+runner: (\S+)/g)].map(([, target, runner]) => [
@@ -662,7 +695,9 @@ describe('public install smoke (native-release-smoke.yml)', () => {
     expect(caller).toContain('needs: published');
     expect(caller).toContain("if: ${{ !cancelled() && needs.published.result == 'success' }}");
     expect(caller).toContain('uses: ./.github/workflows/native-release-smoke.yml');
-    expect(caller).toMatch(/^ {4}permissions:\n {6}contents: read\n {6}issues: write\n/m);
+    expect(caller).toMatch(
+      /^ {4}permissions:\n {6}contents: read\n {6}issues: write\n {6}actions: write\n/m
+    );
     expect(smokeWorkflow).toMatch(
       /^on:\n {2}workflow_call:\n {4}inputs:\n(?: {4,}[^\n]*\n)+ {2}workflow_dispatch:\n {4}inputs:\n/m
     );
@@ -684,25 +719,46 @@ describe('public install smoke (native-release-smoke.yml)', () => {
     expect(smoke).toMatch(/^ {4}permissions:\n {6}contents: read\n/m);
     expect(smoke).not.toMatch(/issues: write|contents: write|GH_TOKEN|GITHUB_TOKEN|secrets\./);
     expect(smokeWorkflow).not.toMatch(
-      /gh release (create|edit|upload|delete)|draft=false|--method|gh workflow run|actions: write/
+      /gh release (create|edit|upload|delete)|draft=false|--method|gh workflow run/
     );
+    expect(smoke).not.toContain('actions: write');
+    expect(report).not.toContain('actions: write');
+    expect(smokeWorkflow.match(/^ {6}actions: write$/gm)).toHaveLength(1);
+    expect(job(smokeWorkflow, 'retry-dispatch')).toContain('actions: write');
     // The tag is checked out as data beside this repository's own code, and nothing of it runs.
-    expect(smoke.match(/uses: actions\/checkout@v4/g)).toHaveLength(2);
-    expect(smoke).toContain('ref: ${{ inputs.tag }}\n          path: release-source');
-    expect(smoke.match(/persist-credentials: false/g)).toHaveLength(2);
-    expect(smoke).toContain('node typescript/scripts/verify-public-install.mjs');
-    expect(smoke).toContain('--source release-source');
-    expect(smoke).not.toMatch(/release-source\/(typescript|scripts)/);
+    expect(smoke.match(/uses: actions\/checkout@v4/g)).toHaveLength(1);
+    expect(smoke).toContain('uses: ./.github/actions/public-install-smoke');
+    expect(smoke).toContain('tag: ${{ inputs.tag }}');
+    expect(smoke).toContain('target: ${{ matrix.target }}');
+    expect(smoke.match(/persist-credentials: false/g)).toHaveLength(1);
+    expect(host.match(/uses: actions\/checkout@v4/g)).toHaveLength(1);
+    expect(host).toContain('ref: ${{ inputs.tag }}\n        path: release-source');
+    expect(host.match(/persist-credentials: false/g)).toHaveLength(1);
+    expect(host).toContain('node typescript/scripts/verify-public-install.mjs');
+    expect(host).toContain('--source release-source');
+    expect(host).not.toMatch(
+      /GH_TOKEN|GITHUB_TOKEN|continue-on-error|release-source\/(typescript|scripts)/
+    );
   });
 
-  it('keeps what failed as data and reports it with the only write access, in a job of its own', () => {
+  it('loads Herdr archive dependencies in the shared source/retry host owner', () => {
+    expect(host).toContain("if: inputs.product == 'driver-herdr'");
+    expect(host).toContain('uses: ./.github/actions/setup-tooling');
+    expect(host).toContain('pnpm install --frozen-lockfile --ignore-scripts');
+    expect(smoke).not.toContain('pnpm install');
+    expect(read('.github/workflows/native-release-smoke-retry.yml')).toContain(
+      'uses: ./.github/actions/public-install-smoke'
+    );
+  });
+
+  it('keeps what failed as data and reports it with the only issue write access, in a job of its own', () => {
     expect(smoke).toMatch(
-      /if: always\(\)\n {8}uses: actions\/upload-artifact@v4\n {8}with:\n {10}name: smoke-failures-\$\{\{ matrix\.target \}\}/
+      /if: always\(\)\n {8}uses: actions\/upload-artifact@v4\n {8}with:\n {10}name: smoke-failures-\$\{\{ inputs\.product \}\}-\$\{\{ inputs\.tag \}\}-\$\{\{ matrix\.target \}\}/
     );
     expect(report).toContain('needs: smoke');
     expect(report).toContain("if: ${{ !cancelled() && needs.smoke.result == 'failure' }}");
     expect(report).toMatch(/^ {4}permissions:\n {6}contents: read\n {6}issues: write\n/m);
-    expect(report).toContain('pattern: smoke-failures-*');
+    expect(report).toContain('pattern: smoke-failures-${{ inputs.product }}-${{ inputs.tag }}-*');
     expect(report).toContain('--expected-results 4');
     expect(smoke).toContain('timeout-minutes: 25');
     expect(report).toContain(
@@ -804,6 +860,11 @@ describe('post-publication Project reconciliation', () => {
       [...jobs(bundle)]
         .filter(([, text]) => /^ {6}actions: write$/m.test(text))
         .map(([name]) => name)
-    ).toEqual(['project-release']);
+    ).toEqual(['smoke', 'project-release']);
+    // The reusable caller propagates capability; only its dedicated retry-dispatch job uses it.
+    expect(job(bundle, 'smoke')).toContain('uses: ./.github/workflows/native-release-smoke.yml');
+    expect(job(smokeWorkflow, 'smoke')).not.toContain('actions: write');
+    expect(job(smokeWorkflow, 'report')).not.toContain('actions: write');
+    expect(job(smokeWorkflow, 'retry-dispatch')).toContain('actions: write');
   });
 });

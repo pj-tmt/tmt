@@ -193,7 +193,7 @@ fn applicable(
     Ok(true)
 }
 
-fn capability(store: &Store, record: &Record) -> Result<String, ChannelFault> {
+pub(super) fn capability(store: &Store, record: &Record) -> Result<String, ChannelFault> {
     let read = || -> std::io::Result<String> {
         let directory = store.generation_directory(record)?;
         let metadata = std::fs::symlink_metadata(&directory)?;

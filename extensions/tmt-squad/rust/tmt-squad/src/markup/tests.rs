@@ -78,6 +78,7 @@ fn css_clamp_caps_win_over_weight_and_uncovered_values_reserve_no_width() {
         rows.lines.push(vec![crate::rows::Cell {
             field: Some("b".into()),
             span: 2,
+            token: None,
         }]);
         let grid = Grid::compile(&rows, |_| 0, 40).unwrap();
         assert_eq!(grid.columns, [Some(14), Some(25), None]);
@@ -166,4 +167,35 @@ fn logical_text_budget_wraps_before_cut_and_preserves_grapheme_alignment() {
         ),
         [" e\u{301}👩‍💻界"]
     );
+}
+
+#[test]
+fn declarative_tokens_reach_admitted_cells_without_changing_values_or_geometry() {
+    let mut rows = configured("{name='task',width=12,overflow='wrap',max_lines=2}");
+    let row = json!({"id":"member-a","fields":{"task":"alpha beta gamma"}});
+    let plain = row_values(&rows, "product", vec![(0, &row)]).unwrap();
+    let grid = Grid::compile(&rows, |_| 16, 12).unwrap();
+    rows.lines[0][0].token = Some(tmt_cli_style::Role::Waiting);
+    let styled = row_values(&rows, "product", vec![(0, &row)]).unwrap();
+    let plain = &plain[0].children[0].children[0];
+    let styled = &styled[0].children[0].children[0];
+    assert_eq!(styled.style.token, Some(tmt_cli_style::Role::Waiting));
+    assert_eq!(plain.style.token, None);
+    assert_eq!(
+        (&styled.id, &styled.row_id, &styled.text),
+        (&plain.id, &plain.row_id, &plain.text)
+    );
+    assert_eq!(styled.style.text_flow, plain.style.text_flow);
+    assert_eq!(
+        Grid::compile(&rows, |_| 16, 12).unwrap().columns,
+        grid.columns
+    );
+    let mut anonymous = row.clone();
+    anonymous.as_object_mut().unwrap().remove("id");
+    let node = row_values(&rows, "product", vec![(0, &anonymous)]).unwrap();
+    assert_eq!(
+        node[0].children[0].children[0].style.token,
+        styled.style.token
+    );
+    assert!(node[0].children[0].children[0].id.is_none());
 }

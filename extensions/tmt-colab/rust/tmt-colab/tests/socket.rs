@@ -1,6 +1,7 @@
 //! Colab's owner-only socket on real Unix sockets: framing bounds, the device
 //! context from the remote door, the colab-sync-v1 handshake, tunnel bounds,
 //! capacity and shutdown.
+mod support;
 use std::{
     fs,
     io::{Read, Write},
@@ -75,6 +76,9 @@ struct Running {
 }
 impl Running {
     fn start(tunnels: Tunnels) -> Self {
+        Self::start_with_app(tunnels, None)
+    }
+    fn start_with_app(tunnels: Tunnels, app: Option<tmt_colab::assets::App>) -> Self {
         // Short absolute root: Unix socket paths are limited to about 100 bytes.
         let root = PathBuf::from(format!(
             "/tmp/tmt-1039-colab-{}-{}",
@@ -87,8 +91,12 @@ impl Running {
         let space = key.space_id.clone();
         let store = Store::open(&layout).unwrap();
         store.create_page(PAGE).unwrap();
-        let mut registration =
-            Registration::new(store, key, env!("CARGO_BIN_EXE_tmt-colab").into()).unwrap();
+        let mut registration = Registration::with_decoder_config(
+            store,
+            key,
+            support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+        )
+        .unwrap();
         for id in [DEVICE, OTHER] {
             registration
                 .register(Some(&context(id)), &registration_body(id), now())
@@ -97,7 +105,8 @@ impl Running {
         let socket = MountSocket::bind(&layout, &space, tunnels)
             .unwrap()
             .with_registration(&layout, Arc::new(Mutex::new(registration)))
-            .unwrap();
+            .unwrap()
+            .with_app(app);
         let path = socket.path.clone();
         assert_eq!(
             fs::metadata(&path).unwrap().permissions().mode() & 0o777,
@@ -122,7 +131,11 @@ impl Running {
         socket
     }
     fn request(&self, request: &str) -> String {
+        self.request_with_timeout(request, Duration::from_secs(3))
+    }
+    fn request_with_timeout(&self, request: &str, timeout: Duration) -> String {
         let mut socket = self.connect();
+        socket.set_read_timeout(Some(timeout)).unwrap();
         socket.write_all(request.as_bytes()).unwrap();
         let mut response = String::new();
         socket.read_to_string(&mut response).unwrap();
@@ -173,7 +186,11 @@ fn pages_follow_the_forwarded_owner_context_within_the_door_bounds() {
     assert!(private.contains("Content-Security-Policy: default-src 'none'"));
     let owner_header = owner(DEVICE);
     let owned = server.request(&Running::get("/", &format!("{owner_header}\r\n")));
-    assert!(owned.contains(&format!("Colab space {} is running. You are signed in as &lt;b&gt;Laptop&lt;/b&gt;. Co-editing arrives with the next colab slice.", server.space)));
+    assert!(owned.contains(&format!(
+        "Colab space {} is running. You are signed in as &lt;b&gt;Laptop&lt;/b&gt;. {}.",
+        server.space,
+        tmt_colab::assets::BUILD_HINT
+    )));
     for context in [
         "tmt-device-context: {}\r\n",
         "tmt-device-context: not json\r\n",
@@ -404,7 +421,7 @@ impl Running {
         (self.frame("append",json!({"streamId":id,"seq":seq.to_string(),"envelopeHash":values::encode_binary(&hash),"envelope":values::encode_binary(&bytes)})),bytes,hash)
     }
     fn event(&self, path: &str, header: &str, body: &str) -> String {
-        self.request(&format!("POST {path} HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{header}\r\n{body}",body.len()))
+        self.request_with_timeout(&format!("POST {path} HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{header}\r\n{body}",body.len()), support::DECODER_DEADLINE)
     }
     fn oracle(&self) -> rusqlite::Connection {
         rusqlite::Connection::open(self.root.join("colab/space.db")).unwrap()
@@ -1289,7 +1306,7 @@ fn revoked_author_chain_is_verifiable_but_signed_log_denies_its_objects() {
 }
 
 #[test]
-fn oversized_membership_statement_returns_capacity_without_truncation() {
+fn large_membership_statement_bootstraps_with_exact_chunks_and_frame_credit() {
     let server = Running::start(Tunnels::PRODUCT);
     let layout = Layout::open(&server.root).unwrap();
     let key = Keyring::read(&layout).unwrap();
@@ -1299,7 +1316,7 @@ fn oversized_membership_statement_returns_capacity_without_truncation() {
         .unwrap()
         .unwrap();
     let descriptor = json!({"pageId":PAGE,"epoch":"2","sourceDigest":values::encode_binary(&[1;32]),"baselineCommitment":values::encode_binary(&[2;32]),
-        "title":"x".repeat(40*1024),"objectEnvelopeHash":values::encode_binary(&[3;32]),"membershipRevision":"2"});
+        "title":"x".repeat(250*1024),"objectEnvelopeHash":values::encode_binary(&[3;32]),"membershipRevision":"2"});
     let statement = key
         .sign_statement(
             Some(&head),
@@ -1311,7 +1328,8 @@ fn oversized_membership_statement_returns_capacity_without_truncation() {
         )
         .unwrap();
     let bytes = statement.to_json().unwrap();
-    assert!(bytes.len() > 44 * 1024);
+    assert!(bytes.len() > 64 * 1024);
+    assert!(bytes.len().div_ceil(limits::CHUNK_BYTES) > limits::SEND_QUEUE_FRAMES);
     store
         .owner_transaction(
             &server.space,
@@ -1327,15 +1345,134 @@ fn oversized_membership_statement_returns_capacity_without_truncation() {
             },
         )
         .unwrap();
-    let mut peer = server.peer(DEVICE);
-    send(
-        &mut peer,
-        server.frame(
-            "hello",
-            json!({"device":DEVICE,"membershipRevision":"0","cursors":[]}),
-        ),
-    );
-    assert_eq!(receive(&mut peer)["code"], "CAPACITY");
+    let second_head = store
+        .owner_head(&server.space, &key.owner_public())
+        .unwrap()
+        .unwrap();
+    let successor = key
+        .sign_statement(
+            Some(&second_head),
+            "page.history",
+            &serde_json::to_vec(&json!({"pageId":PAGE,"mode":"current"})).unwrap(),
+        )
+        .unwrap();
+    store
+        .owner_transaction(
+            &server.space,
+            &key.owner_public(),
+            tmt_colab::store::owner::Mutation {
+                operation_id: "00000000-0000-4000-8000-000000000006",
+                digest: [15; 32],
+                expected_revision: 2,
+            },
+            |tx| {
+                tx.append_statement(&successor)?;
+                Ok(Vec::new())
+            },
+        )
+        .unwrap();
+    let genesis_bytes: Vec<u8> = server
+        .oracle()
+        .query_row(
+            "SELECT envelope FROM membership_log WHERE revision=?",
+            [format!("{:020}", 1)],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let genesis = tmt_colab_model::statement::Envelope::from_json(&genesis_bytes).unwrap();
+    let initial = genesis
+        .verify_next(&server.space, &key.owner_public(), None)
+        .unwrap()
+        .head;
+    // Fresh and resumed clients exercise a reference in later and first pages.
+    for revision in ["0", "1"] {
+        let mut peer = server.peer(DEVICE);
+        send(
+            &mut peer,
+            server.frame(
+                "hello",
+                json!({"device":DEVICE,"membershipRevision":revision,"cursors":[]}),
+            ),
+        );
+        let first = receive(&mut peer);
+        assert_eq!(first["membershipHead"]["revision"], "3");
+        assert_eq!(
+            first["membershipHead"]["statementHash"],
+            values::encode_binary(&successor.hash().unwrap())
+        );
+        let reference = if revision == "0" {
+            assert_eq!(
+                first["membershipHead"]["statements"],
+                json!([values::encode_binary(&genesis.to_json().unwrap())])
+            );
+            receive(&mut peer)
+        } else {
+            first
+        };
+        let membership = if revision == "0" {
+            &reference["membership"]
+        } else {
+            &reference["membershipHead"]
+        };
+        let hash = values::encode_binary(&statement.hash().unwrap());
+        assert_eq!(membership["statements"], json!([{"statementHash":hash}]));
+        assert_eq!(membership["more"], true);
+        let count = bytes.len().div_ceil(limits::CHUNK_BYTES);
+        let mut joined = Vec::new();
+        let mut outstanding = if revision == "0" { 2 } else { 1 };
+        for index in 0..count {
+            let chunk = receive(&mut peer);
+            assert_eq!(chunk["type"], "chunk");
+            assert_eq!(chunk.as_object().unwrap().len(), 9);
+            assert_eq!(chunk["space"], server.space);
+            assert_eq!(chunk["page"], PAGE);
+            assert_eq!(chunk["epoch"], "1");
+            assert_eq!(chunk["statementHash"], hash);
+            assert_eq!(chunk["index"], index);
+            assert_eq!(chunk["count"], count);
+            let part =
+                values::binary(chunk["bytes"].as_str().unwrap(), limits::CHUNK_BYTES).unwrap();
+            assert!(!part.is_empty());
+            if index + 1 < count {
+                assert_eq!(part.len(), limits::CHUNK_BYTES);
+            }
+            joined.extend(part);
+            outstanding += 1;
+            if outstanding == limits::SEND_QUEUE_FRAMES {
+                peer.get_mut()
+                    .set_read_timeout(Some(Duration::from_millis(100)))
+                    .unwrap();
+                assert!(
+                    matches!(peer.read(), Err(tungstenite::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut))
+                );
+                peer.get_mut()
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                for _ in 0..outstanding {
+                    send(&mut peer, server.frame("ack", json!({"cursors":[]})));
+                }
+                outstanding = 0;
+            }
+        }
+        assert_eq!(joined, bytes);
+        let decoded = tmt_colab_model::statement::Envelope::from_json(&joined).unwrap();
+        assert_eq!(decoded.hash().unwrap(), statement.hash().unwrap());
+        let verified = decoded
+            .verify_next(&server.space, &key.owner_public(), Some(&initial))
+            .unwrap();
+        assert_eq!(verified.head, second_head);
+        for _ in 0..outstanding {
+            send(&mut peer, server.frame("ack", json!({"cursors":[]})));
+        }
+        let next = receive(&mut peer);
+        assert_eq!(
+            next["membership"]["statements"],
+            json!([values::encode_binary(&successor.to_json().unwrap())])
+        );
+        assert_eq!(next["membership"]["more"], false);
+        send(&mut peer, server.frame("ack", json!({"cursors":[]})));
+        assert_eq!(receive(&mut peer)["more"], false);
+    }
     let stored: Vec<u8> = server
         .oracle()
         .query_row(
@@ -1345,4 +1482,179 @@ fn oversized_membership_statement_returns_capacity_without_truncation() {
         )
         .unwrap();
     assert_eq!(stored, bytes);
+}
+
+#[test]
+fn membership_transfer_refuses_sql_oversize_before_loading_bytes() {
+    let server = Running::start(Tunnels::PRODUCT);
+    // Keep genesis intact so registered-owner admission remains a positive control.
+    let layout = Layout::open(&server.root).unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    let mut store = Store::open(&layout).unwrap();
+    let head = store
+        .owner_head(&server.space, &key.owner_public())
+        .unwrap()
+        .unwrap();
+    let statement = key
+        .sign_statement(
+            Some(&head),
+            "page.history",
+            &serde_json::to_vec(&json!({"pageId":PAGE,"mode":"current"})).unwrap(),
+        )
+        .unwrap();
+    store
+        .owner_transaction(
+            &server.space,
+            &key.owner_public(),
+            tmt_colab::store::owner::Mutation {
+                operation_id: OTHER,
+                digest: [16; 32],
+                expected_revision: 1,
+            },
+            |tx| {
+                tx.append_statement(&statement)?;
+                Ok(Vec::new())
+            },
+        )
+        .unwrap();
+    server
+        .oracle()
+        .execute(
+            "UPDATE membership_log SET envelope=zeroblob(?) WHERE revision=?",
+            rusqlite::params![(limits::STATEMENT_BYTES + 1) as i64, format!("{:020}", 2)],
+        )
+        .unwrap();
+    let mut peer = server.peer(DEVICE);
+    send(
+        &mut peer,
+        server.frame(
+            "hello",
+            json!({"device":DEVICE,"membershipRevision":"0","cursors":[]}),
+        ),
+    );
+    assert_eq!(receive(&mut peer)["code"], "CAPACITY");
+    let size: i64 = server
+        .oracle()
+        .query_row(
+            "SELECT length(envelope) FROM membership_log WHERE revision=?",
+            [format!("{:020}", 2)],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(size, (limits::STATEMENT_BYTES + 1) as i64);
+}
+
+#[test]
+fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution() {
+    use tmt_colab::assets::{App, POLICY};
+    let directory = PathBuf::from(format!("/tmp/tmt-1253-build-{}", std::process::id()));
+    fs::create_dir_all(directory.join("assets")).unwrap();
+    let files: [(&str, &str, &[u8]); 6] = [
+        ("index.html", "text/html; charset=utf-8", br#"<link href="./assets/app.css"><script type="module" src="./assets/app.js"></script>"#),
+        ("assets/app.js", "text/javascript; charset=utf-8", b"export {};"),
+        ("assets/app.css", "text/css; charset=utf-8", b"body{color:red}"),
+        ("assets/font.woff2", "font/woff2", b"wOF2\0\xfffont-test-bytes"),
+        ("assets/font.woff", "font/woff", b"wOFF\0\xfffont-test-bytes"),
+        ("THIRD-PARTY-NOTICES.txt", "text/plain; charset=utf-8", b"test-only notice"),
+    ];
+    for (name, _, bytes) in files {
+        fs::write(directory.join(name), bytes).unwrap();
+    }
+    let app = App::load(&directory).unwrap();
+    fs::remove_dir_all(&directory).unwrap(); // No request-time file reads are possible.
+    let server = Running::start_with_app(Tunnels::PRODUCT, Some(app));
+    // The browser must load before Colab registration. This forwarded owner is
+    // deliberately absent from the active device registrations above.
+    let unregistered = "00000000-0000-4000-8000-000000000006";
+    let headers = format!("{}\r\n", owner(unregistered));
+    for (name, content_type, bytes) in files {
+        let path = if name == "index.html" {
+            "/".into()
+        } else {
+            format!("/{name}")
+        };
+        let mut socket = server.connect();
+        socket
+            .write_all(Running::get(&path, &headers).as_bytes())
+            .unwrap();
+        let mut reply = Vec::new();
+        socket.read_to_end(&mut reply).unwrap();
+        let end = reply.windows(4).position(|s| s == b"\r\n\r\n").unwrap() + 4;
+        let head = std::str::from_utf8(&reply[..end]).unwrap();
+        assert!(head.starts_with("HTTP/1.1 200"));
+        assert!(head.contains(&format!("Content-Type: {content_type}\r\n")));
+        assert!(head.contains(&format!("Content-Length: {}\r\n", bytes.len())));
+        assert!(head.contains(&format!("Content-Security-Policy: {POLICY}\r\n")));
+        assert_eq!(&reply[end..], bytes);
+        if path != "/" {
+            assert!(
+                server
+                    .request(&Running::get(&path, ""))
+                    .starts_with("HTTP/1.1 403")
+            );
+        }
+    }
+    assert!(
+        server
+            .request(&Running::get("/", ""))
+            .contains("This colab space is private")
+    );
+    for path in [
+        "/../index.html",
+        "/assets/../index.html",
+        "/assets/./app.js",
+        "/assets/%2e%2e/index.html",
+        "/assets/app.js?x=1",
+        "/assets\\app.js",
+        "//assets/app.js",
+    ] {
+        assert!(
+            server
+                .request(&Running::get(path, &headers))
+                .starts_with("HTTP/1.1 400"),
+            "{path}"
+        );
+    }
+    assert!(
+        server
+            .request(&Running::get("/sync", &format!("{headers}{UPGRADE}")))
+            .starts_with("HTTP/1.1 403")
+    );
+    assert!(
+        server
+            .request(&Running::get("/assets/missing.js", &headers))
+            .starts_with("HTTP/1.1 404")
+    );
+    // Existing discovery dispatch keeps its JSON policy with an app loaded,
+    // and still admits the forwarded owner before extension-key registration.
+    for path in ["/api/session", "/api/pages"] {
+        let reply = server.request(&Running::get(path, &headers));
+        let (head, body) = reply.split_once("\r\n\r\n").unwrap();
+        assert!(head.starts_with("HTTP/1.1 200"));
+        assert!(head.contains("Content-Type: application/json"));
+        assert!(!head.contains("unsafe-inline"));
+        let body: Value = serde_json::from_str(body).unwrap();
+        if path == "/api/session" {
+            assert_eq!(body["deviceId"], unregistered);
+            assert_eq!(body["grantRevision"], "1");
+        } else {
+            assert_eq!(body["spaceId"], server.space);
+            assert_eq!(body["pages"][0]["pageId"], PAGE);
+        }
+        assert!(
+            server
+                .request(&Running::get(path, ""))
+                .starts_with("HTTP/1.1 403")
+        );
+    }
+    assert!(
+        server
+            .request("POST /assets/app.js HTTP/1.1\r\nHost: x\r\n\r\n")
+            .starts_with("HTTP/1.1 403")
+    );
+    assert!(
+        server
+            .request(&format!("POST /assets/app.js HTTP/1.1\r\n{headers}\r\n"))
+            .starts_with("HTTP/1.1 404")
+    );
 }

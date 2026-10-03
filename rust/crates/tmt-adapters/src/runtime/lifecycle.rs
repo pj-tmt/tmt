@@ -1,7 +1,10 @@
 //! Runtime-owned lifecycle policy. CLI callers only coordinate evidence and CAS.
 
 use crate::skill_installation::ProviderEnvironment;
-use std::{path::PathBuf, time::Instant};
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 use tmt_core::binding::session::{
     BindingSessionState, DriverState, ObservedSessionKey, ProviderSessionId, RuntimeLiveness,
     RuntimeMode, SessionPreferences,
@@ -68,8 +71,37 @@ pub struct TurnEnd {
 }
 
 pub trait RuntimeLifecycle {
+    /// Optional shared work budget for input, admission and the hook worker.
+    /// The driver reserves process cleanup and provider timeout margin.
+    fn hook_work_duration(&self) -> Option<Duration> {
+        None
+    }
+
+    /// Driver-owned startup gate within the parent hook deadline.
+    /// Drivers without deferred admission return immediately.
+    fn wait_for_hook_admission(
+        &self,
+        _payload: &[u8],
+        _deadline: Instant,
+    ) -> Result<(), LifecycleUnavailable> {
+        Ok(())
+    }
+
     fn decode(&self, _payload: &[u8]) -> Option<Box<dyn LifecycleObservation>> {
         None
+    }
+
+    /// Attribute activity to an already admitted process without changing the
+    /// binding. The default preserves the observed incarnation without effects.
+    fn activity_process(
+        &self,
+        _current: &BindingSessionState,
+        observed: &ProcessIncarnation,
+        _session: &ProviderSessionId,
+        _host: HostEvidence,
+        _deadline: Instant,
+    ) -> Option<ProcessIncarnation> {
+        Some(observed.clone())
     }
 
     /// A prompt submission does not establish or replace a session binding.
@@ -212,3 +244,57 @@ pub trait RuntimeLifecycle {
 
 pub struct NoLifecycle;
 impl RuntimeLifecycle for NoLifecycle {}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+    #[test]
+    fn plain_and_claude_activity_preserve_observed_bytes_without_evidence() {
+        let current = BindingSessionState::default();
+        let observed = ProcessIncarnation::new(991, "byte-exact-incarnation").unwrap();
+        let session = ProviderSessionId::new("session").unwrap();
+        let registry = crate::runtime::RuntimeRegistry::first_party();
+        let claude = registry
+            .lifecycle(&tmt_core::binding::session::HarnessId::new("claude").unwrap())
+            .unwrap();
+        for lifecycle in [&NoLifecycle as &dyn RuntimeLifecycle, claude] {
+            let mapped = lifecycle
+                .activity_process(
+                    &current,
+                    &observed,
+                    &session,
+                    HostEvidence::Unsupported,
+                    Instant::now(),
+                )
+                .unwrap();
+            assert_eq!(mapped.pid().to_le_bytes(), observed.pid().to_le_bytes());
+            assert_eq!(
+                mapped.start_identity().as_bytes(),
+                observed.start_identity().as_bytes()
+            );
+            assert_eq!(current, BindingSessionState::default());
+        }
+    }
+
+    #[test]
+    fn plain_and_claude_lifecycle_admission_is_a_noop() {
+        // No locator, payload decoding, process probe or deadline is required
+        // by the default gate. Codex is the only driver overriding this method.
+        assert!(
+            NoLifecycle
+                .wait_for_hook_admission(b"not a payload", Instant::now())
+                .is_ok()
+        );
+        assert_eq!(NoLifecycle.hook_work_duration(), None);
+        let registry = crate::runtime::RuntimeRegistry::first_party();
+        let claude = registry
+            .lifecycle(&tmt_core::binding::session::HarnessId::new("claude").unwrap())
+            .unwrap();
+        assert_eq!(claude.hook_work_duration(), None);
+        assert!(
+            claude
+                .wait_for_hook_admission(b"not a payload", Instant::now())
+                .is_ok()
+        );
+    }
+}

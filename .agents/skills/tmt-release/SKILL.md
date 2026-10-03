@@ -15,7 +15,7 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
 - Before any branch mutation, verify the relevant remote refs and ancestry. Never force-push or repoint a long-lived line.
 - A v4 maintenance fix requires a tracked issue, a dedicated branch and worktree, and a reviewable pull request. Keep the fix on the v4 line unless an explicitly scoped backport is requested.
 - Use the checks available on the v4 line for maintenance pull requests; do not require contexts that the target branch cannot produce. Record any coverage gap in the issue.
-- The native version is owned by `rust/Cargo.toml` and exposed through Cargo's package version; there is no TypeScript fallback. Keep any retained developer package version and public release instructions consistent when changing versions. The native skill ships with the CLI; there is no separately versioned plugin or marketplace.
+- The CLI version is owned by `rust/Cargo.toml` and exposed through Cargo's package version; there is no TypeScript fallback. Keep any retained developer package version and public release instructions consistent when changing versions. The native skill ships with the CLI; there is no separately versioned plugin or marketplace.
 - Follow `AGENTS.md` for GitHub issue state, branch and pull-request links, verification evidence, and safe worktree cleanup.
 
 ## Private-leaf attribution
@@ -122,6 +122,11 @@ Read the complete [native release verification section](../../../DEVELOPMENT.md#
 before archive, installer, upgrade, bootstrap or publication work. It owns the
 procedures referenced below; DEVELOPMENT owns ordinary native checks.
 
+For packed verifier process-runner changes, follow DEVELOPMENT's
+[packed cleanup checks](../../../DEVELOPMENT.md#packed-verifier-process-cleanup).
+Preserve its real absence and surviving-group controls; synthetic fixture success
+does not authorize publication or replace artifact acceptance.
+
 - For Rust archives, follow the guide's native Rust release archive procedure.
   Keep cargo-dist's manifest as the artifact metadata owner; independently verify
   bounded extraction, notices, linkage, skill installation and persisted state.
@@ -149,13 +154,20 @@ procedures referenced below; DEVELOPMENT owns ordinary native checks.
   public installer before promoting README instructions. Publish with the
   bundle's `release-publication.json` flags: the CLI release is a normal release
   marked latest (the README's `releases/latest/download/install.sh` depends on
-  it); Office and Squad releases stay prereleases with `--latest=false`. After
+  it); Office, Squad and Herdr driver releases stay prereleases with `--latest=false`. After
   a manual publication, run the guide's `--check-latest` check (the pipeline checks
   its own publications). Do not equate a
   downloadable CI bundle with a published or accepted release.
-- Every CLI or extension release also passes the guide's upgrade from the last
-  published release (its public installer, then the candidate's installer and
-  `tmt upgrade`), not only a fresh install. Old receipts must stay readable.
+- Every CLI, extension or driver release also passes the guide's upgrade from the last
+  published release using the product-specific proof in DEVELOPMENT, not only a
+  fresh install. Old CLI/extension receipts must stay readable.
+  The pre-publication CLI proof requires installation, migration and real-archive
+  acceptance of the release's own adapter on all four hosts. Follow the guide's
+  distinction between injected acquisition, skipped differential skill coverage for identical text,
+  older-source rerun applicability and separate public installer/upgrade smoke.
+  A standalone driver uses previous/candidate archives and the current published
+  CLI's path approval surface. Herdr remains parked until release cut (#1399)
+  activates it, as DEVELOPMENT documents.
 - For curl bootstrap, follow the guide's native curl bootstrap verification.
   Generate from final verified cargo-dist artifacts and invoke the existing
   native publisher; do not enable a competing stock installer. Test an actual
@@ -231,8 +243,9 @@ gates, the markers and the procedures; this section owns who may publish what.
 - A held draft carries `publication-held.json` with the gate, the reason and the run. Read it,
   then follow the guide: the owner publishes by hand, or releases the hold by dispatch, which
   skips only the gate the marker names. An owner-authorized `rerun` instead re-proves
-  every gate with current main tooling against the draft's existing assets and release-source
-  expectations, preserving the marker on failure and removing it only after all pass.
+  every gate with current main tooling against the draft's existing assets and its
+  release-source expectations and adapter code, preserving the marker on failure
+  and removing it only after all pass.
   `rerun` requires the owner's explicit authorization, like `hold`.
 - After it publishes, the pipeline reads the release back (public, immutable, the policy's
   flags, the tag on the release commit, GitHub's attestation for the release and every asset).
@@ -243,6 +256,15 @@ gates, the markers and the procedures; this section owns who may publish what.
   the native classified rate-limit diagnostic, within DEVELOPMENT's attempt/reset-wait
   bounds; exhausted rate limits keep a failed job with a separate infrastructure issue,
   while any real or mixed failure keeps the release-failure conclusion. Keep the separate
+  deferred affected-target re-proof outside the native run's `release-<product>` group:
+  consume the report owner's infrastructure outcome and explicitly dispatch the smoke-retry
+  workflow (completion events from token-dispatched native runs are suppressed). Its planner
+  verifies the main source run, attempt and matching tag/target evidence through REST.
+  Keep both host jobs on the shared `public-install-smoke` action, including architecture
+  wrappers, and pin source/retry target and runner parity in fixtures.
+  Keep its 60-minute reset bound and one acquisition attempt. Complete original and retry evidence is required before the issue owner
+  comments with both runs and closes an infrastructure issue. Neither a failed original
+  job nor a failed retry becomes green, and real failure issues stay open. Keep the
   bounded latest-installer lag retry for an older alpha, and pin the consumed native
   diagnostic format in fixture tests. Never dispatch
   publication to recover a public smoke rate limit.

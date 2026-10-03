@@ -437,8 +437,8 @@ pub trait ChannelEnrollment {
     /// environment, persisted or logged.
     fn environment(&self) -> &[(OsString, OsString)];
 
-    /// The provider session the driver created for this launch before the child
-    /// starts (for example a thread its own server created), if any. The launcher
+    /// The provider session the driver proved for this launch, if any. It may
+    /// be populated by `foreground_started` for a freshly created thread. The launcher
     /// records it only from here, never from argv, for the claimed harness and
     /// with the child's own incarnation, so hooks can find it. It is the mapping
     /// published at launch, not proof that the same thread stays active.
@@ -454,6 +454,17 @@ pub trait ChannelEnrollment {
     /// foreground treats it as unknown, never as ended, and infers an end from
     /// nothing else (EOF, a dead launcher, its own server exiting).
     fn foreground_started(&mut self, _foreground: &ProcessIncarnation) -> Result<(), ChannelError> {
+        Ok(())
+    }
+
+    /// The original child was admitted as Running and the transaction committed.
+    /// Called at most once, after storage closes. Failure leaves the admitted
+    /// child running and enrollment unready; it never undoes admission or
+    /// authorizes paste fallback. Drivers without deferred publication do nothing.
+    fn foreground_admitted(
+        &mut self,
+        _foreground: &ProcessIncarnation,
+    ) -> Result<(), ChannelError> {
         Ok(())
     }
 

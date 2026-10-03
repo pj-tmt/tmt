@@ -2,8 +2,8 @@
 
 Status: Codex launches and exact `tmt resume` use plain delivery by default.
 `--channel` opts into the native channel and requires enrollment; `--no-channel`
-explicitly chooses a plain launch. Fresh zero-turn attachment on Codex 0.160.0
-is broken (#1198); opt-in remains available while its fix is investigated.
+explicitly chooses a plain launch. Fresh channel launches let the remote TUI
+create its own thread; they never resume a supervisor-created zero-turn thread.
 The shared launcher policy and Codex-specific boundaries are below.
 Queue acceptance is a delivery receipt; durable request completion remains separate. The pinned 0.159.3
 attachment/active-turn proof and 0.160.0 attach/queue/durable-reply proof are
@@ -161,13 +161,13 @@ advisory. This does not qualify them: the owned initialize
 handshake remains authoritative and accepts only the exact supported builds.
 Untested 0.160.x patches are refused at both boundaries.
 
-| Provider build                              | Binary preflight                        | Owned initialize | Live qualification                                                                                                                   |
-| ------------------------------------------- | --------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| 0.159.2                                     | Accepted                                | Accepted         | Isolated native queue observations in #329; no accepted foreground continuity claim for this build.                                  |
-| 0.159.3                                     | Accepted                                | Accepted         | Accepted foreground attachment and active-turn continuity proof in #739.                                                             |
-| 0.160.0                                     | Accepted                                | Accepted         | Active-turn foreground attachment, idle/busy queue correlation and durable reply in #1043; fresh zero-turn attachment fails (#1198). |
-| Later 0.159 patches                         | Unavailable: unqualified-build advisory | Refused          | Unqualified.                                                                                                                         |
-| Other builds, including later 0.160 patches | Refused                                 | Refused          | Unqualified.                                                                                                                         |
+| Provider build                              | Binary preflight                        | Owned initialize | Live qualification                                                                                         |
+| ------------------------------------------- | --------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------- |
+| 0.159.2                                     | Accepted                                | Accepted         | Native fresh-thread binding and completion proof in #1198; earlier queue observations in #329.             |
+| 0.159.3                                     | Accepted                                | Accepted         | Native fresh-thread binding and completion proof in #1198; active-turn continuity in #739.                 |
+| 0.160.0                                     | Accepted                                | Accepted         | Fresh-thread binding proof in #1198; active-turn attachment, queue correlation and durable reply in #1043. |
+| Later 0.159 patches                         | Unavailable: unqualified-build advisory | Refused          | Unqualified.                                                                                               |
+| Other builds, including later 0.160 patches | Refused                                 | Refused          | Unqualified.                                                                                               |
 
 The initialize format is source-backed at the pinned revision above, in
 `request_processors/initialize_processor.rs` and
@@ -203,9 +203,10 @@ groundwork alone may be removed from an unused binary by the linker.
 `drivers/codex/record` stores one bounded, private per-binding opt-in record under
 the caller-supplied channel directory's `codex` subdirectory. It is not an identity registry and
 performs no binding write. Version, binding UUID, generation UUID and exact
-launch-owner PID/start identity are mandatory. Readiness additionally carries
-the owned endpoint process incarnation, loopback port and exact provider thread
-UUID. Tokens are absent from this record. Record input is capped at 8 KiB;
+launch-owner PID/start identity are mandatory. Fresh startup additionally records the owned endpoint incarnation, loopback
+port and canonical cwd before any thread exists. Discovery fills its immutable
+thread candidate; this remains unready until launcher admission. Readiness
+carries that same endpoint and exact provider thread UUID. Tokens are absent from this record. Record input is capped at 8 KiB;
 nonregular, symlink, public, foreign-owned, malformed and oversized records fail
 closed. An absent record alone means no record, not a synthesized ready state.
 
@@ -246,8 +247,8 @@ passes the capability to the foreground through the named child-only environment
 variable, not an argv token. This module does not copy login credentials or edit
 provider configuration.
 
-The resource owner signals only its directly owned, unreaped process group,
-then waits up to two seconds before deleting created files. Startup failure,
+The resource owner sends SIGKILL only to its directly owned, unreaped process
+group, then waits up to two seconds before deleting created files. Startup failure,
 explicit stop and drop use the same ordering. Unverified process cleanup reports
 failure and retains capability/diagnostic files; it is not successful cleanup.
 File cleanup compares created regular-file and directory device/inode identities,
@@ -257,25 +258,24 @@ which is not a guarantee provided by destructors.
 
 `drivers/codex/attachment` accepts a bounded option surface before launch. It
 resolves relative `-C` against the original working directory once, emits the
-absolute directory for foreground resume, and exposes that same directory to
-server spawn and later thread creation. It rejects initial prompts, user-supplied resume/fork
+absolute directory for the foreground, and exposes that same directory to
+server spawn and thread metadata validation. It rejects initial prompts, user-supplied resume/fork
 subcommands and implicit/default remote selection; only the launcher-selected
-typed exact resume uses its bounded generated grammar. The foreground command uses
+typed exact resume uses its bounded generated grammar. Exact resume uses
 `resume --remote ... --remote-auth-token-env TMT_CODEX_ENDPOINT_TOKEN` with the
-exact supplied provider thread. Planning checks endpoint shape; ownership comes
+exact supplied provider thread. Fresh startup uses `--remote` with the same
+capability environment and no resume subcommand or supplied thread. Planning checks endpoint shape; ownership comes
 from the enrollment resource, not from a user-supplied endpoint string.
 
 If Codex asks to trust the launch folder, the user must answer in its TUI before
 attachment can proceed; the channel never answers that prompt or changes trust
 configuration, and accepted queue input may wait for attachment.
 
-Channel permission options are owned by the new thread, not its attached TUI.
-`-s`/`--sandbox` accepts `read-only`, `workspace-write` or `danger-full-access`;
-`-a`/`--ask-for-approval` accepts `untrusted`, `on-request` or `never`. They set
-`thread/start.sandbox` and `thread/start.approvalPolicy`, respectively, and the
-same app-server defaults; they are never passed to `resume --remote`. With no
-explicit flags, thread creation leaves these fields absent and preserves the
-provider defaults. Unsupported values are refused before any process starts.
+Fresh permission options go to the TUI that creates the new thread and to the
+app-server defaults. `-s`/`--sandbox` accepts `read-only`, `workspace-write` or
+`danger-full-access`; `-a`/`--ask-for-approval` accepts `untrusted`, `on-request`
+or `never`. Exact remote resume never receives permission overrides. Absent
+flags preserve provider defaults. Unsupported values are refused before spawn.
 
 Generic `-c`/`--config` permission roots (`approval_policy`, `approvals_reviewer`,
 `sandbox_mode`, `default_permissions`, `permissions`, `network`, and
@@ -322,12 +322,58 @@ without attributable pane evidence are named in diagnostics; they cannot block
 unrelated panes. Corruption of the current binding's own record remains terminal.
 
 Foreground state starts Unknown. The launcher's single `foreground_started`
-callback publishes only the original owned child's observed incarnation under
-the record lock. A publication failure stays unconfirmed. A ready app-server
-precedes foreground spawn, so cleaning that server never proves an Unknown
-foreground ended. Unknown stays terminal for its exact pane and is never pruned.
-Known foreground, owner and endpoint must all be conclusively gone before an
-ended record is pruned during enrollment. Read-only delivery never prunes.
+callback records only the original owned child's observed incarnation. For a
+fresh launch it also discovers the TUI-created thread on the owned endpoint:
+the initial loaded list must be empty, then the one-time pre-first-turn gate
+requires exactly one loaded thread and `thread/read` metadata with the same ID,
+canonical cwd and explicit `ephemeral: false`. A missing flag is not false.
+Discovery performs no model turn, `thread/start`, resume, subscription or queue.
+A timed-out early hook degrades only its own activity/model update; it never
+authorizes a different session and never causes paste or resend. No owner-side
+failure latch, spool or replay is added: later authoritative admission may
+publish Ready. A subsequent same-session starting hook can record the session
+and model through the unchanged verification path; a different session cannot.
+If the first starting hook was lost, remembered model/activity remain unknown
+until a verified starting hook supplies them. Prompt/Stop do not create missing
+remembered preferences, and thread/read model metadata is not persisted as hook
+history.
+The eager first-hook gate is read-only and generation-scoped. Claude, plain
+hooks, unrelated generations, known auxiliary sessions and already-Ready records
+return immediately without sleeping or probing. Before the candidate is known,
+a matching fresh generation may wait; after discovery, only its exact session
+may wait. The driver caps this wait at one second within the hook owner's work
+deadline. Discovery itself has a separate five-second foreground startup bound;
+TUI creation precedes SessionStart and does not consume its admission gate.
+
+TMT installs a three-second command-hook timeout (`HOOK_TIMEOUT_SECONDS`). Codex
+0.159.2, 0.159.3 and 0.160.0 honor that explicit timeout and include stdin writes
+and process completion in it: see their pinned command runners
+([0.159.2](https://github.com/openai/codex/blob/ff6aec96948b70d94983af2641a6b67c94faeff5/codex-rs/hooks/src/engine/command_runner.rs#L276),
+[0.159.3](https://github.com/openai/codex/blob/01fc69f4026735edfdf6789820549727a4867b11/codex-rs/hooks/src/engine/command_runner.rs#L276),
+[0.160.0](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/hooks/src/engine/command_runner.rs#L276)).
+The Codex channel hook's total bound is the installed timeout minus a named
+500 ms margin: currently 2.5 seconds, including the process owner's one-second
+cleanup reserve. Input, gate and worker share the remaining 1.5-second absolute
+work deadline. The gate never restarts that deadline. The private worker receives
+only the remaining milliseconds, capped at its existing two-second maximum;
+payload bytes remain unchanged. The parent's monotonic deadline remains
+authoritative. Claude and plain hooks retain the existing two-second worker
+protocol. No provider timeout migration or global settings change is required.
+
+After binding, the thread is immutable: never recheck loaded-list uniqueness.
+Auxiliary `ephemeral: true` threads are excluded from binding, activity and
+routing by their distinct session IDs and the non-ephemeral binding gate;
+notification counts never establish authority.
+
+The launcher's default no-op `ChannelEnrollment::foreground_admitted` callback
+runs once after a committed Running admission of the original observed child,
+with storage closed. Codex then rechecks its generation, candidate, original
+foreground, owner and endpoint under the record lock before publishing Ready.
+Failure warns, leaves the admitted child and unready evidence intact, and never
+undoes admission, pastes or silently downgrades. Claude and plain launches take
+the no-op path. Cleaning an endpoint never proves an Unknown foreground ended.
+Known foreground, owner and any recorded endpoint must all be conclusively gone
+before an ended record is pruned; read-only delivery never prunes.
 
 `drivers/codex/supervisor` owns the original app-server child and its process
 group. A private, close-on-exec launcher socket controls its lifetime; neither
@@ -349,9 +395,9 @@ and the exact `tmt channel recover --binding <binding-id> --generation
 <generation>`, to be run only after verifying that the named pane's original
 foreground, the launch owner and the owned app-server are gone. Under the record's
 per-binding lock and only while the record is exactly the one observed, with every
-recorded process (launch owner, known foreground, ready app-server) conclusively
+recorded process (launch owner, known foreground, ready or pending app-server) conclusively
 gone, recovery removes `codex/<binding-id>.json`. It cleans the generation
-directory only when the app-server was recorded ready and is gone: it removes the
+directory only when the app-server was recorded and is gone: it removes the
 launch's own `capability` and `server.log` when each is a regular file of this
 user, then the directory with a non-recursive `rmdir`; any other entry, a link,
 or the directory itself when it is not empty is left and reported. If one of those
@@ -370,6 +416,36 @@ startup failure, launcher SIGKILL with a surviving foreground, the publication
 window and explicit confirmed withdrawal. The registered driver participates in the shared `enrolled_harness` route selection
 and `enrolled_in_pane` guards; it does not create a second paste policy. This
 includes originator reply notifications, identity sends and identity-less panes.
+
+`RuntimeLifecycle::activity_process` maps only activity attribution and never
+rewrites a binding. Its default returns the observed incarnation without reads
+or probes, retaining Claude/plain hook behavior. Codex channel prompt/Stop hooks
+execute in the app-server while the binding retains the original foreground.
+The driver verifies the exact private generation, Ready session, observed
+server, recorded/current foreground, launch owner and their live incarnations
+under the existing hook deadline before returning that foreground. Missing,
+malformed, replaced, unready or auxiliary proof yields no activity/context write.
+The mapping runs before `turn_state`, so usage scans receive the actual remainder.
+It applies equally to fresh and exact-resume channel launches; the source-confirmed
+alpha.41 server/foreground equality gap is recorded on #1198.
+
+Channel lifecycle/activity hooks are expected to execute in the owned app-server.
+A channel locator on an independently classified foreground hook does not grant
+that server proof and produces no channel activity/context update. Plain hooks
+without a channel locator retain the observed process through the default path.
+UserPromptSubmit emits context only for incoming attention or extension
+contributions; a verified prompt with neither produces empty stdout.
+
+A verified main-thread Stop hook means common Idle activity while the runtime
+remains Running. A queue receipt means queued only; only a durable `tmt reply`
+settles a TMT request. A timeout never cancels, resends, pastes or infers
+completion. TMT does not add an observer thread subscription or use an
+unsubscribed observer's missing `turn/completed` as completion evidence.
+
+The provider can perform ancillary inference after the main turn, including an
+ephemeral `thread_title` thread on a different model. This spends provider
+budget despite a single requested main response; qualification records those
+logical model requests separately and does not claim an HTTP-attempt count.
 
 ## Verification boundaries
 
@@ -405,3 +481,9 @@ The opt-in first-hook scenario invokes the real lifecycle command from its
 fixture-owned app-server, asserts remembered session/model and preserved
 foreground incarnation, and verifies queued delivery without paste plus owned
 app-server cleanup. It uses no SQL preference seeding or provider credentials.
+
+The [#1198 fresh-bootstrap evidence](https://github.com/pj-tmt/tmt/issues/1198#issuecomment-5965074559)
+qualifies the one-time binding gate on 0.159.2, 0.159.3 and 0.160.0. The older
+build runs also captured native Stop/TUI completion and auxiliary title threads.
+This is native provider evidence, separate from TMT's hook-to-Idle product path
+and durable request completion.

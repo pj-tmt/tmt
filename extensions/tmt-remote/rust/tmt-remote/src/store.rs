@@ -94,7 +94,7 @@ impl Store {
 }
 /// Ordered schema history in the core `_migrations` shape. Append only; a
 /// recorded name must match, and a newer database than this build refuses.
-const MIGRATIONS: [(&str, &str); 2] = [
+const MIGRATIONS: [(&str, &str); 3] = [
     (
         "machine",
         "CREATE TABLE machine(
@@ -119,6 +119,16 @@ const MIGRATIONS: [(&str, &str); 2] = [
              disabled INTEGER NOT NULL CHECK(disabled IN (0, 1)));
          -- One live grant per device key; a revoked key may pair again.
          CREATE UNIQUE INDEX grants_live_key ON grants(public_key) WHERE disabled = 0;",
+    ),
+    (
+        "sessions",
+        "CREATE TABLE sessions(
+             client_id TEXT PRIMARY KEY REFERENCES grants(client_id),
+             session_id TEXT NOT NULL UNIQUE,
+             window_id TEXT NOT NULL,
+             grant_revision INTEGER NOT NULL,
+             next_client_sequence TEXT NOT NULL,
+             next_server_sequence TEXT NOT NULL)",
     ),
 ];
 /// Default scopes, sorted bytewise.
@@ -276,6 +286,135 @@ impl Store {
         Ok(grant)
     }
 }
+/// Durable counters belong to one live session/run. A restart never adopts an
+/// old row as a live session; a fresh signed open replaces it atomically.
+impl Store {
+    pub fn start_session(
+        &mut self,
+        grant: &Grant,
+        session_id: &str,
+        window_id: &str,
+        now_ms: u64,
+    ) -> Result<(), RemoteError> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(database)?;
+        let current = tx
+            .query_row(
+                &format!("SELECT {GRANT_COLUMNS} FROM grants WHERE client_id = ?1"),
+                [&grant.client_id],
+                grant_row,
+            )
+            .optional()
+            .map_err(database)?;
+        if !current
+            .is_some_and(|current| current.revision == grant.revision && current.live_at(now_ms))
+        {
+            return Err(RemoteError::new("REMOTE_CLOSED", "Device authority ended."));
+        }
+        tx.execute(
+            "INSERT INTO sessions VALUES (?1, ?2, ?3, ?4, '1', '2')
+             ON CONFLICT(client_id) DO UPDATE SET session_id=excluded.session_id,
+             window_id=excluded.window_id, grant_revision=excluded.grant_revision,
+             next_client_sequence='1', next_server_sequence='2'",
+            rusqlite::params![
+                grant.client_id,
+                session_id,
+                window_id,
+                grant.revision as i64
+            ],
+        )
+        .map_err(database)?;
+        tx.commit().map_err(database)
+    }
+    /// Call only after exact signature/authority admission. One transaction
+    /// consumes the expected sequence; invalid or competing sequences change nothing.
+    pub fn consume_sequence(
+        &mut self,
+        client_id: &str,
+        session_id: &str,
+        window_id: &str,
+        sequence: u64,
+        now_ms: u64,
+    ) -> Result<(), RemoteError> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(database)?;
+        let revision: Option<i64> = tx.query_row(
+            "SELECT grant_revision FROM sessions WHERE client_id=?1 AND session_id=?2 AND window_id=?3",
+            [client_id, session_id, window_id], |row| row.get(0),
+        ).optional().map_err(database)?;
+        let grant = tx
+            .query_row(
+                &format!("SELECT {GRANT_COLUMNS} FROM grants WHERE client_id=?1"),
+                [client_id],
+                grant_row,
+            )
+            .optional()
+            .map_err(database)?;
+        if !grant
+            .is_some_and(|grant| revision == Some(grant.revision as i64) && grant.live_at(now_ms))
+        {
+            return Err(RemoteError::new("REMOTE_CLOSED", "Device session ended."));
+        }
+        // The exhausted sentinel cannot match any valid wire sequence.
+        let next = sequence
+            .checked_add(1)
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "exhausted".into());
+        let changed = tx
+            .execute(
+                "UPDATE sessions SET next_client_sequence=?4
+             WHERE client_id=?1 AND session_id=?2 AND window_id=?3 AND next_client_sequence=?5",
+                rusqlite::params![client_id, session_id, window_id, next, sequence.to_string()],
+            )
+            .map_err(database)?;
+        if sequence == 0 || changed != 1 {
+            return Err(RemoteError::new(
+                "REMOTE_REPLAY",
+                "Unexpected client sequence.",
+            ));
+        }
+        tx.commit().map_err(database)
+    }
+    /// Reserve a fresh machine response sequence, including signed refusals.
+    /// Session.open used 1; historical journal envelopes keep their old counters.
+    pub fn response_sequence(
+        &mut self,
+        client_id: &str,
+        session_id: &str,
+        window_id: &str,
+    ) -> Result<u64, RemoteError> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(database)?;
+        let sequence: Option<String> = tx.query_row(
+            "SELECT next_server_sequence FROM sessions WHERE client_id=?1 AND session_id=?2 AND window_id=?3",
+            [client_id, session_id, window_id], |row| row.get(0),
+        ).optional().map_err(database)?;
+        let sequence = sequence
+            .and_then(|value| {
+                value
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|sequence| *sequence >= 2 && sequence.to_string() == value)
+            })
+            .ok_or_else(|| {
+                RemoteError::new("REMOTE_CLOSED", "Device response sequence is unavailable.")
+            })?;
+        let next = sequence
+            .checked_add(1)
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "exhausted".into());
+        tx.execute("UPDATE sessions SET next_server_sequence=?4 WHERE client_id=?1 AND session_id=?2 AND window_id=?3",
+            rusqlite::params![client_id, session_id, window_id, next]).map_err(database)?;
+        tx.commit().map_err(database)?;
+        Ok(sequence)
+    }
+}
 const GRANT_COLUMNS: &str = "client_id, public_key, kind, origin, name, agents, scopes, mode,
     issued_at_ms, expires_at_ms, revision, disabled";
 fn grant_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Grant> {
@@ -288,7 +427,11 @@ fn grant_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Grant> {
         origin: r.get(3)?,
         name: r.get(4)?,
         agents: r.get(5)?,
-        scopes: scopes.split(' ').map(str::to_owned).collect(),
+        scopes: if scopes.is_empty() {
+            Vec::new()
+        } else {
+            scopes.split(' ').map(str::to_owned).collect()
+        },
         mode: r.get(7)?,
         issued_at_ms: r.get::<_, i64>(8)? as u64,
         expires_at_ms: r.get::<_, Option<i64>>(9)?.map(|v| v as u64),

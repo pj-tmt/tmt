@@ -1,0 +1,86 @@
+---
+source: site/src/chapters/concepts.mdx
+sourceRevision: a388f87fd84d2b8665dc35288cba29bd7eee3a75
+title: ほとんどのことは 4 つの用語で説明できます
+---
+
+import { Cmd } from "../../components/Cmd";
+import { components as Mdx } from "../../components/mdx";
+import { Terms } from "../../components/marks";
+import { Badge, States } from "../../components/samples";
+
+<Terms>
+  <dt>identity</dt>
+  <dd>
+    {
+      <Mdx.p>
+        <code>reviewer</code>
+        {
+          " のような、継続して使う名前です。名前はグローバルで、フォルダーごとではありません。保存済みの名前（"
+        }
+        <code>-s</code>
+        {"）はペインがなくなっても残り、一時的な名前はペインと一緒に消えます。"}
+      </Mdx.p>
+    }
+  </dd>
+  <dt>binding</dt>
+  <dd>
+    <Mdx.p>
+      {
+        "identity が今いる場所です。たとえば、1 つの tmux ペインです。2 つの agent のどちらが呼び出し元か判断できない場合、tmt は推測しません。"
+      }
+    </Mdx.p>
+  </dd>
+  <dt>driver</dt>
+  <dd>
+    <Mdx.p>
+      {
+        "特定の種類のプログラムについて tmt が把握する情報です。tmux driver はペインを、Claude Code と Codex の driver は会話と hook を把握します。"
+      }
+    </Mdx.p>
+  </dd>
+  <dt>extension</dt>
+  <dd>
+    {
+      <Mdx.p>
+        <code>tmt &lt;name&gt;</code>
+        {" を追加する、"}
+        <code>tmt-&lt;name&gt;</code>
+        {" という名前の任意のプログラムです。Squad もその 1 つです。"}
+      </Mdx.p>
+    }
+  </dd>
+</Terms>
+
+<Mdx.h3 id="agent-states">agent の状態</Mdx.h3>
+
+tmt は binding 内の agent が実行中かどうかを記録します。任意で有効にできるペインのバッジに、その状態が表示されます。
+
+<States
+  items={[
+    [
+      <Badge name="reviewer" state="running" />,
+      "Running.",
+      "メッセージはペインに貼り付けられます。",
+    ],
+    [
+      <Badge name="reviewer" state="ended" />,
+      "Ended.",
+      "tmt は agent がいない shell に貼り付けません。メッセージは agent の inbox で待機し、その旨が通知されます。",
+    ],
+    [
+      <Badge name="reviewer" state="unknown" />,
+      "Unknown.",
+      "どちらとも判断できる最近の証拠がありません。配信は従来どおり動作します。",
+    ],
+  ]}
+/>
+
+<Mdx.h3 id="what-a-new-session-sees">新しいセッションに渡される情報</Mdx.h3>
+
+<Cmd>{`
+$ tmt whoami --context
+TMT identity: "reviewer" (saved)
+Originated X items: 3 unacknowledged
+Incoming X items: 0 unacknowledged
+`}</Cmd>

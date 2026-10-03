@@ -57,3 +57,20 @@ space-bound, purpose-separated local management member ID and Ed25519/X25519
 public derivation, plus exact remote-owned `tmt-ext-cert-v1` bytes/signature for
 colab registration. All seeds in this fixture are public test inputs; production
 Keyring exposes only the derived public binding and admitted signing operations.
+
+`own-v1.json` freezes Yjs 13.6.32 update-v1 bytes at public test client ID 1264.
+Both engines consume the same four-map projections, checkpoint/dependent tail,
+deletion/tombstone-shaped data, JSON normalization and UTF-8 message-boundary cases.
+The 500-thread update is reused under two authenticated writer identities to prove
+the page-wide 1,000 limit; its dependent extra-thread update proves one-over denial.
+Negative bodies isolate roots, list/shared-type values, body types/sizes, malformed
+bytes and unresolved dependencies. Raw record examples are not an accepted typed
+Send/reply grammar. No Python or new runtime dependency is needed at test time.
+
+`checkpoint-v1.json` freezes raw update-v1 bytes produced by Yjs 13.6.32
+with public test client ID 1280. The checkpoint merges only that writer's original
+updates, retaining dependencies and delete sets; the retained tail requires that
+prefix. Browser Worker and isolated Rust decoder tests consume the identical
+positive and malformed-body bytes. Signed browser fixtures separately bind
+interleaved namespace headers, prefix sequence/hash and revoked-device cuts;
+these fixtures do not establish native store pruning or mounted sync delivery.

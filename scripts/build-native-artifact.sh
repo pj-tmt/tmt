@@ -2,13 +2,13 @@
 set -eu
 
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
-  printf '%s\n' 'Usage: scripts/build-native-artifact.sh <cargo-dist target> [cli|office|squad]' >&2
+  printf '%s\n' 'Usage: scripts/build-native-artifact.sh <cargo-dist target> [cli|office|squad|driver-herdr]' >&2
   exit 2
 fi
 target=$1
 product=${2:-cli}
-case "$product" in cli|office|squad) ;; *) printf '%s\n' 'Unknown native product.' >&2; exit 2 ;; esac
-repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+case "$product" in cli|office|squad|driver-herdr) ;; *) printf '%s\n' 'Unknown native product.' >&2; exit 2 ;; esac
+repo=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 if [ "$product" = office ]; then
   cd "$repo/typescript"
   corepack pnpm office:build:local 1>&2
@@ -40,6 +40,15 @@ case "$product" in
   cli) tag="v$version" ;;
   *) tag="tmt-$product-v$version" ;;
 esac
+# The CLI carries the independently owned binary through the first standalone
+# Herdr release. Build it once from its package, then let cargo-dist include it
+# without a second bin target.
+if [ "$product" = cli ]; then
+  cargo build --locked -p tmt-driver-herdr --bin tmt-driver-herdr \
+    --profile dist --target "$target" --target-dir "$repo/rust/target" 1>&2
+  mkdir -p target/native-companion
+  cp -p "target/$target/dist/tmt-driver-herdr" target/native-companion/tmt-driver-herdr
+fi
 # cargo-dist checks its own version against dist-workspace.toml.
 cd "$repo"
 dist generate --check --target "$target" --tag "$tag" 1>&2
@@ -47,11 +56,18 @@ cd "$repo/rust"
 mkdir -p target/native-notices
 case "$product" in
   cli) product_manifest="crates/tmt-cli/Cargo.toml" ;;
+  driver-herdr) product_manifest="crates/tmt-driver-herdr/Cargo.toml" ;;
   *) product_manifest="../extensions/tmt-$product/rust/tmt-$product/Cargo.toml" ;;
 esac
 cargo-about generate --manifest-path "$product_manifest" \
   --config about.toml --target "$target" --locked --offline --fail about.hbs \
   --output-file target/native-notices/THIRD-PARTY-NOTICES.txt 1>&2
+if [ "$product" = cli ]; then
+  cargo-about generate --manifest-path crates/tmt-driver-herdr/Cargo.toml \
+    --config about.toml --target "$target" --locked --offline --fail about.hbs \
+    --output-file target/native-notices/HERDR-NOTICES.txt 1>&2
+  cat target/native-notices/HERDR-NOTICES.txt >> target/native-notices/THIRD-PARTY-NOTICES.txt
+fi
 if [ "$product" = office ]; then
   # Vite owns the inventory of dependencies actually included in the SPA bundle.
   test -s "$TMT_OFFICE_SPA_DIR/THIRD-PARTY-NOTICES.txt"

@@ -234,6 +234,15 @@ impl HeldLease {
         })
     }
 
+    pub(super) fn foreground_admitted(
+        &mut self,
+        foreground: &ProcessIncarnation,
+    ) -> Option<String> {
+        self.0.as_mut()?.foreground_admitted(foreground).err().map(|error| {
+            format!("command admitted, but channel readiness could not be published ({error}); its enrollment stays unready and the command keeps running.")
+        })
+    }
+
     /// The spawn failed without a child: nothing ever ran, so the enrollment ends.
     pub(super) fn never_spawned(&mut self) {
         self.retire();

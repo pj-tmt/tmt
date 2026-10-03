@@ -1,0 +1,131 @@
+---
+source: site/src/chapters/settings.mdx
+sourceRevision: c896a4de0f5eddb19ca233300d9d55d40fa1d949
+title: 設定與疑難排解
+---
+
+import { Cmd, Code } from "../../components/Cmd";
+import { components as Mdx } from "../../components/mdx";
+import { Callout } from "../../components/marks";
+
+tmt 的設定不多，每個都有預設值。這頁說明如何變更設定、更新 tmt、使用 Tab 補完、調整窗格徽章，以及處理常見問題。
+
+<Mdx.h3 id="tmt-config">
+  <code>tmt config</code>
+</Mdx.h3>
+
+`tmt config show` 會列出所有設定，包括 tmt 實際使用的值、來源，以及接受哪些值。`set` 變更一項設定，`rm` 移除你為目前資料夾加上的覆寫值。
+
+<Cmd>{`
+$ tmt config show                                 # 值、來源與檔案路徑
+$ tmt config set pasteEnterDelayMs 800            # 套用到目前的資料夾
+$ tmt config set preambleEvery 5 --global         # 套用到所有資料夾
+$ tmt config set exchange.retentionDays 30 --global
+$ tmt config rm pasteEnterDelayMs                 # 移除目前資料夾的覆寫值
+`}</Cmd>
+
+| 設定                               | 預設值   | 用途                                                               | 設定方式                   |
+| ---------------------------------- | -------- | ------------------------------------------------------------------ | -------------------------- |
+| `preambleMode`                     | `always` | `always` 或 `disabled`：請求是否附帶接收者的 preamble              | `config set`，兩種範圍皆可 |
+| `preambleEvery`                    | `3`      | 每隔幾次請求附帶 preamble；`0` 表示停用                            | `config set`，兩種範圍皆可 |
+| `pasteEnterDelayMs`                | `500`    | 貼上訊息到按 Enter 之間等待的毫秒數；`0` 表示不等待                | `config set`，兩種範圍皆可 |
+| `exchange.retentionDays`           | `90`     | 新請求與回覆保留的天數，範圍為 1 到 3650                           | `config set --global`      |
+| `ui.paneBadge`                     | `off`    | [窗格徽章](/drivers/tmux#the-pane-badge)                           | `config set --global`      |
+| `notifications.replyBatchWindowMs` | `5000`   | 回覆通知合併為一次貼上前等待的毫秒數，最多 60000；`0` 表示逐則送出 | `config set --global`      |
+| `notifications.typingQuietMs`      | `2000`   | 停止輸入幾毫秒後才貼上合併的回覆通知，最多 30000；`0` 表示不等待   | `config set --global`      |
+| `defaults.timeout`                 | `180`    | `talk` 等待回覆的秒數                                              | 編輯 `config.json`         |
+| `defaults.pollInterval`            | `1`      | `talk` 等待時，每次檢查的間隔秒數                                  | 編輯 `config.json`         |
+| `defaults.captureLines`            | `100`    | `tmt check` 顯示的行數                                             | 編輯 `config.json`         |
+
+「兩種範圍」是指目前的資料夾，或加上 `--global` 套用到所有資料夾。全域檔案是 tmt 設定目錄 `~/.config/tmux-team/` 裡的 `config.json`；目錄名稱保留了 tmt 原本的名稱。資料夾的覆寫值則放在執行 tmt 時所在資料夾的 `tmux-team.json`。`tmt config show` 會印出兩個路徑。tmt 會保留它不認得的欄位，`config show` 則顯示實際使用的值與來源。
+
+數值只填數字，不加單位、正負號或小數。變更 `exchange.retentionDays` 只會套用到新請求。
+
+顏色來自主題，也在全域檔案中選擇。選擇主題前，CLI 使用終端機自己的 16 色。[顏色與主題](/extensions/squad#colors-and-themes)列出了可選的項目。
+
+<Mdx.h3 id="update-tmt">更新 tmt</Mdx.h3>
+
+`tmt upgrade`（也可以寫成 `tmt update`）會沿用安裝時的 `stable` 或 `alpha` channel，更新 CLI、skill 與已安裝的[擴充套件](/extensions)。
+
+<Cmd>{`
+$ tmt upgrade                        # 目前 channel 的最新版本
+$ tmt upgrade --channel stable       # 切換 channel
+$ tmt upgrade --to 5.0.0-alpha.8     # 指定版本，並將 CLI 釘選在該版本
+$ tmt upgrade --unpin                # 恢復跟隨 channel
+`}</Cmd>
+
+`--channel` 和 `--to` 只選擇 CLI 的版本。擴充套件保留自己的 channel 與釘選版本，CLI 釘選也不會阻止它們更新。更新擴充套件時會列出版本變更，一次詢問你；`--yes` 會代你回答。沒有終端機，或使用 `--json`，又沒有加上 `--yes` 時，tmt 不會更新任何擴充套件：每個待更新套件都會回報為 `consentRequired`，並列出要重新執行的指令。其中一個擴充套件更新失敗，指令就會失敗，但不會撤銷其他套件的更新。
+
+<Mdx.h3 id="shell-completion">Shell 補完</Mdx.h3>
+
+在 shell 的啟動檔案裡加上一行，或直接在目前的 shell 執行：
+
+<Cmd>{`
+$ source <(tmt completion bash)   # bash
+$ source <(tmt completion zsh)    # zsh，先執行 compinit
+$ tmt completion fish | source    # fish
+`}</Cmd>
+
+名稱補完會列出已儲存與暫時的 identity，已儲存的優先，不會啟動 tmux。`tmt resume` 只會列出有記錄 session 的 identity。名稱之後，`tmt run` 會交給 agent 自己的補完機制，因此 Tab 也能補完 agent 的旗標；tmt 不會安裝那些補完腳本。擴充套件會補完自己的參數，例如 `tmt sq <Tab>`。
+
+<Mdx.h3 id="the-pane-badge-a-few-extras">窗格徽章的進一步設定</Mdx.h3>
+
+[窗格徽章](/drivers/tmux#the-pane-badge)頁面說明了基本用法。另外還有幾點：
+
+- **在窄窗格裡隱藏。** 用下面的格式檢查窗格寬度。依你的主題調整 80 這個值；它不會自動適應寬度。
+- **只能儲存一份樣式。** tmux 只保留一份儲存的預設樣式，所以不要把徽章包進另一個 `push-default` 區段。放在區段外，並在後面恢復主題原本的樣式。
+- **變更逐一套用到窗格。** 切換設定不會立刻重寫任何窗格。tmt 下次處理窗格時才會更新：命名、啟動或結束程式、執行 hook。`tmt unbind` 會清除徽章。
+- **名稱會縮短。** 超過 48 個字元的名稱會截斷並加上 `…`，`#` 會顯示為 `＃`。儲存的名稱不會改變。
+
+<Code>{`
+#{?#{&&:#{@tmux-team.badge},#{e|>=:#{pane_width},80}}, [#{@tmux-team.badge}],}
+`}</Code>
+
+如果舊版 tmt 取代過你的窗格標題或邊框格式，請從自己的 tmux 設定恢復。tmt 無法重建它覆寫過的主題。
+
+<Mdx.h3 id="troubleshooting">疑難排解</Mdx.h3>
+
+<Mdx.h4 id="tmt-is-not-found-after-installing">
+  安裝後找不到 <code>tmt</code>
+</Mdx.h4>
+
+把 `~/.local/bin` 或安裝 prefix 下的 `bin` 放在 PATH 最前面，再開一個 shell 或執行 `hash -r`。安裝程式不會編輯 shell 設定檔。在你使用的啟動檔案中加入這段，只需加一次：
+
+<Code>{`
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
+`}</Code>
+
+接著確認 shell 選到哪個指令：
+
+<Cmd>{`
+$ command -v tmt
+$ tmt --version
+$ command -v tmux-team      # 舊的 npm 安裝可能蓋過新版
+`}</Cmd>
+
+用舊安裝的套件管理工具移除它（`npm uninstall -g tmux-team` 或 `pnpm remove -g tmux-team`），並使用你有權寫入的 prefix，不要用 `sudo`。
+
+<Mdx.h4 id="skills-conflict-with-files-tmt-didn-t-write">Skill 與不是由 tmt 寫入的檔案衝突</Mdx.h4>
+
+先查看目標檔案。`tmt install claude --force` 會先在 skill 資料夾外建立備份，印出備份位置，再取代它。變更 skill 或 setup 後，重新啟動 agent 的 session，讓它讀取新內容。
+
+<Mdx.h4 id="a-sandboxed-agent-can-t-reach-tmt-s-data-or-tmux">
+  沙箱裡的 agent 無法存取 tmt 資料或 tmux
+</Mdx.h4>
+
+<Callout title="兩種錯誤，同一個原因。">
+  agent 沙箱可能阻擋資料目錄與 tmux socket。`STORAGE_NOT_WRITABLE` 會指出 tmt
+  無法寫入的目錄，`TMUX_PERMISSION_DENIED` 則表示 tmux socket 被阻擋。
+</Callout>
+
+允許存取該目錄或 socket，或讓 agent 透過 provider 自己的權限提升機制執行同一個指令。資料目錄缺少擁有者寫入權限時，tmt 只會回報，不會修復。不要刪除 tmt 資料或變更 tmux 的辨識資訊來繞過錯誤。如果錯誤訊息明確說沒有儲存任何內容，就可以安全地重試同一個 `tmt reply`；請保留原本的 request ID、receipt 與回覆內容。Codex 的設定請看[Codex 沙箱](/drivers/codex#codex-s-sandbox)。
+
+<Mdx.h4 id="a-request-didn-t-finish">請求沒有完成</Mdx.h4>
+
+- `TIMEOUT` 只會結束你的等待。之後用 `tmt result` 取回回覆；請看[`tmt talk` 與 `tmt reply`](/working#tmt-talk-and-tmt-reply)。
+- `DELIVERY_UNCERTAIN` 表示文字可能已經送到窗格。先用 `tmt check` 查看，再決定怎麼處理；請看[傳送細節](/working#delivery-details)。
+- `DELIVERY_AWAITING_APPROVAL` 表示 agent 正在等使用者回應，所以沒有送出訊息，請求仍在佇列裡。等 agent 繼續後再重試，不要直接在它的窗格輸入來繞過等待；請看[傳送細節](/working#delivery-details)。
+- `CHANNEL_NOT_READY`、`CHANNEL_UNREACHABLE` 和 `CHANNEL_ENROLLMENT_ENDED` 來自 Claude 的[訊息通道](/drivers/claude-code#message-channel)：沒有送出，也沒有貼上任何訊息。

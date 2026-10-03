@@ -8,6 +8,7 @@ RUN pnpm office:install \
   && test ! -e node_modules/better-sqlite3 \
   && test ! -e /node_modules \
   && test ! -e /workspace/rust/target/debug/tmt
+COPY typescript/scripts/lint-config.mjs typescript/scripts/lint-config.d.mts /workspace/typescript/scripts/
 COPY extensions/tmt-office/typescript/apps/office /workspace/extensions/tmt-office/typescript/apps/office
 COPY extensions/tmt-office/contracts /workspace/extensions/tmt-office/contracts
 CMD ["sh", "-c", "pnpm office:check && pnpm office:test && pnpm office:build"]

@@ -83,6 +83,36 @@ pub fn open(link: &str, opener: Option<&[String]>) -> Result<(), String> {
     spawn(&argv)
 }
 
+/// Resolve symlinks and reveal absolute paths; never open agent-written files.
+pub fn reveal_file(path: &str, opener: Option<&[String]>) -> Result<(), String> {
+    spawn(&reveal_argv(path, opener)?)
+}
+
+fn reveal_argv(path: &str, opener: Option<&[String]>) -> Result<Vec<String>, String> {
+    if !path.starts_with('/') || path.chars().any(char::is_control) {
+        return Err("Only absolute local paths reveal.".into());
+    }
+    let path =
+        std::fs::canonicalize(path).map_err(|error| format!("Cannot reveal {path}: {error}"))?;
+    if opener.is_none() && cfg!(target_os = "macos") {
+        return Ok(vec![
+            "open".into(),
+            "-R".into(),
+            path.to_string_lossy().into_owned(),
+        ]);
+    }
+    let mut argv = opener
+        .map(<[String]>::to_vec)
+        .unwrap_or_else(|| vec!["xdg-open".into()]);
+    argv.push(
+        path.parent()
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .into_owned(),
+    );
+    Ok(argv)
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Copied {
     Program,
@@ -279,6 +309,26 @@ mod tests {
             Some("https://d")
         );
         assert_eq!(default_link(&json!({"fields": {}})), None);
+    }
+
+    #[test]
+    fn file_reveal_resolves_symlinks_and_never_gives_the_file_to_a_configured_opener() {
+        let dir = std::env::temp_dir().join(format!("tmt-squad-reveal-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("agent.command");
+        let link = dir.join("link");
+        std::fs::write(&file, "agent-written content").unwrap();
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        let argv = reveal_argv(link.to_str().unwrap(), Some(&["record".into()])).unwrap();
+        assert_eq!(
+            argv,
+            vec![
+                "record".to_owned(),
+                dir.canonicalize().unwrap().to_string_lossy().into_owned()
+            ]
+        );
+        assert!(reveal_argv("./agent.command", None).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

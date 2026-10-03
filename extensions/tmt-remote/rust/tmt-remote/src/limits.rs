@@ -14,7 +14,7 @@ pub const METADATA_BYTES: usize = 8 * 1024;
 pub const CORE_INPUT_BYTES: usize = 16 * 1024 * 1024;
 /// Largest request body any handler may admit: the base64 envelope bound for
 /// the largest accepted core input.
-pub const BODY_BYTES: usize = 4 * (CORE_INPUT_BYTES + METADATA_BYTES).div_ceil(3) + METADATA_BYTES;
+pub const BODY_BYTES: usize = 4 * CORE_INPUT_BYTES.div_ceil(3) + METADATA_BYTES;
 /// Request body bytes all workers may hold at once before authentication;
 /// fits one maximum body while bounding total door memory.
 pub const IN_FLIGHT_BODY_BYTES: usize = 32 * 1024 * 1024;

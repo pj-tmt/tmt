@@ -311,6 +311,22 @@ the resulting statements and transition. A request cannot supply an unverified
 baseline to be signed. The browser verifies returned owner-signed statements
 through the usual log admission; a transport success alone is not a new head.
 
+The root-local engine exposes `OwnerRequest` / `OwnerAction` through
+`Engine::apply`. An admitted management caller supplies an optional exact
+transport digest and `RequestScope {initiating_page, affected_pages}`. Scope IDs
+are sorted/unique and the initiating page belongs to the affected set. Scoped
+member removal/role changes and link removal/Reset match the target's stored page
+assignment during planning and the in-transaction recheck. Page actions bind a
+singleton page set. An absent scope is reserved for root-local composition.
+The replay digest purpose-separates normalized action, scope and transport bytes;
+an exact replay returns the original outcome and signed head, and conflicting
+bytes/scope return `CONFLICT`. A fresh scope mismatch returns `STALE_HEAD`.
+With neither transport nor scope, existing root-local digests remain unchanged.
+The runner prerequisite implements member/link/device/epoch dispatch; its reserved
+page-policy actions return `UNAVAILABLE` until the #1160 policy slice lands.
+This API is not transport admission. The caller serializes through sync first,
+then Registration; no request-carried field grants signing authority.
+
 On cloud backends membership, sharing, rotation and other root-signed changes
 require the owner's machine online. The cloud service never holds the root key
 or signs in its place. An offline management request remains unavailable; it
@@ -455,6 +471,57 @@ nor tunnel effects. Rename is validated and acknowledged without local
 presentation state. Other reserved paths reject; remote refuses the `/.tmt`
 subtree beneath browser mounts. There is no browser revocation route.
 
+### Implemented mounted browser assets (#1253)
+
+The local-build foreground executable loads the app's Vite output at startup.
+Its default path is the compile-time crate directory plus
+`../../typescript/app/dist`, canonicalized at startup. Optional
+`serve --app-dir <absolute directory>` replaces that selection. An invalid
+explicit directory MUST fail with `COLAB_APP_UNAVAILABLE` before Colab state is
+created. A missing, unsafe or incomplete default MUST still start the service,
+with an owner placeholder carrying the one-line instruction
+`build the app: corepack pnpm --dir typescript --filter @tmt/colab-app build`.
+The binary remains excluded from release; there is no installer or data-root copy.
+
+The immutable startup inventory MUST admit only nonempty regular files through
+no-follow directory-anchored opens, at most 128 files and 16 MiB total. It contains
+`index.html`, optional `THIRD-PARTY-NOTICES.txt` and flat generated `assets/` files;
+unknown output, symlinks and missing HTML entry references reject the inventory.
+JavaScript and CSS are required. Supported asset suffixes are `html`, `js`, `css`,
+`woff2`, `woff`, `ttf`, `otf`, `png`, `jpg`, `jpeg`, `svg`, `webp`, `ico` and `txt`.
+Fonts use their `font/<suffix>` media type; JS/CSS/HTML/notices use UTF-8 text
+media types. Assets MUST be exact startup bytes, including after files change or
+are removed; adopting a rebuilt app requires restarting serve.
+
+After existing API/event/upgrade dispatch, owner-context GET `/` and `/index.html`
+MUST return the built HTML; GET of an inventory key MUST return its bytes and
+content type. Asset access MUST NOT require Colab registration, since the app
+performs that registration. Anonymous root GET retains private-space guidance;
+other asset requests without owner context return 403. Unknown paths and owner
+non-GET static requests return 404. Invalid context is rejected by the existing
+HTTP admission. Dot path segments, backslashes, doubled leading slashes, percent
+encodings, queries and fragments MUST reject with 400. No request path is
+normalized, joined to a filesystem directory or given a SPA fallback. Existing
+API routes and registered-owner `/sync` admission/transport are unchanged.
+
+Vite output MUST use relative URLs beneath `/r/<prefix>/x/colab/`, with no
+third-party requests. The current app declares installed/system font fallbacks;
+no external font service is used. The app response CSP is exactly:
+
+```text
+default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'
+```
+
+Inline script/style permissions preserve the existing opaque srcdoc renderer's
+inherited policy. Its own stricter renderer CSP and unconditional sandbox remain
+required; parent permission does not grant renderer network or app-storage access.
+This `unsafe-inline` allowance also loosens the trusted app policy; #1334 tracks
+moving the renderer into its own document so that policy can drop the allowance
+before relayed or cloud access.
+App/static responses retain `Cache-Control: no-store`, `Referrer-Policy:
+no-referrer` and `X-Content-Type-Options: nosniff`. Non-app responses retain the
+existing restrictive placeholder/API policy.
+
 ## Page state, roles and epochs
 
 Each device has one signed append stream per `(space, page, epoch)`. Sequences
@@ -499,6 +566,25 @@ writer's thread is an attributed action in the editor's own stream, not a write
 into the other writer's document. Conflicting resolution projections MUST use
 verified log revision, then stream sequence and bytewise writer ID as the stable
 tie-break order; they never authorize sends.
+
+### Implemented raw own fold (#1264)
+
+The owner-browser reader decrypts admitted own updates and checkpoints and folds
+them into one document per authenticated writer in the page's single Worker.
+The native isolated decoder and browser validate the exhaustive four map roots,
+plain JSON values, absence of materialized list/shared-type mutations and resolved
+dependencies. A present message `body` MUST be a string of at most 16 KiB UTF-8.
+The 1,000-thread page limit sums map entries across writers, including retained
+tombstone values; equal record keys in different writer documents count separately.
+Both page folds enforce this limit before returning a view.
+
+This is bounded raw-state admission. Exact thread/message/intent/reply field
+schemas, tombstone interpretation and resolution projection remain deferred.
+Raw references, signatures and operation IDs confer no authority or effect.
+No comment UI, own writer API, Send execution or arbitrary core-result read is
+implemented by this fold. The trusted binding returns detached writer-keyed raw
+maps; renderer source remains content-only and the UI states that own data is not
+displayed. The owner-browser author-policy subset remains unchanged.
 
 ### Current-view baseline and history modes
 
@@ -699,6 +785,16 @@ page. The retained hostile corpus uses a one-second per-case deadline and
 must prove termination/backpressure at those production bounds. #830 established
 process-time containment, not macOS memory containment. Its fixture budgets
 MUST NOT be advertised as measured production limits.
+Semantic tests that do not measure timeout behavior MUST inject a larger bounded
+invocation/readiness budget through the decoder configuration, including callers
+that fold content or produce baselines. Production constructors MUST retain the
+defaults below. Timeout tests MUST retain the production deadline and use a
+controlled blocking child with a readiness signal rather than successful-work
+wall-clock headroom. Output-limit tests MUST distinguish output exhaustion from
+timeout. Successful reuse controls may use the semantic-test budget but MUST
+reuse the same runner without clearing its cleanup fence. The archived hostile
+corpus retains its separate per-case/suite budgets and diagnostic requirements.
+
 Keep the hostile corpus and timeout/cleanup/failure-propagation gates. Minimized
 reproducers should be checked against upstream fixes before submission to yrs;
 this contract does not authorize external reporting by itself.
@@ -722,6 +818,34 @@ tail from `n+1` in both namespaces for chain verification and exact retries.
 Never delete another namespace's payload solely because its sequence falls in
 the prefix. A failed partner publication leaves the prior pair and updates
 intact; this rule needs no new ledger or checkpoint schema.
+
+For browser bootstrap, every observed namespace checkpoint for an author stream
+MUST agree on one prefix sequence n and signed update head hash(n). Deliver all
+checkpoints before the retained tail; that tail MUST be contiguous from n+1
+across both namespaces. Receipt
+ledgers support retries, not browser authority; no additional ledger proof or
+signature scheme is required. Checkpoint plaintext is raw merged update-v1 bytes.
+The browser MUST bound each checkpoint and their aggregate catchup plaintext by
+the existing 4 MiB Worker state budget, independently of the retained tail's
+200-update/256 KiB budget. Apply checkpoints as single-item Worker steps before
+the tail. Those unpublished steps may retain cross-writer pending dependencies;
+the final tail step MUST resolve them and validate complete content before
+publishing any view. The existing 2 MiB source projection cap remains in force.
+Both namespaces count toward the aggregate checkpoint and tail plaintext budgets.
+The Worker MUST also bound total encoded content plus all own documents, including
+pending structs/delete sets, and the serialized combined projection to 4 MiB each.
+Pending fragments MUST survive candidate cloning; final catchup validates every
+document before publication. Live content/own candidates commit only after all
+validation succeeds. Failure terminates the Worker and flags the binding; reconnect
+constructs fresh epoch documents. Own plaintext crosses the decoder boundary only
+after the same authenticated scope, writer, chain and signed-cut admission as content.
+The [raw own fold](#implemented-raw-own-fold-1264) defines its bounded projection.
+Historical revoked-device objects MUST predate revocation and remain within the
+exact signed namespace cut; checkpoint replacements require the cut's exact
+envelope hash, and catchup MUST reach every nonempty signed tail endpoint before
+publishing a view. Named-member, link and bridge author policy remains outside
+this owner-browser slice (#1111/#1160).
+
 Crash before deletion retains replay-safe redundant data; concurrent tail
 updates survive. A gone device's stream remains as signed data within quotas.
 There is no cross-writer compaction checkpoint in v1; the epoch baseline above
@@ -1141,10 +1265,35 @@ at most 64 per page. While head/membership `more` is true, later pages carry
 head is the target for this catchup; unknown, missing or above-head revisions
 return `RESYNC_REQUIRED`. Clients independently verify owner signatures, chain,
 root pin and target hash; a client-side fork cannot be detected from the unsigned
-revision alone. Whole statements must fit one 64 KiB frame: pages use at most
-60 KiB of encoded statement data (less on the first page to reserve its baseline
-fields), an individual stored envelope at most 44 KiB;
-oversized statements fail `CAPACITY`, never truncate. Chunked membership statements are deferred to #1285.
+revision alone. A statement entry is either an inline canonical base64url string
+or exactly `{statementHash}`, with a canonical base64url hash32 reference to the
+model membership hash. Envelopes above 32 KiB use references. A referenced
+statement is the only entry on its membership page and is followed immediately
+by scoped server `chunk` frames with exactly `statementHash, index, count, bytes`
+beyond the common fields. Object chunks retain their separate
+`objectId, envelopeHash, index, count, bytes` shape; mixed identities and unknown
+fields reject. The transferred bytes are exact stored statement-envelope JSON,
+not reconstructed payloads or a new raw-JSON hash.
+
+Membership pages contain at most 64 entries and 60 KiB of encoded inline data;
+the first page additionally respects its metadata/baseline wire budget. When the
+first page supplies a `baselineObject` (inline or referenced), inline statements
+may fit that budget, but any statement reference is deferred to the next
+membership page. Baseline chunks, if any, stay consecutive first, so there is
+only one pending assembly.
+
+Statement envelope admission uses the existing model cap:
+`floor((768 KiB + 1 KiB) * 4 / 3) + 2 KiB`, or 1,051,989 bytes and at most 33
+chunks. SQL checks that cap before loading the transfer bytes. Chunk bytes/order,
+consecutive delivery and frame credit follow the object-transfer rules below;
+assembly uses the same absolute two-second deadline. Partial bytes never advance
+or persist the referenced statement. Before admission, clients check strict model
+syntax and payload digest, the reference's model statement hash, pinned owner
+root/space, owner signature, next revision and previous hash. The completed
+membership page must agree with its advertised target head before log persistence
+and dependent chain/wrap/content admission. Invalid/oversized/interrupted transfers
+discard partial bytes without truncating durable statements; payload admission
+remains 768 KiB.
 
 After membership, pages carry `wraps` addressed to this device or its member,
 ordered by numeric epoch, kind, recipient and revision. They include retained
@@ -1153,8 +1302,9 @@ the requested epoch, and are bounded by 512 entries and 60 KiB encoded bytes per
 page. An empty list means no wraps exist. Each stream-object page carries
 `chains:[{deviceId,chain}]` with exact chain transport as canonical base64url for
 its author if not already sent on the connection (at most 64 per page). Retained
-revoked-author chains can be delivered: clients must reject them using the
-verified log before applying objects. A chain never grants current authority.
+revoked-author chains can be delivered: clients MUST enforce the verified log's
+[signed-cut restrictions](#decoder-isolation-compaction-and-limits) on historical
+objects before applying them. A chain never grants current authority.
 
 `baseline` is null or canonical base64url of exact model baseline-descriptor
 JSON, bounded to 8 KiB. Its scope/revision must match the admitted page/epoch and

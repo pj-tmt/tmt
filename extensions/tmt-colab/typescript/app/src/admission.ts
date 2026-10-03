@@ -8,10 +8,22 @@ import {
   requireValue,
   statement,
   payload,
+  streamCut,
+  type Context,
   wrap,
 } from '@tmt/colab-client';
 import { record } from './storage.js';
 import { verifyRegistration, type Registration } from './registration.js';
+
+export const STATEMENT_ENVELOPE_BYTES = Math.floor(((payload.MAX_BYTES + 1024) * 4) / 3) + 2048;
+
+/** Internal completed transfer; wire JSON cannot construct this value. */
+export class StatementTransfer {
+  constructor(
+    readonly bytes: Uint8Array,
+    readonly hash: Uint8Array,
+  ) {}
+}
 
 /** Owner-browser content subset. A transport head/hash is never log authority. */
 export class Admission {
@@ -30,15 +42,34 @@ export class Admission {
   ) {}
   async restore() {
     await verifyRegistration(this.registration, this.space, this.owner);
-    for (const raw of (await record<string[]>(`log:${this.space}`)) ?? []) await this.#next(raw);
+    const stored = (await record<string[]>(`log:${this.space}`)) ?? [];
+    requireValue(Array.isArray(stored) && stored.every((raw) => typeof raw === 'string'));
+    this.#budget(stored);
+    const log: statement.Verified[] = [];
+    let head: statement.Head | null = null;
+    for (const raw of stored) {
+      const entry = await this.#verify(raw, head);
+      log.push(entry.verified);
+      head = entry.verified.head;
+    }
+    this.head = head;
+    this.#log = log;
+    this.#raw = stored;
     this.#authors.set(this.registration.deviceId, this.registration.chain.certificate());
   }
-  async #next(raw: string) {
-    const envelope = statement.Envelope.fromJson(binary(raw, 1024 * 1024)),
-      verified = await envelope.verifyNext(this.space, this.owner, this.head);
-    this.head = verified.head;
-    this.#log.push(verified);
-    this.#raw.push(encodeBinary(envelope.toJson()));
+  async #verify(raw: string | StatementTransfer, head: statement.Head | null) {
+    const bytes =
+        typeof raw === 'string' ? binary(raw, STATEMENT_ENVELOPE_BYTES) : raw.bytes.slice(),
+      hash = typeof raw === 'string' ? null : raw.hash.slice(),
+      envelope = statement.Envelope.fromJson(bytes);
+    if (hash) requireValue(equal(await envelope.hash(), hash));
+    const verified = await envelope.verifyNext(this.space, this.owner, head);
+    return { verified, raw: encodeBinary(bytes) };
+  }
+  #budget(raw: string[]) {
+    requireValue(
+      raw.length <= 4096 && raw.reduce((n, value) => n + value.length, 0) <= 4 * 1024 * 1024,
+    );
   }
   async membership(value: unknown, first: boolean) {
     exactKeys(
@@ -47,6 +78,7 @@ export class Admission {
         ? ['revision', 'statementHash', 'ownerKey', 'statements', 'more']
         : ['statements', 'more'],
     );
+    let target = this.#target;
     if (first) {
       requireValue(
         equal(binary(value.ownerKey, 32, 32), this.owner) && typeof value.revision === 'string',
@@ -55,37 +87,50 @@ export class Admission {
         hash = binary(value.statementHash, 32, 32);
       requireValue(!this.head || revision >= this.head.revision);
       if (this.head?.revision === revision) requireValue(equal(hash, this.head.hash));
-      this.#target = { revision, hash };
+      target = { revision, hash };
     }
     requireValue(
-      this.#target !== null &&
+      target !== null &&
         Array.isArray(value.statements) &&
         value.statements.length <= 64 &&
         typeof value.more === 'boolean',
     );
-    for (const raw of value.statements) {
-      requireValue(typeof raw === 'string');
-      await this.#next(raw);
-    }
-    requireValue(this.head !== null && this.head.revision <= this.#target.revision);
-    if (!value.more)
+    let head = this.head;
+    const log = [...this.#log],
+      raw = [...this.#raw];
+    for (const entry of value.statements) {
       requireValue(
-        this.head.revision === this.#target.revision && equal(this.head.hash, this.#target.hash),
+        typeof entry === 'string' ||
+          (entry instanceof StatementTransfer && value.statements.length === 1),
       );
+      if (typeof entry === 'string') binary(entry, 32 * 1024);
+      const next = await this.#verify(entry, head);
+      head = next.verified.head;
+      log.push(next.verified);
+      raw.push(next.raw);
+    }
+    requireValue(head !== null && head.revision <= target.revision);
     requireValue(
-      this.#raw.length <= 4096 &&
-        this.#raw.reduce((n, raw) => n + raw.length, 0) <= 4 * 1024 * 1024,
+      value.more
+        ? head.revision < target.revision
+        : head.revision === target.revision && equal(head.hash, target.hash),
     );
+    this.#budget(raw);
     await navigator.locks.request(`colab-log:${this.space}`, async () => {
       const previous = await record<string[]>(`log:${this.space}`);
       // Another tab may have advanced. Never replace its higher/forked durable head.
-      if (previous && previous.length > this.#raw.length) {
-        requireValue(this.#raw.every((v, i) => previous[i] === v));
+      if (previous && previous.length > raw.length) {
+        requireValue(raw.every((v, i) => previous[i] === v));
       } else {
-        requireValue(!previous || previous.every((v, i) => this.#raw[i] === v));
-        await record(`log:${this.space}`, this.#raw);
+        requireValue(!previous || previous.every((v, i) => raw[i] === v));
+        await record(`log:${this.space}`, raw);
       }
     });
+    // Publish only after every check and durable transaction completes.
+    this.head = head;
+    this.#log = log;
+    this.#raw = raw;
+    this.#target = target;
   }
   async chains(values: unknown) {
     requireValue(Array.isArray(values) && values.length <= 64 && this.head !== null);
@@ -102,11 +147,7 @@ export class Admission {
           c.issuerId === this.head.ownerMember.id &&
           issuer !== undefined &&
           c.issuedAt <= Date.now() &&
-          c.expiresAt > Date.now() &&
-          !this.#log.some(
-            (v) =>
-              v.payload.operation === 'device.revoke' && v.payload.value.deviceId === c.deviceId,
-          ),
+          c.expiresAt > Date.now(),
       );
       await chain.verify(issuer.head.hash, c, this.head.ownerMember.signingKey);
       const prior = this.#authors.get(c.deviceId);
@@ -163,6 +204,57 @@ export class Admission {
     for (const field of Object.keys(expected) as (keyof payload.Baseline)[])
       requireValue(value[field] === expected[field]);
     return this.head.ownerMember.signingKey.slice();
+  }
+  cuts(device?: string) {
+    return this.#log.flatMap((v) =>
+      v.payload.operation === 'device.revoke' &&
+      (device === undefined || v.payload.value.deviceId === device)
+        ? v.payload.value.cuts
+            .filter((c) => c.pageId === this.page && c.epoch === this.epoch)
+            .map((c) => ({ revision: v.head.revision, cut: streamCut.decode(binary(c.cut, 1024)) }))
+        : [],
+    );
+  }
+  readAuthor(context: Context, envelopeHash: Uint8Array): Uint8Array {
+    const revision = decimal(context.membershipRevision);
+    const c = this.#authors.get(context.authorDevice);
+    if (!this.head || revision > this.head.revision || !c)
+      throw new Error('Fresh membership catchup required');
+    requireValue(
+      c.issuerKind === 'member' &&
+        c.issuerId === this.head.ownerMember.id &&
+        decimal(c.membershipRevision) <= revision &&
+        c.issuedAt <= Date.now() &&
+        c.expiresAt > Date.now(),
+    );
+    for (const statement of this.#log) {
+      if (
+        statement.payload.operation !== 'device.revoke' ||
+        statement.payload.value.deviceId !== context.authorDevice
+      )
+        continue;
+      requireValue(revision < statement.head.revision);
+      const wrapped = statement.payload.value.cuts.find(
+        (c) =>
+          c.pageId === this.page &&
+          c.epoch === this.epoch &&
+          c.namespace === context.namespace &&
+          streamCut.decode(binary(c.cut, 1024)).streamId === context.authorDevice,
+      );
+      requireValue(wrapped !== undefined);
+      const cut = streamCut.decode(binary(wrapped.cut, 1024)),
+        seq = decimal(context.streamSeq);
+      requireValue(seq <= decimal(cut.tailHeadSeq, true));
+      if (context.kind === 'checkpoint')
+        requireValue(
+          context.streamSeq === cut.checkpointSeq &&
+            cut.checkpointHash !== null &&
+            equal(cut.checkpointHash, envelopeHash),
+        );
+      else if (context.streamSeq === cut.tailHeadSeq)
+        requireValue(equal(envelopeHash, cut.tailHeadHash));
+    }
+    return c.signingKey.slice();
   }
   author(device: string, revision: string): Uint8Array {
     const c = this.#authors.get(device);

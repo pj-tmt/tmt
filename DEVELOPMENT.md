@@ -240,6 +240,16 @@ override so those Markdown files are checked separately. The single target lists
 live in `typescript/scripts/format-workspace.mjs`; both write and check modes expand
 parent-relative globs to absolute paths there and fail if any pattern matches nothing.
 Keep these script names and separate selections when changing formatting.
+Workspace lint commands use exact Vite+ 1.0.0 (bundled Oxlint 1.85.0), explicitly
+selecting each package's existing Vite/Vitest config. Their `lint` blocks load
+`typescript/scripts/lint-config.mjs`; keep file arguments and plugin flags with the package
+scripts. Office's isolated verification images copy this module and its type declaration
+alongside the package configuration. Tooling warnings remain visible without failing the command; extension
+checks retain `--deny-warnings`, and Office/Colab apps retain `--react-plugin`.
+The shared config individually disables three new React diagnostic classes pending
+[owner disposition](https://github.com/pj-tmt/tmt/issues/1405); the other new defaults
+remain enabled. Existing `tsc` checks and Functions' emitting compiler remain separate.
+Type-aware checking is a [separate decision](https://github.com/pj-tmt/tmt/issues/1404).
 Root tooling, native, stress, Docker and extension suites run through exact
 Vite+ 1.0.0 with bundled Vitest 5.0.1. Their separate configurations retain their
 own test discovery and are selected explicitly with `--config`. Use
@@ -637,12 +647,14 @@ A chapter opens with one such scene from `site/src/chapter-scenes/` (the working
 chapter's mark legend, the sketches on the in-progress colab and planned meet pages); its words are in `site/src/lang/strings.ts` like the home page's.
 `index.html` also asks Google Fonts for the token mono family's glyphs of the marks (`●○◌◆✗✓↻▸`), because the
 latin subset has none; the family lacks `○✗✓↻`, which fall back to the system monospace font.
-Every page exists in English at its path and under `/ja/` and `/zh/`. A translation is
+Every page exists in English at its path and under `/ja/` and `/zh-hant/`. A translation is
 `site/src/i18n/<lang>/<chapter file>.mdx`, named like the English chapter in `site/src/chapters/` and
 exporting its front matter as `frontmatter` (`title` is the page title). A page without a file shows the
-English page with a "not yet translated" note. The language switcher in the status bar (and in the `[tmt]`
+English page with a "not yet translated" note. The language dropdown in the status bar (and in the `[tmt]`
 menu on a narrow screen) keeps the page, remembers the choice in the browser and sets `<html lang>`
-(`zh` is `zh-Hant`). `scripts/spa-routes.mjs` writes each language's route files with their `<html lang>`
+(`zh-hant` is `zh-Hant`). Published `/zh/` routes redirect to `/zh-hant/`, preserving the
+page, query and anchor; the earlier browser preference `zh` also selects `zh-hant`.
+`scripts/spa-routes.mjs` writes each language's route files with their `<html lang>`
 and `hreflang` alternates; `SITE_ORIGIN` makes the alternates fully qualified, and
 `.github/workflows/site.yml` sets it to the Pages origin next to the default `/tmt/` base path.
 The words of the site's own components (home page, status bar, notes around a page) are typed data in
@@ -666,7 +678,7 @@ SITE_BASE=./ VITE_SITE_HISTORY=hash pnpm exec vp build   # a preview at an unkno
 ### Translations
 
 English is the source. A translation of `site/src/chapters/<page>.mdx` is
-`site/src/i18n/<lang>/<page>.mdx` (`ja`, `zh`) and starts with front matter:
+`site/src/i18n/<lang>/<page>.mdx` (`ja`, `zh-hant`) and starts with front matter:
 
 ```yaml
 ---
@@ -708,7 +720,7 @@ Translators keep these in English everywhere: command names, flags and ids, the
 words `talk`, `reply` and `receipt`, the board marks (● ○ ◌ ◆ ✗ ✓ ↻ ▸), sample
 terminal output and code. A translated heading keeps the English slug as an explicit
 id (`<h3 id="install">安裝</h3>`), because links, the home page and the on-this-page
-list use it and `slug()` drops non-Latin text. Chinese (`zh`) is Traditional Chinese
+list use it and `slug()` drops non-Latin text. Chinese (`zh-hant`) is Traditional Chinese
 with Taiwan usage; it also keeps `agent`, `driver`, `harness`, `board`, `colab` and
 `meet`, and uses 窗格 for pane, 終端機 for terminal, 擴充套件 for extension, 卡住 for blocked and
 恢復 for resume.
@@ -1076,6 +1088,27 @@ only `--version`; these tests never start Codex or a model. Shared informational
 preflight behavior is checked with
 `cargo test --locked -p tmt-cli run_command::channel`.
 
+For fresh Codex bootstrap (#1198), run focused model-free checks:
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters drivers::codex::supervisor`,
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters drivers::codex::channel_hooks`,
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters drivers::codex::record`,
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters drivers::codex::server`, and
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli --bin tmt run_command::channel`.
+They cover empty fresh baseline, one-time thread discovery, deferred publication,
+eager same-generation hooks, immediate unrelated-generation/auxiliary paths,
+immutable binding, callback failure and evidence-preserving group cleanup.
+Activity mapping tests cover exact fresh/resume foreground attribution, prompt
+Working and Stop Idle, rejection of missing/malformed/replaced/Unknown evidence,
+and the byte-identical default observed incarnation for Claude/plain hooks.
+The TERM-ignoring child test checks group SIGKILL and verified reaping without
+orphan zombies. Run `CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli --test architecture`
+for the shared admission and hook-composition boundaries. Also run
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli private_hook_worker_budget` and
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli budget_tests` for typed relative
+budget bounds, malformed arguments and the unchanged default two-second worker.
+These checks do not
+invoke a provider/model or replace the built-driver eager-TUI and Idle proof.
+
 The adapter `process::cleanup_policy_tests` must pass under both `cargo test` and
 nextest: isolated re-exec cases prove timeout cleanup regardless of whether the
 test runner makes its harness a process-group leader.
@@ -1355,6 +1388,13 @@ TMT_TEST_STORAGE_PROBE='{"executable":"/absolute/checkout/rust/target/debug/exam
   pnpm test:native
 ```
 
+Native process and archive fixtures need both the CLI and Herdr executable. When
+narrowing Cargo package selection, build them together with
+`cargo build --locked -p tmt-cli -p tmt-driver-herdr --bins`. CI release fixtures
+build both packages; the shared raw-runtime artifact carries both executables,
+and tooling restores executable mode after download. Drivers are independent
+release components, outside the `tmt extension` inventory.
+
 Squad context fixtures separate successful core-invocation evidence from deadline
 termination. Cold/fresh reads and a promptly returning stale-context sentinel
 assert the cache-only gate independently. Timeout scenarios establish a gated
@@ -1411,8 +1451,8 @@ TMT_TEST_HERDR=/tmp/hdrbin/herdr TMT_TEST_PREVIOUS_TMT="$(cd ../tmt-previous && 
   pnpm exec vp test run --config test/native/vitest.config.ts test/native/herdr.test.ts
 ```
 
-The Herdr host driver (the `tmt-driver-herdr` library, whose executable is a
-`tmt-cli` bin shipped in the CLI archive) has its own executable test, which
+The Herdr host driver (the independently versioned `tmt-driver-herdr` package,
+with one thin binary also carried in the CLI archive through its first standalone release) has its own executable test, which
 uses the same pinned binary. It runs the protocol
 conformance harness and every declared operation against a private server and
 HOME, and fails if a server process remains. Its prompt case runs a
@@ -1421,7 +1461,7 @@ shell-script stand-in named `claude` in a pane, never a real agent. Without
 
 ```bash
 (cd rust && cargo test --locked -p tmt-driver-herdr)
-(cd rust && TMT_TEST_HERDR=/tmp/hdrbin/herdr cargo test --locked -p tmt-cli --test herdr_driver)
+(cd rust && TMT_TEST_HERDR=/tmp/hdrbin/herdr cargo test --locked -p tmt-driver-herdr --test herdr_driver)
 (cd rust && cargo clippy --locked -p tmt-driver-herdr -p tmt-cli --all-targets -- -D warnings)
 (cd rust && cargo test --locked -p tmt-adapters --lib host::external)
 (cd rust && cargo test --locked -p tmt-cli --test architecture)
@@ -1435,7 +1475,7 @@ above, since the host harness also asks every runtime operation:
 
 ```bash
 (cd rust && cargo test --locked -p tmt-driver-protocol)
-(cd rust && cargo test --locked -p tmt-cli --test herdr_driver)
+(cd rust && cargo test --locked -p tmt-driver-herdr --test herdr_driver)
 (cd rust && cargo test --locked -p tmt-adapters --lib host::external)
 ```
 
@@ -1633,7 +1673,9 @@ fallback. It observes rooms and metadata through an independent SQLite reader.
 A workspace `cargo build --locked` produces the default executable. Squad unit
 tests run with `cargo test --locked -p tmt-squad`. For dependency changes,
 compare `cargo tree -p tmt-cli -e normal,build -f '{p} {f}'` with `main` and the
-package-scoped release `tmt` (see Rust checks) to prove the CLI is unchanged.
+package-scoped release `tmt` (see Rust checks) to prove the CLI is unchanged. Notebook link checks cover wrapped Unicode
+hits, target previews, configured overrides, inert unknown schemes, argv isolation
+and sender/member/open-request revalidation. Parsing and paint must perform no actions.
 
 Native Squad tests verify leadership selection and clearing without membership
 or role loss, repeated additions without overwriting state, and explicit recovery
@@ -1646,6 +1688,12 @@ Tab parity is checked by `built_in_board_documents_equal_ls_tab_documents` and
 and `ls --tab` must have identical projected documents and row-grid metadata,
 including hidden squads/tabs, source section deduplication, repeated user section
 matches, cross-squad memberships, and partial-read failure/recovery evidence.
+`board::home::tests` verifies the board-only retained model against that same
+aggregate document and text, shared section matches, per-squad membership
+counts, request/observed age provenance, bounded acquisition calls and partial
+failure recovery. The model does not change painting; frozen board parity stays
+unchanged. Use an isolated `XDG_CACHE_HOME` when testing board observation.
+
 User tab validation happens during Config reading, including hidden definitions. `--tab` conflicts
 with `--squad` and `--refresh-fields`; aggregate reads do not run providers.
 
@@ -1675,6 +1723,15 @@ measurements are local evidence, not a flaky CI threshold.
 
 Setup planning/publication tests use disposable settings files and preserve user
 hook/permission bytes, exact reruns, recovery copies and changed-input refusal.
+Claude cases cover unset/empty, absolute and relative `CLAUDE_CONFIG_DIR` roots
+across settings, skills, detection and transcript admission. Symlinked settings
+(including dangling links and replacement after planning) are preserved along
+with their target, with actionable human/JSON refusal. Backup tests independently
+compare exact bytes and private directory/file modes, preserve legacy copies,
+and prove publication continues with a directory/manual-cleanup warning above
+32 backups in `.tmt-setup-backups`. Unknown Claude `SessionEnd` reasons yield
+no lifecycle observation, with a known terminal reason as the positive control;
+rejection is not process-exit evidence.
 `test/native/setup.test.ts` owns CLI consent, stable-launcher repair/removal and
 the always-zero bounded hook failure contract, including custom `CODEX_HOME`
 without trust/config mutation. Runtime adapter tests own Claude/Codex payload
@@ -1843,14 +1900,34 @@ not publication authorization. Ordinary changes use the focused checks above.
 The runtime smoke matrix remains part of native PR verification; raw executables
 are not proof of release archives or public installation.
 
+### Packed verifier process cleanup
+
+For changes to `typescript/scripts/packed-command.mjs`, run its process fixtures
+and the release-note consumer that exercises rapid Git subprocess teardown:
+
+```bash
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/packed-command.test.ts test/tooling/release-pr-safety.test.ts)
+(cd typescript && corepack pnpm check:tooling)
+```
+
+The pinned release-please install described above is required by the consumer.
+The fixtures cover exact output and diagnostics, timeout descendant cleanup,
+closed-child EPERM with independently observed group absence, and live or
+uninspectable groups. Keep the negative controls and the original subprocess
+deadlines. The [release boundary](ARCHITECTURE.md#release-boundary) owns the
+termination contract. These synthetic processes do not replace matching-host
+archive, installer or bootstrap acceptance when those artifacts change.
+
 ### Native Rust release archives
 
 #### Explicit multi-platform release preparation
 
 `Native release artifacts` (`.github/workflows/native-release.yml`) is the per-product
-release run, dispatched with an explicit `cli` or `squad` product, not part of
-every PR. Office is frozen: its component is parked and neither preparation nor draft
-publication accepts it; existing releases remain untouched. It has two modes. The default `prepare` builds and verifies one bundle from the
+release run, with explicit product routing, not part of every PR. It currently
+accepts `cli` and `squad`. Office is frozen and Herdr awaits the release cut
+(#1399): parked components allow neither preparation nor draft publication;
+existing releases remain untouched. The [Herdr archive section](#herdr-driver-archives)
+owns its activation flags and retained CLI companion. It has two modes. The default `prepare` builds and verifies one bundle from the
 current main commit without a draft release and attaches nothing: dispatch each authorized
 product on the release's reviewed, required-checks-green main commit and record the
 product, run ID and exact SHA in its issue. With `prepare` off, the run plans the
@@ -1965,10 +2042,12 @@ unchanged; only after all gates pass is it removed, followed by normal publicati
 attestation and public-install smoke checks. The
 [release skill](.agents/skills/tmt-release/SKILL.md#automated-alpha-publication) owns rerun authorization.
 
-Rerun uses the main commit selected by the dispatch for verifier scripts and their
-locked dependencies. Archives, manifest, version and digests come from the draft;
-CLI expected skill bytes and migration counts come from a separate read-only checkout
-of its release SHA (`release-source`). No scripts from that checkout run in rerun.
+Rerun uses the main commit selected by the dispatch for Node verifier scripts and
+their locked dependencies. Archives, manifest, version and digests come from the
+draft; CLI expected skill bytes, migration counts and applicable Rust adapter
+acceptance code come from a separate checkout of its release SHA (`release-source`).
+The read-only proof job compiles that source's adapter test with its own locked
+dependencies and toolchain pin; release-source Node verifier scripts do not run.
 Ordinary upgrade proof retains release-commit tooling. This separates repaired tooling
 from the unchanged candidate under test without rebuilding or replacing its assets.
 
@@ -2002,9 +2081,9 @@ retried for about two minutes. A failed check opens an issue and fails the run; 
 rolled back, because a published release is immutable and a repair needs a new reviewed
 version. A `smoke` job then installs the published release as a user does
 (`.github/workflows/native-release-smoke.yml`, also run by hand with `product` and `tag`, for
-the newest published release of the product only: it installs what the public entry points serve
-now, so any other tag fails its first check and a failed run reports on the issue like any
-other). On the four hosts of the upgrade proof, in an isolated home, state directory
+the newest published CLI/extension release or an exact published driver tag: CLI and
+extension acquisition uses current public entry points, while a driver uses its versioned
+archive URLs. A failed run reports on the issue like any other). On the four hosts of the upgrade proof, in an isolated home, state directory
 and prefix and with no token, a CLI alpha goes through the public
 `releases/latest/download/install.sh`: the installer names the tag's version, the installed `tmt`
 is the one PATH selects and reports that version, the installed shared skills are the tag's
@@ -2012,7 +2091,13 @@ is the one PATH selects and reports that version, the installed shared skills ar
 metadata and reports the installation current (a newer alpha that appeared since passes with a
 note). An extension alpha is installed by the newest published CLI's `tmt extension install
 <extension>` into a separate prefix; `tmt extension list` must report the tag's version and no
-CLI link may appear. The tag is
+CLI link may appear. A Herdr driver alpha downloads its exact tag’s
+`dist-manifest.json` and matching standalone archive through public versioned URLs,
+checks the bounded manifest, digest and inventory, then uses the current public CLI’s
+supported `driver install <extracted-path> --yes --json` and `driver ls` surfaces
+to verify capabilities and durable approval. Its CLI metadata check reuses the
+classified retry below; bare asset HTTP failures do not retry. Named released-driver
+acquisition belongs to #1084. The tag is
 checked out only so its skills can be read; none of its code runs. All smoke acquisition stays
 unauthenticated. Only a native JSON failure with the classified `GitHub API rate limit:
 reset/earliest retry time ...` cause may retry its failed acquisition step: at most two
@@ -2029,6 +2114,61 @@ The smoke job has a 25-minute bound. Infrastructure-only failures open a separat
 broken release. Mixed or real failures retain the post-publication failure issue. Both
 conclusions fail the job and retain artifacts from all four hosts. Missing or malformed
 host evidence cannot establish an infrastructure-only failure; nothing is silently accepted.
+The host artifacts are qualified by product, tag and target and retain the classified
+diagnostic and its parsed UTC reset epoch. The smoke report's shared `smokeFailureOutcome`
+output schedules only an infrastructure-only failure through a dedicated `actions: write`
+dispatch job. It explicitly POSTs `native-release-smoke-retry.yml` on main with the source
+run ID/attempt, product, tag and affected targets: `workflow_dispatch` is exempt from
+`GITHUB_TOKEN` event suppression, while completion-triggered `workflow_run` is unreliable
+for automatically dispatched native runs. Reusable callers propagate this capability;
+install and issue-report jobs do not request it.
+`public-install-retry.mjs` requires four distinct matching-host results per tag, validates
+the exact diagnostic through the smoke owner's parser, and selects only the classified
+failed acquisition targets. Unclassified hosts are never retried. Missing timing,
+inconsistent evidence or a reset more than 60 minutes away keeps the original failure.
+The retry planner verifies the source through REST: the current attempt of a same-repository
+main `workflow_dispatch` run of `native-release.yml` or standalone `native-release-smoke.yml`,
+with four matching concluded target jobs and product/tag-qualified artifact conclusions.
+Requested targets must each be classified and reset-eligible; only those targets are retried,
+while unrequested host failures retain their original conclusions. Dispatch inputs cannot
+fabricate a recovered host, select healthy targets or recursively retry a retry run.
+Host artifacts record their run attempt; artifacts from an earlier attempt cannot
+prove the current one. A partial manual rerun without four current-attempt results
+retains the issue and does not schedule recovery.
+
+One Linux job waits until the last selected reset plus one second, bounded at 60 minutes;
+each selected target then repeats the public install on its matching host with `--retry`,
+which allows one acquisition attempt without another rate-limit retry. Source and retry
+install jobs share `.github/actions/public-install-smoke`: it owns the tag data
+checkout, Node setup and verifier invocation, including any host architecture wrapper.
+For Herdr, that shared action also installs archive-verification dependencies.
+Only its `current public CLI` classified acquisition failure is retryable; standalone
+archive HTTP failures and mixed failures retain their original failure conclusions.
+Fixtures require the source matrix's target/runner pairs to equal the retry planner's `TARGETS`.
+The source dispatch finishes promptly; the long wait runs solely in the independent workflow, whose
+source-run/attempt/product/tag `public-install-retry-...` group never holds `release-<product>`
+and cannot block the next release. Only the planner has `actions: read` to verify the source
+run/jobs and download its artifacts;
+install legs have `contents: read`, no token on the acquisition path, and tag checkouts
+read solely as data. A separate `issues: write` reporter reconciles retry evidence with
+all original hosts. Full recovery comments on and closes the infrastructure issue,
+naming both runs; repeated classified failures, real failures and missing retry evidence
+retain failure reporting. Real post-publication issues are never closed by this retry.
+Recovery also leaves an infrastructure issue open when its latest reporter-owned
+failure names a different run. Shared hosted-runner quota can be exhausted again
+after the reset; that result stays failed.
+Original failed jobs remain failed, and a failed retry also fails its run. A newer release
+appearing during the wait can still fail the existing latest-installer/version checks;
+the retry does not relax them or rerun publication.
+
+Fixture-only checks for smoke and deferred reset recovery (no live install or dispatch):
+
+```bash
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/verify-public-install.test.ts test/tooling/public-install-retry.test.ts test/tooling/release-publish.test.ts test/tooling/release-workflow.test.ts)
+(cd typescript && corepack pnpm check:tooling)
+actionlint .github/workflows/native-release-smoke.yml .github/workflows/native-release-smoke-retry.yml .github/workflows/native-release-bundle.yml
+```
+
 A failed leg keeps its failed checks as data, and a final job
 with `issues: write` comments on, or opens, the issue of the checks above; nothing is rolled
 back. Both `publish` and `published` run `main`'s code and never the release commit's: `publish`
@@ -2091,7 +2231,14 @@ with `tmt extension install <extension>` and read back with `tmt extension ls`
 (`verify-native-extension-upgrade.mjs`): the version changes, the previous release stays on
 disk, a repeat is a no-op, a downgrade is refused and no CLI link is created. Extensions
 have no install command of their own under `tmt <extension>`; the proof must use the surface
-a user's install runs. The first release of a product has nothing to upgrade from and says
+a user's install runs. A `driver-herdr` release uses
+`verify-native-driver-upgrade.mjs` with both standalone archives and the current
+published CLI: exact capabilities and linkage, previous approval, refused
+replacement without consent, new approval/list digest and version, repeat approval,
+unchanged executable bytes, approval removal and no application SQLite. Path
+approval does not own extension receipts, pinning or downgrade refusal. Those
+checks do not claim the future #1084 named acquisition or PR 2 compatibility gate.
+The first release of a product has nothing to upgrade from and says
 so. A commit that predates these scripts fails the proof with that message; prove it by
 hand as below. A verifier command that fails says, on one line, which command failed, how it
 ended and the first thing it said. A failed host keeps its log as an artifact, and the
@@ -2099,13 +2246,40 @@ ended and the first thing it said. A failed host keeps its log as an artifact, a
 bounded line (it reads the logs as data, because the release commit's own scripts wrote them);
 the `upgrade` hold marker carries that reason with the run URL.
 
-The automated proof does not run `tmt upgrade` or a public installer: the candidate has no
-published release for `tmt upgrade` to find, and production has no test endpoint. By hand,
-in an isolated HOME and prefix, install the previous published version with its own public
-installer. Then run the candidate installer's `__native-install` over that prefix, and run
-the candidate's `tmt upgrade` against a receipt with that version's online
-(`github-release`) provenance. Both must succeed and leave the superseded receipt
-unchanged. Receipts written by older releases stay readable: v5.0.0-alpha.2 through
+For CLI, each `prove` host also runs the real-archive adapter acceptance test after
+the installer/migration proof, using the same digest-checked previous and candidate
+archives. `release-upgrade.mjs acceptance` compiles only `tmt-adapters`' lib tests
+from `rust/` to select its pinned toolchain, with no debug information or
+incremental compilation, then
+requires exactly one discovered and executed passing ignored test. The existing
+read-only `native-rust` dependency cache is restored without another writer. The
+job retains its ten-minute timeout; compile duration and the test's output appear
+in the run summary and proof log. A compiler, discovery or test failure fails the
+upgrade gate. CI uses Cargo's available workers; local developers export
+`CARGO_BUILD_JOBS=2`, which the verifier preserves. Extension proofs do not compile
+or run this CLI test.
+
+The adapter proof injects canonical acquisition responses into the release's
+upgrade adapter and executes real old/new binaries in isolated state. It verifies
+receipt provenance, download cleanup, retained old bytes, exact candidate skill
+bytes, conflict preservation, partial refresh failure and repair. If the two
+embedded skill texts match, only differential content-transition coverage is
+reported as skipped; the other assertions still run. An owner-authorized rerun
+uses current main's repaired tooling to compile and execute the release's own
+adapter from `release-source/rust`, selecting that source's toolchain pin. If the
+release-source checkout predates the post-#575 release-gate test form (including
+the #563 variant that requires differing text), this sub-proof reports
+`predates; not applicable` without blocking the rerun or claiming a pass. The
+installer/migration proof remains required; a missing release-source checkout is
+an error.
+
+Neither pre-publication proof runs public `tmt upgrade` downloads or a public
+installer: the candidate has no published release to find, and production has no
+test endpoint. The post-publication smoke below retains that separate live proof.
+For manual installer coverage, use an isolated HOME and prefix to install the
+previous published version with its public installer, then the candidate's
+installer. Preserve the superseded receipt. Receipts written by older releases
+stay readable: v5.0.0-alpha.2 through
 alpha.6 and Office 0.1.0-alpha.1 through alpha.3 record the pre-rename repository
 `wkh237/tmux-team`, which receipt reading accepts as the official one (#492).
 
@@ -2192,8 +2366,9 @@ prefixes, never a user's installed command or app data. The invoking executable
 must be the active release; an unmanaged checkout binary fails before networking.
 Production has no test endpoint or TLS bypass. API fixtures inject only the
 adapter's acquisition boundary; actual local TLS fixtures use test-only trust.
-Test old/new real release archives separately from synthetic tar fixtures, with
-different embedded skills, to prove the newly active executable supplies refresh.
+Test old/new real release archives separately from synthetic tar fixtures. Use
+different embedded skills for differential proof that the newly active executable
+supplies refresh; identical text still permits the remaining upgrade assertions.
 
 Channel discovery uses GitHub's product-prefixed `git/matching-refs/tags/<prefix>`
 API and exact-tag release metadata, independent of the repository's total release
@@ -2264,8 +2439,8 @@ generate target-filtered notices through cargo-about and retain complete texts.
 rcgen/rustls local-server fixtures are dev-only, not production endpoint options.
 
 The explicit actual-archive acceptance test requires separately versioned,
-matching-host cargo-dist artifacts with different embedded skills. It is ignored
-by ordinary tests, not counted as release proof until selected and passed:
+matching-host cargo-dist artifacts. It is ignored by ordinary tests and explicitly
+selected by the CLI release upgrade proof. A manual invocation is:
 
 ```sh
 TMT_UPGRADE_OLD_ARCHIVE=/absolute/old/archive.tar.gz \
@@ -2273,8 +2448,9 @@ TMT_UPGRADE_OLD_MANIFEST=/absolute/old/manifest.json \
 TMT_UPGRADE_NEW_ARCHIVE=/absolute/new/archive.tar.gz \
 TMT_UPGRADE_NEW_MANIFEST=/absolute/new/manifest.json \
 TMT_UPGRADE_TARGET=aarch64-apple-darwin \
-cargo test --locked --manifest-path rust/Cargo.toml -p tmt-adapters \
-  cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts -- --ignored
+CARGO_BUILD_JOBS=2 cargo +1.97.0 test --locked --manifest-path rust/Cargo.toml -p tmt-adapters --lib \
+  native_install::upgrade::artifact_tests::cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts \
+  -- --exact --ignored --nocapture
 ```
 
 Require one selected passing test, not an empty filtered run. This test injects
@@ -2282,6 +2458,8 @@ canonical acquisition responses but executes real old/new binaries, managed
 skill installation, partial hidden refresh and repair in scrubbed task-owned
 state. It does not claim to contact a public release or exercise the public CLI
 over a fake production endpoint. Run the independent artifact verifier too.
+Identical embedded text prints a skipped differential content-transition result;
+candidate-byte equality, conflict preservation and repair are still required.
 
 #### Offline composition
 
@@ -2347,6 +2525,55 @@ local cargo-dist's package selection tag does not publish a Git tag. Historical 
 releases use `tmt-office-v<version>`. Office is frozen and is
 not accepted by the shared release workflow; local archive verification does not
 authorize publication or a CLI tag.
+
+#### Herdr driver archives
+
+The `driver-herdr` component is parked (`release:false` in the component map and
+`package.metadata.dist.dist=false` in its Cargo package). The release cut (#1399)
+activates both flags for its first standalone release; it does not register a
+release-please package. Its retained `bootstrapSha` is the last commit before the
+component existed, the first-release history boundary for that cut. CLI release
+paths exclude the driver crate, while CLI archives continue shipping its binary
+through the first standalone Herdr release. Named acquisition remains #1084.
+
+After activation, the `driver-herdr` product builds the independent package
+without building `tmt`:
+
+```sh
+scripts/build-native-artifact.sh aarch64-apple-darwin driver-herdr > /absolute/driver-manifest.json
+node typescript/scripts/verify-native-artifact.mjs --product driver-herdr \
+  --manifest /absolute/driver-manifest.json \
+  --archive target/distrib/tmt-driver-herdr-aarch64-apple-darwin.tar.gz \
+  --target aarch64-apple-darwin \
+  --notices rust/target/native-notices/THIRD-PARTY-NOTICES.txt --license LICENSE
+```
+
+Retain each build's archive, manifest and notices before building another product.
+The standalone archive carries its executable and shared license/install/notices
+files. CLI archive builds stage the companion from `-p tmt-driver-herdr`, without
+defining another binary, and include notices for both packages. Both archive shapes are checked against their own
+manifest, and current CLI release proof checks the companion's independently
+specified Cargo version. The standalone proof executes protocol capabilities
+with no application state, rather than CLI skill/SQLite commands.
+
+For a local two-version upgrade proof, retain actual separately versioned driver
+archives and the current published CLI archive and run:
+
+```sh
+node typescript/scripts/verify-native-driver-upgrade.mjs --product driver-herdr \
+  --archive /absolute/new/tmt-driver-herdr-aarch64-apple-darwin.tar.gz \
+  --manifest /absolute/new/dist-manifest.json \
+  --previous-archive /absolute/old/tmt-driver-herdr-aarch64-apple-darwin.tar.gz \
+  --previous-manifest /absolute/old/dist-manifest.json \
+  --driver-archive /absolute/cli/tmt-cli-aarch64-apple-darwin.tar.gz \
+  --driver-manifest /absolute/cli/dist-manifest.json --target aarch64-apple-darwin
+```
+
+Use task-owned source copies/worktrees to build each version; do not rewrite the
+implementation checkout or reuse another worktree's Rust target directory.
+Driver tags are only `tmt-driver-herdr-v<semver>`, never `v*`, and are published
+as prereleases with `--latest=false` so the public CLI installer keeps ownership
+of repository latest. Archive proof does not authorize publication.
 
 #### Squad archives
 
@@ -2865,12 +3092,22 @@ session. Pages learn their principal from their own extension backend, using
 the per-request `tmt-device-context`; the browser SDK has no principal accessor.
 `certifyKey` signs a new mount-scoped `tmt-ext-cert-v1` certificate on each call
 with the current `issuedAtMs`; the extension verifier enforces freshness. Existing
-paired records with an extra `certificates` field load without migration.
+paired records with an extra `certificates` field load without migration. The Chromium
+pairing smoke covers both certificate purposes without another gesture, then revokes the
+device and verifies that retained signatures stay cryptographically valid while owner
+context and session reopening are denied. Native session/device-event tests separately
+cover tunnel closure, durable tombstones and replay.
 Colab gets at most 16 live WebSocket tunnels, each closed after 120 seconds
 without traffic; a full pool answers 503 with `retry-after`, so colab should
 keep one socket per tab and reconnect after idle close.
-Signed operations, hold, sends, the relay and journal integration are not
-implemented. The [channel contract](contracts/remote-channel-v1.md) is
+Strict normal-message authority is implemented, but authenticated append/subscribe/ack
+currently return machine-signed `REMOTE_CLOSED` refusals, without journal adoption
+or core effects. Session opens and these refusals share one durable response counter;
+client sequences are consumed once, with one normal message in flight per session.
+Malformed/unsigned/expired/revoked inputs retain generic pre-auth refusal. Focused
+checks run from `rust/` with `CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-remote --test admission`; they cover exact bytes, strict JSON,
+replay, replacement/revocation and real-storage counter reopen/exhaustion. Application
+operations, hold, sends, the relay and journal integration are not implemented. The [channel contract](contracts/remote-channel-v1.md) is
 proposed; [the separately owned browser shell](#browser-add-on-shell)
 uses only a stub. No official remote installer/release exists.
 
@@ -2908,7 +3145,8 @@ node extensions/tmt-remote/rust/tmt-remote/tests/fixtures/webcrypto.mjs
 
 Use the repository Node 22 version and repeat the WebCrypto command locally on
 Node 24. No extra required-CI Node setup is needed. The script verifies deterministic
-signatures that Rust independently reproduces and verifies; `--write` regenerates
+signatures, including both extension-certificate purposes, that Rust independently
+reproduces and verifies; `--write` regenerates
 the public-test-key fixture. The Python oracle does not import product code.
 These checks do not prove real Chrome key persistence/non-extractability across
 MV3 worker restarts. Pairing, authority and browser integration remain separate.
@@ -2930,7 +3168,8 @@ socket/process lifecycle acceptance twice. No real model/account/DB is used.
 
 The private local-build Colab executable serves an owner-only mounted socket,
 owner-browser registration and stream sync, and lists local-space metadata.
-The browser page remains a placeholder. No installer exists.
+Owner requests load the built browser app when its local output is available.
+No installer exists. Rust builds and tests do not require a browser build.
 Build and verify it from the repository root:
 
 ```bash
@@ -2977,6 +3216,8 @@ is available separately through the isolated decoder library.
 
 ```bash
 (cd rust && cargo build --offline --locked -p tmt-cli -p tmt-colab)
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app install --frozen-lockfile --ignore-scripts
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app build
 PATH="$PWD/rust/target/debug:$PATH" tmt colab spaces --json
 PATH="$PWD/rust/target/debug:$PATH" tmt colab serve --json
 ```
@@ -2995,6 +3236,22 @@ keys; before first serve it returns `{"spaces":[]}`. Use an isolated normal TMT
 data root for manual tests. Browsers reach colab through `tmt remote serve` at
 `/r/<prefix>/x/colab/`; remote owns Host and Origin admission and forwards the
 paired owner's device context.
+
+By default, `serve` loads `extensions/tmt-colab/typescript/app/dist` relative to
+its compile-time crate directory, canonicalized at startup. This is a local-build
+binary: moving the checkout requires rebuilding it or passing
+`serve --app-dir /absolute/path/to/dist`. The override is optional; an invalid
+explicit directory fails with `COLAB_APP_UNAVAILABLE` before creating Colab state.
+A missing, unsafe or incomplete default instead starts the socket and shows owners
+`build the app: corepack pnpm --dir typescript --filter @tmt/colab-app build`.
+Build and restart serve to adopt new assets. Files are snapshotted in memory, with
+128-file/16-MiB total bounds, no symlinks and no request-time filesystem access.
+Asset access needs remote's owner context, not prior Colab registration. Anonymous
+root requests retain private-space guidance; other asset requests are denied.
+App resources use same-origin relative URLs. The current font stacks fall back to
+installed/system fonts without third-party font requests; the server also supports
+bundled WOFF/WOFF2/TTF/OTF output. The exact app CSP and static route behavior are
+owned by [colab-v1](extensions/tmt-colab/contracts/colab-v1.md#implemented-mounted-browser-assets-1253).
 
 The socket bounds are named in `src/limits.rs`: 16 request workers, 8 KiB/32
 header fields, 64 KiB HTTP bodies, 2-second total acquisition and 1-second total
@@ -3055,7 +3312,10 @@ reopen replay, stale writes, tampered signatures/chains/descriptors, role/epoch/
 root denial, revoked/expired-device exclusion and rollback on baseline/wrap
 write failure. FIFO barriers pause the real child while a second SQLite writer
 appends: one moving snapshot retries successfully; three return `STALE_HEAD`
-without authority changes. No Docker or fixed sleep is involved.
+without authority changes. Their Engine receives the shared test-only decoder
+configuration: 60 seconds per invocation and a 30-second FIFO readiness bound.
+These are scheduling headroom for semantic tests, not production limits. The
+worker is joined on failure as well as success. No Docker or fixed sleep is involved.
 
 Schema 4 adds `baselines(page, epoch, descriptor, envelope)` with a composite
 primary key and an epoch-secret foreign key. Earlier tables are unchanged;
@@ -3086,6 +3346,15 @@ after reopening. Byte searches over exact committed statements, decoded payloads
 receipts, projections, wraps and returned outcomes reject raw, base64url and hex
 seed leakage. Link seeds are borrowed owner-local inputs; tests never claim this
 library seam admits unsigned browser management requests.
+
+Runner verification uses the same `--test transitions` suite. Real-store cases
+cover transport-bound and root-local retries, unchanged legacy digests, scope
+match/mismatch, conflicting replay, revoked-target replay and the original signed
+head after subsequent writes and reopening. Existing membership/link/epoch cases
+continue through their thin `Engine::apply` wrappers, including late-write rollback
+and moving-snapshot retries. `OwnerRequest.scope = None` preserves root-local
+composition; a browser management caller must admit its live signature/session
+and supply its transport digest and scope. No management route is added here.
 
 ### Colab owner registration verification
 
@@ -3167,6 +3436,9 @@ registration is implemented under #1162. Run
 registered owner tabs through the real mounted socket: append/broadcast, durable
 retry/catchup, read-only `/api/session` and `/api/pages` owner discovery,
 130-revision exact-byte membership paging and unknown-revision resync,
+large signed statements through exact chunks across the eight-frame credit window,
+resumed first-page references and SQL-side statement-size refusal,
+inline/chunked baseline-first ordering before statements for fresh/resumed clients,
 strict event bodies/header/path, failed-revoke rollback, replay
 without writes, active/pre-hello tunnel closure, cap/idle bounds and shutdown.
 Tests inject private temporary roots and verify socket removal; they use no
@@ -3188,12 +3460,35 @@ run its real-child tests with an isolated test environment:
 (cd rust && cargo test --offline --locked -p tmt-cli --test architecture)
 ```
 
+Semantic decoder tests inject `decoder::Config` through Decoder, Engine or
+Registration, using the shared `tests/support` 60-second invocation budget.
+This also covers direct private-child wire tests, baseline size/materialization,
+checkpoint vectors, socket revocation folds, and export library capture and
+epoch-rotation tests; device-event clients allow 60 seconds for a response. Export CLI tests exercise
+the production constructor and retain its two-second limit.
+Production constructors keep the two-second deadline and all byte/memory caps.
+The timeout cases retain two seconds, use a FIFO-blocked child with a readiness
+signal and an explicit-release positive control, and assert exactly `Deadline`.
+Large-input backpressure interrupts only after FIFO readiness and asserts exactly
+`Interrupted`; output-flood cases assert exactly `OutputLimit(Stdout)` with the
+semantic budget. All require confirmed cleanup, recorded PID disappearance and
+reuse of the same runner. Changing the reuse budget does not clear the cleanup fence.
+
+For load verification, compile first, then repeat the affected decoder,
+transition and socket tests under at most two owned CPU burners, bounded to
+180 seconds per run. The supervisor must terminate and reap every burner on
+success, failure or interruption. Retain commands, start/end load and full logs
+outside the repository. Run with `CARGO_BUILD_JOBS=2` and a private
+`CARGO_TARGET_DIR`; do not use Docker or release builds for this proof.
+
 The decoder test retains #830 archive provenance and runs 261 seeded cases twice,
 using one second per case and 45 seconds per suite. The six saved timeout/panic
 dumps must match the original generator. Successful child PIDs must be gone;
-timeout/output-limit cleanup must be confirmed before owner reuse. These fixture
-budgets are separate from the two-second production budget. macOS must report
-`memory limit unavailable`; only Linux enforces the child address-space limit.
+timeout/output-limit cleanup must be confirmed before owner reuse. Successful
+reuse controls get the semantic-test budget; hostile-case and suite budgets stay
+unchanged. These fixture budgets are separate from the two-second production
+budget. macOS must report `memory limit unavailable`; only Linux enforces the
+child address-space limit.
 Tests cover cleared environment, input/output backpressure, role/namespace and
 projection rejection, dependency/delete-set preservation and writer attribution.
 
@@ -3244,10 +3539,22 @@ are public test data. This foundation does not satisfy the complete L1 gates.
 ### Colab browser verification
 
 The private local page app has its own package and Chromium isolation suite.
+Build `tmt-colab` before `test:browser` so the real-socket asset scenario can start
+`rust/target/debug/tmt-colab`; `COLAB_SERVE_EXECUTABLE` optionally selects an
+absolute test binary built from this checkout. The scenario runs twice with a
+temporary data root and a test HTTP-to-Unix-socket adapter, comparing actual built HTML/JS/CSS bytes, MIME
+types, nested mount loading, default/override selection, owner asset denial and
+process/socket cleanup. It also exercises the opaque sample renderer under the served app CSP, and proves
+cross-origin requests are blocked with a same-browser capture-server positive
+control. The adapter supplies owner context and a fixed core storage-root response; it does not mock
+static assets or add product API routes. The mounted shell reaches its existing
+blocked state because the test door does not serve Remote's SDK. This is native asset-serving evidence, not Remote pairing
+or complete native co-editing acceptance.
 Its test/build/dev entry points use workspace-pinned Vite+; `vitest.config.ts`
-keeps app unit discovery separate. TypeScript and Oxlint retain their existing
-check responsibilities; the existing `check` script selects the Vite configuration's
-`fmt` block, preserving the app's single quotes, all trailing commas and 100-column
+keeps app unit discovery separate. TypeScript retains its existing check responsibility;
+bundled Oxlint retains the app's lint selection, React plugin and deny-warning policy.
+The existing `check` script selects the Vite configuration's `lint` and
+`fmt` blocks, preserving the app's single quotes, all trailing commas and 100-column
 width with import and package-key sorting disabled:
 
 ```sh
@@ -3293,10 +3600,32 @@ uses the eight-frame ACK window described in the sync section. It covers unprune
 from sequence one, plus signed reset-baseline fixtures. The baseline suite covers
 chunked retrieval, descriptor/log binding, exact baseline struct identity, subsequent
 edits/reload and rejection of commitment/source/descriptor/old-epoch substitution
-without partial rendering. Checkpoints and own data remain unsupported (#1280);
-native bootstrap supplies the matching stored baseline object. This is signed
-protocol-fixture evidence, not native mounted browser E2E: #1250 owns refresh and
-#1253 owns native assets.
+without partial rendering. Paired-checkpoint fixtures cover raw merged update-v1
+bytes above 256 KiB, chunked retrieval, interleaved content/own tails, reload/edit
+continuity and
+rejection of prefix sequence/hash, namespace, body and gap substitutions. Signed
+revocation tests require exact pinned checkpoints and cut endpoints. Checkpoints
+use single-item Worker steps bounded by its 4 MiB state cap (also the aggregate
+checkpoint catchup cap); tails remain bounded to 200 updates/256 KiB. Dependency
+resolution is required at the final tail step, before any renderer publication. Own ciphertext is authenticated and opened before isolated per-writer folding;
+the parent notice still explains that no comments/activity UI displays it. Shared
+`own-v1.json` bytes and projection oracles run in the app Worker tests and native
+isolated child (`--test own_vectors`); the native transitions suite proves the
+page-wide 1,000-thread boundary and one-over rollback. App tests cover colliding
+writer record/client IDs, raw JSON normalization, dependency/delete-set preservation,
+late own failures, detached binding output and aggregate input/state bounds.
+The same single-Worker deadline and last-subscriber cleanup apply to both namespaces. The shared `checkpoint-v1.json` fixture also runs through the
+bounded native decoder child (`cargo test --manifest-path rust/Cargo.toml --locked
+-p tmt-colab --test checkpoint_vectors`). Native bootstrap supplies paired checkpoints, their full
+cross-namespace tail and the matching stored baseline object. Statement
+fixtures cover signed envelopes above 64 KiB across ACK-paced frames, baseline-first
+ordering, exact durable log/reload and rejection before renderer publication.
+Admission units cover hash/signature/payload/target/chain substitutions, write failure
+and durable-prefix conflicts without head advancement; framing units cover shared
+assembly identity/order/size limits, interleaving, the absolute deadline and cleanup.
+This is signed
+protocol-fixture evidence, not native mounted browser E2E: #1250 owns refresh;
+the separate real-socket scenario verifies native assets.
 The content Worker suite proves concurrent writer convergence and reload
 reconstruction, rejects malformed/mixed roots, checks termination/cleanup and
 proves prepared edits cannot leak through committed projections.

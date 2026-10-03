@@ -78,6 +78,10 @@ squad or none), so read `.squads[]` unless you pass `--squad`. `columns` and
 the fields each line of a row shows (`{field, span}`, field null for an empty
 cell).
 
+- A cell has optional `token`, its semantic theme role, which overrides
+  threshold/provider colors for that cell. Team publishes
+  `lines[1][2].token = "waiting"` for its pending second line; unstyled cells
+  omit the key. This is decoration metadata, not a changed row value.
 - A column's `width` is null, a cell count or a percentage string such as
   `"30%"`. Covered-track percentage widths total at most 100% and resolve against data width
   after borders/row marks on the board (gaps are additional); lists resolve after
@@ -224,7 +228,30 @@ shown without executing them. Close and reopen to read later config edits.
 `tmt sq config show` inspects board defaults. Use `--squad product` for one
 squad or `--tab all` (also `leads` or a configured tab name) for an aggregate
 view, and `--json` for full values and source paths. These scope flags are
-exclusive. All entries are read-only; no configuration or member state changes.
+exclusive. Inspection changes no configuration or member state. JSON marks the
+settings supported by `config set`; the board overlay remains read-only.
+
+Use `tmt sq config set KEY VALUE [--squad NAME]` for validated edits. Squad scope
+is required for `layout`, `board.panes`, `board.direction`, `board.sizes`,
+`board.hidden_columns`, `notes.render`, and `states.STATE.color`. `board.refresh`
+uses the squad layer with `--squad`, otherwise the global Squad board layer.
+`tabs.order` and `tabs.hide` always edit global Squad tab policy. Arrays use JSON;
+other values are unquoted scalar arguments. Examples:
+
+```sh
+tmt sq config set notes.render plain --squad product
+tmt sq config set board.refresh 10s --squad product
+tmt sq config set board.hidden_columns '["pr_link"]' --squad product
+tmt sq config set tabs.hide '["leads"]'
+```
+
+Editing `board.direction`, `board.sizes` or `board.panes` pins the effective workflow
+layout and full flat split (direction, panes and sizes) in `squad.toml`, preserving
+the untouched geometry. Future preset changes no longer replace these values.
+Nested split trees are read-only and must be edited in `squad.toml`. Existing validators reject invalid values
+before writing. The writer preserves unrelated keys and comments and refuses a
+file changed since reading it. Provider/run commands, patterns, reminders and
+core/provider configuration cannot be edited through this command.
 
 ## Choose a board view
 
@@ -380,6 +407,19 @@ Every displayed continuation of the selected source line uses the full-width
 selection appearance, including reverse video with `NO_COLOR`. A fixed two-cell
 gutter holds the sent marker or blanks, so notebook text stays aligned.
 
+In Markdown notes, Tab/Shift-Tab select links; the footer previews kind and target.
+Enter or clicking the selected link activates it; the first click selects only.
+Esc clears link selection, and configured bindings take precedence. With no links,
+Tab moves to the next pane. Plain notes and undefined schemes stay inert.
+Built-ins are `tmt:jump/back/talk/answer/open/copy/annotate`; except `back`, append
+`/<current-member-name-or-id>`. Talk/answer/annotate open the existing prompt,
+optionally prefilled by bounded percent-encoded `?text=`; Enter submits, Esc cancels.
+Custom programs require your own `[links]` entries such as
+`gh = "run gh issue view {path}"`: argv only, one argument per template, no shell.
+Bare #N remains plain; full GitHub issue/PR URLs are selectable. Absolute file
+links reveal after resolving symlinks; configured openers get only the containing
+directory. Relative paths stay plain. Opening files requires a custom scheme.
+
 In focused notes, the annotate binding (`a` by default) opens a composer addressed
 to the lead, quoting the line number and a bounded excerpt. Enter sends only
 nonempty text; Esc cancels. The line shows `✎` while your request to the current
@@ -469,19 +509,31 @@ window labels always remain while the meter is visible.
 Use `[squad.<name>.rows]`; `columns` defines positional tracks and value
 sources, and `lines` places cells from track zero. A string names a field,
 `""` is an empty cell, and `{ field = "pending", span = 3 }` covers three
-tracks. Spanned cells use the first track's fitting settings. The legacy
+tracks. A cell can add `token = "waiting"` (or another semantic theme role),
+which overrides its projected field color without changing the value. Literal
+colors and legacy color aliases are refused. Missing/empty values and failed
+providers without projected colors stay dim; stale-row inheritance and reverse
+selection still apply. Spanned cells use the first track's fitting settings. The legacy
 `[squad.<name>.columns]` form remains supported; do not set both forms.
+
+`[squad.<name>.board] hidden_columns = ["pr_link"]` hides named original tracks
+for the board and `ls` text without deleting columns, field values or authored
+lines/spans. Only covered tracks can be hidden and at least one must remain.
+A spanning cell shrinks to the surviving tracks in its original range; hiding
+one track can shrink a different field's cell rather than remove that field.
+Set the mask to `[]` to restore the original grid. JSON retains all field values
+and lists the mask when nonempty.
 
 | Setting                 | Current behavior                                                                                                                                       |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `name`, `title`         | Field name and optional column heading.                                                                                                                |
 | `width`                 | Cells (1–200) or a quoted percentage (1–100%, supported since Squad alpha.8).                                                                          |
-| `min`, `max`            | Cell bounds, including percentages; growing tracks default to a four-cell minimum.                                                                                                          |
-| `grow`                  | Weight (0–100), default 0. On the board, grow with max: max wins; the weight has no effect.                                               |
+| `min`, `max`            | Cell bounds, including percentages; growing tracks default to a four-cell minimum.                                                                     |
+| `grow`                  | Weight (0–100), default 0. On the board, grow with max: max wins; the weight has no effect.                                                            |
 | `align`                 | `left` (default), `right` or `center`.                                                                                                                 |
 | `truncate`              | `end` (default) or `middle`.                                                                                                                           |
 | `overflow`, `max_lines` | `ellipsis` (default) or `wrap`; wrapped visual lines are bounded to 1–8, default 2, with a final end ellipsis.                                         |
-| `priority`              | 1–100; higher values hide first when minimum widths cannot fit. Without it, a track never hides through priority selection.                                                     |
+| `priority`              | 1–100; higher values hide first when minimum widths cannot fit. Without it, a track never hides through priority selection.                            |
 | `from`, `format`        | Bind a column to a supported public source (listed below); format as `text` (default), `tokens`, `age` or `count`. Squad-owned fields cannot be bound. |
 
 Supported `from` paths are `member`, `presence`, `cwd`, `target`,
@@ -564,7 +616,8 @@ then PR; member/state/task remain. Values truncate with the existing ellipsis.
 
 Team uses crew states and pending-first ordering. Rows show member, state,
 task, PR and model (`session.model` from the existing presence read); pending
-text has its own line under task. Its `pr` field uses `preset = "github-pr"`
+text has its own line under task, styled with `token = "waiting"`. Other
+presets keep their styles unless their cells opt in. Its `pr` field uses `preset = "github-pr"`
 from `pr_link`, refreshed at most every 60 seconds per member. A missing link
 never runs `gh`; unavailable or failed provider results follow the normal
 missing/`?` rules. A `rows` or legacy `columns` table replaces the whole grid;
@@ -595,7 +648,10 @@ Disabling stops observation; after re-enabling, surviving fingerprint matches
 keep their first-observed time. Disabled observation does no cache work and
 never creates a notebook. The board dims a stale row and shows its age at the
 row's end, and puts the notes' age on the notes pane title; the leads and all
-tabs show no ages.
+tabs currently show no ages. The retained home model prepares blocked ages only
+where this observation policy is enabled (Team by default; other layouts off);
+disabled or unavailable observation provides no age. Request ages use the real
+inbox timestamp, and pending-only rows have no age. Home painting is unchanged.
 
 The row's age changes only when its raw task/state changes; links, notes and
 provider refreshes do not renew it. `activityAfterUpdate` records relevant

@@ -1,9 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type BrowserContext, type WebSocketRoute } from '@playwright/test';
 import * as c from '@tmt/colab-client';
+import type { PageView } from '../src/transport.js';
 import * as Y from 'yjs'; // Test-only producer. Foreign update decoding stays in the app Worker.
 const v = JSON.parse(
   readFileSync(new URL('../../../contracts/vectors/authority-v1.json', import.meta.url), 'utf8'),
+);
+const ownVector = JSON.parse(
+  readFileSync(new URL('../../../contracts/vectors/own-v1.json', import.meta.url), 'utf8'),
 );
 const hex = (s: string) => Uint8Array.from(s.match(/../g) ?? [], (n) => parseInt(n, 16));
 const json = (value: unknown) => c.text(JSON.stringify(value));
@@ -11,6 +15,8 @@ const mount = '/r/abcd/x/colab/';
 async function wire(
   context: BrowserContext,
   reset?: { source: string; invalid?: 'commitment' | 'source' | 'descriptor' | 'oldEpoch' },
+  compacted?: { invalid?: 'prefix' | 'n' | 'namespace' | 'body' | 'gap' | 'ownBody' | 'ownTail' },
+  statementTransfer?: 'valid' | 'hash',
 ) {
   const epoch = reset ? '2' : '1';
   const signer = await crypto.subtle.importKey(
@@ -120,7 +126,7 @@ async function wire(
       json: {
         spaceId: v.space,
         ownerKey: c.encodeBinary(owner),
-        revision: reset ? '3' : '2',
+        revision: String(head.head.revision),
         pages: [{ pageId: v.page, epoch, sharing: 'private', history: 'current', archived: false }],
       },
     }),
@@ -211,6 +217,43 @@ async function wire(
     );
     head = await advance.verifyNext(v.space, owner, head.head);
   }
+  let largeStatement: c.statement.Envelope | null = null;
+  if (statementTransfer) {
+    // Another page's large transition leaves this fixture's requested epoch intact.
+    const pageId = '00000000-0000-4000-8000-000000000099',
+      revision = String(head.head.revision + 1n),
+      value = json({
+        pageId,
+        epoch: '2',
+        cuts: [],
+        wraps: [],
+        baseline: {
+          pageId,
+          epoch: '2',
+          membershipRevision: revision,
+          title: 'x'.repeat(250 * 1024),
+          sourceDigest: c.encodeBinary(new Uint8Array(32)),
+          baselineCommitment: c.encodeBinary(new Uint8Array(32)),
+          objectEnvelopeHash: c.encodeBinary(new Uint8Array(32)),
+        },
+      }),
+      input = c.statement.input({
+        space: v.space,
+        operation: 'epoch.advance',
+        revision,
+        previousHash: head.head.hash,
+        payloadDigest: await c.digest(value),
+      });
+    largeStatement = c.statement.Envelope.fromJson(
+      json({
+        statement: c.encodeBinary(input),
+        payload: c.encodeBinary(value),
+        signature: c.encodeBinary(await c.sign(signer, input)),
+      }),
+    );
+    head = await largeStatement.verifyNext(v.space, owner, head.head);
+    expect(largeStatement.toJson().length).toBeGreaterThan(64 * 1024);
+  }
   const initial = await c.Envelope.seal(
     {
       space: v.space,
@@ -219,7 +262,7 @@ async function wire(
       kind: 'update',
       namespace: 'content',
       authorDevice: v.device,
-      membershipRevision: reset ? '3' : '2',
+      membershipRevision: String(head.head.revision),
       streamSeq: '1',
       prevHash: new Uint8Array(32),
     },
@@ -235,12 +278,160 @@ async function wire(
   });
   const entries = [await entry(initial)],
     peers = new Set<WebSocketRoute>();
+  const checkpoints: { namespace: string; row: (typeof entries)[number] }[] = [];
+  if (compacted) {
+    const cp = JSON.parse(
+      readFileSync(
+        new URL('../../../contracts/vectors/checkpoint-v1.json', import.meta.url),
+        'utf8',
+      ),
+    );
+    const writer = new Y.Doc();
+    Y.applyUpdate(writer, c.binary(cp.checkpoint, 256 * 1024));
+    const before = Y.encodeStateVector(writer);
+    writer.getText('html').insert(writer.getText('html').length, 'x'.repeat(180_000));
+    const firstPadding = Y.encodeStateAsUpdate(writer, before),
+      middle = Y.encodeStateVector(writer);
+    writer.getText('html').insert(writer.getText('html').length, 'x'.repeat(120_000));
+    const secondPadding = Y.encodeStateAsUpdate(writer, middle),
+      padding = Y.mergeUpdates([firstPadding, secondPadding]);
+    writer.destroy();
+    entries.length = 0;
+    let previous = new Uint8Array(32);
+    const prefixUpdates = [
+      c.binary(cp.contentUpdates[0], 256 * 1024),
+      new Uint8Array([0, 0]),
+      Y.mergeUpdates([c.binary(cp.contentUpdates[1], 256 * 1024), firstPadding]),
+      new Uint8Array([0, 0]),
+      secondPadding,
+      new Uint8Array([0, 0]),
+    ];
+    for (let index = 0; index < 6; index++) {
+      const env = await c.Envelope.seal(
+        {
+          space: v.space,
+          page: v.page,
+          epoch,
+          kind: 'update',
+          namespace: index % 2 === 0 ? 'content' : 'own',
+          authorDevice: v.device,
+          membershipRevision: '2',
+          streamSeq: String(index + 1),
+          prevHash: previous,
+        },
+        hex(v.epochKey),
+        signer,
+        new Uint8Array(prefixUpdates[index]),
+      );
+      entries.push(await entry(env));
+      previous = await env.hash();
+    }
+    for (const namespace of ['content', 'own']) {
+      const env = await c.Envelope.seal(
+        {
+          space: v.space,
+          page: v.page,
+          epoch,
+          kind: 'checkpoint',
+          namespace:
+            compacted.invalid === 'namespace' && namespace === 'own'
+              ? 'content'
+              : (namespace as 'content' | 'own'),
+          authorDevice: v.device,
+          membershipRevision: '2',
+          streamSeq: compacted.invalid === 'n' && namespace === 'own' ? '5' : '6',
+          prevHash:
+            compacted.invalid === 'prefix' && namespace === 'own'
+              ? new Uint8Array(32).fill(7)
+              : previous,
+        },
+        hex(v.epochKey),
+        signer,
+        namespace === 'content'
+          ? compacted.invalid === 'body'
+            ? new Uint8Array([255])
+            : new Uint8Array(Y.mergeUpdates([c.binary(cp.checkpoint, 256 * 1024), padding]))
+          : compacted.invalid === 'ownBody'
+            ? new Uint8Array([255])
+            : c.binary(ownVector.checkpoint, 256 * 1024),
+      );
+      checkpoints.push({ namespace, row: await entry(env) });
+    }
+    for (const [namespace, bytes] of [
+      ['content', c.binary(cp.tail, 256 * 1024)],
+      [
+        'own',
+        compacted.invalid === 'ownTail'
+          ? new Uint8Array([255])
+          : c.binary(ownVector.tail, 256 * 1024),
+      ],
+    ] as const) {
+      const env = await c.Envelope.seal(
+        {
+          space: v.space,
+          page: v.page,
+          epoch,
+          kind: 'update',
+          namespace,
+          authorDevice: v.device,
+          membershipRevision: '2',
+          streamSeq: String(entries.length + 1),
+          prevHash: previous,
+        },
+        hex(v.epochKey),
+        signer,
+        bytes,
+      );
+      entries.push(await entry(env));
+      previous = await env.hash();
+    }
+  }
+  const otherDevice = '00000000-0000-4000-8000-000000000126';
+  const otherSigner = await crypto.subtle.generateKey('Ed25519', false, ['sign', 'verify']);
+  const otherCertificate = c.certificate.input({
+    space: v.space,
+    issuerKind: 'member',
+    issuerId: genesis.head.ownerMember.id,
+    deviceId: otherDevice,
+    signingKey: new Uint8Array(await crypto.subtle.exportKey('raw', otherSigner.publicKey)),
+    encryptionKey: c.wrap.Envelope.fromJson(json(v.wrap)).header().recipientKey,
+    membershipRevision: '1',
+    issuedAt: Date.now() - 1000,
+    expiresAt: Date.now() + 86400000,
+  });
+  const otherChain = {
+    version: 1,
+    issuerStatement: c.encodeBinary(genesis.head.hash),
+    deviceCertificate: c.encodeBinary(otherCertificate),
+    issuerSignature: c.encodeBinary(await c.sign(signer, otherCertificate)),
+  };
+  const otherObject = compacted
+    ? await entry(
+        await c.Envelope.seal(
+          {
+            space: v.space,
+            page: v.page,
+            epoch,
+            kind: 'update',
+            namespace: 'own',
+            authorDevice: otherDevice,
+            membershipRevision: '2',
+            streamSeq: '1',
+            prevHash: new Uint8Array(32),
+          },
+          hex(v.epochKey),
+          otherSigner.privateKey,
+          c.binary(ownVector.checkpoint, 256 * 1024),
+        ),
+      )
+    : null;
   const scope = { version: 1, space: v.space, page: v.page, epoch };
   let queue = Promise.resolve(),
     drop = false,
     retries = 0,
     chunked = 0,
-    hellos = 0;
+    hellos = 0,
+    statementChunks = 0;
   const outgoing = new Map<WebSocketRoute, { frames: string[]; waiting: boolean }>();
   const pump = (socket: WebSocketRoute) => {
     const state = outgoing.get(socket);
@@ -285,8 +476,23 @@ async function wire(
     socket.onMessage((message) => {
       const frame = JSON.parse(String(message));
       if (frame.type === 'ack') {
-        for (const cursor of frame.cursors)
-          expect(entries[Number(cursor.seq) - 1].envelopeHash).toBe(cursor.envelopeHash);
+        for (const cursor of frame.cursors) {
+          if (cursor.streamId === otherDevice) {
+            expect(cursor.namespace).toBe('own');
+            expect(cursor.seq).toBe('1');
+            expect(cursor.envelopeHash).toBe(otherObject?.envelopeHash);
+            continue;
+          }
+          const checkpoint = checkpoints.find(
+            (x) =>
+              x.namespace === cursor.namespace &&
+              x.row.seq === cursor.seq &&
+              x.row.envelopeHash === cursor.envelopeHash,
+          );
+          expect(checkpoint?.row.envelopeHash ?? entries[Number(cursor.seq) - 1].envelopeHash).toBe(
+            cursor.envelopeHash,
+          );
+        }
         const state = outgoing.get(socket);
         if (state) {
           state.waiting = false;
@@ -306,11 +512,11 @@ async function wire(
               : [];
           send(socket, 'catchup', {
             membershipHead: {
-              revision: reset ? '3' : '2',
+              revision: String(head.head.revision),
               statementHash: c.encodeBinary(head.head.hash),
               ownerKey: c.encodeBinary(owner),
               statements,
-              more: false,
+              more: statements.length > 0 && largeStatement !== null,
             },
             baseline: baseline
               ? c.encodeBinary(
@@ -347,24 +553,81 @@ async function wire(
                 bytes: c.encodeBinary(bytes.slice(index * 32768, (index + 1) * 32768)),
               });
           }
+          if (statements.length && largeStatement) {
+            const bytes = largeStatement.toJson(),
+              count = Math.ceil(bytes.length / 32768),
+              statementHash =
+                statementTransfer === 'hash'
+                  ? c.encodeBinary(new Uint8Array(32))
+                  : c.encodeBinary(await largeStatement.hash());
+            send(socket, 'catchup', {
+              membership: { statements: [{ statementHash }], more: false },
+              streams: [],
+              more: true,
+            });
+            for (let index = 0; index < count; index++) {
+              statementChunks++;
+              send(socket, 'chunk', {
+                statementHash,
+                index,
+                count,
+                bytes: c.encodeBinary(bytes.slice(index * 32768, (index + 1) * 32768)),
+              });
+            }
+          }
           send(socket, 'catchup', {
-            chains: [{ deviceId: v.device, chain: c.encodeBinary(json(chain)) }],
+            chains: [
+              { deviceId: v.device, chain: c.encodeBinary(json(chain)) },
+              ...(otherObject
+                ? [{ deviceId: otherDevice, chain: c.encodeBinary(json(otherChain)) }]
+                : []),
+            ],
             wraps: [c.encodeBinary(json(epochWrap))],
             streams: [],
             more: true,
           });
-          for (const row of entries) {
+          const objects = [
+            ...checkpoints.map((x) => ({
+              streamId: v.device,
+              row: x.row,
+              namespace: x.namespace,
+              checkpoint: true,
+            })),
+            ...entries.slice(compacted ? (compacted.invalid === 'gap' ? 7 : 6) : 0).map((row) => ({
+              row,
+              streamId: v.device,
+              namespace: c.decodeHeader(
+                c.Envelope.fromJson(c.binary(row.envelope, 400 * 1024)).header(),
+              ).context.namespace,
+              checkpoint: false,
+            })),
+          ];
+          if (otherObject)
+            objects.push({
+              streamId: otherDevice,
+              row: otherObject,
+              namespace: 'own',
+              checkpoint: false,
+            });
+          for (const { streamId, row, namespace, checkpoint } of objects) {
             const bytes = c.binary(row.envelope, 400 * 1024),
               id = c.decodeHeader(c.Envelope.fromJson(bytes).header()).objectId;
             send(socket, 'catchup', {
               streams: [
                 {
-                  streamId: v.device,
-                  namespace: 'content',
-                  checkpoint: null,
-                  tail: [
-                    { ...row, envelope: bytes.length > 32768 ? { objectId: id } : row.envelope },
-                  ],
+                  streamId,
+                  namespace,
+                  checkpoint: checkpoint
+                    ? { ...row, envelope: bytes.length > 32768 ? { objectId: id } : row.envelope }
+                    : null,
+                  tail: checkpoint
+                    ? []
+                    : [
+                        {
+                          ...row,
+                          envelope: bytes.length > 32768 ? { objectId: id } : row.envelope,
+                        },
+                      ],
                 },
               ],
               more: true,
@@ -445,13 +708,17 @@ async function wire(
   });
   return {
     entries,
+    statement: largeStatement ? c.encodeBinary(largeStatement.toJson()) : null,
+    get statementChunks() {
+      return statementChunks;
+    },
     get hellos() {
       return hellos;
     },
     resync() {
       for (const peer of peers) send(peer, 'error', { code: 'RESYNC_REQUIRED' });
     },
-    async unsupportedOwn() {
+    async ownUpdate() {
       const env = await c.Envelope.seal(
         {
           space: v.space,
@@ -466,9 +733,10 @@ async function wire(
         },
         hex(v.epochKey),
         signer,
-        new Uint8Array([0]),
+        c.binary(ownVector.checkpoint, 256 * 1024),
       );
       const row = await entry(env);
+      entries.push(row);
       for (const peer of peers) deliver(peer, 'broadcast', row, { streamId: v.device });
     },
     get connections() {
@@ -549,13 +817,16 @@ test('two same-device tabs edit one durable stream, chunk, reload and retry exac
   await expect(
     other.frameLocator('iframe').getByRole('heading', { name: 'After reload' }),
   ).toBeVisible();
-  await f.unsupportedOwn();
+  await f.ownUpdate();
   for (const tab of [page, other]) {
-    await expect(tab.getByRole('alert')).toContainText('own-namespace loading is not available');
-    await expect(tab.locator('iframe')).toHaveCount(0);
-    await expect(tab.getByRole('textbox')).toHaveJSProperty('readOnly', true);
+    await expect(tab.getByRole('status')).toContainText('Comments and activity are not displayed');
+    await expect(tab.locator('iframe')).toHaveCount(1);
+    await expect(tab.getByRole('textbox')).toHaveJSProperty('readOnly', false);
   }
-  await expect.poll(() => f.connections).toBe(0);
+  await page.getByRole('textbox').fill('<h1>Across own</h1>');
+  await page.getByRole('button', { name: 'Save source' }).click();
+  await expect(other.getByRole('textbox')).toHaveValue('<h1>Across own</h1>');
+  expect(f.entries.at(-1)!.seq).toBe('7');
   await Promise.all(
     [page, other].map((tab) => tab.getByRole('link', { name: 'Space home' }).click()),
   );
@@ -616,3 +887,160 @@ for (const invalid of ['commitment', 'source', 'descriptor', 'oldEpoch'] as cons
       )
       .toBe(0);
   });
+
+test('paired checkpoints precede an authenticated interleaved tail, preserve edits and reload', async ({
+  page,
+  context,
+}) => {
+  const f = await wire(context, undefined, {});
+  await page.goto(mount);
+  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await expect(page.getByRole('heading', { name: 'Checkpoint', exact: true })).toBeVisible();
+  await expect(page.getByRole('status')).toContainText('Comments and activity are not displayed');
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.getByRole('textbox')).toHaveValue('<p>after tail</p>' + 'x'.repeat(300_000));
+  await page.getByRole('textbox').fill('<h1>After compacted reload</h1>');
+  await page.getByRole('button', { name: 'Save source' }).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'After compacted reload' }),
+  ).toBeVisible();
+  expect(f.entries.at(-1)!.seq).toBe('9');
+  f.dropNext();
+  await page.getByRole('textbox').fill('<h1>Frozen retry after prune</h1>');
+  await page.getByRole('button', { name: 'Save source' }).click();
+  await expect(page.getByRole('alert')).toContainText('edit was not saved');
+  await page.reload();
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.getByRole('textbox')).toHaveValue('<h1>Frozen retry after prune</h1>');
+  await page.getByRole('textbox').fill('<h1>After compacted reload</h1>');
+  await page.getByRole('button', { name: 'Save source' }).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'After compacted reload' }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save source' })).toBeDisabled();
+  await f.settled();
+  expect(f.retries).toBe(1);
+  expect(f.entries.at(-1)!.seq).toBe('11');
+  const before = f.hellos;
+  f.resync();
+  await expect.poll(() => f.hellos).toBe(before + 1);
+  await page.reload();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'After compacted reload' }),
+  ).toBeVisible();
+  await page.getByRole('link', { name: 'Space home' }).click();
+  await expect.poll(() => f.connections).toBe(0);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async () =>
+          (await navigator.locks.query()).held?.filter((l) => l.name?.startsWith('writer:')).length,
+      ),
+    )
+    .toBe(0);
+});
+for (const invalid of ['prefix', 'n', 'namespace', 'body', 'gap', 'ownBody', 'ownTail'] as const)
+  test(`compacted catchup rejects ${invalid} without a partial content projection`, async ({
+    page,
+    context,
+  }) => {
+    await wire(context, undefined, { invalid });
+    await page.goto(mount);
+    await page.getByRole('link', { name: new RegExp(v.page) }).click();
+    await expect(page.getByRole('alert')).toBeVisible();
+    await expect(page.locator('iframe')).toHaveCount(0);
+  });
+async function persistedLog(page: import('@playwright/test').Page) {
+  return page.evaluate(async (space) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('tmt-colab', 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      return await new Promise<string[]>((resolve, reject) => {
+        const tx = db.transaction('keys'),
+          request = tx.objectStore('keys').get(`log:${space}`);
+        tx.oncomplete = () => resolve(request.result);
+        tx.onabort = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  }, v.space);
+}
+test('baseline finishes before a signed large statement; exact owner log survives reload', async ({
+  page,
+  context,
+}) => {
+  const source = '<h1>Statement fixture</h1>' + 'x'.repeat(40_000),
+    f = await wire(context, { source }, undefined, 'valid');
+  await page.goto(mount);
+  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Statement fixture' }),
+  ).toBeVisible();
+  const log = await persistedLog(page);
+  expect(log).toHaveLength(4);
+  expect(log[3]).toBe(f.statement);
+  expect(f.statementChunks).toBeGreaterThan(8);
+  const chunks = f.statementChunks;
+  await page.reload();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Statement fixture' }),
+  ).toBeVisible();
+  expect(await persistedLog(page)).toEqual(log);
+  expect(f.statementChunks).toBe(chunks);
+  await page.getByRole('link', { name: 'Space home' }).click();
+  await expect.poll(() => f.connections).toBe(0);
+});
+test('tampered statement reference preserves the verified prefix and publishes no renderer', async ({
+  page,
+  context,
+}) => {
+  const f = await wire(context, undefined, undefined, 'hash');
+  await page.goto(mount);
+  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await expect(page.getByRole('alert')).toBeVisible();
+  await expect(page.locator('iframe')).toHaveCount(0);
+  const log = await persistedLog(page);
+  expect(log).toHaveLength(2);
+  expect(log).not.toContain(f.statement);
+  await expect.poll(() => f.connections).toBe(0);
+});
+
+test('signed catchup publishes detached own maps for two authors while source stays content-only', async ({
+  page,
+  context,
+}) => {
+  const f = await wire(context, undefined, {});
+  await page.goto(mount);
+  const result = await page.evaluate(
+    async ({ pageId, device }) => {
+      const path = '/src/mounted.ts',
+        { mountedTransport } = await import(path);
+      const { transport } = await mountedTransport();
+      const snapshot = await transport.page(pageId);
+      try {
+        const own = structuredClone(snapshot.own);
+        const unsubscribe = snapshot.binding!.subscribe(
+          (view: PageView) => {
+            if (view.own) view.own[device].threads = {};
+          },
+          () => {},
+        );
+        const subscriptionIsDetached = Object.keys(snapshot.own![device].threads).length > 0;
+        unsubscribe();
+        return { own, subscriptionIsDetached, source: snapshot.source };
+      } finally {
+        snapshot.binding?.close();
+      }
+    },
+    { pageId: v.page, device: v.device },
+  );
+  expect(result.own![v.device]).toEqual(ownVector.expected);
+  expect(result.own!['00000000-0000-4000-8000-000000000126']).toEqual(ownVector.expectedPrefix);
+  expect(result.subscriptionIsDetached).toBe(true);
+  expect(result.source).toBe('<p>after tail</p>' + 'x'.repeat(300000));
+  await expect.poll(() => f.connections).toBe(0);
+});

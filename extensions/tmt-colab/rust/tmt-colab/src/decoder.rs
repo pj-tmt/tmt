@@ -85,19 +85,54 @@ pub struct Decoded {
     pub memory_limit: MemoryLimit,
     pub child_pid: u32,
 }
+/// Caller-owned invocation configuration. Production composition uses `new`;
+/// tests can inject a larger deadline without changing caps or cleanup ownership.
+#[derive(Clone, Debug)]
+pub struct Config {
+    pub program: PathBuf,
+    pub deadline: Duration,
+}
+impl Config {
+    pub fn new(program: PathBuf) -> Self {
+        Self {
+            program,
+            deadline: DEADLINE,
+        }
+    }
+    fn validate(&self) -> Result<(), DecodeFault> {
+        if !self.program.is_absolute() {
+            return Err(DecodeFault::InvalidInput);
+        }
+        validate_deadline(self.deadline)
+    }
+}
+fn validate_deadline(deadline: Duration) -> Result<(), DecodeFault> {
+    if deadline.is_zero() || Instant::now().checked_add(deadline).is_none() {
+        return Err(DecodeFault::InvalidInput);
+    }
+    Ok(())
+}
 pub struct Decoder {
-    program: PathBuf,
+    config: Config,
     blocked: bool,
 }
 impl Decoder {
     pub fn new(program: PathBuf) -> Result<Self, DecodeFault> {
-        if !program.is_absolute() {
-            return Err(DecodeFault::InvalidInput);
-        }
+        Self::with_config(Config::new(program))
+    }
+    pub fn with_config(config: Config) -> Result<Self, DecodeFault> {
+        config.validate()?;
         Ok(Self {
-            program,
+            config,
             blocked: false,
         })
+    }
+    /// Change the next invocation's budget without clearing the cleanup fence.
+    /// Tests use this to retain tight timeout checks and generous reuse controls.
+    pub fn set_deadline(&mut self, deadline: Duration) -> Result<(), DecodeFault> {
+        validate_deadline(deadline)?;
+        self.config.deadline = deadline;
+        Ok(())
     }
     /// Exclusive mutable ownership prevents concurrent children through this page owner.
     /// Reuse requires no started child or confirmed cleanup; possible survivors block it.
@@ -107,7 +142,7 @@ impl Decoder {
         role: Role,
         stop: Option<&AtomicBool>,
     ) -> Result<Decoded, DecodeFault> {
-        self.decode_until(batch, role, stop, Instant::now() + DEADLINE)
+        self.decode_until(batch, role, stop, Instant::now() + self.config.deadline)
     }
     fn decode_until(
         &mut self,
@@ -207,7 +242,7 @@ impl Decoder {
         action: BaselineAction,
         stop: Option<&AtomicBool>,
     ) -> Result<Baseline, DecodeFault> {
-        let deadline = Instant::now() + DEADLINE;
+        let deadline = Instant::now() + self.config.deadline;
         if self.blocked {
             return Err(DecodeFault::CleanupBlocked);
         }
@@ -279,7 +314,7 @@ impl Decoder {
         }
         tmt_invoke::invoke(
             Request {
-                program: &self.program,
+                program: &self.config.program,
                 args: &args,
                 input,
                 deadline,
