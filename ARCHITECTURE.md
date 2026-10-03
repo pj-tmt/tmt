@@ -1284,6 +1284,11 @@ Inspection does not acknowledge work or renew retention. Dispatch operation IDs
 recover immutable acceptance; replay never wakes again. Clients must recover a
 receipt or current room revision after interrupted writes, not invent a new
 operation ID and resend. See [extension API usage](contracts/extension-api.md).
+Its [dispatch readiness and input-safety section](contracts/extension-api.md#dispatch-readiness-and-input-safety)
+owns the public safety limits: observations grant no input lease, core owns send-time evidence,
+enrolled uncertainty never permits paste, and legacy pane input has no universal typing gate.
+Remote consumes this process/JSON contract without importing host adapters or inferring readiness
+from pane buffers. Direct-default grants and opt-in hold remain Remote's admission policy.
 
 ### Extension hooks (v1)
 

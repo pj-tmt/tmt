@@ -6,6 +6,9 @@ lifecycle, the delivery result mapping, the supported provider range and the
 [ARCHITECTURE.md](../ARCHITECTURE.md) owns module boundaries; the request
 lifecycle is owned by the request service and
 [contracts/request-response-v1.md](request-response-v1.md).
+The [public dispatch readiness and input-safety contract](extension-api.md#dispatch-readiness-and-input-safety)
+owns the extension-facing distinction between durable acceptance, advisory wake and completion;
+it does not turn native readiness into an idle or approval-free guarantee.
 
 ## Status
 

@@ -53,6 +53,15 @@ subtree, with 0700 directories and 0600 secret/state files; it MUST NOT open or
 modify core's database/configuration or provider settings. Discovery does not
 create the root or read its files. `capabilities` remains a constant document.
 
+## Dispatch readiness and input safety
+
+This section describes shipped local dispatch behavior and its limits. It does not
+add a readiness operation or authorize remote callers; Remote's proposed grants
+and operation admission belong to the [remote channel contract](remote-channel-v1.md).
+The [request contract](request-response-v1.md) owns request lifecycle and durable
+replies. The native [Claude](claude-channel-v1.md) and [Codex](codex-channel-v1.md)
+contracts own channel readiness, receipts and recovery.
+
 IDs are canonical UUIDs, except request IDs, which use TMT's `req_...` format.
 `dispatch.create.kind` defaults to `request`; `announcement` does not expect a
 reply. Optional room scope is `{kind:"direct",roomId}` or
@@ -62,6 +71,98 @@ UUID and the exact normalized intent and originator. Changed intent conflicts.
 An acceptance receipt is not proof of delivery or processing. An absent `wake`
 on replay is intentional; an offline request remains queued without automatic
 re-wake. Recover with `dispatch.show` after uncertain process completion.
+
+### Admission, wake and completion
+
+`dispatch.create` commits immutable acceptance before attempting an advisory wake
+for a newly created, queued, single-recipient request outside roster dispatch.
+The wake carries a hint to retrieve the retained request, not its message body.
+Failure to wake does not undo acceptance. A queued request is durable inbox work;
+it does not promise a live transport, a claimed wake or agent processing.
+
+The optional `wake` is separate from the stored receipt. Its existing JSON shape
+is `{status,paneAttempted,agentProcessed}`:
+
+| `status`       | `paneAttempted` | Meaning                                                              |
+| -------------- | --------------- | -------------------------------------------------------------------- |
+| `notAttempted` | `false`         | No wake attempt reported.                                            |
+| `unknown`      | `null`          | Claim or settlement could not be confirmed; input may have happened. |
+| `sent`         | `true`          | Transport submission or native queue acceptance reported.            |
+| `unavailable`  | `false`         | Wake could not obtain an accepted delivery.                          |
+| `uncertain`    | `true`          | Delivery may have occurred without confirmed acceptance.             |
+
+`agentProcessed` is always `null`: even `sent` proves no processing or reply.
+`paneAttempted` is the existing coarse transport report; `true` does not imply
+paste, and `false` is not permission to retry. Claude's successful one-way write
+is unacknowledged and maps to `uncertain`; Codex's correlated queue acceptance
+maps to `sent`. Neither completes the request.
+
+Core claims a wake before input. A retained claim after an interrupted caller or
+failed settlement is not an unattempted wake and MUST NOT be replayed. Neither
+`dispatch.show` nor replaying `dispatch.create` attempts another wake or changes
+the stored acceptance receipt; both omit `wake`. Observe request completion
+through `requests.show` or the ordinary `tmt result --json` command.
+
+A timeout is not a cancel. If process completion or output is uncertain, keep the
+operation ID, normalized intent and returned request IDs; recover the original
+acceptance with `dispatch.show`. A missing receipt while the original invocation
+may still run is not proof that nothing was accepted. Stop/confirm cleanup of the
+owned invocation before treating a definitive `DISPATCH_NOT_FOUND` as absence;
+any retry retains the same operation ID and intent. Never manufacture a new ID,
+resend a claimed wake or paste around uncertainty. Remote's durable journal and
+authority revalidation remain the remote channel contract's responsibility.
+
+### Readiness authority and observation races
+
+No shipped public API operation grants a positive input-readiness lease or fences
+a later dispatch. `tmt ls --json` presence, `session.activity`, self-reported
+`identities.status`, elapsed time and `changes.cursor` are descriptive observations,
+not permission to inject input. Diagnostic `tmt check --json` capture is not a
+readiness test. Extensions invoke the supplied `TMT_EXECUTABLE` through documented
+API operations and ordinary JSON commands; they do not import core host adapters,
+inspect private driver records or scrape pane buffers to decide readiness.
+
+Core owns fresh binding/runtime verification and native generation checks during
+the send. A preceding observation can become stale before those checks or before
+input; there is no atomic lease over a person's typing, prompt contents or provider
+approval state. Native channel readiness establishes the owned transport and
+foreground evidence in the channel contracts. It does not establish idle,
+approval-free or processed input. Codex can accept queued input while busy or
+awaiting user-owned attachment. Claude provides no provider processing receipt.
+
+The shared driver outcomes remain uniform: completed submission, queue acceptance
+and unacknowledged writes are terminal; denied, awaiting-approval and uncertain
+outcomes are terminal too. Only unsupported or proven-not-sent outcomes can select
+the ordinary fallback. Enrolled native drivers do not use that fallback for
+not-ready, unreachable, refused or uncertain sends. Core checks pane-attributed
+enrollment evidence before baseline input, including retained or unknown evidence
+after rebinding. Native recovery is local; no remote call approves a provider
+dialog or clears enrollment evidence. An unavailable channel is not proof of an
+approval dialog.
+
+### Current limits and deferred readiness work
+
+For ordinary pane input, a recorded runtime that is ended or cannot be verified
+blocks input unless core independently verifies a replacement runtime. Legacy
+bindings without recorded runtime evidence can still use paste. Direct request
+wake has no universal empty-prompt or person-typing gate; reply-notice activity
+debouncing is not such a guarantee. Unknown native enrollment evidence blocks
+paste, but this does not make every legacy unknown runtime fail closed.
+
+A positive public readiness fence and the strict no-input criteria for bare
+shells, person-typing and unknown approval dialogs remain open in
+[#600](https://github.com/pj-tmt/tmt/issues/600), with their real disposable-tmux
+acceptance evidence. Remote's reserved delivery projection is proposed until core
+publishes it and would be advisory, not a dispatch lease. This work does not
+reinstate mandatory hold: the remote channel's newer direct-by-default grants and
+opt-in hold govern [#1055](https://github.com/pj-tmt/tmt/issues/1055), which owns the
+remote operation implementation and integration tests. Remote application
+operations currently remain deny-all; pairing or presence alone does not enable
+them. The retargeted channel API work in [#597](https://github.com/pj-tmt/tmt/issues/597)
+does not supply a readiness fence. A busy native channel's valid queue acceptance
+is not itself an unsafe-input refusal.
+
+## Other operation details
 
 `skills.install` publishes an extension's agent skills into the user's provider
 skill directories, so send `consent: true` only after asking the user, as
