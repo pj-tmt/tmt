@@ -2250,7 +2250,9 @@ with process-incarnation CAS claims before waits, sealed batch membership, and
 per-frame attempt evidence before transport. Its competing-waiter transport grace
 is derived from the computed registry maximum of `Driver::maximum_send_duration`,
 not a CLI timeout constant. Drivers derive this single-send declaration from their
-enforced stage budgets; the port has a conservative 30-second default. The grace
+enforced stage budgets; the port has a conservative 30-second default. Core permits
+`std::time::Duration` as pure budget data; `Instant`, `SystemTime`, clock reads and
+broad `std::time` imports remain forbidden by the architecture guard. The grace
 extends the existing typing limit and is only an observer allowance: expiry keeps
 untouched notices queued and cannot release a live sender or replay input. A
 multi-frame batch or host routing can outlast one declared driver send; the worker
