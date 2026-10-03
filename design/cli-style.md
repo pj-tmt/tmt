@@ -267,7 +267,7 @@ the start.
 
 A view is a stack of layers. The **base** is the tab line, the panes and the
 footer. An **overlay** (help, settings, a picker, a prompt) sits on top of it,
-and a **notice** is one line above the footer. Only one overlay is open at a
+and a **notice** takes the footer line until the next key. Only one overlay is open at a
 time; opening another replaces it.
 
 - The top layer gets every key first. An overlay is modal: it handles its own
@@ -275,7 +275,7 @@ time; opening another replaces it.
   exception is Ctrl-C, which always quits the view. Quitting from a prompt
   discards what was typed there; only Enter saves.
 - In the base, one pane has focus. Tab and Shift-Tab move focus between panes in
-  reading order; on the Squad home tab they move between sections. The focused
+  reading order; on the Squad home tab they move between sections. A pane may use Tab for its own items, such as links in the notes, and passes it on when it has none or the user bound Tab. The focused
   pane's title is `accent` and bold; other titles are `muted`.
 - One cursor per pane. Moving between panes keeps each pane's cursor and scroll
   position. A refresh never moves the cursor or the scroll position; the cursor
@@ -285,19 +285,19 @@ time; opening another replaces it.
 
 The same key means the same thing in every view and overlay.
 
-| Key            | Base                         | Overlay                         |
-| -------------- | ---------------------------- | ------------------------------- |
-| ↑↓, j/k        | move the cursor              | move or scroll                  |
-| PgUp/PgDn      | page                         | page                            |
-| Home/End, g/G  | first or last item           | first or last line              |
-| Enter          | the row's main action (jump) | confirm or save                 |
-| Esc            | clear search or selection    | close without changing anything |
-| `?`            | open help                    | close help                      |
-| `q`            | quit                         | close                           |
-| ←→             | previous or next tab         | not used (edit cursor in input) |
-| `/`            | search                       | not used                        |
-| Tab, Shift-Tab | next or previous pane        | next or previous field          |
-| Ctrl-C         | quit                         | quit                            |
+| Key            | Base                                 | Overlay                         |
+| -------------- | ------------------------------------ | ------------------------------- |
+| ↑↓, j/k        | move the cursor                      | move or scroll                  |
+| PgUp/PgDn      | page                                 | page                            |
+| Home/End, g/G  | first or last item                   | first or last line              |
+| Enter          | the row's main action (jump)         | confirm or save                 |
+| Esc            | clear search or selection, else quit | close without changing anything |
+| `?`            | open help                            | close help, or text in a field|
+| `q`            | quit                                 | close, or text in a field     |
+| ←→             | previous or next tab                 | not used (edit cursor in input) |
+| `/`            | search                               | not used                        |
+| Tab, Shift-Tab | next or previous pane                | next or previous field          |
+| Ctrl-C         | quit                                 | quit                            |
 
 A view may add its own keys, but never reuses one of these for something else.
 User bindings can change a key; help and footers always show the effective key.
@@ -346,7 +346,7 @@ User bindings can change a key; help and footers always show the effective key.
 | State   | Looks like                                                    | Role               |
 | ------- | ------------------------------------------------------------- | ------------------ |
 | empty   | a short phrase in parentheses: `(no notes yet)`               | `muted`            |
-| loading | `loading…`, only if it lasts more than a second; no spinner   | `dim`              |
+| loading | `⠋ loading` on the summary line, only after a moment          | `dim`              |
 | partial | the data plus one line saying what is missing and why         | `waiting` with `!` |
 | error   | `✗` and one sentence: what failed and what to do              | `blocked`          |
 | success | `✓` and a short confirmation, cleared on the next key         | `working`          |
@@ -359,8 +359,7 @@ asked for that value.
 
 ### Motion
 
-Only live data moves: the token meter, the trend sparkline and refreshed
-counts. Nothing blinks, slides or animates for decoration. With
+Only live data and progress move: the token meter, the trend sparkline, the loading spinner and refreshed counts. Nothing blinks, slides or animates for decoration. With
 `reduced_motion`, live marks update in place without stepping animations. A
 refresh repaints in place and never scrolls or flashes the view.
 
