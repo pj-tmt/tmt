@@ -129,7 +129,7 @@ impl Session {
                 self.initialized = true;
                 json!({"protocolVersion":version,"capabilities":{"tools":{}},
                     "serverInfo":{"name":"tmt","version":env!("CARGO_PKG_VERSION")},
-                    "instructions":"These are same-user local TMT reads. Pull requests with inbox and request. Reads never acknowledge or complete work; unavailable results do not mean cancellation. This server does not enroll a channel or wake an unloaded model."})
+                    "instructions":"These are same-user local TMT exchange tools. Pull incoming work with inbox and request. Send returns dispatch acceptance: retain operationId and recover with operation after interruption. Answer submits an exact final for one requestId; ack requires its observed incoming revision. Reads and answer never acknowledge. Timeout or unavailable results do not mean cancellation or permission to resend with a new operationId. This server does not enroll a channel or wake an unloaded model."})
             }
             "initialize" => return Some(error(id, -32600, "Already initialized")),
             "ping" if empty(params) => json!({}),

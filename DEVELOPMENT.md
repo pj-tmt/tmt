@@ -158,9 +158,10 @@ qualification. Use an isolated application home for native MCP tests:
 `CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-adapters mcp::tests` and
 `CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-cli --test mcp` from
 `rust/`. These tests cover protocol admission, command/resource parity, pinned
-identity scoping and direct-child cleanup without provider credentials or tmux.
-MCP runtime framing stays separate from private channel framing; provider setup,
-writing tools and waiting talk are not part of this slice.
+identity scoping, writing retries/uncertain wakes, exact final/ack decisions and
+direct-child cleanup without provider credentials or tmux.
+MCP runtime framing stays separate from private channel framing; provider setup
+and waiting talk remain later work.
 
 ## Office SPA
 
