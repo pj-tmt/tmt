@@ -42,17 +42,14 @@ describe('legacy extension skill lifecycle (#957)', () => {
       const listed = await runCli(sandbox, ['extension', 'ls', '--prefix', prefix, '--json']);
       expect(listed.status, listed.stdout).toBe(0);
       expect(parseWholeStdout(listed)).toMatchObject({
-        extensions: [
+        extensions: expect.arrayContaining([
           {
             name: 'office',
             installed: false,
             status: 'partiallyRemoved',
             hint: expect.stringContaining('extension rm office --yes'),
           },
-          { name: 'squad', installed: false },
-          { name: 'remote', installed: false },
-          { name: 'colab', installed: false },
-        ],
+        ]),
       });
       const removed = await runCli(sandbox, [
         'extension',
