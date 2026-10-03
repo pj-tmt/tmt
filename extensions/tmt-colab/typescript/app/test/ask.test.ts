@@ -193,7 +193,27 @@ it('storage failure and expiry during storage have no send effect', async () => 
   vi.restoreAllMocks();
   expect(remote.sends).toHaveLength(0);
 });
-it('a persisted draft only permits uncertainty on reopen, never a second send; conflicts preserve bytes', async () => {
+it('persists only signed metadata, never the plaintext quote, comment or encoded final bytes', async () => {
+  records.clear();
+  const frozen = preview(),
+    signed = await frozen.signed(await key());
+  expect(await storeAskDraft(signed)).toBe('created');
+  expect([...records.entries()]).toEqual([
+    [
+      `ask:${signed.senderDevice}:${signed.operationId}`,
+      { input: signed.input, signature: signed.signature },
+    ],
+  ]);
+  const stored = JSON.stringify([...records.values()]);
+  for (const plaintext of [
+    selection().quote,
+    selection().comment,
+    frozen.view.message,
+    signed.finalBytes,
+  ])
+    expect(stored).not.toContain(JSON.stringify(plaintext));
+});
+it('a persisted draft only permits uncertainty on reopen, never a second send; conflicts preserve metadata', async () => {
   records.clear();
   const remote = new RemoteDouble(),
     frozen = preview(),
@@ -207,9 +227,9 @@ it('a persisted draft only permits uncertainty on reopen, never a second send; c
   expect(remote.sends).toHaveLength(1);
   const signed = await frozen.signed(signer),
     stored = structuredClone([...records.values()]);
-  await expect(
-    storeAskDraft({ ...signed, finalBytes: encodeBinary(text('changed')) }),
-  ).rejects.toThrow('INTENT_CONFLICT');
+  await expect(storeAskDraft({ ...signed, input: encodeBinary(text('changed')) })).rejects.toThrow(
+    'INTENT_CONFLICT',
+  );
   expect([...records.values()]).toEqual(stored);
 });
 it('lost or miscorrelated responses remain uncertain and never retry; hold is not acceptance', async () => {

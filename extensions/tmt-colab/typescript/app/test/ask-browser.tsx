@@ -1,7 +1,7 @@
 /** Browser-test entry only; never imported by production routing or builds. */
 import { createRoot, type Root } from 'react-dom/client';
 import { binary, strictVerify } from '@tmt/colab-client';
-import { AskAttempt } from '../src/ask-attempt.js';
+import { AskAttempt, type StoredAskDraft } from '../src/ask-attempt.js';
 import { FrozenAsk } from '../src/ask-intent.js';
 import { AskPreview } from '../src/ask-preview.js';
 import type { Delivery } from '../src/ask-remote.js';
@@ -66,9 +66,7 @@ export function editLive() {
 export async function proof() {
   const { attempt, remote, issuedAt } = active,
     preview = attempt.preview;
-  const draft = await record<{ input: string; signature: string; finalBytes: string }>(
-    `ask:${id(4)}:${preview.view.operationId}`,
-  );
+  const draft = await record<StoredAskDraft>(`ask:${id(4)}:${preview.view.operationId}`);
   const keys = await deviceKeys(id(4));
   return {
     sends: remote.sends,

@@ -3071,12 +3071,13 @@ corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-matc
 The Ask preview foundation (#1312) has no production selection/threads entry
 point or live remote operation adapter. `test/ask.test.ts` verifies independent
 canonical/signature vectors, immutable async inputs, composed byte bounds,
-persist-before-send, conflicts, double-click coalescing, held/uncertain outcomes
-and no retry through a deterministic RemoteClient double. `e2e/ask.spec.ts`
+persist-before-send, metadata-only storage, conflicts, double-click coalescing,
+held/uncertain outcomes and no retry through a deterministic RemoteClient double. `e2e/ask.spec.ts`
 mounts the parent component through the test-only `test/ask-browser.tsx` entry
 and uses real WebCrypto/non-extractable keys, IndexedDB and Web Locks. It checks
 inert exact/control-byte previews, disabled absent runtime, trusted-click-only
-signing, frozen live-source inputs and durable reload without another send.
+signing, frozen live-source inputs, stored-record exclusion of message bytes and
+durable reload without another send.
 These tests prove the browser primitive, not remote delivery or the L5 real-TMT
 acceptance gate. No real TMT home or provider is used by this fixture. Screenshot
 evidence is written under `/private/tmp/colab-1110-design/`.

@@ -896,10 +896,13 @@ shaped `RemoteClient` port. There is no live adapter or Remote keyring access.
 Without a port, Send is disabled and signing/storage never starts. With a test
 port, trusted Send persists an immutable local draft in the existing Colab
 IndexedDB store under the device/operation key before calling it. A Web Lock
-serializes adoption across tabs. Same bytes return the existing draft; changed
-bytes are `INTENT_CONFLICT`. An existing draft yields uncertain without another
-send, including after reload. Drafts are local plaintext browser state, not the
-native bridge ledger or encrypted own-stream publication, and no schema/version
+serializes adoption across tabs. The stored record contains only signed input
+and signature; the input binds the message digest. Quote, comment and final
+message bytes stay in memory and are never written to this store. Identical
+signed metadata returns the existing draft; changed input or signature is
+`INTENT_CONFLICT`. An existing draft yields uncertain without another send,
+including after reload. This metadata is not the native bridge ledger or
+encrypted own-stream publication, and no schema/version
 migration is introduced. Storage failure or expiry before the port call has no
 send effect. Repeated clicks share one promise; a lost or miscorrelated response
 becomes uncertain. There is no retry, local approval or result publication path.

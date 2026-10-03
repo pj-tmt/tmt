@@ -4253,9 +4253,10 @@ while signing. `ask-preview` is a minimal trusted-parent component, independent
 of renderer messaging and not yet wired to production selection/threads.
 `ask-attempt` owns one explicit attempt and immutable draft adoption using the
 existing IndexedDB transaction/Web Lock boundary. A stored draft prevents a
-second send and preserves uncertainty; it is local plaintext draft state, not
-the native bridge ledger or encrypted own-stream publication. `ask-remote`
-is only the contract-shaped injected port. The production app has no live
+second send and preserves uncertainty. It stores only signed input and signature;
+the input binds a message digest, and plaintext message bytes stay in memory.
+This metadata is not the native bridge ledger or encrypted own-stream publication.
+`ask-remote` is only the contract-shaped injected port. The production app has no live
 operation adapter: #1055 and later L5 slices own runtime adoption, native
 ledger/fencing, reply attribution/publication and real-binary acceptance.
 Test-only deterministic ports/browser mounting stay under the app's test home,

@@ -3,6 +3,7 @@ import { FrozenAsk, type SignedAsk } from './ask-intent.js';
 import type { RemoteClient, SendState } from './ask-remote.js';
 import { record } from './storage.js';
 
+export type StoredAskDraft = Pick<SignedAsk, 'input' | 'signature'>;
 export type DraftAdoption = (intent: SignedAsk) => Promise<'created' | 'existing'>;
 export type AskState =
   | SendState
@@ -11,23 +12,20 @@ export type AskState =
       operationId: string;
     };
 
-/** Immutable local draft, not the native bridge ledger or encrypted own stream.
+/** Immutable signed metadata only; final message bytes stay in attempt memory.
+ * This record is not the native bridge ledger or encrypted own stream.
  * Web Locks serialize same-operation adoption across tabs; a stored draft never
  * authorizes a send on reload. Transaction completion precedes any port call. */
 export const storeAskDraft: DraftAdoption = async (intent) => {
   const key = `ask:${intent.senderDevice}:${intent.operationId}`;
   return await navigator.locks.request(key, async () => {
-    const previous = await record<SignedAsk>(key);
+    const previous = await record<StoredAskDraft>(key);
     if (previous) {
-      if (
-        previous.input !== intent.input ||
-        previous.signature !== intent.signature ||
-        previous.finalBytes !== intent.finalBytes
-      )
+      if (previous.input !== intent.input || previous.signature !== intent.signature)
         throw new Error('INTENT_CONFLICT');
       return 'existing';
     }
-    await record(key, intent);
+    await record<StoredAskDraft>(key, { input: intent.input, signature: intent.signature });
     return 'created';
   });
 };

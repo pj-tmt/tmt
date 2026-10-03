@@ -52,6 +52,8 @@ test('trusted preview is inert, shows exact frozen/control bytes, and only an ex
       message: initial.message,
     },
   ]);
+  expect(Object.keys(final.draft).sort()).toEqual(['input', 'signature']);
+  expect(JSON.stringify(final.draft)).not.toContain(JSON.stringify(initial.message));
   expect(final.verified).toBe(true);
   expect(final.keyExportDenied).toBe(true);
   expect(final.reads).toEqual([]);
