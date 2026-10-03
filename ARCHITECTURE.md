@@ -4124,6 +4124,9 @@ for archive and public-install verifier sensitivity. Embedded tiny app bytes and
 argument-selected defects belong to this executable, with scenario assertions in
 tooling tests. Its `signal-hook` dev-dependency owns fixture SIGTERM cleanup; the
 library's production dependency boundary and publication helper are unchanged.
+The fixture's listener is nonblocking, while accepted sockets use bounded blocking
+reads/writes on every host; a native accept marker gates the HTTP test's first
+request to cover delayed headers without sleeps.
 Owner-local test modules retain readiness, scenario assertions and case-3 retries.
 
 The CLI's `tests/support` module owns the isolated environment and
@@ -4319,6 +4322,9 @@ published supporting CLI alpha and actual-archive acceptance.
 The shared `colab-runtime-proof.mjs` verifies relocated socket serving, exact
 independent app bytes for archives, representative app delivery for public smoke,
 combined notices and child/socket cleanup with no frontend runtime tooling.
+Startup failures are classified after child stdio closes, retaining the bounded
+readiness deadline and diagnostic budget. The immediate-failure fixture and
+stdio barrier regression belong to the existing native example and tooling test.
 Cleanup requires direct process exit and confirmed process-group absence before
 removing isolated state; an exiting-group signal denial alone cannot establish cleanup.
 Only Colab verification loads this app proof; other products keep the existing
