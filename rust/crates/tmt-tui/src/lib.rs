@@ -3,7 +3,9 @@
 
 use std::{collections::BTreeMap, fmt};
 
+pub mod app;
 pub mod binding;
+pub mod components;
 pub mod geometry;
 pub mod paint;
 pub mod style;
@@ -21,6 +23,9 @@ pub enum Kind {
     Cell,
     Text,
     Repeat,
+    Modal,
+    Scroll,
+    KeyHelp,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -194,6 +199,9 @@ fn read(
         "tmt-cell" => Kind::Cell,
         "tmt-text" => Kind::Text,
         "tmt-repeat" => Kind::Repeat,
+        "tmt-modal" => Kind::Modal,
+        "tmt-scroll" => Kind::Scroll,
+        "tmt-key-help" => Kind::KeyHelp,
         _ => return Err(fail("unknown element or nested tmt-view".into())),
     };
     let leaf = matches!(kind, Kind::Cell | Kind::Text);
@@ -204,6 +212,9 @@ fn read(
             ["each", "as"].contains(&name)
         } else {
             ["id", "id-bind", "class", "token", "selected"].contains(&name)
+                || (kind == Kind::Modal && ["title", "placement"].contains(&name))
+                || (kind == Kind::KeyHelp && name == "bind")
+                || (kind == Kind::Text && name == "slot")
                 || (root && name == "version")
                 || (kind == Kind::Row && ["row-id", "row-bind"].contains(&name))
                 || (leaf

@@ -924,8 +924,23 @@ wide graphemes crossing clip edges leave styled blanks. Theme/Depth are injected
 roles inherit and resolve through the shared screen adapter. The caller supplies
 the complete selected-role style: Squad's Look remains the selection policy owner.
 Hits borrow scoped IDs and semantic row IDs, inherit identity, intersect visible
-buffer clips, omit zero areas and resolve in reverse paint order. No input dispatch,
-terminal lifecycle, markdown or provider acquisition lives in this leaf.
+buffer clips, omit zero areas and resolve in reverse paint order. The application-neutral
+`app` layer owns base focus, one replaceable modal and top-first event routing:
+unhandled modal keys/mouse are captured, closing events never replay into the base,
+and Ctrl-C returns a quit effect. The caller retains item cursors, data, effects
+and terminal lifecycle. `components` owns opaque square-border modal chrome,
+fixed footer/status/position slots, visual-line scroll/clamp/reveal and typed
+key-help sections. Its surface compiler lowers component markup into the existing
+bounded primitive binding and geometry pipeline; generated templates are checked
+against the same depth/node limits. Component IDs are static scoped IDs outside
+repeats in this first API. Key help measures one display-cell label column across
+all sections and stacks descriptions when fewer than 20 cells remain. Rendering
+injects Theme/Depth and the existing selection policy, and returns current-frame
+clipped hits. No terminal acquisition, clock, settings persistence, markdown or
+provider acquisition lives in this leaf. Components implement the
+[full-screen interaction guideline](design/cli-style.md#full-screen-interaction);
+application-owned descriptions and effective bindings supply their text. List/table
+and picker components and Squad's overlay migrations remain subsequent #1465 work.
 Squad is the sole reviewed product edge, through a normal dependency. Its row
 compiler binds already projected display values into bounded admitted cells,
 without acquiring or formatting sources. Occurrence IDs contain tab, authored
