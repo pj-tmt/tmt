@@ -5010,7 +5010,7 @@ snapshots and materializes active titles only through the authenticated isolated
 fold. The CLI reuses read-only Store opening for existing private files and
 requires current schemas explicitly, without creation, journal changes or
 migrations; native export retains its existing legacy-read behavior. Archived titles and expiry
-without durable update evidence are explicitly unavailable (#1350).
+without durable update evidence are explicitly unavailable.
 The CLI captures mutation IDs, revisions and selections once, checks explicit
 confirmation for widening, and chooses private IPC or the existing
 lifecycle-locked offline service. An uncertain IPC reply never selects a second

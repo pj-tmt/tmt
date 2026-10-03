@@ -533,7 +533,16 @@ fn output(value: &Value, json_output: bool) -> Result<()> {
                 )),
             ]);
         }
-        tmt_cli_style::list::Section {title:"PAGES",count:Some(pages.len()),rows,note:Some("Expiry times unavailable pending #1350; local data is never automatically deleted."),hint:None}.write(&mut out,terminal)?;
+        tmt_cli_style::list::Section {
+            title: "PAGES",
+            count: Some(pages.len()),
+            rows,
+            note: Some(
+                "Expiry times are not available yet; local data is never automatically deleted.",
+            ),
+            hint: None,
+        }
+        .write(&mut out, terminal)?;
     } else {
         let fields = value
             .as_object()
@@ -555,7 +564,7 @@ fn output(value: &Value, json_output: bool) -> Result<()> {
             tmt_cli_style::message::warning(
                 &mut stderr,
                 terminal,
-                "Expiry times unavailable pending #1350; local data is never automatically deleted.",
+                "Expiry times are not available yet; local data is never automatically deleted.",
                 None,
             )?;
         }

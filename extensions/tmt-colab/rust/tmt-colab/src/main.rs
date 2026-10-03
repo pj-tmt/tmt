@@ -338,7 +338,10 @@ fn main() -> ExitCode {
     let matches = match command.try_get_matches() {
         Ok(m) => m,
         Err(e) => {
-            let help = matches!(e.kind(), clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion);
+            let help = matches!(
+                e.kind(),
+                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
+            );
             if json_output && !help {
                 let _ = writeln!(
                     tmt_cli_style::stream::stdout(true),

@@ -1640,7 +1640,7 @@ authenticated fold and isolated decoder. Archived titles are null with
 `title-unavailable` because the fold refuses archived pages. Members/links expose
 ID, role, page assignments and revocation, never secret material.
 
-Until #1350 supplies durable last-update evidence, both timestamp fields are null
+Until durable last-update evidence is available, both timestamp fields are null
 and warnings contain `expiry-unavailable`; human output states this plainly.
 No file time, read time or fabricated zero establishes expiry. Retention defaults
 to 30 days; forever is null. Local policy never automatically deletes or denies

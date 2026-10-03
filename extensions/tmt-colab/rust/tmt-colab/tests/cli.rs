@@ -470,7 +470,7 @@ fn management_reads_verify_encrypted_titles_and_preserve_missing_and_existing_st
     let human = pilot.command().args(["ls"]).output().unwrap();
     assert!(human.status.success());
     assert!(!human.stdout.contains(&0x1b));
-    assert!(String::from_utf8_lossy(&human.stdout).contains("Expiry times unavailable"));
+    assert!(String::from_utf8_lossy(&human.stdout).contains("Expiry times are not available yet"));
     assert_eq!(fs::read(db).unwrap(), before);
 }
 #[test]

@@ -3534,7 +3534,7 @@ owns flags, disclosure, JSON and error shapes. Existing `serve`/`spaces` remain.
 
 Read-only commands create no missing state and never migrate a schema. Titles
 come from the isolated authenticated fold; archived titles are explicitly
-unavailable. Expiry times remain unavailable pending #1350; retention never
+unavailable. Expiry times are not available yet; retention never
 causes automatic local deletion. Discussions await verified own folding.
 
 Run the focused subprocess cases from `rust/`:
