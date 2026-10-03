@@ -36,6 +36,7 @@ export interface ReleasePleasePackage {
   readonly 'release-type': string;
   readonly 'prerelease-type': string;
   readonly component: string;
+  readonly 'bootstrap-sha'?: string;
   readonly 'include-component-in-tag': boolean;
   readonly prerelease: boolean;
   readonly 'exclude-paths'?: readonly string[];

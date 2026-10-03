@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { parseComponentMap } from './ci-scope.mjs';
 import { releaseConsumption } from './release-please-config.mjs';
+import { productOfTag, releasePolicy } from './native-release-policy.mjs';
 
 const requirePinned = createRequire(
   new URL('../../.github/release-please/package.json', import.meta.url)
@@ -58,6 +59,111 @@ export function attributeReleaseConsumption(github, components) {
     }
   };
   return github;
+}
+
+/** Pinned 17.11.2 ignores package bootstrap-sha: keep first-release cutoffs path-local. */
+export function applyBootstrapCutoffs(manifest, components) {
+  const bootstraps = components.filter(
+    (component) => component.release !== false && component.bootstrapSha
+  );
+  if (!bootstraps.length) return manifest;
+  const github = manifest.github;
+  const originalReleases = github.releaseIterator;
+  const originalCommits = github.mergeCommitIterator;
+  const originalTags = github.tagIterator;
+  const tagged = new Map();
+  const published = new Map();
+  const publishedPaths = new Set();
+  const before = new Map();
+  const seen = new Set();
+  if (
+    typeof originalReleases !== 'function' ||
+    typeof originalCommits !== 'function' ||
+    typeof originalTags !== 'function' ||
+    !Array.isArray(manifest.plugins)
+  )
+    throw new Error('Unsupported release-please bootstrap API.');
+  github.releaseIterator = async function* (options) {
+    published.clear();
+    publishedPaths.clear();
+    for await (const release of originalReleases.call(this, options)) {
+      for (const component of components.filter((item) => item.release !== false)) {
+        const path = component.owns[0];
+        if (productOfTag(release.tagName) === component.name) publishedPaths.add(path);
+        if (
+          release.tagName ===
+          `${releasePolicy(component.name).tagPrefix}${manifest.releasedVersions[path]}`
+        ) {
+          published.set(path, release.sha);
+        }
+      }
+      yield release;
+    }
+  };
+  github.tagIterator = async function* (...args) {
+    tagged.clear();
+    for await (const tag of originalTags.apply(this, args)) {
+      let bootstrapOnly = false;
+      for (const component of components.filter((item) => item.release !== false)) {
+        const path = component.owns[0];
+        if (
+          tag.name ===
+          `${releasePolicy(component.name).tagPrefix}${manifest.releasedVersions[path]}`
+        ) {
+          // A tag without a published release cannot replace a declared bootstrap anchor.
+          if (component.bootstrapSha && !publishedPaths.has(path)) bootstrapOnly = true;
+          else tagged.set(path, tag.sha);
+        }
+      }
+      if (!bootstrapOnly) yield tag;
+    }
+  };
+  github.mergeCommitIterator = async function* (branch, options) {
+    before.clear();
+    seen.clear();
+    const missing = bootstraps.filter((component) => !publishedPaths.has(component.owns[0]));
+    const boundaries = new Set([
+      ...published.values(),
+      ...tagged.values(),
+      ...missing.map((component) => component.bootstrapSha),
+    ]);
+    const bounded = components
+      .filter((component) => component.release !== false)
+      .every(
+        (component) =>
+          published.has(component.owns[0]) ||
+          tagged.has(component.owns[0]) ||
+          (!publishedPaths.has(component.owns[0]) && component.bootstrapSha)
+      );
+    for (const component of missing) before.set(component.owns[0], new Set());
+    for await (const commit of originalCommits.call(this, branch, options)) {
+      for (const component of missing) {
+        if (commit.sha === component.bootstrapSha) seen.add(component.bootstrapSha);
+        if (!seen.has(component.bootstrapSha)) before.get(component.owns[0]).add(commit.sha);
+      }
+      boundaries.delete(commit.sha);
+      yield commit;
+      if (bounded && boundaries.size === 0) break;
+    }
+  };
+  const { ManifestPlugin } = requirePinned('release-please/build/src/plugin.js');
+  class BootstrapCutoffs extends ManifestPlugin {
+    async preconfigure(strategies, commits) {
+      for (const component of bootstraps) {
+        const path = component.owns[0];
+        // Published components keep the pinned cutoff; seed tags cannot become anchors.
+        if (publishedPaths.has(path)) continue;
+        if ((commits[path] ?? []).length && !seen.has(component.bootstrapSha))
+          throw new Error(`Missing bootstrap history boundary for ${path}.`);
+        commits[path] = (commits[path] ?? []).filter((commit) => before.get(path)?.has(commit.sha));
+      }
+      return strategies;
+    }
+  }
+  manifest.plugins.unshift(
+    new BootstrapCutoffs(github, manifest.targetBranch, manifest.repositoryConfig)
+  );
+  return manifest;
 }
 
 /** Compare generated release files at an immutable head; main-only pushes must not reset its CI. */
@@ -189,7 +295,8 @@ async function main(command) {
   const github = await api.GitHub.create({ owner, repo, token: process.env.RELEASE_TOKEN });
   // Like the manifest/config, read the map from the target branch rather than another checkout.
   const mapFile = await github.getFileContentsOnBranch('.github/components.json', 'main');
-  attributeReleaseConsumption(github, parseComponentMap(mapFile.parsedContent).components);
+  const components = parseComponentMap(mapFile.parsedContent).components;
+  attributeReleaseConsumption(github, components);
   if (command === 'release-pr' && process.env.LIVE === 'true')
     preserveUnchangedReleasePullRequests(github, api.Errors.FileNotFoundError);
   const manifest = await api.Manifest.fromManifest(
@@ -198,6 +305,7 @@ async function main(command) {
     'release-please-config.json',
     '.release-please-manifest.json'
   );
+  applyBootstrapCutoffs(manifest, components);
   if (command === 'release-pr')
     holdTaglessDraftCandidates(manifest, JSON.parse(process.env.TAGLESS_DRAFT_PATHS ?? '[]'));
   const result = await executeReleasePlease(manifest, command, process.env.LIVE === 'true');

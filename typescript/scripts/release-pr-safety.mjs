@@ -177,27 +177,78 @@ export async function checkReleaseNotes({ pr, base, components, reader, releases
   if (!SHA.test(base ?? '')) throw new Error('Missing candidate base SHA.');
   if (typeof pr.body !== 'string') throw new Error('Missing release PR notes.');
   const [published] = publishedReleases(releases ?? releasesOf(reader), component.name);
-  if (!published) throw new Error(`No published ${component.name} anchor.`);
-  const headers = [...pr.body.matchAll(/^## \[[^\]\r\n]+\]\((https:\/\/github\.com\/[^\s)]+)\)/gm)];
-  if (headers.length !== 1)
-    throw new ReleaseNotesRefreshRequiredError('Missing or ambiguous release compare header.');
-  const url = new URL(headers[0][1]);
-  const prefix = `/${reader.repository}/compare/`;
-  const tags = url.pathname.startsWith(prefix)
-    ? url.pathname.slice(prefix.length).split('...')
-    : [];
-  if (
-    url.origin !== 'https://github.com' ||
-    tags.length !== 2 ||
-    !tags[1] ||
-    decodeURIComponent(tags[0]) !== published.tag_name
-  ) {
-    throw new ReleaseNotesRefreshRequiredError(
-      `Release compare base must equal published tag ${published.tag_name}.`
+  let anchor;
+  let anchorName;
+  const headers = [
+    ...pr.body.matchAll(/^## \[([^\]\r\n]+)\]\((https:\/\/github\.com\/[^\s)]+)\)/gm),
+  ];
+  if (published) {
+    if (headers.length !== 1)
+      throw new ReleaseNotesRefreshRequiredError('Missing or ambiguous release compare header.');
+    const url = new URL(headers[0][2]);
+    const prefix = `/${reader.repository}/compare/`;
+    const tags = url.pathname.startsWith(prefix)
+      ? url.pathname.slice(prefix.length).split('...')
+      : [];
+    if (
+      url.origin !== 'https://github.com' ||
+      tags.length !== 2 ||
+      !tags[1] ||
+      decodeURIComponent(tags[0]) !== published.tag_name
+    )
+      throw new ReleaseNotesRefreshRequiredError(
+        `Release compare base must equal published tag ${published.tag_name}.`
+      );
+    anchor = reader.git(['rev-parse', '--verify', `refs/tags/${published.tag_name}^{commit}`]);
+    if (!SHA.test(anchor)) throw new Error('Missing published tag commit.');
+    anchorName = published.tag_name;
+  } else {
+    const config = JSON.parse(reader.git(['show', `${base}:release-please-config.json`]));
+    const entries = Object.entries(config.packages ?? {}).filter(
+      ([, entry]) => entry.component === component.package
     );
+    if (entries.length !== 1) throw new Error('Missing or ambiguous release package config.');
+    const [packagePath, entry] = entries[0];
+    anchor = entry['bootstrap-sha'];
+    if (!anchor) throw new Error(`No published ${component.name} anchor.`);
+    if (typeof anchor !== 'string' || !SHA.test(anchor)) throw new Error('Invalid bootstrap SHA.');
+    anchorName = anchor;
+    // The pinned Manifest seeds a previous tag from a nonzero manifest version.
+    // With a zero seed, DefaultChangelogNotes renders a plain version heading.
+    const manifest = JSON.parse(reader.git(['show', `${base}:.release-please-manifest.json`]));
+    const seed = manifest[packagePath];
+    const prefix = releasePolicy(component.name).tagPrefix;
+    if (headers.length) {
+      try {
+        compareVersions(headers[0][1], headers[0][1]);
+      } catch {
+        throw new ReleaseNotesRefreshRequiredError('Invalid first-release version header.');
+      }
+      const url = new URL(headers[0][2]);
+      const compare = `/${reader.repository}/compare/`;
+      const tags = url.pathname.startsWith(compare)
+        ? url.pathname.slice(compare.length).split('...')
+        : [];
+      if (
+        headers.length !== 1 ||
+        url.origin !== 'https://github.com' ||
+        url.search ||
+        url.hash ||
+        seed === '0.0.0' ||
+        !seed ||
+        tags.length !== 2 ||
+        decodeURIComponent(tags[0]) !== `${prefix}${seed}` ||
+        decodeURIComponent(tags[1]) !== `${prefix}${headers[0][1]}`
+      )
+        throw new ReleaseNotesRefreshRequiredError('Invalid first-release compare header.');
+    } else if (
+      !/^## \d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?: \(\d{4}-\d{2}-\d{2}\))?$/m.test(pr.body) ||
+      (seed && seed !== '0.0.0')
+    ) {
+      throw new ReleaseNotesRefreshRequiredError('Missing first-release version header.');
+    }
+    reader.git(['rev-parse', '--verify', `${anchor}^{commit}`]);
   }
-  const anchor = reader.git(['rev-parse', '--verify', `refs/tags/${published.tag_name}^{commit}`]);
-  if (!SHA.test(anchor)) throw new Error('Missing published tag commit.');
   reader.git(['merge-base', '--is-ancestor', anchor, base]);
   const text = reader.git(['rev-list', '--ancestry-path', `${anchor}..${base}`]);
   const range = text ? text.split('\n') : [];
@@ -207,7 +258,7 @@ export async function checkReleaseNotes({ pr, base, components, reader, releases
   for (const { repository, sha } of links) {
     if (repository !== reader.repository || !SHA.test(sha) || !allowed.has(sha)) {
       throw new ReleaseNotesRefreshRequiredError(
-        `Release note commit ${sha} is outside (${published.tag_name}, candidate base].`
+        `Release note commit ${sha} is outside (${anchorName}, candidate base].`
       );
     }
   }
@@ -218,7 +269,11 @@ export async function checkReleaseNotes({ pr, base, components, reader, releases
     throw new ReleaseNotesRefreshRequiredError(
       `Release notes COVERAGE missing commit(s): ${missing.join(', ')}. Regenerate the release PR with release-please.`
     );
-  return { tag: published.tag_name, linkedCommits: links.length };
+  return {
+    tag: published?.tag_name ?? null,
+    ...(published ? {} : { bootstrapSha: anchor }),
+    linkedCommits: links.length,
+  };
 }
 
 /** Pending squash commits do not yet have REST /commits/:sha/pulls associations. */

@@ -1,6 +1,6 @@
 [package]
 name = "tmt-driver-herdr"
-version.workspace = true
+version = "0.1.0-alpha.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -10,8 +10,10 @@ repository.workspace = true
 # The Herdr host driver (#479, #570): an out-of-process driver built on the
 # protocol crate alone, with tmt-invoke as its bounded process owner. It holds
 # no TMT behavior; core keeps every decision (contracts/driver-protocol-v1.md).
-# The executable is tmt-cli's `tmt-driver-herdr` bin, so the CLI release
-# archive carries it as a companion file.
+# This package owns a standalone executable. Until #1084, the CLI also
+# builds its thin entrypoint and carries the same library as a companion.
+[package.metadata.dist]
+dist = true
 [dependencies]
 semver.workspace = true
 serde_json.workspace = true

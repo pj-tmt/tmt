@@ -56,6 +56,14 @@ describe('release build plan', () => {
     expect(plan.blocked).toEqual([]);
   });
 
+  it('selects standalone driver drafts without planning CLI builds or publication', () => {
+    const releases = [draft('tmt-driver-herdr-v0.1.0-alpha.1', '1'), draft('v5.0.0-alpha.9', '2')];
+    expect(tags(planReleaseBuilds({ product: 'driver-herdr', releases }))).toEqual([
+      'tmt-driver-herdr-v0.1.0-alpha.1',
+    ]);
+    expect(tags(planReleaseBuilds({ product: 'cli', releases }))).toEqual(['v5.0.0-alpha.9']);
+  });
+
   it('breaks a tie in creation time by tag, so the order is deterministic', () => {
     const same = '2026-09-30T01:00:00Z';
     const plan = planReleaseBuilds({

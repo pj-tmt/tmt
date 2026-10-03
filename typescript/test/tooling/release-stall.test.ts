@@ -23,7 +23,11 @@ const sha = (n: number) => n.toString(16).padStart(40, 'a');
 const components = parseComponentMap(
   readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
 ).components;
-const manifest = { '.': '5.0.0-alpha.8', 'extensions/tmt-squad': '0.1.0-alpha.8' };
+const manifest = {
+  '.': '5.0.0-alpha.8',
+  'extensions/tmt-squad': '0.1.0-alpha.8',
+  'rust/crates/tmt-driver-herdr': '0.1.0-alpha.0',
+};
 function fixture() {
   const rows: Record<string, ReturnType<StallClient['list']>> = {
     releases: [],
@@ -154,6 +158,16 @@ describe('release stall thresholds and component evidence', () => {
     f.options.drafts = [draft(undefined, 30 * 60_000)];
     expect((await detectReleaseStalls(f.options)).findings).toEqual([]);
   });
+  it('reports a held standalone driver draft under its own component path', async () => {
+    const f = fixture();
+    const path = 'rust/crates/tmt-driver-herdr';
+    f.options.heldPaths = [path];
+    f.options.drafts = [{ ...draft(), path, tag_name: 'tmt-driver-herdr-v0.1.0-alpha.0' }];
+    const { findings } = await detectReleaseStalls(f.options);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain(path);
+  });
+
   it('does not warn for an unheld or published component draft and keeps occurrence stable as it ages', async () => {
     const f = fixture();
     f.options.heldPaths = ['.'];
@@ -335,6 +349,12 @@ it('uses real pinned planning, excludes unrelated paths and old history, with no
   );
   const changes = [
     {
+      sha: sha(10),
+      time: now + 1000,
+      message: 'fix: driver-only correction',
+      files: ['rust/crates/tmt-driver-herdr/src/lib.rs'],
+    },
+    {
       sha: sha(9),
       time: now,
       message: 'fix: latest private TUI change',
@@ -359,6 +379,12 @@ it('uses real pinned planning, excludes unrelated paths and old history, with no
       files: ['extensions/tmt-squad/Cargo.toml'],
     },
     { sha: sha(5), time: now - 4000, message: 'chore: cli release', files: ['rust/Cargo.toml'] },
+    {
+      sha: components.find((component) => component.name === 'driver-herdr')!.bootstrapSha!,
+      time: now - 4500,
+      message: 'chore: bootstrap',
+      files: [],
+    },
     {
       sha: sha(4),
       time: now - 5000,
@@ -387,9 +413,14 @@ it('uses real pinned planning, excludes unrelated paths and old history, with no
     expect.arrayContaining([
       { branch: cli, sha: sha(7), time: now - 2000 },
       { branch: squad, sha: sha(9), time: now },
+      {
+        branch: 'release-please--branches--main--components--tmt-driver-herdr',
+        sha: sha(10),
+        time: now + 1000,
+      },
     ])
   );
-  expect(planned).toHaveLength(2);
+  expect(planned).toHaveLength(3);
   expect(f.client.get).not.toHaveBeenCalled();
 });
 
