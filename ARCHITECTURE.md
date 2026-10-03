@@ -4487,7 +4487,12 @@ The server checks exact model envelope/header/hash/signature bindings before
 calling the existing create-only Store; it never decrypts or invokes the decoder.
 An exact retry returns the same receipt without rebroadcast. Awareness is ephemeral.
 
-Each connection has at most eight outbound frames, including its blocked frame;
+After hello, each outbound application frame consumes one of eight credits;
+a scoped valid ack resolves retained cursors and returns exactly one credit.
+Empty cursors support metadata/partial chunks; unsolicited acks cannot bank
+credit. Consecutive lazy transfers may span credit releases, with no partial
+object admission. Pre-hello live-only subscriptions retain their original flow.
+Each connection also has at most eight queued deliveries, including its blocked frame;
 frames/messages are at most 64 KiB. Queue overflow closes with `RESYNC_REQUIRED`.
 A blocked write expires after one second when the caller drives the timer. If a
 close would flush stalled ciphertext, the connection drops the stream instead;
@@ -4498,8 +4503,14 @@ No cookie or unsigned frame establishes the caller's principal.
 The #1166 extension remains in this same transport owner. Store owns scoped
 transactional namespace/cursor reads and refuses unknown or pruned cursors;
 receipts survive pruning. Admission supplies the verified retained owner head
-through `Store::owner_head` and an optional scoped baseline descriptor. Baseline production and scoped persistence/retrieval belong to the owner-local epoch engine; remote admission/composition remain caller-owned. Catchup emits metadata once,
-then one checkpoint/tail object per lazy page and a final empty page. Each page
+through `Store::owner_head` and an optional scoped baseline descriptor. Baseline production and scoped persistence/retrieval belong to the owner-local epoch engine; remote admission/composition remain caller-owned. Catchup pins its retained head and pages exact membership envelopes from the
+client's verified revision before device/member wraps and stream objects. Owner
+root discovery, scoped author-chain reads and retained-epoch wrap reads stay in
+Store's existing owner snapshots; no new schema or secret export is introduced.
+Mounted read-only session/pages endpoints expose forwarded owner identity and
+local page existence with signed-log policy, never content titles. Unknown
+membership revisions resync; byte/count caps reject rather than truncate.
+Catchup then emits one checkpoint/tail object per lazy page and a final empty page. Each page
 rescans namespace positions; the final page and live subscription commit under
 the server lock so appends during paging are not missed. Inventory is bounded
 to 256 stream/namespace pairs; excess returns capacity without eviction.

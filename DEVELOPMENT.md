@@ -2903,9 +2903,8 @@ header fields, 64 KiB HTTP bodies, 2-second total acquisition and 1-second total
 response, and 16 WebSocket tunnels closed after 120 seconds without inbound
 bytes. Bounded HTTP bodies carry registration requests; page objects use the
 stream sync path. The stream sync library enforces 64 KiB frames and 8 queued frames with
-`RESYNC_REQUIRED` close for slow subscribers; serve accepts and holds an owner's
-`colab-sync-v1` upgrade for a registered owner device but does not yet hand it
-to that library. Real socket
+`RESYNC_REQUIRED` close for slow subscribers; serve drives the sync library
+over registered-owner upgrades. Real socket
 and foreground process cleanup tests run lifecycle scenarios twice, with no core calls from
 socket traffic. Owner-key temporary cleanup is publication-locked; it preserves
 foreign file names and refuses unsafe matching files.
@@ -2989,7 +2988,15 @@ and supply current verified membership/device policy. Model statement/certificat
 verification remains that caller's responsibility; a successful upgrade is not
 page authority. The admission implementation supplies the verified retained owner
 head through `Store::owner_head` and the exact persisted baseline descriptor
-through `Store::baseline`; object retrieval remains caller-owned. One hello starts lazy catchup;
+through `Store::baseline`; object retrieval remains caller-owned.
+Strict hello includes the last verified `membershipRevision`; bootstrap emits
+bounded exact membership pages, author chains once per connection and
+retained device/member wraps before stream objects. After hello every outbound
+frame costs one of eight credits; a scoped valid ack returns one credit, even
+with empty cursors for metadata/partial chunks. Test full-window silence,
+missing/unsolicited acks and a twelve-chunk stored object across credit releases.
+Reference/chunks stay consecutive and live overflow still resyncs.
+One hello starts lazy catchup;
 its final page enables live delivery under the server lock. Unknown/pruned cursors
 return `RESYNC_REQUIRED`. An empty-cursor subscription remains live-only. Large
 updates use one bounded, deadline-limited inbound transfer before append verification;
@@ -3003,7 +3010,9 @@ verification. Exact wire shapes and budgets are owned by colab-v1. Owner
 registration is implemented under #1162. Run
 `(cd rust && cargo test --offline --locked -p tmt-colab --test socket)` for two
 registered owner tabs through the real mounted socket: append/broadcast, durable
-retry/catchup, strict event bodies/header/path, failed-revoke rollback, replay
+retry/catchup, read-only `/api/session` and `/api/pages` owner discovery,
+130-revision exact-byte membership paging and unknown-revision resync,
+strict event bodies/header/path, failed-revoke rollback, replay
 without writes, active/pre-hello tunnel closure, cap/idle bounds and shutdown.
 Tests inject private temporary roots and verify socket removal; they use no
 Docker or remote identities. Full two-browser application acceptance is later.
