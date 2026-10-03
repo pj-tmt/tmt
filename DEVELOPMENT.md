@@ -1067,6 +1067,27 @@ isolated shell stand-ins and check observable process/file cleanup; cwd probes
 compare relative and absolute `-C`. They do not start Codex or a model and do not
 replace the final live foreground continuity gate.
 
+For fresh Codex bootstrap (#1198), run focused model-free checks:
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters drivers::codex::supervisor`,
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters drivers::codex::channel_hooks`,
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters drivers::codex::record`,
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters drivers::codex::server`, and
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli --bin tmt run_command::channel`.
+They cover empty fresh baseline, one-time thread discovery, deferred publication,
+eager same-generation hooks, immediate unrelated-generation/auxiliary paths,
+immutable binding, callback failure and evidence-preserving group cleanup.
+Activity mapping tests cover exact fresh/resume foreground attribution, prompt
+Working and Stop Idle, rejection of missing/malformed/replaced/Unknown evidence,
+and the byte-identical default observed incarnation for Claude/plain hooks.
+The TERM-ignoring child test checks group SIGKILL and verified reaping without
+orphan zombies. Run `CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli --test architecture`
+for the shared admission and hook-composition boundaries. Also run
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli private_hook_worker_budget` and
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli budget_tests` for typed relative
+budget bounds, malformed arguments and the unchanged default two-second worker.
+These checks do not
+invoke a provider/model or replace the built-driver eager-TUI and Idle proof.
+
 The adapter `process::cleanup_policy_tests` must pass under both `cargo test` and
 nextest: isolated re-exec cases prove timeout cleanup regardless of whether the
 test runner makes its harness a process-group leader.

@@ -1,5 +1,5 @@
-//! Provider-owned foreground command planning. Remote attachment resumes one
-//! exact thread and does not supply an initial prompt, fork, or default socket.
+//! Provider-owned foreground command planning. Fresh remote launch leaves thread
+//! creation to the TUI; exact resume supplies only its selected thread.
 
 use crate::runtime::RuntimeCommand;
 use std::{
@@ -233,20 +233,6 @@ impl LaunchOptions {
         Ok(())
     }
 
-    pub fn thread_start_params(&self) -> serde_json::Value {
-        let mut params = serde_json::json!({
-            "cwd": self.working_directory,
-            "allowProviderModelFallback": false
-        });
-        if let Some(sandbox) = &self.sandbox {
-            params["sandbox"] = sandbox.clone().into();
-        }
-        if let Some(approval) = &self.approval {
-            params["approvalPolicy"] = approval.clone().into();
-        }
-        params
-    }
-
     pub fn working_directory(&self) -> &Path {
         &self.working_directory
     }
@@ -260,23 +246,57 @@ impl LaunchOptions {
         endpoint: &str,
         thread: &ProviderSessionId,
     ) -> Result<RuntimeCommand, AttachmentError> {
+        self.remote_foreground(selected, endpoint, Some(thread))
+    }
+
+    /// Let the remote TUI create its initial thread without a resume bootstrap.
+    pub fn fresh_foreground(
+        &self,
+        selected: &RuntimeCommand,
+        endpoint: &str,
+    ) -> Result<RuntimeCommand, AttachmentError> {
+        self.remote_foreground(selected, endpoint, None)
+    }
+
+    fn remote_foreground(
+        &self,
+        selected: &RuntimeCommand,
+        endpoint: &str,
+        thread: Option<&ProviderSessionId>,
+    ) -> Result<RuntimeCommand, AttachmentError> {
         // Local transport ownership is verified by the enrollment owner. This
         // check excludes implicit shared sockets and remote/network discovery.
         if !owned_endpoint_shape(endpoint) {
             return Err(AttachmentError::InvalidEndpoint);
         }
-        let mut args = vec![
-            "resume".into(),
+        let mut args = Vec::new();
+        if thread.is_some() {
+            args.push("resume".into());
+        }
+        args.extend([
             "--remote".into(),
             endpoint.into(),
             "--remote-auth-token-env".into(),
             TOKEN_ENV.into(),
-        ];
+        ]);
         // The launcher may use its original cwd, while the owned server uses
         // the resolved cwd. An absolute -C makes both interpretations identical.
         args.extend(["-C".into(), self.working_directory.as_os_str().to_owned()]);
         args.extend(self.foreground.iter().cloned());
-        args.push(thread.as_str().into());
+        if let Some(thread) = thread {
+            args.push(thread.as_str().into());
+        } else {
+            // Fresh thread creation belongs to the TUI. Resume cannot accept
+            // these overrides, so only the fresh command carries typed flags.
+            for (name, value) in [
+                ("--sandbox", &self.sandbox),
+                ("--ask-for-approval", &self.approval),
+            ] {
+                if let Some(value) = value {
+                    args.extend([name.into(), value.into()]);
+                }
+            }
+        }
         Ok(RuntimeCommand {
             executable: selected.executable.clone(),
             args,

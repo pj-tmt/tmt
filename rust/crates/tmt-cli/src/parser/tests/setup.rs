@@ -58,14 +58,16 @@ fn setup_has_one_provider_consent_surface_and_hook_dispatch_is_hidden() {
         parsed(&["__hook", "claude"]).invocation,
         Invocation::ProviderHook {
             provider: "claude".into(),
-            worker: false
+            worker: false,
+            work_budget_ms: None
         }
     );
     assert_eq!(
         parsed(&["__hook", "codex"]).invocation,
         Invocation::ProviderHook {
             provider: "codex".into(),
-            worker: false
+            worker: false,
+            work_budget_ms: None
         }
     );
     assert_eq!(
@@ -82,4 +84,39 @@ fn setup_has_one_provider_consent_surface_and_hook_dispatch_is_hidden() {
     ])));
     let grammar = crate::grammar::grammar();
     assert!(grammar.find_subcommand("__hook").unwrap().is_hide_set());
+}
+
+#[test]
+fn private_hook_worker_budget_is_typed_bounded_and_requires_worker() {
+    for budget in ["0", "1", "2000"] {
+        assert_eq!(
+            parsed(&["__hook", "codex", "--worker", "--work-budget-ms", budget]).invocation,
+            Invocation::ProviderHook {
+                provider: "codex".into(),
+                worker: true,
+                work_budget_ms: Some(budget.parse().unwrap())
+            }
+        );
+    }
+    for budget in ["", "-1", "+1", "1.5", "1s", "2001", "18446744073709551616"] {
+        assert!(
+            parse(&args(&[
+                "__hook",
+                "codex",
+                "--worker",
+                "--work-budget-ms",
+                budget
+            ]))
+            .is_err()
+        );
+    }
+    assert!(parse(&args(&["__hook", "codex", "--work-budget-ms", "1"])).is_err());
+    assert_eq!(
+        parsed(&["__hook", "claude", "--worker"]).invocation,
+        Invocation::ProviderHook {
+            provider: "claude".into(),
+            worker: true,
+            work_budget_ms: None
+        }
+    );
 }

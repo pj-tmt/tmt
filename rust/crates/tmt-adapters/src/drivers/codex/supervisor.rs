@@ -46,7 +46,7 @@ struct Ready {
     executable: Vec<u8>,
     args: Vec<Vec<u8>>,
     environment: Vec<(Vec<u8>, Vec<u8>)>,
-    session: String,
+    session: Option<String>,
 }
 
 pub struct Supervisor {
@@ -150,14 +150,21 @@ impl Supervisor {
             write_frame(control, bytes, deadline)?;
             let ready: Ready =
                 serde_json::from_slice(&read_frame(control, deadline)?).map_err(|_| invalid())?;
-            let session = ProviderSessionId::new(&ready.session).map_err(|_| invalid())?;
+            let session = ready
+                .session
+                .as_deref()
+                .map(ProviderSessionId::new)
+                .transpose()
+                .map_err(|_| invalid())?;
             let persisted = self
                 .store
                 .read(&self.record.binding_id)?
                 .ok_or_else(invalid)?;
             if persisted.generation != self.record.generation
                 || persisted.launch_owner != self.record.launch_owner
-                || persisted.ready.as_ref().map(|r| r.thread.as_str()) != Some(session.as_str())
+                || persisted.ready.as_ref().map(|r| r.thread.as_str())
+                    != session.as_ref().map(ProviderSessionId::as_str)
+                || (session.is_none() && persisted.fresh.is_none())
             {
                 return Err(invalid());
             }
@@ -170,7 +177,7 @@ impl Supervisor {
                 .into_iter()
                 .map(|(k, v)| (OsString::from_vec(k), OsString::from_vec(v)))
                 .collect();
-            self.session = Some(session);
+            self.session = session;
             Ok(())
         })();
         if initialized.is_err() {
@@ -187,6 +194,15 @@ impl Supervisor {
         process: &tmt_core::endpoint::ProcessIncarnation,
     ) -> io::Result<()> {
         self.record = self.store.foreground(&self.record, process)?;
+        if self.record.fresh.is_some() {
+            let session = discover_fresh(
+                &self.store,
+                &self.record,
+                Instant::now() + super::MAXIMUM_FRESH_DISCOVERY_DURATION,
+            )?;
+            self.record = self.store.fresh_thread(&self.record, session.as_str())?;
+            self.session = Some(session);
+        }
         Ok(())
     }
     fn stop(&mut self, retire: bool) -> io::Result<()> {
@@ -224,6 +240,23 @@ impl ChannelEnrollment for Supervisor {
     ) -> Result<(), crate::runtime::channel::ChannelError> {
         Supervisor::foreground_started(self, foreground)
             .map_err(|_| crate::runtime::channel::ChannelError::Enrollment)
+    }
+    fn foreground_admitted(
+        &mut self,
+        foreground: &tmt_core::endpoint::ProcessIncarnation,
+    ) -> Result<(), crate::runtime::channel::ChannelError> {
+        if self.record.fresh.is_some() {
+            let deadline = Instant::now() + super::MAXIMUM_FRESH_DISCOVERY_DURATION;
+            self.record = self
+                .store
+                .admit_fresh(&self.record, foreground, |p| {
+                    observe_runtime_process(&UnixCommandRunner, p.pid(), deadline)
+                        .map(|value| value.matches(p))
+                        .unwrap_or(RuntimeLiveness::Unknown)
+                })
+                .map_err(|_| crate::runtime::channel::ChannelError::Enrollment)?;
+        }
+        Ok(())
     }
     fn command(&self) -> &RuntimeCommand {
         &self.command
@@ -315,7 +348,7 @@ pub fn serve(
                 .iter()
                 .map(|(k, v)| (k.as_bytes().to_vec(), v.as_bytes().to_vec()))
                 .collect(),
-            session: lease.session().ok_or_else(invalid)?.as_str().into(),
+            session: lease.session().map(|s| s.as_str().to_owned()),
         };
         let bytes = serde_json::to_vec(&ready).map_err(io::Error::other)?;
         if bytes.len() > LIMIT {
@@ -342,6 +375,81 @@ pub fn serve(
         Ok(_) => Err(invalid()),
         Err(error) => Err(error),
     }
+}
+/// The one-time pre-first-turn gate. Never called again after binding, even
+/// when the provider creates auxiliary ephemeral threads later.
+fn discover_fresh(
+    store: &Store,
+    record: &Record,
+    deadline: Instant,
+) -> io::Result<ProviderSessionId> {
+    use super::transport::{Client, Endpoint};
+    use serde_json::json;
+    let fresh = record.fresh.as_ref().ok_or_else(invalid)?;
+    let token = super::delivery::capability(store, record).map_err(|_| invalid())?;
+    let endpoint = Endpoint::new(
+        std::net::SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, fresh.port),
+        token,
+    )
+    .map_err(|_| invalid())?;
+    let mut client = Client::connect(&endpoint, deadline).map_err(|_| invalid())?;
+    loop {
+        let id = uuid::Uuid::new_v4().to_string();
+        let response = client
+            .call(
+                &json!({"id":id,"method":"thread/loaded/list","params":{}}),
+                &id,
+            )
+            .map_err(|_| invalid())?;
+        if let Some(session) = loaded_thread(&response)? {
+            let id = uuid::Uuid::new_v4().to_string();
+            let response = client.call(&json!({"id":id,"method":"thread/read","params":{"threadId":session.as_str(),"includeTurns":false}}), &id).map_err(|_| invalid())?;
+            verify_thread(&response, &session, &fresh.cwd)?;
+            return Ok(session);
+        }
+        let remaining = budget(deadline)?;
+        std::thread::sleep(remaining.min(Duration::from_millis(10)));
+    }
+}
+fn loaded_thread(response: &serde_json::Value) -> io::Result<Option<ProviderSessionId>> {
+    if response.get("error").is_some() {
+        return Err(invalid());
+    }
+    let data = response
+        .pointer("/result/data")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(invalid)?;
+    match data.as_slice() {
+        [] => Ok(None),
+        [id] => {
+            let id = id.as_str().ok_or_else(invalid)?;
+            uuid::Uuid::parse_str(id).map_err(|_| invalid())?;
+            ProviderSessionId::new(id).map(Some).map_err(|_| invalid())
+        }
+        _ => Err(invalid()),
+    }
+}
+fn verify_thread(
+    response: &serde_json::Value,
+    session: &ProviderSessionId,
+    cwd: &std::path::Path,
+) -> io::Result<()> {
+    use serde_json::Value;
+    if response.get("error").is_some() {
+        return Err(invalid());
+    }
+    let thread = response.pointer("/result/thread").ok_or_else(invalid)?;
+    if thread.get("id").and_then(Value::as_str) != Some(session.as_str())
+        || thread.get("ephemeral").and_then(Value::as_bool) != Some(false)
+        || thread
+            .get("cwd")
+            .and_then(Value::as_str)
+            .map(std::path::Path::new)
+            .is_none_or(|observed| observed != cwd)
+    {
+        return Err(invalid());
+    }
+    Ok(())
 }
 fn write_frame(stream: &mut UnixStream, bytes: &[u8], deadline: Instant) -> io::Result<()> {
     let mut frame = bytes.to_vec();
