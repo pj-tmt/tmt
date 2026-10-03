@@ -12,7 +12,7 @@ owns the procedure only.
 
 ## Ticket levels
 
-- **Tracker (`Feature: <name>`)**: a product item the maintainer set. A squad
+- **Tracker (`Epic: <name>`)**: a product item the maintainer set. A squad
   lead may propose a new tracker to tmt-lead, but it is opened only after the
   maintainer approves it. The PM never creates a tracker.
 - **Child issue**: one outcome with acceptance criteria and normally one
