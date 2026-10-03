@@ -110,6 +110,7 @@ fn refresh_and_search_reconcile_the_stable_target() {
         .insert(0, first);
     let refreshed = board(&[("a", doc)]);
     app.apply(Snapshot {
+        squad_keys: vec!["a".into()],
         tabs: app.tabs.clone(),
         hidden: vec![],
         pinned: 0,
