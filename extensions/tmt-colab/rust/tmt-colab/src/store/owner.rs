@@ -192,7 +192,7 @@ impl Store {
         root: &[u8; 32],
         id: &str,
         grant_revision: u64,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         values::generated_id(id)?;
         if grant_revision == 0 {
             return Err(OwnerFault::Invalid.into());
@@ -214,7 +214,7 @@ impl Store {
             .optional()?;
         // Level-triggered remote replay must not rewrite an equal revision.
         if previous.is_some_and(|old| old >= revision) {
-            return Ok(());
+            return Ok(false);
         }
         tx.execute("INSERT INTO device_registrations VALUES (?,NULL,1,?)
             ON CONFLICT(device_id) DO UPDATE SET binding=NULL,revoked=1,grant_revision=excluded.grant_revision", params![id,revision])?;
@@ -230,10 +230,16 @@ impl Store {
             )?;
         }
         tx.commit()?;
-        Ok(())
+        Ok(true)
     }
 }
 impl OwnerTransaction<'_> {
+    pub(crate) fn page_epoch(&self, page: &str) -> Result<Option<String>> {
+        Ok(self
+            .tx
+            .query_row("SELECT epoch FROM pages WHERE page=?", [page], |r| r.get(0))
+            .optional()?)
+    }
     pub fn head(&self) -> Option<&statement::Head> {
         self.head.as_ref()
     }

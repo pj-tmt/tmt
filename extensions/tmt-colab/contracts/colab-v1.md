@@ -443,9 +443,16 @@ local tombstone, clears the active registration and marks an existing device
 revoked in one transaction. Unknown IDs are tombstoned too; older events are
 ignored; equal revisions return without a database write. No later context revives a tombstone.
 Registered-device admission rechecks durable revocation and certificate expiry.
-Remote event delivery remains #1100; there is no browser revocation route.
+The exact reserved socket `POST /.tmt/remote/device-events` consumes remote's
+[local device events](../../../contracts/remote-channel-v1.md#extension-channel-api)
+only with `tmt-device-event: 1` and a strict body. A revoke commits this callback
+and shuts down every live tunnel of that device under the sync server lock before
+HTTP success, including tunnels without hello. Older/equal events do not repeat
+writes or tunnel effects. Rename is validated and acknowledged without local
+presentation state. Other reserved paths reject; remote refuses the `/.tmt`
+subtree beneath browser mounts. There is no browser revocation route.
 This local tombstone is not the owner-signed `device.revoke` transition with cuts
-and epoch rotation (#1157). Handing sync tunnels to the sync server is #1211.
+and epoch rotation (#1157). Mounted owner tunnels use the sync server (#1211).
 
 ## Page state, roles and epochs
 
@@ -998,7 +1005,7 @@ operations are:
 ### Implemented stream subset (#1156, #1166)
 
 The externally driven local sync module implements the strict operations below.
-Registration is #1162; socket wiring is #1119. Remote owns upgrade admission and
+Registration is #1162; `serve` composes mounted socket sync in #1211. Remote owns upgrade admission and
 supplies the authenticated principal. The module takes an already-upgraded
 nonblocking duplex stream, not HTTP headers.
 
@@ -1109,7 +1116,18 @@ A blocked write has a one-second deadline driven by the caller (`poll` or
 `poll_at`). A transport that cannot close without flushing blocked ciphertext is
 dropped. Authority is rechecked on every operation, delivery and caller-applied
 change; previously written bytes cannot be recalled. Clients resync on abnormal
-close. The foreground executable is not yet wired to this sync library.
+close. The foreground socket workers drive this library over accepted registered
+owner upgrades. `registration::OwnerAdmission` reads a durable authority snapshot
+on each check: active registration/device, certificate lifetime, pinned owner
+management member and editor issuer, retained head and current page epoch. The
+owner management member admits local pages regardless of its empty genesis page
+list. Append additionally requires the current membership revision and an allowed
+namespace, and returns the registered extension signing key for model signature
+verification. Upgrade verifies the full remote binding and device chain; repeated
+Read checks do not redo signatures or reserve the SQLite writer. Catchup takes its
+head from `Store::owner_head`; the optional reset baseline remains absent until
+#1157. Workers preserve upgrade read-ahead, drive silent transfer/write deadlines,
+apply the tunnel cap/idle bound, and close retained sockets before shutdown joins.
 
 The #830 fixture used 64 KiB frames/messages, queue 8, receipt/tail capacity 64,
 16 sockets, ten-second connection lifetime, two-second handshake reads and

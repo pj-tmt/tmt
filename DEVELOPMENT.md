@@ -2811,9 +2811,9 @@ socket/process lifecycle acceptance twice. No real model/account/DB is used.
 
 ## Colab pilot development
 
-The private local-build Colab executable runs a foreground loopback placeholder
-and lists local-space metadata. APIs and WebSocket upgrades are denied until
-the authentication/sync slice. No installer exists.
+The private local-build Colab executable serves an owner-only mounted socket,
+owner-browser registration and stream sync, and lists local-space metadata.
+The browser page remains a placeholder. No installer exists.
 Build and verify it from the repository root:
 
 ```bash
@@ -2939,9 +2939,11 @@ An existing incompatible management-member key binding fails closed.
 
 The trusted `Registration::revoke(deviceId, grantRevision)` callback removes active
 registration and retains a durable tombstone; older events cannot overwrite newer
-state; equal revisions return without a database write. Production remote event delivery remains #1100, owner-signed revocation and
-page epoch rotation remain #1157, and mounted stream-sync composition remains
-#1211. No registration test claims those integrated flows are complete.
+state; equal revisions return without a database write. The reserved socket
+consumer now delivers remote events and closes matching tunnels under the sync
+lock before acknowledgment. Owner-signed revocation and page epoch rotation
+remain #1157. The registration suite checks the callback; the socket suite checks
+the integrated event route and live tunnel cleanup.
 
 ### Colab stream sync verification
 
@@ -2954,7 +2956,8 @@ socket proves that a buffered frame counts toward the queue cap and that
 revocation never flushes blocked ciphertext.
 
 The transport accepts already-upgraded nonblocking streams and a caller-supplied
-`Admission` implementation; it is not wired into `serve`. The caller must drive
+`Admission` implementation; `serve` now supplies `registration::OwnerAdmission`
+and socket workers. The caller must drive
 readiness and the one-second blocked-write deadline, drop connections on shutdown,
 and supply current verified membership/device policy. Model statement/certificate
 verification remains that caller's responsibility; a successful upgrade is not
@@ -2971,12 +2974,17 @@ Run the Store read cases with `cargo test --offline --locked -p tmt-colab --test
 state`. The caller drives acquisition and blocked-write deadlines even without
 socket input; `Connection::poll_at` accepts a monotonic instant for deterministic
 verification. Exact wire shapes and budgets are owned by colab-v1. Owner
-registration is implemented under #1162. No two-browser catchup or mounted authentication acceptance
-is claimed.
+registration is implemented under #1162. Run
+`(cd rust && cargo test --offline --locked -p tmt-colab --test socket)` for two
+registered owner tabs through the real mounted socket: append/broadcast, durable
+retry/catchup, strict event bodies/header/path, failed-revoke rollback, replay
+without writes, active/pre-hello tunnel closure, cap/idle bounds and shutdown.
+Tests inject private temporary roots and verify socket removal; they use no
+Docker or remote identities. Full two-browser application acceptance is later.
 
-The only dependency change for this slice is the existing workspace tungstenite
-0.30.0 edge in `tmt-colab` (default features disabled, handshake enabled); there
-are no new package versions or lockfile resolutions.
+The transport uses the existing workspace tungstenite 0.30.0 edge in `tmt-colab`
+(default features disabled, handshake enabled). Mounted composition adds no
+dependencies or lockfile resolutions.
 
 ### Colab decoder verification
 
