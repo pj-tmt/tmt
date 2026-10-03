@@ -4231,7 +4231,9 @@ registration in a published supporting CLI alpha, and actual-archive acceptance.
 The shared `colab-runtime-proof.mjs` verifies relocated socket serving, exact
 independent app bytes for archives, representative app delivery for public smoke,
 combined notices and child/socket cleanup with no frontend runtime tooling.
-Its Rust example with a tiny embedded app proves guard sensitivity while embedding is pending;
+Only Colab verification loads this app proof; other products keep the existing
+minimal native-verifier image dependency closure.
+Its Rust example with a tiny embedded app proves guard sensitivity;
 it does not establish release-artifact acceptance. Expected Vite files are moved
 away from the checkout fallback before the final archive executes.
 

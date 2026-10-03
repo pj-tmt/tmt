@@ -55,6 +55,7 @@ describe('release build plan', () => {
     const result = spawnSync(process.execPath, [script, '--product', 'colab'], {
       input: JSON.stringify(releases),
       encoding: 'utf8',
+      env: { ...process.env, GITHUB_OUTPUT: '', GITHUB_STEP_SUMMARY: '' },
       timeout: 10_000,
     });
     expect(result.status, result.stderr).toBe(0);
@@ -473,7 +474,7 @@ describe('plan-release-builds.mjs', () => {
     expect(resume.summary).toContain('await their gates and publication');
   });
 
-  it.each(['office', 'driver-herdr'])(
+  it.each(['office', 'driver-herdr', 'colab'])(
     'plans no run for parked %s until its map activates it',
     (product) => {
       const directory = mkdtempSync(path.join(os.tmpdir(), 'plan-components-'));
@@ -488,7 +489,7 @@ describe('plan-release-builds.mjs', () => {
         expect(result.output).toBe('matrix={"include":[]}\nany=false\n');
         expect(result.summary).toContain(`**Left alone** (${product} is not released`);
         // A map that releases it plans the run.
-        map.components[product].release = true;
+        map.components[product === 'colab' ? 'tmt-colab' : product].release = true;
         const released = path.join(directory, 'components.json');
         writeFileSync(released, JSON.stringify(map));
         expect(run(['--product', product, '--components', released], drafts).output).toContain(

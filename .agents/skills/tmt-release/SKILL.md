@@ -202,9 +202,9 @@ does not authorize publication or replace artifact acceptance.
 
 Colab's single-executable packaging route is prepared, with its app embedded by
 the Colab-owned `TMT_COLAB_APP_DIR` build boundary and frontend notices appended
-to Rust notices. It remains parked: embedding (#1421), core registration in a
-supporting CLI alpha (#1423) and actual-archive acceptance precede separately
-authorized activation. Follow [Colab packaging verification](../../../DEVELOPMENT.md#colab-packaging-wiring-parked)
+to Rust notices. Embedding (#1421) is implemented. It remains parked: core
+registration in a supporting CLI alpha (#1423) and actual-archive acceptance
+precede separately authorized activation. Follow [Colab packaging verification](../../../DEVELOPMENT.md#colab-packaging-wiring-parked)
 for fixture-only proof versus real archive/public-install evidence; do not treat
 a tiny embedded-app fixture as delivery of the Colab product.
 

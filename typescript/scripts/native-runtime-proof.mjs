@@ -7,7 +7,6 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { runPackedCommand } from './packed-command.mjs';
 import { assertBenchmarkHelp } from '../test/support/performance-contract.mjs';
-import { verifyColabApp } from './colab-runtime-proof.mjs';
 
 export function nativeHostTarget() {
   const architecture =
@@ -262,6 +261,8 @@ export async function verifyNativeRuntime({
     }
     if (product === 'colab') {
       assert(colabApp, 'Colab archive proof requires independent expected app bytes');
+      // Other products retain the minimal verifier image's existing dependency closure.
+      const { verifyColabApp } = await import('./colab-runtime-proof.mjs');
       await verifyColabApp({ executable, version, expectedApp: colabApp, notices });
       return;
     }

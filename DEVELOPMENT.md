@@ -2840,10 +2840,10 @@ prove installer lifecycle, not that embedding or installed SPA serving.
 
 Colab selection is prepared with tag `tmt-colab-v<version>`, prerelease publication
 and `latest=false`. It remains `release:false` / `dist=false`; neither preparation
-nor publication accepts it. Activation belongs to the infra lead after #1421
-embeds the app, #1423 registers the product in a published supporting CLI alpha,
-and real archive acceptance passes. The wiring tests use a native tiny-app fixture,
-not a released Colab binary.
+nor publication accepts it. The app embedding boundary from #1421 is implemented.
+Activation belongs to the infra lead after #1423 registers the product in a
+published supporting CLI alpha and real archive acceptance passes. The wiring
+tests use a native tiny-app fixture, not a released Colab binary.
 
 `scripts/build-native-artifact.sh <target> colab` installs frozen dependencies with
 `corepack pnpm@10.33.0`, builds `@tmt/colab-app`, requires its index/assets and
@@ -2860,7 +2860,7 @@ Run fixture checks without Docker or a release build:
 
 ```sh
 (cd rust && cargo build --locked -p tmt-test-support --example colab-runtime-fixture)
-(cd typescript && corepack pnpm@10.33.0 exec vp test run --config vitest.config.ts test/tooling/colab-runtime-proof.test.ts test/tooling/native-artifact-stdout.test.ts test/tooling/native-cargo.test.ts test/tooling/native-release-policy.test.ts test/tooling/plan-release-builds.test.ts test/tooling/verify-public-install.test.ts test/tooling/release-workflow.test.ts)
+(cd typescript && corepack pnpm@10.33.0 exec vp test run --config vitest.config.ts test/tooling/colab-runtime-proof.test.ts test/tooling/native-runtime-proof.test.ts test/tooling/cli-process.test.ts test/tooling/native-artifact-stdout.test.ts test/tooling/native-cargo.test.ts test/tooling/native-release-policy.test.ts test/tooling/plan-release-builds.test.ts test/tooling/verify-public-install.test.ts test/tooling/release-workflow.test.ts)
 (cd typescript && corepack pnpm@10.33.0 check:tooling)
 sh -n scripts/build-native-artifact.sh
 sh -n scripts/native-cargo.sh
@@ -2874,6 +2874,14 @@ defects by `--fixture-variant`; they never compile during execution. Positive
 and mutated binaries exercise exact embedded bytes, placeholder/startup rejection,
 combined-notice omissions and graceful process/socket cleanup. This is proof of
 the verifier, not Colab's app/crypto/browser acceptance.
+
+Only Colab verification loads its app proof. The raw CLI verifier's minimal musl
+image retains its existing copied inputs; `native-runtime-proof.test.ts` reproduces
+that image closure without Docker and checks that an eager Colab import fails.
+Planner subprocess tests select their own GitHub output/summary files or clear
+those variables when asserting stdout, so they cannot write into the CI step's
+files. Process fixtures publish complete readiness JSON by rename before observers
+read it; process and group absence remain required cleanup postconditions.
 
 After the prerequisites, reserve the shared host's heavy slot before an actual
 matching-host archive build. Keep `release:false` and `dist:false` until activation
