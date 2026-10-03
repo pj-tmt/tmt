@@ -54,7 +54,7 @@ impl std::fmt::Display for Fault {
             } => {
                 write!(f, "Export failed: {reason}")?;
                 if let Some(path) = partial_directory {
-                    write!(f, "; partial output remains at {}", path.display())?;
+                    write!(f, "; partial output was created at {}", path.display())?;
                 }
                 Ok(())
             }
@@ -186,6 +186,15 @@ impl Bundle {
         } else {
             std::env::current_dir()?.join(path)
         };
+        if path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+        {
+            return Err("Export destination must not contain parent traversal.".into());
+        }
+        // The user-selected parent may have aliases (including macOS /tmp).
+        // Resolve once; every created entry is still admitted without following links.
+        let path = std::fs::canonicalize(path)?;
         let parent = directory(&path)?;
         let stage_name = format!(".tmt-colab-export-{id}");
         let mut stage = Staging::new(&parent, &stage_name)?;
@@ -218,6 +227,7 @@ impl Bundle {
             stage.file.sync_all()?;
             before_publish(&parent, 0)?;
             stage.check()?;
+            check_destination(&path, &parent)?;
             mkdirat(&parent, id, Mode::S_IRWXU)?;
             partial_directory = Some(path.join(id));
             let output = child_directory(&parent, id)?;
@@ -229,6 +239,7 @@ impl Bundle {
                 .zip([self.html.as_slice(), self.manifest.as_slice()])
                 .enumerate()
             {
+                check_destination(&path, &parent)?;
                 same_entry(&parent, id, &output)?;
                 stage.check()?;
                 verify_file(&stage.file, info, bytes)?;
@@ -238,6 +249,7 @@ impl Bundle {
                 output.sync_all()?;
                 before_publish(&parent, index + 1)?;
             }
+            check_destination(&path, &parent)?;
             same_entry(&parent, id, &output)?;
             parent.sync_all()?;
             Ok(())
@@ -278,6 +290,14 @@ fn directory(path: &Path) -> Result<File> {
         }
     }
     Ok(file)
+}
+fn check_destination(path: &Path, parent: &File) -> Result<()> {
+    let current = directory(path)?.metadata()?;
+    let original = parent.metadata()?;
+    if current.dev() != original.dev() || current.ino() != original.ino() {
+        return Err("Export destination changed during publication.".into());
+    }
+    Ok(())
 }
 fn child_directory(parent: &File, name: impl AsRef<Path>) -> Result<File> {
     Ok(File::from(openat(

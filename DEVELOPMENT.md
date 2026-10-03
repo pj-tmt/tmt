@@ -2926,14 +2926,17 @@ PATH="$PWD/rust/target/debug:$PATH" tmt colab export 10000000-0000-4000-8000-000
 
 Use the actual page UUID. The parent must exist; the command creates a new UUID
 subdirectory containing `page.html` and `manifest.json`. Existing output is never
-replaced. Symlink components and `..` are refused. Files are 0600 and the output
-and staging directories are 0700. JSON returns `directory`, both file sizes and
+replaced. Parent aliases resolve once and output reports the canonical path;
+created entries never follow symlinks, and `..` is refused. Files are 0600 and
+the output and staging directories are 0700. JSON returns `directory`, both file sizes and
 SHA-256 values, and `disclosure`; human output shows the same plaintext disclosure
 before publication. The manifest explicitly excludes discussions. Missing state
 is not initialized or migrated. Archived/deleted pages currently return
 `COLAB_EXPORT_INACTIVE`; archived reads wait for the #1348 policy split.
 On publication failure, inspect any reported `error.partialDirectory`; partial
 output is preserved, and cleanup touches only checked staging from that invocation.
+If a parent was moved during publication, the partial path names its original
+canonical location.
 
 From `rust/`, run the focused behavior checks:
 

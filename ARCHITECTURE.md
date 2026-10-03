@@ -4500,7 +4500,8 @@ explicit inactive-page limitation until #1348 splits their read policy.
 pragma writes or migration. The CLI uses `Layout::existing`, `Keyring::read`
 and that store seam; missing state never initializes an instance. `export`
 owns its caller-supplied decoder and immutable plaintext bundle. Its filesystem
-adapter admits the destination through no-follow directory descriptors,
+adapter resolves the user-selected parent once, admits its canonical path through
+no-follow directory descriptors and rechecks that path identity during publication,
 stages private exclusive files and publishes them with create-only hard links
 into a fresh UUID directory, checking identities and bytes. Manifest publication
 is last. Cleanup removes only checked invocation-owned staging; partial output

@@ -1290,14 +1290,19 @@ archived exports are enabled separately; deleted pages remain denied.
 
 The destination names an existing parent directory, defaulting to the current
 directory. Export creates a fresh UUID-named 0700 subdirectory with regular
-0600 files. It MUST reject symlink path components, parent traversal and
-replacement; source/title MUST NOT choose paths. Private staging uses exclusive
-files, byte/digest checks and sync before descriptor-relative, create-only
+0600 files. The user-selected parent may contain symlink aliases: resolve it
+once to a canonical directory, then use no-follow descriptors and report that
+canonical path. Created entries MUST NOT follow symlinks or replace existing
+entries; parent traversal is refused and source/title MUST NOT choose paths.
+Private staging uses exclusive files, byte/digest checks and sync before
+descriptor-relative, create-only
 publication into an exclusively reserved directory. `manifest.json` publishes
-last. Publication verifies directory/file identities and MUST NOT use a
-replacing rename or follow symlinks. On failure, clean only this invocation's
-checked staging; preserve foreign entries and any partial output. Report a
-partial destination in the human error and JSON `error.partialDirectory`.
+last. Publication rechecks the canonical destination path and directory/file
+identities and MUST NOT use a replacing rename or follow symlinks. On failure, clean only this invocation's
+checked staging; preserve foreign entries and any partial output. Report the
+original canonical partial destination in the human error and JSON
+`error.partialDirectory`; if an ancestor moved, the reported path is where
+publication began, not a claim that the files remain reachable there.
 A returned success means both files were published and staging was removed;
 this is not a crash-recovery guarantee.
 

@@ -65,12 +65,20 @@ fn publication_is_create_only_private_and_cleans_only_its_staging() {
     assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 2);
 }
 #[test]
-fn symlink_destinations_and_output_collisions_never_follow_or_replace() {
+fn parent_aliases_resolve_once_but_generated_entries_never_follow_or_replace() {
     let dir = Directory::new();
     let alias = dir.0.join("alias");
     symlink(&dir.0, &alias).unwrap();
-    assert!(bundle().publish(&alias).is_err());
-    assert!(bundle().publish(&alias.join("subdirectory")).is_err());
+    fs::create_dir(dir.0.join("subdirectory")).unwrap();
+    let aliased = bundle().publish(&alias.join("subdirectory")).unwrap();
+    assert_eq!(
+        aliased.directory.parent(),
+        Some(dir.0.join("subdirectory").as_path())
+    );
+    assert_eq!(
+        fs::read(aliased.directory.join("page.html")).unwrap(),
+        bundle().html
+    );
     assert!(bundle().publish(&dir.0.join("missing")).is_err());
     assert!(bundle().publish(&dir.0.join("..")).is_err());
     symlink(&dir.0, dir.0.join(ID)).unwrap();
@@ -100,7 +108,7 @@ fn manifest_collision_reports_partial_output_and_preserves_foreign_bytes() {
         .unwrap();
     let fault = error.downcast_ref::<Fault>().unwrap();
     assert_eq!(fault.partial_directory(), Some(dir.0.join(ID).as_path()));
-    assert!(error.to_string().contains("partial output remains"));
+    assert!(error.to_string().contains("partial output was created"));
     assert_eq!(
         fs::read(dir.0.join(ID).join("manifest.json")).unwrap(),
         b"foreign"
@@ -154,4 +162,36 @@ fn replaced_staged_file_fails_before_output_and_is_preserved() {
             .file_type()
             .is_symlink()
     );
+}
+
+#[test]
+fn renamed_destination_reports_failure_without_publishing_into_its_replacement() {
+    let dir = Directory::new();
+    let destination = dir.0.join("destination");
+    let moved = dir.0.join("moved");
+    fs::create_dir(&destination).unwrap();
+    let error = bundle()
+        .publish_as(&destination, ID, |_, phase| {
+            if phase == 1 {
+                fs::rename(&destination, &moved)?;
+                fs::create_dir(&destination)?;
+                fs::write(destination.join("foreign"), b"keep")?;
+            }
+            Ok(())
+        })
+        .err()
+        .unwrap();
+    assert!(error.to_string().contains("destination changed"));
+    assert_eq!(
+        error.downcast_ref::<Fault>().unwrap().partial_directory(),
+        Some(destination.join(ID).as_path())
+    );
+    assert_eq!(fs::read(destination.join("foreign")).unwrap(), b"keep");
+    assert!(!destination.join(ID).exists());
+    assert_eq!(
+        fs::read(moved.join(ID).join("page.html")).unwrap(),
+        bundle().html
+    );
+    assert!(!moved.join(ID).join("manifest.json").exists());
+    assert!(!moved.join(format!(".tmt-colab-export-{ID}")).exists());
 }

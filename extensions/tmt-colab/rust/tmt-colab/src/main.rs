@@ -53,7 +53,7 @@ fn grammar() -> Command {
             note: "Create a private UUID-named export directory",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "This creates an unencrypted copy of the page. Anyone with these files can read it.\nCreates page.html and manifest.json in a new UUID subdirectory of --dir (default: current directory). The parent must exist; symlinks, parent traversal and overwrite are refused. Discussions are not included. Archived or deleted pages cannot be exported yet.",
+        details: "This creates an unencrypted copy of the page. Anyone with these files can read it.\nCreates page.html and manifest.json in a new UUID subdirectory of --dir (default: current directory). The parent must exist; aliases resolve to a canonical path. Created entries cannot be symlinks; parent traversal and overwrite are refused. Discussions are not included. Archived or deleted pages cannot be exported yet.",
     };
     tmt_cli_style::command(&ROOT)
         .bin_name("tmt colab")
