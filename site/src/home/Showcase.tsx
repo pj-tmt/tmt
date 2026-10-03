@@ -36,13 +36,15 @@ export function Band({
 }) {
   return (
     <section id={id} className="tour-band border-t-2 border-text py-12 sm:py-16">
-      <div className="font-mono text-xs leading-none font-semibold tracking-[0.06em] text-accent before:text-dim before:content-['##_']">
-        {eyebrow}
-      </div>
-      <h2 className="mt-2.5 mb-4 font-mono text-[clamp(26px,3.6vw,40px)] leading-[1.05] font-bold tracking-[-0.02em] text-balance">
-        <Inline text={title} />
-        {status && <Tag kind={status.kind}>{status.label}</Tag>}
-      </h2>
+      <header className="tour-heading">
+        <div className="font-mono text-xs leading-none font-semibold tracking-[0.06em] text-accent before:text-dim before:content-['##_']">
+          {eyebrow}
+        </div>
+        <h2 className="mt-2.5 mb-4 font-mono text-[clamp(26px,3.6vw,40px)] leading-[1.05] font-bold tracking-[-0.02em] text-balance">
+          <Inline text={title} />
+          {status && <Tag kind={status.kind}>{status.label}</Tag>}
+        </h2>
+      </header>
       {children}
     </section>
   );

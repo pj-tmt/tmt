@@ -17,12 +17,12 @@ export function Hero() {
   ];
   return (
     <div className="hero-band">
-      <div className="grid grid-cols-1 items-center gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-12">
+      <div className="grid grid-cols-1 items-center gap-8 lg:grid-cols-[minmax(0,5fr)_minmax(560px,7fr)] lg:gap-12">
         <div className="min-w-0">
           <div className="font-mono text-xs leading-none font-semibold tracking-[0.06em] text-accent before:text-dim before:content-['##_']">
             {home.eyebrow}
           </div>
-          <h1 className="mt-4 mb-6 max-w-[22ch] font-mono text-[clamp(34px,4.2vw,62px)] leading-[1.04] font-bold tracking-[-0.035em] text-balance">
+          <h1 className="mt-4 mb-6 max-w-[22ch] font-mono text-[clamp(34px,3.5vw,54px)] leading-[1.04] font-bold tracking-[-0.035em] text-balance">
             <Inline text={home.title} />
           </h1>
           <p className="mb-6 max-w-[36ch] font-mono text-[clamp(17px,1.5vw,21px)] leading-snug font-semibold text-balance">

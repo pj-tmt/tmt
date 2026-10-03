@@ -61,7 +61,7 @@ export function HandoffScene() {
           </div>
         }
       >
-        <div aria-hidden="true" className="grid grid-cols-1 gap-px bg-term-edge sm:grid-cols-2">
+        <div aria-hidden="true" className="grid grid-cols-1 gap-px bg-term-edge">
           <Pane
             name={handoff.reviewer}
             tag="Claude Code"

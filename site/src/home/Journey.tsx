@@ -54,12 +54,7 @@ export function Journey() {
                   : "border-rule bg-sheet text-muted hover:border-accent hover:text-text"
               }`}
             >
-              <b className="font-mono text-sm text-text">
-                <span aria-hidden="true" className="mr-2 inline-block text-accent">
-                  {String(k + 1).padStart(2, "0")}
-                </span>{" "}
-                {journey.steps[k].title}
-              </b>
+              <b className="font-mono text-sm text-text">{journey.steps[k].title}</b>
               <span>{journey.steps[k].hint}</span>
             </button>
           </li>

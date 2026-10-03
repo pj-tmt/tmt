@@ -188,8 +188,10 @@ th code {
 }
 .chapter-body > h3 {
   margin-top: 48px;
-  border-top: 1px solid var(--c-rule);
-  padding-top: 18px;
+  border-block: 2px solid var(--c-accent);
+  padding: 18px 20px;
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
   font: 700 22px/1.25 var(--f-mono);
 }
 .chapter-body > h3 code {
@@ -204,5 +206,23 @@ th code {
   }
   .chapter-body > h3 {
     font-size: 20px;
+  }
+}
+
+/* Wide accent bands give every section the same visual entry point. */
+.tour-heading {
+  margin-inline: calc(-1 * var(--page-gutter));
+  margin-top: -48px;
+  padding: 28px var(--page-gutter) 20px;
+  border-bottom: 2px solid var(--c-accent);
+  background: var(--c-accent-soft);
+}
+.chapter-body > h3::before {
+  content: "## ";
+  color: var(--c-dim);
+}
+@media (min-width: 640px) {
+  .tour-heading {
+    margin-top: -64px;
   }
 }
