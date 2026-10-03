@@ -315,9 +315,7 @@ o = "run touch ${marker}"
         'product',
       ]);
       expect(pinned.status).toBe(0);
-      expect(pinned.body.notices.join(' ')).toContain(
-        'pins workflow layout crew and the full flat split'
-      );
+      expect(pinned.body.notices.join(' ')).toContain('Saved layout crew and its split');
       expect(observe(sandbox)).toEqual(before);
     });
   });

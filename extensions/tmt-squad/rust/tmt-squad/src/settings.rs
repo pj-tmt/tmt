@@ -88,7 +88,7 @@ pub fn run(config: &mut Config, matches: &ArgMatches) -> Result<Value, SquadErro
             flags.get_one::<String>("key").unwrap().as_str(),
             "board.direction" | "board.sizes" | "board.panes"
         ) {
-            result["notices"].as_array_mut().unwrap().push(json!(format!("This edit pins workflow layout {} and the full flat split (direction, panes and sizes) in squad.toml; future preset changes will not replace them.", config.layout(squad.unwrap())?.as_str())));
+            result["notices"].as_array_mut().unwrap().push(json!(format!("Saved layout {} and its split (direction, panes, sizes) to squad.toml. Later preset changes won't override them.", config.layout(squad.unwrap())?.as_str())));
         }
     }
     Ok(result)
