@@ -31,7 +31,11 @@ impl Build {
             br#"<link href="./assets/a.css"><script src="./assets/a.js"></script>"#,
         )
         .unwrap();
-        fs::write(root.join("renderer.html"), b"<!doctype html><title>Renderer</title>").unwrap();
+        fs::write(
+            root.join("renderer.html"),
+            b"<!doctype html><title>Renderer</title>",
+        )
+        .unwrap();
         fs::write(root.join("assets/a.js"), b"console.log('embedded');").unwrap();
         fs::write(root.join("assets/a.css"), b"body{}").unwrap();
         fs::write(root.join("THIRD-PARTY-NOTICES.txt"), b"test notice").unwrap();

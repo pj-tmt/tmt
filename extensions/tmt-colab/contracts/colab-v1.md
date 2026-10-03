@@ -482,8 +482,8 @@ Colab state is created. A missing, unsafe or incomplete checkout default MUST
 still start the service with the owner build-hint placeholder.
 
 When supplied, build-time `TMT_COLAB_APP_DIR` MUST name an absolute complete Vite
-output directory. The build script validates required `index.html`,
-`renderer.html` and `THIRD-PARTY-NOTICES.txt` and flat `assets/` files with
+output directory. The build script requires `index.html`, `renderer.html` and
+`THIRD-PARTY-NOTICES.txt`, and validates them with flat `assets/` files using
 the same names, media types, entry references and 128-file/16-MiB bounds as runtime
 admission. Directories and files MUST be real, and files nonempty and regular.
 Invalid supplied input MUST fail compilation. The generated embedded table uses
@@ -496,8 +496,8 @@ activation and its archive/install proofs remain owned by infra's #1418.
 
 Disk loading MUST admit only nonempty regular files through no-follow directory-
 anchored opens. Both disk and embedded inventories MUST have at most 128 files
-and 16 MiB total. The inventory contains
-`index.html`, required `renderer.html`, optional `THIRD-PARTY-NOTICES.txt`, and flat generated `assets/` files;
+and 16 MiB total. The inventory requires
+`index.html` and `renderer.html`, and admits optional `THIRD-PARTY-NOTICES.txt`, and flat generated `assets/` files;
 unknown output, symlinks and missing HTML entry references reject the inventory.
 JavaScript and CSS are required. Supported asset suffixes are `html`, `js`, `css`,
 `woff2`, `woff`, `ttf`, `otf`, `png`, `jpg`, `jpeg`, `svg`, `webp`, `ico` and `txt`.
@@ -525,7 +525,7 @@ default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; f
 ```
 
 The exact owner-only `/renderer.html` route uses its own response policy instead
-of the app policy:
+of the app policy, whether served from the embedded table or `--app-dir`:
 
 ```text
 default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; font-src 'none'; media-src 'none'; worker-src 'none'; manifest-src 'none'; sandbox allow-scripts
