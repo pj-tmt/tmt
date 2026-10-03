@@ -8,7 +8,7 @@ describe('outcome-aware CLI discovery on a private tmux server', () => {
       expect(first.code).toBe(0);
       expect(first.stdout).toContain("Bound temporary identity 'First Agent'");
       expect(first.stderr).toBe(
-        'hint: this temporary identity ends with its pane; keep it with tmt identity create <name>\n'
+        "hint: this temporary identity ends with its pane; keep it with tmt identity create -- 'First Agent'; use -s when binding\n"
       );
 
       const repeated = await fixture.runCli(['name', 'First Agent']);
@@ -25,6 +25,20 @@ describe('outcome-aware CLI discovery on a private tmux server', () => {
       expect(json.code).toBe(0);
       expect(json.stderr).toBe('');
       expect(json.json).toMatchObject({ bound: true, lifetime: 'saved' });
+    });
+  });
+
+  it('names a newly saved binding without offering to save it again', async () => {
+    await withE2EFixture(async (fixture) => {
+      const first = await fixture.runCli(['name', '-s', 'Saved Agent']);
+      expect(first.code).toBe(0);
+      expect(first.stdout).toContain("Bound saved identity 'Saved Agent'");
+      expect(first.stderr).toBe(
+        "hint: receive work for this saved identity with tmt x listen --identity='Saved Agent'\n"
+      );
+      const repeated = await fixture.runCli(['name', '-s', 'Saved Agent']);
+      expect(repeated.code).toBe(0);
+      expect(repeated.stderr).toBe('');
     });
   });
 });

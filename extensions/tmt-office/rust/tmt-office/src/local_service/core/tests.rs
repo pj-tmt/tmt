@@ -1,34 +1,12 @@
 use super::*;
 use serde_json::json;
-use std::{
-    fs,
-    io::Write,
-    path::Path,
-    process::{Command, Stdio},
-};
+use std::{fs, path::Path};
+use tmt_test_support::write_executable;
 
 fn script(directory: &Path, body: &str) -> ProcessCore {
     let path = directory.join("tmt");
-    write_executable(&path, &format!("#!/bin/sh\n{body}\n"));
+    write_executable(&path, format!("#!/bin/sh\n{body}\n").as_bytes(), 0o755).unwrap();
     ProcessCore(CoreClient::with_executable(path))
-}
-
-/// See the [development ETXTBSY case-(2) rule](https://github.com/wkh237/tmt/blob/main/DEVELOPMENT.md#rust-checks).
-fn write_executable(path: &Path, script: &str) {
-    let mut writer = Command::new("/bin/sh")
-        .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
-        .arg(path)
-        .stdin(Stdio::piped())
-        .spawn()
-        .expect("start sh to write the executable");
-    writer
-        .stdin
-        .take()
-        .expect("sh stdin")
-        .write_all(script.as_bytes())
-        .expect("send the script to sh");
-    let status = writer.wait().expect("wait for sh");
-    assert!(status.success(), "sh could not write {}", path.display());
 }
 
 fn directory() -> std::path::PathBuf {

@@ -1932,3 +1932,167 @@ fn link_add_rejects_private_pages_stale_head_and_invalid_role_or_pages_without_w
     }
     assert_eq!(f.counts(), before);
 }
+
+#[test]
+fn rotated_epoch_bootstrap_delivers_the_real_stored_baseline_inline_and_chunked() {
+    use std::{io::ErrorKind, os::unix::net::UnixStream};
+    use tmt_colab::sync::{Access, Admission, CatchupContext, Progress, Server, SyncScope};
+    use tungstenite::{Message, WebSocket, protocol::Role};
+    struct Policy {
+        space: String,
+        owner: [u8; 32],
+    }
+    impl Admission for Policy {
+        fn authorize(
+            &self,
+            principal: &str,
+            scope: &SyncScope,
+            _: Access<'_>,
+        ) -> Result<[u8; 32], tmt_colab::sync::Code> {
+            if principal != DEVICE
+                || scope.space != self.space
+                || scope.page != PAGE
+                || scope.epoch != "2"
+            {
+                return Err(tmt_colab::sync::Code::Denied);
+            }
+            Ok(signer(9).verifying_key().to_bytes())
+        }
+        fn catchup_context(
+            &self,
+            _: &str,
+            scope: &SyncScope,
+            store: &Store,
+        ) -> Result<CatchupContext, tmt_colab::sync::Code> {
+            Ok(CatchupContext {
+                owner_key: self.owner,
+                membership_head: store
+                    .owner_head(&scope.space, &self.owner)
+                    .unwrap()
+                    .unwrap(),
+                baseline: Some(store.baseline(PAGE, 2).unwrap().unwrap().descriptor),
+            })
+        }
+    }
+    for size in [4, 120 * 1024] {
+        let mut f = Fixture::new();
+        let text = "x".repeat(size);
+        let update = f.object(1, [0; 32], "update", "content", &source(&text));
+        f.append(&update);
+        f.advance(OP, 2).unwrap();
+        let saved = f.store.baseline(PAGE, 2).unwrap().unwrap();
+        assert_eq!(baseline_source(&f, 2), text);
+        let expected = object::Envelope::from_json(&saved.envelope).unwrap();
+        crypto::verify_signature(
+            &f.key.management_member().unwrap().signing_key,
+            &expected.signature_input().unwrap(),
+            expected.signature(),
+        )
+        .unwrap();
+        let server = Server::new(
+            Store::open(&f.layout).unwrap(),
+            Policy {
+                space: f.key.space_id.clone(),
+                owner: f.key.owner_public(),
+            },
+        );
+        let (client, remote) = UnixStream::pair().unwrap();
+        client.set_nonblocking(true).unwrap();
+        remote.set_nonblocking(true).unwrap();
+        let mut client = WebSocket::from_raw_socket(client, Role::Client, None);
+        let mut connection = server.connect(remote, DEVICE.into()).unwrap();
+        let scope = json!({"version":1,"space":f.key.space_id,"page":PAGE,"epoch":"2"});
+        let mut hello = scope.clone();
+        hello.as_object_mut().unwrap().extend(
+            json!({"type":"hello","device":DEVICE,"membershipRevision":"0","cursors":[]})
+                .as_object()
+                .unwrap()
+                .clone(),
+        );
+        client
+            .send(Message::Text(hello.to_string().into()))
+            .unwrap();
+        let mut first = true;
+        let mut bytes = Vec::new();
+        let mut chunks = 0;
+        let mut done = false;
+        for _ in 0..2048 {
+            let frame: Value = match client.read() {
+                Ok(message) => serde_json::from_str(message.to_text().unwrap()).unwrap(),
+                Err(tungstenite::Error::Io(e)) if e.kind() == ErrorKind::WouldBlock => {
+                    assert_ne!(connection.poll(), Progress::Closed);
+                    continue;
+                }
+                Err(e) => panic!("baseline socket: {e}"),
+            };
+            assert!(frame.to_string().len() <= tmt_colab::limits::WS_FRAME_BYTES);
+            let mut ack = scope.clone();
+            ack.as_object_mut().unwrap().extend(
+                json!({"type":"ack","cursors":[]})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            );
+            client.send(Message::Text(ack.to_string().into())).unwrap();
+            if first {
+                first = false;
+                assert_eq!(frame["type"], "catchup");
+                assert_eq!(
+                    values::binary(frame["baseline"].as_str().unwrap(), 8192).unwrap(),
+                    saved.descriptor
+                );
+                assert_eq!(
+                    frame["baselineObject"]["envelopeHash"],
+                    values::encode_binary(&expected.hash().unwrap())
+                );
+                if size == 4 {
+                    bytes = values::binary(
+                        frame["baselineObject"]["envelope"].as_str().unwrap(),
+                        65536,
+                    )
+                    .unwrap();
+                } else {
+                    assert_eq!(
+                        frame["baselineObject"]["envelope"]["objectId"],
+                        object::Header::decode(expected.header()).unwrap().object_id
+                    );
+                }
+            } else if frame["type"] == "chunk" {
+                assert_eq!(frame["index"], chunks);
+                assert_eq!(
+                    frame["count"],
+                    saved
+                        .envelope
+                        .len()
+                        .div_ceil(tmt_colab::limits::CHUNK_BYTES)
+                );
+                assert_eq!(
+                    frame["envelopeHash"],
+                    values::encode_binary(&expected.hash().unwrap())
+                );
+                bytes.extend(
+                    values::binary(
+                        frame["bytes"].as_str().unwrap(),
+                        tmt_colab::limits::CHUNK_BYTES,
+                    )
+                    .unwrap(),
+                );
+                chunks += 1;
+            } else {
+                assert_eq!(bytes, saved.envelope); // No control frame interrupts the transfer.
+                assert!(frame.get("baselineObject").is_none());
+                assert_eq!(frame["type"], "catchup");
+                if frame["more"] == false {
+                    done = true;
+                    break;
+                }
+            }
+        }
+        assert!(done);
+        assert_eq!(bytes, saved.envelope);
+        assert_eq!(chunks == 0, size == 4);
+        if size > 4 {
+            assert!(chunks > 8);
+        }
+    }
+}

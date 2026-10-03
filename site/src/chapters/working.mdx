@@ -112,6 +112,8 @@ $ tmt result req_9ba4…                   # just the reply
 
 `ack` needs the revision that `x` or `x show` printed, so an acknowledgement can't hide a reply you haven't seen. Reading never marks anything, never cancels the work and never extends how long a request is kept: 90 days for new requests, unless you change `exchange.retentionDays`.
 
+`tmt result` also takes a unique prefix of a request ID, at least 8 hex characters, with or without `req_`: `tmt result 82d3556e`. Past the first 8 characters, keep the ID's hyphens (`82d3556e-0`). When several requests match, it lists up to five full IDs and how many more match; use a longer prefix. An unknown prefix says no reply is available.
+
 Outside a named pane, say who you are with `--identity`, after the command's own name. This records who asked. It is attribution on your machine, not authentication.
 
 <Cmd>{`

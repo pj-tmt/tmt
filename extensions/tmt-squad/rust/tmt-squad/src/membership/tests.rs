@@ -168,7 +168,7 @@ fn selecting_a_lead_changes_only_reserved_markers() {
             member("rin", json!({"squad.p.role": "reviews every merge"})),
         ]),
     );
-    let outcome = lead(&fixture.core, &fixture.squad, "rin").unwrap();
+    let outcome = lead(&fixture.core, &fixture.squad, Some("rin")).unwrap();
     assert_eq!(outcome.document["replaced"], json!(["sol"]));
     assert_eq!(fixture.value("rin", "lead.marker"), "true");
     assert_eq!(fixture.value("sol", "lead.marker"), "false");
@@ -232,7 +232,9 @@ fn a_capped_previous_lead_fails_before_any_replacement_write() {
             member("rin", json!({"squad.p.role": "reviewer"})),
         ]),
     );
-    let error = lead(&fixture.core, &fixture.squad, "rin").err().unwrap();
+    let error = lead(&fixture.core, &fixture.squad, Some("rin"))
+        .err()
+        .unwrap();
     assert_eq!(error.code, "IDENTITY_METADATA_INVALID");
     assert_eq!(
         error.message,
@@ -282,4 +284,71 @@ fn legacy_note_is_excluded_on_read_and_can_still_be_cleared() {
     assert!(outcome.complete);
     assert_eq!(outcome.document["applied"], json!(["squad.p.note"]));
     assert!(!stored.exists());
+}
+
+#[test]
+fn clearing_legacy_and_explicit_leads_keeps_membership_and_role_text() {
+    let fixture = Fixture::new(
+        "clear-leads",
+        json!([
+            member("sol", json!({"squad.p.role": "lead"})),
+            member(
+                "rin",
+                json!({"squad.p.role": "reviewer", "squad.p.lead.marker": "true"})
+            ),
+            member("worker", json!({"squad.p.state": "blocked"})),
+        ]),
+    );
+    let outcome = lead(&fixture.core, &fixture.squad, None).unwrap();
+    assert!(outcome.document["lead"].is_null());
+    assert_eq!(outcome.document["replaced"], json!(["sol", "rin"]));
+    for id in ["sol", "rin"] {
+        assert_eq!(fixture.value(id, "lead.marker"), "false");
+    }
+    let calls = fixture.calls();
+    assert!(!calls.contains("room join"));
+    assert!(!calls.contains("room leave"));
+    assert!(!calls.contains("meta set squad.p.role"));
+    assert!(!calls.contains("meta set squad.p.state"));
+}
+
+#[test]
+fn clearing_preflights_all_legacy_markers_before_any_write() {
+    let mut metadata = serde_json::Map::from_iter([("squad.p.role".into(), json!("lead"))]);
+    for i in 0..63 {
+        metadata.insert(format!("fixture{i}"), json!("value"));
+    }
+    let fixture = Fixture::new(
+        "capped-clear",
+        json!([
+            member("sol", json!({"squad.p.role": "lead"})),
+            member("rin", Value::Object(metadata)),
+        ]),
+    );
+    assert_eq!(
+        lead(&fixture.core, &fixture.squad, None)
+            .err()
+            .unwrap()
+            .code,
+        "IDENTITY_METADATA_INVALID"
+    );
+    assert!(!fixture.calls().contains("meta set"));
+}
+
+#[test]
+fn clearing_reports_a_failed_marker_write_without_removing_members() {
+    let fixture = Fixture::new(
+        "failed-clear",
+        json!([member("sol", json!({"squad.p.lead.marker": "true"})),]),
+    );
+    fs::write(fixture.root.join("fail-sol"), "").unwrap();
+    assert_eq!(
+        lead(&fixture.core, &fixture.squad, None)
+            .err()
+            .unwrap()
+            .code,
+        "IDENTITY_METADATA_INVALID"
+    );
+    assert!(!fixture.root.join("sol-squad.p.lead.marker").exists());
+    assert!(!fixture.calls().contains("room leave"));
 }

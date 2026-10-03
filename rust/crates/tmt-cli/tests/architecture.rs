@@ -36,6 +36,10 @@ use tmt_adapters::process::{CommandRequest, CommandRunner, UnixCommandRunner};
 // Reviewed package boundaries and manifest owners; implementation files are not fixed.
 const WORKSPACE_MANIFESTS: &[(&str, &str)] = &[
     (
+        "tmt-test-support",
+        "rust/crates/tmt-test-support/Cargo.toml",
+    ),
+    (
         "tmt-colab",
         "extensions/tmt-colab/rust/tmt-colab/Cargo.toml",
     ),
@@ -181,6 +185,7 @@ fn workspace_obeys_native_architecture() {
     for package in metadata["packages"].as_array().expect("Cargo packages") {
         violations.extend(manifest_location_violation(package, repository));
         violations.extend(policy::dependency_violations(package));
+        violations.extend(policy::test_support_package_violations(package));
         violations.extend(unsafe_boundary::check(package, repository));
         for target in package["targets"].as_array().expect("Cargo targets") {
             let kind = target["kind"].as_array().expect("Cargo target kinds");

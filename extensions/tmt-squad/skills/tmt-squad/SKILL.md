@@ -213,6 +213,19 @@ PgUp/PgDn and Home/End, or use the wheel over the pane. The scroll marks show
 remaining content. Older replies without a loaded body retain `tmt result <id>`
 hints; reading and scrolling acknowledge nothing.
 
+## Inspect board settings
+
+Press `,` to open read-only settings for the shown squad or tab; `settings` is
+bindable. Scroll with arrows/j/k, PgUp/PgDn, Home/End or the wheel, and close
+with Esc. Each value shows its preset/default or configuration setting source
+and the path of `squad.toml`. Configured provider argv and run bindings are
+shown without executing them. Close and reopen to read later config edits.
+
+`tmt sq config show` inspects board defaults. Use `--squad product` for one
+squad or `--tab all` (also `leads` or a configured tab name) for an aggregate
+view, and `--json` for full values and source paths. These scope flags are
+exclusive. All entries are read-only; no configuration or member state changes.
+
 ## Choose a board view
 
 `tmt sq view ls` (or bare `tmt sq view`) lists factory pane arrangements:
@@ -265,6 +278,9 @@ to toggle it alone.
 A folded title reads `▸ detail` and stays in place. Stacked panes reserve one
 line; side-by-side panes reserve a compact title-width column. Expanded neighbours
 share the freed space, and expanding restores the configured proportions.
+Nested percentages use the raw fractional parent, then round cumulative boundaries
+to terminal cells. For example, Team at body height 21 gives detail/replies 6/7
+cells rather than halving an already rounded parent into 7/6.
 Tab skips folded panes. Folding a focused pane moves focus to rows when visible,
 otherwise the next expanded pane; unfolding keeps an existing focus. With all
 panes folded, only titles and bindings act;
@@ -324,7 +340,12 @@ tmt squad rm <name>                           # leaves the squad; the agent keep
   failure, re-run it with the same pairs.
 - `tmt squad lead <name>` selects the lead independently of free-text `role`
   and `lead` fields. Setting or clearing either field never changes leadership,
-  and selecting a new lead preserves every member's role text.
+  and selecting a new lead preserves every member's role text and membership.
+  `tmt squad lead --none` clears leadership. Former leads remain members; use
+  `tmt squad rm <name>` separately when they should leave.
+- Repeating `tmt squad add <name>` reports that the member is already in the
+  squad and preserves its state and task. A missing state receives the configured
+  initial value.
 - Legacy members with only `role=lead` still appear as lead until a role write
   would change leadership or `squad lead` records their separate marker. Listing
   and opening the board never perform that conversion. The reserved metadata suffix `lead.marker` is not a
@@ -338,6 +359,8 @@ tmt squad rm <name>                           # leaves the squad; the agent keep
   for use `tmt inbox` and `tmt answer` (or `tmt reply --receipt` when you were
   given a receipt). `tmt squad talk`, `reply` and `replies` were removed and
   only refuse.
+  Without a lead, select one with `tmt squad lead <name> --squad <squad>`, or
+  annotate a particular member with `tmt squad annotate <member> "…" --to member`.
 
 ## Keep your notebook current
 

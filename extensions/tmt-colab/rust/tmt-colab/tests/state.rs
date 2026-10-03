@@ -86,7 +86,7 @@ fn keyring_is_stable_private_and_no_follow_with_owned_service_lock() {
     assert!(!fixture.0.join("outside").exists());
 }
 #[test]
-fn checkpoint_prunes_only_its_namespace_preserving_tail_and_durable_fork_receipts() {
+fn checkpoint_waits_for_pair_then_prunes_both_prefixes_preserving_tail_and_fork_receipts() {
     let fixture = Fixture::new();
     let layout = fixture.layout();
     let mut store = Store::open(&layout).unwrap();
@@ -106,11 +106,31 @@ fn checkpoint_prunes_only_its_namespace_preserving_tail_and_durable_fork_receipt
     };
     assert_eq!(store.checkpoint(&checkpoint).unwrap(), Accepted::New);
     assert_eq!(store.checkpoint(&checkpoint).unwrap(), Accepted::Replay);
-    assert_eq!(store.payload(scope(), 1).unwrap(), None);
+    // An unpaired checkpoint neither removes payloads nor becomes bootstrap.
+    assert_eq!(
+        store.payload(scope(), 1).unwrap(),
+        Some(b"opaque-ciphertext".to_vec())
+    );
+    let first = store
+        .namespace_next(scope(), Namespace::Content, Default::default())
+        .unwrap()
+        .unwrap();
+    assert!(!first.checkpoint);
+    assert_eq!(first.cursor.seq, 1);
+    store.close().unwrap();
+    let mut store = Store::open(&layout).unwrap();
     assert_eq!(
         store.payload(scope(), 2).unwrap(),
         Some(b"opaque-ciphertext".to_vec())
     );
+    let own_checkpoint = Envelope {
+        namespace: Namespace::Own,
+        hash: [9; 32],
+        ..checkpoint
+    };
+    store.checkpoint(&own_checkpoint).unwrap();
+    assert_eq!(store.payload(scope(), 1).unwrap(), None);
+    assert_eq!(store.payload(scope(), 2).unwrap(), None);
     assert_eq!(
         store.payload(scope(), 3).unwrap(),
         Some(b"opaque-ciphertext".to_vec())
@@ -634,6 +654,13 @@ fn namespace_read_pages_resolve_checkpoint_tail_and_reject_pruned_or_substituted
         ..envelope(2, Namespace::Content)
     };
     store.checkpoint(&checkpoint).unwrap();
+    store
+        .checkpoint(&Envelope {
+            namespace: Namespace::Own,
+            hash: [9; 32],
+            ..checkpoint
+        })
+        .unwrap();
     assert_eq!(
         store.namespaces("page", 1).unwrap(),
         vec![
@@ -686,6 +713,8 @@ fn namespace_read_pages_resolve_checkpoint_tail_and_reject_pruned_or_substituted
         .unwrap()
         .unwrap();
     assert_eq!(own.cursor.seq, 2);
+    assert!(own.checkpoint);
+    assert_eq!(own.cursor.hash, [9; 32]);
     let oracle = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
     oracle
         .execute(
@@ -705,4 +734,96 @@ fn namespace_read_pages_resolve_checkpoint_tail_and_reject_pruned_or_substituted
         store.namespace_next(scope(), Namespace::Content, first.cursor),
         Err(Fault::StaleEpoch)
     ));
+}
+
+#[test]
+fn checkpoint_pair_requires_same_head_and_failed_partner_preserves_the_previous_pair() {
+    let fixture = Fixture::new();
+    let layout = fixture.layout();
+    let mut store = Store::open(&layout).unwrap();
+    store.create_page("page").unwrap();
+    for seq in 1..=4 {
+        store
+            .append(&envelope(
+                seq,
+                if seq % 2 == 1 {
+                    Namespace::Content
+                } else {
+                    Namespace::Own
+                },
+            ))
+            .unwrap();
+    }
+    let cp = |seq, ns| Envelope {
+        hash: [40 + seq as u8 + if ns == Namespace::Own { 10 } else { 0 }; 32],
+        previous: [seq as u8; 32],
+        bytes: b"checkpoint",
+        ..envelope(seq, ns)
+    };
+    store.checkpoint(&cp(2, Namespace::Content)).unwrap();
+    // A checkpoint in the other namespace at a different head is not a pair.
+    store.checkpoint(&cp(1, Namespace::Own)).unwrap();
+    assert!(store.payload(scope(), 1).unwrap().is_some());
+    assert!(store.payload(scope(), 2).unwrap().is_some());
+    store.checkpoint(&cp(2, Namespace::Own)).unwrap();
+    assert!(store.payload(scope(), 1).unwrap().is_none());
+    assert!(store.payload(scope(), 2).unwrap().is_none());
+    store
+        .pin_checkpoint(scope(), Namespace::Content, 2)
+        .unwrap();
+    store.checkpoint(&cp(4, Namespace::Content)).unwrap();
+    // Retain the old pair until the newer prefix is covered in both namespaces.
+    for ns in [Namespace::Content, Namespace::Own] {
+        let first = store
+            .namespace_next(scope(), ns, Default::default())
+            .unwrap()
+            .unwrap();
+        assert!(first.checkpoint);
+        assert_eq!(first.cursor.seq, 2);
+    }
+    let db = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
+    db.execute_batch("CREATE TRIGGER fail_partner BEFORE INSERT ON checkpoints WHEN NEW.namespace='own' AND NEW.seq='00000000000000000004' BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
+    assert!(matches!(
+        store.checkpoint(&cp(4, Namespace::Own)),
+        Err(Fault::Sql(_))
+    ));
+    assert!(store.payload(scope(), 3).unwrap().is_some());
+    assert!(store.payload(scope(), 4).unwrap().is_some());
+    db.execute_batch("DROP TRIGGER fail_partner").unwrap();
+    store.close().unwrap();
+    let mut store = Store::open(&layout).unwrap();
+    store.checkpoint(&cp(4, Namespace::Own)).unwrap();
+    assert!(store.payload(scope(), 3).unwrap().is_none());
+    assert!(store.payload(scope(), 4).unwrap().is_none());
+    assert_eq!(
+        db.query_row(
+            "SELECT count(*) FROM checkpoints WHERE payload IS NOT NULL",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        3
+    );
+    for ns in [Namespace::Content, Namespace::Own] {
+        assert_eq!(
+            store
+                .namespace_next(scope(), ns, Default::default())
+                .unwrap()
+                .unwrap()
+                .cursor
+                .seq,
+            4
+        );
+    }
+    // Pinned authority-cut checkpoints remain readable after a newer pair prunes.
+    store
+        .resolve_cursor(
+            scope(),
+            Namespace::Content,
+            tmt_colab::store::NamespaceCursor {
+                seq: 2,
+                hash: cp(2, Namespace::Content).hash,
+            },
+        )
+        .unwrap();
 }

@@ -604,11 +604,14 @@ mod tests {
         reads_a_missing_transcript: bool,
         forgets_the_transcript_root: bool,
         installs_skills_anywhere: bool,
+        skills_only: bool,
     }
 
     impl crate::RuntimeHandler for Agent {
         fn capabilities(&mut self) -> RuntimeCapabilities {
-            crate::runtime::tests::claude_like()
+            let mut capabilities = crate::runtime::tests::claude_like();
+            capabilities.claims = !self.skills_only;
+            capabilities
         }
         fn locations(
             &mut self,
@@ -666,6 +669,20 @@ mod tests {
                 session: "conformance-session".into(),
             },
         )
+    }
+
+    #[test]
+    fn skills_only_driver_conforms_without_claiming_a_runtime() {
+        assert!(
+            runtime_findings_with(
+                Agent {
+                    skills_only: true,
+                    ..Agent::default()
+                },
+                None
+            )
+            .is_empty()
+        );
     }
 
     fn runtime_checks(driver: Agent) -> Vec<String> {

@@ -241,6 +241,31 @@ describe('release workflow (release.yml)', () => {
     );
   });
 
+  it('reconciles merged releases before fresh draft discovery, queue preparation and PR refresh', () => {
+    const please = job(release, 'release-please');
+    const names = [
+      'Create releases for merged release pull requests',
+      'Check for a tagless manifest draft',
+      'Run release-please',
+      'Enable auto-merge for one release pull request',
+    ];
+    const positions = names.map((name) => please.indexOf(`- name: ${name}`));
+    for (let index = 1; index < positions.length; index++)
+      expect(positions[index]).toBeGreaterThan(positions[index - 1]);
+    const reconcile = releasePleasePart(please, names[0]);
+    expect(reconcile).toContain('release-please-run.mjs github-release');
+    expect(reconcile).toContain('github-release failed; release-pr was not attempted.');
+    expect(reconcile).toContain('exit "$status"');
+    const draft = releasePleasePart(please, names[1]);
+    expect(draft).toContain('RELEASE_TOKEN: ${{ steps.app.outputs.token || github.token }}');
+    const refresh = releasePleasePart(please, names[2]);
+    expect(refresh.indexOf('release-please-queue.mjs')).toBeLessThan(
+      refresh.indexOf('release-please-run.mjs release-pr')
+    );
+    expect(refresh).toContain('TAGLESS_DRAFT_PATHS: ${{ steps.draft.outputs.held_paths }}');
+    expect(refresh).not.toContain('release-please-run.mjs github-release');
+  });
+
   it('holds the release App token in one step of one job, only in a live run, pinned by commit', () => {
     const uses = [...release.matchAll(/uses: actions\/create-github-app-token@(\S+) # (v\S+)/g)];
     expect(uses).toHaveLength(1);
@@ -300,12 +325,12 @@ describe('release workflow (release.yml)', () => {
     const releasePlease = job(release, 'release-please');
     expect(releasePlease).toContain('pnpm install --frozen-lockfile --ignore-scripts');
     expect(releasePlease).toContain('working-directory: .github/release-please');
-    expect(releasePlease).toContain('for command in release-pr github-release; do');
     expect(releasePlease).toContain('LIVE: ${{ steps.mode.outputs.live }}');
     expect(releasePlease).toContain('set -o pipefail');
-    expect(releasePlease).toContain(
-      'node ../../typescript/scripts/release-please-run.mjs "$command"'
-    );
+    for (const command of ['github-release', 'release-pr'])
+      expect(releasePlease).toContain(
+        `node ../../typescript/scripts/release-please-run.mjs ${command}`
+      );
     // Candidate construction and dry/live mutation controls are exercised by release-config tests.
     expect(releasePlease).not.toMatch(/googleapis\/release-please-action/);
   });
@@ -704,7 +729,7 @@ describe('the release run releases a hold (native-release.yml)', () => {
   it('grants the pipeline what its gates, its publication and its failure issue need and nothing more', () => {
     const bundleJob = job(run, 'bundle');
     expect(bundleJob).toMatch(
-      /permissions:\n(?: {6}#[^\n]*\n)* {6}contents: write\n {6}actions: read\n {6}pull-requests: read\n {6}checks: read\n {6}issues: write\n/
+      /permissions:\n(?: {6}#[^\n]*\n)* {6}contents: write\n {6}actions: write\n {6}pull-requests: read\n {6}checks: read\n {6}issues: write\n/
     );
   });
 });
@@ -751,5 +776,34 @@ describe('held release rerun workflow boundary', () => {
     expect(prove).toContain('source_args=(--source-root "$GITHUB_WORKSPACE/release-source")');
     expect(prove).toContain('skill="$GITHUB_WORKSPACE/release-source/skills/tmux-team/SKILL.md"');
     expect(prove).not.toMatch(/GH_TOKEN|github\.token|secrets\./);
+  });
+});
+
+describe('post-publication Project reconciliation', () => {
+  const dispatch = job(bundle, 'project-release');
+  it('waits for read-back and all smoke jobs, including classified infrastructure failure', () => {
+    expect(dispatch).toContain('needs: [published, smoke]');
+    expect(dispatch).toContain(
+      "if: ${{ !cancelled() && needs.published.result == 'success' && (needs.smoke.result == 'success' || (needs.smoke.result == 'failure' && needs.smoke.outputs.outcome == 'infrastructure')) }}"
+    );
+    expect(smokeWorkflow).toContain('value: ${{ jobs.report.outputs.outcome }}');
+    expect(job(smokeWorkflow, 'report')).toContain('outcome: ${{ steps.report.outputs.outcome }}');
+    expect(job(smokeWorkflow, 'report')).toContain('id: report');
+    expect(job(smokeWorkflow, 'report')).toContain('--expected-results 4');
+    expect(job(smokeWorkflow, 'smoke')).not.toContain('continue-on-error: true');
+  });
+  it('grants only dispatch permission, uses GITHUB_TOKEN REST, and runs no release code', () => {
+    expect(dispatch).toMatch(/permissions:\n {6}actions: write\n {4}steps:/);
+    expect(dispatch).toContain('GH_TOKEN: ${{ github.token }}');
+    expect(dispatch).toContain('actions/workflows/project-release.yml/dispatches');
+    expect(dispatch).toContain('{"ref":"main","inputs":{"dry_run":"false"}}');
+    expect(dispatch).not.toMatch(
+      /checkout|secrets\.|contents:|pull-requests:|issues:|environment:/
+    );
+    expect(
+      [...jobs(bundle)]
+        .filter(([, text]) => /^ {6}actions: write$/m.test(text))
+        .map(([name]) => name)
+    ).toEqual(['project-release']);
   });
 });

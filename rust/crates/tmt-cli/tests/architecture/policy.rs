@@ -12,6 +12,12 @@ use syn::{
 // Versions/features remain Cargo-owned; aliases require canonical crate names.
 // The invoke and extension-state leaves retain their stricter all-kind policies below.
 const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
+    ("tmt-adapters", "tmt-test-support", None), // Codex executable stand-ins
+    ("tmt-cli", "tmt-test-support", None),      // target-resolution executable stand-in
+    ("tmt-squad", "tmt-test-support", None),    // executable stand-ins with local readiness
+    ("tmt-office", "tmt-test-support", None),   // local-service core executable stand-ins
+    ("tmt-colab", "tmt-test-support", None),    // decoder executable stand-ins
+    ("tmt-office-command", "tmt-test-support", None), // opt-in ETXTBSY stress comparison
     ("tmt-adapters", "tmt-office-model", None), // storage migration model fixtures
     ("tmt-adapters", "nix", Some("cfg(unix)")), // subprocess and pipe fixtures
     ("tmt-adapters", "rcgen", Some("cfg(unix)")), // release HTTP TLS certificates
@@ -219,6 +225,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         "tmt-invoke" => &["subprocess", "nix"],
         "tmt-extension-state" => &["nix"],
+        // Case-2 publication reuses the neutral bounded process owner only.
+        "tmt-test-support" => &["tmt-invoke"],
         // Taffy owns flex/grid geometry; text owns shared grapheme measurement/fitting.
         "tmt-tui" => &[
             "roxmltree",
@@ -310,7 +318,9 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             // Source paths use canonical crate names. Renaming even an allowed
             // package requires an explicit policy review instead of bypassing
             // the source-layer checks through a new external crate alias.
-            let unreviewed = !allowed.contains(&dependency) || !d["rename"].is_null();
+            let unreviewed = !allowed.contains(&dependency)
+                || !d["rename"].is_null()
+                || (name == "tmt-test-support" && !d["kind"].is_null() && d["kind"] != "normal");
             unreviewed.then(|| {
                 format!(
                     "{name}: unreviewed production dependency {dependency} (kind={}, target={}, rename={})",
@@ -319,6 +329,21 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             })
         })
         .collect()
+}
+
+/// This owner is fixture publication only, never a published product.
+pub fn test_support_package_violations(package: &Value) -> Vec<String> {
+    if package["name"] != "tmt-test-support" {
+        return Vec::new();
+    }
+    let mut violations = Vec::new();
+    if package["publish"] != serde_json::json!([]) {
+        violations.push("tmt-test-support: publish must be false".into());
+    }
+    if package["metadata"]["dist"]["dist"] != false {
+        violations.push("tmt-test-support: dist must be false".into());
+    }
+    violations
 }
 
 struct Declaration {
@@ -712,6 +737,20 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
             {
                 violations.push(format!(
                     "{location}: colab model cannot acquire runtime authority via {}",
+                    path.join("::")
+                ));
+            }
+            if root == "tmt_test_support" && source.package != "tmt-test-support" {
+                violations.push(format!(
+                    "{location}: fixture publication is test-only, never a production reference"
+                ));
+            }
+            if source.package == "tmt-test-support"
+                && root.starts_with("tmt_")
+                && !["tmt_test_support", "tmt_invoke"].contains(&root)
+            {
+                violations.push(format!(
+                    "{location}: fixture publication cannot reach {}",
                     path.join("::")
                 ));
             }

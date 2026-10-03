@@ -353,3 +353,274 @@ fn an_approved_herdr_driver_silences_the_hint() {
     );
     assert!(!printed(&output).contains(HERDR_HINT), "{output:?}");
 }
+
+/// A runtime fixture answers capabilities and locations independently.
+fn runtime_driver(fixture: &Fixture, name: &str, executable: &str, skills: &str) -> PathBuf {
+    let directory = fixture.root.join(name);
+    fs::create_dir_all(&directory).unwrap();
+    let driver = directory.join("tmt-driver");
+    let capabilities = serde_json::json!({"ok": {"protocols": [1], "kind": "runtime",
+        "name": name, "version": "0.1.0", "ops": ["locations", "resume", "usage"],
+        "executables": [executable], "env": ["AGENT_HOME"], "sessionEnv": "AGENT_SESSION",
+        "hooks": {"format": "sessionHooksJson", "fields": {"event": "/event", "session": "/session", "transcript": "/transcript"},
+        "events": [{"name": "Stop", "effect": "idle"}]}}});
+    fs::write(directory.join("capabilities"), capabilities.to_string()).unwrap();
+    fs::write(
+        directory.join("locations"),
+        serde_json::json!({"ok": {
+        "configDirs": [fixture.root.join("home/.agent")], "skills": skills,
+        "hookSettings": fixture.root.join("home/.agent/settings.json"),
+        "transcriptRoot": fixture.root.join("home/.agent/sessions")}})
+        .to_string(),
+    )
+    .unwrap();
+    publish_driver(&driver, b"#!/bin/sh\ncat \"$(dirname \"$0\")/$3\"\n");
+    driver
+}
+
+// A short-lived writer publishes a closed inode before concurrent test forks can exec it.
+fn publish_driver(driver: &Path, script: &[u8]) {
+    let mut writer = Command::new("/bin/sh")
+        .args([
+            "-c",
+            "cat > \"$1.new\" && chmod 755 \"$1.new\" && mv \"$1.new\" \"$1\"",
+            "writer",
+        ])
+        .arg(driver)
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    use std::io::Write;
+    writer.stdin.take().unwrap().write_all(script).unwrap();
+    assert!(writer.wait().unwrap().success());
+}
+
+#[test]
+fn runtime_consent_discloses_locations_and_removal_preserves_host_records() {
+    let fixture = Fixture::new("runtime-consent");
+    let driver = runtime_driver(
+        &fixture,
+        "agent",
+        "agent",
+        path(&fixture.root.join("home/.agent/skills")),
+    );
+    let refused = fixture.tmt(&["driver", "install", path(&driver)]);
+    assert_eq!(refused.status.code(), Some(1));
+    let disclosure = text(&refused.stdout);
+    for field in [
+        "Runtime driver agent",
+        "agent",
+        "true",
+        "argv[0]",
+        "AGENT_HOME",
+        "AGENT_SESSION",
+        "Stop",
+        "configDirs",
+        "skills",
+        "hookSettings",
+        "transcriptRoot",
+    ] {
+        assert!(disclosure.contains(field), "missing {field}: {disclosure}");
+    }
+    assert!(!fixture.registry().exists());
+    let host = fixture.driver("host", &capabilities("host", "hh-", "h{n}"));
+    assert_eq!(
+        fixture
+            .json(&["driver", "install", path(&host), "--yes", "--json"])
+            .0,
+        0
+    );
+    let host_before = fs::read(fixture.registry()).unwrap();
+    assert_eq!(
+        fixture
+            .json(&["driver", "install", path(&driver), "--yes", "--json"])
+            .0,
+        0
+    );
+    let (code, listed) = fixture.json(&["driver", "ls", "--json"]);
+    assert_eq!(code, 0);
+    assert_eq!(listed["drivers"][0]["kind"], "runtime");
+    assert_eq!(listed["drivers"][0]["state"], "ok");
+    assert_eq!(listed["drivers"][0]["claims"], true);
+    assert_eq!(fixture.json(&["driver", "rm", "agent", "--json"]).0, 0);
+    let host_after = fs::read(fixture.registry()).unwrap();
+    assert_eq!(host_before, host_after);
+}
+
+#[test]
+fn runtime_approval_refuses_claims_names_and_outside_write_targets() {
+    let fixture = Fixture::new("runtime-guards");
+    let valid = fixture.root.join("home/.agent/skills");
+    for (name, executable, skills) in [
+        ("taken", "codex", path(&valid)),
+        ("codex", "agent", path(&valid)),
+        ("tmux", "agent", path(&valid)),
+        ("outside", "agent", "/tmp/other/skills"),
+    ] {
+        let driver = runtime_driver(&fixture, name, executable, skills);
+        let (code, answer) = fixture.json(&["driver", "install", path(&driver), "--yes", "--json"]);
+        assert_eq!(code, 1, "{answer}");
+        assert_eq!(answer["error"]["code"], "DRIVER_REFUSED");
+        assert!(!fixture.registry().exists());
+    }
+    let unclaimed = runtime_driver(&fixture, "unclaimed", "codex", path(&valid));
+    let capabilities_file = unclaimed.parent().unwrap().join("capabilities");
+    let mut declaration: Value =
+        serde_json::from_slice(&fs::read(&capabilities_file).unwrap()).unwrap();
+    declaration["ok"]["claims"] = serde_json::json!(false);
+    fs::write(capabilities_file, declaration.to_string()).unwrap();
+    assert_eq!(
+        fixture
+            .json(&["driver", "install", path(&unclaimed), "--yes", "--json"])
+            .0,
+        0
+    );
+    let driver = runtime_driver(&fixture, "first", "agent", path(&valid));
+    assert_eq!(
+        fixture
+            .json(&["driver", "install", path(&driver), "--yes", "--json"])
+            .0,
+        0
+    );
+    let before = fs::read(fixture.registry()).unwrap();
+    let other = runtime_driver(&fixture, "second", "agent", path(&valid));
+    assert_eq!(
+        fixture
+            .json(&["driver", "install", path(&other), "--yes", "--json"])
+            .0,
+        1
+    );
+    assert_eq!(fs::read(fixture.registry()).unwrap(), before);
+}
+
+#[test]
+fn changed_runtime_requires_reapproval_and_bad_locations_leave_approval_intact() {
+    let fixture = Fixture::new("runtime-changed");
+    let valid = fixture.root.join("home/.agent/skills");
+    let driver = runtime_driver(&fixture, "agent", "agent", path(&valid));
+    assert_eq!(
+        fixture
+            .json(&["driver", "install", path(&driver), "--yes", "--json"])
+            .0,
+        0
+    );
+    let before = fs::read(fixture.registry()).unwrap();
+    // Replacing the executable changes its fingerprint even when its declaration is unchanged.
+    runtime_driver(&fixture, "agent", "agent", path(&valid));
+    assert_eq!(
+        fixture.json(&["driver", "ls", "--json"]).1["drivers"][0]["state"],
+        "changed"
+    );
+    fs::write(driver.parent().unwrap().join("locations"), "{bad json}").unwrap();
+    assert_eq!(
+        fixture
+            .json(&["driver", "install", path(&driver), "--yes", "--json"])
+            .0,
+        1
+    );
+    assert_eq!(fs::read(fixture.registry()).unwrap(), before);
+    runtime_driver(&fixture, "agent", "agent", path(&valid));
+    assert_eq!(
+        fixture
+            .json(&["driver", "install", path(&driver), "--yes", "--json"])
+            .0,
+        0
+    );
+    assert_eq!(
+        fixture.json(&["driver", "ls", "--json"]).1["drivers"][0]["state"],
+        "ok"
+    );
+}
+
+#[test]
+fn runtime_locations_timeout_never_commits_or_retries() {
+    let fixture = Fixture::new("runtime-timeout");
+    let driver = runtime_driver(
+        &fixture,
+        "agent",
+        "agent",
+        path(&fixture.root.join("home/.agent/skills")),
+    );
+    assert_eq!(
+        fixture
+            .json(&["driver", "install", path(&driver), "--yes", "--json"])
+            .0,
+        0
+    );
+    let before = fs::read(fixture.registry()).unwrap();
+    // Capabilities remains a success; only locations exceeds its real one-second bound.
+    let script = "#!/bin/sh\nif [ \"$3\" = locations ]; then echo attempt >> \"$0.attempts\"; sleep 10; fi\ncat \"$(dirname \"$0\")/$3\"\n";
+    publish_driver(&driver, script.as_bytes());
+    let started = std::time::Instant::now();
+    let (code, answer) = fixture.json(&["driver", "install", path(&driver), "--yes", "--json"]);
+    assert_eq!(code, 1, "{answer}");
+    assert_eq!(answer["error"]["code"], "DRIVER_REFUSED");
+    assert!(started.elapsed() < std::time::Duration::from_secs(8));
+    assert_eq!(fs::read(fixture.registry()).unwrap(), before);
+    assert_eq!(
+        fs::read_to_string(driver.with_file_name("tmt-driver.attempts")).unwrap(),
+        "attempt\n"
+    );
+}
+
+#[test]
+fn full_runtime_registry_refuses_growth_without_losing_approvals() {
+    let fixture = Fixture::new("runtime-capacity");
+    let config = fixture.root.join("home/.agent").join("a/".repeat(400));
+    let skills = config.join("skills");
+    let mut before = Vec::new();
+    for index in 0..16 {
+        let name = format!("agent{index}");
+        let driver = runtime_driver(&fixture, &name, &name, path(&skills));
+        fs::write(
+            driver.parent().unwrap().join("locations"),
+            serde_json::json!({"ok": {
+            "configDirs": [config], "skills": skills, "hookSettings": config.join("settings.json"),
+            "transcriptRoot": config.join("sessions")}})
+            .to_string(),
+        )
+        .unwrap();
+        let (code, answer) = fixture.json(&["driver", "install", path(&driver), "--yes", "--json"]);
+        if code != 0 {
+            assert!(index > 0, "first approval must fit: {answer}");
+            assert_eq!(answer["error"]["code"], "DRIVER_REGISTRY_INVALID");
+            assert_eq!(fs::read(fixture.registry()).unwrap(), before);
+            let (code, listed) = fixture.json(&["driver", "ls", "--json"]);
+            assert_eq!(code, 0, "{listed}");
+            assert_eq!(listed["drivers"].as_array().unwrap().len(), index);
+            return;
+        }
+        before = fs::read(fixture.registry()).unwrap();
+    }
+    panic!("the byte bound must refuse these sixteen large location records");
+}
+
+#[test]
+fn host_refusal_names_the_conflict_and_stale_grammar_does_not_block_approval() {
+    let fixture = Fixture::new("host-stale");
+    let first = fixture.driver("first", &capabilities("first", "aa-", "a{n}"));
+    assert_eq!(
+        fixture
+            .json(&["driver", "install", path(&first), "--yes", "--json"])
+            .0,
+        0
+    );
+    let second = fixture.driver("second", &capabilities("second", "aa-", "a{n}"));
+    let (code, refused) = fixture.json(&["driver", "install", path(&second), "--yes", "--json"]);
+    assert_eq!(code, 1);
+    assert!(
+        refused["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("Host driver second can't be installed beside first:")
+    );
+    let mut document: Value =
+        serde_json::from_slice(&fs::read(fixture.registry()).unwrap()).unwrap();
+    document["drivers"][0]["capabilities"]["paneId"]["prefix"] = serde_json::json!("");
+    fs::write(fixture.registry(), document.to_string()).unwrap();
+    let (code, approved) = fixture.json(&["driver", "install", path(&second), "--yes", "--json"]);
+    assert_eq!(code, 0, "{approved}");
+    let stored: Value = serde_json::from_slice(&fs::read(fixture.registry()).unwrap()).unwrap();
+    assert_eq!(stored["drivers"].as_array().unwrap().len(), 2);
+    assert_eq!(stored["drivers"][0], document["drivers"][0]);
+}

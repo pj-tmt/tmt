@@ -245,6 +245,9 @@ pub struct RuntimeCapabilities {
     /// Bare command names; a pane command whose last path component is one of
     /// them is this agent, and `tmt run` starts the first.
     pub executables: Vec<String>,
+    /// Whether these commands are claimed as a runtime (skills-only drivers opt out).
+    #[serde(default = "claims_default")]
+    pub claims: bool,
     /// The environment variables `locations` reads; core passes only these.
     #[serde(default)]
     pub env: Vec<String>,
@@ -254,6 +257,10 @@ pub struct RuntimeCapabilities {
     pub session_env: Option<String>,
     #[serde(default)]
     pub hooks: Option<Hooks>,
+}
+
+fn claims_default() -> bool {
+    true
 }
 
 /// Where a provider hook's payload holds each value, and what each event

@@ -81,6 +81,7 @@ fn finish_parse(invocation: Invocation, mode: OutputMode) -> Result<Parsed, Pars
                 | Invocation::Version
                 | Invocation::Completion(_)
                 | Invocation::Complete(_)
+                | Invocation::Mcp { .. }
                 | Invocation::Learn { .. }
                 | Invocation::Run { .. }
                 | Invocation::Resume { .. }
@@ -194,6 +195,9 @@ fn texts(matches: &ArgMatches, id: &str) -> Vec<String> {
 fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
     Ok(match path {
         ["api"] => Invocation::Api,
+        ["mcp"] => Invocation::Mcp {
+            identity: required(m, "identity"),
+        },
         [] if flag(m, "version") => Invocation::Version,
         [] | ["team"] => Invocation::Help(Vec::new()),
         ["help"] => {

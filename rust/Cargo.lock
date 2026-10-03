@@ -2702,6 +2702,7 @@ dependencies = [
  "tmt-driver-protocol",
  "tmt-office-model",
  "tmt-sys",
+ "tmt-test-support",
  "tungstenite",
  "ureq",
  "uuid",
@@ -2728,6 +2729,7 @@ dependencies = [
  "tmt-driver-protocol",
  "tmt-office-command",
  "tmt-office-model",
+ "tmt-test-support",
  "toml_edit",
 ]
 
@@ -2766,6 +2768,7 @@ dependencies = [
  "tmt-colab-model",
  "tmt-extension-state",
  "tmt-invoke",
+ "tmt-test-support",
  "tungstenite",
  "yrs",
 ]
@@ -2865,6 +2868,7 @@ dependencies = [
  "tmt-office-pairing",
  "tmt-office-service",
  "tmt-office-storage",
+ "tmt-test-support",
  "uuid",
 ]
 
@@ -2884,6 +2888,7 @@ dependencies = [
  "tmt-core",
  "tmt-office-model",
  "tmt-office-service",
+ "tmt-test-support",
  "uuid",
 ]
 
@@ -2974,7 +2979,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-squad"
-version = "0.1.0-alpha.13"
+version = "0.1.0-alpha.14"
 dependencies = [
  "clap",
  "nix",
@@ -2986,6 +2991,7 @@ dependencies = [
  "subprocess",
  "tmt-cli-style",
  "tmt-invoke",
+ "tmt-test-support",
  "tmt-tui",
  "toml_edit",
  "unicode-width",
@@ -2996,6 +3002,13 @@ name = "tmt-sys"
 version = "5.0.0-alpha.46"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "tmt-test-support"
+version = "5.0.0-alpha.46"
+dependencies = [
+ "tmt-invoke",
 ]
 
 [[package]]

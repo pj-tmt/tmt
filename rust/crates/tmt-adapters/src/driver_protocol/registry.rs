@@ -1,4 +1,4 @@
-//! The consented host drivers, in `<global>/drivers.json` (0600, replaced
+//! Consented host and runtime drivers, in `<global>/drivers.json` (0600, replaced
 //! atomically). There is no PATH discovery: a driver runs only from a record
 //! made when the user approved that exact executable. Approval checks that
 //! the user owns it and nothing else can write it, asks for its
@@ -6,7 +6,7 @@
 //! host's or another driver's. `tmt driver install|ls|rm` (#570 slice 6) is
 //! its command front end.
 
-use super::process;
+use super::{Declaration, process};
 use crate::{
     executable_trust::{self, Fingerprint, TrustError},
     process::CommandRunner,
@@ -18,7 +18,9 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tmt_core::host::MAX_EXTERNAL_HOSTS;
-use tmt_driver_protocol::{Capabilities, Grammar, PROTOCOL};
+use tmt_driver_protocol::{
+    Grammar, LocationsRequest, LocationsResponse, Op, PROTOCOL, RuntimeDeclaration,
+};
 
 pub const REGISTRY_FILE: &str = "drivers.json";
 const REGISTRY_LIMIT: usize = 64 * 1024;
@@ -32,7 +34,10 @@ pub struct DriverRecord {
     pub digest: String,
     pub fingerprint: Fingerprint,
     pub protocol: u32,
-    pub capabilities: Capabilities,
+    pub capabilities: Declaration,
+    /// Runtime locations disclosed at approval. Setup refreshes through the same admission helper.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locations: Option<LocationsResponse>,
     pub approved_at_ms: u64,
     /// Where the approved executable comes from. A path approval is pinned
     /// to its digest; a first-party one follows the release that ships it.
@@ -84,7 +89,7 @@ struct RegistryDocument {
 pub enum RegistryError {
     /// The executable isn't one TMT may run.
     Unsafe(String),
-    /// It isn't a host driver this tmt can use, or it collides with one.
+    /// It is not a driver this tmt can use, or its declaration collides.
     Refused(String),
     /// `drivers.json` isn't a registry this tmt reads.
     Invalid(String),
@@ -108,7 +113,7 @@ impl fmt::Display for RegistryError {
             Self::Unsafe(message) | Self::Refused(message) | Self::Invalid(message) => {
                 output.write_str(message)
             }
-            Self::Io(error) => write!(output, "The host driver registry is unavailable: {error}"),
+            Self::Io(error) => write!(output, "The driver registry is unavailable: {error}"),
         }
     }
 }
@@ -147,10 +152,10 @@ pub fn read(global_dir: &Path) -> Result<Vec<DriverRecord>, RegistryError> {
         Err(error) => return Err(RegistryError::Io(io::Error::other(error.to_string()))),
     };
     let document: RegistryDocument = serde_json::from_slice(&bytes)
-        .map_err(|_| RegistryError::Invalid("The host driver registry is not valid.".into()))?;
+        .map_err(|_| RegistryError::Invalid("The driver registry is not valid.".into()))?;
     if document.version != 1 {
         return Err(RegistryError::Invalid(
-            "The host driver registry uses an unsupported version.".into(),
+            "The driver registry uses an unsupported version.".into(),
         ));
     }
     Ok(document.drivers)
@@ -162,13 +167,18 @@ fn write(global_dir: &Path, drivers: &[DriverRecord]) -> Result<(), RegistryErro
         drivers: drivers.to_vec(),
     })
     .map_err(io::Error::other)?;
+    if bytes.len() > REGISTRY_LIMIT {
+        return Err(RegistryError::Invalid(
+            "The approvals exceed the registry byte limit; nothing changed.".into(),
+        ));
+    }
     Ok(crate::private_file::replace(
         &registry_path(global_dir),
         &bytes,
     )?)
 }
 
-/// Approves `executable` as a host driver, replacing an earlier approval of
+/// Approves `executable` as either kind, replacing an earlier approval of
 /// the same name: [`inspect`], then [`commit`].
 pub fn approve(
     global_dir: &Path,
@@ -187,9 +197,35 @@ pub fn inspect(
     executable: &Path,
     runner: &impl CommandRunner,
 ) -> Result<DriverRecord, RegistryError> {
-    let record = described(executable, DriverSource::Path, None, runner)?;
+    let mut record = described(executable, DriverSource::Path, None, runner)?;
     admissible(&record, &read(global_dir)?)?;
+    locate(&mut record, runner)?;
     Ok(record)
+}
+
+/// Resolve and admit runtime write targets before either approval path can consent.
+fn locate(record: &mut DriverRecord, runner: &impl CommandRunner) -> Result<(), RegistryError> {
+    if let Declaration::Runtime(value) = &record.capabilities {
+        let home = std::env::home_dir()
+            .and_then(|path| path.into_os_string().into_string().ok())
+            .ok_or_else(|| RegistryError::Refused("Could not resolve the current home.".into()))?;
+        let env = value
+            .env
+            .iter()
+            .filter_map(|name| std::env::var(name).ok().map(|value| (name.clone(), value)))
+            .collect();
+        let process = process::DriverProcess::open_runtime(record.clone(), runner)
+            .map_err(|error| RegistryError::Refused(error.to_string()))?;
+        record.locations = Some(
+            process
+                .locations(
+                    LocationsRequest { home, env },
+                    std::time::Instant::now() + Op::Locations.bounds().deadline,
+                )
+                .map_err(|error| RegistryError::Refused(error.to_string()))?,
+        );
+    }
+    Ok(())
 }
 
 /// [`inspect`] for the first-party driver `name` that the running `tmt`
@@ -224,6 +260,8 @@ pub fn inspect_first_party(
         )));
     }
     admissible(&record, &read(global_dir)?)?;
+    let mut record = record;
+    locate(&mut record, runner)?;
     Ok(record)
 }
 
@@ -244,19 +282,20 @@ fn described(
             executable.display()
         )));
     }
-    let (capabilities, _) = process::probe(runner, &executable).map_err(|reason| {
+    let capabilities = process::probe(runner, &executable).map_err(|reason| {
         RegistryError::Refused(format!(
-            "{} is not a host driver: {reason}",
+            "{} is not a driver: {reason}",
             executable.display()
         ))
     })?;
     Ok(DriverRecord {
-        name: capabilities.name.clone(),
+        name: capabilities.name().to_owned(),
         path: executable,
         digest,
         fingerprint: Fingerprint::of(&metadata),
         protocol: PROTOCOL,
         capabilities,
+        locations: None,
         approved_at_ms: 0,
         source,
     })
@@ -290,37 +329,90 @@ pub fn commit(global_dir: &Path, mut record: DriverRecord) -> Result<DriverRecor
 
 /// Whether `record` may join `drivers`, replacing one of its own name.
 fn admissible(record: &DriverRecord, drivers: &[DriverRecord]) -> Result<(), RegistryError> {
-    let grammar = Grammar::from_capabilities(&record.capabilities).map_err(|error| {
-        RegistryError::Refused(format!(
-            "{} is not a host driver: {error}",
-            record.path.display()
-        ))
-    })?;
     let name = &record.name;
-    if let Some(reason) = tmt_core::host::builtin_conflict(grammar.host()) {
+    if record.capabilities.name() != name
+        || tmt_core::driver::ALL
+            .iter()
+            .any(|driver| driver.name == name)
+    {
         return Err(RegistryError::Refused(format!(
-            "Host driver {name} can't be installed: {reason}."
+            "Driver {name} uses a reserved or mismatched name."
         )));
     }
     let others: Vec<&DriverRecord> = drivers
         .iter()
         .filter(|existing| existing.name != *name)
         .collect();
-    for existing in &others {
-        let Ok(other) = Grammar::from_capabilities(&existing.capabilities) else {
-            continue;
-        };
-        if let Some(reason) = grammar.conflict(&other) {
-            return Err(RegistryError::Refused(format!(
-                "Host driver {name} can't be installed beside {}: {reason}.",
-                existing.name
-            )));
+    match &record.capabilities {
+        Declaration::Host(value) => {
+            let grammar = Grammar::from_capabilities(value).map_err(|error| {
+                RegistryError::Refused(format!(
+                    "{} is not a host driver: {error}",
+                    record.path.display()
+                ))
+            })?;
+            if let Some(reason) = tmt_core::host::builtin_conflict(grammar.host()) {
+                return Err(RegistryError::Refused(format!(
+                    "Host driver {name} can't be installed: {reason}."
+                )));
+            }
+            for existing in &others {
+                if let Some(value) = existing.capabilities.host() {
+                    let Ok(other) = Grammar::from_capabilities(value) else {
+                        continue;
+                    };
+                    if let Some(reason) = grammar.conflict(&other) {
+                        return Err(RegistryError::Refused(format!(
+                            "Host driver {name} can't be installed beside {}: {reason}.",
+                            existing.name
+                        )));
+                    }
+                }
+            }
         }
+        Declaration::Runtime(value) => {
+            let declaration = RuntimeDeclaration::new(value)
+                .map_err(|error| RegistryError::Refused(error.to_string()))?;
+            if tmt_core::host::HostKind::ALL
+                .iter()
+                .any(|host| host.as_str() == name)
+            {
+                return Err(RegistryError::Refused(format!(
+                    "Driver {name} uses a built-in host name."
+                )));
+            }
+            for executable in &value.executables {
+                if !declaration.claims(executable) {
+                    continue;
+                }
+                let builtin = tmt_core::driver::ALL
+                    .iter()
+                    .any(|driver| driver.executables.contains(&executable.as_str()));
+                let approved = others.iter().any(|existing| match &existing.capabilities {
+                    Declaration::Runtime(value) => {
+                        value.claims && value.executables.contains(executable)
+                    }
+                    _ => false,
+                });
+                if builtin || approved {
+                    return Err(RegistryError::Refused(format!(
+                        "Command {executable} is already claimed."
+                    )));
+                }
+            }
+        }
+    }
+    if drivers.iter().any(|existing| {
+        existing.name == *name && existing.capabilities.kind() != record.capabilities.kind()
+    }) {
+        return Err(RegistryError::Refused(format!(
+            "Driver name {name} is already approved for another kind."
+        )));
     }
     // Each approved host is registered for a process's life (`tmt_core::host`).
     if others.len() >= MAX_EXTERNAL_HOSTS {
         return Err(RegistryError::Refused(format!(
-            "At most {MAX_EXTERNAL_HOSTS} host drivers can be installed."
+            "At most {MAX_EXTERNAL_HOSTS} drivers can be installed."
         )));
     }
     Ok(())
@@ -427,7 +519,11 @@ impl FirstPartyGap {
 /// An approval covers what the user was shown: the same protocol, pane-ID
 /// and target syntax, and no operation or environment variable beyond it.
 fn beyond(approved: &DriverRecord, current: &DriverRecord) -> Option<String> {
-    let (old, new) = (&approved.capabilities, &current.capabilities);
+    let (Declaration::Host(old), Declaration::Host(new)) =
+        (&approved.capabilities, &current.capabilities)
+    else {
+        return Some("runtime or changed-kind upgrades require approval again".into());
+    };
     if !new.protocols.contains(&approved.protocol) {
         return Some(format!(
             "it no longer speaks protocol {}",

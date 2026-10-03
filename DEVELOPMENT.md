@@ -152,6 +152,16 @@ Extensions can use the public [local process API](contracts/extension-api.md) fo
 structured dispatch, history, conditional room writes and bounded notebook reads.
 Its contract is owned by [architecture](ARCHITECTURE.md#local-extension-api-v1).
 
+Agents may launch `tmt mcp --identity <saved-name-or-uuid>` on redirected stdio.
+The [local MCP contract](contracts/mcp-v1.md) owns the tool schemas and transport
+qualification. Use an isolated application home for native MCP tests:
+`CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-adapters mcp::tests` and
+`CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-cli --test mcp` from
+`rust/`. These tests cover protocol admission, command/resource parity, pinned
+identity scoping and direct-child cleanup without provider credentials or tmux.
+MCP runtime framing stays separate from private channel framing; provider setup,
+writing tools and waiting talk are not part of this slice.
+
 ## Office SPA
 
 Office is frozen for official installation and publication. Existing installations,
@@ -219,9 +229,17 @@ of the scaffold. Tests use jsdom and the real router, not a browser-layout proof
 `pnpm check` checks workspace tooling and Office. `pnpm check:tooling` retains the
 native test/release tooling's independent quality gate. Tooling-workspace `test:run` still
 selects only tooling tests; `office:test` explicitly selects app tests and fails
-on empty discovery. Office uses Oxfmt; tooling and repository docs use the
-`typescript/.prettierrc` Prettier configuration. Run
-`pnpm --filter @tmt/office format` for app formatting, not the tooling formatter.
+on empty discovery. Workspace and extension formatting uses `vp fmt` from exact
+Vite+ 1.0.0 (bundled Oxfmt 0.70.0). Each package explicitly selects its existing
+Vite or Vitest configuration's `fmt` block, preserving its options and file list.
+Import and package-key sorting are disabled. Run `pnpm format` or
+`pnpm format:check` for tooling and `pnpm --filter @tmt/office format` for the app.
+Tooling code retains `typescript/.prettierignore`, including the Markdown ignore;
+`pnpm docs:format:check` retains its explicit docs list and `../.gitignore`
+override so those Markdown files are checked separately. The single target lists
+live in `typescript/scripts/format-workspace.mjs`; both write and check modes expand
+parent-relative globs to absolute paths there and fail if any pattern matches nothing.
+Keep these script names and separate selections when changing formatting.
 Root tooling, native, stress, Docker and extension suites run through exact
 Vite+ 1.0.0 with bundled Vitest 5.0.1. Their separate configurations retain their
 own test discovery and are selected explicitly with `--config`. Use
@@ -1100,7 +1118,12 @@ runs it. Production code never retries ETXTBSY.
   so nothing execs the written inode (the `tmt-invoke` and `tmt-adapters` tests).
 - The test writes a stand-in that something else must exec by path, such as a
   fake `tmt` or `tmux` on `PATH`: let a short-lived `sh` write the file, so no
-  test thread holds its descriptor (Squad's `test_support::write_executable`).
+  test thread holds its descriptor. The dev-only
+  `tmt-test-support::write_executable(path, bytes, mode)` owns this publication;
+  preserve the caller's 0700 or 0755 mode. It uses a cleared writer environment,
+  a generous thirty-second hung-writer bound and `tmt-invoke` process-group
+  cleanup, with no retries. Readiness probes and their payload-free branches stay
+  owner-local.
 - The product writes the executable and then execs it, as an installer and its
   verifier do: the fixture waits out the window with a bounded retry of only
   that error (`tmt-office-command`'s `test_support::install_office`,
@@ -1117,8 +1140,15 @@ module's `--write FILE MODE` entry point with bytes on stdin and an absolute
 fixture Node path; this is test infrastructure, not a product runtime dependency.
 
 The opt-in stress test `cargo test -p tmt-office-command text_file_busy_stress
--- --ignored --nocapture` reproduces the race and reports failures with and
-without the retry.
+-- --ignored --nocapture` reproduces the race and reports the in-process writer's failures with and
+without the case-3 retry, plus shared case-2 publication without retries.
+The unretried control remains probabilistic; zero observed failures do not prove
+that the race is absent. Non-ETXTBSY errors fail rather than count as race evidence.
+For publication and dependency changes, also run
+`cargo test --locked -p tmt-test-support` and
+`cargo test --locked -p tmt-cli --test architecture`. The latter checks the exact
+six dev consumers and rejects production/build imports, aliases, unreviewed target
+edges and publishable/distributable support metadata.
 
 For explicit tmux target-resolution errors (#949), run
 `cargo test --locked -p tmt-adapters tmux::io_tests` and
@@ -1144,6 +1174,15 @@ The CLI style guards ([enforcement](design/cli-style.md#enforcement)) run in
 `rust/`: `cargo test --locked -p tmt-cli --bin tmt cli_style`, `cargo test
 --locked -p tmt-squad cli_style` and the architecture test below. A failure
 prints the exact list entry to add or remove.
+
+Core's `cli_style` tests also require a nonblank, single-line description for every
+option in the public core grammar, recursively excluding the extension-owned Office
+tree. The guard's negative controls cover missing, blank and multiline descriptions;
+hidden commands/options and positional arguments are outside that help-option rule.
+Run `cargo test --locked -p tmt-cli --bin tmt skill_reminder` for named identity hints
+and their JSON/opt-out suppression. Native `discovery.test.ts` and `identity.test.ts`
+check saved-identity creation and no-op output; Docker `discovery.e2e.test.ts` checks
+temporary and saved bindings through the real CLI and private tmux server.
 
 The same core command runs the [printed command guard](design/cli-style.md#enforcement).
 When adding or changing a printed command template, update its presentation site's
@@ -1206,6 +1245,15 @@ PR, in a separate commit, using
 Decode the cell/style diff and attribute every change to the PR's approved behavior;
 review hit identities and list bytes too. Unexplained changes block handoff.
 Normal tests never write the fixture; it contains no host paths or clocks.
+
+Composition changes also run `cargo test --locked -p tmt-squad board::composition`:
+literal nested/folded/tiny rectangles, tabs reservation, cache transitions and
+non-overlap accompany a 6,006-case preset/fold fingerprint captured from the
+pre-cutover solver at `40ad78c8` with Squad's approved nested fractional-parent
+rounding rule (issue #775, request `req_8fd1910e`). The rule-derived CSS expectation
+and literal cycle cases remain independent of that fingerprint. Keep frozen
+board/list parity unchanged; any other rectangle difference stops review.
+Header/footer, rich painters and controller tests remain their existing owners.
 
 The internal utilities use one spelling per value kind:
 
@@ -1381,6 +1429,14 @@ above, since the host harness also asks every runtime operation:
 (cd rust && cargo test --locked -p tmt-cli --test herdr_driver)
 (cd rust && cargo test --locked -p tmt-adapters --lib host::external)
 ```
+
+Runtime approval (#1266 PR A) is checked with
+`cargo test --locked -p tmt-cli --test driver_command`. The isolated runtime
+fixture covers disclosure, no-terminal refusal, both kinds in one registry,
+claim/name conflicts, write-target containment, malformed locations and explicit
+re-approval, timeout rollback and registry capacity. `DriverProcess::locations` is the shared `within(home)` admission
+boundary for approval and future setup consumers. Runtime launch/hooks and the
+kill/restart delivery case belong to PR B2, not approval evidence.
 
 The suite covers grammar, configuration-before-effects, identity metadata and
 binding lifecycle, role/preamble, response/receipts, exchanges/attention, inbox listening, talk,
@@ -1570,6 +1626,12 @@ tests run with `cargo test --locked -p tmt-squad`. For dependency changes,
 compare `cargo tree -p tmt-cli -e normal,build -f '{p} {f}'` with `main` and the
 package-scoped release `tmt` (see Rust checks) to prove the CLI is unchanged.
 
+Native Squad tests verify leadership selection and clearing without membership
+or role loss, repeated additions without overwriting state, and explicit recovery
+from a squad without a lead. The Docker Squad lifecycle test kills temporary and
+saved panes before the first list read, then checks both the returned roster and
+SQLite retirement/binding state. Run lifecycle coverage twice to check cleanup.
+
 Tab parity is checked by `built_in_board_documents_equal_ls_tab_documents` and
 `user_board_and_ls_share_members_sections_bindings_and_failed_reads`: board views
 and `ls --tab` must have identical projected documents and row-grid metadata,
@@ -1652,7 +1714,9 @@ transport, identity, talk, or cleanup changes:
 `TMT_E2E_FILES="squad.e2e.test.ts"` (space-separated plain file names) limits the run to those
 E2E files (the image passes them to vitest as anchored `test/e2e/<name>` paths, because vitest
 matches a filter by substring and a bare `routing.e2e.test.ts` would also run
-`check-routing.e2e.test.ts` and `session-routing.e2e.test.ts`), and `TMT_E2E_ADAPTER_TESTS=0` skips the Rust adapter tests. CI runs the suite as two
+`check-routing.e2e.test.ts` and `session-routing.e2e.test.ts`), and `TMT_E2E_ADAPTER_TESTS=0` skips the Rust adapter tests. A host `CARGO_BUILD_JOBS` (a
+positive count or `default`) limits the image's cargo builds; unset, they use every CPU of the
+Docker VM. CI runs the suite as two
 shard jobs behind the required `Docker E2E` gate, each with its own file list from
 `typescript/scripts/e2e-shards.mjs`, balanced by the seconds in
 `typescript/test/e2e/shard-weights.json` (refresh them from a full run when the shards drift
@@ -2456,8 +2520,10 @@ outdated compare anchor, out-of-range note or missing COVERAGE link requires
 release-please regeneration on the next main push. A late merged commit therefore
 holds the merge group until refreshed notes cover it, preventing silent omissions.
 
-Before release-please runs, `node typescript/scripts/release-pr-safety.mjs draft`
-checks all manifest versions. A matching draft with no exact git tag holds only
+After `github-release` reconciles merged release PRs and before `release-pr`,
+`node typescript/scripts/release-pr-safety.mjs draft`
+checks all manifest versions with fresh App-token REST reads, including drafts
+created in this invocation. A matching draft with no exact git tag holds only
 its manifest path. The step writes JSON `held_paths`, sanitized matching `drafts` evidence and a
 summary naming held paths;
 `skip=true` only when every released manifest path is held. The workflow passes
@@ -2574,7 +2640,12 @@ actionlint .github/workflows/ci.yml
 
 ## Queued release pull requests
 
-Before `release-pr`, `Release` runs `typescript/scripts/release-please-queue.mjs`.
+`Release` runs `github-release` first, then the fresh tagless-draft check, then
+`typescript/scripts/release-please-queue.mjs` before `release-pr`. The pinned
+release-please refuses PR updates while a merged release PR is still untagged;
+reconciling it first lets the same run refresh remaining PRs against updated main.
+A `github-release` failure stops the job and explicitly reports that `release-pr`
+was not attempted. Both commands still only plan in a dry run.
 Explicit-token GraphQL discovery follows up to 20 cursor pages of 100 open PRs, ordered
 by creation time, and considers only same-repository heads starting with
 `release-please--branches--main--` targeting `main`. Complete discovery is required
@@ -2596,12 +2667,12 @@ require reconciliation before any mutation. Successful dequeue permits refresh i
 this invocation; the existing enable step can re-enqueue the refreshed candidate.
 A failed recheck or failed/unverified dequeue emits `blocked`, writes a clear
 recovery notice in the step summary, and skips both `release-pr` and auto-merge
-enabling. `github-release` still runs, allowing downstream draft processing to
+enabling. `github-release` has already run, allowing downstream draft processing to
 continue; its own failures still fail the job. Verify the PR and queue state before
 retrying the Release run through the normal authorized workflow. Dry runs only
 report the planned dequeue and run release-please in dry-run mode. Covered queued
 notes retain their head and a summary notice;
-`github-release` runs in either case. REST notes must match the discovered PR head.
+`github-release` precedes either decision. REST notes must match the discovered PR head.
 Acquisition failures, malformed PR metadata and incomplete history fail the run
 visibly rather than silently skipping. Malformed responses, repeated
 cursors, duplicate PRs, API errors and exhausted discovery fail visibly.
@@ -2640,7 +2711,7 @@ actionlint .github/workflows/release.yml
 ```
 
 Fixtures cover stale queued notes → recheck/dequeue/refresh, failed dequeue → skip
-with summary and continued `github-release`, covered queued notes → skip, and
+with summary and prior `github-release`, covered queued notes → skip, and
 non-queued PRs → refresh. Identity/head/queue races, dry runs and failure responses
 must prove no retry or unintended mutation; unchanged generated heads remain preserved.
 
@@ -2658,15 +2729,16 @@ Every issue carries these Project fields:
   that tracker. Do not hang slices under an umbrella issue that is itself a
   tracker child; umbrella or findings-log issues stay outside the tracker.
 - `Squad`: the squad whose lead owns the issue.
-- `Status`, which moves forward only:
+- `Status` records delivery state; the release sweep corrects stale closed-issue states:
   - `Todo`: not started.
   - `In Progress`: implementation started, including draft or stacked PRs.
   - `In Review`: a PR is ready for review or queued. In a stacked chain, the
     issue stays here while any of its PRs is still queued.
   - `Merged`: the last required PR is on `main` and a release is pending. A
     `Fixes #N` merge moves the issue here through the Project workflow.
-  - `Released`: shipped in a published release. Release automation sets it and
-    fills `Released in`.
+  - `Released`: every affected product has a published tag containing the closing
+    merge commit(s). Release automation sets it and fills `Released in`.
+  - `Done`: closed without a delivering merged PR (not planned, duplicate, or resolved elsewhere); release automation sets it.
 - `Agents`: comma-separated names of agents actively building or coordinating
   it now, including assigned members waiting on a named dependency. List the
   lead first. Reviewers who build nothing are not listed. Removing a member
@@ -2773,7 +2845,7 @@ Load this package's `dist/` as an unpacked add-on in a separate development
 profile to inspect it manually; Chrome 137 or later is required. Both right-click
 Send to agent and the popup capture only after a gesture. All displayed agents
 and replies are demo fixtures; Send does not deliver to an agent. Package code
-uses its own Prettier configuration; shared docs use the tooling formatter.
+uses the `fmt` block in its Vite configuration; shared docs use the tooling formatter.
 
 ## Remote pilot development
 
@@ -2948,6 +3020,45 @@ and foreground process cleanup tests run lifecycle scenarios twice, with no core
 socket traffic. Owner-key temporary cleanup is publication-locked; it preserves
 foreign file names and refuses unsafe matching files.
 
+### Colab native export verification
+
+After local page state exists, export its admitted source without running HTML:
+
+```bash
+PATH="$PWD/rust/target/debug:$PATH" tmt colab export 10000000-0000-4000-8000-000000000001 --json
+PATH="$PWD/rust/target/debug:$PATH" tmt colab export 10000000-0000-4000-8000-000000000001 --dir /existing/export-parent
+```
+
+Use the actual page UUID. The parent must exist; the command creates a new UUID
+subdirectory containing `page.html` and `manifest.json`. Existing output is never
+replaced. Parent aliases resolve once and output reports the canonical path;
+created entries never follow symlinks, and `..` is refused. Files are 0600 and
+the output and staging directories are 0700. JSON returns `directory`, both file sizes and
+SHA-256 values, and `disclosure`; human output shows the same plaintext disclosure
+before publication. The manifest explicitly excludes discussions. Missing state
+is not initialized or migrated. Archived/deleted pages currently return
+`COLAB_EXPORT_INACTIVE`; archived reads wait for the #1348 policy split.
+On publication failure, inspect any reported `error.partialDirectory`; partial
+output is preserved, and cleanup touches only checked staging from that invocation.
+If a parent was moved during publication, the partial path names its original
+canonical location.
+
+From `rust/`, run the focused behavior checks:
+
+```bash
+CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-colab --test export
+CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-colab export::tests
+```
+
+Real SQLite, signed/encrypted objects and decoder children prove exact
+CRLF/Unicode/NUL/empty source and title, baseline rotation, frozen/reopened
+bundles, verified manifest hashes and admission/capacity denial. Real subprocesses
+verify CLI help/human/JSON/defaults and read-only state handling. Descriptor-level
+publication tests prove permissions, collisions, symlink refusal, manifest-last
+partial output and preservation of replaced/foreign staging entries. Run the
+normal Colab Rust gates and docs formatting before handoff. Browser download
+verification is added with the subsequent #1309 browser slice.
+
 ### Colab owner transition verification
 
 Run `(cd rust && cargo test --offline --locked -p tmt-colab --test transitions)`
@@ -3037,7 +3148,10 @@ and supply current verified membership/device policy. Model statement/certificat
 verification remains that caller's responsibility; a successful upgrade is not
 page authority. The admission implementation supplies the verified retained owner
 head through `Store::owner_head` and the exact persisted baseline descriptor
-through `Store::baseline`; object retrieval remains caller-owned.
+through `Store::baseline`.
+A non-null first-page descriptor includes `baselineObject`
+from the matching Store record; tests cover inline and twelve-chunk delivery,
+exact hashes/bytes, missing records, descriptor/scope mismatches and length caps.
 Strict hello includes the last verified `membershipRevision`; bootstrap emits
 bounded exact membership pages, author chains once per connection and
 retained device/member wraps before stream objects. After hello every outbound
@@ -3050,10 +3164,15 @@ its final page enables live delivery under the server lock. Unknown/pruned curso
 return `RESYNC_REQUIRED`. An empty-cursor subscription remains live-only. Large
 updates use one bounded, deadline-limited inbound transfer before append verification;
 large broadcasts/catchup objects stream chunks lazily. Tests cover more pages/chunks
-than queue slots, concurrent appends during catchup, namespace checkpoints,
+than queue slots, concurrent appends during catchup, paired namespace checkpoints,
 exact reassembly/replay, partial-byte isolation and transfer failure/cleanup.
+Shared sequence tests verify signed checkpoint heads and every subsequent hash
+across interleaved content/own tails. An unpaired checkpoint leaves full history
+available and bootstrap uses the previous pair, or the complete update chain.
 Run the Store read cases with `cargo test --offline --locked -p tmt-colab --test
-state`. The caller drives acquisition and blocked-write deadlines even without
+state`. Store cases prove same-head pairing, unpaired/mismatched-head retention,
+failed partner rollback, pinned checkpoint retention and durable receipts after
+paired pruning and reopen. The caller drives acquisition and blocked-write deadlines even without
 socket input; `Connection::poll_at` accepts a monotonic instant for deterministic
 verification. Exact wire shapes and budgets are owned by colab-v1. Owner
 registration is implemented under #1162. Run
@@ -3139,8 +3258,10 @@ are public test data. This foundation does not satisfy the complete L1 gates.
 
 The private local page app has its own package and Chromium isolation suite.
 Its test/build/dev entry points use workspace-pinned Vite+; `vitest.config.ts`
-keeps app unit discovery separate. TypeScript, Oxlint and Prettier retain their
-existing check responsibilities:
+keeps app unit discovery separate. TypeScript and Oxlint retain their existing
+check responsibilities; the existing `check` script selects the Vite configuration's
+`fmt` block, preserving the app's single quotes, all trailing commas and 100-column
+width with import and package-key sorting disabled:
 
 ```sh
 corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app install --frozen-lockfile --ignore-scripts
@@ -3152,21 +3273,43 @@ corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-matc
 corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-match dev
 ```
 
+The Ask preview foundation (#1312) has no production selection/threads entry
+point or live remote operation adapter. `test/ask.test.ts` verifies independent
+canonical/signature vectors, immutable async inputs, composed byte bounds,
+persist-before-send, metadata-only storage, conflicts, double-click coalescing,
+held/uncertain outcomes and no retry through a deterministic RemoteClient double. `e2e/ask.spec.ts`
+mounts the parent component through the test-only `test/ask-browser.tsx` entry
+and uses real WebCrypto/non-extractable keys, IndexedDB and Web Locks. It checks
+inert exact/control-byte previews, disabled absent runtime, trusted-click-only
+signing, frozen live-source inputs, stored-record exclusion of message bytes and
+durable reload without another send.
+These tests prove the browser primitive, not remote delivery or the L5 real-TMT
+acceptance gate. No real TMT home or provider is used by this fixture. Screenshot
+evidence is written under `/private/tmp/colab-1110-design/`.
+
+The frozen send-byte oracle is checked with
+`python3 extensions/tmt-colab/contracts/vectors/send-preview-reference.py` from
+the repository root, using the existing Python `cryptography` tooling described
+below. Add `--write` only after reviewing changed bytes. App tests read the
+frozen JSON without Python. The public RFC 8032 seed and exact Unicode/control
+characters are intentional fixture data. No browser/SQLite version migration,
+new dependency or lockfile resolution is required by this foundation.
+
 The dev server binds loopback and serves in-process sample pages. The paired mount
 client path is tested with Vite plus signed protocol fixtures: first-use key
 persistence/non-extractability, registration failure, root pin mismatch, strict
 owner-log/author-chain admission and missing-wrap blocking. The live fixture
 exercises two same-device tabs, a single durable writer, large chunked updates,
 reload reconstruction and retry of exact accepted bytes after receipt interruption.
-The fixture paces server delivery with the existing ACK frame; native ACK-window
-backpressure is a #1248 acceptance gate. Large history against the current native
-server can block visibly until that gate lands. It covers unpruned content updates
+The fixture paces server delivery with the existing ACK frame; native delivery
+uses the eight-frame ACK window described in the sync section. It covers unpruned content updates
 from sequence one, plus signed reset-baseline fixtures. The baseline suite covers
 chunked retrieval, descriptor/log binding, exact baseline struct identity, subsequent
 edits/reload and rejection of commitment/source/descriptor/old-epoch substitution
 without partial rendering. Checkpoints and own data remain unsupported (#1280);
-native rotated-page opening still needs #1248 baseline-object delivery. This is signed protocol-fixture evidence, not native mounted E2E:
-#1248/#1250 supply bootstrap/refresh and #1253 owns native assets.
+native bootstrap supplies the matching stored baseline object. This is signed
+protocol-fixture evidence, not native mounted browser E2E: #1250 owns refresh and
+#1253 owns native assets.
 The content Worker suite proves concurrent writer convergence and reload
 reconstruction, rejects malformed/mixed roots, checks termination/cleanup and
 proves prepared edits cannot leak through committed projections.
@@ -3233,66 +3376,98 @@ is not full three-engine L1 acceptance.
 
 ## Project release tracking
 
-`project-release.yml` records published core `v5.*`, Squad and Office releases in
-the release project ([pj-tmt organization project 1](https://github.com/orgs/pj-tmt/projects/1)).
-The updater mints a per-run installation token with the existing release GitHub
-App using `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` in the `release`
-environment. Ben grants the App **Organization projects: read and write**, plus
-pull-request and issue read access to `pj-tmt/tmt`. The SHA-pinned token action
-requests only those permissions for owner `pj-tmt` and repository `tmt`, revoking
-the token on cleanup. Only the reconciliation step receives it. The separate
-read-only `GITHUB_TOKEN` reads repository release/compare metadata. No PAT or
-`PROJECT_TOKEN` is used. Missing App credentials fail before API reads; missing
-App permissions fail token minting or the API request visibly.
+`project-release.yml` sweeps all existing closed issue items from
+[pj-tmt organization project 1](https://github.com/orgs/pj-tmt/projects/1), regardless
+of their current Status, except issues labeled `epic`: the owning lead retains
+both tracker fields under [Tracker rules](#project-tracking). Each skipped epic
+appears in the per-item summary as `skipped: epic tracker`. The release App token uses the existing
+`RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` in the main-only `release`
+environment, with **Organization projects: read and write**, plus issue and PR
+read permissions. The pinned token action requests only those permissions and
+revokes the token on cleanup. Only reconciliation receives it. The separate
+`GITHUB_TOKEN` reads published releases; no PAT or `PROJECT_TOKEN` is used.
+Missing credentials or incomplete permissions fail visibly before writes.
 
-The `release` environment's protection policy allows only branch `main`, with no
-required reviewers or wait timer. No separate environment is needed. Because a
-`release:published` run has a tag ref, the updater uses completion of **Native
-release artifacts**, a daily catch-up at 04:23 UTC, and main-only manual replay.
-CLI, Office and Squad share that actual publishing workflow; `Release` only
-creates drafts. Owner/manual publication (including a manually released hold)
-is picked up by the next publisher completion or daily run while within the
-latest-ten window; use explicit tag replay for immediate tracking or older tags.
-This updater never publishes releases. Missing configuration fails its separate
-workflow without blocking publication. After Ben grants the App permissions,
-the first live run must be a manual dry-run replay of a recent tag; review its
-proposed fields before a write-enabled replay. [Architecture](ARCHITECTURE.md)
-owns the selection and terminal-state contract.
+The daily cron remains 04:23 UTC. After publication read-back succeeds and all
+smoke jobs conclude, `native-release-bundle.yml` explicitly dispatches a full
+sweep with `GITHUB_TOKEN`. It accepts successful smoke or a complete failure set
+classified by the existing reporter as GitHub API rate-limit infrastructure.
+Missing/mixed failure evidence and actual release failures do not qualify for
+this immediate dispatch; the scheduled sweep still reconciles repository state.
+No failed smoke job is made successful. The calling native workflow grants
+`actions: write` to the reusable-workflow boundary; only its dedicated dispatch
+job requests that permission, with no content or issue access and no checkout.
+`workflow_dispatch` works with `GITHUB_TOKEN`, avoiding the suppression that
+made `workflow_run` unreliable. The redundant completion trigger is removed.
+The updater neither publishes nor blocks publication and always executes main's
+trusted code, with full git history and tags, never release-tag code or artifacts.
 
-Automatic runs reconcile the latest ten published supported releases, including
-publications followed by failed downstream checks. A publisher run exceeding the ten-release window fails with replay guidance. The window bounds
-recovery from replaced pending workflow runs; older missed tags require replay.
-Manual dispatch defaults to dry-run and requires a published tag:
+Each run discovers all published supported releases and all Project items within
+explicit bounds. GitHub's paginated `closedByPullRequestsReferences`, including
+closed PRs, supplies merged closing PRs. Local git reads the first-parent merge
+delta (including deleted paths and both sides of renames) and tag containment.
+The existing component owner map assigns products; its private-leaf consumers
+are reused. Existing historical Office tags remain evidence even while Office
+publication is parked. Components without a native publication policy stay
+Merged with an explicit waiting reason. For each affected product, the first
+publication containing all relevant closing merge commits becomes the sole
+canonical entry. All products must be present for Released. Closed issues with
+no merged closing PR use the closed-issue state defined in [Project tracking](#project-tracking),
+with empty release evidence. Open issues, epic trackers, PR items and foreign-repository
+issues are untouched.
+
+The sweep owns Status and Released in for these closed issues: it replaces stale
+text and corrects incorrect terminal states instead of trusting previous field
+values. It does not preserve manual text in the generated Released in field.
+The per-item summary shows current → planned Status and Released in, including
+unchanged items and waiting reasons. This is also the built-in-workflow strategy:
+full sweeps are authoritative on every run, repairing late close/merge workflow
+writes to Merged. The fixture explicitly resets Released and Done to Merged and
+proves convergence; no Project settings are changed or claimed to have been
+inspected. Concurrent external changes can cause readback failure; the next full
+sweep repairs them. Avoid manual edits to these two fields during a live run.
+
+For initial activation, run a full dry run first and review the per-item step
+summary against the first write-enabled run. There is no tag replay or latest-ten
+window. After merge, an authorized operator can dispatch the non-publishing
+updater through REST:
 
 ```bash
-gh workflow run project-release.yml --repo pj-tmt/tmt --ref main \
-  -f tag=tmt-squad-v0.1.0-alpha.9 -f dry_run=true
-# After reviewing the proposed item/field changes, replay the same tag with dry_run=false.
+gh api repos/pj-tmt/tmt/actions/workflows/project-release.yml/dispatches \
+  --method POST --input - <<'JSON'
+{"ref":"main","inputs":{"dry_run":"true"}}
+JSON
+# After reviewing the table, repeat with dry_run=false.
 ```
 
-Each run has at most 60 GraphQL requests (reads and writes together), 250 REST
-requests, ten pages per connection and 250 PR references per resolution batch.
-PR queries and field mutations batch up to 25 aliases. Requests have a 30-second
-bound and are not polled or retried; the job has a 15-minute deadline. The script
-checks the remaining write/readback budget before mutation. It reports selected
-releases, resolved PRs/issues, non-project issues, planned/changed fields and exact
-request counts to the log and job summary. Dry-run performs selection and reads
-but no mutations. Replays skip already-recorded release entries and never lower
-Status; text is written before Status so interrupted writes remain retryable.
-Project-wide workflow serialization avoids competing automated appends; avoid
-manual edits to these two fields while a live updater is running.
+A run allows at most 200 GraphQL requests, 20 REST requests, 20 pages per connection and 2,000 distinct merged closing PRs. Release and Project
+item pages contain 100 rows; closing-PR pages contain 10. Project field schemas
+must fit a complete 100-row page and each issue’s labels a complete 20-row page,
+or discovery fails before writes. Smaller nested connections limit point cost
+on the shared release App token. Both issue reads and field
+writes batch 25 aliases. Ordinary discovery costs R REST release pages plus P
+GraphQL Project pages and ceil(I/25) closing-PR queries for I closed issues,
+plus any additional closing-PR pages. Each mutation phase costs ceil(F/25) for
+its changed fields; a live write run adds P readback pages. No-op runs write
+nothing. Mutation reservation includes all planned field batches plus 20 possible
+readback pages before the first write. A ceiling can be reached before a nominal
+row cap: incomplete discovery or insufficient reserve aborts with no writes.
+Requests have a 30-second timeout with no retries or polling; the job deadline is
+15 minutes. Each GraphQL read includes `rateLimit { cost remaining }`. The
+summary and failure message report exact REST/GraphQL attempt counts, summed
+reported read points and the last reported remaining quota. Mutation costs and
+requests without returned telemetry are not included in that point sum; missing
+valid telemetry on an otherwise successful read fails before proceeding.
+Local git requires complete history and every published tag; missing evidence
+fails visibly. False Released states are demoted before text changes, and new
+Released promotions follow evidence. Partial failures remain safely retryable.
 
-Release-please's same-repository `/issues/` links are type-checked as merged PRs;
-pre-transfer `wkh237/tmt` links are accepted for this repository. Missing PR notes
-fall back to the preceding published version of the same product and paginated
-commit-associated PRs. A first release without PR references is a visible error,
-not permission to guess issue ownership. The updater never adds missing project
-items. Test locally without credentials or mutations:
+Run fixture-only checks without live API calls or Docker:
 
 ```bash
 cd typescript
-corepack pnpm exec vp test run --config vitest.config.ts test/tooling/project-release.test.ts
+corepack pnpm exec vp test run --config vitest.config.ts test/tooling/project-release.test.ts test/tooling/release-workflow.test.ts test/tooling/release-publish.test.ts
 corepack pnpm check:tooling
 cd ..
-actionlint .github/workflows/project-release.yml
+actionlint .github/workflows/project-release.yml .github/workflows/native-release.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-smoke.yml
 ```

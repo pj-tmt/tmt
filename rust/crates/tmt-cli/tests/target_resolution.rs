@@ -6,9 +6,8 @@ mod support;
 use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
 use std::{
     fs,
-    io::Write,
     path::PathBuf,
-    process::{Child, Command, Stdio},
+    process::{Child, Stdio},
     time::Duration,
 };
 
@@ -23,28 +22,10 @@ impl Fixture {
             std::env::temp_dir().join(format!("tmt-target-resolution-{}", std::process::id()));
         fs::create_dir(&root).unwrap();
         fs::create_dir(root.join("bin")).unwrap();
-        let mut fixture = Self { root, child: None };
-        // A separate writer avoids an executable inode held across another test's fork.
-        fixture.child = Some(
-            Command::new("/bin/sh")
-                .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "writer"])
-                .arg(fixture.root.join("bin/tmux"))
-                .env_clear()
-                .env("HOME", &fixture.root)
-                .env("PATH", "/usr/bin:/bin")
-                .stdin(Stdio::piped())
-                .spawn()
-                .unwrap(),
-        );
-        fixture
-            .child
-            .as_mut()
-            .unwrap()
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(
-                br##"#!/bin/sh
+        let fixture = Self { root, child: None };
+        tmt_test_support::write_executable(
+            &fixture.root.join("bin/tmux"),
+            br##"#!/bin/sh
 printf '%s\n' "$*" >> "$TMT_TEST_TMUX_LOG"
 [ "$*" = 'display-message -p -t 10.3 #{pane_id}' ] || exit 99
 case "$TMT_TEST_RESOLUTION_MODE" in
@@ -54,14 +35,9 @@ case "$TMT_TEST_RESOLUTION_MODE" in
 esac
 exit 98
 "##,
-            )
-            .unwrap();
-        assert!(
-            support::wait(&mut fixture.child, Duration::from_secs(5))
-                .wait()
-                .unwrap()
-                .success()
-        );
+            0o755,
+        )
+        .unwrap();
         fixture
     }
 

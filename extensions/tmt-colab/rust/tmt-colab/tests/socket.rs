@@ -704,7 +704,19 @@ fn strict_device_events_close_live_and_prehello_tunnels_only_after_durable_revok
     let first = receive(&mut reopened);
     assert_eq!(first["membershipHead"]["revision"], "3");
     assert_eq!(first["baseline"], values::encode_binary(&saved.descriptor));
-    assert_eq!(receive(&mut reopened)["more"], false);
+    // The real mounted admission now supplies the stored reset descriptor;
+    // native bootstrap must deliver its matching encrypted object as well.
+    assert_eq!(
+        first["baselineObject"]["envelopeHash"],
+        values::encode_binary(&baseline.hash().unwrap())
+    );
+    assert_eq!(
+        first["baselineObject"]["envelope"],
+        values::encode_binary(&saved.envelope)
+    );
+    let final_page = receive(&mut reopened);
+    assert!(final_page.get("baselineObject").is_none());
+    assert_eq!(final_page["more"], false);
     reopened.send(Message::Ping(vec![3].into())).unwrap();
     assert!(matches!(reopened.read().unwrap(), Message::Pong(_)));
 }

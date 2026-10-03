@@ -58,6 +58,11 @@ const GITHUB_PR: &[&str] = &[
 ];
 
 impl Provider {
+    /// Read-only command description; no cache or process work.
+    pub fn settings(&self) -> Value {
+        json!({"run": self.run.iter().map(Template::source).collect::<Vec<_>>(), "every": format!("{}s", self.every.as_secs()), "timeout": format!("{}s", self.timeout.as_secs())})
+    }
+
     /// How often a member's value is run again.
     pub fn every(&self) -> Duration {
         self.every

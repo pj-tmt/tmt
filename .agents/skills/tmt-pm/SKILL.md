@@ -1,6 +1,6 @@
 ---
 name: tmt-pm
-description: Run the hourly project-management pass for this repository. Find blocked, stale, unstaffed, oversized and waiting-on-maintainer work, move it with the owning lead, and report to tmt-lead.
+description: Run the project-management pass and the leaders sync for this repository. Find blocked, stale, unstaffed, oversized and waiting-on-maintainer work, move it with the owning lead, and keep status flowing to the PM instead of the core lead.
 ---
 
 # TMT project management
@@ -22,7 +22,7 @@ owns the procedure only.
   squads, or a long open period without movement. Propose each split to the
   owning lead first; open the children after the lead agrees.
 
-## Hourly pass
+## Pass and leaders sync
 
 1. **Read state in one batch.** Make one GraphQL query for Project items
    (Status, Squad, Owner, Agents, parent, updatedAt) and one for open PRs
@@ -44,14 +44,18 @@ owns the procedure only.
    - _Oversized_: a tracker or child whose progress the board cannot show.
 3. **Act through the owning lead.** Name the item, what is missing, and the
    next action you propose: assign the blocker an owner, file the missing
-   child, rebase, split, or request staff. Follow up next hour. A lead with
-   blocked work and no member requests staff through tmt-lead; "no expansion
-   without the maintainer's approval" never means staying silent.
-4. **Report to tmt-lead.** Send at most 12 lines under these headings:
-   Blocked (item, blocker, owner, age, action), Stale, Unstaffed, Waiting on
-   Ben (item, one-line question, age), Splits. Send `PM: all clear` when
-   nothing needs attention. tmt-lead relays maintainer questions the same
-   hour.
+   child, rebase, split, or request staff. Follow up on the next pass. Leads
+   staff their own squads within the recorded limits and ask the maintainer
+   above them; "no expansion without the maintainer's approval" never means
+   staying silent.
+4. **Run the leaders sync** on the cadence recorded in the team issue (#606).
+   Leads send their status (done, next, blockers or cross-squad needs) to the
+   PM, not to tmt-lead. Post one combined digest to all leads, at most 12
+   lines under these headings: Blocked (item, blocker, owner, age, action),
+   Stale, Unstaffed, Waiting on Ben (item, one-line question, age), Splits.
+   Send tmt-lead only items that need its decision (core paths, core
+   contracts, seams between squads), and broadcast team-wide alerts (API
+   budget, disk, CI) to the leads yourself.
 5. **Keep the pinned "Pending owner decisions" issue current.** It holds one
    checklist line per open decision, with its link and the date it was
    asked. Remove the line when the answer is recorded.

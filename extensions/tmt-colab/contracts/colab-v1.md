@@ -710,10 +710,18 @@ others' updates. A checkpoint covers seq 1..n and embeds the authenticated updat
 hash at n, preserving namespace-specific updates and dependencies without
 advancing the update chain. A namespace checkpoint covers that namespace's
 subset within the shared sequence prefix; the signed descriptor binds the
-prefix head. Commit the checkpoint before deleting only covered updates of its namespace.
-Retain the update hash/receipt ledger needed to verify interleaved namespaces
-and exact retries after payload prune; never delete another namespace's payload
-solely because its sequence falls in the prefix.
+prefix head. Namespace-specific plaintext remains raw merged Yjs update-v1.
+
+Store may prune payloads through shared head `n` only when every namespace with
+updates in that prefix has a committed checkpoint at exactly `n`, each binding
+the same update hash in its signed previous-hash field. An unpaired checkpoint
+is retained without pruning and is not selected for bootstrap. Completing the
+pair atomically prunes both covered prefixes and superseded unpinned checkpoints.
+Retain the existing update hash/receipt ledger, pinned checkpoints and the full
+tail from `n+1` in both namespaces for chain verification and exact retries.
+Never delete another namespace's payload solely because its sequence falls in
+the prefix. A failed partner publication leaves the prior pair and updates
+intact; this rule needs no new ledger or checkpoint schema.
 Crash before deletion retains replay-safe redundant data; concurrent tail
 updates survive. A gone device's stream remains as signed data within quotas.
 There is no cross-writer compaction checkpoint in v1; the epoch baseline above
@@ -880,6 +888,54 @@ The grant mode comes from the remote trust grant: `direct` (the default)
 dispatches right after the fence, `hold` keeps the send held for local
 `approve`.
 
+### Implemented browser preview foundation (#1312)
+
+The private app exports a trusted-parent `AskPreview` component over a
+`FrozenAsk` admitted-selection input. The caller still owns page/role,
+source/render, same-member and current machine/grant admission; neither a
+renderer message nor a claimed member is admitted by this primitive. The
+production page has no selection/threads entry point or agent send wiring yet.
+The component is exercised through a test-only browser entry, never a sample
+agent route in the production application.
+
+Capture copies the selection/message IDs and destination, strips the URL
+fragment, refuses credentialed/non-HTTP URLs and invalid Unicode, formats one
+exact message, and enforces the composed core request bound (1 MiB, or a lower
+caller-supplied bound). The final preview includes page title/link, quote and
+comment; controls and Unicode formatting characters have a separate escaped
+view. The original UTF-8 is unchanged. Capture allocates one operation UUID
+unless the caller supplies an already-frozen one. Signing uses the field order
+above with sorted unique message IDs, the exact final digest, an explicit grant
+reference and a one-hour default / 24-hour maximum validity. Grant references
+are supplied by the caller, not inferred from Remote's client ID. The existing
+non-extractable extension key and strict signature primitives are reused.
+
+`AskAttempt` permits one explicit attempt through a caller-injected, contract-
+shaped `RemoteClient` port. There is no live adapter or Remote keyring access.
+Without a port, Send is disabled and signing/storage never starts. With a test
+port, trusted Send persists an immutable local draft in the existing Colab
+IndexedDB store under the device/operation key before calling it. A Web Lock
+serializes adoption across tabs. The stored record contains only signed input
+and signature; the input binds the message digest. Quote, comment and final
+message bytes stay in memory and are never written to this store. Identical
+signed metadata returns the existing draft; changed input or signature is
+`INTENT_CONFLICT`. An existing draft yields uncertain without another send,
+including after reload. This metadata is not the native bridge ledger or
+encrypted own-stream publication, and no schema/version
+migration is introduced. Storage failure or expiry before the port call has no
+send effect. Repeated clicks share one promise; a lost or miscorrelated response
+becomes uncertain. There is no retry, local approval or result publication path.
+
+Delivery labels come only from the caller's Remote delivery projection;
+missing evidence remains unavailable. Held is distinct from accepted, and
+accepted is not an agent final. Closing the component ends its observation,
+not recipient work. The browser component requires a trusted click; page messages
+and programmatic DOM clicks never start it. This foundation does not satisfy L5:
+#1055 owns the operation runtime/SDK, and later Colab slices own the native
+ledger/fence, own streams, live integration and real-binary acceptance.
+Independent bytes/signatures are frozen in `vectors/send-preview-v1.json`;
+`vectors/send-preview-reference.py` owns regeneration.
+
 ### Member machines
 
 A member with commenter or editor role may Ask agent, but only agents on a
@@ -1003,7 +1059,7 @@ operations are:
 
 | Type        | Additional fields / behavior                                                                                                                 |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hello`     | `device, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                                            |
+| `hello`     | `device, membershipRevision, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                        |
 | `catchup`   | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail |
 | `subscribe` | `cursors`; observe only the admitted page/current epoch                                                                                      |
 | `append`    | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                            |
@@ -1040,7 +1096,7 @@ requires zero32 hash; an omitted namespace also bootstraps. A nonzero cursor mus
 match an exact retained update or checkpoint in that namespace. Unknown, wrong-
 namespace, hash-substituted and pruned cursors return `RESYNC_REQUIRED`; a retained
 receipt alone is insufficient after its payload is pruned. A client restarts with
-zero/omitted cursors to receive the latest namespace checkpoint and retained tail.
+zero/omitted cursors to receive the latest paired prefix checkpoint and retained tail.
 If compaction invalidates a cursor during catchup, catchup stops with
 `RESYNC_REQUIRED` instead of silently skipping data. Store preserves the durable
 receipt ledger, so pruning never permits accepting a sequence again.
@@ -1086,7 +1142,8 @@ head is the target for this catchup; unknown, missing or above-head revisions
 return `RESYNC_REQUIRED`. Clients independently verify owner signatures, chain,
 root pin and target hash; a client-side fork cannot be detected from the unsigned
 revision alone. Whole statements must fit one 64 KiB frame: pages use at most
-60 KiB of encoded statement data, an individual stored envelope at most 44 KiB;
+60 KiB of encoded statement data (less on the first page to reserve its baseline
+fields), an individual stored envelope at most 44 KiB;
 oversized statements fail `CAPACITY`, never truncate. Chunked membership statements are deferred to #1285.
 
 After membership, pages carry `wraps` addressed to this device or its member,
@@ -1103,15 +1160,18 @@ verified log before applying objects. A chain never grants current authority.
 JSON, bounded to 8 KiB. Its scope/revision must match the admitted page/epoch and
 retained head. The caller verifies its exact signed `epoch.advance` binding.
 The owner engine produces and persists reset baselines; mounted owner catchup
-reads the exact descriptor through `Store::baseline`. Scoped encrypted object
-retrieval remains caller-owned.
+reads the exact descriptor through `Store::baseline`. Native sync delivers the
+matching scoped stored encrypted object after caller admission.
 When `baseline` is non-null, the first page MUST also contain exactly
 `baselineObject: {envelopeHash, envelope}`. When `baseline` is null that field MUST
 be absent. `envelopeHash` is canonical base64url hash32 and MUST equal the signed
 descriptor's `objectEnvelopeHash`; `envelope` is the existing exact inline
-base64url envelope or `{objectId}` followed by chunk frames. Later pages MUST NOT
+base64url envelope or `{objectId}` followed immediately by consecutive chunk frames. Later pages MUST NOT
 repeat either baseline field. The first page still has empty streams; baseline
-retrieval does not advance any device stream or cursor.
+retrieval does not advance any device stream or cursor. Missing stored objects or
+descriptor mismatches resync; malformed or hash/scope/kind/revision mismatches
+reject, never substitute old-epoch source. The same frame credit and
+complete-object admission rules apply.
 
 Before publishing a reset view, the browser MUST finish owner-log verification,
 match every descriptor field to the signed epoch transition, obtain the admitted
@@ -1124,15 +1184,18 @@ Worker verifies the source digest, LP commitment and exact source/title projecti
 from that identical update before initializing a fresh content document. Apply
 current-epoch tails only after that initialization; publish nothing on any failure.
 Old-epoch envelopes and a missing baseline for a reset epoch MUST reject. The
-browser implementation is tested with signed fixtures; native delivery of
-`baselineObject` is owned by #1248 and is not established by those fixtures.
+browser implementation is tested with signed fixtures; those fixtures do not
+establish native mounted browser E2E.
 
 The first page has empty `streams` and `more:true`. Later pages carry
 `streams, more` and the applicable membership, wraps or chains fields. Each stream entry is exactly
 `{streamId, namespace, checkpoint, tail}`. A checkpoint is null or
 `{seq, envelopeHash, envelope}`; tail is a list of those same entries. A page
-contains at most one object: either the latest namespace checkpoint for bootstrap,
-or the next update after the resolved cursor/checkpoint. The final page has
+contains at most one object: either the latest paired prefix checkpoint for
+bootstrap, or the next update after the resolved cursor/checkpoint. All bootstrap
+checkpoints precede tails. Each stream's tail merges both `content` and `own`
+namespaces in shared sequence order; updates from either namespace are required
+to verify the signed previous-hash chain. The final page has
 empty streams and `more:false`. Clients do not re-request pages. Clients verify
 all log, envelope and chain/namespace bindings before applying an object; a page
 or receipt is not that verification. A stream sequences namespaces together,
@@ -1284,6 +1347,72 @@ operations so concurrent browser/CLI edits merge. Comment never dispatches.
 Space home/CLI management expose sharing, threads, anchors, conversations,
 members, snapshots, activity/expiry and held/uncertain sends. Enrollment, member
 management and local-agent grants remain distinct controls.
+
+## Plaintext page export (#1309)
+
+The native export v1 emits exactly `page.html` and `manifest.json` from one
+owner-authenticated read snapshot and the existing isolated decoder. HTML is the
+exact admitted UTF-8 source, including CR/LF, Unicode and NUL; export MUST NOT
+inject renderer CSP/bootstrap, normalize source or execute it. The title, epoch
+and verified membership head MUST belong to that same snapshot. A later write
+cannot change an already captured bundle. This head is locally verified, not a
+claim of globally current membership.
+
+The manifest is UTF-8 JSON with these fields:
+
+| Field            | Value / meaning                                                            |
+| ---------------- | -------------------------------------------------------------------------- |
+| `format`         | `tmt-colab-page-export`                                                    |
+| `version`        | JSON integer `1`                                                           |
+| `spaceId`        | Pinned space ID                                                            |
+| `pageId`         | Exported page UUID                                                         |
+| `title`          | Exact admitted title                                                       |
+| `exportedAtMs`   | Safe-integer UTC milliseconds                                              |
+| `membershipHead` | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256       |
+| `epoch`          | Current snapshot epoch as canonical positive decimal text                  |
+| `plaintext`      | `true`                                                                     |
+| `discussions`    | `not-included`                                                             |
+| `files`          | `[{name:"page.html", sizeBytes, sha256}]`; bytes and lowercase hex SHA-256 |
+
+The manifest MUST NOT list its own digest: that would be circular. The CLI result
+lists both files with their byte sizes and SHA-256. Export contains no roots,
+wraps, bearer seeds, sessions or private keys. It is a readable copy, not an
+import/backup format; referenced assets, retained history and snapshots are not
+promised as portable files. Discussion export is deferred until own-namespace
+folding exists (#1110 / #1264 slice C); native fold validation of own updates
+still applies, but their projections are not included.
+
+`tmt colab export <page> [--dir <destination>] [--json]` reads existing local
+state only. It MUST NOT initialize missing state or run migrations. The
+current native fold refuses inactive pages, so archived and deleted pages fail
+with `COLAB_EXPORT_INACTIVE` and the explanation "archived or deleted pages
+cannot be exported yet". After the archive/delete read-policy split (#1348),
+archived exports are enabled separately; deleted pages remain denied.
+
+The destination names an existing parent directory, defaulting to the current
+directory. Export creates a fresh UUID-named 0700 subdirectory with regular
+0600 files. The user-selected parent may contain symlink aliases: resolve it
+once to a canonical directory, then use no-follow descriptors and report that
+canonical path. Created entries MUST NOT follow symlinks or replace existing
+entries; parent traversal is refused and source/title MUST NOT choose paths.
+Private staging uses exclusive files, byte/digest checks and sync before
+descriptor-relative, create-only
+publication into an exclusively reserved directory. `manifest.json` publishes
+last. Publication rechecks the canonical destination path and directory/file
+identities and MUST NOT use a replacing rename or follow symlinks. On failure, clean only this invocation's
+checked staging; preserve foreign entries and any partial output. Report the
+original canonical partial destination in the human error and JSON
+`error.partialDirectory`; if an ancestor moved, the reported path is where
+publication began, not a claim that the files remain reachable there.
+A returned success means both files were published and staging was removed;
+this is not a crash-recovery guarantee.
+
+The CLI human disclosure and successful JSON `disclosure` say exactly:
+"This creates an unencrypted copy of the page. Anyone with these files can read it."
+The browser download surface is the subsequent #1309 slice. Its two downloads
+MUST freeze one admitted bundle, live only in trusted parent chrome, use and
+revoke parent-owned Blob URLs, show partial-download state and the same
+disclosure, and expose no download capability to the renderer.
 
 ## Conformance and acceptance gates
 

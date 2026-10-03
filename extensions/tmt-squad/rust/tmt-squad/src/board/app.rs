@@ -136,6 +136,7 @@ pub enum Effect {
     /// Load this squad now (a squad switch).
     Load(String),
     Refresh,
+    Settings,
     PickTheme,
     SaveTheme,
     PickView,
@@ -258,6 +259,7 @@ pub struct App {
     pub menu: Option<Menu>,
     pub(super) view_picker: Option<super::view_picker::Picker>,
     pub(super) theme_picker: Option<super::theme_picker::Picker>,
+    pub(super) settings: Option<super::settings::Overlay>,
     pub input: Option<Input>,
     /// Index of the focused pane (split) or visible tab (tabs).
     pub focus: usize,
@@ -805,20 +807,19 @@ impl App {
         Effect::None
     }
 
-    /// The selected row's effective bindings: its section's, over `[bind]`
-    /// and the host preset.
+    pub(super) fn selected_section(&self) -> Option<usize> {
+        self.rows().get(self.selected).map(|(index, _)| *index)
+    }
+
+    /// The selected row's section overrides its tab/global/host bindings.
     pub fn bindings(&self) -> Bindings {
         let Some(view) = &self.view else {
             return Bindings::new();
         };
-        let mut bindings = view.bindings.clone();
-        if let Some(section) = self
+        let section = self
             .rows()
             .get(self.selected)
-            .and_then(|(index, _)| view.section_bindings.get(*index))
-        {
-            bindings.extend(section.clone());
-        }
+            .and_then(|(index, _)| view.section_bindings.get(*index));
         let enabled = view
             .token_rate
             .as_ref()
@@ -827,10 +828,7 @@ impl App {
                 .meter
                 .as_ref()
                 .is_some_and(|meter| meter.settings.enabled);
-        if !enabled {
-            bindings.retain(|_, action| action.verb != Verb::TokenWindow);
-        }
-        bindings
+        crate::action::effective_bindings(view.bindings.clone(), section, enabled)
     }
 
     fn say(&mut self, notice: impl Into<String>) -> Effect {
@@ -870,6 +868,7 @@ impl App {
                 }
                 return Effect::None;
             }
+            Verb::Settings => return Effect::Settings,
             Verb::Theme => return Effect::PickTheme,
             Verb::View => return Effect::PickView,
             Verb::NextPane => {
@@ -1036,7 +1035,7 @@ impl App {
                 } else {
                     match view.document["squad"]["lead"]["name"].as_str() {
                         Some(lead) => lead.to_owned(),
-                        None => return self.say("This squad has no lead to annotate for."),
+                        None => return self.say(format!("This squad has no lead; set one with tmt squad lead <name> --squad {squad}, or use annotate member.")),
                     }
                 };
                 self.ask(
@@ -1244,6 +1243,12 @@ impl App {
         self.notice = None;
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Effect::Quit;
+        }
+        if let Some(overlay) = &mut self.settings {
+            if overlay.key(key) {
+                self.settings = None;
+            }
+            return Effect::None;
         }
         if let Some(picker) = &mut self.view_picker {
             return match picker.key(key) {
@@ -1481,6 +1486,10 @@ impl App {
     /// A left click focuses the pane under it and selects the row under it, then runs its `click` binding;
     /// a second click on the same row soon after runs `double-click`.
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
+        if let Some(overlay) = &self.settings {
+            overlay.mouse(event);
+            return Effect::None;
+        }
         if self.view_picker.is_some()
             || self.theme_picker.is_some()
             || self.menu.is_some()
@@ -2138,7 +2147,9 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Char('a'));
         assert_eq!(
             app.notice.as_deref(),
-            Some("This squad has no lead to annotate for.")
+            Some(
+                "This squad has no lead; set one with tmt squad lead <name> --squad product, or use annotate member."
+            )
         );
         assert!(app.input.is_none());
     }

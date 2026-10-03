@@ -1,7 +1,7 @@
 [package]
 workspace = "../../../../rust"
 name = "tmt-squad"
-version = "0.1.0-alpha.13"
+version = "0.1.0-alpha.14"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -37,6 +37,9 @@ tmt-cli-style = { workspace = true, features = ["ratatui"] }
 subprocess.workspace = true
 nix.workspace = true
 signal-hook.workspace = true
+
+[dev-dependencies]
+tmt-test-support.workspace = true
 
 [lints]
 workspace = true

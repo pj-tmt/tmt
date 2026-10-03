@@ -12,6 +12,7 @@ import {
   preserveUnchangedReleasePullRequests,
 } from '../../scripts/release-please-run.mjs';
 import { ownerOf, parseComponentMap } from '../../scripts/ci-scope.mjs';
+import { inspectManifestDrafts } from '../../scripts/release-pr-safety.mjs';
 import {
   generateReleasePleaseConfig,
   readWorkspace,
@@ -611,7 +612,8 @@ describe('private leaf release attribution with pinned release-please', () => {
     changes: ReturnType<typeof commit>[],
     wrapped = true,
     legacyAlpha = false,
-    taglessPaths: string[] = []
+    taglessPaths: string[] = [],
+    versions: Record<string, string> = { '.': '5.0.0-alpha.8', [squadPath]: '0.1.0-alpha.8' }
   ) {
     const config = readJson('release-please-config.json');
     if (legacyAlpha) {
@@ -619,7 +621,6 @@ describe('private leaf release attribution with pinned release-please', () => {
       for (const entry of Object.values(config.packages) as Record<string, unknown>[])
         delete entry['prerelease-type'];
     }
-    const versions = { '.': '5.0.0-alpha.8', [squadPath]: '0.1.0-alpha.8' };
     const github = await releasePlease.GitHub.create({
       owner: 'fixture',
       repo: 'fixture',
@@ -645,7 +646,7 @@ describe('private leaf release attribution with pinned release-please', () => {
           id: 1,
           url: 'https://example.test/squad',
           name: 'Squad',
-          tagName: 'tmt-squad-v0.1.0-alpha.8',
+          tagName: `tmt-squad-v${versions[squadPath]}`,
           sha: 'squad-release',
           notes: '',
         };
@@ -654,7 +655,7 @@ describe('private leaf release attribution with pinned release-please', () => {
           id: 2,
           url: 'https://example.test/cli',
           name: 'CLI',
-          tagName: 'v5.0.0-alpha.8',
+          tagName: `v${versions['.']}`,
           sha: 'cli-release',
           notes: '',
         };
@@ -682,6 +683,184 @@ describe('private leaf release attribution with pinned release-please', () => {
     commit('squad-release', [`${squadPath}/Cargo.toml`], 'chore: release squad'),
     commit('cli-release', ['rust/Cargo.toml'], 'chore: release cli'),
   ];
+
+  // #1365 / run 37103448408: only SCM acquisition/mutations are fixtures.
+  // The pending-release guard, label transition and file updaters are the real pin.
+  async function releaseTransition(tagged: boolean) {
+    const current = readJson('.release-please-manifest.json') as Record<string, string>;
+    const previous = {
+      ...current,
+      '.': current['.'].replace(
+        /(alpha\.)(\d+)$/,
+        (_, prefix, number) => `${prefix}${Number(number) - 1}`
+      ),
+    };
+    const changes = history(['rust/crates/tmt-core/src/lib.rs', `${squadPath}/src/config.rs`]);
+    const before = await candidateManifest(changes, true, false, [], previous);
+    const proposals = await before.manifest.buildPullRequests();
+    const cli = proposals.find((candidate) => candidate.headRefName.endsWith('tmt-cli'))!;
+    const squad = proposals.find((candidate) => candidate.headRefName.endsWith('tmt-squad'))!;
+    expect(cli.version?.toString()).toBe(current['.']);
+    const fileContents = (file: string, merged: boolean) => {
+      if (!existsSync(path.join(root, file)))
+        throw new releasePlease.Errors.FileNotFoundError(file);
+      const bytes = read(file);
+      const parsedContent = merged ? bytes : bytes.replaceAll(current['.'], previous['.']);
+      return {
+        parsedContent,
+        content: Buffer.from(parsedContent).toString('base64'),
+        sha: 'file',
+        mode: '100644',
+      };
+    };
+    before.github.getFileContentsOnBranch = async (file) => fileContents(file, false);
+    const staleFiles = await before.github.buildChangeSet(squad.updates, 'main');
+    const merged = {
+      number: 1343,
+      title: cli.title.toString(),
+      body: cli.body.toString(),
+      headBranchName: cli.headRefName,
+      baseBranchName: 'main',
+      labels: ['autorelease: pending'],
+      files: [],
+      sha: 'merged-cli',
+    };
+    const open = {
+      number: 1347,
+      title: squad.title.toString(),
+      body: squad.body.toString(),
+      headBranchName: squad.headRefName,
+      baseBranchName: 'main',
+      labels: ['autorelease: pending'],
+      files: [],
+      sha: 'a'.repeat(40),
+    };
+    const { github } = await candidateManifest(
+      [
+        commit(
+          'merged-cli',
+          ['rust/Cargo.toml', 'rust/Cargo.lock', '.release-please-manifest.json'],
+          merged.title
+        ),
+        ...changes,
+      ],
+      true,
+      false,
+      ['.'],
+      current
+    );
+    github.getFileContentsOnBranch = async (file) => fileContents(file, true);
+    github.pullRequestIterator = async function* (_branch, state) {
+      if (state === 'MERGED') yield merged;
+      if (state === 'OPEN') yield open;
+    };
+    const releases = github.releaseIterator.bind(github);
+    let created:
+      | { tagName: string; sha: string; notes: string; name: string; id: number; url: string }
+      | undefined;
+    github.releaseIterator = async function* (options) {
+      if (created) yield created;
+      yield* releases(options);
+    };
+    const create = vi
+      .spyOn(github, 'createRelease')
+      .mockImplementation(async (release, options) => {
+        expect(options?.draft).toBe(true);
+        created = {
+          id: 46,
+          tagName: release.tag.toString(),
+          sha: merged.sha,
+          notes: release.notes,
+          name: 'CLI',
+          url: 'https://example.test/46',
+        };
+        return created;
+      });
+    vi.spyOn(github, 'commentOnIssue').mockResolvedValue('fixture-comment');
+    vi.spyOn(github, 'removeIssueLabels').mockImplementation(async (labels, number) => {
+      expect(number).toBe(merged.number);
+      merged.labels = merged.labels.filter((label) => !labels.includes(label));
+    });
+    vi.spyOn(github, 'addIssueLabels').mockImplementation(async (labels, number) => {
+      expect(number).toBe(merged.number);
+      merged.labels.push(...labels);
+    });
+    const refreshed = new Map(staleFiles);
+    const update = vi
+      .spyOn(github, 'updatePullRequest')
+      .mockImplementation(async (number, candidate) => {
+        expect(number).toBe(open.number);
+        for (const [file, change] of await github.buildChangeSet(candidate.updates, 'main'))
+          refreshed.set(file, change);
+        open.sha = 'b'.repeat(40);
+        open.body = candidate.body.toString();
+        return open;
+      });
+    vi.spyOn(github, 'createPullRequest').mockImplementation(async () => {
+      throw new Error('Expected remaining release PR B to be refreshed');
+    });
+    const manifest = () => releasePlease.Manifest.fromManifest(github, 'main');
+    const holds = () =>
+      inspectManifestDrafts({
+        manifest: current,
+        components: components(),
+        reader: {
+          repository: 'fixture/fixture',
+          get() {
+            throw new Error('Unexpected REST detail read');
+          },
+          git() {
+            throw new Error('Unexpected local git read');
+          },
+          list(path) {
+            if (!created) return [];
+            return path === 'releases'
+              ? [
+                  {
+                    id: created.id,
+                    tag_name: created.tagName,
+                    draft: true,
+                    created_at: '2026-10-03T06:33:00Z',
+                  },
+                ]
+              : tagged
+                ? [{ ref: `refs/tags/${created.tagName}`, object: { sha: 'c'.repeat(40) } }]
+                : [];
+          },
+        },
+      }).heldPaths;
+    return { manifest, create, update, open, staleFiles, refreshed, holds, current };
+  }
+
+  it.each([true, false])(
+    'refreshes B in one run after reconciling merged A (tag exists: %s)',
+    async (tagged) => {
+      const old = await releaseTransition(tagged);
+      expect(await executeReleasePlease(await old.manifest(), 'release-pr', true)).toEqual([]);
+      expect(old.update).not.toHaveBeenCalled();
+      await executeReleasePlease(await old.manifest(), 'github-release', true);
+      expect(old.create).toHaveBeenCalledOnce();
+      expect(old.open.sha).toBe('a'.repeat(40));
+      expect(old.refreshed).toEqual(old.staleFiles);
+
+      const fixed = await releaseTransition(tagged);
+      const releases = await executeReleasePlease(await fixed.manifest(), 'github-release', true);
+      expect(releases).toEqual([expect.objectContaining({ tagName: `v${fixed.current['.']}` })]);
+      const held = fixed.holds();
+      expect(held).toEqual(tagged ? [] : ['.']);
+      const refresh = holdTaglessDraftCandidates(await fixed.manifest(), held);
+      expect(await executeReleasePlease(refresh, 'release-pr', true)).toEqual([
+        expect.objectContaining({ number: 1347 }),
+      ]);
+      expect(fixed.update).toHaveBeenCalledOnce();
+      expect(fixed.open.sha).toBe('b'.repeat(40));
+      for (const file of ['.release-please-manifest.json', 'rust/Cargo.lock']) {
+        expect(fixed.refreshed.get(file)?.content).not.toBe(fixed.staleFiles.get(file)?.content);
+        expect(fixed.refreshed.get(file)?.content).toContain(fixed.current['.']);
+        expect(fixed.staleFiles.get(file)?.content).not.toContain(fixed.current['.']);
+      }
+    }
+  );
 
   it.each([
     { held: [squadPath], retained: ['tmt-cli'] },

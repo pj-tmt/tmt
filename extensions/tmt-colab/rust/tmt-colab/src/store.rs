@@ -101,6 +101,33 @@ impl Store {
         schema::migrate(&mut connection)?;
         Ok(Self { connection })
     }
+    /// Existing-state reads never create files, change pragmas or run migrations.
+    pub fn read(layout: &Layout) -> Result<Self> {
+        use nix::fcntl::OFlag;
+        use std::{
+            fs::OpenOptions,
+            os::unix::fs::{MetadataExt, OpenOptionsExt},
+        };
+        let path = layout.directory.join("space.db");
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK).bits())
+            .open(&path)?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file()
+            || metadata.uid() != nix::unistd::Uid::effective().as_raw()
+            || metadata.mode() & 0o777 != 0o600
+        {
+            return Err(crate::keyring::StateFault::UnsafeFile.into());
+        }
+        let connection = Connection::open_with_flags(
+            &path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        )?;
+        connection.busy_timeout(Duration::from_secs(2))?;
+        schema::check_version(&connection)?;
+        Ok(Self { connection })
+    }
     pub fn create_page(&self, page: &str) -> StoreResult<()> {
         bounded_id(page)?;
         self.connection
@@ -187,7 +214,7 @@ impl Store {
         tx.commit()?;
         Ok(Accepted::New)
     }
-    /// Publish the admitted namespace checkpoint and prune its prefix in one transaction.
+    /// Publish an admitted checkpoint; prune only a prefix covered by every namespace.
     pub fn checkpoint(&mut self, envelope: &Envelope<'_>) -> StoreResult<Accepted> {
         validate(envelope)?;
         let s = envelope.scope;
@@ -224,10 +251,6 @@ impl Store {
         if latest.is_some_and(|latest| seq <= latest) {
             return Err(Fault::StaleCheckpoint);
         }
-        tx.execute("UPDATE receipts SET payload=NULL WHERE page=? AND epoch=? AND stream=? AND namespace=? AND seq<=?", params![s.page,epoch,s.stream,envelope.namespace.name(),seq])?;
-        tx.execute("UPDATE checkpoints SET payload=NULL WHERE page=? AND epoch=? AND stream=? AND namespace=? AND seq<? AND pinned=0",
-            params![s.page,epoch,s.stream,envelope.namespace.name(),seq])?;
-        capacity(&tx, s.page, envelope.bytes.len(), false)?;
         tx.execute(
             "INSERT INTO checkpoints(page,epoch,stream,namespace,seq,hash,digest,head,payload) VALUES (?,?,?,?,?,?,?,?,?)",
             params![
@@ -242,6 +265,24 @@ impl Store {
                 envelope.bytes
             ],
         )?;
+        // Sequence/hash continuity belongs to the shared stream, not a namespace.
+        // Receipt rows survive pruning, so this test remains valid after compaction.
+        let paired: bool = tx.query_row(
+            "SELECT NOT EXISTS(SELECT 1 FROM receipts r WHERE r.page=?1 AND r.epoch=?2 AND r.stream=?3 AND r.seq<=?4
+             AND NOT EXISTS(SELECT 1 FROM checkpoints c WHERE c.page=r.page AND c.epoch=r.epoch AND c.stream=r.stream
+             AND c.namespace=r.namespace AND c.seq=?4 AND c.payload IS NOT NULL))",
+            params![s.page, epoch, s.stream, seq], |r| r.get(0))?;
+        if paired {
+            tx.execute(
+                "UPDATE receipts SET payload=NULL WHERE page=? AND epoch=? AND stream=? AND seq<=?",
+                params![s.page, epoch, s.stream, seq],
+            )?;
+            tx.execute("UPDATE checkpoints SET payload=NULL WHERE page=? AND epoch=? AND stream=? AND seq<? AND pinned=0",
+                params![s.page,epoch,s.stream,seq])?;
+        }
+        // Count the inserted payload after any paired reclaim. Failure rolls back
+        // publication and pruning together, including the old checkpoint pair.
+        capacity(&tx, s.page, 0, false)?;
         tx.commit()?;
         Ok(Accepted::New)
     }
@@ -335,7 +376,7 @@ impl Store {
         resolve_cursor(&tx, scope, namespace, cursor)
     }
     /// One object per page, with SQL-side payload length admission before copying.
-    /// Bootstrap emits the latest namespace checkpoint first, then its tail.
+    /// Bootstrap uses the latest paired prefix checkpoint, then its full namespace tail.
     /// Compaction between pages invalidates the retained cursor instead of skipping data.
     pub fn namespace_next(
         &self,
@@ -347,7 +388,12 @@ impl Store {
         current(&tx, scope)?;
         resolve_cursor(&tx, scope, namespace, cursor)?;
         let initial: Option<(String, Vec<u8>, Option<i64>)> = if cursor.seq == 0 {
-            tx.query_row("SELECT seq,hash,length(payload) FROM checkpoints WHERE page=? AND epoch=? AND stream=? AND namespace=? ORDER BY seq DESC LIMIT 1",
+            tx.query_row("SELECT c.seq,c.hash,length(c.payload) FROM checkpoints c
+                WHERE c.page=?1 AND c.epoch=?2 AND c.stream=?3 AND c.namespace=?4 AND c.payload IS NOT NULL
+                AND NOT EXISTS(SELECT 1 FROM receipts r WHERE r.page=c.page AND r.epoch=c.epoch AND r.stream=c.stream AND r.seq<=c.seq
+                    AND NOT EXISTS(SELECT 1 FROM checkpoints p WHERE p.page=c.page AND p.epoch=c.epoch AND p.stream=c.stream
+                        AND p.namespace=r.namespace AND p.seq=c.seq AND p.payload IS NOT NULL))
+                ORDER BY c.seq DESC LIMIT 1",
                 params![scope.page, scope.epoch.to_string(), scope.stream, namespace.name()],
                 |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?
         } else {

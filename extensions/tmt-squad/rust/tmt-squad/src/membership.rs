@@ -7,7 +7,7 @@ use crate::{
     squad::{self, Squad, name_invalid, valid_name},
 };
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Mirrors core's public metadata entry limit; Squad reaches core only through commands.
 const METADATA_ENTRY_LIMIT: usize = 64;
@@ -129,13 +129,16 @@ fn record_lead(core: &Core, squad: &Squad, id: &str, lead: bool) -> Result<(), S
     Ok(())
 }
 
-pub fn lead(core: &Core, squad: &Squad, name: &str) -> Result<Outcome, SquadError> {
-    let leader = saved(core, name)?;
+/// Selecting or clearing a lead changes leadership only; former leads stay members.
+pub fn lead(core: &Core, squad: &Squad, name: Option<&str>) -> Result<Outcome, SquadError> {
+    let leader = name.map(|name| saved(core, name)).transpose()?;
     let members = squad.roster(core)?;
-    let targets = std::iter::once(leader.id.as_str()).chain(
+    let targets = leader.iter().map(|leader| leader.id.as_str()).chain(
         members
             .iter()
-            .filter(|member| member.is_lead() && member.id != leader.id)
+            .filter(|member| {
+                member.is_lead() && leader.as_ref().is_none_or(|leader| member.id != leader.id)
+            })
             .map(|member| member.id.as_str()),
     );
     // Check all required markers before any write. A concurrent metadata write
@@ -152,17 +155,19 @@ pub fn lead(core: &Core, squad: &Squad, name: &str) -> Result<Outcome, SquadErro
             ));
         }
     }
-    record_lead(core, squad, &leader.id, true)?;
-    core.json(&["room", "join", &squad.room_id, "--identity", &leader.id])?;
-    // Set the new lead before clearing others, so a failure never leaves none.
+    if let Some(leader) = &leader {
+        record_lead(core, squad, &leader.id, true)?;
+        core.json(&["room", "join", &squad.room_id, "--identity", &leader.id])?;
+    }
+    // A replacement is established before clearing others; --none deliberately clears all.
     let mut replaced = Vec::new();
     for member in members {
-        if member.is_lead() && member.id != leader.id {
+        if member.is_lead() && leader.as_ref().is_none_or(|leader| member.id != leader.id) {
             record_lead(core, squad, &member.id, false)?;
             replaced.push(member.name);
         }
     }
-    Ok(json!({"squad": squad.name, "lead": {"id": leader.id, "name": leader.name}, "replaced": replaced}).into())
+    Ok(json!({"squad": squad.name, "lead": leader.map(|leader| json!({"id": leader.id, "name": leader.name})), "replaced": replaced}).into())
 }
 
 pub fn add(
@@ -172,7 +177,11 @@ pub fn add(
     names: &[String],
 ) -> Result<Outcome, SquadError> {
     let state = squad.key("state")?;
-    let members = squad.roster(core)?;
+    let mut joined: BTreeSet<_> = squad
+        .roster(core)?
+        .into_iter()
+        .map(|member| member.id)
+        .collect();
     let mut complete = true;
     let results: Vec<Value> = names
         .iter()
@@ -180,7 +189,7 @@ pub fn add(
             let added = (|| {
                 let (member, _) = identity(core, name)?;
                 let current = fields(core, squad, &member.id)?;
-                let already_joined = members.iter().any(|existing| existing.id == member.id);
+                let already_joined = joined.contains(&member.id);
                 let marker = current
                     .get(squad::LEAD_MARKER)
                     .map(|marker| marker == "true");
@@ -191,6 +200,7 @@ pub fn add(
                     record_lead(core, squad, &member.id, false)?;
                 }
                 core.json(&["room", "join", &squad.room_id, "--identity", &member.id])?;
+                joined.insert(member.id.clone());
                 let initial = layout
                     .states()
                     .first()
@@ -208,7 +218,7 @@ pub fn add(
                     ])?;
                 }
                 Ok::<_, SquadError>(
-                    json!({"name": member.name, "id": member.id, "stateSet": initial}),
+                    json!({"name": member.name, "id": member.id, "added": !already_joined, "stateSet": initial}),
                 )
             })();
             added.unwrap_or_else(|error| {

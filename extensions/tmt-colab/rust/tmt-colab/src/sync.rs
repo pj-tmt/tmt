@@ -563,37 +563,62 @@ impl<A: Admission> State<A> {
         if context.membership_head.revision == 0 {
             return Err(Code::Invalid);
         }
+        let mut transfer = None;
+        let mut fields = serde_json::json!({
+            "membershipHead":{"revision":context.membership_head.revision.to_string(),"statementHash":values::encode_binary(&context.membership_head.hash),"ownerKey":values::encode_binary(&context.owner_key),"statements":[],"more":true},
+            "baseline":null,"streams":[],"more":true
+        });
+        if let Some(bytes) = context.baseline {
+            if bytes.len() > limits::SYNC_CONTEXT_BYTES {
+                return Err(Code::Capacity);
+            }
+            let descriptor = payload::decode_baseline(&bytes)?;
+            if descriptor.page_id != scope.page
+                || descriptor.epoch != scope.epoch
+                || values::decimal(&descriptor.membership_revision, false)?
+                    > context.membership_head.revision
+            {
+                return Err(Code::Invalid);
+            }
+            let saved = self
+                .store
+                .baseline(&scope.page, values::decimal(&scope.epoch, false)?)
+                .map_err(bootstrap_error)?
+                .ok_or(Code::ResyncRequired)?;
+            if saved.descriptor != bytes {
+                return Err(Code::ResyncRequired);
+            }
+            let hash = wire::hash(&descriptor.object_envelope_hash)?;
+            let decoded = object::Envelope::from_json(&saved.envelope)?;
+            let header = object::Header::decode(decoded.header())?;
+            if header.context.kind != "html"
+                || header.context.membership_revision != descriptor.membership_revision
+            {
+                return Err(Code::Invalid);
+            }
+            let (envelope, chunks) = delivery(scope, hash, saved.envelope)?;
+            fields["baseline"] = serde_json::json!(values::encode_binary(&bytes));
+            fields["baselineObject"] = serde_json::json!({"envelopeHash":descriptor.object_envelope_hash,"envelope":envelope});
+            transfer = chunks;
+        }
+        // The first page also carries the descriptor and possibly an inline
+        // baseline. Budget statements against those exact bytes, without truncation.
+        let overhead = wire::output(scope, "catchup", fields.clone())?.len();
         let membership = self
             .store
             .owner_read(&scope.space, &context.owner_key, |tx| {
-                tx.membership_page(revision, &context.membership_head)
+                tx.membership_page(
+                    revision,
+                    &context.membership_head,
+                    limits::WS_FRAME_BYTES
+                        .saturating_sub(overhead + 64)
+                        .min(60 * 1024),
+                )
             })
             .map_err(bootstrap_error)?;
-        let baseline = match context.baseline {
-            None => serde_json::Value::Null,
-            Some(bytes) => {
-                if bytes.len() > limits::SYNC_CONTEXT_BYTES {
-                    return Err(Code::Capacity);
-                }
-                let descriptor = payload::decode_baseline(&bytes)?;
-                if descriptor.page_id != scope.page
-                    || descriptor.epoch != scope.epoch
-                    || values::decimal(&descriptor.membership_revision, false)?
-                        > context.membership_head.revision
-                {
-                    return Err(Code::Invalid);
-                }
-                serde_json::json!(values::encode_binary(&bytes))
-            }
-        };
-        let text = wire::output(
-            scope,
-            "catchup",
-            serde_json::json!({
-                "membershipHead":{"revision":context.membership_head.revision.to_string(),"statementHash":values::encode_binary(&context.membership_head.hash),"ownerKey":values::encode_binary(&context.owner_key),"statements":membership.statements,"more":membership.more},
-                "baseline":baseline,"streams":[],"more":true
-            }),
-        )?;
+        fields["membershipHead"]["statements"] = serde_json::json!(membership.statements);
+        fields["membershipHead"]["more"] = serde_json::json!(membership.more);
+        let text = wire::output(scope, "catchup", fields)?;
         let peer = self.peers.get_mut(&id).ok_or(Code::Denied)?;
         peer.subscribed = false;
         peer.catchup = Some(Catchup {
@@ -605,6 +630,9 @@ impl<A: Admission> State<A> {
             wraps_done: false,
         });
         peer.push(text);
+        if let Some(transfer) = transfer {
+            peer.enqueue(transfer);
+        }
         Ok(())
     }
     /// Scan all namespaces anew each turn. An append to an already visited
@@ -626,7 +654,7 @@ impl<A: Admission> State<A> {
             let membership = self
                 .store
                 .owner_read(&scope.space, &catchup.owner, |tx| {
-                    tx.membership_page(catchup.revision, &catchup.head)
+                    tx.membership_page(catchup.revision, &catchup.head, 60 * 1024)
                 })
                 .map_err(bootstrap_error)?;
             let text = wire::output(
@@ -689,8 +717,16 @@ impl<A: Admission> State<A> {
                 ns,
                 cursor,
             )? {
-                next = Some((key, object));
-                break;
+                // Every paired checkpoint precedes the shared tail. Namespace
+                // tails interleave by stream sequence, preserving signed prevHash.
+                let order = (!object.checkpoint, stream.as_str(), object.cursor.seq);
+                if next.as_ref().is_none_or(
+                    |(old_key, old): &((String, String), store::ReadObject)| {
+                        order < (!old.checkpoint, old_key.0.as_str(), old.cursor.seq)
+                    },
+                ) {
+                    next = Some((key, object));
+                }
             }
         }
         if let Some(((stream, ns), object)) = next {

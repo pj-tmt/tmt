@@ -516,10 +516,13 @@ describe('component map', () => {
       .map((row) => row.path);
     expect(inert).toContain('ARCHITECTURE.md');
     // Files that name inert prose without reading it in a job that inert paths would skip:
-    // prettier's file lists run in Code quality on every change, and the rest only mention
+    // formatter file lists run in Code quality on every change, and the rest only mention
     // a name.
     const mentions: Record<string, string> = {
-      'typescript/package.json': 'prettier file lists, run by Code quality on every change',
+      'typescript/scripts/format-workspace.mjs':
+        'formatter file lists, run by Code quality on every change',
+      'typescript/test/tooling/format-workspace.test.ts':
+        'selection path fixtures only; never reads prose contents',
       'typescript/test/tooling/ci-scope.test.ts': 'path fixtures for the selector tests',
       'scripts/dev-disk-check.sh': 'names DEVELOPMENT.md in a message',
       '.github/components.json': 'the map names the prose in its own rules',

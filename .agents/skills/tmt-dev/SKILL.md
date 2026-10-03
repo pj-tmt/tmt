@@ -39,6 +39,10 @@ Read the repository guidance before planning work:
    When replacing implementations, map behavioral assertions, not test counts:
    returned-error rollback is not crash recovery. Preserve resource cleanup
    ordering through the existing child-process owner.
+   Rust executable-fixture changes follow DEVELOPMENT's
+   [three ETXTBSY cases](../../../DEVELOPMENT.md#rust-checks) and the narrowly owned
+   publication boundary in ARCHITECTURE. Verify its exact dev edges with the
+   native architecture test before each Rust push.
    Office-affecting changes follow
    [Office browser verification](../../../DEVELOPMENT.md#office-browser-verification).
 5. Close the bounded review when relevant evidence supports the agreed behavior,
@@ -62,6 +66,10 @@ native process, Docker and tooling checks distinct,
 and never substitute obsolete TypeScript coverage percentages for native
 verification. A raw-binary platform smoke does not replace the release archive,
 bootstrap or upgrade gates. Keep their shared runtime proof in one owner.
+
+Formatter migrations preserve DEVELOPMENT's per-owner options and separate
+code/docs selections, with mechanical output isolated from configuration changes.
+Keep exact regeneration and semantic equivalence evidence in the PR.
 
 For installed-agent guidance changes, follow DEVELOPMENT's installed guidance
 source ownership: edit the single canonical skill, verify native provider links

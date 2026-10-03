@@ -321,6 +321,23 @@ fn array(bytes: Vec<u8>) -> Result<[u8; 32]> {
     bytes.try_into().map_err(|_| OwnerFault::Invalid.into())
 }
 fn read_baseline(c: &Connection, page: &str, epoch: u64) -> Result<Option<StoredBaseline>> {
+    let sizes: Option<(i64, i64)> = c
+        .query_row(
+            "SELECT length(descriptor),length(envelope) FROM baselines WHERE page=? AND epoch=?",
+            params![page, sequence(epoch)],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let Some((descriptor, envelope)) = sizes else {
+        return Ok(None);
+    };
+    if descriptor <= 0
+        || descriptor > payload::MAX_BYTES as i64
+        || envelope <= 0
+        || envelope > crate::limits::OBJECT_BYTES as i64
+    {
+        return Err(OwnerFault::Capacity.into());
+    }
     Ok(c.query_row(
         "SELECT descriptor,envelope FROM baselines WHERE page=? AND epoch=?",
         params![page, sequence(epoch)],

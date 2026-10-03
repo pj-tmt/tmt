@@ -52,6 +52,18 @@ pub(crate) struct Acquired {
     pub failures: Vec<Value>,
 }
 
+/// Fixed aggregate grids, shared by document loading and settings inspection.
+pub fn rows(key: &str) -> Rows {
+    if key == ALL {
+        return Rows::overview();
+    }
+    let mut rows = Rows::leads();
+    if tabs::user_name(key).is_some() {
+        rows.columns[1].title = "MEMBER".into();
+    }
+    rows
+}
+
 pub fn key(config: &Config, name: &str) -> Result<String, SquadError> {
     match name {
         "leads" => Ok(LEADS.into()),
@@ -124,11 +136,10 @@ pub fn load(
     let documents = &acquired.documents;
     let attention = acquired.attention(config, tabs);
     let (mut document, rows) = match key {
-        LEADS => (leads_document(tabs, documents), Rows::leads()),
-        ALL => (all_document(tabs, documents, &attention), Rows::overview()),
+        LEADS => (leads_document(tabs, documents), rows(key)),
+        ALL => (all_document(tabs, documents, &attention), rows(key)),
         _ => {
-            let mut rows = Rows::leads();
-            rows.columns[1].title = "MEMBER".into();
+            let rows = rows(key);
             (
                 user_document(user.expect("validated user tab"), tabs, &acquired),
                 rows,

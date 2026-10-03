@@ -788,13 +788,19 @@ describe('bounded workflow REST adapter', () => {
 describe('workflow safety wiring', () => {
   const ci = readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
   const release = readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
-  const loop = release
-    .split('      - name: Run release-please\n')[1]
-    .split('\n      # Only one release PR')[0]
-    .split('        run: |\n')[1]
-    .split('\n')
-    .map((line) => line.slice(10))
-    .join('\n');
+  const shellOf = (name: string) =>
+    release
+      .split(`      - name: ${name}\n`)[1]
+      .split('\n      - ')[0]
+      .split('        run: |\n')[1]
+      .split('\n')
+      .filter((line) => line.startsWith('          '))
+      .map((line) => line.slice(10))
+      .join('\n');
+  const loop = [
+    shellOf('Create releases for merged release pull requests'),
+    shellOf('Run release-please'),
+  ].join('\n');
   it('requires notes on PR updates and merge groups without restarting CI on edits', () => {
     expect(ci).toContain('types: [opened, synchronize, reopened]');
     expect(ci.split('  pull_request:\n')[1].split('  merge_group:')[0]).not.toContain('edited');
@@ -802,7 +808,7 @@ describe('workflow safety wiring', () => {
     expect(ci).toContain('run: node typescript/scripts/release-pr-safety.mjs notes');
     expect(ci).toContain('GITHUB_TOKEN: ${{ github.token }}');
   });
-  it('preserves github-release after the draft skip, in both live and dry-run mode', () => {
+  it('reconciles github-release before the draft skip, in both live and dry-run mode', () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'tmt-release-draft-loop-'));
     try {
       writeExecutable(

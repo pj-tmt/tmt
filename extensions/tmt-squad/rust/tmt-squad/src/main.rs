@@ -27,6 +27,7 @@ mod requests;
 mod rows;
 mod runner;
 mod send;
+mod settings;
 mod source;
 mod specs;
 mod split;
@@ -124,7 +125,9 @@ fn grammar() -> Command {
         )
         .subcommand(
             build(specs::LEAD)
-                .arg(operand("name", "Saved identity to lead"))
+                .arg(Arg::new("name").help("Saved identity to lead").required_unless_present("none"))
+                .arg(Arg::new("none").long("none").action(ArgAction::SetTrue)
+                    .conflicts_with("name").help("Clear leadership; former leads remain members"))
                 .arg(squad_option()),
         )
         .subcommand(
@@ -259,6 +262,7 @@ fn grammar() -> Command {
                 )
                 .arg(squad_option()),
         )
+        .subcommand(settings::grammar())
         .subcommand(theme::grammar())
         .subcommand(view::grammar())
         .subcommand(playbook::grammar())
@@ -488,6 +492,7 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
         "ls" | "board" => status::text(document, terminal),
         "hotkeys" => hotkeys_text(document, terminal),
         "playbook" => playbook::text(document, terminal),
+        "config" => settings::text(document, terminal),
         "theme" => theme::text(document, terminal),
         "view" => view::text(document, terminal),
         "jump" => {
@@ -538,6 +543,22 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
         "me" => me_text(document, terminal),
         "lead" => {
             let replaced = names(&document["replaced"]);
+            let retained = if replaced.is_empty() {
+                String::new()
+            } else if document["replaced"]
+                .as_array()
+                .is_some_and(|names| names.len() == 1)
+            {
+                format!("; {replaced} remains a member")
+            } else {
+                format!("; {replaced} remain members")
+            };
+            if document["lead"].is_null() {
+                return done(
+                    terminal,
+                    &format!("Squad {} has no lead{retained}", text(&document["squad"])),
+                );
+            }
             done(
                 terminal,
                 &format!(
@@ -547,7 +568,7 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
                     if replaced.is_empty() {
                         String::new()
                     } else {
-                        format!(" (replaces {replaced})")
+                        format!(" (replaces {replaced}{retained})")
                     }
                 ),
             )
@@ -562,6 +583,13 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
                     Some(state) => format!(" (state {state})"),
                     None => String::new(),
                 };
+                if result["added"] == false {
+                    return format!(
+                        "{} is already in squad {}{state}.\n",
+                        tmt_cli_style::table::escape(&text(&result["name"])),
+                        text(&document["squad"])
+                    );
+                }
                 done(
                     terminal,
                     &format!(
@@ -761,6 +789,9 @@ fn run(
         return member_actions::back(&core);
     }
     let mut config = Config::load(&core)?;
+    if command == "config" {
+        return settings::run(&config, matches).map(Outcome::from);
+    }
     if command == "view" {
         return view::run(&mut config, matches).map(Outcome::from);
     }
@@ -818,7 +849,7 @@ fn run(
     }
     let squad = Squad::resolve(&core, text("squad"))?;
     match command {
-        "lead" => membership::lead(&core, &squad, text("name").unwrap_or_default()),
+        "lead" => membership::lead(&core, &squad, text("name")),
         "add" => membership::add(&core, &squad, config.layout(&squad.name)?, &many("names")),
         "rm" => membership::remove(&core, &squad, text("name").unwrap_or_default()),
         "jump" => member_actions::jump(&core, &squad, &config, text("member").unwrap_or_default()),
@@ -1239,8 +1270,9 @@ mod tests {
         assert_eq!(
             complete(&words("-- ")),
             [
-                "add", "annotate", "back", "board", "copy", "help", "hotkeys", "init", "jump",
-                "lead", "ls", "me", "open", "playbook", "rm", "set", "skill", "theme", "view"
+                "add", "annotate", "back", "board", "config", "copy", "help", "hotkeys", "init",
+                "jump", "lead", "ls", "me", "open", "playbook", "rm", "set", "skill", "theme",
+                "view"
             ]
         );
         assert_eq!(complete(&words("-- view ")), ["ls", "rm", "set"]);
@@ -1376,6 +1408,19 @@ mod tests {
             &["help"],
         ] {
             assert_eq!(bare_is_board(argv(kept)), argv(kept), "{kept:?}");
+        }
+    }
+
+    #[test]
+    fn lead_requires_exactly_one_name_or_none() {
+        for accepted in ["lead sol", "lead --none", "lead --none --squad product"] {
+            assert!(
+                matches!(request(&argv(accepted)), Ok(Request::Run(_))),
+                "{accepted}"
+            );
+        }
+        for refused in ["lead", "lead sol --none"] {
+            assert!(request(&argv(refused)).is_err(), "{refused}");
         }
     }
 

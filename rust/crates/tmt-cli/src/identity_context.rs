@@ -12,6 +12,8 @@ use tmt_core::{binding, identity::Identity};
 
 pub enum Selector {
     Explicit(String),
+    /// A session-pinned UUID; never fall back to a display name.
+    SavedId(String),
     Pane(String),
 }
 
@@ -91,6 +93,23 @@ fn selected(
     selector: Selector,
 ) -> Result<Option<Identity>, Failure> {
     match selector {
+        Selector::SavedId(id) => {
+            let identity = storage
+                .find_active_identity_by_id(&id)
+                .map_err(|error| {
+                    Failure::new("IDENTITY_ERROR", "Could not read identity storage.", 1)
+                        .caused_by(error)
+                })?
+                .ok_or_else(|| identity_missing(&id))?;
+            if identity.lifetime != tmt_core::identity::Lifetime::Saved {
+                return Err(Failure::new(
+                    "MCP_SAVED_IDENTITY_REQUIRED",
+                    "MCP requires an existing saved identity.",
+                    1,
+                ));
+            }
+            Ok(Some(identity))
+        }
         Selector::Explicit(name) => {
             let selected = storage.resolve_identity(&name).map_err(|error| {
                 Failure::new("IDENTITY_ERROR", "Could not read identity storage.", 1)
