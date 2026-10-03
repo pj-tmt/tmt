@@ -28,7 +28,7 @@ A frame can navigate itself and
 leak a request before teardown; the app does not promise complete exfiltration
 prevention.
 
-[DEVELOPMENT.md](../../../../DEVELOPMENT.md#colab-browser-verification) owns the
+The [Colab development reference](../../../../.agents/skills/tmt-colab/references/development.md#app-and-browser-client) owns the
 install, dev, build and test commands. `test:browser` requires a built native `tmt-colab`
 and runs the Chromium isolation and real-socket static app scenarios, separately from the client primitive conformance harness.
 

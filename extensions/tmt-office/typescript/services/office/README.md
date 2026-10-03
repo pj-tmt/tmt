@@ -47,7 +47,7 @@ docker compose -f services/office/compose.yaml down
 State is ephemeral: there are no mounted data volumes or automatic imports.
 
 For the optional local sign-in UI and the opt-in `browser-tests` Docker target,
-follow [Local browser sign-in](../../../../../DEVELOPMENT.md#local-browser-sign-in).
+see the `browser-tests` target in this package's Dockerfile and Compose file.
 The default image/Compose service does not install Chromium or start the app.
 It also does not start Functions. The integrated `browser-tests` target builds
 the service and starts its loopback-only Functions emulator on port 5001.

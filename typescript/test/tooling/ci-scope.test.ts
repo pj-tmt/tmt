@@ -548,6 +548,8 @@ describe('component map', () => {
       'typescript/test/fixtures/release-cut-history.json':
         'immutable historical path/map data; cut tests compare strings without reading the named prose',
       'scripts/dev-disk-check.sh': 'names DEVELOPMENT.md in a message',
+      'typescript/test/tooling/dev-guide-budget.test.ts':
+        'counts DEVELOPMENT.md lines; Code quality runs it on every change',
       '.github/components.json': 'the map names the prose in its own rules',
       '.github/repository-layout.json':
         'top-level names only; the layout guard never reads listed prose',

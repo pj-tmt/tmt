@@ -1,11 +1,96 @@
 ---
 name: tmt-remote
-description: Develop and verify the tmt-remote extension and device SDK.
+description: Build, run and verify the Remote door (`tmt-remote`, `tmt remote ...`), and its embedded browser client. Load when changing extensions/tmt-remote or running its checks. Owner - the tmt-remote squad.
 ---
 
 # Remote development
 
-## Remote SDK operations
+Behavior lives in [`contracts/remote-channel-v1.md`](../../../contracts/remote-channel-v1.md)
+and [ARCHITECTURE.md](../../../ARCHITECTURE.md); this skill holds only how to build,
+run and verify. Shared Rust, native and Docker gates are in
+[DEVELOPMENT.md](../../../DEVELOPMENT.md).
+
+## Rust crate
+
+```bash
+(cd rust && CARGO_BUILD_JOBS=2 cargo build --offline --locked -p tmt-remote)
+(cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-remote)
+(cd rust && CARGO_BUILD_JOBS=2 cargo clippy --offline --locked -p tmt-remote --all-targets -- -D warnings)
+(cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-cli --test architecture)
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts)
+```
+
+- Pairing and state tests use short roots under `/tmp`: Unix socket paths are
+  limited to about 100 bytes.
+- Native operation tests use signed requests, private real storage and
+  deterministic public-process fixtures; they are not real-core acceptance. The
+  SIGKILL probe checks serve-lease inheritance and release.
+- `remote-operations` and `remote-recovery` Docker scenarios cover dispatch, hold,
+  recovery and one permitted/refused read through `E2EFixture`. Run them with
+  `CARGO_BUILD_JOBS=2 corepack pnpm test:e2e` in the booked isolated Docker heavy
+  slot, twice. Their wrapper executes the selected real core; test-only grant
+  seeding happens only in Remote storage while serve and owned children are stopped.
+- Door tests use disposable HOME/XDG, count startup core calls separately, assert
+  zero request-triggered core calls and run socket/process lifecycle twice. No real
+  model, account or database is used.
+
+## Run the door
+
+Build core, put `rust/target/debug` on `PATH`, then `tmt remote serve` (or `--json`
+for the bound descriptor). Direct invocation requires an absolute `TMT_EXECUTABLE`;
+it never searches for another core. Ctrl-C/SIGTERM closes listeners, sockets and
+workers. Limits are named in `src/limits.rs`.
+
+## Shared extension state
+
+[The state leaf](../../../ARCHITECTURE.md#shared-extension-state-layout) is
+library-only and shared with Colab:
+
+```bash
+(cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-extension-state)
+(cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-remote --test state)
+(cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-colab --test state)
+(cd rust && CARGO_BUILD_JOBS=2 cargo clippy --offline --locked -p tmt-extension-state -p tmt-remote -p tmt-colab --all-targets -- -D warnings)
+(cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-cli --test architecture)
+```
+
+Synced publication tests prove filesystem behavior, not power-loss recovery. A new
+workspace path also needs the tracked-file layout, generated release configuration
+and CI-scope checks.
+
+## Embedded client and crypto fixtures
+
+The door embeds `extensions/tmt-remote/rust/tmt-remote/assets/remote-v1.js`, built
+from `remote-client`. After changing `remote-client/src`, rebuild and commit it
+(Code quality rebuilds it and fails on a difference), then run the Chromium pairing
+smoke against a debug door:
+
+```bash
+(cd typescript && pnpm --filter @tmt/remote-client --fail-if-no-match build)
+(cd rust && CARGO_BUILD_JOBS=2 cargo build --offline --locked -p tmt-remote)
+(cd typescript && pnpm --filter @tmt/remote-client exec playwright install chromium)
+(cd typescript && pnpm --filter @tmt/remote-client --fail-if-no-match test:browser)
+```
+
+Byte and crypto conformance runs with the Rust tests. The shared vectors come from
+`extensions/tmt-remote/typescript/remote-client/test/reference.py` (which also checks the
+pinned BIP-39 list digest). Check the Rust-owned fixtures with:
+
+```bash
+python3 extensions/tmt-remote/rust/tmt-remote/tests/fixtures/mac-reference.py --check
+node extensions/tmt-remote/rust/tmt-remote/tests/fixtures/webcrypto.mjs
+```
+
+Use the repository Node 22 and repeat the WebCrypto command on Node 24; `--write`
+regenerates the public-test-key fixture. The Python oracle imports no product code.
+None of this proves real Chrome key persistence across MV3 worker restarts.
+
+## Installer registration
+
+Core's installer registration for `remote` and `colab` is verified with the commands in the
+[release reference](../tmt-release/references/native-release.md#remote-and-colab-installer-registration).
+
+## SDK operations
 
 Follow [tmt-dev](../tmt-dev/SKILL.md), the
 [Remote architecture](../../../ARCHITECTURE.md#remote-extension-pilot) and
