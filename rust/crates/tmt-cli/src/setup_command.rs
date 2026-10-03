@@ -89,6 +89,16 @@ fn run(
     if !mode.json {
         writeln!(output, "{} {} {} in {}\nLauncher: {}\nContext: identity, role summary, existing notes path and unread X counts. No message bodies or permission changes. Provider hook trust review still applies.",
             if removing { "Remove TMT-owned" } else { "Configure" }, plan.provider, plan.events(), plan.change.path.display(), plan.launcher.display()).map_err(failure)?;
+        if plan.change.before.is_some() && plan.change.changed() {
+            writeln!(
+                output,
+                "Recoverable backups: {} (warning above 32; manual cleanup only).",
+                setup::backup_directory(&plan.change.path)
+                    .expect("settings parent")
+                    .display()
+            )
+            .map_err(failure)?;
+        }
         if plan.usage {
             writeln!(output, "{USAGE_NOTE}").map_err(failure)?;
         }
@@ -108,6 +118,7 @@ fn run(
         return Ok(());
     }
     let backup = setup::apply(&plan).map_err(failure)?;
+    let warning = setup::backup_warning(&plan.change.path);
     // Recorded after publication; exact hooks already present are adopted.
     let recorded = if remove {
         record::forget(&global, plan.provider, &plan.change.path)
@@ -135,6 +146,9 @@ fn run(
         let mut document = json!({"provider": plan.provider, "changed": plan.change.changed(),
             "removed": remove, "settingsPath": plan.change.path, "launcher": plan.launcher, "backup": backup
         });
+        if let Some(warning) = &warning {
+            document["warnings"] = json!([warning]);
+        }
         // Additive: present only while the usage hook is installed.
         if plan.usage {
             document["usage"] = json!(true);
@@ -154,6 +168,10 @@ fn run(
             .map_err(failure)?;
         } else {
             writeln!(output, "Already current; no changes made.").map_err(failure)?;
+        }
+        if let Some(warning) = &warning {
+            tmt_cli_style::message::warning(&mut output, terminal, warning, None)
+                .map_err(failure)?;
         }
         if let Some(backup) = backup {
             writeln!(output, "Recoverable backup: {}", backup.display()).map_err(failure)?;

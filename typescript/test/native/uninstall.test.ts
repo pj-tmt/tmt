@@ -33,6 +33,9 @@ describe('tmt uninstall on a disposable HOME and prefix', () => {
         true
       );
 
+      const installedSettings = readFileSync(claudeSettings, 'utf8');
+      const legacy = path.join(path.dirname(claudeSettings), 'settings.tmt-backup-legacy.json');
+      writeFileSync(legacy, 'legacy recovery bytes');
       const result = await runCli(tmt, ['uninstall', '--yes', '--json'], {
         deadlineMs: INSTALL_BUDGET_MS,
       });
@@ -41,9 +44,16 @@ describe('tmt uninstall on a disposable HOME and prefix', () => {
       // Setup and uninstall each back up the Claude settings they changed.
       const backup = 'backup of your settings before TMT removed its hooks';
       const kept = report.kept as { path: string; reason: string }[];
-      expect(kept.map((item) => item.reason)).toEqual([backup, backup]);
+      expect(kept.map((item) => item.reason)).toEqual([backup, backup, backup]);
+      expect(kept.map((item) => readFileSync(item.path, 'utf8')).sort()).toEqual(
+        [CLAUDE_ORIGINAL, installedSettings, 'legacy recovery bytes'].sort()
+      );
       for (const item of kept) {
-        expect(path.dirname(item.path)).toBe(path.dirname(claudeSettings));
+        expect(path.dirname(item.path)).toBe(
+          item.path === legacy
+            ? path.dirname(claudeSettings)
+            : path.join(path.dirname(claudeSettings), '.tmt-setup-backups')
+        );
         expect(existsSync(item.path)).toBe(true);
       }
       expect(report.officeStopped).toBe(false);
@@ -71,6 +81,29 @@ describe('tmt uninstall on a disposable HOME and prefix', () => {
       const again = await runCli(sandbox, ['uninstall', '--prefix', prefix, '--yes', '--json']);
       expect(again.status, again.stderr).toBe(0);
       expect(parseWholeStdout(again).removed).toEqual([]);
+    });
+  });
+
+  it('keeps symlinked settings and their target with actionable guidance', async () => {
+    await withSandbox(async (sandbox) => {
+      const tmt = await setUpMachine(sandbox);
+      const { claudeSettings } = paths(sandbox);
+      const target = path.join(path.dirname(claudeSettings), 'linked-target.json');
+      const bytes = readFileSync(claudeSettings);
+      writeFileSync(target, bytes);
+      rmSync(claudeSettings);
+      symlinkSync(target, claudeSettings);
+      const result = await runCli(tmt, ['uninstall', '--yes', '--json'], {
+        deadlineMs: INSTALL_BUDGET_MS,
+      });
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      const report = parseWholeStdout(result);
+      expect(report.kept).toContainEqual({
+        path: claudeSettings,
+        reason: expect.stringContaining('Edit the target manually'),
+      });
+      expect(readlinkSync(claudeSettings)).toBe(target);
+      expect(readFileSync(target)).toEqual(bytes);
     });
   });
 

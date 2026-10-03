@@ -264,6 +264,13 @@ owned start/end/prompt-submit hooks using the stable PATH launcher; `--remove` r
 unchanged owned hooks. Do not install into the user's provider settings merely
 because a conversation lost context. Hooks restore bounded verified identity
 context and remember the session, not permission grants or arbitrary instructions.
+Claude uses a nonempty `CLAUDE_CONFIG_DIR` for settings and skills, otherwise
+`~/.claude`; relative roots resolve from the command's working directory.
+Setup refuses symlinked settings without changing the link or target; review
+and back up the target before editing it manually. New byte-exact recovery
+copies stay in private `.tmt-setup-backups` beside settings. Above 32 copies,
+setup warns with that directory and a manual cleanup hint but still publishes.
+TMT never automatically deletes or migrates backups.
 Timeout or uncertain evidence produces no identity claim. Session-only binding
 is not supported; a hook never names, transfers or resurrects an identity.
 Independent Codex sessions use verified pane/process evidence. Shared-server hooks
@@ -751,7 +758,7 @@ Avoid sending secrets or credentials to another pane. For a requested send
 delay, use `--delay` rather than introducing a separate shell sleep.
 
 Install the same native skill with `tmt install` (auto-detects supported agents).
-Claude uses `~/.claude/skills`; Codex, Gemini and OpenCode share
+Claude uses `<CLAUDE_CONFIG_DIR>/skills` (otherwise `~/.claude/skills`); Codex, Gemini and OpenCode share
 `~/.agents/skills`. Antigravity CLI (`agy`) uses
 `~/.gemini/config/skills`; Pi uses `~/.pi/agent/skills`
 (or `<PI_CODING_AGENT_DIR>/skills` when configured). Each selected root receives

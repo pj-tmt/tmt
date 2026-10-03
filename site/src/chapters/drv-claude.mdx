@@ -31,6 +31,12 @@ $ tmt resume reviewer       # reopen reviewer's own conversation
 
 Setup adds three Claude Code hooks for tmt (session start, session end and prompt submit), and nothing else in your settings changes. The hooks never block Claude Code: if tmt is slow or missing, the session starts normally without the summary. `tmt setup claude --remove` takes them out again.
 
+If `CLAUDE_CONFIG_DIR` is set, tmt uses that folder for Claude's settings and skills, and reads transcripts there, instead of `~/.claude`. A relative path counts from the folder where you run tmt.
+
+Setup won't edit a settings file that is a symlink; it leaves the link and its target untouched. To add tmt's hooks anyway, back up the file the link points to, run `tmt setup claude` with `CLAUDE_CONFIG_DIR` pointing at an empty folder, then copy the tmt hook entries from there into your real settings file by hand.
+
+If a session ends for a reason tmt doesn't recognize, tmt doesn't count that as the end; it checks the Claude process itself.
+
 ### What you get
 
 - **The right conversation on resume**, even when several agents work in the same folder.

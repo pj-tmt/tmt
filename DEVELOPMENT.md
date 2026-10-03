@@ -1697,6 +1697,15 @@ measurements are local evidence, not a flaky CI threshold.
 
 Setup planning/publication tests use disposable settings files and preserve user
 hook/permission bytes, exact reruns, recovery copies and changed-input refusal.
+Claude cases cover unset/empty, absolute and relative `CLAUDE_CONFIG_DIR` roots
+across settings, skills, detection and transcript admission. Symlinked settings
+(including dangling links and replacement after planning) are preserved along
+with their target, with actionable human/JSON refusal. Backup tests independently
+compare exact bytes and private directory/file modes, preserve legacy copies,
+and prove publication continues with a directory/manual-cleanup warning above
+32 backups in `.tmt-setup-backups`. Unknown Claude `SessionEnd` reasons yield
+no lifecycle observation, with a known terminal reason as the positive control;
+rejection is not process-exit evidence.
 `test/native/setup.test.ts` owns CLI consent, stable-launcher repair/removal and
 the always-zero bounded hook failure contract, including custom `CODEX_HOME`
 without trust/config mutation. Runtime adapter tests own Claude/Codex payload

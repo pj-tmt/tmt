@@ -317,3 +317,28 @@ fn hook_command_quotes_stable_launcher_without_resolving_it() {
         }]})
     );
 }
+
+#[test]
+fn unknown_session_end_is_no_observation_and_known_end_still_decodes() {
+    use crate::runtime::lifecycle::RuntimeLifecycle;
+    let payload = |reason: &str| {
+        json!({"hook_event_name":"SessionEnd", "session_id":"exact-session", "reason":reason})
+            .to_string()
+    };
+    assert!(
+        ClaudeLifecycle
+            .decode(payload("future-provider-reason").as_bytes())
+            .is_none()
+    );
+    assert_eq!(
+        decode_hook(payload("future-provider-reason").as_bytes()),
+        Err(HookInputError::Unsupported)
+    );
+    let known = decode_hook(payload("prompt_input_exit").as_bytes()).unwrap();
+    assert_eq!(known.transition, SessionTransition::Ended);
+    assert!(
+        ClaudeLifecycle
+            .decode(payload("prompt_input_exit").as_bytes())
+            .is_some()
+    );
+}

@@ -161,7 +161,7 @@ $ tmt setup claude       # hooks for one agent
 $ tmt setup codex --remove
 `}</Cmd>
 
-Your existing settings stay byte for byte apart from tmt's hooks, a backup is written first, and a failing hook never blocks the agent. `--usage` adds the optional [usage counters](/drivers#usage-counters).
+Your existing settings stay byte for byte apart from tmt's hooks, a backup is written first, and a failing hook never blocks the agent. Backups go into a private `.tmt-setup-backups` folder next to the settings file, and older backups stay where they are. tmt never deletes or moves them: past 32, setup still applies the change but warns and shows the folder so you can clean it up. `--usage` adds the optional [usage counters](/drivers#usage-counters).
 
 ### `tmt uninstall`
 
