@@ -3386,11 +3386,11 @@ socket/process lifecycle acceptance twice. No real model/account/DB is used.
 
 The private local-build Colab executable serves an owner-only mounted socket,
 owner-browser registration and stream sync, and lists local-space metadata.
-Owner requests load the built browser app when its local output is available.
-An installed `tmt-colab` serves the app only after #1421 embeds it; until then
-it shows the build-hint placeholder. Core registers Colab with the shared
-installer; #1421 owns app embedding, and packaging/publication remain separate
-gates. Rust builds and tests do not require a browser build.
+Owner requests use the embedded browser app when built with `TMT_COLAB_APP_DIR`,
+or load local checkout output when it is available. Without either, the local
+build shows a build-hint placeholder. Published `tmt-colab` artifacts must embed
+the app. Core registers Colab with the shared installer; packaging/publication
+remain separate gates. Rust builds and tests do not require a browser build.
 See [installer registration](#remote-and-colab-installer-registration).
 Build and verify it from the repository root:
 

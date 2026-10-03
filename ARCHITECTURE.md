@@ -4792,7 +4792,7 @@ the owner-local epoch engine is implemented; the browser page preview runs on a 
 owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
 bridge policy and acceptance gates. The #828 design owns product/UI choices;
 #829/#830 are bounded spike evidence. Core registers Colab with the shared native installer; the executable remains
-source-only until app embedding, packaging and publication pass their separate
+source-only until packaging and publication pass their separate
 gates. No deployment or official archive publication is claimed.
 The [channel boundary](extensions/tmt-colab/contracts/colab-v1.md#channel-boundary) marks which colab-v1 sections move to remote, stay or retire.
 
@@ -4800,8 +4800,7 @@ Current executable dependencies are `tmt-invoke`, `tmt-cli-style`, the pure
 `tmt-colab-model` space-ID derivation and reviewed workspace pins. The model owns
 canonical bytes/codecs/crypto without I/O or core access. The
 executable owns CLI composition, foreground door, SQLite/files and keyring;
-the browser build is loaded at foreground startup; native app embedding is
-owned by #1421 and remains a publication gate. The bridge remains proposed. Core access is only through the absolute invoking
+the browser build is embedded when `TMT_COLAB_APP_DIR` selects validated build output; otherwise a local build may load checkout output at foreground startup. Published artifacts must embed the built app. The bridge remains proposed. Core access is only through the absolute invoking
 `$TMT_EXECUTABLE api` and documented JSON commands via the invoke leaf; no
 `tmt-core`, `tmt-adapters`, Office or Remote behavior dependencies, core SQLite
 or pane scraping. Shared crypto extraction requires actual consumers and review.
