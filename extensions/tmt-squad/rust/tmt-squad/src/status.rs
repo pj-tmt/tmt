@@ -361,14 +361,14 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
             if let Some(field) = cell["field"].as_str()
                 && visible
                 && !fields.contains(&field)
-            && !document["columns"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .find(|column| column["field"] == field)
-                .and_then(|column| column["from"].as_str())
-                .and_then(|path| crate::source::ColumnSource::parse(path, |_| true, |_| true))
-                .is_some_and(|source| source.board_only())
+                && !document["columns"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|column| column["field"] == field)
+                    .and_then(|column| column["from"].as_str())
+                    .and_then(|path| crate::source::ColumnSource::parse(path, |_| true, |_| true))
+                    .is_some_and(|source| source.board_only())
             {
                 fields.push(field);
             }
