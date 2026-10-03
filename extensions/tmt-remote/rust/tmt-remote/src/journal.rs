@@ -17,6 +17,7 @@ pub const FROZEN_BYTES: i64 = 64 * 1024 * 1024;
 #[derive(Debug, Clone)]
 pub struct Owned {
     pub id: String,
+    pub(crate) operation: String,
     pub phase: String,
     pub receipt: Value,
     pub frozen: Option<Vec<u8>>,
@@ -120,7 +121,7 @@ fn position(
     }
     Ok(position)
 }
-fn prune(tx: &Transaction<'_>, client: &str, now: u64) -> Result<(), RemoteError> {
+pub(crate) fn prune(tx: &Transaction<'_>, client: &str, now: u64) -> Result<(), RemoteError> {
     let expired: Option<i64> = tx
         .query_row(
             "SELECT MAX(position) FROM entries WHERE client_id=?1 AND at_ms<=?2",
@@ -183,7 +184,6 @@ fn event<'a>(
 }
 struct Stored {
     client: String,
-    operation: String,
     digest: Vec<u8>,
     owned: Owned,
     time: u64,
@@ -204,8 +204,8 @@ fn json_column<T: serde::de::DeserializeOwned>(
 fn read_owned(tx: &Transaction<'_>, id: &str) -> Result<Option<Stored>, RemoteError> {
     tx.query_row("SELECT client_id,operation,digest,phase,receipt,frozen,references_json,updated_ms FROM operations WHERE id=?1",[id],|row| {
         let time:i64=row.get(7)?;
-        Ok(Stored{client:row.get(0)?,operation:row.get(1)?,digest:row.get(2)?,
-            owned:Owned{id:id.into(),phase:row.get(3)?,receipt:json_column(row,4)?,frozen:row.get(5)?,references:json_column(row,6)?},
+        Ok(Stored{client:row.get(0)?,digest:row.get(2)?,
+            owned:Owned{id:id.into(),operation:row.get(1)?,phase:row.get(3)?,receipt:json_column(row,4)?,frozen:row.get(5)?,references:json_column(row,6)?},
             time:u64::try_from(time).map_err(|_|rusqlite::Error::IntegralValueOutOfRange(7,time))?})
     }).optional().map_err(database)
 }
@@ -215,10 +215,22 @@ impl Store {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(database)
     }
-    fn authorized(&mut self, grant: &Grant, now: u64) -> Result<Transaction<'_>, RemoteError> {
+    pub(crate) fn authorized(
+        &mut self,
+        grant: &Grant,
+        now: u64,
+    ) -> Result<Transaction<'_>, RemoteError> {
+        self.authorized_at(grant, || Ok(now)).map(|value| value.0)
+    }
+    pub(crate) fn authorized_at(
+        &mut self,
+        grant: &Grant,
+        clock: impl FnOnce() -> Result<u64, RemoteError>,
+    ) -> Result<(Transaction<'_>, u64), RemoteError> {
         let tx = self.begin()?;
+        let now = clock()?;
         authority(&tx, grant, now)?;
-        Ok(tx)
+        Ok((tx, now))
     }
     pub fn charge_call(&mut self, client: &str, now: u64) -> Result<(), RemoteError> {
         let tx = self.begin()?;
@@ -239,6 +251,7 @@ impl Store {
         grant: &Grant,
         message: &SignedMessage,
         frozen: Option<&[u8]>,
+        resources: &[String],
         metadata: &[u8],
         now: u64,
     ) -> Result<Owned, RemoteError> {
@@ -248,6 +261,8 @@ impl Store {
             || input.kind != "request"
             || admission::scope(input.operation).is_none()
             || (input.operation == "dispatch.create") != frozen.is_some()
+            || resources.len() > 256
+            || resources.iter().any(|id| !canonical::is_core_id(id))
             || metadata.len() > crate::limits::METADATA_BYTES
         {
             return Err(database("invalid adoption"));
@@ -255,13 +270,12 @@ impl Store {
         let tx = self.authorized(grant, now)?;
         if let Some(Stored {
             client,
-            operation,
             digest: old,
             owned,
             time,
         }) = read_owned(&tx, input.id)?
         {
-            if client != grant.client_id || operation != input.operation || old != digest {
+            if client != grant.client_id || owned.operation != input.operation || old != digest {
                 return Err(RemoteError::new(
                     "REMOTE_INTENT_CONFLICT",
                     "Request ID or intent conflicts.",
@@ -321,12 +335,14 @@ impl Store {
         };
         let receipt =
             json!({"requestEnvelopeId":input.id,"operation":input.operation,"state":phase});
-        audit::append(&tx, event(grant, message, &digest, now, "adopted", ""))?;
+        let mut audit_event = event(grant, message, &digest, now, "adopted", "");
+        audit_event.resources = resources;
+        audit::append(&tx, audit_event)?;
         stream.tip = stream
             .tip
             .checked_add(1)
             .ok_or_else(|| database("stream exhausted"))?;
-        tx.execute("INSERT INTO operations(id,client_id,operation,digest,frozen,phase,receipt,updated_ms) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",params![input.id,grant.client_id,input.operation,digest.as_slice(),frozen,phase,receipt.to_string(),now as i64]).map_err(database)?;
+        tx.execute("INSERT INTO operations(id,client_id,operation,digest,frozen,phase,receipt,updated_ms,references_json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![input.id,grant.client_id,input.operation,digest.as_slice(),frozen,phase,receipt.to_string(),now as i64,serde_json::to_string(resources).map_err(database)?]).map_err(database)?;
         let at_ms = (now as i64).max(stream.last_ms);
         tx.execute(
             "INSERT INTO entries VALUES (?1,?2,?3,?4)",
@@ -341,10 +357,11 @@ impl Store {
         tx.commit().map_err(database)?;
         Ok(Owned {
             id: input.id.into(),
+            operation: input.operation.into(),
             phase: phase.into(),
             receipt,
             frozen: frozen.map(Vec::from),
-            references: Vec::new(),
+            references: resources.to_vec(),
         })
     }
     pub fn owned(&mut self, grant: &Grant, id: &str, now: u64) -> Result<Owned, RemoteError> {

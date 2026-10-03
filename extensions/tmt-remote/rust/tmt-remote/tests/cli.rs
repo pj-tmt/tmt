@@ -83,7 +83,11 @@ fn help_missing_core_and_invalid_options() {
     let b = pilot.command().args(["help", "serve"]).output().unwrap();
     assert!(a.status.success() && b.status.success());
     assert_eq!(a.stdout, b.stdout);
-    assert!(String::from_utf8(a.stdout).unwrap().contains("deny-all"));
+    assert!(
+        String::from_utf8(a.stdout)
+            .unwrap()
+            .contains("owner-device")
+    );
     assert!(
         !pilot
             .command()
@@ -139,7 +143,7 @@ fn startup_reads_capabilities_and_root_mounts_without_core_calls_and_sigterm_rea
         });
         let descriptor: Value = serde_json::from_str(&rx.recv_timeout(STARTUP).unwrap()).unwrap();
         reader.join().unwrap();
-        assert_eq!(descriptor["state"], "closed");
+        assert_eq!(descriptor["state"], "ready");
         assert_eq!(descriptor["startupCoreCalls"], 2);
         let address = descriptor["address"]
             .as_str()

@@ -3209,10 +3209,10 @@ uses the `fmt` block in its Vite configuration; shared docs use the tooling form
 
 ## Remote pilot development
 
-The local-build-only remote crate is a foreground deny-all door. It performs
+The local-build-only remote crate is a foreground owner-device door. It performs
 two public startup reads (capabilities and `storage.root`), creates or reopens
 its private `<dataRoot>/remote/` state (0700 directory; 0600 machine key,
-SQLite database and locks), then refuses every remote application request. The
+SQLite database and locks), then admits the signed dispatch/recovery subset. The
 `/r/` route prefix and machine ID persist across restarts, and a second serve
 on the same data root fails with `REMOTE_ALREADY_SERVING`. With serve running,
 `tmt remote pair` prints a pairing link and code, shows the device's kind,
@@ -3247,7 +3247,27 @@ Colab gets at most 16 live WebSocket tunnels, each closed after 120 seconds
 without traffic; a full pool answers 503 with `retry-after`, so colab should
 keep one socket per tab and reconnect after idle close.
 Strict normal-message authority and signed subscribe/ack are implemented. Application
-append returns audited, machine-signed `REMOTE_CLOSED` refusals without core effects.
+append admits single-recipient anonymous `dispatch.create`, owned `dispatch.show`/
+`operation.show`, and the named reads `agents.list`, `identities.status`, `check`,
+`requests.show` and `result`. Signed capabilities reports this subset. Agent listing
+projects only permitted UUID/name/presence and core-published delivery; status/check
+restrict their inputs to the grant's agent allowlist. Result reads use public request
+history, preserve empty finals, and never infer completion from terminal capture. Direct
+requests freeze a device provenance line and go through the public core API. Hold
+requests create no core effect until local `tmt remote approve <operationId>` confirms
+the displayed frozen message. `approve --json` emits `event:held` with source/recipient/
+message, reads one `{"op":"confirm"}` or `{"op":"refuse"}` stdin line, then emits
+`event:ended` with the original operation ID and state. EOF/refusal cancels; local
+`tmt remote cancel <operationId> --json` reports the cancelled state. Stop/restart cancel
+unconfirmed holds. Grant scope, recipient allowlist and expiry are rechecked before
+core invocation. SQLite authority writes wait beyond both bounded core calls, so a
+revocation ordered after an in-flight send succeeds once that call releases its fence.
+The dispatching audit row commits after the core call; crash recovery uses the adopted
+frozen bytes and idempotent core operation ID rather than missing audit evidence.
+Recovery reads never send; an explicit retry retains the same ID
+and exact intent, and never repeats an accepted core dispatch or its advisory wake.
+An old invocation retains the serve lease after a Remote crash, so restart refuses
+until that child has stopped. Unconfirmed cleanup keeps writes closed until restart.
 Session opens, controls and responses share durable counters; client sequences are
 consumed once, with one normal message in flight per session. Malformed/unsigned/expired/
 revoked inputs retain generic pre-auth refusal. Focused checks run from `rust/` with
@@ -3255,8 +3275,17 @@ revoked inputs retain generic pre-auth refusal. Focused checks run from `rust/` 
 exact bytes, strict JSON, retry intent, signed catch-up/checkpoints, cursor isolation,
 retention and persisted budgets. Journal unit tests inject SQLite audit failures and
 capacity, and prove waits wake on authority events/shutdown, including notification races.
-The permit's internal adoption API is tested against private real storage; public
-application operations, hold approval, core sends and the relay remain unwired. The [channel contract](contracts/remote-channel-v1.md) is
+Native operation tests use signed requests, private real storage and deterministic
+public-process fixtures to verify dispatch/hold/recovery boundaries; the SIGKILL probe
+checks invocation lease inheritance and release. These are not real-core acceptance.
+The separate E feature's `remote-operations` and `remote-recovery` scenarios provide
+#1055's six-bullet integrated acceptance and one permitted/refused read scenario through
+E2EFixture. Run them with
+`CARGO_BUILD_JOBS=2 corepack pnpm test:e2e` in the booked isolated Docker heavy slot,
+with lifecycle acceptance twice. E's transparent wrapper executes the selected actual
+core without fake output; its test-only grant seeding happens solely in Remote storage
+while serve and owned children are stopped. E and Docker evidence remain pending.
+The [channel contract](contracts/remote-channel-v1.md) is
 proposed; [the separately owned browser shell](#browser-add-on-shell)
 uses only a stub. No official remote installer/release exists.
 
