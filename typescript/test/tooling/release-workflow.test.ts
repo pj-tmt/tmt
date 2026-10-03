@@ -111,7 +111,7 @@ describe('per-product release run (native-release.yml)', () => {
     expect(job(run, 'plan')).toContain('retry, hold and rerun need prepare turned off.');
   });
 
-  it('refuses parked Office before preparation or draft planning, retaining released products', () => {
+  it('refuses parked Office and Colab before preparation or draft planning, retaining released products', () => {
     const plan = job(run, 'plan');
     expect(plan).toContain(
       'node typescript/scripts/native-release-policy.mjs require-released "$PRODUCT"'
@@ -132,7 +132,7 @@ describe('per-product release run (native-release.yml)', () => {
         0o700
       );
       const search = `${directory}${path.delimiter}${process.env.PATH ?? ''}`;
-      for (const [product, prepare] of ['office', 'driver-herdr'].flatMap((product) =>
+      for (const [product, prepare] of ['office', 'driver-herdr', 'colab'].flatMap((product) =>
         ['true', 'false'].map((prepare) => [product, prepare])
       )) {
         const result = spawnSync('/bin/sh', ['-eu', '-c', shell], {
@@ -197,6 +197,25 @@ describe('per-product release run (native-release.yml)', () => {
 });
 
 describe('release bundle pipeline (native-release-bundle.yml)', () => {
+  it('builds Colab with frozen embedded assets and verifies outside the checkout fallback', () => {
+    expect(run).toMatch(/options:\n {10}- cli\n {10}- squad\n {10}- driver-herdr\n {10}- colab/);
+    expect(job(bundle, 'build')).toContain(
+      "if: inputs.product == 'office' || inputs.product == 'colab'"
+    );
+    const verify = job(bundle, 'verify');
+    expect(verify).toContain(
+      'corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build'
+    );
+    expect(verify).toContain(
+      'mv ../extensions/tmt-colab/typescript/app/dist "$RUNNER_TEMP/colab-app"'
+    );
+    expect(verify).toContain('elif [ "$PRODUCT" = colab ]; then');
+    expect(verify).toContain(
+      '--archive "target/distrib/tmt-colab-$TARGET.tar.gz" --target "$TARGET"'
+    );
+    expect(verify).toContain('--app-dir "$RUNNER_TEMP/colab-app"');
+  });
+
   it('is only callable, and runs the pipeline of the draft it is given', () => {
     expect(bundle).toMatch(/^on:\n {2}workflow_call:/m);
     expect(bundle).not.toContain('workflow_dispatch');

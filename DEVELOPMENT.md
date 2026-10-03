@@ -2833,6 +2833,59 @@ supporting CLI alpha before testing either public install/upgrade with it.
 Colab's #1421 embeds the built app in its executable; these synthetic fixtures
 prove installer lifecycle, not that embedding or installed SPA serving.
 
+#### Colab packaging wiring (parked)
+
+Colab selection is prepared with tag `tmt-colab-v<version>`, prerelease publication
+and `latest=false`. It remains `release:false` / `dist=false`; neither preparation
+nor publication accepts it. Activation belongs to the infra lead after #1421
+embeds the app, #1423 registers the product in a published supporting CLI alpha,
+and real archive acceptance passes. The wiring tests use a native tiny-app fixture,
+not a released Colab binary.
+
+`scripts/build-native-artifact.sh <target> colab` installs frozen dependencies with
+`corepack pnpm@10.33.0`, builds `@tmt/colab-app`, requires its index/assets and
+nonempty `THIRD-PARTY-NOTICES.txt`, exports the absolute dist path as
+`TMT_COLAB_APP_DIR`, and keeps that complete dist stable through Cargo compilation.
+Colab's build script owns inventory validation. Native notices append the exact
+Vite notices after cargo-about. No app directory is installed alongside the binary.
+
+Run fixture checks without Docker or a release build:
+
+```sh
+(cd typescript && corepack pnpm@10.33.0 exec vp test run --config vitest.config.ts test/tooling/colab-runtime-proof.test.ts test/tooling/native-artifact-stdout.test.ts test/tooling/native-release-policy.test.ts test/tooling/plan-release-builds.test.ts test/tooling/verify-public-install.test.ts test/tooling/release-workflow.test.ts)
+(cd typescript && corepack pnpm@10.33.0 check:tooling)
+sh -n scripts/build-native-artifact.sh
+actionlint .github/workflows/native-release.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-smoke.yml .github/workflows/native-release-upgrade.yml
+```
+
+The fixture requires a host C compiler (`cc`; static linking on Linux). Positive
+and mutated binaries exercise exact embedded bytes, placeholder/startup rejection,
+combined-notice omissions and graceful process/socket cleanup. This is proof of
+the verifier, not Colab's app/crypto/browser acceptance.
+
+After the prerequisites, reserve the shared host's heavy slot before an actual
+matching-host archive build. Keep `release:false` and `dist:false` until activation
+is authorized. For the independent verifier, build the expected Vite app from the
+same frozen source and move its dist outside the checkout before execution, as the
+final bundle job does. Pass its new absolute path only to the verifier:
+
+```sh
+node typescript/scripts/verify-native-artifact.mjs --product colab \
+  --manifest /absolute/colab-manifest.json \
+  --archive /absolute/tmt-colab-aarch64-apple-darwin.tar.gz \
+  --target aarch64-apple-darwin --app-dir /absolute/expected-colab-app \
+  --notices /absolute/combined-notices.txt --license LICENSE
+```
+
+The extracted binary is copied to a fresh directory and serves without `--app-dir`,
+checkout output or pnpm on PATH. Exact HTML, every expected asset and frontend
+notices must match; archived notices must contain both Rust and frontend texts.
+Archive proof injects only core storage-root discovery; public-install smoke uses
+its installed CLI and the same serving/cleanup proof after install/list. All state
+is disposable, and all child processes stop before its removal. Public smoke is
+still unauthenticated and keeps the existing classified retry limits. Subsequent
+releases retain the shared previous-release extension upgrade gate.
+
 ### Native curl bootstrap verification
 
 Generate the release-specific script only after final cargo-dist archives and

@@ -31,6 +31,7 @@ on:
           - office
           - squad
           - driver-herdr
+          - colab
       tag:
         description: Published release to install
         required: true

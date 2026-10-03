@@ -38,6 +38,31 @@ function draft(
 const tags = (plan: { builds: readonly { tag: string }[] }) => plan.builds.map(({ tag }) => tag);
 
 describe('release build plan', () => {
+  it('isolates Colab tags and leaves parked Colab drafts untouched', () => {
+    const releases = [
+      draft('tmt-colab-v0.1.0-alpha.1', '1'),
+      draft('tmt-squad-v0.1.0-alpha.1', '1'),
+      draft('v5.0.0-alpha.1', '1'),
+    ];
+    expect(tags(planReleaseBuilds({ product: 'colab', releases }))).toEqual([
+      'tmt-colab-v0.1.0-alpha.1',
+    ]);
+    expect(planReleaseBuilds({ product: 'colab', releases, released: false })).toMatchObject({
+      builds: [],
+      awaiting: [],
+      unreleased: [{ tag: 'tmt-colab-v0.1.0-alpha.1' }],
+    });
+    const result = spawnSync(process.execPath, [script, '--product', 'colab'], {
+      input: JSON.stringify(releases),
+      encoding: 'utf8',
+      timeout: 10_000,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe('matrix={"include":[]}\nany=false\n');
+    expect(result.stderr).toContain('No draft release needs a build.');
+    expect(result.stderr).toContain('colab is not released');
+  });
+
   it('plans every draft of the product that has no bundle, oldest first, whatever order GitHub lists them', () => {
     const plan = planReleaseBuilds({
       product: 'cli',

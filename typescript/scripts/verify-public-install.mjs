@@ -28,7 +28,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { isReleased, parseComponentMap } from './ci-scope.mjs';
+import { parseComponentMap } from './ci-scope.mjs';
+import { isProductReleased } from './native-release-policy.mjs';
+import { verifyColabApp } from './colab-runtime-proof.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 import { compareVersions, isAlphaVersion, versionOfTag } from './release-versions.mjs';
 import {
@@ -383,7 +385,7 @@ export async function smokeRelease({
     return report.version;
   });
   if (!extensionInstalled) return finish();
-  await check(`${product} list`, async () => {
+  const listed = await check(`${product} list`, async () => {
     const { extensions } = JSON.parse(
       tmt(['extension', 'list', '--json', '--prefix', extensionPrefix])
     );
@@ -395,6 +397,21 @@ export async function smokeRelease({
     }
     return listed.version;
   });
+  if (listed && product === 'colab') {
+    await check('colab embedded app', async () => {
+      const executable = realpathSync(path.join(extensionPrefix, 'bin', 'tmt-colab'));
+      await verifyColabApp({
+        executable,
+        tmtExecutable: binary,
+        version,
+        notices: readFileSync(
+          path.join(path.dirname(executable), 'THIRD-PARTY-NOTICES.txt'),
+          'utf8'
+        ),
+      });
+      return 'relocated embedded app/assets and combined notices; socket cleaned up';
+    });
+  }
   return finish();
 }
 
@@ -425,7 +442,7 @@ async function main(argv, environment) {
   const version = versionOfTag(values.tag, values.product);
   if (!isAlphaVersion(version)) throw new Error(`${values.tag} is not an alpha release.`);
   const map = parseComponentMap(readFileSync(COMPONENTS, 'utf8'));
-  if (!isReleased(map, values.product)) {
+  if (!isProductReleased(map, values.product)) {
     throw new Error(
       `${values.product} is not released (release: false), so there is nothing to install.`
     );

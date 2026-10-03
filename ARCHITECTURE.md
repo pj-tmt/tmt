@@ -4214,6 +4214,20 @@ the component existed. No Herdr package or cutoff is added to release-please.
 CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 
+Colab's native release wiring is prepared but parked (`release: false`, Cargo
+`dist = false`). The builder owns frozen Vite build orchestration and passes a
+stable absolute `TMT_COLAB_APP_DIR` to the Colab-owned build-time embedding
+boundary (#1421). One executable carries the app; its four-file archive has no
+sibling app tree. Vite notices follow target-filtered Rust notices. Core owns the
+product/archive registration (#1423). Activation requires embedding, that
+registration in a published supporting CLI alpha, and actual-archive acceptance.
+The shared `colab-runtime-proof.mjs` verifies relocated socket serving, exact
+independent app bytes for archives, representative app delivery for public smoke,
+combined notices and child/socket cleanup with no frontend runtime tooling.
+Its native tiny-app fixture proves guard sensitivity while embedding is pending;
+it does not establish release-artifact acceptance. Expected Vite files are moved
+away from the checkout fallback before the final archive executes.
+
 The artifact builder resolves the taffy-only offline clarification before
 cargo-about runs. `rust/about.toml` owns the clarification's
 upstream provenance and checksum; `rust/licenses/taffy-0.7.7/LICENSE.md` preserves

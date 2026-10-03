@@ -7,6 +7,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { runPackedCommand } from './packed-command.mjs';
 import { assertBenchmarkHelp } from '../test/support/performance-contract.mjs';
+import { verifyColabApp } from './colab-runtime-proof.mjs';
 
 export function nativeHostTarget() {
   const architecture =
@@ -212,6 +213,8 @@ export async function verifyNativeRuntime({
   product = 'cli',
   herdrDriver,
   herdrVersion,
+  colabApp,
+  notices,
   matchingHostMessage = `${subject} requires a matching native host`,
 }) {
   assert(fs.statSync(executable).isFile(), `${subject} must be a regular file`);
@@ -233,7 +236,7 @@ export async function verifyNativeRuntime({
 
     const run = (args) => runPackedCommand(executable, args, { cwd, env });
     assert(
-      ['cli', 'office', 'squad', 'driver-herdr'].includes(product),
+      ['cli', 'office', 'squad', 'driver-herdr', 'colab'].includes(product),
       'Unknown native runtime product'
     );
     const proveHerdr = (driver, expectedVersion) => {
@@ -255,6 +258,11 @@ export async function verifyNativeRuntime({
       assert(!fs.existsSync(xdg), 'Driver probe must not initialize config state');
       assert.deepEqual(fs.readdirSync(home), [], 'Driver probe must not create home state');
       assert.deepEqual(fs.readdirSync(cwd), [], 'Driver probe must not create workspace state');
+      return;
+    }
+    if (product === 'colab') {
+      assert(colabApp, 'Colab archive proof requires independent expected app bytes');
+      await verifyColabApp({ executable, version, expectedApp: colabApp, notices });
       return;
     }
     if (product === 'squad') {

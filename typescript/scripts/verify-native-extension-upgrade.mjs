@@ -29,7 +29,10 @@ const { values } = parseArgs({
   options: Object.fromEntries(OPTIONS.map((name) => [name, { type: 'string' }])),
 });
 for (const name of OPTIONS) assert(values[name], `--${name} is required`);
-assert(['office', 'squad'].includes(values.product), 'Only extension products have this proof');
+assert(
+  ['office', 'squad', 'colab'].includes(values.product),
+  'Only extension products have this proof'
+);
 
 const { product, target } = values;
 // The archive under release is strict; the previous release and the CLI driver are published
