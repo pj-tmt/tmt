@@ -11,7 +11,6 @@ use crate::{
     config::{BoardMode, NotesRender, Pane, TabColors},
     requests::{BODIES, age},
     rows::Rows,
-    split::Split,
 };
 use ratatui::{
     Frame,
@@ -979,15 +978,29 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
             })
             .title(title)
     };
+    let placement = super::composition::layout(
+        &mut view.derived.borrow_mut().composition,
+        board,
+        &app.collapsed_panes(),
+        app.focused(),
+        area,
+    );
+    let slots = match placement {
+        Ok(slots) => slots,
+        Err(error) => {
+            frame.render_widget(Paragraph::new(error).style(look.role(Role::Dim)), area);
+            return;
+        }
+    };
     match board.mode {
         BoardMode::Split if board.panes.len() == 1 && app.collapsed_panes().is_empty() => {
-            render_pane(frame, app, board.panes[0], area)
+            render_pane(frame, app, board.panes[0], slots[0].1)
         }
-        BoardMode::Split => render_split(frame, app, &board.split, area, &pane_block),
+        BoardMode::Split => render_split(frame, app, &slots, &pane_block),
         BoardMode::Tabs => {
             let focused = app.focused();
-            let [bar, rest] =
-                Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
+            let bar = slots[0].1;
+            let rest = slots[1].1;
             let mut spans = Vec::new();
             for pane in &board.panes {
                 spans.push(pane_tab(look, pane.title(), *pane == focused));
@@ -1002,17 +1015,17 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-/// One split, nested splits within it: each child gets its size or grow
-/// share of the split, and every pane its own bordered block.
+/// Named pane slots retain their rich painter, borders and title hits.
 fn render_split(
     frame: &mut Frame,
     app: &App,
-    split: &Split,
-    area: Rect,
+    slots: &[(Vec<String>, Rect)],
     pane_block: &dyn Fn(Pane) -> Block<'static>,
 ) {
     let collapsed = app.collapsed_panes();
-    for (pane, area) in split.solve(area, &collapsed) {
+    for (id, area) in slots {
+        let pane = Pane::parse(id.last().expect("named pane")).expect("validated pane slot");
+        let area = *area;
         if area.is_empty() {
             continue;
         }

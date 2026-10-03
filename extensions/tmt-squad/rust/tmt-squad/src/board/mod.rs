@@ -3,6 +3,7 @@
 
 mod app;
 mod changes;
+mod composition;
 mod derived;
 mod markdown;
 mod meter;
@@ -39,6 +40,25 @@ use std::{
     },
     time::{Duration, Instant},
 };
+
+/// Config tests exercise the production geometry owner without exposing its cache.
+#[cfg(test)]
+pub(crate) fn pane_rectangles(
+    board: &crate::config::Board,
+    folds: &std::collections::BTreeSet<crate::config::Pane>,
+    area: ratatui::layout::Rect,
+) -> Vec<(crate::config::Pane, ratatui::layout::Rect)> {
+    composition::layout(&mut None, board, folds, board.panes[0], area)
+        .unwrap()
+        .into_iter()
+        .map(|(id, rect)| {
+            (
+                crate::config::Pane::parse(id.last().unwrap()).unwrap(),
+                rect,
+            )
+        })
+        .collect()
+}
 
 const INPUT_WAIT: Duration = Duration::from_millis(200);
 /// Reported when input ends without a signal: the terminal is gone.
@@ -446,6 +466,7 @@ pub fn run(
     terminal::restore_before_panic_reports();
     let stop = terminal::stop_requested().map_err(failed)?;
     let config = Config::load(&core)?;
+    composition::admit().map_err(|message| SquadError::new("SQUAD_LAYOUT_INVALID", message))?;
     let requested = config.theme(squad.as_deref().unwrap_or(""))?.0.base;
     let value = std::env::var("COLORFGBG").ok();
     let mut guard = terminal::Guard::enter(terminal::Crossterm).map_err(failed)?;

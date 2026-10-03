@@ -1246,6 +1246,15 @@ Decode the cell/style diff and attribute every change to the PR's approved behav
 review hit identities and list bytes too. Unexplained changes block handoff.
 Normal tests never write the fixture; it contains no host paths or clocks.
 
+Composition changes also run `cargo test --locked -p tmt-squad board::composition`:
+literal nested/folded/tiny rectangles, tabs reservation, cache transitions and
+non-overlap accompany a 6,006-case preset/fold fingerprint captured from the
+pre-cutover solver at `40ad78c8` with Squad's approved nested fractional-parent
+rounding rule (issue #775, request `req_8fd1910e`). The rule-derived CSS expectation
+and literal cycle cases remain independent of that fingerprint. Keep frozen
+board/list parity unchanged; any other rectangle difference stops review.
+Header/footer, rich painters and controller tests remain their existing owners.
+
 The internal utilities use one spelling per value kind:
 
 - Cells/weights/counts: `w-N`, `h-N`, `basis-N`, `min-w-N`, `max-w-N`,

@@ -8,6 +8,7 @@ pub(super) struct Derived {
     pub notes: Option<NotebookLines>,
     pub replies: Option<ReplyBodies>,
     pub grid: Option<Grid>,
+    pub composition: Option<super::composition::Cache>,
 }
 
 pub(super) struct NotebookLines {
