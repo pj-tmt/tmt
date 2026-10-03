@@ -5,6 +5,7 @@ title: tmux：agent 所在的位置
 ---
 
 import { Cmd, Code } from "../../components/Cmd";
+import { components as Mdx } from "../../components/mdx";
 import { Badge, BadgeBorders, DriverCard } from "../../components/samples";
 
 <DriverCard
@@ -38,11 +39,11 @@ import { Badge, BadgeBorders, DriverCard } from "../../components/samples";
   ]}
 />
 
-<h3 id="delivery-you-can-trust">可靠的訊息傳送</h3>
+<Mdx.h3 id="delivery-you-can-trust">可靠的訊息傳送</Mdx.h3>
 
 輸入訊息前，tmt 會確認窗格仍屬於你指定的名稱，而且位於同一個 tmux 伺服器。如果訊息可能只送出一部分（例如文字已貼上，但無法確認 Enter 是否送出），tmt 會回報為**不確定**，不會自行重送。先用 `tmt check <name>` 查看，再決定怎麼處理。
 
-<h3 id="the-pane-badge">窗格徽章</h3>
+<Mdx.h3 id="the-pane-badge">窗格徽章</Mdx.h3>
 
 啟用一次後，每個有名稱的窗格都會有一個小標籤。你可以把它放在自己的窗格邊框裡：
 
@@ -56,6 +57,6 @@ import { Badge, BadgeBorders, DriverCard } from "../../components/samples";
 
 這個選項保留 tmt 原本的名稱 tmux-team，讓既有設定能繼續使用。tmt 只會把標籤寫進窗格選項，不會變更窗格標題、邊框格式、版面或主題；徽章放在哪裡由你決定。圓點表示已記錄的 session 狀態，不代表 agent 是否正忙。
 
-<h3 id="when-tmux-says-no">tmux 拒絕存取時</h3>
+<Mdx.h3 id="when-tmux-says-no">tmux 拒絕存取時</Mdx.h3>
 
 有些 agent 沙箱會阻擋 tmux socket 的存取。tmt 會明確告知：無法存取 socket，可能被沙箱阻擋，而且沒有任何輸入送到窗格。它不會把窗格回報為不存在。要從 agent 端處理：透過 agent 自己的權限提升機制重跑同一個指令，或允許存取 socket。

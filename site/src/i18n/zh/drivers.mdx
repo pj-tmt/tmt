@@ -5,6 +5,7 @@ title: Driver
 ---
 
 import { Cmd } from "../../components/Cmd";
+import { components as Mdx } from "../../components/mdx";
 import { Soon, Tag } from "../../components/marks";
 
 driver 是 tmt 對某種程式的了解。_host_ driver 認得 agent 所在的位置，也知道如何輸入訊息。_runtime_ driver 認得某個 agent 程式：如何啟動、恢復，以及回報它的對話。
@@ -12,12 +13,12 @@ driver 是 tmt 對某種程式的了解。_host_ driver 認得 agent 所在的�
 **多數人需要的 driver 都已內建，不必另外安裝。** tmt 會辨識你啟動的程式，自動使用對應的 driver：
 
 <Cmd>{`
-$ tmt run reviewer claude        # name this pane "reviewer" and start Claude Code in it
-$ tmt run builder codex          # same for Codex
-$ tmt setup                      # optional: connect every agent found, after your OK
+$ tmt run reviewer claude        # 把窗格命名為 "reviewer"，並在裡面啟動 Claude Code
+$ tmt run builder codex          # Codex 也一樣
+$ tmt setup                      # 選用：經你同意後，接上找到的每個 agent
 `}</Cmd>
 
-不執行 setup，所有 agent 一樣能用：tmt 透過它們的窗格傳遞訊息。`tmt setup` 會補上只有 agent 本身才能提供的資訊。它讓 tmt 知道哪段對話屬於哪個名稱，讓 `tmt resume` 能重新開啟正確的對話，並在啟動時提供一小段「你是誰、有哪些事在等你」的摘要。`tmt setup` 會列出要變更的設定，先詢問你才動手。`tmt setup claude` 或 `tmt setup codex` 只處理一個 agent；`--remove` 則會移除這些設定。
+不執行 setup，所有 agent 一樣能用：tmt 透過它們的窗格傳遞訊息。`tmt setup` 會補上只有 agent 本身才能提供的資訊。它讓 tmt 知道哪段對話屬於哪個名稱，讓 `tmt resume` 能重新開啟正確的對話，並在啟動時帶入一小段「你是誰、有哪些事在等你」的摘要。`tmt setup` 會列出要變更的設定，先詢問你才動手。`tmt setup claude` 或 `tmt setup codex` 只處理一個 agent；`--remove` 則會移除這些設定。
 
 | Driver      | 類型    | 不執行 setup 就能用的功能                                   | 執行 `tmt setup` 後增加的功能                             |
 | ----------- | ------- | ----------------------------------------------------------- | --------------------------------------------------------- |
@@ -25,24 +26,24 @@ $ tmt setup                      # optional: connect every agent found, after yo
 | Claude Code | runtime | talk、reply、`tmt run`                                      | 精確恢復、session 開始時的 context、執行中／已結束狀態    |
 | Codex       | runtime | talk、reply、`tmt run`；共用伺服器上會要求指定 `--identity` | 精確恢復、共用伺服器上精確比對 thread、執行中／已結束狀態 |
 
-<h3 id="the-built-in-drivers">內建的 driver</h3>
+<Mdx.h3 id="the-built-in-drivers">內建的 driver</Mdx.h3>
 
 - [tmux](/drivers/tmux)：host driver。認得 agent 所在的位置，也知道如何輸入訊息。
 - [Claude Code](/drivers/claude-code)：runtime driver，支援精確恢復、session 開始時的 context，以及選用的訊息通道。
 - [Codex](/drivers/codex)：runtime driver，即使多個窗格共用同一個 Codex 伺服器，也能安全運作。
 
-<h3 id="herdr-ships-with-tmt-approve-once">Herdr：隨 tmt 提供，核准一次即可</h3>
+<Mdx.h3 id="herdr-ships-with-tmt-approve-once">Herdr：隨 tmt 提供，核准一次即可</Mdx.h3>
 
 Herdr host driver 隨 tmt 提供，但必須經過你核准才會執行。`tmt driver install herdr` 會顯示它將執行的內容，並先詢問你：
 
 <Cmd>{`
-$ tmt driver install herdr   # shows what it will run, then asks
-$ tmt driver ls              # herdr: ok, changed or missing
+$ tmt driver install herdr   # 顯示將執行的內容，再詢問你
+$ tmt driver ls              # herdr 的狀態：ok、changed 或 missing
 `}</Cmd>
 
 只要新版 driver 沒有要求更多權限，tmt 升級後就會沿用原本的核准。如果要求增加，`tmt driver ls` 會將它標為 changed 並列出原因，再執行 `tmt driver install herdr` 就能重新核准。核准前，在 Herdr 窗格裡執行的指令每天會顯示一次提示；Herdr 綁定會保留並等待，不會被刪除。
 
-<h3 id="usage-counters">用量計數</h3>
+<Mdx.h3 id="usage-counters">用量計數</Mdx.h3>
 
 用量記錄需要自行啟用。`tmt setup --usage`（或 `tmt setup claude --usage`、`tmt setup codex --usage`）會另外加入一個 hook，在每輪結束時記錄 agent 的用量：
 
@@ -53,15 +54,15 @@ $ tmt driver ls              # herdr: ok, changed or missing
 
 這些數字是 token 數，不是費用。它們記錄已完成的請求，不是即時串流，可能落後一輪。每個計數都從第一次讀取時開始，不會補算更早的紀錄。沒有計數表示無法取得，不代表零。計算速率的工具應在第一次讀取、`epoch` 改變、`gap` 為 true，或計數下降時，重新建立基準。
 
-<h3 id="more-drivers">
+<Mdx.h3 id="more-drivers">
   更多 driver <Tag kind="planned" />
-</h3>
+</Mdx.h3>
 
 其他 driver 將各自成為獨立套件，有自己的版本，像擴充套件一樣安裝與更新。任何人都能發布：driver 是名為 `tmt-driver-<name>`、回應 tmt driver 協定的程式，內建 driver 也透過同一個介面運作。你安裝的 driver 也能接替內建版本，例如功能更多的 Claude Code driver。`tmt driver ls` 屆時會一律顯示各個程式由哪個 driver 處理。
 
 <Cmd>{`
-$ tmt driver install ./tmt-driver-screen  # shows what it will run, then asks
-$ tmt driver ls                          # approved host drivers: ok, changed or missing
+$ tmt driver install ./tmt-driver-screen  # 顯示將執行的內容，再詢問你
+$ tmt driver ls                          # 已核准的 host driver：ok、changed 或 missing
 $ tmt driver rm screen
 `}</Cmd>
 
