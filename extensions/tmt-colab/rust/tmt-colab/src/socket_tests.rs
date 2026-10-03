@@ -282,6 +282,30 @@ fn no_removed_link_wraps(f: &Fixture, old_epoch: &str) {
     assert!(
         values::decimal(&scope.epoch, false).unwrap() > values::decimal(old_epoch, false).unwrap()
     );
+    let epoch = values::decimal(&scope.epoch, false).unwrap();
+    let (old_key, new_key) = f
+        .store
+        .owner_read(&f.key.space_id, &f.key.owner_public(), |tx| {
+            Ok((
+                tx.epoch_secret(PAGE, values::decimal(old_epoch, false)?)?
+                    .unwrap(),
+                tx.epoch_secret(PAGE, epoch)?.unwrap(),
+            ))
+        })
+        .unwrap();
+    assert_ne!(
+        new_key, old_key,
+        "narrowing/removal reused the exposed page key"
+    );
+    let baseline = f.store.baseline(PAGE, epoch).unwrap().unwrap();
+    let envelope = tmt_colab_model::object::Envelope::from_json(&baseline.envelope).unwrap();
+    let header = tmt_colab_model::object::Header::decode(envelope.header()).unwrap();
+    let signer = f.key.management_member().unwrap().signing_key;
+    assert!(tmt_colab_model::object::open(&envelope, &header.context, &new_key, &signer).is_ok());
+    assert!(
+        tmt_colab_model::object::open(&envelope, &header.context, &old_key, &signer).is_err(),
+        "retained old key opened the private epoch baseline"
+    );
     let db = rusqlite::Connection::open(f.root.join("colab/space.db")).unwrap();
     let mut query = db
         .prepare("SELECT envelope FROM wraps WHERE page=?1 AND epoch=?2")

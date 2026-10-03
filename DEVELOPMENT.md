@@ -3827,7 +3827,8 @@ all three narrowing pairs, Reset/removal, rotation, individual device revocation
 archive/delete, session/certificate expiry and pre-hello cutoff twice. Cutoff
 accepts only close/reset/EOF, never a timeout or more application data. Failed
 narrowing retains reader authority; a successful retry cuts it off. Retained old
-seeds cannot revive removed links or obtain private-epoch wraps; surviving links
+seeds cannot revive removed links or obtain private-epoch wraps; new baselines
+open with the current page key and reject the retained old key. Surviving links
 can reauthenticate after ordinary rotation or certify a fresh device after
 individual revocation. Public keys resolve from signed publication statements;
 link wraps are decrypted against the durable current key. The nonempty owner
