@@ -3,7 +3,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createPublicKey, verify } from 'node:crypto';
 import { extCertSigningBytes } from '../src/canonical-bytes.js';
 import type { ExtCertificate } from '../src/device.js';
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:net';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -81,11 +81,16 @@ test.beforeEach(async () => {
   // Short root: Unix socket paths are limited to about 100 bytes.
   root = await mkdtemp('/tmp/tmt-e2e-');
   await writeFile(
-    join(root, 'core'),
-    `#!/bin/sh\ninput=$(cat)\ncase "$input" in *storage.root*) printf '{"dataRoot":"${root}/state"}';; *) printf '{"version":1,"limits":{"inputBytes":1024,"outputBytes":4096}}';; esac\n`,
+    join(root, 'core.mjs'),
+    await readFile(new URL('./core-fixture.mjs', import.meta.url)),
     { mode: 0o700 },
   );
-  env = { PATH: process.env.PATH, HOME: root, TMT_EXECUTABLE: join(root, 'core') };
+  env = {
+    PATH: process.env.PATH,
+    HOME: root,
+    TMT_EXECUTABLE: join(root, 'core.mjs'),
+    TMT_FIXTURE_ROOT: root,
+  };
   serve = spawn(BINARY, ['serve', '--json'], { env });
   const descriptor = await lines(serve).next();
   origin = new URL(descriptor.address as string).origin;
@@ -210,7 +215,13 @@ test('a browser pairs, gets a door session and certifies only its own extension'
       extractable: stored.handle.extractable,
     };
   });
-  expect(result.exports).toEqual(['certifyKey', 'reopenSession']);
+  expect(result.exports).toEqual([
+    'ClientError',
+    'RefusalError',
+    'certifyKey',
+    'operations',
+    'reopenSession',
+  ]);
   expect(result.newRecordHasCache).toBe(false);
   expect(result.again.issuedAtMs).toBe(result.nextTime);
   expect(result.again.issuedAtMs).toBeGreaterThanOrEqual(result.first.issuedAtMs);
@@ -256,6 +267,41 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     };
     await sdk.reopenSession();
   });
+  const asked = await app.evaluate(async () => {
+    const sdk = (await import('/sdk/remote-v1.js' as string)) as typeof import('../src/browser.js');
+    const remote = sdk.operations(await sdk.reopenSession());
+    const agents = await remote.listAgents();
+    if (!agents[0]) throw new Error('No permitted agent.');
+    const input = {
+      operationId: crypto.randomUUID(),
+      agentId: agents[0].id,
+      message: 'Browser direct ask! e\u0301 🎯',
+    };
+    const sent = await remote.send(input);
+    if (sent.state !== 'accepted') throw new Error(`Send was ${sent.state}`);
+    const observed = await remote.operation(input.operationId);
+    const result = await remote.result(sent.requestId);
+    return { agents, input, sent, observed, result };
+  });
+  expect(asked.agents).toEqual([
+    { id: '00000000-0000-0000-0000-000000000001', name: 'Browser agent', presence: 'active' },
+  ]);
+  expect(asked.sent).toMatchObject({ state: 'accepted', operationId: asked.input.operationId });
+  expect(asked.observed).toEqual(asked.sent);
+  expect(asked.result).toEqual({
+    state: 'replied',
+    requestId: asked.sent.requestId,
+    message: 'Browser retained final 🎯',
+  });
+  const coreCalls = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as { operation: string });
+  expect(coreCalls.filter((call) => call.operation === 'dispatch.create')).toHaveLength(1);
+  expect(coreCalls.filter((call) => call.operation === 'requests.show')).toHaveLength(1);
+  expect(await readFile(join(root, 'dispatched-message.txt'), 'utf8')).toBe(
+    `[remote: E2E browser]\n${asked.input.message}`,
+  );
   await app.reload();
   expect(JSON.parse((await app.locator('#context').textContent())!)).toMatchObject({
     deviceId: device.deviceId,

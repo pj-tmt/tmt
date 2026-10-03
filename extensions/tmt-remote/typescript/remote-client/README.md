@@ -13,9 +13,79 @@ This private module implements the device side of
   key only after `serverProof` verifies), the `session.open` client that verifies
   the machine-signed response, and extension key certification.
 
+- `src/operations.ts`: `operations(session, {timeoutMs?})` exposes `listAgents`,
+  `send`, read-only `operation` and `result` over the verified session. Its private
+  `session-channel.ts` owner shares one serialized lane across helper instances,
+  signs exact payload bytes and verifies machine signatures, full correlation and
+  increasing response sequences. Agent listing includes presence and optional
+  core-published `delivery` unchanged; it never infers readiness.
 - `src/browser.ts`: the browser entry the door serves as `/sdk/remote-v1.js`. It
-  runs the pairing page and gives mounted extension pages `reopenSession` and
-  `certifyKey`, whose extension comes from the door's `/sdk/mount` answer.
+  runs the pairing page and gives mounted extension pages `reopenSession`,
+  `operations`, `ClientError`, `RefusalError` and `certifyKey`, whose extension comes from `/sdk/mount`.
+
+```ts
+// Use Colab's existing session; constructing the helper opens nothing.
+const remote = operations(session);
+const agents = await remote.listAgents();
+// The caller durably freezes operationId, agentId and message before sending.
+try {
+  const state = await remote.send({ operationId, agentId, message });
+} catch (error) {
+  if (!(error instanceof ClientError) || error.code === 'sequence_unavailable') throw error;
+  // Recovery observes the original ID and never dispatches automatically.
+  const recovered = await remote.operation(operationId);
+}
+```
+
+The exported `RemoteOperations` interface has these signatures:
+
+```ts
+listAgents(): Promise<RemoteAgent[]>;
+send(input: {operationId: string; agentId: string; message: string}): Promise<SendState>;
+operation(operationId: string): Promise<SendState>;
+result(requestId: string): Promise<ResultState>;
+```
+
+`SendState` preserves `held`, `accepted` (with `requestId`), `uncertain` (optional
+`requestId`), `refused` and `cancelled` (optional `reason`), always with the original
+`operationId`. `ResultState` preserves `pending`, `replied` (exact inert `message`,
+including empty text) and `unavailable` (optional `reason`), always with `requestId`.
+`RemoteAgent` contains `id`, `name`, `presence` and optional core-owned `delivery`.
+These types and `SendInput` are exported by the browser entry.
+
+Each signed transport attempt defaults to a 40-second timeout. `send` and `operation` return
+`{state: 'refused', operationId, reason}` for verified pre-effect refusals:
+`REMOTE_SCOPE_DENIED`, `REMOTE_INPUT_INVALID`, `REMOTE_RATE_LIMITED`,
+`REMOTE_INTENT_CONFLICT` and `REMOTE_CLOSED`. The generic pre-admission HTTP 404
+maps to `REMOTE_SESSION_ENDED`; it is a session-ended signal, not a signed response.
+`listAgents` and `result` throw the exported `RefusalError` with a typed `code`
+and optional bounded `retryAfterMs`; callers branch on `instanceof` and `code`.
+The exported `RemoteRefusalCode` union includes those six codes plus existing
+`REMOTE_INPUT_TOO_LARGE`, `REMOTE_STATE_UNAVAILABLE` and `REMOTE_CORE_UNAVAILABLE`.
+These other signed refusals also throw `RefusalError` on `send`/`operation`.
+Raw server messages are never exposed.
+
+Unknown outcomes throw the exported `ClientError`, with `code` from the exported
+`ClientErrorCode` union: `transport_failure`, `timeout`, `unverifiable_response` or
+`sequence_unavailable`. `send`/`operation` errors retain `operationId`. Transport
+status never proves acceptance. After a timeout, lost or unverifiable response at
+sequence n, read `operation(originalId)` on the existing session. Before the next
+call of any kind, the helper synchronizes internally using scope-free read-only
+`capabilities` at n+1 and, only after a verified `REMOTE_REPLAY` refusal, retries
+once at n. It then performs the caller's call. Signed refusals also mark the
+sequence ambiguous, since refusal may precede or follow sequence consumption.
+No third sequence guess is allowed. A lost recovery response or two replay refusals produce
+`sequence_unavailable`; that helper session can no longer be used. The caller then
+explicitly reopens and observes the original ID. `REMOTE_CLOSED` and
+`REMOTE_SESSION_ENDED` also require a caller-owned reopen. Reopening ends the prior
+door session, including its live sync tunnel; normal recovery never reopens it.
+
+The SDK never resends automatically or generates a replacement dispatch ID. The
+caller owns durable IDs and exact intent; the SDK stores no dispatch payload in
+IndexedDB. An explicit identical resend reconstructs the same payload bytes;
+recovery observations themselves never send. Local invalid input or signing
+failure raises `TypeError` before publishing. A plain copied or fabricated
+`Session` contains no signer and cannot construct an operations helper.
 
 `pnpm build` bundles the browser entry with Vite+ on the aliased Vite core (library mode, unminified) into
 `../../rust/tmt-remote/assets/remote-v1.js`, which the door embeds; commit the
@@ -73,3 +143,12 @@ the grant loses live owner context and cannot reopen, even though its old
 certificate signatures still verify. Extensions enforce certificate freshness
 and learn revocation from Remote's device events; a certificate alone grants no
 authority.
+
+The operations unit tests extend that same node:crypto stand-in door with real
+signatures, serialized client sequences and independent machine sequence gaps. They
+cover all four calls, signed refusals and states, empty finals, correlation/audience/
+session/operation/sequence tampering, frozen inputs, bounded timeout/lost-response
+recovery and an explicit identical resend. The Chromium smoke additionally reads
+agents, sends a direct request and reads its operation/final through the real Remote
+door with a deterministic public-core fixture, asserting one core dispatch. It does
+not claim real-core agent execution.
