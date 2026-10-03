@@ -3384,6 +3384,19 @@ no second worker or arrangement resolver is introduced. The built-in leads/all
 tabs keep their opening rows-only Board throughout picker preview, save and
 cancel; they offer all-boards scope, which affects real squad tabs only.
 
+Squad's `settings` projection reads the existing Config readers and annotates
+resolved values with their setting paths or preset/default sources. `config show`
+and the bindable `settings` overlay (comma by default) share that projection;
+all entries are read-only, including provider argv and run bindings. Inspection
+never runs configured programs. `Config::bindings_for_tab`,
+`action::effective_bindings` and `tab_view::rows` keep inspection and the board's
+loaded tab/selected-section rules together. The overlay has its own instance of
+the shared scroll owner, blocks underlying input, and retains its opening snapshot
+while board data refreshes. It changes no config or member state; close/reopen
+reads the configuration again. Aggregate tabs expose their fixed grids and global
+appearance, without inventing per-squad panes or providers. CLI `config show`
+without a scope inspects board defaults; `--squad` and `--tab` are exclusive.
+
 Squad's `theme` command module registers `theme ls` (hidden `list` alias),
 `set` and `rm`; bare `theme` lists. Lists and the board picker consume names and
 descriptions from `tmt-cli-style::Base`, never a Squad palette. The effective

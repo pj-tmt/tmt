@@ -868,6 +868,9 @@ pub fn render(frame: &mut Frame, app: &App) {
     if let Some(picker) = &app.theme_picker {
         super::theme_picker::render(frame, picker, look, body);
     }
+    if let Some(overlay) = &app.settings {
+        super::settings::render(frame, overlay, look, body);
+    }
 }
 
 /// The quick switcher: the query, then the matching tabs with their counts

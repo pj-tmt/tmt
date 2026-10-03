@@ -27,6 +27,7 @@ mod requests;
 mod rows;
 mod runner;
 mod send;
+mod settings;
 mod source;
 mod specs;
 mod split;
@@ -261,6 +262,7 @@ fn grammar() -> Command {
                 )
                 .arg(squad_option()),
         )
+        .subcommand(settings::grammar())
         .subcommand(theme::grammar())
         .subcommand(view::grammar())
         .subcommand(playbook::grammar())
@@ -490,6 +492,7 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
         "ls" | "board" => status::text(document, terminal),
         "hotkeys" => hotkeys_text(document, terminal),
         "playbook" => playbook::text(document, terminal),
+        "config" => settings::text(document, terminal),
         "theme" => theme::text(document, terminal),
         "view" => view::text(document, terminal),
         "jump" => {
@@ -786,6 +789,9 @@ fn run(
         return member_actions::back(&core);
     }
     let mut config = Config::load(&core)?;
+    if command == "config" {
+        return settings::run(&config, matches).map(Outcome::from);
+    }
     if command == "view" {
         return view::run(&mut config, matches).map(Outcome::from);
     }
@@ -1264,8 +1270,9 @@ mod tests {
         assert_eq!(
             complete(&words("-- ")),
             [
-                "add", "annotate", "back", "board", "copy", "help", "hotkeys", "init", "jump",
-                "lead", "ls", "me", "open", "playbook", "rm", "set", "skill", "theme", "view"
+                "add", "annotate", "back", "board", "config", "copy", "help", "hotkeys", "init",
+                "jump", "lead", "ls", "me", "open", "playbook", "rm", "set", "skill", "theme",
+                "view"
             ]
         );
         assert_eq!(complete(&words("-- view ")), ["ls", "rm", "set"]);

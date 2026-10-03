@@ -27,6 +27,19 @@ macro_rules! spec {
     };
 }
 
+pub const CONFIG: &CommandSpec = spec!(
+    "config", "Inspect effective Squad board settings",
+    ["Inspect board defaults and their sources" => "tmt squad config show"]
+);
+pub const CONFIG_SHOW: &CommandSpec = spec!(
+    "show", "Show effective board settings and where they come from",
+    details = "Read-only. Configured commands are displayed, never executed.",
+    [
+        "Inspect one squad" => "tmt squad config show --squad product",
+        "Inspect an aggregate tab as JSON" => "tmt squad config show --tab all --json",
+    ]
+);
+
 pub const ROOT: &CommandSpec = spec!(
     "squad",
     "Leads, members and one board for a team of agents (alias: tmt sq)",

@@ -213,6 +213,19 @@ PgUp/PgDn and Home/End, or use the wheel over the pane. The scroll marks show
 remaining content. Older replies without a loaded body retain `tmt result <id>`
 hints; reading and scrolling acknowledge nothing.
 
+## Inspect board settings
+
+Press `,` to open read-only settings for the shown squad or tab; `settings` is
+bindable. Scroll with arrows/j/k, PgUp/PgDn, Home/End or the wheel, and close
+with Esc. Each value shows its preset/default or configuration setting source
+and the path of `squad.toml`. Configured provider argv and run bindings are
+shown without executing them. Close and reopen to read later config edits.
+
+`tmt sq config show` inspects board defaults. Use `--squad product` for one
+squad or `--tab all` (also `leads` or a configured tab name) for an aggregate
+view, and `--json` for full values and source paths. These scope flags are
+exclusive. All entries are read-only; no configuration or member state changes.
+
 ## Choose a board view
 
 `tmt sq view ls` (or bare `tmt sq view`) lists factory pane arrangements:

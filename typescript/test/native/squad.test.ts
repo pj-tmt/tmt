@@ -140,6 +140,55 @@ const squadVersion = /^version = "([^"]+)"$/m.exec(
 )?.[1];
 
 describe('squad extension', () => {
+  it('config show reports effective sources without writing or executing configured commands', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'settings-probe');
+      const marker = path.join(sandbox.root, 'must-not-exist');
+      const config = path.join(sandbox.globalDir, 'squad.toml');
+      const original = `# keep my comment
+opaque = "kept"
+[board]
+refresh = "1m"
+[squad.product.board]
+refresh = "off"
+[squad.product.fields.probe]
+run = ["touch", "${marker}"]
+[bind]
+o = "run touch ${marker}"
+`;
+      writeFileSync(config, original);
+      const before = observe(sandbox);
+      const shown = await squad(sandbox, ['config', 'show', '--squad', 'product']);
+      expect(shown.status).toBe(0);
+      expect(shown.stderr).toBe('');
+      expect(shown.body.path).toBe(config);
+      expect(shown.body.entries).toContainEqual({
+        key: 'board.refresh',
+        value: 'off',
+        source: 'squad.product.board.refresh',
+        editable: false,
+      });
+      expect(
+        shown.body.entries.find((entry: { key: string }) => entry.key === 'fields.probe').value.run
+      ).toEqual(['touch', marker]);
+      const text = await runCli(sandbox, ['sq', 'config', 'show', '--squad', 'product']);
+      expect(text.status).toBe(0);
+      expect(text.stdout).toContain('squad.product.board.refresh');
+      expect(text.stdout).toContain('read-only');
+      expect((await squad(sandbox, ['config', 'show', '--tab', 'all'])).status).toBe(0);
+      expect((await squad(sandbox, ['config', 'show', '--tab', 'missing'])).body.error.code).toBe(
+        'SQUAD_TAB_NOT_FOUND'
+      );
+      expect(
+        (await squad(sandbox, ['config', 'show', '--squad', 'product', '--tab', 'all'])).status
+      ).not.toBe(0);
+      expect(readFileSync(config, 'utf8')).toBe(original);
+      expect(existsSync(marker)).toBe(false);
+      expect(observe(sandbox)).toEqual(before);
+    });
+  });
+
   it('lists built-in tabs with their board rows, including hidden and empty squads', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);

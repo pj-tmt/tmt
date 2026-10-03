@@ -15,6 +15,7 @@ use std::{
 };
 use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 
+mod settings;
 mod states;
 pub use states::{Rank, States};
 
@@ -894,6 +895,33 @@ impl Config {
         Ok(bindings)
     }
 
+    /// Shared tab-binding assembly, also used by the board's load path.
+    pub fn bindings_for_tab(
+        &self,
+        key: &str,
+        tmux: bool,
+        panes: &[Pane],
+    ) -> Result<Bindings, SquadError> {
+        let settings = self.tabs()?;
+        if key == crate::tabs::ALL {
+            let mut bindings = crate::action::all_preset();
+            bindings.extend(settings.all);
+            return Ok(bindings);
+        }
+        let mut bindings = self.bindings(tmux, panes)?;
+        if key == crate::tabs::LEADS {
+            bindings.extend(settings.leads);
+        }
+        if let Some(tab) = settings
+            .user
+            .iter()
+            .find(|tab| Some(tab.name.as_str()) == crate::tabs::user_name(key))
+        {
+            bindings.extend(tab.selection.bind.clone());
+        }
+        Ok(bindings)
+    }
+
     /// Top-level `opener` and `clipboard`: programs that replace the system
     /// opener and the built-in clipboard route.
     pub fn program(&self, key: &str) -> Result<Option<Vec<String>>, SquadError> {
@@ -1164,32 +1192,35 @@ impl Config {
 
     /// The layer supplying the effective base, separately from token overrides.
     pub fn theme_source(&self, squad: &str) -> Result<&'static str, SquadError> {
-        self.theme(squad)?;
+        Ok(self.theme_setting(squad, "base")?.1)
+    }
+
+    /// Authored token and provenance through the same validated theme layers.
+    fn theme_setting(
+        &self,
+        squad: &str,
+        name: &str,
+    ) -> Result<(Option<String>, &'static str), SquadError> {
+        let (_, notice) = self.theme(squad)?;
         let own = theme_settings(
             self.squad_table(squad)?
                 .and_then(|table| table.get("theme")),
             &format!("squad.{squad}.theme"),
         )?;
-        let has_base =
-            |settings: &[(String, String)]| settings.iter().any(|(key, _)| key == "base");
-        Ok(if has_base(&own) {
-            "squad"
-        } else if has_base(&self.board_theme()?) {
-            "board"
-        } else if self.theme_error.is_none()
-            && tmt_cli_style::Theme::parse(
-                "theme",
-                self.global_theme
-                    .iter()
-                    .map(|(k, v)| (k.as_str(), v.as_str())),
-            )
-            .is_ok()
-            && has_base(&self.global_theme)
-        {
-            "cli"
-        } else {
-            "default"
-        })
+        let board = self.board_theme()?;
+        for (source, settings) in [
+            ("squad", &own[..]),
+            ("board", &board[..]),
+            ("cli", &self.global_theme[..]),
+        ] {
+            if source == "cli" && notice.is_some() {
+                continue;
+            }
+            if let Some((_, value)) = settings.iter().find(|(key, _)| key == name) {
+                return Ok((Some(value.clone()), source));
+            }
+        }
+        Ok((None, "default"))
     }
 
     /// Edit only a base; all token overrides and unrelated TOML stay intact.

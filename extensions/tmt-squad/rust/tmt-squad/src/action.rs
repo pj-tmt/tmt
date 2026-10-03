@@ -16,6 +16,7 @@ pub enum Verb {
     Refresh,
     TokenWindow,
     Theme,
+    Settings,
     View,
     Run,
     NextPane,
@@ -40,6 +41,7 @@ impl Verb {
             "refresh" => Self::Refresh,
             "token-window" => Self::TokenWindow,
             "theme" => Self::Theme,
+            "settings" => Self::Settings,
             "view" => Self::View,
             "run" => Self::Run,
             "next-pane" => Self::NextPane,
@@ -63,6 +65,7 @@ impl Verb {
             Self::Refresh => "refresh",
             Self::TokenWindow => "token-window",
             Self::Theme => "theme",
+            Self::Settings => "settings",
             Self::View => "view",
             Self::Run => "run",
             Self::NextPane => "next-pane",
@@ -291,6 +294,7 @@ pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
         ("ctrl-r", "refresh"),
         ("w", "token-window"),
         ("T", "theme"),
+        (",", "settings"),
         ("l", "view"),
     ]
     .into_iter()
@@ -304,6 +308,38 @@ pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
         )
     })
     .collect()
+}
+
+/// Overlay a selected section and suppress unavailable meter actions.
+pub fn effective_bindings(
+    mut bindings: Bindings,
+    section: Option<&Bindings>,
+    token_rate: bool,
+) -> Bindings {
+    if let Some(section) = section {
+        bindings.extend(section.clone());
+    }
+    if !token_rate {
+        bindings.retain(|_, action| action.verb != Verb::TokenWindow);
+    }
+    bindings
+}
+
+/// The overview has squad rows, so member bindings never apply.
+pub fn all_preset() -> Bindings {
+    parse_bindings(
+        [
+            ("enter", Some("tab")),
+            ("double-click", Some("tab")),
+            ("ctrl-r", Some("refresh")),
+            ("T", Some("theme")),
+            ("l", Some("view")),
+            (",", Some("settings")),
+        ]
+        .into_iter(),
+        "tabs.all",
+    )
+    .expect("the all tab preset")
 }
 
 #[cfg(test)]
