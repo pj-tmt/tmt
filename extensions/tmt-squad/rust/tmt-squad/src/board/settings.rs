@@ -8,11 +8,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
 };
-use tmt_cli_style::{
-    Role,
-    grid::{self, Align, Truncate},
-    table::escape,
-};
+use tmt_cli_style::{Role, grid::Align, table::escape};
 use unicode_width::UnicodeWidthStr;
 
 pub(super) struct Overlay {
@@ -141,7 +137,14 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
     let value_width = row_width
         .saturating_sub(key_width + source_width + 4)
         .max(1);
-    let fit = |text: &str, width| grid::fit(text, width, Align::Left, Truncate::Middle);
+    let fit = |text: &str, width: usize| {
+        tmt_tui::text::fit_line(
+            text,
+            width.min(usize::from(u16::MAX)) as u16,
+            tmt_tui::style::TextFlow::Middle,
+            Align::Left,
+        )
+    };
     let context = settings.context.as_deref().unwrap_or("board defaults");
     let heading = format!("{context} {} · {}", settings.host, overlay.display_path);
     let mut lines = vec![Line::styled(fit(&heading, width), look.role(Role::Dim))];

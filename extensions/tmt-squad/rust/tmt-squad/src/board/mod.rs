@@ -361,11 +361,7 @@ fn session(
                 let section = app.selected_section();
                 match load_config().and_then(|config| {
                     config
-                        .settings(
-                            app.current.as_deref(),
-                            effects::tmux_socket().is_some(),
-                            section,
-                        )
+                        .settings(app.shown_tab(), effects::tmux_socket().is_some(), section)
                         .map_err(|error| error.message)
                 }) {
                     Ok(shown) => {
