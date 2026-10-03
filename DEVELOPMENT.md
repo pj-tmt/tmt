@@ -1879,7 +1879,8 @@ architecture detection that Rosetta cannot establish. It uses disposable
 HOME/state/prefixes and token-free public acquisition. Its only PR trigger is
 an edit to its own workflow file; it is advisory, not a branch-protection check.
 The infra lead triages failed scheduled runs. Record classified public acquisition
-rate limits as infrastructure failures, retaining the failed conclusion and evidence.
+rate limits as infrastructure failures, retaining the failed conclusion and evidence;
+the weekly summary names the class, reset time and that the upgrade remains unproven.
 Dispatch only this non-publishing workflow for this proof, never the release pipeline.
 
 CI builds four raw targets once (the two macOS targets and two static Linux musl
@@ -2351,7 +2352,8 @@ binaries. The verifier bounds inputs (64 MiB compressed, 128 MiB expanded),
 requires exactly the four runtime files, and removes its private staging after
 success or failure. It runs the extracted executable with no Node/Rust/tmux on
 PATH and verifies native SQLite persistence through public commands. macOS
-requires system `otool`, which it finds once through `xcrun` under a 10 s bound;
+requires system `otool` and `lipo`, resolved through `xcrun` under a 10 s bound
+before direct inspection in the isolated environment;
 the first `xcrun` call on a fresh hosted runner can exceed that, so every workflow
 job that runs the verifier on macOS first runs `.github/actions/warm-xcrun`
 (bounded retry, logs the duration). A new macOS verifier job must do the same, and

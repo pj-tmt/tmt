@@ -78,137 +78,29 @@ jobs:
         run: |
           node typescript/scripts/verify-public-install.mjs --product cli --tag "$RELEASE_TAG" \
             --source release-source --target "$TARGET" --result-file "$RUNNER_TEMP/native-intel-smoke.json"
+      - name: Summarize native Intel public infrastructure
+        if: failure()
+        run: |
+          node --input-type=module <<'SUMMARY'
+          import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+          const result = `${process.env.RUNNER_TEMP}/native-intel-smoke.json`;
+          if (existsSync(result)) {
+            const { failed } = JSON.parse(readFileSync(result, 'utf8'));
+            const limited = failed.find(({ check, infrastructure }) =>
+              check === 'tmt upgrade' && infrastructure === 'github-api-rate-limit');
+            if (limited) {
+              const epoch = /\(UTC epoch (\d+)\)/.exec(limited.reason)?.[1];
+              const reset = epoch ? new Date(Number(epoch) * 1000).toISOString() : 'unavailable';
+              appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+                `\n### Native Intel public infrastructure\n\nClass: github-api-rate-limit.\n\nReset/earliest retry: ${reset}.\n\nThe upgrade is unproven this week; the job remains failed.\n`);
+            }
+          }
+          SUMMARY
       - name: Keep the public installation conclusion
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: native-intel-public-install
           path: ${{ runner.temp }}/native-intel-smoke.json
-          if-no-files-found: ignore
-          retention-days: 7
-
-  # Temporary PR evidence for #547. Remove these measurement-only jobs before handoff.
-  rosetta-release-build:
-    name: Measure cross-built Intel release archive
-    if: github.event_name == 'pull_request'
-    runs-on: macos-15
-    timeout-minutes: 45
-    env:
-      MACOSX_DEPLOYMENT_TARGET: '11.0'
-      CARGO_BUILD_JOBS: 2
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Install pinned Rust
-        run: rustup toolchain install 1.97.0 --profile minimal --target x86_64-apple-darwin
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: rust
-          shared-key: release-cli-x86_64-apple-darwin
-          save-if: false
-      - name: Restore packaging tools
-        id: tools
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.tmt-packaging
-          key: native-tools-${{ runner.os }}-${{ runner.arch }}-rust1.97-dist0.32.0-about0.9.2
-      - name: Build pinned packaging tools on cache miss
-        if: steps.tools.outputs.cache-hit != 'true'
-        run: |
-          CARGO_BUILD_JOBS=2 cargo +1.97.0 install cargo-dist --version 0.32.0 --locked --root "$HOME/.tmt-packaging"
-          CARGO_BUILD_JOBS=2 cargo +1.97.0 install cargo-about --version 0.9.2 --features cli --locked --root "$HOME/.tmt-packaging"
-      - name: Measure the Intel release build owner
-        run: |
-          export PATH="$HOME/.tmt-packaging/bin:$PATH"
-          started=$SECONDS
-          CARGO_BUILD_JOBS=2 cargo +1.97.0 fetch --manifest-path rust/Cargo.toml --locked
-          scripts/build-native-artifact.sh x86_64-apple-darwin cli > "$RUNNER_TEMP/intel-dist-manifest.json"
-          cp "$RUNNER_TEMP/intel-dist-manifest.json" target/distrib/dist-manifest.json
-          cp rust/target/native-notices/THIRD-PARTY-NOTICES.txt target/distrib/intel-notices.txt
-          echo "Intel release build owner: $((SECONDS - started)) s." >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: intel-release-measurement
-          path: |
-            target/distrib/*.tar.gz
-            target/distrib/dist-manifest.json
-            target/distrib/intel-notices.txt
-          if-no-files-found: error
-          retention-days: 7
-
-  rosetta-release-verify:
-    name: Measure Intel release verification under Rosetta
-    if: github.event_name == 'pull_request'
-    needs: rosetta-release-build
-    runs-on: macos-15
-    timeout-minutes: 30
-    env:
-      TARGET: x86_64-apple-darwin
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup-tooling
-        with:
-          architecture: x64
-      - name: Install verification dependencies
-        working-directory: typescript
-        run: pnpm install --frozen-lockfile --ignore-scripts
-      - uses: actions/download-artifact@v4
-        with:
-          name: intel-release-measurement
-          path: target/distrib
-      - name: Warm the macOS toolchain lookup
-        if: runner.os == 'macOS'
-        uses: ./.github/actions/warm-xcrun
-      - name: Measure archive and bootstrap proof owners
-        run: |
-          scripts/run-native-verification.sh "$TARGET" <<'VERIFY'
-          started=$SECONDS
-          node typescript/scripts/verify-native-artifact.mjs \
-            --manifest target/distrib/dist-manifest.json --archive "target/distrib/tmt-cli-$TARGET.tar.gz" \
-            --target "$TARGET" --skill skills/tmux-team/SKILL.md --license LICENSE --notices target/distrib/intel-notices.txt
-          node typescript/scripts/verify-native-bootstrap.mjs \
-            --manifest target/distrib/dist-manifest.json --archive "target/distrib/tmt-cli-$TARGET.tar.gz" \
-            --target "$TARGET" --skill skills/tmux-team/SKILL.md
-          echo "Intel archive/bootstrap proof owners: $((SECONDS - started)) s." >> "$GITHUB_STEP_SUMMARY"
-          VERIFY
-      - name: Stage the latest published alpha and its predecessor read-only
-        id: latest
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
-          TAG="$tag" node --input-type=module -e 'import { isAlphaVersion, versionOfTag } from "./typescript/scripts/release-versions.mjs"; if (!isAlphaVersion(versionOfTag(process.env.TAG, "cli"))) throw new Error("Latest must be a CLI alpha")'
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          node typescript/scripts/release-upgrade.mjs fetch --product cli --tag "$tag" --directory "$RUNNER_TEMP/upgrade"
-      - name: Read published expectations as data
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          ref: ${{ steps.latest.outputs.tag }}
-          path: release-source
-      - name: Measure offline upgrade and public-install proof owners
-        env:
-          RELEASE_TAG: ${{ steps.latest.outputs.tag }}
-        run: |
-          scripts/run-native-verification.sh "$TARGET" <<'VERIFY'
-          started=$SECONDS
-          node typescript/scripts/release-upgrade.mjs prove --product cli --tag "$RELEASE_TAG" \
-            --target "$TARGET" --directory "$RUNNER_TEMP/upgrade" \
-            --skill release-source/skills/tmux-team/SKILL.md --source-root "$GITHUB_WORKSPACE/release-source"
-          echo "Intel published-archive upgrade proof owner: $((SECONDS - started)) s." >> "$GITHUB_STEP_SUMMARY"
-          started=$SECONDS
-          node typescript/scripts/verify-public-install.mjs --product cli --tag "$RELEASE_TAG" \
-            --source release-source --target "$TARGET" --result-file "$RUNNER_TEMP/rosetta-smoke.json"
-          echo "Intel public-install proof owner: $((SECONDS - started)) s." >> "$GITHUB_STEP_SUMMARY"
-          VERIFY
-      - name: Keep the public installation conclusion
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: rosetta-public-install-measurement
-          path: ${{ runner.temp }}/rosetta-smoke.json
           if-no-files-found: ignore
           retention-days: 7

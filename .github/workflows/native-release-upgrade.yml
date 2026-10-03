@@ -210,7 +210,7 @@ jobs:
           node typescript/scripts/release-upgrade.mjs prove --product "$PRODUCT" --tag "$RELEASE_TAG" \
             --target "$TARGET" --directory "$RUNNER_TEMP/upgrade" --skill "$skill" "${source_args[@]}" \
             2>&1 | tee "$RUNNER_TEMP/upgrade-proof.log"
-          echo "Verified $TARGET in $((SECONDS - started)) s." >> "$GITHUB_STEP_SUMMARY"
+          echo "Verified $TARGET in $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
           VERIFY
       - name: Prove the real-archive CLI upgrade adapter
         if: inputs.product == 'cli'

@@ -267,7 +267,7 @@ jobs:
       - name: Warm the macOS toolchain lookup
         if: runner.os == 'macOS'
         uses: ./.github/actions/warm-xcrun
-      - name: Execute final archive and bootstrap on matching native host
+      - name: Execute final archive and bootstrap with the matching target process
         env:
           PRODUCT: ${{ inputs.product }}
           TARGET: ${{ matrix.target }}
@@ -310,7 +310,7 @@ jobs:
               --license LICENSE \
               --notices "target/distrib/$TARGET-notices.txt"
           fi
-          echo "Verified $TARGET in $((SECONDS - started)) s." >> "$GITHUB_STEP_SUMMARY"
+          echo "Verified $TARGET in $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
           VERIFY
 
   attach:

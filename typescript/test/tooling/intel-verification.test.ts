@@ -124,6 +124,46 @@ describe('target-specific verification process tree', () => {
 });
 
 describe('Intel workflow coverage', () => {
+  it('summarizes only the existing upgrade infrastructure class while retaining a failed job', () => {
+    const workflow = read('.github/workflows/native-intel.yml');
+    const summaryStep = workflow
+      .slice(workflow.indexOf('      - name: Summarize native Intel public infrastructure'))
+      .split('\n      - name: Keep the public installation conclusion')[0];
+    expect(summaryStep).toContain('if: failure()');
+    expect(workflow).not.toContain('continue-on-error');
+    const script = summaryStep.match(/<<'SUMMARY'\n([\s\S]+)\n {10}SUMMARY/)?.[1];
+    expect(script).toBeDefined();
+    const root = mkdtempSync(path.join(os.tmpdir(), 'intel-infrastructure-'));
+    try {
+      const program = path.join(root, 'summary.mjs');
+      const output = path.join(root, 'summary.md');
+      const result = path.join(root, 'native-intel-smoke.json');
+      writeFileSync(program, script!);
+      const run = (failed: object[]) => {
+        writeFileSync(result, JSON.stringify({ failed }));
+        writeFileSync(output, '');
+        runPackedCommand(process.execPath, [program], {
+          cwd: root,
+          env: { ...process.env, RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: output },
+          expectedStatus: 0,
+          timeoutMs: 5000,
+        });
+        return readFileSync(output, 'utf8');
+      };
+      const reason = 'GitHub API rate limit: reset/earliest retry time (UTC epoch 1791014157)';
+      const classified = { check: 'tmt upgrade', infrastructure: 'github-api-rate-limit', reason };
+      const summary = run([classified]);
+      expect(summary).toContain('Class: github-api-rate-limit.');
+      expect(summary).toContain('Reset/earliest retry: 2026-10-03T07:55:57.000Z.');
+      expect(summary).toContain('upgrade is unproven this week; the job remains failed');
+      expect(run([{ check: 'tmt upgrade', reason }])).toBe('');
+      expect(run([{ ...classified, check: 'installed version' }])).toBe('');
+      expect(run([])).toBe('');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('keeps weekly/manual real Intel public detection and upgrade, with a PR trigger only on itself', () => {
     const workflow = read('.github/workflows/native-intel.yml');
     expect(workflow).toMatch(/schedule:\n {4}- cron: '[^']+'\n {2}workflow_dispatch:/);

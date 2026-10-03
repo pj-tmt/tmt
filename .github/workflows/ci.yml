@@ -693,7 +693,7 @@ jobs:
             --target '${{ matrix.target }}' \
             --version "$(cat runtime/version.txt)" \
             --skill skills/tmux-team/SKILL.md
-          echo "Verified native runtime in $((SECONDS - started)) s." >> "$GITHUB_STEP_SUMMARY"
+          echo "Verified native runtime in $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
           VERIFY
       - name: Build the verification-only Alpine environment
         if: ${{ matrix.container }}

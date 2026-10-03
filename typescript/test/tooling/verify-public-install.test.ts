@@ -31,7 +31,7 @@ const { assertMacOsArchitecture, nativeHostTarget } = (await import(
     executable: string,
     target: string,
     options: { cwd: string; env: Record<string, string> },
-    inspect: (command: string) => string
+    inspect: (command: string, args: string[]) => string
   ) => void;
 };
 
@@ -167,8 +167,8 @@ function run(
       root: path.join(root, 'work'),
       target: options.target,
       inspectArchitecture: (executable, target, settings) => {
-        assertMacOsArchitecture(executable, target, settings, (command) => {
-          if (command === '/usr/bin/xcrun') return '/selected/lipo';
+        assertMacOsArchitecture(executable, target, settings, (_command, args) => {
+          if (args[0] === '--find') return '/selected/lipo';
           inspected.push(executable);
           return (
             options.architectures?.[inspected.length - 1] ??
