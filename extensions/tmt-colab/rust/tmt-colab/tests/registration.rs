@@ -118,6 +118,31 @@ fn chain(outcome: &[u8]) -> certificate::Chain {
     let v: Value = serde_json::from_slice(outcome).unwrap();
     certificate::Chain::from_json(&serde_json::to_vec(&v["chain"]).unwrap()).unwrap()
 }
+fn assert_browser_registration_anchor(f: &Fixture, outcome: &[u8]) {
+    let key = Keyring::read(&f.layout).unwrap();
+    let v: Value = serde_json::from_slice(outcome).unwrap();
+    let issuer =
+        statement::Envelope::from_json(&serde_json::to_vec(&v["issuerStatement"]).unwrap())
+            .unwrap();
+    let verified = issuer
+        .verify_next(&key.space_id, &key.owner_public(), None)
+        .unwrap();
+    let chain = chain(outcome);
+    let cert = chain.certificate().unwrap();
+    // Browser verifyRegistration authenticates the genesis issuer before sync.
+    assert_eq!(cert.space, key.space_id);
+    assert_eq!(cert.issuer_kind, "member");
+    assert_eq!(cert.issuer_id, verified.head.owner_member.id);
+    assert_eq!(cert.membership_revision, "1");
+    assert_eq!(verified.head.revision, 1);
+    chain
+        .verify(
+            &verified.head.hash,
+            &cert,
+            &verified.head.owner_member.signing_key,
+        )
+        .unwrap();
+}
 #[test]
 fn independent_python_management_keys_and_remote_ext_cert_bytes() {
     let v: Value = serde_json::from_str(include_str!(
@@ -881,6 +906,7 @@ fn creation_wraps_existing_owner_and_late_registration_opens_only_active_pages_w
         .execute_batch("DROP TRIGGER deny_forward_wrap")
         .unwrap();
     let first = register(&mut f, Some(&context(OTHER, 1)), &request(OTHER, NOW), NOW).unwrap();
+    assert_browser_registration_anchor(&f, &first);
     browser_reads_created_page(&f, PAGE_B, OTHER);
     let count: i64 = f
         .oracle()
@@ -907,6 +933,104 @@ fn creation_wraps_existing_owner_and_late_registration_opens_only_active_pages_w
         Code::Denied
     );
     assert_eq!(f.rows("wraps"), count);
+}
+#[test]
+fn create_first_registration_and_saved_head_certificate_retry_use_the_genesis_anchor() {
+    const PAGE: &str = "50000000-0000-4000-8000-000000000005";
+    let mut f = Fixture::new();
+    create_page(&mut f, PAGE, PAGE, 0);
+    let c = context(DEVICE, 1);
+    let first = register(&mut f, Some(&c), &request(DEVICE, NOW), NOW).unwrap();
+    assert_browser_registration_anchor(&f, &first);
+    browser_reads_created_page(&f, PAGE, DEVICE);
+
+    // Reproduce a durable response issued by the previous native implementation:
+    // genuine member signature, same keys and issuer, but the current head (2).
+    let key = Keyring::read(&f.layout).unwrap();
+    let first_chain = chain(&first);
+    let mut old_cert = first_chain.certificate().unwrap();
+    old_cert.membership_revision = "2";
+    let mut old_response: Value = serde_json::from_slice(&first).unwrap();
+    let mut root: [u8; 32] = fs::read(f.layout.directory.join("owner.key"))
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let info = framing::frame(&[
+        b"tmt-colab-management-signing-seed-v1",
+        key.space_id.as_bytes(),
+    ])
+    .unwrap();
+    let mut seed = tmt_colab_model::crypto::derive_key(&root, &[], &info);
+    root.fill(0);
+    let signer = SigningKey::from_bytes(&seed);
+    seed.fill(0);
+    assert_eq!(
+        signer.verifying_key().to_bytes(),
+        key.management_member().unwrap().signing_key
+    );
+    old_response["chain"]["deviceCertificate"] = json!(values::encode_binary(
+        &certificate::input(&old_cert).unwrap()
+    ));
+    old_response["chain"]["issuerSignature"] = json!(values::encode_binary(
+        &signer
+            .sign(&certificate::input(&old_cert).unwrap())
+            .to_bytes()
+    ));
+    let old_chain_bytes = serde_json::to_vec(&old_response["chain"]).unwrap();
+    let old_response = serde_json::to_vec(&old_response).unwrap();
+    let old_chain = chain(&old_response);
+    assert_eq!(old_chain.certificate().unwrap().membership_revision, "2");
+    let device = tmt_colab::store::owner::Device {
+        chain: old_chain_bytes,
+        revoked: false,
+    };
+    let db = f.oracle();
+    let binding: Vec<u8> = db
+        .query_row(
+            "SELECT binding FROM device_registrations WHERE device_id=?",
+            [DEVICE],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let mut binding: Value = serde_json::from_slice(&binding).unwrap();
+    binding["outcome"] = json!(old_response);
+    db.execute(
+        "UPDATE devices SET record=? WHERE id=?",
+        rusqlite::params![serde_json::to_vec(&device).unwrap(), DEVICE],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE device_registrations SET binding=? WHERE device_id=?",
+        rusqlite::params![serde_json::to_vec(&binding).unwrap(), DEVICE],
+    )
+    .unwrap();
+    drop(db);
+    f.reopen();
+    assert_eq!(
+        f.service().active_device(Some(&c), NOW).unwrap(),
+        *old_cert.signing_key
+    );
+    let wraps = f.rows("wraps");
+    let next = register(&mut f, Some(&c), &request(DEVICE, NOW + 1), NOW + 1).unwrap();
+    assert_browser_registration_anchor(&f, &next);
+    assert_eq!(
+        chain(&next).certificate().unwrap().signing_key,
+        old_cert.signing_key
+    );
+    assert_eq!(
+        chain(&next).certificate().unwrap().encryption_key,
+        old_cert.encryption_key
+    );
+    assert_eq!(f.rows("membership_log"), 2);
+    assert_eq!(f.rows("devices"), 2); // local page author plus the browser
+    assert_eq!(f.rows("device_registrations"), 1);
+    assert_eq!(f.rows("wraps"), wraps);
+    browser_reads_created_page(&f, PAGE, DEVICE);
+    f.reopen();
+    assert_eq!(
+        register(&mut f, Some(&c), &request(DEVICE, NOW + 2), NOW + 2).unwrap(),
+        next
+    );
 }
 #[test]
 fn fresh_creation_is_atomic_replayable_and_conflicting_selections_never_create_another_page() {

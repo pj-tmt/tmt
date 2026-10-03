@@ -432,6 +432,9 @@ revocation returns 403 `DENIED`; stale/future certificate returns 403 `EXPIRED`;
 changed keys or remote identity binding returns 409 `CONFLICT`; state/keyring
 failure returns 503 `UNAVAILABLE`. Success returns JSON `{chain, issuerStatement}`,
 where the issuer statement is the exact revision-1 model envelope as JSON.
+The device certificate's `membershipRevision` is `"1"`, matching that issuer
+anchor; it is not the current owner-log head. Current membership, revocation and
+page policy still govern admission and wraps.
 
 If the owner log is absent, the existing owner transaction creates its initial
 editor management member with no page assignments. Its fixed operation ID is
@@ -454,6 +457,10 @@ returns its exact saved response until fewer than 30 days remain, when fresh
 remote certificates silently renew it. Every retry still requires fresh input
 certificates and current owner context. Registration and local revocation are
 serialized; a context older than the highest observed grant revision is denied.
+A saved, verified certificate naming a later membership revision is renewed on
+authenticated retry with the same keys and revision-1 issuer anchor, regardless
+of its remaining lifetime. Renewal atomically replaces the saved chain and
+response without advancing membership.
 
 The trusted `Registration::revoke(deviceId, grantRevision) -> Result<bool>` callback
 uses the owner engine for a known device: tombstone, cleared registration,

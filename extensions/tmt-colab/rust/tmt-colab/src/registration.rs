@@ -283,7 +283,7 @@ impl Registration {
         self.genesis().map_err(map_error)?;
         let keyring = &self.keyring;
         let apply = |tx: &mut OwnerTransaction<'_>| -> Result<Vec<u8>> {
-            let (initial, member, membership_revision) = issuer(tx, keyring)?;
+            let (initial, member, current_revision) = issuer(tx, keyring)?;
             let old_device = tx.device(&context.device_id)?;
             if old_device.as_ref().is_some_and(|d| d.revoked) {
                 return Err(Code::Denied.into());
@@ -309,13 +309,15 @@ impl Registration {
                     &initial,
                     &member,
                     &saved,
-                    membership_revision,
+                    current_revision,
                     &keyring.space_id,
                 )?;
                 if now < cert.issued_at {
                     return Err(Code::Expired.into());
                 }
-                if cert.expires_at.saturating_sub(now) >= RENEWAL_MS {
+                if cert.membership_revision == "1"
+                    && cert.expires_at.saturating_sub(now) >= RENEWAL_MS
+                {
                     saved.context = context;
                     tx.put_registration(
                         &saved.context.device_id,
@@ -328,7 +330,6 @@ impl Registration {
             } else if old_device.is_some() {
                 return Err(Code::Conflict.into());
             }
-            let revision = membership_revision.to_string();
             let cert = certificate::Certificate {
                 space: &keyring.space_id,
                 issuer_kind: "member",
@@ -336,7 +337,9 @@ impl Registration {
                 device_id: &context.device_id,
                 signing_key: &signing,
                 encryption_key: &encryption,
-                membership_revision: &revision,
+                // The chain resolves the management member's revision-1 member.add,
+                // while current_revision still fences live admission above.
+                membership_revision: "1",
                 issued_at: now,
                 expires_at: now.checked_add(CERTIFICATE_MS).ok_or(Code::Invalid)?,
             };
