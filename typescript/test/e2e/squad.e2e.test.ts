@@ -3,6 +3,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { resolveCliExecutables } from '../support/cli-executable.mjs';
 import { expectJsonResult } from './cli-assertions.js';
+import { durableIdentity, durableState } from './identity-state-oracle.js';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 
 /** Puts the built squad extension and a `tmt` launcher on the fixture PATH. */
@@ -63,6 +64,38 @@ async function squadWithMember(fixture: E2EFixture): Promise<string> {
 }
 
 describe('squad on a private tmux server', { concurrent: false }, () => {
+  it('drops a lost temporary member on the first read and retains a saved member offline', async () => {
+    await withE2EFixture(async (fixture) => {
+      const temporaryPane = await squadWithMember(fixture);
+      const savedPane = fixture.createShellPane('saved');
+      expectJsonResult(await fixture.runJsonCli(['add', '--save', savedPane.pane, 'saved-worker']));
+      expectJsonResult(await squadCli(fixture, ['add', 'saved-worker']));
+      const temporary = durableIdentity(fixture, 'auth-fix');
+      const saved = durableIdentity(fixture, 'saved-worker');
+      expect(temporary.lifetime).toBe('temporary');
+      expect(saved.lifetime).toBe('saved');
+      fixture.tmux(['kill-pane', '-t', temporaryPane]);
+      fixture.tmux(['kill-pane', '-t', savedPane.pane]);
+      // Read-only SQL must observe the pre-reconciliation state, not trigger cleanup.
+      expect(durableIdentity(fixture, 'auth-fix').retired_at_ms).toBeNull();
+      const first = expectJsonResult<{
+        sections: { rows: { name: string; presence: string }[] }[];
+      }>(await squadCli(fixture, ['ls', '--squad', 'product']));
+      expect(first.sections.flatMap((section) => section.rows)).toMatchObject([
+        { name: 'saved-worker', presence: 'offline' },
+      ]);
+      expect(first.sections.flatMap((section) => section.rows)).toHaveLength(1);
+      const after = durableState(fixture);
+      expect(after.identities.find((row) => row.id === temporary.id)?.retired_at_ms).toEqual(
+        expect.any(Number)
+      );
+      expect(after.identities.find((row) => row.id === saved.id)?.retired_at_ms).toBeNull();
+      expect(
+        after.bindings.filter((row) => [temporary.id, saved.id].includes(String(row.identity_id)))
+      ).toEqual([]);
+    });
+  });
+
   it('loads hotkeys into the running server, refuses a taken key, and unbinds only its own', async () => {
     await withE2EFixture(async (fixture) => {
       await squadWithMember(fixture);

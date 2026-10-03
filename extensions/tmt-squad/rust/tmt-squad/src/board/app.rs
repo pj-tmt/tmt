@@ -1023,7 +1023,7 @@ impl App {
                 } else {
                     match view.document["squad"]["lead"]["name"].as_str() {
                         Some(lead) => lead.to_owned(),
-                        None => return self.say("This squad has no lead to annotate for."),
+                        None => return self.say(format!("This squad has no lead; set one with tmt squad lead <name> --squad {squad}, or use annotate member.")),
                     }
                 };
                 self.ask(
@@ -2027,7 +2027,9 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Char('a'));
         assert_eq!(
             app.notice.as_deref(),
-            Some("This squad has no lead to annotate for.")
+            Some(
+                "This squad has no lead; set one with tmt squad lead <name> --squad product, or use annotate member."
+            )
         );
         assert!(app.input.is_none());
     }

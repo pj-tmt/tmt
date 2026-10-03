@@ -213,7 +213,17 @@ pub fn annotate(
         .map(str::to_owned);
     find(document, squad, name)?;
     let to = if to_lead {
-        lead.ok_or_else(|| refused(format!("Squad {} has no lead to annotate for.", squad.name)))?
+        lead.ok_or_else(|| {
+            SquadError::hinted(
+                "SQUAD_ACTION_REFUSED",
+                &format!("Squad {} has no lead to annotate for", squad.name),
+                "; ",
+                &format!(
+                    "Set one with tmt squad lead <name> --squad {}, or use --to member",
+                    squad.name
+                ),
+            )
+        })?
     } else {
         name.to_owned()
     };

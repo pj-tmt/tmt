@@ -3113,13 +3113,19 @@ a squad-wide conversion. New additions need no marker unless their existing
 metadata would make them lead; in that case `add` writes `false` before joining.
 `squad lead` preflights the core metadata capacity for every required marker
 before any write, records `true` before joining the new lead, then sets previous
-leads to `false`, preserving all role text. A concurrent metadata write after
+leads to `false`, preserving all role text and squad membership. Clearing with
+`squad lead --none` preflights and clears those markers without selecting or
+joining anyone. Former leads remain members until explicitly removed with
+`squad rm`. A concurrent metadata write after
 preflight can still split this sequence; it is not a transaction. Removal clears the reserved key with the
 rest of that squad's namespace. A required new marker at the identity metadata
 capacity limit returns the existing core error before the role pairs or join,
 rather than silently changing leadership. Reads never convert state.
 `ls` (alias `status`) joins
-one `rooms.roster` snapshot with `ls --room` presence. It always returns one
+one `rooms.roster` snapshot with `ls --room` presence. Presence is read first so
+core reconciliation retires dead temporary identities before the roster snapshot;
+a member joining between reads has unknown presence until the next load. It
+always returns one
 `sections` shape: without user-defined sections, a single untitled section.
 User-defined sections (`[[squad.<name>.section]]`: title, filter, sort) replace
 the single list, and rows that match none follow in one untitled section so
@@ -3618,7 +3624,11 @@ headers and prompts are assembled each frame so ages stay current without
 reparsing Markdown. View replacement discards the cache. Replies keep the shared
 `Scrolls` owner, including overflow indicators, wheel and keyboard paging.
 Membership commands are sequences of idempotent core commands, not one
-transaction; each reports what it applied, and a re-run converges. `squad.toml`,
+transaction; each reports what it applied, and a re-run converges. `add` reports
+`added: false` for an existing member, including a repeated name in one call,
+and preserves its state and task; only a missing state receives the configured
+initial value. `lead --none` reports a null lead and the former leads in
+`replaced`, retaining their membership. `squad.toml`,
 beside the global config that `tmt config show` reports, is the user's file.
 `Config::write` owns format-preserving replacement for `me`/`me_id`, tab order,
 board views and theme bases. It checks the original bytes, edits a cloned document,

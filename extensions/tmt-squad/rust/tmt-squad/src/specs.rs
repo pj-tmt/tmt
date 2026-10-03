@@ -60,10 +60,11 @@ talk, reply, annotate and replies act as the pane's identity. It follows tmt mv.
 
 pub const LEAD: &CommandSpec = spec!(
     "lead",
-    "Make a saved identity the squad's lead",
+    "Choose a saved lead or clear leadership; former leads stay members",
     [
         "Make sol the lead" => "tmt squad lead sol",
         "Choose the squad when several exist" => "tmt squad lead sol --squad product",
+        "Clear leadership without removing the former lead" => "tmt squad lead --none",
     ]
 );
 

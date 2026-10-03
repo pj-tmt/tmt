@@ -305,7 +305,7 @@ esac
         // `ls`: with reminders off nothing is observed, so neither the notes
         // nor the room history is read for it.
         let listed = fixture.read(false);
-        assert_eq!(fixture.calls(), ["roster", "ls"]);
+        assert_eq!(fixture.calls(), ["ls", "roster"]);
         assert!(listed.notes.is_none() && listed.sent.is_none());
         assert_eq!(listed.document["squad"]["lead"]["id"], "SOL");
         assert_eq!(
@@ -322,7 +322,7 @@ esac
         let shown = fixture.read(true);
         assert_eq!(
             fixture.calls(),
-            ["roster", "ls", "roster", "ls", "notes"],
+            ["ls", "roster", "ls", "roster", "notes"],
             "the lead's notes are read once, after the roster"
         );
         assert_eq!(shown.document, listed.document);
