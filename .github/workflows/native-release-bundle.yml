@@ -312,7 +312,7 @@ jobs:
       fail-fast: false
       matrix: *native-targets
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    timeout-minutes: 10
     env:
       RUSTUP_TOOLCHAIN: 1.97.0
       CARGO_TARGET_DIR: ${{ github.workspace }}/release-source/rust/target

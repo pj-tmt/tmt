@@ -105,7 +105,7 @@ describe('macOS toolchain warm-up before the native runtime proof', () => {
     expect(runsOnMacOs(workflow, prove)).toBe(true);
     const list = steps(workflow, prove);
     const warm = list.findIndex((step) => step.includes(warmUp));
-    const run = list.findIndex((step) => step.includes('release-upgrade.mjs prove'));
+    const run = list.findIndex((step) => /release-upgrade\.mjs["']?\s+prove\b/.test(step));
     expect(warm).toBeGreaterThanOrEqual(0);
     expect(run).toBeGreaterThan(warm);
   });
