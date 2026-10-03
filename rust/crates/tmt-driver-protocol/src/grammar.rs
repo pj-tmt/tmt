@@ -78,7 +78,7 @@ impl Grammar {
     }
 }
 
-fn valid_env_name(name: &str) -> bool {
+pub(crate) fn valid_env_name(name: &str) -> bool {
     (1..=ENV_NAME_MAX).contains(&name.len())
         && name.starts_with(|c: char| c.is_ascii_uppercase())
         && name

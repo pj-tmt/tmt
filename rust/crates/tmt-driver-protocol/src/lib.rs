@@ -9,19 +9,27 @@
 //! - [`conformance`] checks a driver against the contract through any way of
 //!   invoking it.
 //!
+//! A host driver knows a terminal host; a runtime driver knows a coding
+//! agent. [`RuntimeDeclaration`] is a runtime driver's checked declaration,
+//! which core applies on an agent's hook path without starting the driver.
+//!
 //! The crate depends on no TMT crate: a driver needs only this and
 //! `serde_json`.
 
 mod decode;
 mod grammar;
+mod runtime;
 mod serve;
 mod wire;
 
 pub mod conformance;
 
-pub use decode::{Answer, DecodeError, decode, decode_capabilities, decode_done};
+pub use decode::{
+    Answer, DecodeError, decode, decode_capabilities, decode_done, decode_runtime_capabilities,
+};
 pub use grammar::{Grammar, GrammarError, HostGrammar};
-pub use serve::{Handler, serve};
+pub use runtime::{HookObservation, RuntimeDeclaration};
+pub use serve::{Handler, RuntimeHandler, serve, serve_runtime};
 pub use wire::*;
 
 use std::time::Duration;
@@ -39,7 +47,12 @@ pub const CALL_ENV: &str = "TMT_DRIVER_CALL";
 /// The most a request may be; `input` text is the largest part.
 pub const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 
-/// One host-driver operation.
+/// The most a provider hook's payload may be for core to decode it.
+pub const MAX_HOOK_PAYLOAD_BYTES: usize = 64 * 1024;
+
+/// One driver operation: a host driver's, or a runtime driver's from
+/// [`Op::Locations`] on. A driver answers `unsupported` to any it doesn't
+/// declare, including the other kind's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Op {
     Capabilities,
@@ -54,6 +67,9 @@ pub enum Op {
     Input,
     Prompt,
     Focus,
+    Locations,
+    Resume,
+    Usage,
 }
 
 /// How long an operation may take and how much it may print. Anything over
@@ -68,7 +84,7 @@ const SMALL: usize = 4 * 1024;
 const LARGE: usize = 1024 * 1024;
 
 impl Op {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 15] = [
         Self::Capabilities,
         Self::Caller,
         Self::Server,
@@ -81,6 +97,9 @@ impl Op {
         Self::Input,
         Self::Prompt,
         Self::Focus,
+        Self::Locations,
+        Self::Resume,
+        Self::Usage,
     ];
 
     /// The name on the command line and in `capabilities.ops`.
@@ -98,6 +117,9 @@ impl Op {
             Self::Input => "input",
             Self::Prompt => "prompt",
             Self::Focus => "focus",
+            Self::Locations => "locations",
+            Self::Resume => "resume",
+            Self::Usage => "usage",
         }
     }
 
@@ -105,9 +127,15 @@ impl Op {
         Self::ALL.into_iter().find(|op| op.as_str() == name)
     }
 
+    /// Whether this is a runtime driver's operation.
+    pub const fn is_runtime(self) -> bool {
+        matches!(self, Self::Locations | Self::Resume | Self::Usage)
+    }
+
     /// Operations on a provider hook's path get 1 s: each call is a fresh
     /// process, and a cold exec alone can take 300 ms on a busy machine.
-    /// Those that read every pane or paste text get 2 s.
+    /// Those that read every pane or paste text get 2 s. A runtime
+    /// operation gets 1 s; `usage` gets less when its hook has less left.
     pub const fn bounds(self) -> OpLimits {
         let (millis, max_output_bytes) = match self {
             Self::Capabilities => (1000, SMALL),
@@ -116,7 +144,10 @@ impl Op {
             | Self::ResolveTarget
             | Self::Publish
             | Self::Clear
-            | Self::Focus => (1000, SMALL),
+            | Self::Focus
+            | Self::Locations
+            | Self::Resume
+            | Self::Usage => (1000, SMALL),
             Self::Snapshot | Self::Probe | Self::Capture => (2000, LARGE),
             Self::Input | Self::Prompt => (2000, SMALL),
         };
@@ -148,5 +179,20 @@ mod tests {
             assert_eq!(op.bounds().max_output_bytes, 4096);
         }
         assert_eq!(Op::Snapshot.bounds().max_output_bytes, 1024 * 1024);
+    }
+
+    #[test]
+    fn runtime_ops_are_short_small_and_marked() {
+        for op in Op::ALL {
+            assert_eq!(
+                op.is_runtime(),
+                matches!(op.as_str(), "locations" | "resume" | "usage"),
+                "{op:?}"
+            );
+            if op.is_runtime() {
+                assert_eq!(op.bounds().deadline, Duration::from_millis(1000));
+                assert_eq!(op.bounds().max_output_bytes, 4096);
+            }
+        }
     }
 }

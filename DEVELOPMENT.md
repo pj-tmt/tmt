@@ -1336,6 +1336,17 @@ shell-script stand-in named `claude` in a pane, never a real agent. Without
 node typescript/scripts/release-please-config.mjs --check
 ```
 
+A change to the protocol crate itself (wire types, decoding, `serve` or either
+conformance harness) runs the crate's tests, which hold the conforming and
+broken in-process fixtures for both driver kinds, and the host consumers
+above, since the host harness also asks every runtime operation:
+
+```bash
+(cd rust && cargo test --locked -p tmt-driver-protocol)
+(cd rust && cargo test --locked -p tmt-cli --test herdr_driver)
+(cd rust && cargo test --locked -p tmt-adapters --lib host::external)
+```
+
 The suite covers grammar, configuration-before-effects, identity metadata and
 binding lifecycle, role/preamble, response/receipts, exchanges/attention, inbox listening, talk,
 local Office board grammar/persistence, managed skills and native installation. It uses bounded process budgets,
