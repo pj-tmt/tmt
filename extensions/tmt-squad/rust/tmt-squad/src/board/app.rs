@@ -183,6 +183,7 @@ pub struct LinkSend {
 
 /// The row's action menu, or the choice among a member's open requests.
 pub struct Menu {
+    pub(super) home: Option<super::home::Send>,
     pub link: Option<LinkSend>,
     pub prefill: String,
     pub title: String,
@@ -200,6 +201,7 @@ pub enum Compose {
 
 /// The one-line composer: Enter sends, Esc cancels, empty sends nothing.
 pub struct Input {
+    pub(super) home: Option<super::home::Send>,
     pub link: Option<LinkSend>,
     pub prompt: String,
     pub text: String,
@@ -275,8 +277,10 @@ pub struct App {
     pub searching: bool,
     /// Index among visible rows (headers excluded).
     pub selected: usize,
+    pub(super) home_target: Option<super::home::Target>,
     pub notice: Option<String>,
     pub help: bool,
+    pub(super) help_state: RefCell<super::help::Help>,
     pub menu: Option<Menu>,
     pub(super) view_picker: Option<super::view_picker::Picker>,
     pub(super) theme_picker: Option<super::theme_picker::Picker>,
@@ -323,7 +327,7 @@ fn page_step(code: KeyCode) -> Step {
     }
 }
 
-fn matches(row: &Value, needle: &str) -> bool {
+pub(super) fn matches(row: &Value, needle: &str) -> bool {
     if needle.is_empty() {
         return true;
     }
@@ -373,6 +377,13 @@ impl App {
         let Some(view) = &self.view else {
             return Vec::new();
         };
+        if view.home.is_some() {
+            return self
+                .home_entries()
+                .into_iter()
+                .map(|entry| (0, entry.row))
+                .collect();
+        }
         view.document["sections"]
             .as_array()
             .into_iter()
@@ -410,13 +421,36 @@ impl App {
     }
 
     fn clamp(&mut self) {
-        self.selected = self.selected.min(self.rows().len().saturating_sub(1));
+        if self.view.as_ref().is_some_and(|view| view.home.is_some()) {
+            let entries = self.home_entries();
+            let index = self
+                .home_target
+                .as_ref()
+                .and_then(|target| entries.iter().position(|entry| &entry.target == target))
+                .unwrap_or(self.selected.min(entries.len().saturating_sub(1)));
+            let target = entries.get(index).map(|entry| entry.target.clone());
+            self.selected = index;
+            self.home_target = target;
+        } else {
+            self.home_target = None;
+            self.selected = self.selected.min(self.rows().len().saturating_sub(1));
+        }
     }
 
     /// Another squad is now on screen: its selection and scrolling start over.
     fn shown_changed(&mut self) {
         self.note_link = None;
-        self.selected = 0;
+        self.home_target = None;
+        let entries = self.home_entries();
+        self.selected = entries
+            .iter()
+            .position(|entry| entry.target.section == "needs-you")
+            .or_else(|| {
+                entries
+                    .iter()
+                    .position(|entry| entry.target.section == "squads")
+            })
+            .unwrap_or(0);
         self.scrolls = Scrolls::default();
         self.follow = true;
         self.reconcile_folds();
@@ -594,7 +628,7 @@ impl App {
     }
 
     /// Shows the tab `next`, from the cache at once when it was visited.
-    fn go(&mut self, next: String) -> Effect {
+    pub(super) fn go(&mut self, next: String) -> Effect {
         if Some(&next) == self.current.as_ref() {
             return Effect::None;
         }
@@ -858,7 +892,7 @@ impl App {
         crate::action::effective_bindings(view.bindings.clone(), section, enabled)
     }
 
-    fn say(&mut self, notice: impl Into<String>) -> Effect {
+    pub(super) fn say(&mut self, notice: impl Into<String>) -> Effect {
         self.notice = Some(notice.into());
         Effect::None
     }
@@ -870,6 +904,21 @@ impl App {
         if self.loading() && !matches!(action.verb, Verb::NextPane | Verb::Refresh | Verb::Notes) {
             let loading = self.current.clone().unwrap_or_default();
             return self.say(format!("Loading {loading}…"));
+        }
+        if self.view.as_ref().is_some_and(|view| view.home.is_some()) {
+            match action.verb {
+                Verb::Tab | Verb::Jump
+                    if action.args.first().and_then(|arg| arg.literal()) != Some("lead") =>
+                {
+                    return self.home_enter();
+                }
+                Verb::Annotate => return self.home_answer(),
+                Verb::NextPane => {
+                    self.home_section(false);
+                    return Effect::None;
+                }
+                _ => {}
+            }
         }
         if action.verb == Verb::Annotate && self.focused_pane() == Some(Pane::Notes) {
             return self.annotate_note();
@@ -961,6 +1010,7 @@ impl App {
                     .collect();
                 entries.sort_by_key(|entry| entry.key.chars().count() > 1);
                 self.menu = Some(Menu {
+                    home: None,
                     link: None,
                     prefill: String::new(),
                     title: row["name"].as_str().unwrap_or_default().to_owned(),
@@ -1011,6 +1061,11 @@ impl App {
         let named = |name: Option<&str>| name.filter(|name| !name.is_empty()).map(str::to_owned);
         let lead = match self.current.as_deref() {
             Some(super::LEADS) => named(self.selected_row().and_then(|row| row["name"].as_str())),
+            Some(super::ALL) if view.home.is_some() => named(
+                self.home_entries()
+                    .get(self.selected)
+                    .and_then(|entry| entry.lead),
+            ),
             Some(super::ALL) => named(
                 self.selected_row()
                     .and_then(|row| row["fields"]["lead"].as_str()),
@@ -1025,8 +1080,9 @@ impl App {
         })
     }
 
-    fn ask(&mut self, prompt: String, compose: Compose, squad: String) -> Effect {
+    pub(super) fn ask(&mut self, prompt: String, compose: Compose, squad: String) -> Effect {
         self.input = Some(Input {
+            home: None,
             link: None,
             prompt,
             text: String::new(),
@@ -1096,6 +1152,7 @@ impl App {
                     [only] => self.choose(only.choice.clone()),
                     _ => {
                         self.menu = Some(Menu {
+                            home: None,
                             link: None,
                             prefill: String::new(),
                             title: format!("reply to {name}"),
@@ -1370,6 +1427,13 @@ impl App {
         }
         let input = self.input.take().expect("composing");
         let text = input.text.trim().to_owned();
+        if input
+            .home
+            .as_ref()
+            .is_some_and(|send| !send.valid(self, &input))
+        {
+            return self.say("The home target, lead or request changed; nothing sent.");
+        }
         if let Some(LinkSend { member, sender }) = &input.link {
             let row = self.link_member(member);
             let valid = self.view.as_ref().and_then(|view| view.me.as_ref()) == Some(sender)
@@ -1458,16 +1522,24 @@ impl App {
         };
         let prefill = menu.prefill.clone();
         let link = menu.link.clone();
+        let home = menu.home.clone();
         self.menu = None;
         let effect = chosen.map_or(Effect::None, |choice| self.choose(choice));
         if let Some(input) = &mut self.input {
             input.text = prefill;
             input.link = link;
+            if let Some(home) = home {
+                input.squad = home.target.squad.clone();
+                input.home = Some(home);
+            }
         }
         effect
     }
 
     pub fn key(&mut self, key: KeyEvent) -> Effect {
+        if self.help {
+            return self.help_event(ratatui::crossterm::event::Event::Key(key));
+        }
         self.notice = None;
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Effect::Quit;
@@ -1537,6 +1609,12 @@ impl App {
                 _ => {}
             }
             self.clamp();
+            return Effect::None;
+        }
+        if self.view.as_ref().is_some_and(|view| view.home.is_some())
+            && key.code == KeyCode::BackTab
+        {
+            self.home_section(true);
             return Effect::None;
         }
         if self.focused_pane().is_none()
@@ -1630,7 +1708,10 @@ impl App {
             KeyCode::Char('/') => self.searching = true,
             // The switcher's key, unless the user bound `s` to something.
             KeyCode::Char('s') if !self.bound(key) => self.switcher = Some(Switcher::default()),
-            KeyCode::Char('?') => self.help = !self.help,
+            KeyCode::Char('?') => {
+                self.help_state.borrow_mut().open(self.focused().title());
+                self.help = true;
+            }
             _ => {
                 if let Some(action) =
                     event_name(key).and_then(|event| self.bindings().remove(&event))
@@ -1691,7 +1772,8 @@ impl App {
     }
 
     /// Selects a row and keeps it on screen.
-    fn select(&mut self, row: usize) {
+    pub(super) fn select(&mut self, row: usize) {
+        self.home_target = None;
         self.selected = row;
         self.clamp();
         self.follow = true;
@@ -1725,10 +1807,29 @@ impl App {
         }
     }
 
+    fn help_event(&mut self, event: ratatui::crossterm::event::Event) -> Effect {
+        use tmt_tui::app::Routed;
+        let routed = self
+            .help_state
+            .borrow_mut()
+            .input(&event, self.focused().title());
+        match routed {
+            Routed::Quit => Effect::Quit,
+            Routed::Handled(super::help::Input::Close) => {
+                self.help = false;
+                Effect::None
+            }
+            _ => Effect::None,
+        }
+    }
+
     /// The wheel scrolls the pane under the pointer, whichever is focused.
     /// A left click focuses the pane under it and selects the row under it, then runs its `click` binding;
     /// a second click on the same row soon after runs `double-click`.
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
+        if self.help {
+            return self.help_event(ratatui::crossterm::event::Event::Mouse(event));
+        }
         if let Some(overlay) = &self.settings {
             overlay.mouse(event);
             return Effect::None;
@@ -2489,6 +2590,7 @@ pub(crate) mod tests {
                 },
             ] {
                 app.input = Some(Input {
+                    home: None,
                     link: None,
                     prompt: "message".into(),
                     text: "draft".into(),
@@ -3012,6 +3114,7 @@ mod token_window_tests {
             },
         ] {
             app.input = Some(Input {
+                home: None,
                 link: None,
                 prompt: "message".into(),
                 text: String::new(),

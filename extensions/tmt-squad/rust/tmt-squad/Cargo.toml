@@ -22,6 +22,7 @@ include = [
 # Squad reaches core only through public commands and `tmt api`; the
 # architecture guard permits only neutral invoke/style leaves.
 [dependencies]
+jiff.workspace = true
 clap.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

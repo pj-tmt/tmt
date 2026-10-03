@@ -63,3 +63,13 @@ with `corepack pnpm@10.33.0 exec vp fmt --config vite.config.ts test/vectors.jso
 `--check` compares parsed values, verifying fixed bytes without rewriting them.
 The TypeScript tests compare these literal artifacts
 and mutate one condition at a time to demonstrate refusal and exact byte binding.
+
+Certificate signature conformance also consumes the Rust-owned fixed WebCrypto
+vectors over the Python oracle's exact certificate bytes. Tests reproduce the
+signatures for `sign` and `enc` and reject changed domains, LP endianness,
+extension names, purposes, keys, times and signatures. The Chromium smoke tests
+silent certification for both purposes and retained signatures after revocation:
+the grant loses live owner context and cannot reopen, even though its old
+certificate signatures still verify. Extensions enforce certificate freshness
+and learn revocation from Remote's device events; a certificate alone grants no
+authority.

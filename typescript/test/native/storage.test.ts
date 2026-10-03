@@ -108,6 +108,7 @@ function expectNativeSchema(
     },
     { version: 43, name: 'record explicit automatic identity name provenance' },
     { version: 44, name: 'persist pane reply notice batches and one-shot worker claims' },
+    { version: 45, name: 'remember runtime channel preference for exact resume' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -175,6 +176,7 @@ function expectNativeSchema(
         'driver_state_version',
         'stale_at_ms',
         'resume_pending_at_ms',
+        'channel',
       ],
     ],
     ['identity_status', ['identity_id', 'activity', 'mood', 'updated_at_ms', 'expires_at_ms']],

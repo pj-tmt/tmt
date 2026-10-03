@@ -6,8 +6,9 @@
 //! bounded single-request reader and the drained reply are unchanged.
 use crate::{
     Result,
+    assets::{self, App},
     keyring::{Layout, StateFault},
-    limits,
+    limits, management,
     registration::{self, OwnerAdmission, Registration},
     store::Store,
     sync::{Progress, Server},
@@ -97,10 +98,15 @@ pub struct MountSocket {
     pub path: PathBuf,
     /// The bound socket's inode, so cleanup never removes a replacement.
     identity: (u64, u64),
-    space_id: String,
+    browser: Browser,
     tunnels: Tunnels,
     registration: Option<Arc<Mutex<Registration>>>,
     sync: Option<Server<OwnerAdmission>>,
+}
+#[derive(Clone)]
+struct Browser {
+    space_id: String,
+    app: Option<Arc<App>>,
 }
 struct Worker {
     socket: UnixStream,
@@ -140,11 +146,18 @@ impl MountSocket {
             listener,
             identity: (metadata.dev(), metadata.ino()),
             path,
-            space_id: space_id.to_owned(),
+            browser: Browser {
+                space_id: space_id.to_owned(),
+                app: None,
+            },
             tunnels,
             registration: None,
             sync: None,
         })
+    }
+    pub fn with_app(mut self, app: Option<App>) -> Self {
+        self.browser.app = app.map(Arc::new);
+        self
     }
     pub fn with_registration(
         mut self,
@@ -162,7 +175,7 @@ impl MountSocket {
         let mut workers: Vec<Worker> = Vec::new();
         let live = Arc::new(AtomicUsize::new(0));
         let active = Arc::new(Mutex::new(Vec::new()));
-        let space_id: Arc<str> = self.space_id.as_str().into();
+        let browser = Arc::new(self.browser.clone());
         let result = (|| -> Result<()> {
             while !stop.load(Ordering::Acquire) {
                 for i in (0..workers.len()).rev() {
@@ -197,8 +210,8 @@ impl MountSocket {
                         continue;
                     }
                     let retained = socket.try_clone()?;
-                    let (live, space_id, tunnels) =
-                        (Arc::clone(&live), Arc::clone(&space_id), self.tunnels);
+                    let (live, browser, tunnels) =
+                        (Arc::clone(&live), Arc::clone(&browser), self.tunnels);
                     let registration = self.registration.clone();
                     let sync = self.sync.clone();
                     let active = Arc::clone(&active);
@@ -208,7 +221,7 @@ impl MountSocket {
                             .spawn(move || {
                                 serve(
                                     socket,
-                                    &space_id,
+                                    &browser,
                                     &live,
                                     tunnels,
                                     registration.as_ref(),
@@ -264,7 +277,7 @@ struct Request {
 }
 fn serve(
     mut socket: UnixStream,
-    space_id: &str,
+    browser: &Browser,
     live: &AtomicUsize,
     tunnels: Tunnels,
     registration: Option<&Arc<Mutex<Registration>>>,
@@ -293,8 +306,85 @@ fn serve(
         let _ = response(&mut socket, status, text.as_bytes(), false);
         return;
     }
+    if request.path == crate::page::ipc::PATH {
+        let result = (|| -> Result<Vec<u8>> {
+            if local_denied(&request) {
+                return Err(crate::page::Fault::Denied.into());
+            }
+            if request.method != "POST" || request.upgrade {
+                return Err(crate::page::Fault::Invalid.into());
+            }
+            let prepared =
+                serde_json::from_slice(&request.body).map_err(|_| crate::page::Fault::Invalid)?;
+            let receipt = sync
+                .ok_or(crate::page::Fault::Unavailable)?
+                .page_write(&prepared, registration::now_ms()?)?;
+            Ok(serde_json::to_vec(&receipt)?)
+        })();
+        match result {
+            Ok(bytes) => {
+                let _ = response_as(&mut socket, 200, &bytes, "application/json");
+            }
+            Err(error) => {
+                let failure = crate::page::ipc::WriteError::from_error(error.as_ref());
+                if let Ok(bytes) = serde_json::to_vec(&failure) {
+                    let _ = response_as(&mut socket, failure.status(), &bytes, "application/json");
+                }
+            }
+        }
+        return;
+    }
+    if request.path == management::PATH || request.path == management::LOCAL_PATH {
+        let result = if request.path == management::LOCAL_PATH && local_denied(&request) {
+            Err(management::Code::Denied)
+        } else if request.method != "POST" || request.upgrade {
+            Err(management::Code::Invalid)
+        } else {
+            apply_management(&request, &browser.space_id, sync)
+        };
+        match result {
+            Ok(bytes) => {
+                let _ = response_as(&mut socket, 200, &bytes, "application/json");
+            }
+            Err(code) => {
+                let _ = response(
+                    &mut socket,
+                    management::status(code),
+                    code.text().as_bytes(),
+                    false,
+                );
+            }
+        }
+        return;
+    }
     if request.path == "/.tmt" || request.path.starts_with("/.tmt/") {
         let _ = response(&mut socket, 404, b"NOT FOUND", false);
+        return;
+    }
+    if matches!(
+        request.path.as_str(),
+        crate::readers::CHALLENGE_PATH | crate::readers::SESSION_PATH
+    ) {
+        let mut result = Err(registration::Code::Unavailable);
+        if request.method != "POST" || request.upgrade {
+            result = Err(registration::Code::Invalid);
+        } else if let Some(server) = sync {
+            let _ = server.update_admission(|admission| {
+                result = admission
+                    .0
+                    .lock()
+                    .map_err(|_| registration::Code::Unavailable)
+                    .and_then(|mut service| service.reader_request(&request.path, &request.body));
+            });
+        }
+        let (status, body) = match result {
+            Ok(bytes) => (200, bytes),
+            Err(code) => (
+                code.status(),
+                serde_json::to_vec(&serde_json::json!({"code":code.text()})).expect("error JSON"),
+            ),
+        };
+        let _ = response_as(&mut socket, status, &body, "application/json");
         return;
     }
     if request.method == "POST" && request.path == registration::PATH && !request.upgrade {
@@ -353,8 +443,14 @@ fn serve(
             let _ = response(&mut socket, 400, b"INVALID", false);
             return;
         };
-        // Non-owner principals authenticate with colab itself, which is later work.
-        if request.owner.is_none() {
+        let token = match crate::readers::upgrade_token(&request.protocols) {
+            Ok(token) => token,
+            Err(code) => {
+                let _ = response(&mut socket, code.status(), code.text().as_bytes(), false);
+                return;
+            }
+        };
+        if request.owner.is_none() && token.is_none() {
             let _ = response(&mut socket, 403, b"DENIED", false);
             return;
         }
@@ -376,6 +472,14 @@ fn serve(
                         .0
                         .lock()
                         .map_err(|_| registration::Code::Unavailable)?;
+                    if let Some(token) = token {
+                        let (principal, device) = service.reader_upgrade(&token)?;
+                        active
+                            .lock()
+                            .map_err(|_| registration::Code::Unavailable)?
+                            .push((device, Arc::clone(&retained)));
+                        return Ok(principal);
+                    }
                     service.active_device(request.context.as_deref(), registration::now_ms()?)?;
                     let context: Value = serde_json::from_str(
                         request
@@ -416,6 +520,11 @@ fn serve(
             })
             .is_ok();
         if !reserved {
+            let _ = server.update_admission(|a| {
+                if let Ok(mut s) = a.0.lock() {
+                    s.release_reader(&device);
+                }
+            });
             let _ = response(&mut socket, 503, b"CAPACITY", false);
             return;
         }
@@ -424,10 +533,40 @@ fn serve(
             &key,
             tunnels.idle,
             server,
-            device,
+            device.clone(),
             request.prefetched,
         );
+        let _ = server.update_admission(|a| {
+            if let Ok(mut s) = a.0.lock() {
+                s.release_reader(&device);
+            }
+        });
         live.fetch_sub(1, Ordering::AcqRel);
+        return;
+    }
+    if request.method == "GET"
+        && request.owner.is_some()
+        && let Some((kind, bytes)) = browser.app.as_ref().and_then(|app| app.find(&request.path))
+    {
+        let policy = if request.path == "/renderer.html" {
+            assets::RENDERER_POLICY
+        } else {
+            assets::POLICY
+        };
+        let _ = response_with_policy(&mut socket, 200, bytes, kind, policy);
+        return;
+    }
+    if request.path.starts_with("/assets/")
+        || request.path == "/index.html"
+        || request.path == "/renderer.html"
+        || request.path == "/THIRD-PARTY-NOTICES.txt"
+    {
+        let (status, bytes): (_, &[u8]) = if request.owner.is_none() {
+            (403, b"DENIED")
+        } else {
+            (404, b"NOT FOUND")
+        };
+        let _ = response(&mut socket, status, bytes, false);
         return;
     }
     if request.method != "GET" || request.path != "/" {
@@ -436,9 +575,10 @@ fn serve(
     }
     let text = match &request.owner {
         Some(name) => format!(
-            "Colab space {} is running. You are signed in as {}. Co-editing arrives with the next colab slice.",
-            escape(space_id),
-            escape(name)
+            "Colab space {} is running. You are signed in as {}. {}.",
+            escape(&browser.space_id),
+            escape(name),
+            assets::BUILD_HINT
         ),
         None => "This colab space is private. Open it from a browser paired with tmt remote pair, or use a share link.".into(),
     };
@@ -530,6 +670,42 @@ fn apply_event(
                     });
                 }
                 Ok(())
+            })();
+        })
+        .map_err(|_| Code::Unavailable)?;
+    result
+}
+/// Sync first, then Registration, matching upgrade/event and per-turn admission.
+/// The callback commits owner effects before pending subscriptions are rechecked.
+/// Reserved local routes derive authority from the socket, never forwarded headers.
+fn local_denied(request: &Request) -> bool {
+    request.context.is_some() || request.event.is_some()
+}
+fn apply_management(
+    request: &Request,
+    space: &str,
+    server: Option<&Server<OwnerAdmission>>,
+) -> std::result::Result<Vec<u8>, management::Code> {
+    use management::Code;
+    let mut result = Err(Code::Unavailable);
+    server
+        .ok_or(Code::Unavailable)?
+        .update_admission(|admission| {
+            result = (|| {
+                let mut service = admission.0.lock().map_err(|_| Code::Unavailable)?;
+                let now = registration::now_ms().map_err(|_| Code::Unavailable)?;
+                if request.path == management::LOCAL_PATH {
+                    // Authority is this owned private Unix socket, not context headers.
+                    management::local(&mut service, space, &request.body, now)
+                } else {
+                    management::browser(
+                        &mut service,
+                        space,
+                        request.context.as_deref(),
+                        &request.body,
+                        now,
+                    )
+                }
             })();
         })
         .map_err(|_| Code::Unavailable)?;
@@ -650,9 +826,18 @@ fn response_as(
     body: &[u8],
     kind: &str,
 ) -> std::io::Result<()> {
+    response_with_policy(socket, status, body, kind, POLICY)
+}
+fn response_with_policy(
+    socket: &mut UnixStream,
+    status: u16,
+    body: &[u8],
+    kind: &str,
+    policy: &str,
+) -> std::io::Result<()> {
     let deadline = Instant::now() + limits::RESPONSE;
     let bytes = format!(
-        "HTTP/1.1 {status} Response\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Security-Policy: {POLICY}\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n\r\n",
+        "HTTP/1.1 {status} Response\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Security-Policy: {policy}\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n\r\n",
         body.len()
     );
     for mut bytes in [bytes.as_bytes(), body] {
@@ -777,7 +962,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
                     return Err(400);
                 }
                 size = value.parse::<usize>().map_err(|_| 413u16)?;
-                if size > limits::HTTP_BODY_BYTES {
+                if size > limits::http_body_bytes(&request.path) {
                     return Err(413);
                 }
             }
@@ -785,6 +970,15 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
         }
     }
     if !request.path.starts_with('/') || request.path.contains(['?', '#', '%']) {
+        return Err(400);
+    }
+    if request
+        .path
+        .split('/')
+        .any(|part| matches!(part, "." | ".."))
+        || request.path.contains('\\')
+        || request.path.starts_with("//")
+    {
         return Err(400);
     }
     // Drop header borrows before acquiring the bounded body; no body is interpreted.
@@ -798,7 +992,15 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
     request.prefetched = bytes[end + size..].to_vec();
     if !matches!(
         request.path.as_str(),
-        registration::PATH | EVENTS | "/api/session" | "/api/pages"
+        registration::PATH
+            | EVENTS
+            | "/api/session"
+            | "/api/pages"
+            | management::PATH
+            | management::LOCAL_PATH
+            | crate::page::ipc::PATH
+            | crate::readers::CHALLENGE_PATH
+            | crate::readers::SESSION_PATH
     ) {
         request.owner = request.context.as_deref().map(owner_name).transpose()?;
     }

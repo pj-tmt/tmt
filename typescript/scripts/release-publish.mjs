@@ -24,11 +24,12 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
   checkLatestTag,
+  isProductReleased,
   productOfTag,
   publishFlags,
   releasePolicy,
 } from './native-release-policy.mjs';
-import { isReleased, parseComponentMap } from './ci-scope.mjs';
+import { parseComponentMap } from './ci-scope.mjs';
 import { BUNDLE_ASSET, FAILURE_ASSET, HOLD_ASSET } from './plan-release-builds.mjs';
 import { ghApi } from './release-draft-assets.mjs';
 import { isAlphaVersion, versionOfTag } from './release-versions.mjs';
@@ -208,7 +209,7 @@ export function verifyPublication({
   return results;
 }
 
-/** Shared reporter/monitor contract for post-publication issue conclusions. */
+/** The monitor still recognizes historical anonymous rate-limit issues. */
 export function postPublicationIssueTitles(tag) {
   return {
     failure: `Release ${tag} failed its post-publication checks`,
@@ -216,38 +217,19 @@ export function postPublicationIssueTitles(tag) {
   };
 }
 
-/** A shared classification for reporting and the post-smoke Project dispatch. */
-export function smokeFailureOutcome(results) {
-  const failed = results.filter(({ ok }) => !ok);
-  return failed.length > 0 &&
-    failed.every(({ infrastructure }) => infrastructure === 'github-api-rate-limit')
-    ? 'infrastructure'
-    : 'failure';
-}
-
 /** The title and body of the issue a failed check opens. */
-export function renderFailureIssue({ tag, results, runUrl, originalRunUrl }) {
+export function renderFailureIssue({ tag, results, runUrl }) {
   const failed = results.filter(({ ok }) => !ok);
-  const infrastructureOnly = smokeFailureOutcome(results) === 'infrastructure';
   const titles = postPublicationIssueTitles(tag);
   return {
-    title: infrastructureOnly ? titles.rateLimit : titles.failure,
+    title: titles.failure,
     body: [
-      ...(infrastructureOnly
-        ? [
-            'Public install infrastructure condition: bounded unauthenticated rate-limit retries were exhausted. This is not evidence of a broken release. Retry the smoke after the reset; do not rerun publication.',
-            '',
-          ]
-        : []),
       `The release pipeline published \`${tag}\`, and these checks of the published release failed:`,
       '',
       ...failed.map(({ check, reason }) => `- \`${check}\`: ${reason}`),
       '',
       ...(runUrl ? [`Run: ${runUrl}`, ''] : []),
-      ...(originalRunUrl ? [`Original run: ${originalRunUrl}`, ''] : []),
-      infrastructureOnly
-        ? 'Nothing was rolled back or repaired. Publication succeeded; the public install still needs verification after the rate limit resets.'
-        : 'Nothing was rolled back: a published release cannot be undone and, with immutability on, its assets and tag cannot be changed. The owner decides whether it stays as it is or a new reviewed version repairs it. Later drafts of the product publish only while their own gates pass, and the immutability gate stops them if the repository setting is off.',
+      'Nothing was rolled back: a published release cannot be undone and, with immutability on, its assets and tag cannot be changed. The owner decides whether it stays as it is or a new reviewed version repairs it. Later drafts of the product publish only while their own gates pass, and the immutability gate stops them if the repository setting is off.',
       '',
       'Opened by `typescript/scripts/release-publish.mjs` (the post-publication checks and the public install smoke).',
     ].join('\n'),
@@ -255,42 +237,14 @@ export function renderFailureIssue({ tag, results, runUrl, originalRunUrl }) {
 }
 
 /** Opens the failure issue, or comments on the one already open for this release. */
-export function reportFailure({ api, tag, results, runUrl, originalRunUrl }) {
-  const { title, body } = renderFailureIssue({ tag, results, runUrl, originalRunUrl });
+export function reportFailure({ api, tag, results, runUrl }) {
+  const { title, body } = renderFailureIssue({ tag, results, runUrl });
   const open = api.openIssue(title);
   if (open) {
     api.commentIssue(open, body);
     return { issue: open, created: false };
   }
   return { issue: api.createIssue(title, body), created: true };
-}
-
-/** Close only the infrastructure issue after all originally failing hosts were re-proven. */
-export function reportSmokeRecovery({ api, tag, originalRunUrl, retryRunUrl }) {
-  const issue = api.openIssue(postPublicationIssueTitles(tag).rateLimit);
-  if (!issue) return null;
-  const latestFailureRun = api.latestFailureRun(issue);
-  const current = latestFailureRun === originalRunUrl || latestFailureRun === retryRunUrl;
-  api.commentIssue(
-    issue,
-    [
-      `The anonymous public install of \`${tag}\` passed after the classified GitHub reset.`,
-      '',
-      `Original run: ${originalRunUrl}`,
-      `Retry run: ${retryRunUrl}`,
-      '',
-      "All four original host conclusions and the affected targets' single retry results were checked. The original failed jobs remain failed; publication was not rerun.",
-      ...(current
-        ? []
-        : [
-            '',
-            'The issue remains open: its latest reported failure belongs to another run or could not be identified. This recovery proves only the original run above.',
-          ]),
-    ].join('\n')
-  );
-  if (!current) return null;
-  api.closeIssue(issue);
-  return issue;
 }
 
 /**
@@ -319,14 +273,13 @@ export function readSmokeFailures(
         readFileSync(path.join(directory, name, 'smoke-result.json'), 'utf8')
       );
       if (!Array.isArray(failed) || failed.length > 10) throw new Error('Invalid smoke failures');
-      for (const { check, reason, infrastructure } of failed) {
+      for (const { check, reason } of failed) {
         if (typeof check !== 'string' || typeof reason !== 'string')
           throw new Error('Invalid smoke failure');
         results.push({
           check: `${line(check)} (${line(target)})`,
           ok: false,
           reason: line(reason),
-          ...(infrastructure === 'github-api-rate-limit' ? { infrastructure } : {}),
         });
       }
     } catch {
@@ -341,7 +294,7 @@ export function readSmokeFailures(
     results.push({
       check: 'public install evidence',
       ok: false,
-      reason: `expected ${expectedResults} host results, found ${observed}; infrastructure-only failure cannot be established`,
+      reason: `expected ${expectedResults} host results, found ${observed}; complete smoke evidence is required`,
     });
   }
   return results.length > 0
@@ -443,39 +396,6 @@ export function ghPublishApi({ repository, env = process.env, spawn = spawnSync 
         '-f',
         `body=${body}`,
       ]),
-    latestFailureRun: (number) => {
-      const issue = json(['api', `repos/${repository}/issues/${number}`]);
-      const failureRun = (body) =>
-        typeof body === 'string' &&
-        body.includes('Opened by `typescript/scripts/release-publish.mjs`')
-          ? (/^Run: (https:\/\/[^\s]+)$/m.exec(body)?.[1] ?? null)
-          : null;
-      let latest = failureRun(issue.body);
-      for (let page = 1; page <= 10; page += 1) {
-        const comments = json([
-          'api',
-          `repos/${repository}/issues/${number}/comments?per_page=100&page=${page}`,
-        ]);
-        for (const comment of comments) latest = failureRun(comment.body) ?? latest;
-        if (comments.length < 100) return latest;
-      }
-      throw new Error('Issue failure-history discovery exceeded 10 pages.');
-    },
-    closeIssue: (number) => {
-      const issue = json([
-        'api',
-        `repos/${repository}/issues/${number}`,
-        '--method',
-        'PATCH',
-        '-f',
-        'state=closed',
-        '-f',
-        'state_reason=completed',
-      ]);
-      if (issue.number !== number || issue.state !== 'closed') {
-        throw new Error(`Issue #${number} closure was not confirmed.`);
-      }
-    },
   };
 }
 
@@ -519,7 +439,7 @@ function main(argv, environment) {
       api,
       product: values.product,
       tag: values.tag,
-      released: isReleased(map, values.product),
+      released: isProductReleased(map, values.product),
     });
     report(
       environment,
@@ -566,7 +486,6 @@ function main(argv, environment) {
       expectedResults,
       artifactPrefix: `smoke-failures-${values.product}-${values.tag}-`,
     });
-    output(environment, { outcome: smokeFailureOutcome(results) });
     report(environment, renderVerifySummary({ tag: values.tag, results }));
     try {
       const { issue, created } = reportFailure({

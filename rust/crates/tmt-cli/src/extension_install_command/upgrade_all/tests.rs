@@ -6,16 +6,23 @@ fn pending(product: Product) -> (Product, String, String) {
 }
 
 #[test]
-fn one_consent_lists_all_versions_and_failure_does_not_stop_squad() {
+fn one_consent_lists_all_versions_and_failure_does_not_stop_other_products() {
     let asked = Cell::new(0);
     let mut applied = Vec::new();
     let rows = settle(
         vec![],
-        vec![pending(Product::Office), pending(Product::Squad)],
+        vec![
+            pending(Product::Office),
+            pending(Product::Squad),
+            pending(Product::Remote),
+            pending(Product::Colab),
+        ],
         |question| {
             asked.set(asked.get() + 1);
             assert!(question.contains("office 1.0.0 -> 1.1.0"));
             assert!(question.contains("squad 1.0.0 -> 1.1.0"));
+            assert!(question.contains("remote 1.0.0 -> 1.1.0"));
+            assert!(question.contains("colab 1.0.0 -> 1.1.0"));
             Ok(true)
         },
         |product, selected| {
@@ -31,10 +38,20 @@ fn one_consent_lists_all_versions_and_failure_does_not_stop_squad() {
         },
     );
     assert_eq!(asked.get(), 1);
-    assert_eq!(applied, vec![Product::Office, Product::Squad]);
+    assert_eq!(
+        applied,
+        vec![
+            Product::Office,
+            Product::Squad,
+            Product::Remote,
+            Product::Colab
+        ]
+    );
     assert_eq!(rows[0]["status"], "failed");
     assert_eq!(rows[0]["error"]["code"], "EXTENSION_UPGRADE_FAILED");
     assert_eq!(rows[1]["status"], "changed");
+    assert_eq!(rows[2]["status"], "changed");
+    assert_eq!(rows[3]["status"], "changed");
 }
 
 #[test]
@@ -64,7 +81,11 @@ fn nothing_installed_neither_prompts_nor_installs() {
 fn child_protocol_rejects_duplicate_products_unknown_fields_and_unbounded_reports() {
     let valid = Plan {
         products: Vec::new(),
-        pending: vec![pending(Product::Squad)],
+        pending: vec![
+            pending(Product::Squad),
+            pending(Product::Remote),
+            pending(Product::Colab),
+        ],
     }
     .document();
     assert!(Plan::parse(&serde_json::to_vec(&valid).unwrap()).is_some());

@@ -1,4 +1,9 @@
 //! Extension-only remote door. Core is reached only by fixed public commands.
+pub mod admission;
+pub mod approval;
+pub mod audit;
+pub mod authority;
+pub mod budgets;
 pub mod canonical;
 pub mod control;
 pub mod core;
@@ -6,8 +11,10 @@ pub mod crypto;
 pub mod devices;
 pub mod error;
 pub mod http;
+pub mod journal;
 pub mod limits;
 pub mod mount;
+pub mod operations;
 pub mod pages;
 pub mod pairing;
 pub mod routes;
@@ -16,3 +23,4 @@ pub mod site;
 pub mod state;
 pub mod store;
 pub mod transport;
+pub mod wire;

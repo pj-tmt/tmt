@@ -76,8 +76,9 @@ fn private_hook_binding_lookup_and_locator_have_one_owner_each() {
 #[test]
 fn the_herdr_driver_is_referenced_only_by_its_bin() {
     let call = "fn main() { tmt_driver_herdr::serve_call(); }";
-    assert_exact(&[syntax("tmt-cli", "tmt-driver-herdr.rs", call)], &[]);
+    assert_exact(&[syntax("tmt-driver-herdr", "main.rs", call)], &[]);
     for (package, file, code) in [
+        ("tmt-cli", "tmt-driver-herdr.rs", call),
         ("tmt-cli", "main.rs", call),
         (
             "tmt-cli",
@@ -85,6 +86,12 @@ fn the_herdr_driver_is_referenced_only_by_its_bin() {
             "use tmt_driver_herdr::HerdrDriver;",
         ),
         ("tmt-adapters", "host.rs", call),
+        ("tmt-driver-herdr", "lib.rs", call),
+        (
+            "tmt-driver-herdr",
+            "main.rs",
+            "use tmt_driver_herdr::HerdrDriver;",
+        ),
     ] {
         let failures = policy::source_violations(&[syntax(package, file, code)]);
         assert!(
@@ -833,6 +840,35 @@ fn every_workspace_crate_reviews_new_dev_dependencies() {
 }
 
 #[test]
+fn release_toml_example_dependencies_are_exact_dev_edges() {
+    for name in ["serde_json", "toml_edit"] {
+        assert!(
+            policy::dependency_violations(&package(
+                "tmt-test-support",
+                vec![dependency(name, "dev", None, None)]
+            ))
+            .is_empty()
+        );
+        for (kind, target, rename) in [
+            ("normal", None, None),
+            ("build", None, None),
+            ("dev", Some("cfg(unix)"), None),
+            ("dev", None, Some("release_tool")),
+        ] {
+            assert_eq!(
+                policy::dependency_violations(&package(
+                    "tmt-test-support",
+                    vec![dependency(name, kind, target, rename)]
+                ))
+                .len(),
+                1,
+                "{name}: {kind} {target:?} {rename:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn fixture_publication_has_exactly_six_dev_consumers_and_no_product_edges() {
     for owner in [
         "tmt-adapters",
@@ -1335,6 +1371,25 @@ fn collector_fails_closed_for_missing_ambiguous_invalid_and_remapped_modules() {
         )
         .is_ok(),
         "the explicit generated Office asset collector must remain supported"
+    );
+
+    let colab_assets = FixtureDirectory::new();
+    colab_assets.write(
+        "assets.rs",
+        "include!(concat!(env!(\"OUT_DIR\"), \"/colab_assets.rs\"));\n",
+    );
+    assert!(source::collect("tmt-colab", &colab_assets.root().join("assets.rs")).is_ok());
+    assert!(
+        source::collect("fixture", &colab_assets.root().join("assets.rs")).is_err(),
+        "the generated asset allowance must remain package-specific"
+    );
+    colab_assets.write(
+        "lib.rs",
+        "include!(concat!(env!(\"OUT_DIR\"), \"/colab_assets.rs\"));\n",
+    );
+    assert!(
+        source::collect("tmt-colab", &colab_assets.root().join("lib.rs")).is_err(),
+        "the generated asset allowance must remain module-specific"
     );
 
     let verbatim = FixtureDirectory::new();

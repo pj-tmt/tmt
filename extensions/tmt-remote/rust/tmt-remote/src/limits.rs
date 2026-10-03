@@ -14,7 +14,7 @@ pub const METADATA_BYTES: usize = 8 * 1024;
 pub const CORE_INPUT_BYTES: usize = 16 * 1024 * 1024;
 /// Largest request body any handler may admit: the base64 envelope bound for
 /// the largest accepted core input.
-pub const BODY_BYTES: usize = 4 * (CORE_INPUT_BYTES + METADATA_BYTES).div_ceil(3) + METADATA_BYTES;
+pub const BODY_BYTES: usize = 4 * CORE_INPUT_BYTES.div_ceil(3) + METADATA_BYTES;
 /// Request body bytes all workers may hold at once before authentication;
 /// fits one maximum body while bounding total door memory.
 pub const IN_FLIGHT_BODY_BYTES: usize = 32 * 1024 * 1024;
@@ -26,3 +26,9 @@ pub const RESPONSE: Duration = Duration::from_secs(1);
 pub const MOUNT_RESPONSE: Duration = Duration::from_secs(15);
 /// No-progress bound for pending bytes inside an upgraded tunnel.
 pub const SPLICE_WRITE: Duration = Duration::from_secs(5);
+
+/// Deadline for one fixed public core subprocess, followed by the runner's bounded cleanup.
+pub const CORE_CALL: Duration = Duration::from_secs(15);
+/// A dispatch fence can perform receipt lookup and creation, each with a one-second
+/// cleanup budget. Authority writes wait beyond both calls with eight seconds' margin.
+pub const AUTHORITY_WAIT: Duration = Duration::from_secs(40);

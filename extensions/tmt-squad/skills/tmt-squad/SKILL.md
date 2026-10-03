@@ -217,6 +217,22 @@ PgUp/PgDn and Home/End, or use the wheel over the pane. The scroll marks show
 remaining content. Older replies without a loaded body retain `tmt result <id>`
 hints; reading and scrolling acknowledge nothing.
 
+## Home dashboard
+
+The built-in `all` board shows ① counts, ② needs you/blocked members and ③ one
+line per squad with its lead, state counts and most pressing member. Attention
+rows show only member, squad and available age; questions appear after `a`.
+Quiet needs-you takes one line, and empty blocked disappears. Public
+`tmt sq ls --tab all --json` and text retain the aggregate document.
+
+One cursor spans attention rows and squads. Arrows or j/k move it; Tab and
+Shift-Tab traverse sections. Open on the first decision, otherwise the first
+squad. Enter jumps to the member or opens the squad. `a` answers an open request
+through public `tmt answer`, otherwise annotates for that squad's actual lead.
+The composer refuses changed targets/requests/leads and missing sender/lead;
+Esc cancels and empty text sends nothing. Left/right switch tabs, `s` opens the
+switcher, and `/` searches. Home has no r/R reply shortcut or numeric navigation.
+
 ## Inspect board settings
 
 Press `,` to open read-only settings for the shown squad or tab; `settings` is
@@ -228,7 +244,30 @@ shown without executing them. Close and reopen to read later config edits.
 `tmt sq config show` inspects board defaults. Use `--squad product` for one
 squad or `--tab all` (also `leads` or a configured tab name) for an aggregate
 view, and `--json` for full values and source paths. These scope flags are
-exclusive. All entries are read-only; no configuration or member state changes.
+exclusive. Inspection changes no configuration or member state. JSON marks the
+settings supported by `config set`; the board overlay remains read-only.
+
+Use `tmt sq config set KEY VALUE [--squad NAME]` for validated edits. Squad scope
+is required for `layout`, `board.panes`, `board.direction`, `board.sizes`,
+`board.hidden_columns`, `notes.render`, and `states.STATE.color`. `board.refresh`
+uses the squad layer with `--squad`, otherwise the global Squad board layer.
+`tabs.order` and `tabs.hide` always edit global Squad tab policy. Arrays use JSON;
+other values are unquoted scalar arguments. Examples:
+
+```sh
+tmt sq config set notes.render plain --squad product
+tmt sq config set board.refresh 10s --squad product
+tmt sq config set board.hidden_columns '["pr_link"]' --squad product
+tmt sq config set tabs.hide '["leads"]'
+```
+
+Editing `board.direction`, `board.sizes` or `board.panes` pins the effective workflow
+layout and full flat split (direction, panes and sizes) in `squad.toml`, preserving
+the untouched geometry. Future preset changes no longer replace these values.
+Nested split trees are read-only and must be edited in `squad.toml`. Existing validators reject invalid values
+before writing. The writer preserves unrelated keys and comments and refuses a
+file changed since reading it. Provider/run commands, patterns, reminders and
+core/provider configuration cannot be edited through this command.
 
 ## Choose a board view
 
@@ -261,9 +300,9 @@ has no comments; existing empty tables remain. On the board, `l` opens the view
 picker (`view` is bindable). Arrow keys or j/k preview only in memory, Tab
 switches all-boards/this-squad scope, Enter saves once, and Esc restores the
 opening arrangement and runtime folds without writing. Data keeps refreshing.
-The leads/all tabs offer all-boards scope only and stay rows-only during preview,
-save and cancel; views apply to squad tabs. The default entry removes only
-the chosen layer's view key. A custom entry identifies hand-written layout;
+The leads/home tabs offer all-boards scope only and retain their fixed composition
+during preview, save and cancel; views apply to squad tabs. The default entry
+removes only the chosen layer's view key. A custom entry identifies hand-written layout;
 this-squad preview works, but scoped save is refused with a manual-removal hint.
 An all-boards choice saves while this squad keeps its custom layout; the picker
 names that masking setting.
@@ -408,7 +447,8 @@ The detail pane shows the selected member's own notebook after its fields,
 using the same read-only Markdown/plain rendering as lead notes. A saved member
 without a notebook shows `(no notes yet)`; temporary members show
 `(temporary identity: no notebook)`. Only the visible selected detail is read,
-on selection and board refresh. The leads/all tabs remain rows only.
+on selection and board refresh. The leads/home tabs never show member detail
+notebooks.
 
 Every member should keep a short **Current state** section at the top of their own notebook, with
 **Now / Next / Blocked** in a few lines, because the user reads it on the board.
@@ -492,6 +532,14 @@ colors and legacy color aliases are refused. Missing/empty values and failed
 providers without projected colors stay dim; stale-row inheritance and reverse
 selection still apply. Spanned cells use the first track's fitting settings. The legacy
 `[squad.<name>.columns]` form remains supported; do not set both forms.
+
+`[squad.<name>.board] hidden_columns = ["pr_link"]` hides named original tracks
+for the board and `ls` text without deleting columns, field values or authored
+lines/spans. Only covered tracks can be hidden and at least one must remain.
+A spanning cell shrinks to the surviving tracks in its original range; hiding
+one track can shrink a different field's cell rather than remove that field.
+Set the mask to `[]` to restore the original grid. JSON retains all field values
+and lists the mask when nonempty.
 
 | Setting                 | Current behavior                                                                                                                                       |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -616,11 +664,12 @@ Cache loss/corruption starts a new period; config edits do not reset age.
 Disabling stops observation; after re-enabling, surviving fingerprint matches
 keep their first-observed time. Disabled observation does no cache work and
 never creates a notebook. The board dims a stale row and shows its age at the
-row's end, and puts the notes' age on the notes pane title; the leads and all
-tabs currently show no ages. The retained home model prepares blocked ages only
+row's end, and puts the notes' age on the notes pane title; the leads tab
+shows no ages. Home shows blocked ages only
 where this observation policy is enabled (Team by default; other layouts off);
 disabled or unavailable observation provides no age. Request ages use the real
-inbox timestamp, and pending-only rows have no age. Home painting is unchanged.
+inbox timestamp, and pending-only rows have no age. Home labels blocked
+age `obs`: observed unchanged task/state, not an authoritative blocked start.
 
 The row's age changes only when its raw task/state changes; links, notes and
 provider refreshes do not renew it. `activityAfterUpdate` records relevant

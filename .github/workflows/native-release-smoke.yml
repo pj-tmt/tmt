@@ -2,11 +2,12 @@ name: Native release smoke
 
 # Installs a published alpha release the way a user does, on the four hosts of the upgrade proof, in
 # an isolated home, state directory and prefix: the public installer and `tmt upgrade` for a CLI
-# release, the newest published CLI's `tmt extension install <extension>` for an extension release.
+# release, the newest published CLI's extension install for an extension release, or its driver
+# path approval against the verified standalone public driver archive.
 # It only reads the public release and never publishes, creates or changes anything. The publication
 # run calls it after its own checks of the published release, and a maintainer can run it by hand
-# for the newest published release of a product: it installs what the public entry points serve
-# now, so an older tag fails its first check. A failure opens, or comments on, the issue of those
+# for the newest published CLI/extension release or an exact published driver tag. CLI and
+# extension acquisition uses current public entry points; drivers use versioned archive URLs. A failure opens, or comments on, the issue of those
 # checks; an immutable release is never rolled back.
 on:
   workflow_call:
@@ -19,10 +20,6 @@ on:
         description: Published release to install
         required: true
         type: string
-    outputs:
-      outcome:
-        description: Classified smoke failure; empty when the install passed
-        value: ${{ jobs.report.outputs.outcome }}
   workflow_dispatch:
     inputs:
       product:
@@ -33,6 +30,8 @@ on:
           - cli
           - office
           - squad
+          - driver-herdr
+          - colab
       tag:
         description: Published release to install
         required: true
@@ -51,7 +50,7 @@ jobs:
           - target: aarch64-apple-darwin
             runner: macos-15
           - target: x86_64-apple-darwin
-            runner: macos-15-intel
+            runner: macos-15
           - target: aarch64-unknown-linux-musl
             runner: ubuntu-24.04-arm
           - target: x86_64-unknown-linux-musl
@@ -86,8 +85,6 @@ jobs:
   # job only turns what they kept, as data, into the issue.
   report:
     name: Report a failed install of ${{ inputs.tag }}
-    outputs:
-      outcome: ${{ steps.report.outputs.outcome }}
     needs: smoke
     if: ${{ !cancelled() && needs.smoke.result == 'failure' }}
     runs-on: ubuntu-24.04
@@ -108,7 +105,6 @@ jobs:
           pattern: smoke-failures-${{ inputs.product }}-${{ inputs.tag }}-*
           path: ${{ runner.temp }}/smoke-failures
       - name: Open or update the issue
-        id: report
         env:
           GH_TOKEN: ${{ github.token }}
           PRODUCT: ${{ inputs.product }}
@@ -117,33 +113,3 @@ jobs:
           node typescript/scripts/release-publish.mjs report --product "$PRODUCT" --tag "$RELEASE_TAG" \
             --directory "$RUNNER_TEMP/smoke-failures" --expected-results 4 \
             --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
-
-  # Fast scheduling only: the reset wait and anonymous re-proof run outside release-<product>.
-  retry-dispatch:
-    name: Schedule a classified public install retry
-    needs: report
-    if: ${{ !cancelled() && needs.report.outputs.outcome == 'infrastructure' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      actions: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.23.2
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: smoke-failures-${{ inputs.product }}-${{ inputs.tag }}-*
-          path: ${{ runner.temp }}/smoke-failures
-      - name: Dispatch only eligible affected targets
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_RUN_ID: ${{ github.run_id }}
-          SOURCE_RUN_ATTEMPT: ${{ github.run_attempt }}
-          PRODUCT: ${{ inputs.product }}
-          RELEASE_TAG: ${{ inputs.tag }}
-        run: node typescript/scripts/public-install-retry.mjs dispatch --directory "$RUNNER_TEMP/smoke-failures"

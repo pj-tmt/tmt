@@ -4,7 +4,6 @@
 //! No core database, configuration or provider setting is touched.
 use crate::error::RemoteError;
 use ed25519_dalek::SigningKey;
-use nix::fcntl::Flock;
 use std::{fs::File, ops::Deref, path::Path};
 use tmt_extension_state::Error as StateError;
 
@@ -85,12 +84,12 @@ impl Layout {
     /// The returned [`Serving`] is the only way to open remote state, so a
     /// second process cannot open the database while serve runs.
     pub fn serve_lock(&self) -> Result<Serving, RemoteError> {
-        let lock = self.shared.lock("serve.lock").map_err(|error| {
-            lock_error(
-                error,
-                "REMOTE_ALREADY_SERVING",
-                "Remote is already serving.",
-            )
+        let lock = self.file("serve.lock")?;
+        lock.try_lock().map_err(|error| match error {
+            std::fs::TryLockError::WouldBlock => {
+                RemoteError::new("REMOTE_ALREADY_SERVING", "Remote is already serving.")
+            }
+            std::fs::TryLockError::Error(error) => io(error),
         })?;
         Ok(Serving {
             layout: self.clone(),
@@ -103,9 +102,19 @@ impl Layout {
 /// device management) reaches that state through serve's control socket.
 pub struct Serving {
     layout: Layout,
-    _lock: Flock<File>,
+    _lock: File,
 }
 impl Serving {
+    /// Keep the lease until the last actual invocation child closes it, even
+    /// after owner death or unconfirmed cleanup. Closing never explicitly unlocks.
+    pub fn retain_for_invocations(&self) -> Result<(), RemoteError> {
+        nix::fcntl::fcntl(
+            &self._lock,
+            nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::empty()),
+        )
+        .map_err(io)?;
+        Ok(())
+    }
     pub fn layout(&self) -> &Layout {
         &self.layout
     }
@@ -161,4 +170,25 @@ impl MachineKey {
 }
 pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[cfg(test)]
+mod lease_tests {
+    use super::*;
+    #[test]
+    fn closing_owner_preserves_a_child_copy_until_its_final_close() {
+        let root = std::path::PathBuf::from(format!(
+            "/tmp/t1055-lease-{}",
+            crate::store::uuid_v4().unwrap()
+        ));
+        let layout = Layout::open(&root).unwrap();
+        let serving = layout.serve_lock().unwrap();
+        serving.retain_for_invocations().unwrap();
+        let child_copy = serving._lock.try_clone().unwrap();
+        drop(serving);
+        assert!(matches!(layout.serve_lock(), Err(error) if error.code=="REMOTE_ALREADY_SERVING"));
+        drop(child_copy);
+        drop(layout.serve_lock().unwrap());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

@@ -23,6 +23,7 @@ import {
   nativeGatePasses,
   ownerOf,
   parseComponentMap,
+  releasedComponentsForPath,
   readChangedCiAreas,
   renderSelectionEvidence,
   runCiScope,
@@ -288,6 +289,23 @@ describe('component map', () => {
     expect(() => isReleased(map, 'nothing')).toThrow('Unknown component nothing.');
   });
 
+  it.each([
+    ['rust/crates/tmt-cli-style', ['cli']],
+    ['rust/crates/tmt-cli-style/src/lib.rs', ['cli']],
+    ['rust/crates/tmt-invoke/src/lib.rs', ['cli']],
+    ['rust/crates/tmt-tui/src/lib.rs', []],
+    ['rust/crates/tmt-tui-other/src/lib.rs', ['cli']],
+    ['extensions/tmt-squad/rust/src/lib.rs', ['squad']],
+    ['extensions/tmt-squad-other/rust/src/lib.rs', ['cli']],
+    ['extensions/tmt-office/src/lib.rs', []],
+    ['extensions/tmt-colab/rust/src/lib.rs', []],
+    ['rust/crates/tmt-test-support/src/lib.rs', []],
+    ['typescript/test/native/squad.test.ts', ['cli']],
+  ])('finds released root membership independently of CI ownership for %s', (file, names) => {
+    expect(releasedComponentsForPath(file, map).map((component) => component.name)).toEqual(names);
+    expect(releasedComponentsForPath(file).map((component) => component.name)).toEqual(names);
+  });
+
   it('matches globs by whole path, with ** across directories and newlines', () => {
     expect(globToRegExp('rust/**').test('rust/crates/tmt-core/src/lib.rs')).toBe(true);
     expect(globToRegExp('rust/**').test('rustic/lib.rs')).toBe(false);
@@ -385,6 +403,8 @@ describe('component map', () => {
     [['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'new-owner/file.ts'], 'full'],
     [['extensions/tmt-squad-other/file.rs'], 'full'],
     [['rust/crates/tmt-core/src/lib.rs'], 'full'],
+    [['rust/crates/tmt-cli-style/src/lib.rs'], 'full'],
+    [['rust/crates/tmt-invoke/src/lib.rs'], 'full'],
     [['extensions/tmt-office/rust/tmt-office/src/main.rs'], 'full'],
     [['ARCHITECTURE.md', 'DEVELOPMENT.md'], 'none'],
     [['extensions/tmt-office/typescript/apps/office/src/main.tsx'], 'none'],
@@ -524,6 +544,8 @@ describe('component map', () => {
       'typescript/test/tooling/format-workspace.test.ts':
         'selection path fixtures only; never reads prose contents',
       'typescript/test/tooling/ci-scope.test.ts': 'path fixtures for the selector tests',
+      'typescript/test/fixtures/release-cut-history.json':
+        'immutable historical path/map data; cut tests compare strings without reading the named prose',
       'scripts/dev-disk-check.sh': 'names DEVELOPMENT.md in a message',
       '.github/components.json': 'the map names the prose in its own rules',
       '.github/repository-layout.json':
@@ -1729,14 +1751,36 @@ describe('required CI gate', () => {
     }
   });
 
-  it('builds the selected release CLI without replacing debug Rust verification', () => {
+  it('builds and transfers the driver-owned companion without replacing debug Rust verification', () => {
     const workflow = readFileSync(
       fileURLToPath(new URL('../../../.github/workflows/ci.yml', import.meta.url)),
       'utf8'
     );
     const start = workflow.indexOf('\n  native-clippy:\n');
     const native = workflow.slice(start, workflow.indexOf('\n  unit-tests:\n', start));
-    expect(native).toContain('cargo build --locked --release -p tmt-cli');
+    expect(
+      native.match(/cargo build --locked --release -p tmt-cli -p tmt-driver-herdr --bins/g)
+    ).toHaveLength(2);
+    const runtime = workflow
+      .split('\n  native-runtime-build:\n')[1]
+      .split('\n  native-runtime-build-macos:\n')[0];
+    expect(runtime).toContain(
+      "cargo build --locked --release --target '${{ matrix.target }}' -p tmt-cli -p tmt-driver-herdr --bins"
+    );
+    expect(runtime).toContain('rust/target/${{ matrix.target }}/release/tmt-driver-herdr');
+    expect(runtime).toContain(
+      "cargo build --locked --release --target '${{ matrix.target }}' -p tmt-test-support --example colab-runtime-fixture"
+    );
+    expect(runtime).toContain(
+      'rust/target/${{ matrix.target }}/release/examples/colab-runtime-fixture'
+    );
+    const tooling = workflow.split('\n  unit-tests:\n')[1].split('\n  docker-e2e-shard-1:\n')[0];
+    expect(tooling).toContain('name: runtime-x86_64-unknown-linux-musl');
+    expect(tooling).toContain('path: rust/target/debug');
+    expect(tooling).toContain(
+      'chmod +x ../rust/target/debug/tmt ../rust/target/debug/tmt-driver-herdr'
+    );
+    expect(tooling).toContain('../rust/target/debug/examples/colab-runtime-fixture');
     expect(native).toContain('rust/target/release/tmt');
     expect(native).toContain('cargo test --locked');
     expect(native).toContain('cargo clippy --locked --workspace --all-targets -- -D warnings');
@@ -1864,6 +1908,7 @@ describe('required CI gate', () => {
         .map((step) => ({
           name: /^name: (.*)$/m.exec(step)?.[1] ?? '',
           scope: /^ {8}if: (.*)$/m.exec(step)?.[1],
+          body: step,
         }));
 
     const changes = job('changes');
@@ -2000,6 +2045,27 @@ describe('required CI gate', () => {
       'Build Squad process fixtures',
       'Verify Squad native contracts',
     ]);
+    // Both scopes run extension-install, whose archives use these debug executables.
+    for (const scope of ['full', 'squad']) {
+      const fixtures = steps(job('native-process-tests')).find(
+        (step) =>
+          step.scope === `needs.changes.outputs.native_scope == '${scope}'` &&
+          step.name.startsWith('Build ')
+      );
+      const debugBuilds = [...(fixtures?.body.matchAll(/cargo build ([^\n]+)/g) ?? [])]
+        .map((match) => match[1])
+        .filter((args) => !args.includes('--release'));
+      for (const product of ['tmt-squad', 'tmt-remote', 'tmt-colab']) {
+        expect(
+          debugBuilds.some((args) => new RegExp(`(?:^|\\s)-p\\s+${product}(?=\\s|$)`).test(args)),
+          `${scope} native process fixtures must build ${product} in debug`
+        ).toBe(true);
+      }
+      expect(
+        debugBuilds.some((args) => /(?:^|\s)--example\s+runtime-caller-fixture(?=\s|$)/.test(args)),
+        `${scope} native process fixtures must build the shared ancestry launcher`
+      ).toBe(true);
+    }
     // The producer verifies the feature build; native tests consume exactly those bytes.
     expect(job('native-office-build')).toContain('sha256sum tmt-office > tmt-office.sha256');
     expect(job('native-office')).toContain('name: native-office-companion');

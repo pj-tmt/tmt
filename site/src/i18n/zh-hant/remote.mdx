@@ -1,0 +1,46 @@
+---
+source: site/src/chapters/remote.mdx
+sourceRevision: fb2be5df056de1865d6335a235649da068570931
+title: Remote：每台機器上的 agent
+---
+
+import { Cmd } from "../../components/Cmd";
+import { components as Mdx } from "../../components/mdx";
+import { Caption } from "../../components/marks";
+
+前面介紹的功能都在同一台機器上運作。有了 remote 擴充套件，`talk` 就能傳到另一台筆電、伺服器或雲端 VM 上的 agent，回覆也會照同樣的方式回來：儲存下來，不從畫面猜測結果，也不會在送達不確定時重送。某台機器上的 Codex 可以向另一台的 Claude Code 提出請求，即使 Claude 當時正閒置也一樣。
+
+<Cmd>{`
+$ tmt extension install remote
+$ tmt remote pair                  # 顯示要在另一台機器上輸入的配對碼
+$ tmt talk reviewer@studio "Review the patch"   # 同一個 talk，傳到另一台機器
+`}</Cmd>
+
+<Caption>提案。指令名稱尚未定案。</Caption>
+
+<Mdx.h3 id="you-own-the-backend">Backend 由你掌握</Mdx.h3>
+
+tmt 不營運中央服務。訊息經過你選擇並掌控的 backend，以端對端加密傳送，因此 backend 只會儲存密文。
+
+| Backend    | 執行位置                                | 適合用途                 |
+| ---------- | --------------------------------------- | ------------------------ |
+| SSH        | 不必部署；使用你已經能連線的機器        | 自己的筆電與伺服器       |
+| 自架 relay | 你機器或 VPS 上的一個小型伺服器或容器   | 完全掌控，不需要雲端帳號 |
+| Cloudflare | 自己帳號裡的 Workers 與 Durable Objects | 隨時可連線、成本低       |
+| Firestore  | 自己的 Firebase 專案                    | 已使用 Firebase 的團隊   |
+
+每個 backend 的基礎都一樣：能持續保存、可從上次位置繼續訂閱的紀錄。切換 backend 只需變更設定，不會改變你的工作方式。
+
+<Mdx.h3 id="nothing-runs-unless-you-connect">你連線後才會開始執行</Mdx.h3>
+
+tmt 本身不會在背景執行。remote 擴充套件會加入一個小型 listener，只在你啟用的機器上執行，讓遠端請求能喚醒閒置的 agent。沒有 listener，遠端請求會等到 agent 下次啟動或執行動作；沒有擴充套件，tmt 就維持現在的本機運作方式。
+
+<Mdx.h3 id="who-may-reach-your-agents">誰能向你的 agent 傳送訊息</Mdx.h3>
+
+送進 agent 窗格的內容就像給它的指示，所以遠端存取預設關閉；開啟時也只允許有限的範圍。
+
+- **機器用金鑰證明身分**，不靠名稱。配對必須明確進行，撤銷機器的權限會立即生效。
+- **遠端傳送者需要許可。** 只有你允許的 identity 能向 agent 傳送訊息。其他傳送者會收到明確的拒絕，訊息也不會進入佇列。
+- **訊息是文字，不是授權。** 它不能自行核准提示、變更設定或執行指令；agent 和處理其他請求一樣，自己決定怎麼做。
+- **每個 agent 都由你選擇：** 接受、等待你同意，或拒絕。傳送者有速率限制，每次遠端傳送都會留下紀錄。
+- **不會在你輸入時插話。** 有人在窗格裡輸入，或 agent 正在對話框中時，訊息會等待。

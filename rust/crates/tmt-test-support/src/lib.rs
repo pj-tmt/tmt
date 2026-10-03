@@ -3,6 +3,7 @@
 //! This is not a general test-utilities home. Every additional helper requires
 //! its own two-caller justification and an architecture review. Product crates
 //! may consume this unpublished crate only through reviewed dev-dependencies.
+//! The separate Colab verifier example owns its embedded stand-in, not library helpers.
 
 use std::{
     ffi::OsString,

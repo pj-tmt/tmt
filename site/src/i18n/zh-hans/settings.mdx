@@ -1,0 +1,131 @@
+---
+source: site/src/chapters/settings.mdx
+sourceRevision: c896a4de0f5eddb19ca233300d9d55d40fa1d949
+title: 设置与故障排查
+---
+
+import { components as Mdx } from "../../components/mdx";
+import { Cmd, Code } from "../../components/Cmd";
+import { Callout } from "../../components/marks";
+
+tmt 的设置不多，每项都有默认值。本页介绍如何修改设置、更新 tmt、使用 Tab 补全和窗格徽标的进阶功能，以及如何解决常见问题。
+
+<Mdx.h3 id="tmt-config">
+  <code>tmt config</code>
+</Mdx.h3>
+
+`tmt config show` 列出所有设置，包括 tmt 实际使用的值、值的来源和允许的取值。`set` 修改一项设置，`rm` 删除你为当前文件夹设置的覆盖值。
+
+<Cmd>{`
+$ tmt config show                                  # 值、来源和文件路径
+$ tmt config set pasteEnterDelayMs 800             # 用于当前文件夹
+$ tmt config set preambleEvery 5 --global          # 用于所有文件夹
+$ tmt config set exchange.retentionDays 30 --global
+$ tmt config rm pasteEnterDelayMs                  # 删除当前文件夹的覆盖值
+`}</Cmd>
+
+| 设置                               | 默认值   | 作用                                                                           | 设置位置                   |
+| ---------------------------------- | -------- | ------------------------------------------------------------------------------ | -------------------------- |
+| `preambleMode`                     | `always` | `always` 或 `disabled`：请求是否携带接收者的前置信息                           | `config set`，两种范围均可 |
+| `preambleEvery`                    | `3`      | 每隔多少次请求附带一次前置信息；`0` 表示关闭                                   | `config set`，两种范围均可 |
+| `pasteEnterDelayMs`                | `500`    | 粘贴消息与按下 Enter 之间的间隔，单位为毫秒；`0` 表示不等待                    | `config set`，两种范围均可 |
+| `exchange.retentionDays`           | `90`     | 新请求及其回复的保留天数，范围为 1 到 3650                                     | `config set --global`      |
+| `ui.paneBadge`                     | `off`    | [窗格徽标](/drivers/tmux#the-pane-badge)                                       | `config set --global`      |
+| `notifications.replyBatchWindowMs` | `5000`   | 将回复行合并为一次粘贴前的等待时间，单位为毫秒，最大为 60000；`0` 表示逐条发送 | `config set --global`      |
+| `notifications.typingQuietMs`      | `2000`   | 停止输入多久后才粘贴合并的回复，单位为毫秒，最大为 30000；`0` 表示不等待       | `config set --global`      |
+| `defaults.timeout`                 | `180`    | `talk` 等待回复的秒数                                                          | 编辑 `config.json`         |
+| `defaults.pollInterval`            | `1`      | `talk` 等待期间两次检查之间的秒数                                              | 编辑 `config.json`         |
+| `defaults.captureLines`            | `100`    | `tmt check` 显示的行数                                                         | 编辑 `config.json`         |
+
+“两种范围均可”指当前文件夹，或加上 `--global` 后的所有文件夹。全局文件是 tmt 配置目录 `~/.config/tmux-team/` 中的 `config.json`；这个目录保留了 tmt 的旧名称。文件夹的覆盖值保存在运行 tmt 时所在文件夹的 `tmux-team.json` 中。`tmt config show` 会输出这两个路径。tmt 会保留它不认识的字段，`config show` 则显示实际使用的值及其来源。
+
+数字只能写成纯数字，不能带单位、正负号或小数。修改 `exchange.retentionDays` 只影响新请求。
+
+颜色由主题决定，主题也在全局文件中选择。选择主题之前，命令行使用终端自身的 16 种颜色。可用选项见[颜色与主题](/extensions/squad#colors-and-themes)。
+
+<Mdx.h3 id="update-tmt">更新 tmt</Mdx.h3>
+
+`tmt upgrade`（也可写作 `tmt update`）会沿用安装时的渠道（`stable` 或 `alpha`），更新 CLI、技能和已安装的 [extension](/extensions)。
+
+<Cmd>{`
+$ tmt upgrade                        # 更新到当前渠道的最新版
+$ tmt upgrade --channel stable       # 切换渠道
+$ tmt upgrade --to 5.0.0-alpha.8     # 指定确切版本，并将 CLI 固定在该版本
+$ tmt upgrade --unpin                # 恢复跟随渠道更新
+`}</Cmd>
+
+`--channel` 和 `--to` 只选择 CLI 的版本。extension 各自保留自己的渠道和固定版本，CLI 固定版本不会阻止它们更新。更新 extension 时会列出版本变化并询问一次，`--yes` 可代为确认。如果没有终端，或使用了 `--json`，且未加 `--yes`，tmt 不会应用任何 extension 更新：每个待更新的 extension 都会报告 `consentRequired`，并给出重新运行的命令。某个 extension 更新失败会让命令失败，但不会撤销其他 extension 的更新。
+
+<Mdx.h3 id="shell-completion">Shell 补全</Mdx.h3>
+
+在 shell 的启动文件中添加一行，或直接在当前 shell 中运行：
+
+<Cmd>{`
+$ source <(tmt completion bash)   # bash
+$ source <(tmt completion zsh)    # zsh，在 compinit 之后
+$ tmt completion fish | source    # fish
+`}</Cmd>
+
+名称补全包含已保存和临时 identity，已保存的排在前面，且无需启动 tmux。`tmt resume` 只提供记录了会话的 identity。名称后面的补全由 `tmt run` 交给 agent 自己处理，因此 Tab 也能补全 agent 的参数；tmt 不会安装这些补全脚本。extension 会补全自己的参数，例如 `tmt sq <Tab>`。
+
+<Mdx.h3 id="the-pane-badge-a-few-extras">窗格徽标的进阶用法</Mdx.h3>
+
+基本用法见[窗格徽标](/drivers/tmux#the-pane-badge)。此外：
+
+- **在窄窗格中隐藏。** 用下面的格式检查窗格宽度。根据主题调整 80；它不会自动适配。
+- **只能保存一种样式。** tmux 只保留一个默认样式，因此不要再用另一个 `push-default` 包住徽标。将徽标放在这样的样式范围之外，并在后面恢复主题的样式。
+- **逐个窗格更新。** 切换设置不会立即重写任何窗格。下次 tmt 操作某个窗格时才会更新它，例如命名、启动或退出、触发钩子。`tmt unbind` 会清除该窗格的徽标。
+- **名称会缩短显示。** 超过 48 个字符的部分会截断为 `…`，`#` 显示为 `＃`。存储的名称不变。
+
+<Code>{`
+#{?#{&&:#{@tmux-team.badge},#{e|>=:#{pane_width},80}}, [#{@tmux-team.badge}],}
+`}</Code>
+
+如果旧版 tmt 替换了窗格标题或边框格式，请从自己的 tmux 配置中恢复。tmt 无法重建它覆盖过的主题。
+
+<Mdx.h3 id="troubleshooting">故障排查</Mdx.h3>
+
+<Mdx.h4 id="tmt-is-not-found-after-installing">
+  安装后找不到 <code>tmt</code>
+</Mdx.h4>
+
+将 `~/.local/bin` 或安装前缀下的 `bin` 放在 PATH 最前面，然后打开新 shell 或运行 `hash -r`。安装程序不会修改 shell 配置文件。在你使用的启动文件中添加一次以下内容：
+
+<Code>{`
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
+`}</Code>
+
+然后检查 shell 选择了哪个命令：
+
+<Cmd>{`
+$ command -v tmt
+$ tmt --version
+$ command -v tmux-team      # 旧的 npm 安装可能遮蔽新安装
+`}</Cmd>
+
+使用旧安装对应的包管理器将其卸载（`npm uninstall -g tmux-team` 或 `pnpm remove -g tmux-team`），并使用你拥有权限的安装前缀，不要使用 `sudo`。
+
+<Mdx.h4 id="skills-conflict-with-files-tmt-didn-t-write">技能与非 tmt 创建的文件冲突</Mdx.h4>
+
+先查看目标文件。`tmt install claude --force` 会先在技能文件夹之外备份并输出备份位置，再替换它。修改技能或配置后，重启 agent 会话，让它重新读取。
+
+<Mdx.h4 id="a-sandboxed-agent-can-t-reach-tmt-s-data-or-tmux">
+  沙箱中的 agent 无法访问 tmt 数据或 tmux
+</Mdx.h4>
+
+<Callout title="两种错误，同一个原因。">
+  agent 沙箱可能阻止访问数据目录和 tmux socket。`STORAGE_NOT_WRITABLE` 会指出 tmt 无法写入的目录，
+  `TMUX_PERMISSION_DENIED` 则表示 tmux socket 被阻止访问。
+</Callout>
+
+允许访问该目录或 socket，或者让 agent 通过提供方自身的权限提升机制运行同一条命令。如果数据目录的所有者没有写入权限，tmt 只会报告问题，不会修复。不要通过删除 tmt 数据或修改其 tmux 证据来绕过这两种错误。如果错误明确表示没有存储任何内容，原样重试 `tmt reply` 是安全的；保持请求 ID、receipt 和正文不变。Codex 的设置见 [Codex 沙箱](/drivers/codex#codex-s-sandbox)。
+
+<Mdx.h4 id="a-request-didn-t-finish">请求未完成</Mdx.h4>
+
+- `TIMEOUT` 只会结束你的等待。之后可用 `tmt result` 获取回复；参见 [`tmt talk` 和 `tmt reply`](/working#tmt-talk-and-tmt-reply)。
+- `DELIVERY_UNCERTAIN` 表示文本可能已到达窗格。先用 `tmt check` 查看，再作决定；参见[投递细节](/working#delivery-details)。
+- `DELIVERY_AWAITING_APPROVAL` 表示 agent 正在等待用户批准，因此没有发送任何内容。请求仍在队列中。等 agent 继续运行后再重试，绝不要通过向它的窗格输入内容来绕过批准；参见[投递细节](/working#delivery-details)。
+- `CHANNEL_NOT_READY`、`CHANNEL_UNREACHABLE` 和 `CHANNEL_ENROLLMENT_ENDED` 来自 Claude 的[消息通道](/drivers/claude-code#message-channel)：没有发送，也没有粘贴任何内容。

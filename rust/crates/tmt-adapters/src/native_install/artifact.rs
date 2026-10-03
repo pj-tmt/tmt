@@ -27,6 +27,7 @@ pub(super) struct Artifact {
     pub target: String,
     pub sha256: String,
     pub files: BTreeMap<String, Vec<u8>>,
+    pub executable_files: BTreeSet<String>,
 }
 
 impl Artifact {
@@ -57,7 +58,14 @@ pub(super) fn acquire_product(
     let listed = metadata_bytes(product, &bytes, name, target)?;
     let compressed =
         bounded_file::read_no_follow(archive, COMPRESSED_LIMIT).map_err(io::Error::other)?;
-    verified_archive(product, name, target, listed, &compressed)
+    verified_archive(
+        product,
+        name,
+        target,
+        listed,
+        &compressed,
+        Some(inventory_bytes(product, &bytes, name)?),
+    )
 }
 
 pub(super) fn acquire_bytes(
@@ -68,7 +76,14 @@ pub(super) fn acquire_bytes(
     target: &str,
 ) -> io::Result<Artifact> {
     let listed = metadata_bytes(product, manifest, name, target)?;
-    verified_archive(product, name, target, listed, compressed)
+    verified_archive(
+        product,
+        name,
+        target,
+        listed,
+        compressed,
+        Some(inventory_bytes(product, manifest, name)?),
+    )
 }
 
 fn metadata_bytes(product: Product, bytes: &[u8], name: &str, target: &str) -> io::Result<Listed> {
@@ -79,16 +94,10 @@ fn metadata_bytes(product: Product, bytes: &[u8], name: &str, target: &str) -> i
     metadata(product, &manifest, name, target)
 }
 
-/// What the manifest lists for one archive: its version, checksum and whether
-/// it declares a skills tree. cargo-dist records an included directory as one
-/// asset named after it, so the tree's files are inventoried from the
-/// checksum-verified archive, never from the manifest.
+/// Release identity guaranteed by the manifest, independent of installer inventory.
 struct Listed {
     version: Version,
     sha256: String,
-    skills: bool,
-    /// The optional companion executables this archive declares.
-    companions: Vec<String>,
 }
 
 fn verified_archive(
@@ -97,32 +106,26 @@ fn verified_archive(
     target: &str,
     listed: Listed,
     compressed: &[u8],
+    inventory: Option<Inventory>,
 ) -> io::Result<Artifact> {
-    let Listed {
-        version,
-        sha256,
-        skills,
-        companions,
-    } = listed;
+    let Listed { version, sha256 } = listed;
     if compressed.len() > COMPRESSED_LIMIT {
         return Err(invalid("Native archive exceeds its bound."));
     }
     if digest(compressed) != sha256 {
         return Err(invalid("Native archive checksum mismatch."));
     }
-    let files = decode(
-        product,
-        compressed,
-        archive_root(name)?,
-        skills,
-        &companions,
-    )?;
+    let Decoded {
+        files,
+        executable_files,
+    } = decode(product, compressed, archive_root(name)?, inventory)?;
     Ok(Artifact {
         name: name.into(),
         version,
         target: target.into(),
         sha256,
         files,
+        executable_files,
     })
 }
 
@@ -192,6 +195,40 @@ fn metadata(product: Product, manifest: &Value, name: &str, target: &str) -> io:
         .as_str()
         .filter(|hash| tmt_core::content_digest::is_sha256(hash))
         .ok_or_else(|| invalid("Native archive requires a SHA-256 checksum."))?;
+    let releases = manifest["releases"]
+        .as_array()
+        .ok_or_else(|| invalid("Native manifest releases are missing."))?
+        .iter()
+        .filter(|release| {
+            release["artifacts"]
+                .as_array()
+                .is_some_and(|assets| assets.iter().any(|asset| asset == name))
+        })
+        .collect::<Vec<_>>();
+    if releases.len() != 1 || releases[0]["app_name"] != product.package() {
+        return Err(invalid(
+            "Native archive must belong to exactly one TMT release.",
+        ));
+    }
+    let version = releases[0]["app_version"]
+        .as_str()
+        .ok_or_else(|| invalid("Native release version is missing."))?
+        .parse()
+        .map_err(|_| invalid("Native release version is invalid."))?;
+    Ok(Listed {
+        version,
+        sha256: sha256.into(),
+    })
+}
+
+struct Inventory {
+    skills: bool,
+    companions: Vec<String>,
+}
+
+fn inventory_bytes(product: Product, bytes: &[u8], name: &str) -> io::Result<Inventory> {
+    let manifest: Value = serde_json::from_slice(bytes).map_err(io::Error::other)?;
+    let metadata = &manifest["artifacts"][name];
     let mut inventory = metadata["assets"]
         .as_array()
         .ok_or_else(|| invalid("Native archive asset inventory is missing."))?
@@ -232,45 +269,61 @@ fn metadata(product: Product, manifest: &Value, name: &str, target: &str) -> io:
     if required != expected {
         return Err(invalid("Unexpected native archive asset inventory."));
     }
-    let releases = manifest["releases"]
-        .as_array()
-        .ok_or_else(|| invalid("Native manifest releases are missing."))?
-        .iter()
-        .filter(|release| {
-            release["artifacts"]
-                .as_array()
-                .is_some_and(|assets| assets.iter().any(|asset| asset == name))
-        })
-        .collect::<Vec<_>>();
-    if releases.len() != 1 || releases[0]["app_name"] != product.package() {
-        return Err(invalid(
-            "Native archive must belong to exactly one TMT release.",
-        ));
-    }
-    let version = releases[0]["app_version"]
-        .as_str()
-        .ok_or_else(|| invalid("Native release version is missing."))?
-        .parse()
-        .map_err(|_| invalid("Native release version is invalid."))?;
-    Ok(Listed {
+    Ok(Inventory { skills, companions })
+}
+
+/// Transport-verified bytes are not an installable Artifact: only the candidate
+/// can turn its own strict inventory into publication input.
+pub(super) struct Candidate {
+    pub version: Version,
+    pub sha256: String,
+    pub files: BTreeMap<String, Vec<u8>>,
+    pub executable_files: BTreeSet<String>,
+}
+
+/// Transport verification has no knowledge of the candidate's inventory.
+/// It verifies the entire archive before any candidate code can run.
+pub(super) fn acquire_candidate(
+    manifest: &[u8],
+    name: &str,
+    compressed: &[u8],
+    target: &str,
+) -> io::Result<Candidate> {
+    let listed = metadata_bytes(Product::Cli, manifest, name, target)?;
+    let Artifact {
         version,
-        sha256: sha256.into(),
-        skills,
-        companions,
+        sha256,
+        files,
+        executable_files,
+        ..
+    } = verified_archive(Product::Cli, name, target, listed, compressed, None)?;
+    Ok(Candidate {
+        version,
+        sha256,
+        files,
+        executable_files,
     })
 }
 
-/// Only the product's required files, the companion executables the manifest
-/// declares and, when the manifest declares it, one bounded skills tree. Every limit applies while decoding: the expansion
-/// bound, each skill file's size before its bytes are read, and the file count
-/// before the tree is validated as a whole.
+struct Decoded {
+    files: BTreeMap<String, Vec<u8>>,
+    executable_files: BTreeSet<String>,
+}
+
+/// One decoder owns archive safety. An installer additionally supplies its
+/// inventory; transport staging leaves that policy to the verified candidate.
+/// Expansion, entry and installer skill bounds apply before retaining bytes.
 fn decode(
     product: Product,
     compressed: &[u8],
     root: &str,
-    skills: bool,
-    companions: &[String],
-) -> io::Result<BTreeMap<String, Vec<u8>>> {
+    inventory: Option<Inventory>,
+) -> io::Result<Decoded> {
+    let strict = inventory.is_some();
+    let Inventory { skills, companions } = inventory.unwrap_or(Inventory {
+        skills: false,
+        companions: Vec::new(),
+    });
     let mut expanded = Vec::new();
     MultiGzDecoder::new(compressed)
         .take((EXPANDED_LIMIT + 1) as u64)
@@ -281,13 +334,31 @@ fn decode(
     let tree = format!("{root}/{}", skills_tree::ROOT);
     let mut archive = tar::Archive::new(expanded.as_slice());
     let mut files = BTreeMap::new();
+    let mut executable_files = BTreeSet::new();
     let mut directories = BTreeSet::new();
     let mut skill_files = 0;
     for entry in archive.entries()? {
         let mut entry = entry?;
+        if files.len() + directories.len() >= 2048 {
+            return Err(invalid("Native archive has too many entries."));
+        }
         let path = entry.path_bytes().into_owned();
         let path = std::str::from_utf8(&path)
             .map_err(|_| invalid("Native archive path must be ASCII."))?;
+        let relative = path
+            .strip_prefix(root)
+            .and_then(|p| p.strip_prefix('/'))
+            .ok_or_else(|| invalid("Unexpected native archive path."))?;
+        if relative
+            .trim_end_matches('/')
+            .split('/')
+            .any(|part| part == "." || part == ".." || part.is_empty())
+            && !relative.is_empty()
+            || relative.contains('\\')
+            || !path.is_ascii()
+        {
+            return Err(invalid("Unexpected native archive path."));
+        }
         let below_tree = path.strip_prefix(&tree);
         let tree_directory =
             skills && below_tree.is_some_and(|rest| rest.is_empty() || rest.starts_with('/'));
@@ -296,7 +367,9 @@ fn decode(
         let in_tree =
             skills && below_tree.is_some_and(|rest| rest.len() > 1 && rest.starts_with('/'));
         // Archivers record directories with or without a trailing slash.
-        if entry.header().entry_type().is_dir() && (path == format!("{root}/") || tree_directory) {
+        if entry.header().entry_type().is_dir()
+            && (path == format!("{root}/") || tree_directory || !strict)
+        {
             if entry.header().mode()? & 0o7000 != 0 || entry.size() != 0 {
                 return Err(invalid("Native archive directory metadata is invalid."));
             }
@@ -309,7 +382,8 @@ fn decode(
             .strip_prefix(root)
             .and_then(|p| p.strip_prefix('/'))
             .filter(|name| {
-                product.files().contains(name)
+                !strict
+                    || product.files().contains(name)
                     || companions.iter().any(|companion| companion == name)
                     || in_tree
             })
@@ -318,8 +392,9 @@ fn decode(
         // Regular files only: never a link, device or special permission.
         if !entry.header().entry_type().is_file()
             || mode & 0o7000 != 0
+            || name.ends_with('/')
             || entry.size() == 0
-            || ((name == product.executable() || product.companions().contains(&name))
+            || ((name == product.executable() || (strict && product.companions().contains(&name)))
                 && mode & 0o111 == 0)
             || (in_tree && !skills_tree::file_fits(entry.size()))
         {
@@ -338,13 +413,17 @@ fn decode(
         }
         let mut contents = Vec::new();
         entry.read_to_end(&mut contents)?;
+        if mode & 0o111 != 0 {
+            executable_files.insert(name.to_owned());
+        }
         files.insert(name.into(), contents);
     }
-    if product
-        .files()
-        .iter()
-        .any(|file| !files.contains_key(*file))
-        || companions.iter().any(|file| !files.contains_key(file))
+    if strict
+        && (product
+            .files()
+            .iter()
+            .any(|file| !files.contains_key(*file))
+            || companions.iter().any(|file| !files.contains_key(file)))
     {
         return Err(invalid("Native archive is missing required files."));
     }
@@ -353,6 +432,27 @@ fn decode(
         .map(String::as_str)
         .filter(|name| skills_tree::is_skill_path(name))
         .collect();
+    if !strict && !files.contains_key(product.executable()) {
+        return Err(invalid(
+            "Native archive is missing its installer executable.",
+        ));
+    }
+    for name in files.keys() {
+        if directories.contains(&format!("{root}/{name}"))
+            || name
+                .split('/')
+                .scan(String::new(), |parent, part| {
+                    if !parent.is_empty() {
+                        parent.push('/');
+                    }
+                    parent.push_str(part);
+                    Some(parent.clone())
+                })
+                .any(|parent| parent != *name && files.contains_key(&parent))
+        {
+            return Err(invalid("Conflicting native archive paths."));
+        }
+    }
     if skills {
         if tree_files.is_empty() {
             return Err(invalid(
@@ -367,7 +467,7 @@ fn decode(
         let Some(relative) = directory.strip_prefix(&format!("{root}/")) else {
             continue;
         };
-        let holds_a_file = tree_files.iter().any(|file| {
+        let holds_a_file = files.keys().any(|file| {
             file.strip_prefix(relative)
                 .is_some_and(|rest| rest.starts_with('/'))
         });
@@ -375,5 +475,8 @@ fn decode(
             return Err(invalid("Unexpected native archive directory."));
         }
     }
-    Ok(files)
+    Ok(Decoded {
+        files,
+        executable_files,
+    })
 }

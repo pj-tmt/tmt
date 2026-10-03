@@ -45,6 +45,40 @@ function recordedArgs(argsFile: string): string[] {
 }
 
 describe('native cargo wrapper', () => {
+  it.each(['missing', 'relative', 'absent-directory'])(
+    'rejects a Colab archive build with %s embedding input before Cargo executes',
+    async (kind) => {
+      await withSandbox(async (sandbox) => {
+        const fake = createFakeCargo(sandbox);
+        sandbox.env.TMT_NATIVE_REAL_CARGO = fake.executable;
+        sandbox.env.TMT_NATIVE_PRODUCT = 'colab';
+        delete sandbox.env.TMT_COLAB_APP_DIR;
+        if (kind === 'relative') sandbox.env.TMT_COLAB_APP_DIR = 'app/dist';
+        if (kind === 'absent-directory')
+          sandbox.env.TMT_COLAB_APP_DIR = path.join(sandbox.root, 'absent-app');
+        const result = await runWrapper(sandbox, ['build', '--locked', '-p', 'tmt-colab']);
+        expect(result.status).toBe(2);
+        expect(result.stdout).toBe('');
+        expect(result.stderr).toContain('Colab release build requires');
+        expect(fs.existsSync(fake.argsFile)).toBe(false);
+      });
+    }
+  );
+
+  it('forwards a Colab archive build with supplied input, leaving inventory validation to build.rs', async () => {
+    await withSandbox(async (sandbox) => {
+      const fake = createFakeCargo(sandbox);
+      const app = path.join(sandbox.root, 'app dist');
+      fs.mkdirSync(app);
+      sandbox.env.TMT_NATIVE_REAL_CARGO = fake.executable;
+      sandbox.env.TMT_NATIVE_PRODUCT = 'colab';
+      sandbox.env.TMT_COLAB_APP_DIR = app;
+      const args = ['build', '--locked', '-p', 'tmt-colab'];
+      expect((await runWrapper(sandbox, args)).status).toBe(0);
+      expect(recordedArgs(fake.argsFile)).toEqual(args);
+    });
+  });
+
   it.each(['build', 'metadata'])(
     'is executable and forwards %s arguments before adding locked',
     async (command) => {

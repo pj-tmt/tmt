@@ -8,8 +8,24 @@ pub(crate) fn input(tokens: u64) -> Input {
         "observedAtMs":tokens + 1, "complete":true, "gap":false }});
     Input {
         room: "redacted-room".into(),
+        names: BTreeMap::from([("a".into(), "worker".into())]),
         resumes: BTreeMap::from([("a".into(), resume)]),
     }
+}
+
+#[test]
+fn sampling_keeps_observed_names_when_live_presence_is_missing() {
+    let mut roster = input(100);
+    roster.names.insert("lead-id".into(), "design-lead".into());
+    roster.resumes.insert("lead-id".into(), Value::Null);
+    let sample = roster.listed(&json!({"identities": [
+        {"id": "a", "name": "worker", "resume": roster.resumes["a"]},
+        {"id": "unrelated", "name": "outside-roster", "resume": null}
+    ]}));
+    assert_eq!(sample.names, roster.names);
+    assert_eq!(sample.names["lead-id"], "design-lead");
+    assert_eq!(sample.resumes["lead-id"], Value::Null);
+    assert!(!sample.resumes.contains_key("unrelated"));
 }
 
 #[test]
@@ -223,6 +239,10 @@ fn recorded_public_projection_fixture_matches_expected_rates() {
         serde_json::from_str(include_str!("fixtures/completed-requests.json")).unwrap();
     let roster = Input {
         room: "fixture-room".into(),
+        names: BTreeMap::from([
+            ("claude-id".into(), "claude-worker".into()),
+            ("codex-id".into(), "codex-worker".into()),
+        ]),
         resumes: BTreeMap::from([
             ("claude-id".into(), Value::Null),
             ("codex-id".into(), Value::Null),

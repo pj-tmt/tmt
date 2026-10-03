@@ -1,5 +1,5 @@
-name: Prove an anonymous public install
-description: Shared host entry for the source smoke and its single deferred retry.
+name: Prove an authenticated public install
+description: Install a public release with read-only authentication for native API acquisition.
 inputs:
   product:
     description: Native product of the published release.
@@ -10,10 +10,6 @@ inputs:
   target:
     description: Matching target of this host.
     required: true
-  retry:
-    description: Use one acquisition attempt without a further rate-limit retry.
-    required: false
-    default: 'false'
 runs:
   using: composite
   steps:
@@ -26,20 +22,32 @@ runs:
     - uses: actions/setup-node@v4
       with:
         node-version: 22.23.2
+        architecture: ${{ inputs.target == 'x86_64-apple-darwin' && 'x64' || '' }}
+    - name: Set up driver archive verification tooling
+      if: inputs.product == 'driver-herdr'
+      uses: ./.github/actions/setup-tooling
+      with:
+        architecture: ${{ inputs.target == 'x86_64-apple-darwin' && 'x64' || '' }}
+    - name: Install driver archive verification dependencies
+      if: inputs.product == 'driver-herdr'
+      shell: bash
+      working-directory: typescript
+      run: pnpm install --frozen-lockfile --ignore-scripts
+    - name: Warm the macOS toolchain lookup
+      if: runner.os == 'macOS'
+      uses: ./.github/actions/warm-xcrun
     - name: Install from the public release
       shell: bash
       env:
         PRODUCT: ${{ inputs.product }}
         RELEASE_TAG: ${{ inputs.tag }}
         TARGET: ${{ inputs.target }}
-        RETRY: ${{ inputs.retry }}
+        GITHUB_TOKEN: ${{ github.token }}
       run: |
-        retry_args=()
-        case "$RETRY" in
-          true) retry_args=(--retry) ;;
-          false) ;;
-          *) echo 'retry must be true or false' >&2; exit 1 ;;
-        esac
+        scripts/run-native-verification.sh "$TARGET" <<'VERIFY'
+        started=$SECONDS
         node typescript/scripts/verify-public-install.mjs --product "$PRODUCT" --tag "$RELEASE_TAG" \
-          --source release-source --target "$TARGET" "${retry_args[@]}" \
+          --source release-source --target "$TARGET" \
           --result-file "$RUNNER_TEMP/smoke-result.json"
+        echo "Verified $TARGET in $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
+        VERIFY

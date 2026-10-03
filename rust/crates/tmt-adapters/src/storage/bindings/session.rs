@@ -76,7 +76,7 @@ pub(super) fn preferences(
 ) -> Result<SessionPreferences, StorageError> {
     connection.query_row(
         "SELECT p.preferred_harness, p.remembered_harness, p.runtime_mode, p.provider_session_id,
-                p.driver_state_version, p.driver_state, p.stale_at_ms, p.resume_pending_at_ms FROM identity_session_preferences p
+                p.driver_state_version, p.driver_state, p.stale_at_ms, p.resume_pending_at_ms, p.channel FROM identity_session_preferences p
          JOIN identities i ON i.id = p.identity_id WHERE p.identity_id = ? AND i.retired_at_ms IS NULL",
         [identity_id],
         |row| {
@@ -100,7 +100,7 @@ pub(super) fn preferences(
                 }),
                 _ => return Err(rusqlite::Error::InvalidQuery),
             };
-            Ok(SessionPreferences { preferred_harness, remembered })
+            Ok(SessionPreferences { preferred_harness, remembered, channel: row.get(8)? })
         },
     ).optional().map(|value| value.unwrap_or_default())
         .map_err(|error| classify(error, "Read session preferences"))
@@ -132,13 +132,13 @@ pub(super) fn set_preferences(
     connection
         .execute(
             "INSERT INTO identity_session_preferences (identity_id, preferred_harness, remembered_harness, runtime_mode,
-             provider_session_id, driver_state_version, driver_state, stale_at_ms, resume_pending_at_ms)
-         SELECT id, ?, ?, ?, ?, ?, ?, ?, ? FROM identities WHERE id = ? AND retired_at_ms IS NULL
+             provider_session_id, driver_state_version, driver_state, stale_at_ms, resume_pending_at_ms, channel)
+         SELECT id, ?, ?, ?, ?, ?, ?, ?, ?, ? FROM identities WHERE id = ? AND retired_at_ms IS NULL
          ON CONFLICT(identity_id) DO UPDATE SET preferred_harness = excluded.preferred_harness,
              remembered_harness = excluded.remembered_harness, runtime_mode = excluded.runtime_mode,
              provider_session_id = excluded.provider_session_id,
              driver_state_version = excluded.driver_state_version, driver_state = excluded.driver_state,
-             stale_at_ms = excluded.stale_at_ms, resume_pending_at_ms = excluded.resume_pending_at_ms",
+             stale_at_ms = excluded.stale_at_ms, resume_pending_at_ms = excluded.resume_pending_at_ms, channel = excluded.channel",
             params![
                 value.preferred_harness.as_ref().map(HarnessId::as_str),
                 remembered.map(|session| session.harness.as_str()),
@@ -148,6 +148,7 @@ pub(super) fn set_preferences(
                 state.map(DriverState::document),
                 stale_at_ms,
                 resume_pending_at_ms,
+                value.channel,
                 identity_id
             ],
         )
@@ -162,7 +163,7 @@ pub(super) fn forget(connection: &Connection, identity_id: &str) -> Result<(), S
         .execute(
             "UPDATE identity_session_preferences SET remembered_harness = NULL, runtime_mode = NULL,
              provider_session_id = NULL, driver_state_version = NULL, driver_state = NULL, stale_at_ms = NULL,
-             resume_pending_at_ms = NULL WHERE identity_id = ?",
+             resume_pending_at_ms = NULL, channel = NULL WHERE identity_id = ?",
             [identity_id],
         )
         .map(drop)
@@ -284,6 +285,7 @@ mod tests {
 
     fn remembered() -> SessionPreferences {
         SessionPreferences {
+            channel: None,
             preferred_harness: Some(HarnessId::new("claude").unwrap()),
             remembered: Some(RememberedSession {
                 harness: HarnessId::new("claude").unwrap(),
@@ -294,6 +296,45 @@ mod tests {
                 resume_pending_at_ms: None,
             }),
         }
+    }
+
+    #[test]
+    fn channel_preference_round_trips_and_forget_clears_it() {
+        let root = crate::test_support::TestDirectory::new();
+        let path = root.path.join("channel.db");
+        let mut storage = crate::storage::Storage::open(&path).unwrap();
+        let identity = create_or_resolve(&mut storage, "Channel owner", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        for channel in [Some(true), Some(false), None] {
+            let mut value = remembered();
+            value.channel = channel;
+            storage
+                .with_binding_transaction::<_, StorageError>(|records| {
+                    records.set_session_preferences(&identity.id, &value)?;
+                    assert_eq!(records.session_preferences(&identity.id)?, value);
+                    Ok(())
+                })
+                .unwrap();
+            storage.close().unwrap();
+            storage = crate::storage::Storage::open(&path).unwrap();
+            assert_eq!(
+                storage.session_preferences(&identity.id).unwrap().channel,
+                channel
+            );
+        }
+        let mut value = remembered();
+        value.channel = Some(true);
+        storage
+            .with_binding_transaction::<_, StorageError>(|records| {
+                records.set_session_preferences(&identity.id, &value)
+            })
+            .unwrap();
+        forget(storage.connection().unwrap(), &identity.id).unwrap();
+        assert_eq!(
+            storage.session_preferences(&identity.id).unwrap().channel,
+            None
+        );
     }
 
     #[test]

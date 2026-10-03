@@ -2,15 +2,15 @@ import { exactKeys, requireValue, strictJson, text } from '@tmt/colab-client';
 import { Admission } from './admission.js';
 import { Objects } from './objects.js';
 import { openBaseline, type BaselineInput, type BaselineObject } from './baseline.js';
-import { STATE_BYTES, UPDATE_BYTES } from './fold-protocol.js';
+import { STATE_BYTES, UPDATE_BYTES, type AdmittedUpdate } from './fold-protocol.js';
 
 /** Strict membership-first catchup. Optional content adoption stays behind object admission. */
 export class Catchup {
   #started = false;
   #membershipMore = false;
   #complete = false;
-  updates: Uint8Array[] = [];
-  checkpoints: Uint8Array[] = [];
+  updates: AdmittedUpdate[] = [];
+  checkpoints: AdmittedUpdate[] = [];
   baseline: BaselineInput | null = null;
   #reset: { descriptor: string; object: BaselineObject } | null = null;
   constructor(
@@ -19,9 +19,9 @@ export class Catchup {
     readonly objects?: Objects,
   ) {}
   close() {
-    this.checkpoints.forEach((v) => v.fill(0));
+    this.checkpoints.forEach((v) => v.update.fill(0));
     this.checkpoints = [];
-    this.updates.forEach((v) => v.fill(0));
+    this.updates.forEach((v) => v.update.fill(0));
     this.updates = [];
     this.baseline?.update.fill(0);
     this.baseline = null;
@@ -120,11 +120,11 @@ export class Catchup {
       this.updates.push(...admitted.updates);
       requireValue(
         this.checkpoints.length <= 256 &&
-          this.checkpoints.reduce((n, v) => n + v.length, 0) <= STATE_BYTES,
+          this.checkpoints.reduce((n, v) => n + v.update.length, 0) <= STATE_BYTES,
       );
       requireValue(
         this.updates.length <= 200 &&
-          this.updates.reduce((n, v) => n + v.length, 0) <= UPDATE_BYTES,
+          this.updates.reduce((n, v) => n + v.update.length, 0) <= UPDATE_BYTES,
       );
     }
     if (!value.more) {

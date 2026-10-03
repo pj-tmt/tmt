@@ -286,6 +286,7 @@ exec /opt/tmt-tests/claude "$@"
         driver_state_version: null,
         stale_at_ms: null,
         resume_pending_at_ms: null,
+        channel: 0,
         ...overrides,
       });
       const staleAt = () => preferences(fixture)[0]?.stale_at_ms;
@@ -363,14 +364,24 @@ exec /opt/tmt-tests/claude "$@"
       await run('unregistered', ['run', '--resume', 'Resume'], 1);
       expect(calls()).toHaveLength(6);
       expect(preferences(fixture)).toEqual([
-        row({ remembered_harness: null, runtime_mode: null, provider_session_id: null }),
+        row({
+          remembered_harness: null,
+          runtime_mode: null,
+          provider_session_id: null,
+          channel: null,
+        }),
       ]);
 
       seed('claude', 'default');
       await run('forget', ['resume', '--forget', 'Resume'], 0);
       await run('forget-again', ['resume', '--forget', 'Resume'], 0);
       expect(preferences(fixture)).toEqual([
-        row({ remembered_harness: null, runtime_mode: null, provider_session_id: null }),
+        row({
+          remembered_harness: null,
+          runtime_mode: null,
+          provider_session_id: null,
+          channel: null,
+        }),
       ]);
       expect(calls()).toHaveLength(6);
     });
@@ -534,6 +545,7 @@ process.exit(23);
           driver_state_version: null,
           stale_at_ms: null,
           resume_pending_at_ms: null,
+          channel: 0,
         },
       ]);
 

@@ -85,19 +85,54 @@ pub struct Decoded {
     pub memory_limit: MemoryLimit,
     pub child_pid: u32,
 }
+/// Caller-owned invocation configuration. Production composition uses `new`;
+/// tests can inject a larger deadline without changing caps or cleanup ownership.
+#[derive(Clone, Debug)]
+pub struct Config {
+    pub program: PathBuf,
+    pub deadline: Duration,
+}
+impl Config {
+    pub fn new(program: PathBuf) -> Self {
+        Self {
+            program,
+            deadline: DEADLINE,
+        }
+    }
+    fn validate(&self) -> Result<(), DecodeFault> {
+        if !self.program.is_absolute() {
+            return Err(DecodeFault::InvalidInput);
+        }
+        validate_deadline(self.deadline)
+    }
+}
+fn validate_deadline(deadline: Duration) -> Result<(), DecodeFault> {
+    if deadline.is_zero() || Instant::now().checked_add(deadline).is_none() {
+        return Err(DecodeFault::InvalidInput);
+    }
+    Ok(())
+}
 pub struct Decoder {
-    program: PathBuf,
+    config: Config,
     blocked: bool,
 }
 impl Decoder {
     pub fn new(program: PathBuf) -> Result<Self, DecodeFault> {
-        if !program.is_absolute() {
-            return Err(DecodeFault::InvalidInput);
-        }
+        Self::with_config(Config::new(program))
+    }
+    pub fn with_config(config: Config) -> Result<Self, DecodeFault> {
+        config.validate()?;
         Ok(Self {
-            program,
+            config,
             blocked: false,
         })
+    }
+    /// Change the next invocation's budget without clearing the cleanup fence.
+    /// Tests use this to retain tight timeout checks and generous reuse controls.
+    pub fn set_deadline(&mut self, deadline: Duration) -> Result<(), DecodeFault> {
+        validate_deadline(deadline)?;
+        self.config.deadline = deadline;
+        Ok(())
     }
     /// Exclusive mutable ownership prevents concurrent children through this page owner.
     /// Reuse requires no started child or confirmed cleanup; possible survivors block it.
@@ -107,12 +142,22 @@ impl Decoder {
         role: Role,
         stop: Option<&AtomicBool>,
     ) -> Result<Decoded, DecodeFault> {
-        self.decode_until(batch, role, stop, Instant::now() + DEADLINE)
+        self.decode_until(batch, role, stop, Instant::now() + self.config.deadline)
     }
     fn decode_until(
         &mut self,
         batch: UpdateBatch<'_>,
         role: Role,
+        stop: Option<&AtomicBool>,
+        deadline: Instant,
+    ) -> Result<Decoded, DecodeFault> {
+        self.decode_request(batch, role, None, stop, deadline)
+    }
+    fn decode_request(
+        &mut self,
+        batch: UpdateBatch<'_>,
+        role: Role,
+        source: Option<&str>,
         stop: Option<&AtomicBool>,
         deadline: Instant,
     ) -> Result<Decoded, DecodeFault> {
@@ -136,6 +181,7 @@ impl Decoder {
         let wire = WireBatch {
             version: 1,
             namespace: batch.namespace,
+            source: source.map(str::to_owned),
             baseline: URL_SAFE_NO_PAD.encode(batch.baseline),
             updates: batch
                 .updates
@@ -163,6 +209,9 @@ impl Decoder {
             return Err(DecodeFault::InvalidOutput);
         }
         validate_projection(batch.namespace, &reply.projection)?;
+        if source.is_some_and(|value| reply.projection["html"].as_str() != Some(value)) {
+            return Err(DecodeFault::InvalidOutput);
+        }
         let merged = binary(&reply.merged, UPDATE_BYTES).map_err(|_| DecodeFault::InvalidOutput)?;
         Ok(Decoded {
             merged,
@@ -170,6 +219,23 @@ impl Decoder {
             memory_limit: reply.memory_limit,
             child_pid: reply.pid,
         })
+    }
+    pub fn prepare(
+        &mut self,
+        batch: UpdateBatch<'_>,
+        source: &str,
+        stop: Option<&AtomicBool>,
+    ) -> Result<Decoded, DecodeFault> {
+        if source.len() > BASELINE_BYTES || batch.namespace != Namespace::Content {
+            return Err(DecodeFault::InvalidInput);
+        }
+        self.decode_request(
+            batch,
+            Role::Editor,
+            Some(source),
+            stop,
+            Instant::now() + self.config.deadline,
+        )
     }
     /// Produces once from a fresh document and checks materialization in the child.
     pub fn produce_baseline(
@@ -207,7 +273,7 @@ impl Decoder {
         action: BaselineAction,
         stop: Option<&AtomicBool>,
     ) -> Result<Baseline, DecodeFault> {
-        let deadline = Instant::now() + DEADLINE;
+        let deadline = Instant::now() + self.config.deadline;
         if self.blocked {
             return Err(DecodeFault::CleanupBlocked);
         }
@@ -279,7 +345,7 @@ impl Decoder {
         }
         tmt_invoke::invoke(
             Request {
-                program: &self.program,
+                program: &self.config.program,
                 args: &args,
                 input,
                 deadline,
@@ -304,6 +370,8 @@ fn cleanup_blocks(cleanup: &Cleanup) -> bool {
 #[serde(deny_unknown_fields)]
 struct WireBatch {
     version: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
     namespace: Namespace,
     baseline: String,
     updates: Vec<String>,

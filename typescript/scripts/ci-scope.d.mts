@@ -9,6 +9,7 @@ export interface ComponentMap {
     readonly name: string;
     readonly package?: string;
     readonly release?: boolean;
+    readonly bootstrapSha?: string;
     readonly releaseConsumers: readonly string[];
     readonly owns: readonly string[];
     readonly excludes: readonly string[];
@@ -64,6 +65,11 @@ export function globToRegExp(glob: string): RegExp;
 export function parseComponentMap(text: string): ComponentMap;
 export function isReleased(map: ComponentMap, name: string): boolean;
 export function ownerOf(path: string, map?: ComponentMap): string;
+/** Released packaged roots containing the path, independent of CI selectedBy or longest ownership. */
+export function releasedComponentsForPath(
+  path: string,
+  map?: ComponentMap
+): ComponentMap['components'];
 export function explainCiSelection(
   paths: readonly string[],
   map?: ComponentMap

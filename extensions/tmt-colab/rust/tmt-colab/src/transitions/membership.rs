@@ -253,7 +253,9 @@ impl Engine {
                 let mut next = expected.checked_add(1).ok_or(OwnerFault::Capacity)?;
                 for (page, snapshot) in snapshots {
                     let rotate = match &action {
-                        Action::Member(MemberAction::Add(_)) => snapshot.authority.history_current,
+                        Action::Member(MemberAction::Add(_)) => {
+                            snapshot.authority.policy.history_current
+                        }
                         Action::Member(MemberAction::Role { .. }) => false,
                         Action::Link { .. } => plan.rotate_pages.contains(&page),
                         _ => true,
@@ -261,12 +263,17 @@ impl Engine {
                     if rotate {
                         next = next.checked_add(1).ok_or(OwnerFault::Capacity)?;
                         if !engine.decoders.contains_key(&page) {
-                            engine
-                                .decoders
-                                .insert(page.clone(), Decoder::new(engine.program.clone())?);
+                            engine.decoders.insert(
+                                page.clone(),
+                                Decoder::with_config(engine.decoder_config.clone())?,
+                            );
                         }
                         let decoder = engine.decoders.get_mut(&page).ok_or(OwnerFault::Invalid)?;
+                        let public = snapshot.authority.policy.public_mode;
                         let rotation = epoch::Prepared::new(snapshot, key, &page, next, decoder)?;
+                        if public {
+                            next = next.checked_add(1).ok_or(OwnerFault::Capacity)?;
+                        }
                         prepared.insert(page, Page::Rotate(Box::new(rotation)));
                     } else {
                         // Authenticate tails/checkpoints before signing cuts without a new baseline.
@@ -274,9 +281,10 @@ impl Engine {
                             && action.reduction(&plan.target)
                         {
                             if !engine.decoders.contains_key(&page) {
-                                engine
-                                    .decoders
-                                    .insert(page.clone(), Decoder::new(engine.program.clone())?);
+                                engine.decoders.insert(
+                                    page.clone(),
+                                    Decoder::with_config(engine.decoder_config.clone())?,
+                                );
                             }
                             snapshot.materialize(
                                 key,
@@ -353,7 +361,7 @@ impl Engine {
                     match p {
                         Page::Rotate(p) => {
                             let (s, w) = p.commit(tx, key, &authority, now)?;
-                            statements.push(s);
+                            statements.extend(s);
                             wraps.extend(w);
                         }
                         Page::Keep(snapshot)
@@ -365,7 +373,7 @@ impl Engine {
                                 &plan.target,
                                 page,
                                 snapshot.epoch,
-                                snapshot.authority.history_current,
+                                snapshot.authority.policy.history_current,
                                 expected + 1,
                             )?);
                         }
@@ -395,7 +403,7 @@ impl Engine {
                             r,
                             page,
                             epoch,
-                            snapshot.authority.history_current,
+                            snapshot.authority.policy.history_current,
                             revision,
                         )?);
                     }

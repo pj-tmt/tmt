@@ -38,6 +38,7 @@ function layoutViolations(
 const LANGUAGE_TAGS: Record<string, string> = {
   'site/src/i18n/ja': 'ja',
   'site/src/i18n/zh-hant': 'zh-Hant',
+  'site/src/i18n/zh-hans': 'zh-Hans',
 };
 
 function languageViolations(
@@ -56,7 +57,7 @@ function languageEntryProblems(
 ): string[] {
   return Object.entries(listed).flatMap(([directory, tag]) => {
     if (!(directory in LANGUAGE_TAGS)) {
-      return [`${directory}: not an allowed language (ja, zh-hant)`];
+      return [`${directory}: not an allowed language (ja, zh-hant, zh-hans)`];
     }
     return [
       ...(tag === LANGUAGE_TAGS[directory]
@@ -93,10 +94,21 @@ describe('repository layout', () => {
   });
 
   it('allows non-English handbook prose only under a listed language directory', () => {
-    const listed = { 'site/src/i18n/ja': 'ja', 'site/src/i18n/zh-hant': 'zh-Hant' };
+    const listed = {
+      'site/src/i18n/ja': 'ja',
+      'site/src/i18n/zh-hant': 'zh-Hant',
+      'site/src/i18n/zh-hans': 'zh-Hans',
+    };
     const directories = Object.keys(listed);
     expect(
-      languageViolations(['site/src/i18n/ja/start.mdx', 'site/src/i18n/zh-hant/a.mdx'], listed)
+      languageViolations(
+        [
+          'site/src/i18n/ja/start.mdx',
+          'site/src/i18n/zh-hant/a.mdx',
+          'site/src/i18n/zh-hans/start.mdx',
+        ],
+        listed
+      )
     ).toEqual([]);
     expect(
       languageViolations(
@@ -112,13 +124,21 @@ describe('repository layout', () => {
       'site/src/i18n/ja/start.mdx: add its directory to languageExceptions or move the file',
     ]);
     expect(languageViolations(['site/src/main.tsx', 'rust/cli.rs'], {})).toEqual([]);
-    expect(directories).toHaveLength(2);
+    expect(directories).toHaveLength(3);
   });
 
   it('keeps the language set closed and requires tracked content in each listed directory', () => {
-    const listed = { 'site/src/i18n/ja': 'ja', 'site/src/i18n/zh-hant': 'zh-Hant' };
+    const listed = {
+      'site/src/i18n/ja': 'ja',
+      'site/src/i18n/zh-hant': 'zh-Hant',
+      'site/src/i18n/zh-hans': 'zh-Hans',
+    };
     expect(
-      languageEntryProblems(listed, ['site/src/i18n/ja/a.mdx', 'site/src/i18n/zh-hant/a.mdx'])
+      languageEntryProblems(listed, [
+        'site/src/i18n/ja/a.mdx',
+        'site/src/i18n/zh-hant/a.mdx',
+        'site/src/i18n/zh-hans/a.mdx',
+      ])
     ).toEqual([]);
     expect(
       languageEntryProblems({ 'site/src/i18n/ja': 'ja', 'site/src/i18n/zh-hant': 'zh' }, [
@@ -129,7 +149,7 @@ describe('repository layout', () => {
       'site/src/i18n/zh-hant: track a translated page in it or remove the entry',
     ]);
     expect(languageEntryProblems({ 'site/src/i18n/fr': 'fr' }, ['site/src/i18n/fr/a.mdx'])).toEqual(
-      ['site/src/i18n/fr: not an allowed language (ja, zh-hant)']
+      ['site/src/i18n/fr: not an allowed language (ja, zh-hant, zh-hans)']
     );
   });
 

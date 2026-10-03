@@ -6,7 +6,14 @@ import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import * as tar from 'tar';
 
-const executables = { cli: 'tmt', office: 'tmt-office', squad: 'tmt-squad' };
+const executables = {
+  cli: 'tmt',
+  office: 'tmt-office',
+  squad: 'tmt-squad',
+  remote: 'tmt-remote',
+  colab: 'tmt-colab',
+  'driver-herdr': 'tmt-driver-herdr',
+};
 /**
  * Executables a product's archive may carry beside its own, installed with
  * it and recorded in its receipt. Mirrors Product::companions() in
@@ -16,7 +23,14 @@ const executables = { cli: 'tmt', office: 'tmt-office', squad: 'tmt-squad' };
  * here must declare them all (verify-native-artifact.mjs), while published
  * archives from before a companion existed still read.
  */
-const companions = { cli: ['tmt-driver-herdr'], office: [], squad: [] };
+const companions = {
+  cli: ['tmt-driver-herdr'],
+  office: [],
+  squad: [],
+  remote: [],
+  colab: [],
+  'driver-herdr': [],
+};
 /** The agent-skills tree an extension archive carries under one directory. */
 const skillsRoot = 'skills';
 const skillFileLimit = 1024 * 1024;

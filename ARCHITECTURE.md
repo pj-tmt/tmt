@@ -38,7 +38,7 @@ layout permission does not change component ownership, CI selection or release p
 | Repository root           | Short entry points, contributor guidance, license and required repository/tool configuration; no product source or generated evidence. |
 | `.agents/`                | Repository contributor procedures.                                                                                                     |
 | `.github/`                | Component ownership, layout allowlist, workflows, shared Actions and isolated release tooling.                                         |
-| `rust/`                   | Native CLI, core, adapters, shared Rust leaves, fixture publication and the release archive note; extensions retain their own crates.  |
+| `rust/`                   | Native CLI, core, adapters, shared Rust leaves, private fixtures and the release archive note; extensions retain their own crates.     |
 | `typescript/`             | Private developer tooling, tests and shared fixture support; no product-runtime fallback.                                              |
 | `extensions/<extension>/` | Feature-owned runtimes, contracts, skills, documentation and assets.                                                                   |
 | `contracts/`              | Core public contracts and their normative fixtures.                                                                                    |
@@ -73,7 +73,8 @@ tracked entry; ignored local outputs are outside that map. Handbook translations
 are the one place repository prose may be non-English
 ([AGENTS](AGENTS.md#repository-content-language)). The allowlist's optional
 `languageExceptions` key maps a language directory (`site/src/i18n/ja`,
-`site/src/i18n/zh-hant`) to its HTML language tag (`ja`, `zh-Hant`); a language's entry
+`site/src/i18n/zh-hant`, `site/src/i18n/zh-hans`) to its HTML language tag
+(`ja`, `zh-Hant`, `zh-Hans`); a language's entry
 lands with its first tracked translation. The test fails a listed directory with no
 tracked file, a code outside that closed set, and a tracked file under
 `site/src/i18n/` outside a listed directory.
@@ -718,7 +719,17 @@ that output, sharing their verification steps with Linux through YAML anchors.
 The native aggregate requires a valid classification and exact `skipped` macOS
 results when false; full-scope PRs require success. Missing, failed or unexpected
 results never pass. All selected Linux rows remain required. Release builds and
-archive verification retain macOS before publication. Advisory Office browser
+archive verification retain macOS before publication. Both macOS targets build
+on arm64; Intel verification selects an x64 Node and uses
+`scripts/run-native-verification.sh` to apply `arch -x86_64` to the whole verifier
+process tree, including installer and upgrade children. The shared runtime
+proof owns exact Mach-O architecture inspection reused by archive, installed
+bootstrap, upgrade and public smoke checks. Node's architecture alone cannot
+establish executable identity. The advisory weekly/manual native Intel workflow
+retains native runtime and public installer/upgrade evidence; its PR self-test
+is scoped only to its own workflow path. DEVELOPMENT owns the
+[acceptance policy and commands](DEVELOPMENT.md#runtime-smoke-matrix). Advisory
+Office browser
 checks remain separate; the repository owner controls merge-queue rulesets.
 
 The advisory Office browser workflow has a separate ownership-based PR flag,
@@ -770,13 +781,17 @@ release-please attributes a commit to a package by the files it touches under th
 path and can only drop paths, so the CLI's `exclude-paths` lists everything under each
 extension root except the crates the CLI links (today the Office model, command and service
 crates), and a change to those crates counts toward the CLI release as well as Office's. The
-reverse direction has no release-please config option. The map's private TUI leaf declares
+reverse direction has no release-please config option. The map's private TUI, CLI style and invoke leaves declare
 `releaseConsumers: ["squad"]`. `release-please-run.mjs` wraps the pinned public commit iterator
 and adds a consumer-root marker to each matching commit's in-memory file list before the normal
 split, excludes and per-product release cutoff. Original files and ordering are preserved;
 no source file, private-leaf version or release manifest entry is created. TUI-only fixes therefore
-propose Squad, while the CLI remains excluded. Other shared leaves retain package-root attribution;
-expanding consumption requires a separate ownership review.
+propose Squad, while the CLI remains excluded. Style-only and invoke-only fixes propose both
+Squad and CLI; their original package-root attribution to CLI and other consumers is preserved.
+The config generator uses its existing Cargo metadata graph to require declared attribution for
+every external production workspace dependency, including transitive links, of a release consumer.
+Expanding consumption requires a separate ownership review; private leaves remain unpublished
+and retain their existing version and lockfile owners.
 `.release-please-manifest.json` holds the last published versions and belongs to
 release-please after its first release pull request. The CLI is pinned with a lockfile in
 `.github/release-please/`, outside the `typescript` workspace. Only the release job and CI jobs running
@@ -909,8 +924,24 @@ wide graphemes crossing clip edges leave styled blanks. Theme/Depth are injected
 roles inherit and resolve through the shared screen adapter. The caller supplies
 the complete selected-role style: Squad's Look remains the selection policy owner.
 Hits borrow scoped IDs and semantic row IDs, inherit identity, intersect visible
-buffer clips, omit zero areas and resolve in reverse paint order. No input dispatch,
-terminal lifecycle, markdown or provider acquisition lives in this leaf.
+buffer clips, omit zero areas and resolve in reverse paint order. The application-neutral
+`app` layer owns base focus, one replaceable modal and top-first event routing:
+unhandled modal keys/mouse are captured, closing events never replay into the base,
+and Ctrl-C returns a quit effect. The caller retains item cursors, data, effects
+and terminal lifecycle. `components` owns opaque square-border modal chrome,
+fixed footer/status/position slots, visual-line scroll/clamp/reveal and typed
+key-help sections. Its surface compiler lowers component markup into the existing
+bounded primitive binding and geometry pipeline; generated templates are checked
+against the same depth/node limits. Component IDs are static scoped IDs outside
+repeats in this first API. Key help measures one display-cell label column across
+all sections and stacks descriptions when fewer than 20 cells remain. Rendering
+injects Theme/Depth and the existing selection policy, and returns current-frame
+clipped hits. No terminal acquisition, clock, settings persistence, markdown or
+provider acquisition lives in this leaf. Components implement the
+[full-screen interaction guideline](design/cli-style.md#full-screen-interaction);
+application-owned descriptions and effective bindings supply their text. List/table
+and picker components and Squad's remaining overlay migrations remain subsequent
+#1465 work; Squad help uses the modal, scroll and key-help components.
 Squad is the sole reviewed product edge, through a normal dependency. Its row
 compiler binds already projected display values into bounded admitted cells,
 without acquiring or formatting sources. Occurrence IDs contain tab, authored
@@ -1305,19 +1336,24 @@ from pane buffers. Direct-default grants and opt-in hold remain Remote's admissi
 
 ### Local MCP (v1)
 
-`tmt mcp --identity <saved-name-or-uuid>` is an agent-launched stdio read interface
+`tmt mcp --identity <saved-name-or-uuid>` is an agent-launched stdio interface
 for the existing exchange. The [MCP contract](contracts/mcp-v1.md) owns its wire,
 schemas, bounds and qualified protocol revisions. `tmt-adapters::mcp` owns typed
 admission, lifecycle and bounded framing; `tmt-cli::mcp_command` pins one saved
 identity UUID and application data root, then composes the existing identity,
-inbox, incoming X, result and API dispatch-receipt command owners in-process.
+inbox/answer, incoming X inspection/acknowledgment, result and API dispatch
+command owners in-process.
 The same JSON encoders serve the CLI and tools. Identity selection is local
 attribution, not same-user authentication; incoming reads retain participant
 scope. No MCP-only exchange state, persistence, dependency or retry semantics
-is introduced. There are no writing tools or provider setup in this slice.
+is introduced. Dispatch uses its existing operation UUID and immutable acceptance;
+answer derives its existing recipient proof; ack requires the observed revision.
+The API wire is unchanged: its internal dispatch selection distinguishes local
+name/UUID lookup from an exact saved UUID, preventing retirement/name fallback
+from retargeting a pinned writer. Provider setup and blocking talk remain later work.
 
 This process is separate from the private Claude channel server, whose framing
-and behavior remain unchanged. It provides no runtime enrollment, push wake,
+and behavior remain unchanged. It provides no runtime enrollment, server push notifications,
 network listener or remote authentication. Native channels and the proposed
 remote door retain their own owners. Each call closes storage before publishing;
 EOF and framing failure end only this stdio invocation.
@@ -1382,7 +1418,7 @@ provider session and runtime incarnation match the caller, and recheck the
 binding/preferences after callbacks before handing context to the provider.
 They neither admit a session nor replay the SessionStart identity preamble.
 Setup includes one synchronous prompt-submit entry in its consented plan;
-existing SessionStart and opt-in Stop behavior retain their owners.
+existing SessionStart and Stop behavior retain their owners.
 
 With no consent file or no enabled observer, a command performs at most one read
 attempt of the consent file, on its first storage open, and spawns nothing;
@@ -1609,6 +1645,19 @@ from a host's or driver's text.
   matching what `ProcessIncarnation` accepts.
 - **Cursor:** the bindings cursor update trigger compares the column.
 
+Schema 45 adds nullable `identity_session_preferences.channel`, the effective
+channel/plain choice for the preferred harness, recorded by an admitted fresh
+launch or an explicit channel flag on an admitted resume.
+Legacy null keeps the driver's default. Exact resume reuses the matching
+harness preference, with true resolved as Required (never a paste fallback)
+and false as Disabled. Explicit resume flags overwrite the preference after
+successful admission: `--channel` records true only after enrollment succeeds,
+and `--no-channel` records false. A flagless resume does not rewrite the choice,
+including legacy null. Failed launches do not record a new channel choice; changing
+harness clears it, and forgetting the session clears it. Hook observations
+preserve it for the same harness. The existing preferences transaction and
+change-cursor trigger own persistence; no channel lease or endpoint is reused.
+
 Schema 43 adds `identities.auto_named`, a private boolean defaulting to false.
 Only an unnamed registered-runtime launch inserts true, independently of temporary
 or saved lifetime. No name pattern or user-editable metadata grants this provenance.
@@ -1639,6 +1688,12 @@ model (`claude --resume <id> --model <m>`, `codex resume -m <m> <id>`, following
 each CLI's recorded usage) only when the document is readable and the slug is a
 safe single argv value. Otherwise it resumes with the provider's default.
 
+A launched Claude process can be admitted before its first provider session is
+known. Its first resumed SessionStart may attach that session only when the
+same process is Running, has a launch owner and has no provider session yet.
+Known-session switches still require the preliminary continuation transition;
+ended or conflicting incarnations cannot use this first-session path.
+
 Main-turn activity (#656) comes from TMT's own UserPromptSubmit/Stop command
 hooks as installed by `tmt setup`. Claude runs these synchronously: admitted
 transitions commit inside the hook call, before it returns. Ordering relies on
@@ -1662,11 +1717,24 @@ main-turn event, not all background tasks. Runtime uncertainty is unknown;
 ended requires a conclusive core process observation. Timestamps are accepted
 observation times, never inferred from silence, usage, terminal text or probes.
 The state clock has no stalled threshold. Storage-only identity output does not
-assert activity liveness. The Stop entry remains opt-in through `setup --usage`;
-without it, no end event can be recorded.
+assert activity liveness. The Stop entry is included in consented setup by default; `--no-usage`
+disables it. Without it, no end event can be recorded.
 
-Context usage (#519) is opt-in: `tmt setup --usage` adds a TMT `Stop` hook next
-to the lifecycle hooks, and `--no-usage` removes only that entry. A turn end is not
+Context usage (#519) and consumption are included in the same consented
+`tmt setup` plan as lifecycle hooks. `--no-usage` removes the TMT `Stop` entry
+and records the disabled choice; `--usage` explicitly enables it again.
+The existing setup record owns the optional per-driver/settings-path `usage`
+boolean. New unrecorded installations default on. Legacy records without the
+field preserve the installed Stop state: absence could reflect an old explicit
+opt-out and cannot safely be distinguished from omission. Successful setup
+records the resolved choice; full hook removal forgets it. Invalid records stop
+setup before settings publication. Settings and record publication remain
+separate: a record failure reports the already-applied settings and a retry.
+`tmt setup [provider] --status` reads settings without consent, record adoption,
+provider execution or database access. Setup and status report disabled
+collection with the exact `tmt setup <provider> --usage` command. Consent names
+context usage, consumption and activity, and explains the transcript read.
+A turn end is not
 a session transition. The worker verifies the caller exactly as for a lifecycle
 event, and writes only when the binding's current conversation is the
 remembered one the event names. It replaces the remembered state in one
@@ -2609,7 +2677,11 @@ lifetime proof. Fresh records retain endpoint/candidate evidence while unready.
 The shared launch owner calls the default no-op `foreground_admitted` only after
 committed Running admission of its original child and storage closure; Codex
 then publishes Ready under its generation lock. Callback failure warns and
-retains the admitted child and unready evidence, without rollback or paste. The channel contract owns takeover, pruning and recovery limits.
+retains the admitted child and unready evidence, without rollback or paste.
+Enrollment pruning probes record snapshots outside publication locks, then locks
+only ended candidates and revalidates the exact snapshot and ended proof before
+removal. Live-record probes never exclude another startup's publication. The
+channel contract owns takeover, pruning and recovery limits.
 `drivers/codex/recovery` implements `inspect` and `recover` through
 `Store::recover`, which removes the exact observed record under its per-binding
 lock, and cleans a generation directory file by known file (the names
@@ -2805,10 +2877,16 @@ guard allows exactly those edges.
 `rust/crates/tmt-driver-herdr` is the first driver built this way (#479). The
 library depends on the protocol crate, `tmt-invoke` (its bounded process
 owner), `serde_json` and `semver`, and never on core or the adapters; the
-architecture guard holds it to those edges. Its executable is the
-`tmt-driver-herdr` bin of `tmt-cli` (`tmt_driver_herdr::serve_call`, the only
-`tmt-cli -> tmt-driver-herdr` edge), so the CLI release archive carries it as
-a companion (see native installation). It answers `caller`,
+architecture guard holds it to those edges. Its independently versioned package
+owns a thin `tmt-driver-herdr` binary calling `tmt_driver_herdr::serve_call`.
+The CLI archive still carries that package's executable as a companion through
+its first standalone release; its artifact build stages the driver package's
+binary for cargo-dist. Named acquisition remains #1084.
+There is only one binary target and no `tmt-cli -> tmt-driver-herdr` dependency.
+CI process fixture builds select both packages, and raw-runtime artifacts carry
+both executables for tooling acquisition and archive tests. A driver release
+component remains outside the extension command's inventory.
+Its executable conformance tests belong to the driver package. It answers `caller`,
 `server`, `resolve-target`, `snapshot`, `publish`, `clear`, `capture`, `input`
 and `prompt` through Herdr's documented CLI (floor 0.9.1) and `ps`. Its children get an allowlisted
 environment without `TMT_DRIVER_CALL`. Herdr reports no server pid, so `server`
@@ -2986,8 +3064,7 @@ Native executable installation is a different owner under
 
 Core's fixed `native_install::Product` policy owns package identity, inventory,
 installation namespace and command links for the CLI and the official extensions
-(Office, and Squad with its two links `tmt-squad` and `tmt-sq`). It has no
-filesystem or network effects, and archive data never adds a product. The hidden
+(Office, Squad with its two links `tmt-squad` and `tmt-sq`, Remote with `tmt-remote`, and Colab with `tmt-colab`). It has no filesystem or network effects, and archive data never adds a product. The hidden
 offline installer accepts an explicit product (CLI by default), and every product
 uses the same acquisition, receipt and atomic publication path. Each extension's
 command links, lock and current release are independent of the CLI's; existing
@@ -2997,8 +3074,8 @@ path also serves public Office installation. `office_command` owns consent and
 typed composition, not a second downloader. Default Office prefix is the user's
 `.local`, independent of application configuration; `--prefix` selects another
 owned installation. Public distribution and pairing remain separate gates.
-GitHub selection discovers matching refs under CLI `v`, Office `tmt-office-v`
-and Squad `tmt-squad-v` independently, rather than scanning repository-wide
+GitHub selection discovers matching refs under CLI `v`, Office `tmt-office-v`,
+Squad `tmt-squad-v`, Remote `tmt-remote-v` and Colab `tmt-colab-v` independently, rather than scanning repository-wide
 release history. Complete bounded ref discovery precedes core channel filtering
 and semantic-version precedence selection. Exact-tag release lookups skip only
 confirmed missing releases or explicit drafts and stop at the highest published
@@ -3021,9 +3098,10 @@ hosts never receive it. Discovery and installation policy remain with their
 existing owners. The generated shell bootstrap downloads fixed-version assets
 without API discovery and retains its unauthenticated download policy.
 
-Downloaded bytes feed the same bounded artifact verifier directly; there is no
-extra download-to-disk/read-back stage. Publication runs the caller's release
-verifier on the written candidate before its receipt, so a rejection keeps the
+Downloaded bytes feed the shared bounded artifact verifier. CLI self-upgrade
+then stages verified bytes for the candidate-owned handoff described below;
+extension installation retains direct in-process verification and publication.
+Publication runs the caller's release verifier on the written candidate before its receipt, so a rejection keeps the
 previous release current. A product whose row requires a verifier (Office) is
 refused without one before anything is written. Office callers pass the bounded
 versioned probe from `tmt-office-command`; core's installers (`tmt extension`
@@ -3034,7 +3112,9 @@ of every command link, refuses a foreign same-named command, and deactivates the
 links without deleting releases or application data. It is recoverable, not a multi-file atomic deletion:
 a missing command link with a retained activation is reported by `extension ls`
 as `partiallyRemoved` with an exact removal command, and explicit uninstall
-can finish that state. Listing this state does not execute or mutate it.
+can finish that state. Listing this state does not execute or mutate it. Root `tmt uninstall` derives
+its product removal order from `Product::ALL`, keeping extensions before the
+running CLI; adding an official product cannot omit it from that cleanup.
 
 `tmt extension install|upgrade|rm|ls` (`tmt-cli::extension_install_command`)
 is the public surface for the official extensions over this path. Its facade
@@ -3042,8 +3122,15 @@ retains dispatch, consent, errors, interruption, rendering and uninstall; privat
 `extension_install_command/` modules own install, repair, list/upgrade and skills
 settlement through the existing native-installer and owned-skill adapters. The names
 come from the fixed product table, never from PATH or archive data. Installable
-eligibility is separate from historical product recognition: Office is frozen,
-so install and explicit extension upgrade refuse before consent or acquisition.
+eligibility is separate from historical product recognition and publication:
+Squad, Remote and Colab are installable; registering a product does not create a
+published archive. Without a published Remote or Colab release in the selected channel, install
+returns `EXTENSION_RELEASE_UNAVAILABLE`, names the unavailable channel and leaves
+the installation unchanged. Complete discovery marks that absence with
+`release::ReleaseUnavailable`; missing files, assets or finalization failures
+after selection remain installation errors. Invalid archive bytes remain
+verification failures.
+Office is frozen, so install and explicit extension upgrade refuse before consent or acquisition.
 Root upgrade skips Office without inspecting its installation. Listing omits an
 absent Office, marks an existing or partially removed Office as frozen, and never
 looks up an Office upgrade, even with `--check`. Historical receipts and Office
@@ -3059,7 +3146,7 @@ guard before entering the Office handler, retaining one frozen rule and message.
 The facade's status and removal operations keep their Office-specific flow.
 
 An extension's agent skills belong to one owner named after it (`squad`,
-`office`) in the owned-skill registry (`skill_installation::owned`). After
+`office`, `remote`, `colab`) in the owned-skill registry (`skill_installation::owned`). After
 activation, `native_install::release_skills` re-reads the release's skills tree
 under the installation lock and checks every byte against the receipt; a damaged
 tree publishes nothing. `install --skills` publishes the whole tree; a terminal
@@ -3090,8 +3177,35 @@ companion as optional, so a release from before it existed still verifies:
   inspection re-verifies it. A file without a recorded digest, a recorded
   digest without the file, a changed file or a lost execute bit fails closed.
 
-The running tmt verifies and publishes an upgrade, so readers learn a
-companion one published release before any archive carries it.
+CLI self-upgrade separates transport safety from installation policy. The running
+binary checks immutable release metadata, product/tag/target identity, manifest
+and archive digests, and bounded archive safety before executing any candidate.
+The shared decoder admits only canonical relative paths, regular files and their
+containing directories, rejects links, duplicate/conflicting paths and special
+permissions, and bounds compressed bytes, expanded bytes and entry count. It does
+not use the running binary's file or companion inventory for this handoff.
+The complete verified tree is materialized in a private invocation-owned directory.
+Executing this candidate before activation has the same trust as installing that
+verified release; SHA-256 does not protect against a compromised release origin.
+
+The candidate's `__native-install` entry point owns strict inventory, companion
+policy, receipt creation and the existing atomic publisher. The
+[versioned handoff contract](contracts/native-install-handoff-v1.md) owns
+probe, request, report, unsupported-candidate diagnostics and bounds. The candidate
+revalidates the staged bytes and checks the expected receipt under the existing
+installation lock. Acquisition and the parent process hold no installation lock
+across the child. The parent validates the selected release and paths without
+interpreting the candidate's receipt inventory. The process runner owns deadlines
+and reaping;
+the invocation owns staging cleanup. Pre-activation failures preserve the previous
+release. Reported post-activation failures retain the active-installation result;
+a missing completed report is uncertain and asks the user to inspect before retrying.
+
+Root upgrade updates the CLI first and lets that CLI judge extension inventories
+and run the existing consented extension phase. Extensions do not implement the
+CLI installer handoff. Core registers each product's files before that product
+publishes them; the supporting CLI release must reach users first.
+
 `native_install::active_companion` names a companion of the running, active
 CLI release and its receipt digest by reading only the receipt, cheap enough
 for every command; whoever runs the companion checks its bytes.
@@ -3139,6 +3253,8 @@ stays at 16 KiB.
 
 `native_upgrade_command` upgrades the CLI and refreshes its managed skills before
 asking the newly installed executable to upgrade installed official products.
+Managed-skill refresh acquires and validates the active installation in that new
+executable, so the old reader never revalidates a newer receipt inventory.
 The bounded hidden `__native-upgrade-extensions --json --plan` command supplies
 pending versions; the parent owns one terminal consent question and sends that
 exact plan on stdin to the new executable with `--yes`. It validates the bounded
@@ -3178,6 +3294,16 @@ repair is a no-op. Local receipts remain installation evidence, not signatures;
 repair does not claim protection from a hostile same-UID writer. Provider skill
 refresh remains with the existing verified-tree/skill-owner composition.
 
+Remote and Colab use the same `dist-manifest.json` selection and `receipt.json`
+format under independent `lib/tmt-remote` and `lib/tmt-colab` namespaces. Neither
+carries a companion or agent-skills tree today or requires an Office handshake.
+Colab's settled package contract embeds its app in `tmt-colab`; #1421 owns that
+build-time embedding, so the installer admits no separate app directory.
+Installation, extension removal and upgrade never execute either `serve` command
+or open their private `<dataRoot>/remote/` or `<dataRoot>/colab/` state. Each
+extension owns its explicit foreground lifecycle. Cargo-dist packaging and
+release publication are separate extension/infra responsibilities.
+
 The active executable is the authority for a managed update. Installer receipts
 are anchored to the installation prefix/current executable, not to
 `ConfigPaths.global_dir`; changing runtime config roots must not fabricate or
@@ -3214,7 +3340,8 @@ for Cargo dependencies and source references. Squad reaches TMT
 through `TMT_EXECUTABLE` (or `tmt` on PATH), using public `--json` commands and
 `tmt api`, with `runner` mapping results/errors to `tmt-invoke` for bounded capture.
 
-Squad keeps no store. A squad is the core room `squad-<name>`. Member fields are
+Squad membership has no extension store. A squad is the core room `squad-<name>`.
+Member fields are
 identity metadata `squad.<name>.<field>`, so one identity can belong to several
 squads and removal clears exactly one namespace. The per-member `note` field is
 retired: `membership::parse_change` refuses a nonempty `note=` with
@@ -3246,6 +3373,27 @@ preflight can still split this sequence; it is not a transaction. Removal clears
 rest of that squad's namespace. A required new marker at the identity metadata
 capacity limit returns the existing core error before the role pairs or join,
 rather than silently changing leadership. Reads never convert state.
+
+The package also exposes a Squad-owned `cron` library; command and clock callers
+are not connected yet. `cron::schedule` owns positive elapsed intervals, fixed
+local times and five-field cron parsing/next-slot math. Named time zones use
+Jiff's system/zoneinfo database without a bundled database. Fixed local times
+skip DST gaps and choose the first occurrence in a fold; elapsed intervals keep
+their stored anchor and duration. Calendar day-of-month/day-of-week restrictions
+use the standard alternative rule unless either field starts with `*`.
+`cron::store` owns the versioned `<dataRoot>/squad/cron/jobs.json` document,
+including per-squad counters that survive removal, exact message bytes, room and
+owner references, schedules, revisions and pause attribution. Its caller supplies
+the absolute `storage.root` data root and admits core UUID references. It does
+not resolve identities, decide permissions, dispatch messages or track runs.
+Reads of an absent store create nothing. A stable, nonblocking `jobs.lock`
+serializes reads and mutations; validation and file sync precede atomic rename,
+followed by directory sync. Failed publication preserves the previous document;
+a directory-sync error after rename reports an uncertain commit for rereading.
+New directories/files use 0700/0600 permissions. Invalid existing state fails
+explicitly rather than resetting counters or overwriting it. No cron data goes
+into `squad.toml` or the core database.
+
 `ls` (alias `status`) joins
 one `rooms.roster` snapshot with `ls --room` presence. Presence is read first so
 core reconciliation retires dead temporary identities before the roster snapshot;
@@ -3468,21 +3616,56 @@ The existing Reload request carries `preview_panes` only while the picker is
 open, acquiring missing notes/replies through the same loader and cancellation
 fence. Closing it preempts preview reads and returns to resolved-pane acquisition;
 no second worker or arrangement resolver is introduced. The built-in leads/all
-tabs keep their opening rows-only Board throughout picker preview, save and
-cancel; they offer all-boards scope, which affects real squad tabs only.
+tabs retain their fixed home/leads composition throughout picker preview, save
+and cancel; they offer all-boards scope, which affects real squad tabs only.
 
-Squad's `settings` projection reads the existing Config readers and annotates
-resolved values with their setting paths or preset/default sources. `config show`
-and the bindable `settings` overlay (comma by default) share that projection;
-all entries are read-only, including provider argv and run bindings. Inspection
-never runs configured programs. `Config::bindings_for_tab`,
-`action::effective_bindings` and `tab_view::rows` keep inspection and the board's
-loaded tab/selected-section rules together. The overlay has its own instance of
-the shared scroll owner, blocks underlying input, and retains its opening snapshot
-while board data refreshes. It changes no config or member state; close/reopen
-reads the configuration again. Aggregate tabs expose their fixed grids and global
-appearance, without inventing per-squad panes or providers. CLI `config show`
-without a scope inspects board defaults; `--squad` and `--tab` are exclusive.
+Squad's `settings` coordinator delegates to arrangement, rows, notebook/state,
+meter, theme and tab/program area projections. Source-bearing Config reader
+results own provenance; presentation does not inspect TOML or resolve values.
+`config show` and the bindable inspection overlay (comma by default) share those
+results. Provider argv, run bindings, state patterns and reminders are read-only;
+inspection and edit validation never execute configured programs. Existing
+`Config::bindings_for_tab`, `action::effective_bindings` and `tab_view::rows` keep
+inspection and loaded tab/selected-section rules together. The overlay owns its
+scroll position, blocks underlying input and retains its opening snapshot during
+board refresh; close/reopen reads later configuration. It remains read-only.
+Aggregate tabs expose fixed grids and global appearance without squad providers.
+CLI `config show` without scope inspects board defaults; `--squad` and `--tab`
+are exclusive.
+
+`board::help` projects navigation, effective bindings and meter explanations into
+shared `tmt-tui::components::KeyHelp` sections. `Action::description` owns binding
+wording for help and settings; settings retain their literal JSON value and source
+separately from presentation prose. Meter input retains observed roster names,
+including the lead and members omitted from displayed rows, for excluded labels.
+The admitted help surface uses body placement and shared opaque modal chrome,
+one all-section key column, wrapping and a fixed inside footer. Shared key-help
+heading and spacing properties let help select bold text and one blank line
+between sections without changing the theme palette. Its caller-owned
+scroll and focus state routes keys and mouse before board actions; close is
+consumed, Ctrl-C quits, and base cursors and scrolls remain with their existing
+owners. Refresh replaces help data and clamps the shared viewport without
+performing reads or actions in paint.
+
+`config::edit` owns the shared settings edit policy and disposable validated
+Config draft. `sq config set KEY VALUE` accepts only layout preset, flat split
+panes/direction/sizes, refresh, notes mode, hidden tracks, exact state colors and
+global tabs order/hide. Arrays use JSON syntax. Nested split-tree structural edits
+refuse rather than flattening a custom or factory tree. Partial flat edits retain
+the workflow preset and seed missing flat split keys from the resolved arrangement.
+The draft uses the existing area validators before `Config::set_setting` calls
+only the existing `Config::write` compare-and-set path. Changed files refuse;
+comments, ordering and unrelated keys are retained, without backups or a core
+writer. CLI edits change no roster or member metadata.
+
+`rows::Rows` carries optional per-squad `board.hidden_columns` as named original
+track positions alongside unchanged columns and lines. The reader rejects unknown,
+duplicate, uncovered and all-hidden track masks. `markup::Grid` seeds its existing
+shown set with this mask before priority hiding and Taffy sizing; cell spans count
+surviving tracks in their original ranges. Zero surviving tracks omit a cell.
+`ls` text uses the same range visibility; JSON keeps every field value, original
+column/line metadata, and emits `hidden_columns` when nonempty. The empty default
+adds no JSON member and changes no frozen board parity fixture.
 
 Squad's `theme` command module registers `theme ls` (hidden `list` alias),
 `set` and `rm`; bare `theme` lists. Lists and the board picker consume names and
@@ -3530,9 +3713,10 @@ occurrence of a member UUID and `squad.notesStaleness`; text labels derive from
 those objects. The board draws a stale row in the `dim` token with its label at
 the row's right edge, reserving that room only when no column would be hidden,
 and adds the notes' label to the notes pane title in `waiting`; the label text
-carries the meaning without color. The leads and all tabs read rosters without
-an observer and show no marks. Content age is unrelated to `App::loading`, the
-previous squad's frame while a switch loads.
+carries the meaning without color. The leads tab reads rosters without an
+observer and shows no marks; the home model observes squads for blocked-member
+ages. Content age is unrelated to `App::loading`, the previous squad's frame
+while a switch loads.
 
 The private observation cache under `$XDG_CACHE_HOME/tmt-squad/staleness`
 is bounded to 512 KiB and 128 members per room, namespaced by the absolute
@@ -3594,11 +3778,11 @@ Both callers receive the same projected rows, attention and row-grid metadata;
 `failures`; a failed inbox read retains available roster fields. Both cases set
 `partial`, with a board summary indicator and text warnings, and clear on the
 next successful read. Member views join one global `ls` read for presence. Its rows carry their squad, so talk goes to that
-squad's room and a jump is the ordinary `tmt focus`. The all tab's rows are
-squads, not members: their `tab` action opens the squad's tab, and member
-bindings don't apply there. `jump lead` (`L` in the tmux preset) resolves a
+squad's room and a jump is the ordinary `tmt focus`. The public all document
+retains one row per squad; its board-only home composition also includes
+attention members. `jump lead` (`L` in the tmux preset) resolves a
 lead name in `App::lead`: the document's `squad.lead` on a squad tab, the
-selected row on the leads tab, the row's `lead` field on the all tab; it then
+selected row on the leads tab, and the selected entry's lead on home; it then
 takes the ordinary jump request, so the popup closes and `back` returns.
 
 `board::home` retains a board-only summary, shared-filter attention sections and
@@ -3610,8 +3794,25 @@ one for every squad before its roster read and records afterward, writing its
 observation cache under the held per-squad lock when enabled and available.
 It respects the reminders policy without extra core commands. Request ages
 use shared-inbox timestamps; pending-only rows have no age. The source aggregate
-document and `ls --tab all` JSON/text remain unchanged. The retained model does
-not yet change board painting or actions.
+document and `ls --tab all` JSON/text remain unchanged. The home painter uses
+the existing summary band and a flat body, bypassing
+ordinary pane composition for the shown immutable home view. It keeps one
+`App.selected` cursor, reconciled by section/squad/member identity across refresh
+and search. Attention precedes squads; future replies and cron targets insert
+between them. Hits, paging and overflow reuse `Scrolls`. Enter jumps to a
+member or opens a squad; Tab traverses attention/squads, and `a` opens the real
+request picker or an annotation to the selected squad’s lead. The composer
+retains and revalidates sender, target, lead and open request before public
+`tmt answer` or annotation dispatch. Questions stay inside the picker. No
+tiles, replies feed, cron data or model/token totals are synthesized.
+
+Planned section ownership after #1292: `tmt-tiles-oai` owns the ③ tiles
+painter/controller strip (#1293); `tmt-cronboard-oai` owns the ⑤ summary strip
+(#1319). Tiles return pure lines and local entry/x/width/start/end placements;
+home translates them into the shared cursor, paging, reveal and clipped hits.
+Cron supplies a pure one-line summary and an explicit stable clock-key target,
+not a squad target. Both reuse `App.selected` and `Scrolls`; their acquisition
+and list/lifecycle owners stay outside paint, with shared hunks coordinated.
 
 Moving a tab (Shift+←/→, or a drag on the tab
 line) saves `[tabs] order` through `Config::write`, the same compare-and-set,
@@ -3739,8 +3940,9 @@ No additional core read, notebook mutation or acknowledgement is introduced.
 The detail pane appends the selected member's saved-identity notebook after its
 fields. The session requests only a visible, expanded selected detail, accounting
 for effective Board previews, tab focus and the last painted viewport; temporary
-identities show `(temporary identity: no notebook)` without a read. Leads/all
-remain rows-only. `board::refresh::Deferred::Notebook` runs public `notes.read`
+identities show `(temporary identity: no notebook)` without a read. Leads/home
+never show member detail notebooks. `board::refresh::Deferred::Notebook` runs
+public `notes.read`
 with the same bounded cancellable reader and 1 MiB API notebook limit as lead
 notes, never creating a file. Full reloads take priority; queued selection jobs
 collapse to the latest. Events retain the existing generation cancellation and a
@@ -3890,7 +4092,7 @@ Retained tests are organized under `typescript/test/native/`, `typescript/test/e
 their owners. Office real-companion stress cases use `office-*` filenames and the
 component map's stress `selectedBy` glob; retained-release setup uses the private
 installer, while public acquisition refusal stays in the native lifecycle suite.
-`rust/crates/tmt-test-support` owns only fixture-executable publication for
+The `rust/crates/tmt-test-support` library owns fixture-executable publication for
 [DEVELOPMENT's ETXTBSY case 2](DEVELOPMENT.md#rust-checks), not general test utilities.
 Its one `write_executable` helper sends exact bytes and the caller's permission
 mode to a short-lived shell through `tmt-invoke`'s bounded execution and
@@ -3901,7 +4103,15 @@ The unpublished, `dist = false` library is a private component, with no release
 consumers. Only Adapters, CLI, Squad, Office, Colab and Office Command may declare
 its canonical untargeted dev-dependency; no production or build edge may consume
 it. The architecture guard checks those exact edges, production references and
-publication metadata. Its only dependency is the neutral `tmt-invoke` leaf.
+publication metadata. Its only production dependency is the neutral `tmt-invoke` leaf.
+Its developer-only `release-version` example owns the release TOML tool described
+[below](#release-cut-shadow), with exact untargeted `serde_json`/`toml_edit` dev edges;
+these dependencies cannot enter the library or become production/build edges.
+Its separate `colab-runtime-fixture` example is the reviewed native stand-in
+for archive and public-install verifier sensitivity. Embedded tiny app bytes and
+argument-selected defects belong to this executable, with scenario assertions in
+tooling tests. Its `signal-hook` dev-dependency owns fixture SIGTERM cleanup; the
+library's production dependency boundary and publication helper are unchanged.
 Owner-local test modules retain readiness, scenario assertions and case-3 retries.
 
 The CLI's `tests/support` module owns the isolated environment and
@@ -3924,12 +4134,36 @@ Synthetic shell installers invoke the same writer. Scenario callers retain their
 bytes and explicit executable or deliberately non-executable modes.
 
 `typescript/test/support/cli-process.ts` owns each native sandbox's active child runs.
+The test-only `runtime-caller-fixture` native example owns reparenting before CLI spawn:
+only a PID-1-adopted supervisor starts the selected executable, removing the
+agent runtime from its ancestry without a product guard override. The direct
+setup child leads the launcher group and exits after starting the supervisor,
+whose inherited descriptors keep the harness's pipes open. The supervisor
+starts a second group whose bootstrap reports its PID and waits for the harness
+to acknowledge ownership before executing the selected CLI in place. The CLI
+therefore leads its own group, preserving hooks' local deadline contract. The
+harness stops and verifies both groups, including readiness arriving during
+cleanup. Closing the acknowledgement connection cancels an unstarted bootstrap.
+The harness owns a private per-run Unix socket directory under `/tmp`, keeping
+nested sandboxes below macOS's socket path bound. Socket records convey ownership,
+errors and the supervisor's observed CLI exit. The bootstrap consumes the exact
+acknowledgement, then maps that connection to stdin; input survives setup exit
+without carrying protocol bytes into the CLI. No-input uses `/dev/null`.
+Inherited stdout/stderr preserve CLI bytes. Rust-owned sockets close on exec,
+except the input clone mapped to fd 0; Rust's exec retains PATH lookup and errno
+behavior without an interpreter startup. Setup close and socket drain are
+independent events. The harness waits for both, and closes connections, server
+and private directory before resolving cleanup, including cancellation before spawn.
+Reparenting and spawn are inside the
+existing execution deadline; an unknown adopter fails visibly. Native caller
+isolation tests retain real shared-host guard positive controls. This boundary
+does not alter product code or Docker's intentional runtime ancestry.
 It also owns `TMUX_TMPDIR` under the sandbox, so ancestor discovery cannot reach
 the host's default tmux server after caller variables are cleared. Native process
 fixtures do not start default-socket servers; real tmux scenarios belong to Docker.
-Descriptor clones share that lifetime. Direct-child exit starts same-group
+Descriptor clones share that lifetime. The selected CLI's completion starts owned-group
 cleanup even when descendants retain output pipes. Success requires direct
-close and confirmed group absence. A SIGKILL or initial group-probe permission
+close and confirmed absence of both groups. A SIGKILL or initial group-probe permission
 error is tolerated only after direct-child close and a subsequent ESRCH group
 probe; live or unknown
 groups still fail within the cleanup bound. An unconfirmed group is never
@@ -3960,23 +4194,16 @@ contention, crash cleanup, retention, acknowledgment and late-final behavior.
 Tooling tests prove release-script policy and bounded command wrappers; they do
 not count as native runtime or release-archive proof.
 The public-install smoke keeps short issue reasons and separate bounded command
-diagnostics in its run log and result artifact; the packed runner owns stream capture
-and retains structured failed-command streams for classification. The smoke owner alone
-recognizes native acquisition JSON rate-limit causes and applies bounded reset-time retries
-to the failed step; status codes, unrelated diagnostics and validation failures are not retry
-signals. A separate bounded read retry recognizes only an older-alpha latest-installer
-lag after publication. Tooling tests pin the consumed Rust diagnostic text and timing
-representation. Exhaustion remains a failed job with typed infrastructure evidence.
-That evidence also retains the exact classified diagnostic and parsed reset epoch for
-`public-install-retry.mjs`. This tooling owner admits complete, product/tag-qualified
-four-host artifacts, validates dispatched inputs against same-repository main source
-run/job evidence through REST, plans affected targets only, waits outside the publication run,
-and reconciles one anonymous re-proof with the original host conclusions. It shares
-the smoke owner's diagnostic parser and `release-publish.mjs`'s issue lifecycle;
-it owns neither acquisition classification nor publication.
-The source and retry host jobs use `.github/actions/public-install-smoke` for tag data
-checkout, Node setup and verifier execution. Host architecture wrappers belong to this
-shared entry; tooling tests require the source target/runner matrix to match the retry planner.
+diagnostics in its run log and result artifact; the packed runner owns stream capture.
+`.github/actions/public-install-smoke` owns tag data checkout, Node setup,
+architecture wrappers and verifier execution. It supplies the workflow's read-only
+`GITHUB_TOKEN` through env only. The verifier passes it only to bootstrap/native
+acquisition processes, redacts diagnostics and checks isolated installed state for
+credential persistence. The existing native HTTPS client owns API-only authorization
+and its bounded retry; public asset downloads receive no token. All failed acquisitions,
+including exhausted rate limits, report ordinary failures. The only smoke retry is the
+bounded older-alpha latest-installer lag read. A PR-only four-host workflow reuses the
+shared action against an existing published CLI without publication or issue writes.
 
 Docker E2E `harness.ts` retains scenario imports; `harness/fixture.ts` owns
 fixture resources and process registries.
@@ -4022,7 +4249,9 @@ the static Linux musl binaries are reused for both Linux environments. The
 historical `Packed install (<environment>)` check names and
 `Native package matrix` final blocking aggregator remain for CI
 compatibility, but their step descriptions must identify them as native runtime
-smoke checks, not npm-package checks. Smoke runs outside the checkout with
+smoke checks, not npm-package checks. macOS x64 runs under Rosetta with
+supplementary weekly native Intel public installation and upgrade coverage.
+Smoke runs outside the checkout with
 isolated HOME/state, no Node/Rust on the product PATH, exact embedded skill
 checks, managed skill installation and SQLite reopen/persistence.
 
@@ -4042,13 +4271,112 @@ explicit rather than becoming inferred delivery decisions.
 
 ## Release boundary
 
+`typescript/scripts/packed-command.mjs` owns synchronous, bounded verifier
+subprocesses and their isolated process groups. A terminated `spawnSync` result
+establishes direct-child termination. A teardown signal's EPERM is excused only
+when that result is followed by an ESRCH group probe; a live or uninspectable
+group, an unconfirmed direct result and other signal failures retain the original
+error. This does not relax command status, signal, stream or execution-deadline
+checks. Its focused fixtures own and stop their real descendants; they do not
+invoke a release or alter the native sandbox's separate lifetime owner.
+
 `dist-workspace.toml`, `scripts/build-native-artifact.sh`,
 `scripts/native-cargo.sh`, `typescript/scripts/native-artifact-policy.mjs` and
 `typescript/scripts/verify-native-artifact.mjs` are developer/release tooling. The
 workflow builds the four supported cargo-dist targets, creates target-filtered
 third-party notices (including Vite's bundled frontend inventory for Office), and verifies runtime bytes, linkage, checksums, archive
-inventory and executable behavior on matching hosts. CLI runs additionally
+inventory and executable behavior on matching hosts. `driver-herdr` selects only
+the independently versioned driver package, notices and archive; its tags are
+`tmt-driver-herdr-v<semver>` and its prereleases never become repository latest.
+The component owns its Cargo version and lock entry, and CLI release paths exclude
+it. The component is parked with `release:false` and Cargo `dist=false`;
+release cut (#1399) activates both for its first standalone release. The retained
+`bootstrapSha` is that cut's first-release history boundary, the last commit before
+the component existed. No Herdr package or cutoff is added to release-please.
+CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
+
+Colab's native release wiring is prepared but parked (`release: false`, Cargo
+`dist = false`). The builder owns frozen Vite build orchestration and passes a
+stable absolute `TMT_COLAB_APP_DIR` to the Colab-owned build-time embedding
+boundary (#1421). The release-only Cargo wrapper refuses Colab compilation without
+its embedding input. One executable carries the app; its four-file archive has no
+sibling app tree. Vite notices follow target-filtered Rust notices. Core owns the
+product/archive registration (#1423), now implemented. Activation requires a
+published supporting CLI alpha and actual-archive acceptance.
+The shared `colab-runtime-proof.mjs` verifies relocated socket serving, exact
+independent app bytes for archives, representative app delivery for public smoke,
+combined notices and child/socket cleanup with no frontend runtime tooling.
+Cleanup requires direct process exit and confirmed process-group absence before
+removing isolated state; an exiting-group signal denial alone cannot establish cleanup.
+Only Colab verification loads this app proof; other products keep the existing
+minimal native-verifier image dependency closure.
+Its Rust example with a tiny embedded app proves guard sensitivity;
+it does not establish release-artifact acceptance. Expected Vite files are moved
+away from the checkout fallback before the final archive executes.
+
+The artifact builder resolves the taffy-only offline clarification before
+cargo-about runs. `rust/about.toml` owns the clarification's
+upstream provenance and checksum; `rust/licenses/taffy-0.7.7/LICENSE.md` preserves
+the exact upstream text missing from that crate's registry archive. The builder
+checks the locked version and vendored bytes, then writes a config with an absolute
+local file path. It never alters registry contents or fetches license text.
+Cargo-about retains target filtering and `--offline --locked --fail`; the final
+artifact verifier still rejects placeholder attribution.
+
+### Release-cut shadow
+
+The [#1399 migration](https://github.com/pj-tmt/tmt/issues/1399) is in shadow mode.
+The existing release-please path still creates release PRs and native drafts;
+`release-cut.yml` performs no publication or queue mutations. Its trusted-main
+metadata job uses bounded REST GETs to obtain complete releases (including drafts)
+and active native runs. Draft visibility requires contents-write permission;
+only sanitized metadata crosses to the read-only planner, never credentials.
+`native-release.yml` names each run with its product so queued/running work is
+attributable. Older or unknown active run identities block the shadow plan.
+
+`release-cut.mjs` owns the proposed cut computation. It captures one main SHA X,
+reads the component map at X through `parseComponentMap`/`ownerOf`, and attributes
+paths by ownership, exclusions, selected globs and declared `releaseConsumers`.
+Private-leaf consumers add attribution without replacing matching released-root
+membership: style/invoke remain CLI plus Squad, while explicitly CLI-excluded
+TUI is Squad only. `releasedComponentsForPath` in `ci-scope.mjs` owns released-root
+membership for both this planner and the Project release sweep; `ownerOf` supplies
+the selected owner and its declared consumers from the same parsed map.
+There is no generated release-config path expansion. Direct pinned conventional
+parser/renderer dependencies produce notes from first-parent commits in
+(previous product tag, X]; their linked SHA set must equal the releasable set.
+The last published product tag supplies the next alpha number. Stable/core-version
+changes and a first release without an approved initial version are reported as
+requiring the owner; missing history or draft/run evidence cannot mean an empty
+range or an idle component. A draft blocks that component. Breaking notes remain
+explicitly owner-required.
+
+`release-version-injection.mjs` owns the shadow checkout version contract. It
+discovers Cargo inheritance, edits only the selected version declaration, and
+verifies full offline locked resolution against the tag. All tracked source
+hashes, the exact manifest edit and semantic lock entries are checked; only local
+package versions and their implied qualified dependency references may change.
+The developer-only `tmt-test-support` example `release-version` is the single TOML owner:
+workspace-pinned `toml_edit` parses manifests/locks and preserves formatting and
+comments while editing the version. It is not a shipped product command.
+The Linux x64 runtime producer transfers this example as a separate fixture
+artifact to ordinary tooling tests; product runtime artifacts retain their existing shape.
+The dist plan, build manifest and extracted binary must agree with the tag. The
+four-host PR workflow builds fixture versions without committing, tagging,
+dispatching or publishing. The independently versioned private Herdr fixture stays unchanged.
+
+Historical comparison fixtures carry the public release bodies and source-map
+snapshots for CLI alpha.44→45/45→46 and Squad alpha.12→13. Their cuts are those
+historical release PRs' merge parents, only in the fixtures; the production planner
+uses ordinary tag/main ancestry. Those comparisons and one main-push shadow run
+gate the later switch, rather than new old-path publications. Live cut creation,
+production injection, fixed main development versions and old-path removal remain
+future migration phases. Procedures belong to
+[DEVELOPMENT](DEVELOPMENT.md#release-cut-shadow-verification); authorization belongs
+to the [release skill](.agents/skills/tmt-release/SKILL.md).
+
+### Release-to-Project tracking
 
 `project-release.mjs` owns release-to-Project delivery evidence, separately from
 publication. Each daily or explicit main-only dispatch performs a full sweep of
@@ -4057,9 +4385,12 @@ release App token owns bounded batched Project/closing-PR GraphQL reads and fiel
 writes; `GITHUB_TOKEN` reads the complete paginated published release catalog.
 Only trusted main tooling executes. A full-history checkout supplies each merged
 closing PR's first-parent changed paths and tags containing its merge commit.
-`ci-scope.ownerOf` and the component map own product attribution, including
-private-leaf `releaseConsumers`; native release policy and version helpers own
-product/tag identities. Notes, commit types and recency windows are not evidence.
+`ci-scope.ownerOf` and the component map own product attribution. Private-leaf
+`releaseConsumers` add consumers to the released packaged roots returned by
+`ci-scope.releasedComponentsForPath`, which matches `owns`/`excludes` independently
+of CI `selectedBy`. Style and invoke therefore retain CLI membership alongside
+Squad; the explicitly CLI-excluded TUI leaf belongs only to Squad. Native release
+policy and version helpers own product/tag identities. Notes, commit types and recency windows are not evidence.
 
 For each affected product, the earliest publication whose tag contains all of
 that issue's closing merge commits is the canonical `Released in` entry. Every
@@ -4080,8 +4411,7 @@ writes converge on the next run. The full sweep is authoritative on every run,
 so built-in close/merge status changes are repaired without manual replay; it
 does not claim atomic exclusion of concurrent external writers. The native
 bundle dispatches only after successful publication read-back and completed
-smoke, accepting success or the reporter's existing classified infrastructure
-failure. Smoke failures remain failures. A dedicated job holds only
+smoke, requiring success. Authenticated acquisition errors remain failed smoke checks. A dedicated job holds only
 `actions: write`; the daily sweep recovers missed dispatches, other publications
 and genuine smoke failures. All updater runs serialize project-wide. Caps fail
 visibly before mutation on incomplete discovery, never silently truncate.
@@ -4167,7 +4497,7 @@ A separate advisory job consumes those outputs with only `contents: read` and
 `issues: write` permission. It holds no App token or Environment secrets: all of
 its own REST uses `github.token` for published releases, PR/head ancestry and the
 single fixed-title `Release stalled` issue, plus open post-publication reporter issues for
-current published manifest tags. Rate-limit infrastructure and real check failures produce
+current published manifest tags. Historical rate-limit infrastructure and current check failures produce
 distinct advisory findings; neither permits publication replay. Later publication
 supersedes the snapshot; missing or malformed draft evidence cannot declare healthy. Stable occurrence
 markers in comments suppress retry duplicates; healthy complete discovery closes
@@ -4222,20 +4552,19 @@ the policy's flags, the tag on the release commit and GitHub's attestation for t
 every asset. A failed check opens an issue and fails the run; nothing is rolled back.
 A read-only `native-release-smoke.yml` then installs the published release as a user does,
 on the four hosts in an isolated environment: the public installer and `tmt upgrade` for
-the CLI, the newest published CLI's extension install for an extension. Its real failures
-are reported on the same issue by a separate job, while exhausted classified rate limits
-use a distinct infrastructure issue. Both fail the smoke job. CLI, Office and Squad runs
-are eligible for one deferred affected-target re-proof through
-`native-release-smoke-retry.yml`. A separate smoke job with `actions: write` explicitly
-dispatches it only for the report owner's infrastructure outcome; this avoids suppressed
-`workflow_run` events for automatically dispatched native runs. The retry planner admits
-only REST-verified main source run/attempt and matching tag/host conclusions.
-Its Linux reset wait (at most 60 minutes) holds only a source-run/attempt/product/tag retry group,
-never `release-<product>`. Install legs retain read-only credentials and token-free
-acquisition; a separate issues writer comments with both runs and closes only a fully
-recovered infrastructure issue. Real, repeated, incomplete or distant-reset failures
-remain visible, and neither original failures nor retry failures are made green.
-CLI, Office and Squad runs
+the CLI, the newest published CLI's extension install for an extension, or its
+driver path approval against a checksum-verified standalone public archive. Driver
+upgrade proof similarly uses previous/candidate driver archives under the current
+published CLI, preserving executable bytes and checking consent and durable approval.
+Named driver acquisition and the compatibility gate remain separate work. Its real failures
+are reported on the same issue by a separate job, including exhausted authenticated
+rate limits. Install legs retain read-only contents access and authenticate native
+API acquisition with the workflow token; the separate issue writer does not execute
+the installed product. There is no deferred smoke-retry workflow. Historical anonymous
+rate-limit issues remain visible to the monitor; no current failure is downgraded or
+made green. The Project dispatch retains successful-smoke gating and removes the obsolete
+infrastructure-only exception; release evidence still follows publication.
+CLI, Office, Squad and Herdr driver runs
 share the four-target cargo-dist build and
 archive verifier, while keeping product-qualified bundles, independent versions and separate
 immutable tags.
@@ -4243,8 +4572,11 @@ Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill
 bootstrap proof. Archives, their product-specific manifest/checksums and notices,
 plus the CLI bootstrap where applicable, are verified before any public
 publication. Raw PR executables do not prove cargo-dist archive correctness.
-The runtime/linkage proof is shared through `typescript/scripts/native-runtime-proof.mjs`
-and `typescript/scripts/verify-native-runtime.mjs`; do not reintroduce a second archive
+The runtime/linkage proof, including exact macOS executable architecture, is
+shared through `typescript/scripts/native-runtime-proof.mjs` and
+`typescript/scripts/verify-native-runtime.mjs`. Installer, bootstrap, extension
+upgrade and public smoke reuse that architecture guard before executing newly
+installed bytes and after CLI upgrade; do not reintroduce a second archive
 builder or proof implementation.
 
 ## Maintenance contract
@@ -4288,8 +4620,9 @@ leaf neither discovers roots nor accesses core state or provider configuration.
 
 ## Remote extension pilot
 
-`extensions/tmt-remote/rust/tmt-remote` is a local-build-only executable reached
-as `tmt remote`. `main` owns style/foreground composition and two bounded
+`extensions/tmt-remote/rust/tmt-remote` is a separate executable reached as
+`tmt remote`. Core registers official installer support; the current binary
+remains source-only until packaging and publication pass their separate gates. `main` owns style/foreground composition and two bounded
 startup calls: capabilities and `storage.root`. `core::CoreClient` owns fixed public `api`/`ls`
 subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
 `rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation; its other reviewed leaves are `tmt-cli-style` and `tmt-extension-state`. Request-carried launch options preserve environment inheritance by default or explicitly clear it and copy only named allowlisted caller variables, preserving OS-string bytes and leaving the caller environment unchanged. This policy is configured through the existing invocation entry point; it supplies no memory sandbox or resource-limit guarantee. `LaunchOptions::process_group` defaults to `New`, preserving owned group creation/termination. Explicit `InheritCaller` omits group creation; a started failure detaches and returns `Cleanup::CallerOwned` without signalling or waiting for cleanup. Pre-start failures remain `NotStarted`. The caller must supervise that group. Squad's context wrapper retains its live group-leader check and whole-group abort on a started failure; capture/deadlines/caps remain invoke-owned. Ordinary Squad, Remote and Colab calls use `New`. The shared 20 ms `PULSE` bounds stop-flag observation latency; each wait is also bounded by the remaining request deadline.
@@ -4306,11 +4639,57 @@ CoreClient/storage reference. A `Handler` admits each framed head (route,
 Origin, cookie and body limit) before any body byte is read. `routes::Routes`
 is that handler for the machine's stable `/r/<prefix>/` binding routes and the
 20-attempt-per-minute unauthenticated budget; `limits` names the binding bounds.
-`transport::Transport` moves append/subscribe/ack envelopes to one message
-owner, which currently denies every request. Startup discovery is not a remote
-operation. Apart from pairing, the pilot cannot adopt a request, approve, send
-or subscribe; no journal or core DB is created. The foreground door has no default
-deadline; it runs until interrupted. Colab has no door of its own; remote
+`transport::Transport` moves append/subscribe/ack envelopes and their HTTP Origin
+to one message owner. `wire` owns bounded strict JSON admission (including duplicate
+members at every payload depth) and preserves exact payload bytes for signatures.
+`admission` and `DoorSessions` verify live device/session authority, scope and route,
+serialize one normal message per session, and durably consume its expected sequence.
+`journal` owns client/machine/incarnation-scoped MAC cursors, metadata catch-up and
+monotonic observed-prefix checkpoints. Subscribe/ack return signed batches/checkpoints;
+controls never create journal entries. Long polls recheck live authority after each wake
+and wake on session replacement/end or door shutdown. Foreground composition supplies
+`operations`, which admits strict single-recipient anonymous `dispatch.create`,
+journal-owned `dispatch.show`/`operation.show`, and the named public reads `agents.list`,
+`identities.status`, `check`, `requests.show` and `result`. Signed discovery advertises
+this implemented subset. Agent listing projects only permitted UUID/name/presence and
+core-published delivery; status/check restrict UUID inputs to the grant's allowlist.
+Result state follows public request history, including an empty retained final, with
+no terminal completion fallback. Bounded reads hold an authorized transaction against
+cross-process revocation. Other application operations remain refused. The frozen public
+core envelope includes
+one device provenance line. Adoption commits the exact intent digest, recipient references,
+audit and direct/held state before effects. Direct sends and explicit same-ID retries
+recover through core `dispatch.show` before any `dispatch.create`; read-only operation
+observation never retries. Core owns immutable acceptance, its one-shot advisory wake
+and enrolled-pane input protection. Remote treats wake uncertainty separately from
+accepted request IDs and never infers readiness from terminal output.
+
+`approval` owns local held-operation confirmation through the existing owner-only
+control socket. `tmt remote approve <operationId>` shows frozen source/recipient/message
+and requires one explicit confirmation; `cancel` and refusal create no core request.
+The IMMEDIATE held claim has one winner. Grant revision/liveness, talk scope and recipient
+policy are checked again at the transaction-held core invocation fence. SQLite authority
+writers wait 40 seconds, beyond both 15-second core calls and their cleanup margin, so
+revocation can wait for an in-flight effect to release its fence. Stop/restart
+cancel unconfirmed holds. After a possible effect, failure preserves the original ID
+and frozen intent as uncertain; accepted/cancelled operations release their prompt copy.
+Transitions retain bounded signed metadata without copying prompt/final text into audit.
+
+Foreground serve explicitly makes its private lock inheritable by the existing
+`tmt-invoke` child. Closing the parent's file never explicitly unlocks the shared lease;
+restart cannot acquire it while an original invocation survives owner death. Confirmed
+child termination plus definitive core absence permits only an explicit retry of the
+same ID and bytes. Unconfirmed cleanup disables writes until a fresh lease-owning run.
+The effect's `dispatching` audit row is uncommitted during the core call; a crash
+mid-call leaves no such row. Recovery uses the already committed adoption/frozen intent
+and core's idempotent operation ID, never assumes an absent audit row means no effect.
+The runner and core are unchanged. Native tests exercise real signatures/private SQLite
+with deterministic public-process fixtures and a SIGKILL lease probe; they do not claim
+isolated real-core/private-tmux/mock-agent acceptance.
+`audit` writes bounded, sanitized metadata in the adoption/refusal transaction;
+`budgets` persists fixed-window call/send/approval counters without resetting on clock
+rollback. No core DB is opened. The foreground door has no default deadline;
+it runs until interrupted. Colab has no door of its own; remote
 mounts its owner-only socket.
 
 `state::Layout` delegates remote's private `<dataRoot>/remote/` subtree to the
@@ -4329,8 +4708,23 @@ WAL database it keeps `journal_mode=DELETE`, since there is no concurrent
 reader, and `synchronous=FULL`, so committed grants and receipts survive power
 loss. Schema 1 creates the machine identity once: a UUIDv4 machine ID and the
 `/r/<32 lowercase hex>` route prefix, both stable across restarts and neither a
-credential. Schema 2 adds `grants`, with one live grant per device key. Unsafe
-state fails closed before the door binds. Remote retains its state error codes
+credential. Schema 2 adds `grants`, with one live grant per device key. Schema 3 adds per-device session/run IDs and independent decimal-string client
+and machine counters. A signed session open replaces its row, starting client input
+at 1 and machine responses at 2 after the open response. Counter exhaustion never
+wraps. These rows survive interruption, but only in-memory live sessions authorize
+normal messages; restart never revives an old row. `authority` consumes the existing
+grant fields as typed direct/hold and all/selected-agent policy, refusing malformed
+or unknown authority without changing pairing's producer. Unsafe state fails closed
+before the door binds. Schema 4 adds metadata streams, separate request ownership,
+fixed-window budgets and immutable audit records. Journal authorization reads the persisted
+grant inside its IMMEDIATE transaction. Metadata lasts at most 24 hours/1000 entries
+per client; acked prefixes compact sooner. Ownership reads expire after 30 days without
+renewal on reads/ack. Expired records remain bounded ID fences, so pruning never permits
+re-adoption; at 1000 ownership records/client new adoption refuses. Frozen pending intent
+is bounded to 64 MiB/client and 256 MiB total. Audit retains at most 30 days/the newest 100,000 records; pruning and append share
+the adoption/refusal transaction. Budget keys are bounded to 100,000. Write or
+ownership/budget capacity failure refuses before adoption. Public operation transitions
+and frozen-payload release are not wired yet. Remote retains its state error codes
 and messages while delegating filesystem operations to the shared leaf.
 
 `control::Control` binds `<dataRoot>/remote/control.sock` (0600, in the 0700
@@ -4448,11 +4842,12 @@ fingerprint over the pinned BIP-39 English list in
 `tmt-ext-cert-v1` extension key certificate bytes, and the mounted
 extension-name grammar that `mount` also uses. `crypto` owns strict Ed25519
 verification, full HMAC-SHA256 verification and pure `K_response`/`serverProof`
-derivation. Neither module has I/O, clock, storage or CoreClient access, and
-neither is wired into the deny-all door. Remote-generated IDs remain UUIDv4.
+derivation. Neither module has I/O, clock, storage or CoreClient access. Pairing and message
+admission compose these pure primitives; valid bytes alone grant no authority. Remote-generated IDs remain UUIDv4.
 Byte construction and valid signatures establish no authority.
 Rust tests consume the independent Python canonical fixtures read-only; Rust-owned
-RFC/Python/WebCrypto vectors exercise cryptographic validity separately. The codec
+RFC/Python/WebCrypto vectors exercise cryptographic validity separately, including fixed
+extension-certificate signatures and domain, extension, purpose, key and time binding. The codec
 dependencies are the contract's pinned Ed25519 and HMAC primitives, the existing
 pinned SHA-256 dependency and the workspace `base64` engine configured for strict
 unpadded base64url (no padding, no trailing bits), whose refusals have shared
@@ -4468,8 +4863,9 @@ pairing or backends. Pairing/authentication/log/SDK behavior remains proposed un
 its implementation slices land; the `canonical` and `remote-client` builders below
 follow the channel contract's device enrollment, receipt-proof and fingerprint rules.
 `firestore` and `cloudflare` are not permitted until their edge admission and
-encryption profile are specified. Core never owns a listener or remote state. Official
-product/release registration is deferred. Its private component owner excludes
+encryption profile are specified. Core never owns a listener or remote state. Core recognizes Remote as an
+official installation product; archive publication and cargo-dist activation
+remain separate gates. Its private component owner excludes
 remote versions from real-product releases; cargo-dist excludes this pilot binary.
 For shell ownership, see the [browser add-on shell](#browser-add-on-shell).
 
@@ -4500,17 +4896,29 @@ Python oracle must pass before the workspace-pinned Vite+ test runner runs, and 
 tests drive it against a node:crypto stand-in door. A Playwright Chromium smoke
 (`test:browser`, in the path-filtered Remote pairing page workflow) pairs a real
 browser with a real `tmt remote serve` and checks the cookie, the forwarded
-device context, certificates and silent session reopening.
+device context, both certificate purposes and silent session reopening, then verifies that
+revocation removes owner context and refuses reopening while retained signatures remain valid.
+
+The #1055 acceptance suite uses E2EFixture through `harness.ts`.
+Its `remote-device` peer is test-only, pinned to independent Python/WebCrypto
+vectors and imports no SDK. `remote-owner` consumes fixture coordinates and owns selected
+real core/Remote binaries, isolated HOME/XDG/private tmux, HTTP and joined process teardown.
+Its transparent test-only `TMT_EXECUTABLE` wrapper forwards exact argv/stdin/actual output;
+grants may be seeded only in Remote's database after serve and owned core children stop,
+never in core storage. Integrated acceptance is limited to #1055's six bullets plus one
+permitted/refused read scenario.
 
 ## Colab extension proposal
 
 **Status: persistence, foreground socket executable, isolated decoder and model foundation implemented;
-mounted owner stream sync and owner-browser registration are implemented;
+mounted owner stream sync, owner-browser registration and read-only reader sessions are implemented;
 the owner-local epoch engine is implemented; the browser page preview runs on a local adapter; backend work remains proposed.** The local-build-only pilot lives under
 `extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
 owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
 bridge policy and acceptance gates. The #828 design owns product/UI choices;
-#829/#830 are bounded spike evidence. The executable is local-build-only; no deployment or official release is registered.
+#829/#830 are bounded spike evidence. Core registers Colab with the shared native installer; the executable remains
+source-only until packaging and publication pass their separate
+gates. No deployment or official archive publication is claimed.
 The [channel boundary](extensions/tmt-colab/contracts/colab-v1.md#channel-boundary) marks which colab-v1 sections move to remote, stay or retire.
 
 Current executable dependencies are `tmt-invoke`, `tmt-cli-style`,
@@ -4518,7 +4926,7 @@ Current executable dependencies are `tmt-invoke`, `tmt-cli-style`,
 `tmt-colab-model` space-ID derivation and reviewed workspace pins. The model owns
 canonical bytes/codecs/crypto without I/O or core access. The
 executable owns CLI composition, foreground door, SQLite/files and keyring;
-native app embedding and the bridge remain proposed. Core access is only through the absolute invoking
+the browser build is embedded when `TMT_COLAB_APP_DIR` selects validated build output; otherwise a local build may load checkout output at foreground startup. Published artifacts must embed the built app. The bridge remains proposed. Core access is only through the absolute invoking
 `$TMT_EXECUTABLE api` and documented JSON commands via the invoke leaf; no
 `tmt-core`, `tmt-adapters`, Office or Remote behavior dependencies, core SQLite
 or pane scraping. Shared crypto extraction requires actual consumers and review.
@@ -4568,17 +4976,24 @@ cross-namespace tail. Checkpoints have the existing 4 MiB Worker state bound
 256 KiB budget. Checkpoint steps may retain unresolved dependencies until the final
 tail step verifies complete content before publication. Historical
 revoked-device material must satisfy exact owner-signed cuts, including the pinned
-checkpoint envelope and retained tail endpoints. Own objects are admitted for
-chain continuity without decryption or folding; parent chrome displays an explicit
-notice. Author policy remains the owner-browser subset; named-member, link and
-bridge admission belong to #1111/#1160, and own grammar/folding to #1110.
+checkpoint envelope and retained tail endpoints. Own objects use the same authenticated admission before decryption, carrying
+namespace and writer metadata into the single Worker. It owns a separate own document
+per verified writer and returns detached raw maps through the trusted binding;
+parent chrome retains the explicit not-displayed notice. Author policy remains the owner-browser subset; named-member, link and
+bridge admission belong to #1111/#1160, and typed own grammar/UI/effects to #1110.
 The live reader retains at most 4,096 sequence hashes. Native bootstrap delivers
 paired checkpoints before the full cross-namespace tail; signed browser fixtures
 do not establish native mounted browser E2E.
-Native refresh and assets remain owned by #1250/#1253.
+The native socket serves the built app when its local output is available and supplies owner discovery and ACK-paced bootstrap; #1250 owns session refresh/SDK integration.
 
-The content-only Yjs decoder lives in a dedicated Worker. It accepts bounded
-plaintext/edit requests and validates exhaustive roots/types before committing a
+The content and per-writer own Yjs documents live in a single dedicated Worker.
+The Worker and parent validate own raw JSON maps and UTF-8 message bounds; both
+browser and native page folds sum the 1,000-thread limit across writers. Browser
+state (including pending fragments) and combined projection each have a 4 MiB
+aggregate bound. Candidate cloning preserves pending structs/delete sets; final
+catchup checks every document before publishing. Live failures commit no candidate.
+References and record author fields never choose a document or grant effects.
+It accepts bounded plaintext/edit requests and validates exhaustive roots/types before committing a
 candidate document. Prepared local edits and relay checks do not commit decoder
 state; only an admitted broadcast or matching durable receipt commits local bytes.
 The source UI rejects a stale editing base instead of overwriting unseen changes.
@@ -4605,8 +5020,13 @@ Remote/core behavior dependency or public native command is added.
 The trusted parent owns routing, source display and render lifecycle; only captured
 HTML enters an opaque `allow-scripts` iframe. Its default browser canvas is opaque
 white with a light color scheme, independent of the surrounding chrome theme;
-author HTML can supply its own styling. The renderer prepends the contract CSP,
-uses `no-referrer`, binds fresh render IDs to exact source digests and tears down the
+author HTML can supply its own styling. The renderer is the same-mount build-owned
+`renderer.html` document, with its
+own deny-network response CSP and `sandbox allow-scripts`, including direct opens.
+Trusted chrome permits only self-hosted scripts/styles. A one-shot window-parent-bound
+message delivers bounded source and metadata; document replacement retains that
+response policy. Bootstrap/source loads are distinguished from later navigation.
+It uses `no-referrer`, binds fresh render IDs to exact source digests and tears down the
 frame on subsequent load/navigation or route cleanup. Its handshake grants no
 effectful capability. Page self-navigation can still leak a request before teardown;
 this is not complete exfiltration prevention. Shared
@@ -4664,9 +5084,29 @@ long for a Unix socket and removes its own socket on exit. Remote mounts it at
 trusts `tmt-device-context` because only the owner can reach the socket. It
 keeps the relocated door's bounds (16 request workers, 8 KiB/32 header fields,
 64 KiB bodies, acquisition/response deadlines, drained replies) and answers the
-placeholder page for owner and non-owner requests. It accepts a `colab-sync-v1`
-WebSocket upgrade only with an active registered owner context, version 13 and a well-formed
-16-byte key, computing the accept value with the workspace `tungstenite`
+private guidance page to non-owner root requests. `assets::App` owns the bounded
+immutable app inventory: main selects an explicit absolute `serve --app-dir`, then
+embedded bytes, then compile-time checkout-relative Vite output before creating
+state. Invalid explicit or embedded inventories return `COLAB_APP_UNAVAILABLE`;
+missing/incomplete checkout output keeps the owner-only build hint. The build
+script optionally reads `TMT_COLAB_APP_DIR`, validates the complete generated build
+including notices, and snapshots bytes into Cargo's output directory before
+emitting its sorted embedded table. The native source collector explicitly admits this generated const include only in `tmt-colab/assets.rs`, alongside Office's bounded inventory.
+Absent input generates an empty table; invalid
+supplied input fails compilation. `app_inventory` shares route/type, HTML-entry
+and 128-file/16-MiB admission between build and runtime. Disk loads retain directory-
+anchored no-follow opens. HTTP resolves exact in-memory keys, never disk paths.
+Owner context suffices before Colab registration; other asset requests are denied.
+Vite uses relative URLs beneath the remote mount. The app and exact renderer route
+have separate response policies owned by colab-v1; only the renderer admits inline
+author scripts/styles. Its required build entry belongs to both embedded and disk
+inventories. Embedded builds survive relocation without a checkout, Node, pnpm or
+sibling assets; adopting new embedded output requires rebuilding the binary.
+There is no installer payload or data-root change. Shared packaging/notices and
+release activation remain infra-owned under #1418. It accepts a `colab-sync-v1`
+WebSocket upgrade with an active registered owner context or a single-use
+read-only reader ticket. Both require version 13 and a well-formed 16-byte key,
+computing the accept value with the workspace `tungstenite`
 handshake, then drives the shared sync server (16 tunnels at most, closed after
 120 s without inbound bytes). The worker preserves HTTP read-ahead and drives
 sync acquisition/write deadlines even without input. Shutdown closes
@@ -4750,7 +5190,7 @@ receive no wrap. Keyring seals baseline objects with the pinned management key;
 that private key never leaves Keyring. Store provides scoped baseline retrieval,
 whose remote caller still owns access/history admission. Decoder batch limits
 fail closed rather than truncating a fold. Link transitions share that atomic engine; browser/CLI management composition
-remains #1111 and sharing/history/retention operations remain #1160.
+remains #1111.
 
 `transitions::Engine::apply` is the root-local dispatcher for caller-admitted
 `OwnerRequest` values. The request owner normalizes member/link/device/epoch
@@ -4763,8 +5203,17 @@ replay status, even after later mutations. Scoped reductions check the target's
 stored page assignment during planning and again inside the writer transaction;
 revoked projections and operation receipts remain available for exact retries.
 The caller owns admission and lock composition: sync before Registration.
-The stable DTO reserves page-policy actions for the following #1160 slice;
-this prerequisite returns `UNAVAILABLE` for them without signing or mutation.
+`transitions::sharing` implements share/history/retention/archive/delete with that
+runner. Public publication is limited to trusted loopback composition; the shared
+epoch commit republishes public keys after every rotation. Narrowing globally
+revokes links covering the page and rotates every other writable page they cover
+in the same transaction. Page policy is reduced from the signed log by `fold`;
+Store reuses that reducer to fence forward wraps at their join revision and
+OwnerAdmission reads it for archive/delete checks. Archive preserves reads and
+blocks appends; delete also denies catchup/delivery and removes page ciphertext,
+baselines, wraps and secrets atomically. The page row, signed log and operation
+receipts remain as permanent tombstones, so replay cannot revive a deleted ID.
+Retention signs a policy only; local data has no automatic expiry.
 
 `transitions::membership` shares epoch preparation/commit with explicit advance.
 Member add, remove and role changes use one owner transaction across affected
@@ -4798,7 +5247,7 @@ successful durable change; the reserved socket route supplies that composition.
 
 ### Foreground composition and owner registration
 
-`main` owns `serve`, read-only `spaces` and plaintext `export`, style/JSON output, signals and one
+`main` owns `serve`, read-only `spaces`, page source read/write and plaintext `export`, style/JSON output, signals and one
 foreground service lock. `core` makes one fixed `storage.root` public API call
 through the absolute invoking `TMT_EXECUTABLE` and `tmt-invoke`, with deadline,
 stream caps and cancellation; missing/invalid roots fail before state creation.
@@ -4812,7 +5261,7 @@ machine-readable CLI errors.
 shared mutex. The mounted registration endpoint verifies both remote-owned
 extension-key certificates against the full forwarded owner context before any
 signing. Remote alone owns Host/Origin, pairing, cookies and live grant admission;
-colab adds no cookie/session credential. The existing owner transaction owns
+owner registration adds no cookie/session credential. The existing owner transaction owns
 revision-1 management-member genesis. Purpose-separated local management keys
 stay in Keyring; a separate device transaction serializes pinned-member admission,
 certificate signing, binding and exact response persistence without advancing the
@@ -4832,6 +5281,67 @@ effects. Rename has no local presentation state.
 Socket shutdown closes retained sockets before joining workers and closing the
 registration store. Real SQLite and socket tests prove persistence, retry,
 rollback, admission denial, renewal, ordered revocation and cleanup.
+
+### Management admission
+
+`management` owns strict browser and root-local IPC DTOs, device-signature admission
+and adaptation to the owner runner. The socket routes `POST /api/management` and the
+reserved `POST /.tmt/colab/management` through the sync lock before Registration,
+matching upgrade/event admission. Registration supplies the live registered sender
+key and delegates admitted requests to its private engine. Browser request scope is
+checked atomically by the engine; the boundary does not race a separate assignment
+read against mutation. The private socket supplies root authority for local IPC only without forwarded
+device-context or event headers; their presence is denied before payload parsing.
+Remote refuses forwarding the reserved subtree from browser mounts.
+
+The engine remains the sole transition/signing/receipt owner. Management passes an
+exact transport digest into that transaction, uses its committed head on replay and
+returns a bounded refresh acknowledgment. It never writes authority tables directly
+or generates caller-selected baselines, cuts, wraps or epoch keys. Caller-held link
+seeds are transient local inputs and require encryption to the owner before relay
+transport. Member/link/epoch and page-policy actions use the same owner runner;
+loopback publication is selected by this trusted socket composition.
+Exact DTOs, limits and failure codes live in colab-v1. Browser management controls
+remain separately tracked by #1308.
+
+`cli_grammar` and `cli_management` compose root-local management commands in the
+executable: v1 includes ls/show, audience mode and viewer-link management only.
+Member, history, retention, archive and delete commands are deferred.
+Subcommand names precede page operands; the shared help audit stays
+unchanged. `inspection` verifies policy/member/link views through existing Store
+snapshots and materializes active titles only through the authenticated isolated
+fold. The CLI reuses read-only Store opening for existing private files and
+requires current schemas explicitly, without creation, journal changes or
+migrations; native export retains its existing legacy-read behavior. Archived titles and expiry
+without durable update evidence are explicitly unavailable.
+The CLI captures mutation IDs, revisions and selections once, checks explicit
+confirmation for widening, and chooses private IPC or the existing
+lifecycle-locked offline service. An uncertain IPC reply never selects a second
+writer. API/runner/signing ownership and management DTOs are unchanged.
+
+### Root-local page source access
+
+`page` composes the existing authenticated Snapshot and isolated Decoder for
+source reads and minimal admitted-struct edits. Only the decoder child generates
+Yjs deltas; the parent signs with a purpose-separated Keyring device certified by
+the revision-1 management member. This local device is not a Remote registration;
+revocation fails closed, while a verified expired chain renews atomically for the
+same device. The opaque page token fences head, epoch and all
+namespace positions, since content appends do not advance the membership log.
+
+Preparation releases its read snapshot before choosing the writer. Offline writes
+hold the serve lifecycle lock and use `Store::write_existing`, which creates no
+state and migrates nothing. A held lock selects `page::ipc` on the existing owned
+socket; uncertain IPC never resends or falls back. The reserved router shares
+management's forwarded-header denial and a single route-owned body-cap rule.
+The existing device transaction owns chain, create-only content append and exact
+receipt with a transactional base recheck; Store's append helper is shared with
+opaque sync. Serving composition locks sync before Registration and prepares
+bounded inline/chunk transport before commit, then broadcasts only a new append.
+The broadcast carries the local author chain; the browser verifies it on its
+serialized executor before envelope admission and Worker decoding. Neither sync
+nor Registration decodes plaintext. CLI JSON/errors, token/key derivation and
+transport bounds are owned by colab-v1.
 
 ### Native plaintext export
 
@@ -4855,8 +5365,44 @@ into a fresh UUID directory, checking identities and bytes. Manifest publication
 is last. Cleanup removes only checked invocation-owned staging; partial output
 is preserved and reported. It promises returned-error cleanup, not crash recovery.
 The [export contract](extensions/tmt-colab/contracts/colab-v1.md#plaintext-page-export-1309)
-owns the two-file format, disclosure and discussion exclusion. Browser downloads
-remain the next #1309 slice.
+owns the two-file format, disclosure and discussion exclusion.
+
+### Browser plaintext export
+
+The mounted `Live.export` binding captures its committed parent-held projection
+and `Admission`'s verified head/epoch together through `Connection.run`. It waits
+for ready catchup and rechecks binding/key/page admission; drafts and local sample
+adapters provide no export capability. `export` copies those inputs before
+asynchronous hashing and produces the native format, pinned byte-for-byte by one
+contract-owned fixture consumed by both serializers. No plaintext endpoint,
+store write, Worker decoding request or renderer callback is added.
+
+`export-panel` owns trusted parent clicks, a frozen bundle, per-file requested
+state and close/navigation cleanup. `Downloads` owns literal attachment filenames
+and temporary Blob URLs; each handoff has bounded revocation and panel cleanup
+revokes outstanding URLs. Browser requests cannot prove local persistence.
+Subsequent live edits never change an open bundle. Blocked bindings disable and
+close the panel; archived export remains deferred with the current admission
+policy. The renderer's handshake and source injection remain unchanged.
+
+### Reader admission
+
+`readers::Sessions` owns at most 64 ephemeral challenges/tickets/active readers
+inside Registration, using an injected server clock. Public readers are page-
+and epoch-scoped anonymous capabilities; link readers prove possession of a
+log-bound certified key and persist only their device projection in the existing
+transaction. No reader principal is an owner device or writer. The subprotocol
+carrier remains Colab-owned; Remote's Route mounting contract owns its forwarding.
+Token hashes use the existing constant-time model HMAC verifier for confirmation;
+only the public sync protocol is selected. Disconnect/restart releases capabilities.
+Admission rechecks policy and expiry even before hello, rejects every publication
+operation, and chooses only link wraps or no wraps for public readers. Archived
+owner pages also deny publication while preserving reads. The same
+sync lock fences owner transitions and pending reader delivery. Readers add no
+Remote pairing, management, agent grant, migration or dependency. Real mounted
+reader tests cover narrowing, Reset/removal, rotation, archive/delete, revocation
+and expiry; the generic duplex transport seam proves blocked delivery is discarded.
+Browser reader UI remains separate work.
 
 ### Stream sync transport
 
@@ -4888,7 +5434,7 @@ The #1166 extension remains in this same transport owner. Store owns scoped
 transactional namespace/cursor reads and refuses unknown or pruned cursors;
 receipts survive pruning. Admission supplies the verified retained owner head
 through `Store::owner_head` and an optional scoped baseline descriptor. Baseline production and scoped persistence/retrieval belong to the owner-local epoch engine; remote admission/composition remain caller-owned. Catchup pins its retained head and pages exact membership envelopes from the
-client's verified revision before device/member wraps and stream objects. Owner
+client's verified revision before caller-admitted wraps and stream objects. Owner
 root discovery, scoped author-chain reads and retained-epoch wrap reads stay in
 Store's existing owner snapshots; no new schema or secret export is introduced.
 Mounted read-only session/pages endpoints expose forwarded owner identity and
@@ -4917,9 +5463,10 @@ the existing append transaction. Outbound objects reserve queue entries and emit
 one frame per turn from immutable shared bytes. Revocation/drop clears partial
 state and pending transfer bytes; clients verify reassembled data before applying.
 The exact grammar/budgets live in colab-v1, with timers and socket workers still
-caller-owned. The foreground socket composes `registration::OwnerAdmission`
-with a Store connection and this shared Server. Upgrade verifies remote binding
-and the registered chain. Rechecks read a durable owner/device/issuer/epoch snapshot
+caller-owned. The foreground socket composes `registration::OwnerAdmission`, including the
+read-only session owner, with a Store connection and this shared Server. Upgrade verifies
+remote owner binding and the registered chain or consumes a scoped reader ticket.
+Rechecks read a durable owner/device/issuer/epoch snapshot
 without writer reservation or repeated signatures; Append additionally fences the
 membership revision and namespace and supplies the registered signing key. The
 pinned management member represents the owner across local pages. Catchup uses
@@ -4949,6 +5496,13 @@ Production identities are fresh; a fixed identity exists only in vector tests.
 The caller persists/distributes that identical update and owns descriptor signing,
 encryption and atomic epoch admission. This does not wire a server transition.
 The caller retains live-log/role/operation admission and owns one runner per page.
+`decoder::Config` carries the executable and invocation deadline through Decoder,
+Engine and Registration. Their ordinary constructors retain the contract's
+production deadline; only test composition injects larger semantic-test budgets.
+Changing a runner's deadline preserves its cleanup fence and exclusive ownership.
+The shared semantic-test budget stays under the extension's `tests/support/`;
+scenario-owned FIFO fixtures supply deterministic readiness. No environment or
+command-line option tunes the production deadline.
 
 The [contract limits](extensions/tmt-colab/contracts/colab-v1.md#decoder-isolation-compaction-and-limits)
 are enforced before decoding and before returning output. Linux sets the pinned

@@ -28,12 +28,17 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { isReleased, parseComponentMap } from './ci-scope.mjs';
+import { parseComponentMap } from './ci-scope.mjs';
+import { isProductReleased } from './native-release-policy.mjs';
+import { verifyColabApp } from './colab-runtime-proof.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 import { compareVersions, isAlphaVersion, versionOfTag } from './release-versions.mjs';
+import {
+  assertMacOsArchitecture,
+  assertNativeTarget,
+  nativeHostTarget,
+} from './native-runtime-proof.mjs';
 
-const ATTEMPTS = 2;
-const MAX_WAIT_MS = 5 * 60_000;
 const COMPONENTS = fileURLToPath(new URL('../../.github/components.json', import.meta.url));
 
 export const installerUrl = (repository) =>
@@ -54,61 +59,24 @@ async function fetchText(url) {
   return response.text();
 }
 
-/** Only the native acquisition diagnostic is retryable; HTTP status alone is not evidence. */
-export function parseRateLimitDiagnostic(diagnostic) {
-  if (
-    typeof diagnostic !== 'string' ||
-    diagnostic.length > 1000 ||
-    !/^GitHub API rate limit: reset\/earliest retry time [^\n]+; the (?:required wait exceeds the remaining deadline|single retry was exhausted)\. Retry later or optionally set GITHUB_TOKEN\.$/.test(
-      diagnostic
-    )
-  )
-    return null;
-  const epoch = diagnostic.match(/\(UTC epoch (\d+)\)/)?.[1];
-  const resetAtMs = epoch === undefined ? NaN : Number(epoch) * 1000;
-  return { diagnostic, resetAtMs: Number.isSafeInteger(resetAtMs) ? resetAtMs : null };
-}
-
-function rateLimitDiagnostic(error) {
-  const result = error.cause;
-  if (!result || result.status !== 1 || result.stderr !== '') return null;
+/** Public assets are bounded and unauthenticated, including redirects. */
+async function fetchBytes(url, maximum) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(60_000), redirect: 'follow' });
+  if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
+  const chunks = [];
+  let size = 0;
+  const reader = response.body.getReader();
   try {
-    const { error: failure } = JSON.parse(result.stdout);
-    if (!['NATIVE_UPGRADE_FAILED', 'EXTENSION_INSTALL_FAILED'].includes(failure?.code)) return null;
-    return parseRateLimitDiagnostic(failure.cause);
-  } catch {
-    return null;
-  }
-}
-
-/** Retry only the failed acquisition, at most once and with at most five minutes of waiting. */
-async function withAttempts(label, step, { wait = sleep, now = Date.now, retry = false } = {}) {
-  const attempts = retry ? 1 : ATTEMPTS;
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try {
-      return await step();
-    } catch (error) {
-      const diagnostic = rateLimitDiagnostic(error);
-      if (!diagnostic) throw error;
-      const waitMs = Math.max(1000, diagnostic.resetAtMs - now() + 1000);
-      const reason =
-        attempt === attempts
-          ? `attempt bound exceeded (${attempts} attempts)`
-          : diagnostic.resetAtMs === null
-            ? 'reset time unavailable'
-            : waitMs > MAX_WAIT_MS
-              ? `wait bound exceeded (${MAX_WAIT_MS / 1000} seconds)`
-              : '';
-      if (reason) {
-        const failure = new Error(
-          `Public install infrastructure: ${label}: ${reason}; ${diagnostic.diagnostic}`
-        );
-        failure.infrastructure = 'github-api-rate-limit';
-        failure.rateLimit = diagnostic;
-        throw failure;
-      }
-      await wait(waitMs);
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > maximum) throw new Error('Public artifact exceeds its byte bound');
+      chunks.push(value);
     }
+    return Buffer.concat(chunks);
+  } finally {
+    await reader.cancel();
   }
 }
 
@@ -147,7 +115,7 @@ function skillsOf(directory) {
  * Installs and checks `tag` of `product` from the public release, under `root`, and returns the
  * results, one per check, stopping at the first that fails (the later ones depend on it).
  * `source` is a checkout of the tag, `fetch` the one network read of this script, `wait` the pause
- * between attempts and `systemPath` the directories after the prefix on the isolated PATH.
+ * for latest-installer lag and `systemPath` the directories after the prefix on the isolated PATH.
  */
 export async function smokeRelease({
   product,
@@ -155,11 +123,14 @@ export async function smokeRelease({
   source,
   repository,
   root,
+  target = nativeHostTarget(),
+  inspectArchitecture = assertMacOsArchitecture,
   fetch: read = fetchText,
+  download = fetchBytes,
   wait = sleep,
-  now = Date.now,
-  retry = false,
+  githubToken,
   systemPath = ['/usr/bin', '/bin', '/usr/sbin', '/sbin'],
+  verifyColab = verifyColabApp,
 }) {
   const version = versionOfTag(tag, product);
   const [home, state, tmp, prefix] = ['home', 'state', 'tmp', 'prefix'].map((name) => {
@@ -176,29 +147,70 @@ export async function smokeRelease({
     LANG: 'C',
     CI: 'true',
   };
-  const tmt = (args, { timeoutMs = 120_000 } = {}) =>
-    runPackedCommand(binary, args, { cwd: root, env, timeoutMs });
+  // Only acquisition processes receive the read-only credential; assets and inspection stay public.
+  const acquisitionEnv = githubToken ? { ...env, GITHUB_TOKEN: githubToken } : env;
+  const redact = (text) =>
+    githubToken ? String(text).replaceAll(githubToken, '[REDACTED]') : String(text);
+  const tmt = (args, { timeoutMs = 120_000, acquire = false } = {}) => {
+    let stdout;
+    try {
+      stdout = runPackedCommand(binary, args, {
+        cwd: root,
+        env: acquire ? acquisitionEnv : env,
+        timeoutMs,
+      });
+    } catch (error) {
+      // Inspect full streams before the packed runner's bounded diagnostic can split a credential.
+      if (
+        githubToken &&
+        [error.cause?.stdout, error.cause?.stderr].some((stream) => stream?.includes(githubToken))
+      )
+        throw new Error('Acquisition credential appeared in command output: [REDACTED]');
+      throw error;
+    }
+    if (githubToken && stdout.includes(githubToken))
+      throw new Error('Acquisition credential appeared in command output');
+    return stdout;
+  };
+  const inspect = (executable) => inspectArchitecture(executable, target, { cwd: root, env });
   const results = [];
   const check = async (name, step) => {
     try {
-      results.push({ check: name, ok: true, reason: oneLine((await step()) ?? '') });
+      results.push({ check: name, ok: true, reason: oneLine(redact((await step()) ?? '')) });
       return true;
     } catch (error) {
-      const reason = oneLine(error.message, 500);
+      const reason = oneLine(redact(error.message), 500);
       // Keep the packed runner's bounded command/streams instead of losing them in the short reason.
-      const detail = String(error.message)
+      const detail = redact(error.message)
         .replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, (character) => (character === '\n' ? '\n' : ' '))
         .slice(0, 6000);
       results.push({
         check: name,
         ok: false,
         reason,
-        ...(error.infrastructure ? { infrastructure: error.infrastructure } : {}),
-        ...(error.rateLimit ? { rateLimit: error.rateLimit } : {}),
         ...(detail === reason ? {} : { detail }),
       });
       return false;
     }
+  };
+  const finish = () => {
+    if (githubToken) {
+      // Follow neither directory links nor paths outside this invocation's temporary installation.
+      const containsCredential = (directory) =>
+        readdirSync(directory, { withFileTypes: true }).some((entry) => {
+          const file = path.join(directory, entry.name);
+          return entry.isDirectory()
+            ? containsCredential(file)
+            : entry.isFile() && readFileSync(file).includes(githubToken);
+        });
+      if (containsCredential(root))
+        results.push({
+          check: 'credential isolation',
+          ok: false,
+          reason: 'Acquisition credential persisted in installed state',
+        });
+    }
+    return results;
   };
   const isCli = product === 'cli';
 
@@ -218,21 +230,23 @@ export async function smokeRelease({
     }
     return `embeds ${/^\s*version='([^']+)'$/m.exec(installer)[1]}`;
   });
-  if (!fetched) return results;
+  if (!fetched) return finish();
 
   const installed = await check('install', async () => {
     const result = spawnSync('sh', ['-s', '--', '--prefix', prefix, '--no-setup'], {
       input: installer,
-      env,
+      env: acquisitionEnv,
       cwd: root,
       encoding: 'utf8',
       timeout: 300_000,
     });
     if (result.error) throw result.error;
+    if (githubToken && `${result.stdout}${result.stderr}`.includes(githubToken))
+      throw new Error('Acquisition credential appeared in installer output');
     if (result.status !== 0)
-      throw new Error(`the installer exited ${result.status}: ${oneLine(result.stderr)}`);
+      throw new Error(`the installer exited ${result.status}: ${oneLine(redact(result.stderr))}`);
   });
-  if (!installed) return results;
+  if (!installed) return finish();
 
   const cliVersion = /^\s*version='([^']+)'$/m.exec(installer)[1];
   const selected = await check('PATH selects the installed tmt', async () => {
@@ -241,15 +255,16 @@ export async function smokeRelease({
       throw new Error(`PATH selects ${found ?? 'no tmt'}, not ${binary}`);
     }
   });
-  if (!selected) return results;
+  if (!selected) return finish();
   if (
     !(await check('installed version', async () => {
+      inspect(binary);
       const actual = tmt(['--version']).trim();
       if (actual !== cliVersion) throw new Error(`tmt --version is ${actual}, not ${cliVersion}`);
       return actual;
     }))
   )
-    return results;
+    return finish();
 
   if (isCli) {
     if (
@@ -268,14 +283,11 @@ export async function smokeRelease({
         return names(actual);
       }))
     )
-      return results;
+      return finish();
     await check('tmt upgrade', async () => {
-      const stdout = await withAttempts(
-        'tmt upgrade',
-        () => tmt(['upgrade', '--channel', 'alpha', '--json']),
-        { wait, now, retry }
-      );
+      const stdout = tmt(['upgrade', '--channel', 'alpha', '--json'], { acquire: true });
       const report = JSON.parse(stdout);
+      inspect(binary);
       if (resolved(report.executable) !== resolved(binary)) {
         throw new Error(`it upgraded ${report.executable}, not ${binary}`);
       }
@@ -287,38 +299,94 @@ export async function smokeRelease({
       }
       throw new Error(`it reports ${report.version} (changed: ${report.changed}), not ${version}`);
     });
-    return results;
+    return finish();
+  }
+
+  if (product === 'driver-herdr') {
+    if (
+      !(await check('current public CLI', async () => {
+        const report = JSON.parse(
+          tmt(['upgrade', '--channel', 'alpha', '--json'], { acquire: true })
+        );
+        inspect(binary);
+        if (
+          resolved(report.executable) !== resolved(binary) ||
+          report.pathWarning ||
+          compareVersions(report.version, cliVersion) < 0 ||
+          !isAlphaVersion(report.version) ||
+          report.skills?.conflicts?.length
+        )
+          throw new Error('Public CLI upgrade selected an unexpected installation');
+        return report.version;
+      }))
+    )
+      return finish();
+    await check('driver public archive and approval', async () => {
+      // #1084 owns named driver acquisition. Exercise today's supported path approval surface.
+      const { selectNativeArtifact, withNativeArtifact } =
+        await import('./native-artifact-policy.mjs');
+      if (!target) throw new Error('Driver public smoke requires a target');
+      const archiveName = `tmt-driver-herdr-${target}.tar.gz`;
+      const directory = path.join(root, 'driver assets');
+      mkdirSync(directory);
+      const manifest = path.join(directory, 'dist-manifest.json');
+      const archive = path.join(directory, archiveName);
+      const url = `https://github.com/${repository}/releases/download/${tag}/`;
+      writeFileSync(manifest, await download(`${url}dist-manifest.json`, 4 * 1024 * 1024), {
+        flag: 'wx',
+      });
+      writeFileSync(archive, await download(`${url}${archiveName}`, 64 * 1024 * 1024), {
+        flag: 'wx',
+      });
+      const metadata = selectNativeArtifact(manifest, archive, target, product, { release: true });
+      if (metadata.version !== version)
+        throw new Error(`Driver manifest version is ${metadata.version}, not ${version}`);
+      await withNativeArtifact(archive, metadata, async (extracted) => {
+        const executable = path.join(extracted, 'tmt-driver-herdr');
+        inspect(executable);
+        const report = JSON.parse(tmt(['driver', 'install', executable, '--yes', '--json']));
+        if (report.approved?.name !== 'herdr' || report.approved?.version !== version)
+          throw new Error('Driver approval did not record the published capabilities');
+        const listed = JSON.parse(tmt(['driver', 'ls', '--json'])).drivers.find(
+          (driver) => driver.name === 'herdr'
+        );
+        if (
+          listed?.state !== 'ok' ||
+          listed?.version !== version ||
+          listed?.sha256 !== report.approved.sha256
+        )
+          throw new Error('Durable driver approval differs from the public archive');
+      });
+      return version;
+    });
+    return finish();
   }
 
   const extensionPrefix = path.join(root, 'extension prefix');
   const extensionInstalled = await check(`${product} install`, async () => {
     const report = JSON.parse(
-      await withAttempts(
-        `${product} install`,
-        () =>
-          tmt(
-            [
-              'extension',
-              'install',
-              product,
-              '--yes',
-              '--json',
-              '--channel',
-              'alpha',
-              '--prefix',
-              extensionPrefix,
-            ],
-            { timeoutMs: 300_000 }
-          ),
-        { wait, now, retry }
+      tmt(
+        [
+          'extension',
+          'install',
+          product,
+          '--yes',
+          '--json',
+          '--channel',
+          'alpha',
+          '--prefix',
+          extensionPrefix,
+        ],
+        { timeoutMs: 300_000, acquire: true }
       )
     );
     if (report.version !== version)
       throw new Error(`it installed ${report.version}, not ${version}`);
+    inspect(path.join(extensionPrefix, 'bin', `tmt-${product}`));
     return report.version;
   });
-  if (!extensionInstalled) return results;
-  await check(`${product} list`, async () => {
+  if (!extensionInstalled) return finish();
+  const listed = await check(`${product} list`, async () => {
     const { extensions } = JSON.parse(
       tmt(['extension', 'list', '--json', '--prefix', extensionPrefix])
     );
@@ -330,7 +398,22 @@ export async function smokeRelease({
     }
     return listed.version;
   });
-  return results;
+  if (listed && product === 'colab') {
+    await check('colab embedded app', async () => {
+      const executable = realpathSync(path.join(extensionPrefix, 'bin', 'tmt-colab'));
+      await verifyColab({
+        executable,
+        tmtExecutable: binary,
+        version,
+        notices: readFileSync(
+          path.join(path.dirname(executable), 'THIRD-PARTY-NOTICES.txt'),
+          'utf8'
+        ),
+      });
+      return 'relocated embedded app/assets and combined notices; socket cleaned up';
+    });
+  }
+  return finish();
 }
 
 /** Markdown for the run summary. */
@@ -350,9 +433,8 @@ async function main(argv, environment) {
       product: { type: 'string' },
       tag: { type: 'string' },
       source: { type: 'string' },
-      target: { type: 'string', default: process.platform },
+      target: { type: 'string', default: nativeHostTarget() },
       'result-file': { type: 'string', default: '' },
-      retry: { type: 'boolean', default: false },
     },
   });
   for (const name of ['product', 'tag', 'source']) {
@@ -361,13 +443,14 @@ async function main(argv, environment) {
   const version = versionOfTag(values.tag, values.product);
   if (!isAlphaVersion(version)) throw new Error(`${values.tag} is not an alpha release.`);
   const map = parseComponentMap(readFileSync(COMPONENTS, 'utf8'));
-  if (!isReleased(map, values.product)) {
+  if (!isProductReleased(map, values.product)) {
     throw new Error(
       `${values.product} is not released (release: false), so there is nothing to install.`
     );
   }
   const repository = environment.GITHUB_REPOSITORY;
   if (!repository) throw new Error('GITHUB_REPOSITORY is not set.');
+  assertNativeTarget(values.target, 'Public install requires a matching verification process');
   const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'tmt public install ')));
   let results;
   try {
@@ -377,7 +460,8 @@ async function main(argv, environment) {
       source: path.resolve(values.source),
       repository,
       root,
-      retry: values.retry,
+      githubToken: environment.GITHUB_TOKEN,
+      target: values.target,
     });
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -402,7 +486,10 @@ async function main(argv, environment) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main(process.argv.slice(2), process.env).catch((error) => {
-    process.stderr.write(`${error.message}\n`);
+    const message = process.env.GITHUB_TOKEN
+      ? String(error.message).replaceAll(process.env.GITHUB_TOKEN, '[REDACTED]')
+      : error.message;
+    process.stderr.write(`${message}\n`);
     process.exitCode = 1;
   });
 }

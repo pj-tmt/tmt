@@ -41,6 +41,14 @@ fn identity(paths: &ConfigPaths, selector: Selector) -> Result<String, Failure> 
     after_cleanup(pending, || storage.close())
 }
 
+fn api_document(result: Result<Vec<u8>, api::Fault>) -> Result<Value, Value> {
+    result
+        .map_err(|error| {
+            serde_json::from_slice::<Value>(&error.encode()).expect("API error is JSON")
+        })
+        .map(|bytes| serde_json::from_slice(&bytes).expect("API resource is JSON"))
+}
+
 fn call(paths: &ConfigPaths, bound: &str, tool: ToolCall) -> Result<Value, Value> {
     identity(paths, Selector::SavedId(bound.into())).map_err(|error| error.document())?;
     match tool {
@@ -55,11 +63,24 @@ fn call(paths: &ConfigPaths, bound: &str, tool: ToolCall) -> Result<Value, Value
         ToolCall::Result(id) => {
             response_command::result_document(paths, id).map_err(|error| error.document())
         }
-        ToolCall::Operation(id) => api::execute(paths, api::Request::Receipt(id))
-            .map_err(|error| {
-                serde_json::from_slice::<Value>(&error.encode()).expect("API error is JSON")
-            })
-            .map(|bytes| serde_json::from_slice(&bytes).expect("API receipt is JSON")),
+        ToolCall::Send(input) => api_document(api::execute(
+            paths,
+            api::Request::Dispatch {
+                identity: Some(api::DispatchIdentity::SavedId(bound.into())),
+                input: *input,
+            },
+        )),
+        ToolCall::Answer {
+            request_id,
+            message,
+        } => answer_command::answer_document(paths, bound, request_id, message)
+            .map_err(|error| error.document()),
+        ToolCall::Ack {
+            request_id,
+            revision,
+        } => exchange_command::ack_document(paths, bound, request_id, revision)
+            .map_err(|error| error.document()),
+        ToolCall::Operation(id) => api_document(api::execute(paths, api::Request::Receipt(id))),
     }
 }
 

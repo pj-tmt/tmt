@@ -27,6 +27,7 @@ pub(super) fn artifact(version: &str, payload: &[u8]) -> Artifact {
         target: TARGET.to_owned(),
         sha256: artifact::digest(b"synthetic archive"),
         files,
+        executable_files: ["tmt".to_owned()].into(),
     }
 }
 
@@ -69,4 +70,35 @@ pub(super) fn checkpoint_count() -> usize {
         .publish(&artifact, &receipt, None, None, &mut checkpoint)
         .unwrap();
     calls
+}
+
+/// Acquisition/activation unit tests inject publication without starting a
+/// synthetic non-executable payload. Handoff tests own candidate execution.
+pub(super) fn install_downloaded(
+    current: &super::ManagedInstallation,
+    downloaded: &super::release::DownloadedRelease,
+    channel: Channel,
+    pin: tmt_core::native_install::PinAction,
+    checkpoint: &mut dyn FnMut() -> std::io::Result<()>,
+) -> std::io::Result<super::InstallReport> {
+    let artifact = artifact::acquire_bytes(
+        super::Product::Cli,
+        &downloaded.manifest,
+        &downloaded.archive_name,
+        &downloaded.archive,
+        &current.target,
+    )?;
+    super::activate(
+        super::ActivationRequest {
+            product: super::Product::Cli,
+            prefix: &current.prefix,
+            channel,
+            pin,
+            expected: Some(current.id),
+            provenance: Some(downloaded.provenance.clone()),
+            verifier: None,
+        },
+        &artifact,
+        checkpoint,
+    )
 }

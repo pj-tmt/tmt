@@ -129,8 +129,10 @@ jobs:
           fi
       # Only one release PR is enabled at a time: separate components share the manifest.
       # The merge queue tests current main without rewriting an unchanged PR's CI head.
+      # Paused for push runs until the release cut (#1399) replaces release PRs: an enabled
+      # release PR holds every pinned PR in the merge queue. An explicit dispatch still enables one.
       - name: Enable auto-merge for one release pull request
-        if: steps.mode.outputs.live == 'true' && steps.release.outputs.queue_blocked != 'true'
+        if: steps.mode.outputs.live == 'true' && steps.release.outputs.queue_blocked != 'true' && github.event_name == 'workflow_dispatch'
         env:
           RELEASE_TOKEN: ${{ steps.app.outputs.token }}
           LIVE: ${{ steps.mode.outputs.live }}

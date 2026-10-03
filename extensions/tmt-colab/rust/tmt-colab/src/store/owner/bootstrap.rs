@@ -123,9 +123,15 @@ impl OwnerTransaction<'_> {
         device: &str,
         target: &statement::Head,
         offset: usize,
+        recipients: &WrapRecipients,
     ) -> Result<(Vec<String>, bool)> {
+        let (device, kind, recipient) = match recipients {
+            WrapRecipients::Owner => (device, "member", target.owner_member.id.as_str()),
+            WrapRecipients::Link(id) => ("", "link", id.as_str()),
+            WrapRecipients::None => return Ok((Vec::new(), false)),
+        };
         let mut query = self.tx.prepare("SELECT envelope,length(envelope) FROM wraps WHERE page=?1 AND epoch<=?2 AND revision<=?3
-            AND ((kind='device' AND recipient=?4) OR (kind='member' AND recipient=?5))
+            AND ((kind='device' AND recipient=?4) OR (kind=?7 AND recipient=?5))
             AND epoch IN (SELECT epoch FROM epoch_secrets WHERE page=?1 AND epoch<=?2 ORDER BY epoch DESC LIMIT 64)
             ORDER BY epoch,kind,recipient,revision LIMIT 513 OFFSET ?6")?;
         let mut rows = query.query(params![
@@ -133,8 +139,9 @@ impl OwnerTransaction<'_> {
             sequence(epoch),
             sequence(target.revision),
             device,
-            target.owner_member.id,
-            offset as i64
+            recipient,
+            offset as i64,
+            kind
         ])?;
         let mut out = Vec::new();
         let mut size = 0;
@@ -150,7 +157,7 @@ impl OwnerTransaction<'_> {
                 || h.page != page
                 || values::decimal(&h.epoch, false)? > epoch
                 || !((h.recipient_kind == "device" && h.recipient_id == device)
-                    || (h.recipient_kind == "member" && h.recipient_id == target.owner_member.id))
+                    || (h.recipient_kind == kind && h.recipient_id == recipient))
             {
                 return Err(OwnerFault::Invalid.into());
             }

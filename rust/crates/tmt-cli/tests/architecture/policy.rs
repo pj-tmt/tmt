@@ -26,6 +26,8 @@ const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
     ("tmt-cli", "insta", None),                 // command rendering snapshots
     ("tmt-cli", "proc-macro2", None),           // architecture syntax fixtures
     ("tmt-cli", "toml_edit", None),             // audited unsafe-boundary manifest policy
+    ("tmt-test-support", "serde_json", None),   // release TOML example JSON boundary
+    ("tmt-test-support", "toml_edit", None),    // formatting-preserving release TOML example
     ("tmt-cli", "syn", None),                   // architecture AST checks
     ("tmt-cli", "tmt-office-model", None),      // Office parser fixtures
     ("tmt-cli", "tmt-driver-protocol", None),   // Herdr driver conformance harness
@@ -41,6 +43,7 @@ const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
     ("tmt-office-command", "png", None),        // whiteboard image fixtures
     ("tmt-office-command", "tar", None),        // release archive fixtures
     ("tmt-office-storage", "png", None),        // stored image fixtures
+    ("tmt-test-support", "signal-hook", None),  // native Colab verifier fixture shutdown
 ];
 
 // These are reviewed layer permissions, not a second version/dependency graph.
@@ -110,7 +113,6 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         "tmt-cli" => &[
             "tmt-office-command",
-            "tmt-driver-herdr",
             "tmt-command-output",
             "tmt-cli-style",
             "tmt-core",
@@ -211,6 +213,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             // Production row geometry and grapheme fitting; no core behavior.
             "tmt-tui",
             "clap",
+            "jiff",
             "serde_json",
             "toml_edit",
             "subprocess",
@@ -278,6 +281,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "tmt-cli-style",
             "tmt-invoke",
             "clap",
+            "serde",
             "serde_json",
             "getrandom",
             "httparse",
@@ -331,7 +335,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         .collect()
 }
 
-/// This owner is fixture publication only, never a published product.
+/// This owner is private fixture tooling, never a published product.
 pub fn test_support_package_violations(package: &Value) -> Vec<String> {
     if package["name"] != "tmt-test-support" {
         return Vec::new();
@@ -712,10 +716,13 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
-            // The Herdr driver runs only as its own executable: tmt-cli
-            // depends on it to host that bin, never to call it in-process.
+            // The Herdr driver runs only as its own executable. Its standalone
+            // main calls the library entrypoint. The CLI archive carries that
+            // executable until #1084, never calling the driver in-process.
             if root == "tmt_driver_herdr"
-                && !(source.package == "tmt-cli" && source.file == "tmt-driver-herdr.rs")
+                && !(source.package == "tmt-driver-herdr"
+                    && source.file == "main.rs"
+                    && module == "serve_call")
             {
                 violations.push(format!(
                     "{location}: tmt_driver_herdr belongs only to the tmt-driver-herdr bin"

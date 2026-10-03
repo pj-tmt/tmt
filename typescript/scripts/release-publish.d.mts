@@ -34,16 +34,10 @@ export interface IssueApi {
   createIssue(title: string, body: string): number;
   commentIssue(number: number, body: string): void;
 }
-export interface SmokeRecoveryApi extends IssueApi {
-  latestFailureRun(number: number): string | null;
-  closeIssue(number: number): void;
-}
-
 export interface CheckResult {
   readonly check: string;
   readonly ok: boolean;
   readonly reason: string;
-  readonly infrastructure?: 'github-api-rate-limit';
 }
 
 export function publishBlocker(input: {
@@ -80,21 +74,13 @@ export function renderFailureIssue(input: {
   tag: string;
   results: readonly CheckResult[];
   runUrl?: string;
-  originalRunUrl?: string;
 }): { title: string; body: string };
 export function reportFailure(input: {
   api: IssueApi;
   tag: string;
   results: readonly CheckResult[];
   runUrl?: string;
-  originalRunUrl?: string;
 }): { issue: number; created: boolean };
-export function reportSmokeRecovery(input: {
-  api: SmokeRecoveryApi;
-  tag: string;
-  originalRunUrl: string;
-  retryRunUrl: string;
-}): number | null;
 export function readSmokeFailures(
   directory: string,
   options?: { expectedResults?: number; artifactPrefix?: string }
@@ -111,6 +97,4 @@ export function ghPublishApi(input: {
     args: readonly string[],
     options: object
   ) => { error?: Error; status: number | null; stdout: string; stderr: string };
-}): PublishApi & PublishedApi & SmokeRecoveryApi;
-
-export function smokeFailureOutcome(results: readonly CheckResult[]): 'infrastructure' | 'failure';
+}): PublishApi & PublishedApi & IssueApi;

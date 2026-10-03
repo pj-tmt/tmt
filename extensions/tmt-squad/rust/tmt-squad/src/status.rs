@@ -350,19 +350,24 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
     // Flatten configured lines in order; the shared grid owns sizing and
     // fitting, while the list/table renderer still owns sections and styles.
     let mut fields = Vec::new();
-    for cell in document["lines"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .flat_map(|line| line.as_array().into_iter().flatten())
-    {
-        if let Some(field) = cell["field"].as_str()
-            && !fields.contains(&field)
-        {
-            fields.push(field);
+    let hidden = document["hidden_columns"].as_array();
+    for line in document["lines"].as_array().into_iter().flatten() {
+        let mut position = 0;
+        for cell in line.as_array().into_iter().flatten() {
+            let end = position + cell["span"].as_u64().unwrap_or(1) as usize;
+            let visible = (position..end).any(|index| {
+                !hidden.is_some_and(|names| names.contains(&document["columns"][index]["field"]))
+            });
+            if let Some(field) = cell["field"].as_str()
+                && visible
+                && !fields.contains(&field)
+            {
+                fields.push(field);
+            }
+            position = end;
         }
     }
-    if fields.is_empty() {
+    if fields.is_empty() && hidden.is_none() {
         fields = vec!["member", "state"];
     }
     let sections: Vec<_> = document["sections"]

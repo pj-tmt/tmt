@@ -1,4 +1,5 @@
 //! Real SQLite/keyring and mount socket acceptance for owner-key registration.
+mod support;
 use ed25519_dalek::{Signer, SigningKey};
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -43,7 +44,12 @@ impl Fixture {
             root,
             layout,
             service: Some(
-                Registration::new(store, key, env!("CARGO_BIN_EXE_tmt-colab").into()).unwrap(),
+                Registration::with_decoder_config(
+                    store,
+                    key,
+                    support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+                )
+                .unwrap(),
             ),
         }
     }
@@ -56,10 +62,10 @@ impl Fixture {
     fn reopen(&mut self) {
         self.service.take().unwrap().close().unwrap();
         self.service = Some(
-            Registration::new(
+            Registration::with_decoder_config(
                 Store::open(&self.layout).unwrap(),
                 Keyring::read(&self.layout).unwrap(),
-                env!("CARGO_BIN_EXE_tmt-colab").into(),
+                support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
             )
             .unwrap(),
         );
@@ -497,4 +503,258 @@ fn unknown_revoke_before_genesis_is_tombstone_only_and_never_signs_on_replay() {
         register(&mut f, Some(&context(OTHER, 4)), &request(OTHER, NOW), NOW).unwrap_err(),
         Code::Denied
     );
+}
+
+#[test]
+fn archive_preserves_reads_and_delete_denies_admission_catchup_and_queued_delivery() {
+    use tmt_colab::{
+        registration::OwnerAdmission,
+        store::owner::Mutation,
+        sync::{Access, Admission, Progress, Server, SyncScope},
+        transitions::{Engine, OwnerAction, OwnerRequest},
+    };
+    use tmt_colab_model::object;
+    use tungstenite::{Message, WebSocket, protocol::Role};
+    let mut f = Fixture::new();
+    register(
+        &mut f,
+        Some(&context(DEVICE, 1)),
+        &request(DEVICE, NOW),
+        NOW,
+    )
+    .unwrap();
+    let key = Keyring::read(&f.layout).unwrap();
+    let mut store = Store::open(&f.layout).unwrap();
+    store.create_page(OTHER).unwrap();
+    store
+        .owner_transaction(
+            &key.space_id,
+            &key.owner_public(),
+            Mutation {
+                operation_id: OTHER,
+                digest: [116; 32],
+                expected_revision: 1,
+            },
+            |tx| {
+                tx.put_epoch_secret(OTHER, 1, &[12; 32])?;
+                tx.append_statement(&key.sign_statement(
+                    tx.head(),
+                    "page.history",
+                    &serde_json::to_vec(&json!({"pageId":OTHER,"mode":"shared"}))?,
+                )?)?;
+                Ok(vec![])
+            },
+        )
+        .unwrap();
+    let registration = Arc::new(Mutex::new(f.service.take().unwrap()));
+    let admission = OwnerAdmission(Arc::clone(&registration));
+    let scope = SyncScope {
+        space: key.space_id.clone(),
+        page: OTHER.into(),
+        epoch: "1".into(),
+    };
+    let mut header = object::Context {
+        space: key.space_id.clone(),
+        page: OTHER.into(),
+        epoch: "1".into(),
+        kind: "update".into(),
+        namespace: "content".into(),
+        author_device: DEVICE.into(),
+        membership_revision: "2".into(),
+        stream_seq: "1".into(),
+        prev_hash: [0; 32],
+    };
+    assert!(admission.authorize(DEVICE, &scope, Access::Read).is_ok());
+    assert!(
+        admission
+            .authorize(DEVICE, &scope, Access::Append(&header))
+            .is_ok()
+    );
+    assert!(admission.catchup_context(DEVICE, &scope, &store).is_ok());
+    let server = Server::new(
+        Store::open(&f.layout).unwrap(),
+        OwnerAdmission(Arc::clone(&registration)),
+    );
+    let pair = || {
+        let (client, socket) = UnixStream::pair().unwrap();
+        client
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        socket.set_nonblocking(true).unwrap();
+        (
+            WebSocket::from_raw_socket(client, Role::Client, None),
+            server.connect(socket, DEVICE.into()).unwrap(),
+        )
+    };
+    let mut reader = pair();
+    let mut sender = pair();
+    let frame = |kind: &str, fields: Value| {
+        let mut value =
+            json!({"type":kind,"version":1,"space":key.space_id,"page":OTHER,"epoch":"1"});
+        value
+            .as_object_mut()
+            .unwrap()
+            .extend(fields.as_object().unwrap().clone());
+        value
+    };
+    reader
+        .0
+        .send(Message::Text(
+            frame("subscribe", json!({"cursors":[]})).to_string().into(),
+        ))
+        .unwrap();
+    assert_eq!(reader.1.poll(), Progress::Advanced);
+    assert_eq!(reader.1.poll(), Progress::Pending);
+    let mut sent = Vec::new();
+    for seq in 1..=2 {
+        header.stream_seq = seq.to_string();
+        let envelope = object::seal(
+            &header,
+            &[12; 32],
+            &SigningKey::from_bytes(&[10; 32]),
+            b"queued ciphertext",
+        )
+        .unwrap();
+        let hash = envelope.hash().unwrap();
+        let bytes = envelope.to_json().unwrap();
+        sender.0.send(Message::Text(frame("append",json!({"streamId":DEVICE,"seq":seq.to_string(),"envelopeHash":values::encode_binary(&hash),"envelope":values::encode_binary(&bytes)})).to_string().into())).unwrap();
+        assert_eq!(sender.1.poll(), Progress::Advanced);
+        let ack: Value = serde_json::from_str(sender.0.read().unwrap().to_text().unwrap()).unwrap();
+        assert_eq!(ack["type"], "receipt");
+        sent.push(bytes);
+        header.prev_hash = hash;
+    }
+    let mut engine = Engine::new(env!("CARGO_BIN_EXE_tmt-colab").into()).unwrap();
+    let mut archived = None;
+    server
+        .update_admission(|a| {
+            let _registration = a.0.lock().unwrap();
+            archived = Some(
+                engine
+                    .apply(
+                        &mut store,
+                        &key,
+                        OwnerRequest {
+                            operation_id: "40000000-0000-4000-8000-000000000151",
+                            expected_revision: 2,
+                            action: OwnerAction::Archive { page: OTHER },
+                            transport_digest: None,
+                            scope: None,
+                        },
+                        NOW,
+                    )
+                    .unwrap(),
+            );
+        })
+        .unwrap();
+    header.membership_revision = archived.as_ref().unwrap().head.revision.to_string();
+    assert!(admission.authorize(DEVICE, &scope, Access::Read).is_ok());
+    assert_eq!(
+        admission
+            .authorize(DEVICE, &scope, Access::Append(&header))
+            .unwrap_err(),
+        tmt_colab::sync::Code::Denied
+    );
+    assert!(admission.catchup_context(DEVICE, &scope, &store).is_ok());
+    assert_eq!(reader.1.poll(), Progress::Advanced);
+    let delivered: Value =
+        serde_json::from_str(reader.0.read().unwrap().to_text().unwrap()).unwrap();
+    assert_eq!(delivered["type"], "broadcast");
+    assert_eq!(
+        values::binary(delivered["envelope"].as_str().unwrap(), 65536).unwrap(),
+        sent[0]
+    );
+    header.stream_seq = "3".into();
+    let denied = object::seal(
+        &header,
+        &[12; 32],
+        &SigningKey::from_bytes(&[10; 32]),
+        b"must not persist",
+    )
+    .unwrap();
+    sender.0.send(Message::Text(frame("append",json!({"streamId":DEVICE,"seq":"3","envelopeHash":values::encode_binary(&denied.hash().unwrap()),"envelope":values::encode_binary(&denied.to_json().unwrap())})).to_string().into())).unwrap();
+    assert_eq!(sender.1.poll(), Progress::Advanced);
+    let error: Value = serde_json::from_str(sender.0.read().unwrap().to_text().unwrap()).unwrap();
+    assert_eq!(error["code"], "DENIED");
+    assert!(
+        store
+            .payload(
+                tmt_colab::store::StreamScope {
+                    page: OTHER,
+                    epoch: 1,
+                    stream: DEVICE
+                },
+                3
+            )
+            .unwrap()
+            .is_none()
+    );
+    server
+        .update_admission(|a| {
+            let _registration = a.0.lock().unwrap();
+            engine
+                .apply(
+                    &mut store,
+                    &key,
+                    OwnerRequest {
+                        operation_id: "40000000-0000-4000-8000-000000000152",
+                        expected_revision: 3,
+                        action: OwnerAction::Delete { page: OTHER },
+                        transport_digest: None,
+                        scope: None,
+                    },
+                    NOW,
+                )
+                .unwrap();
+        })
+        .unwrap();
+    assert_eq!(
+        admission
+            .authorize(DEVICE, &scope, Access::Read)
+            .unwrap_err(),
+        tmt_colab::sync::Code::Denied
+    );
+    assert_eq!(
+        admission
+            .authorize(DEVICE, &scope, Access::Append(&header))
+            .unwrap_err(),
+        tmt_colab::sync::Code::Denied
+    );
+    assert!(matches!(
+        admission.catchup_context(DEVICE, &scope, &store),
+        Err(tmt_colab::sync::Code::Denied)
+    ));
+    assert_eq!(reader.1.poll(), Progress::Closed);
+    let Message::Close(Some(close)) = reader.0.read().unwrap() else {
+        panic!("deleted page delivered pending ciphertext")
+    };
+    assert_eq!(close.reason, "DENIED");
+    assert!(store.create_page(OTHER).is_err());
+    drop(reader);
+    drop(sender);
+    drop(server);
+    drop(admission);
+    Arc::try_unwrap(registration)
+        .ok()
+        .unwrap()
+        .into_inner()
+        .unwrap()
+        .close()
+        .unwrap();
+    let reopened = OwnerAdmission(Arc::new(Mutex::new(
+        Registration::new(
+            Store::open(&f.layout).unwrap(),
+            Keyring::read(&f.layout).unwrap(),
+            env!("CARGO_BIN_EXE_tmt-colab").into(),
+        )
+        .unwrap(),
+    )));
+    assert_eq!(
+        reopened
+            .authorize(DEVICE, &scope, Access::Read)
+            .unwrap_err(),
+        tmt_colab::sync::Code::Denied
+    );
+    drop(reopened);
+    store.close().unwrap();
 }

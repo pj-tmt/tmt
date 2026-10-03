@@ -38,6 +38,32 @@ function draft(
 const tags = (plan: { builds: readonly { tag: string }[] }) => plan.builds.map(({ tag }) => tag);
 
 describe('release build plan', () => {
+  it('isolates Colab tags and leaves parked Colab drafts untouched', () => {
+    const releases = [
+      draft('tmt-colab-v0.1.0-alpha.1', '1'),
+      draft('tmt-squad-v0.1.0-alpha.1', '1'),
+      draft('v5.0.0-alpha.1', '1'),
+    ];
+    expect(tags(planReleaseBuilds({ product: 'colab', releases }))).toEqual([
+      'tmt-colab-v0.1.0-alpha.1',
+    ]);
+    expect(planReleaseBuilds({ product: 'colab', releases, released: false })).toMatchObject({
+      builds: [],
+      awaiting: [],
+      unreleased: [{ tag: 'tmt-colab-v0.1.0-alpha.1' }],
+    });
+    const result = spawnSync(process.execPath, [script, '--product', 'colab'], {
+      input: JSON.stringify(releases),
+      encoding: 'utf8',
+      env: { ...process.env, GITHUB_OUTPUT: '', GITHUB_STEP_SUMMARY: '' },
+      timeout: 10_000,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe('matrix={"include":[]}\nany=false\n');
+    expect(result.stderr).toContain('No draft release needs a build.');
+    expect(result.stderr).toContain('colab is not released');
+  });
+
   it('plans every draft of the product that has no bundle, oldest first, whatever order GitHub lists them', () => {
     const plan = planReleaseBuilds({
       product: 'cli',
@@ -54,6 +80,14 @@ describe('release build plan', () => {
       createdAt: '2026-09-30T01:00:00Z',
     });
     expect(plan.blocked).toEqual([]);
+  });
+
+  it('selects activated standalone driver drafts without planning CLI builds or publication', () => {
+    const releases = [draft('tmt-driver-herdr-v0.1.0-alpha.1', '1'), draft('v5.0.0-alpha.9', '2')];
+    expect(tags(planReleaseBuilds({ product: 'driver-herdr', released: true, releases }))).toEqual([
+      'tmt-driver-herdr-v0.1.0-alpha.1',
+    ]);
+    expect(tags(planReleaseBuilds({ product: 'cli', releases }))).toEqual(['v5.0.0-alpha.9']);
   });
 
   it('breaks a tie in creation time by tag, so the order is deterministic', () => {
@@ -440,29 +474,32 @@ describe('plan-release-builds.mjs', () => {
     expect(resume.summary).toContain('await their gates and publication');
   });
 
-  it('plans no run for a product the component map does not release', () => {
-    const directory = mkdtempSync(path.join(os.tmpdir(), 'plan-components-'));
-    try {
-      const map = JSON.parse(readFileSync(componentMap, 'utf8')) as {
-        components: Record<string, { release?: boolean }>;
-      };
-      const drafts = [[draft('tmt-office-v0.1.0-alpha.5', '1', [BUNDLE_ASSET])]];
-      // The committed map parks Office, so its draft is left alone.
-      const result = run(['--product', 'office'], drafts);
-      expect(result.status).toBe(0);
-      expect(result.output).toBe('matrix={"include":[]}\nany=false\n');
-      expect(result.summary).toContain('**Left alone** (office is not released');
-      // A map that releases it plans the run.
-      delete map.components.office.release;
-      const released = path.join(directory, 'components.json');
-      writeFileSync(released, JSON.stringify(map));
-      expect(run(['--product', 'office', '--components', released], drafts).output).toContain(
-        'any=true'
-      );
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
+  it.each(['office', 'driver-herdr', 'colab'])(
+    'plans no run for parked %s until its map activates it',
+    (product) => {
+      const directory = mkdtempSync(path.join(os.tmpdir(), 'plan-components-'));
+      try {
+        const map = JSON.parse(readFileSync(componentMap, 'utf8')) as {
+          components: Record<string, { release?: boolean }>;
+        };
+        const drafts = [[draft(`tmt-${product}-v0.1.0-alpha.5`, '1', [BUNDLE_ASSET])]];
+        // The committed map parks this product, so its draft is left alone.
+        const result = run(['--product', product], drafts);
+        expect(result.status).toBe(0);
+        expect(result.output).toBe('matrix={"include":[]}\nany=false\n');
+        expect(result.summary).toContain(`**Left alone** (${product} is not released`);
+        // A map that releases it plans the run.
+        map.components[product === 'colab' ? 'tmt-colab' : product].release = true;
+        const released = path.join(directory, 'components.json');
+        writeFileSync(released, JSON.stringify(map));
+        expect(run(['--product', product, '--components', released], drafts).output).toContain(
+          'any=true'
+        );
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
     }
-  });
+  );
 
   it('plans no run for a held draft alone', () => {
     const held = run(

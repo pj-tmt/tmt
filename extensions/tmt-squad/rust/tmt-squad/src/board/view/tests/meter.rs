@@ -69,6 +69,32 @@ fn with_meter(now: Instant, reduced: bool) -> App {
 }
 
 #[test]
+fn excluded_help_uses_roster_names_for_members_absent_from_displayed_rows() {
+    let mut app = preset_board();
+    let mut roster = input(0);
+    let lead = "67f79852-8a99-48b0-95db-9fb0817d839f";
+    roster.names.insert(lead.into(), "design-lead".into());
+    roster.resumes.insert(lead.into(), Value::Null);
+    app.view.as_mut().unwrap().token_rate = Some(crate::board::app::RateView {
+        settings: crate::config::TokenRate {
+            enabled: true,
+            ..Default::default()
+        },
+        input: roster,
+    });
+    app.excluded_counters = vec![lead.into(), "missing-roster-id".into()];
+    let help = help_lines(&app).join("\n");
+    assert!(
+        help.contains("design-lead, unknown member: no usage counters"),
+        "{help}"
+    );
+    assert_eq!(help.matches("no usage counters").count(), 1);
+    assert!(help.contains("unknown member: no usage counters"));
+    assert!(!help.contains(lead));
+    assert!(!help.contains("missing-roster-id"));
+}
+
+#[test]
 fn sample_and_animation_emit_only_meter_cells_in_normal_render() {
     for width in [80, 120, 200] {
         for reduced in [false, true] {
@@ -229,7 +255,7 @@ fn window_hint_is_conditional_whole_and_help_discloses_semantics() {
         input: input(100),
     });
     let help = help_lines(&app).join("\n");
-    assert!(help.contains("5s window -> 40s trend, 1m -> 80s"));
+    assert!(help.contains("5s window → 40s trend, 1m → 80s"));
     assert!(help.contains("no data hides; measured zero is 0"));
     app.meter.as_mut().unwrap().settings.enabled = false;
     app.view.as_mut().unwrap().token_rate = None;

@@ -1,3 +1,5 @@
+mod support;
+
 use ed25519_dalek::{Signer, SigningKey};
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
@@ -120,7 +122,7 @@ impl Fixture {
             &self.store,
             &self.key,
             PAGE,
-            &mut Decoder::new(BINARY.into()).unwrap(),
+            &mut Decoder::with_config(support::decoder_config(BINARY.into())).unwrap(),
             1234,
         )
     }
@@ -229,7 +231,7 @@ fn exact_authenticated_bytes_survive_export_reopen_and_baseline_rotation() {
             &read,
             &Keyring::read(&f.layout).unwrap(),
             PAGE,
-            &mut Decoder::new(BINARY.into()).unwrap(),
+            &mut Decoder::with_config(support::decoder_config(BINARY.into())).unwrap(),
             1234,
         )
         .unwrap()
@@ -242,7 +244,7 @@ fn exact_authenticated_bytes_survive_export_reopen_and_baseline_rotation() {
             );
         }
         read.close().unwrap();
-        Engine::new(BINARY.into())
+        Engine::with_decoder_config(support::decoder_config(BINARY.into()))
             .unwrap()
             .advance_epoch(
                 &mut f.store,
@@ -299,7 +301,7 @@ fn signature_key_baseline_and_capacity_failures_publish_nothing() {
                 f.db().execute("DELETE FROM epoch_secrets", []).unwrap();
             }
             "baseline" => {
-                Engine::new(BINARY.into())
+                Engine::with_decoder_config(support::decoder_config(BINARY.into()))
                     .unwrap()
                     .advance_epoch(
                         &mut f.store,
@@ -373,7 +375,7 @@ fn inactive_and_unknown_pages_are_denied_without_changing_state() {
             &f.store,
             &f.key,
             "10000000-0000-4000-8000-000000000099",
-            &mut Decoder::new(BINARY.into()).unwrap(),
+            &mut Decoder::with_config(support::decoder_config(BINARY.into())).unwrap(),
             1
         )
         .is_err()
@@ -494,7 +496,7 @@ fn missing_legacy_and_unsafe_state_are_never_initialized_or_migrated() {
             &legacy,
             &f.key,
             PAGE,
-            &mut Decoder::new(BINARY.into()).unwrap(),
+            &mut Decoder::with_config(support::decoder_config(BINARY.into())).unwrap(),
             1
         )
         .is_err()

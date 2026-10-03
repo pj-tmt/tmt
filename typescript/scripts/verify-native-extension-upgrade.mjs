@@ -13,6 +13,7 @@ import { parseArgs } from 'node:util';
 import { selectNativeArtifact, withNativeArtifact } from './native-artifact-policy.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 import { compareVersions } from './release-versions.mjs';
+import { assertMacOsArchitecture } from './native-runtime-proof.mjs';
 
 const OPTIONS = [
   'product',
@@ -28,7 +29,10 @@ const { values } = parseArgs({
   options: Object.fromEntries(OPTIONS.map((name) => [name, { type: 'string' }])),
 });
 for (const name of OPTIONS) assert(values[name], `--${name} is required`);
-assert(['office', 'squad'].includes(values.product), 'Only extension products have this proof');
+assert(
+  ['office', 'squad', 'colab'].includes(values.product),
+  'Only extension products have this proof'
+);
 
 const { product, target } = values;
 // The archive under release is strict; the previous release and the CLI driver are published
@@ -58,8 +62,18 @@ assert.equal(target, `${architecture}-${platform}`, 'Use matching-host artifacts
 const channel = current.version.includes('-') ? 'alpha' : 'stable';
 
 // The archive inventory, checksum and notices of both extension archives are checked before use.
-await withNativeArtifact(values.archive, current, async () => {});
-await withNativeArtifact(values['previous-archive'], previous, async () => {});
+await withNativeArtifact(values.archive, current, async (source) => {
+  assertMacOsArchitecture(path.join(source, `tmt-${product}`), target, {
+    cwd: source,
+    env: process.env,
+  });
+});
+await withNativeArtifact(values['previous-archive'], previous, async (source) => {
+  assertMacOsArchitecture(path.join(source, `tmt-${product}`), target, {
+    cwd: source,
+    env: process.env,
+  });
+});
 await withNativeArtifact(values['driver-archive'], driverArtifact, async (driverSource) => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "tmt extension's upgrade ")));
   try {
@@ -67,6 +81,7 @@ await withNativeArtifact(values['driver-archive'], driverArtifact, async (driver
     const state = path.join(root, 'separate application state');
     const env = { HOME: root, TMUX_TEAM_HOME: state, PATH: '', LANG: 'C', TMPDIR: root };
     const driver = path.join(driverSource, 'tmt');
+    assertMacOsArchitecture(driver, target, { cwd: root, env });
     const run = (args, expectedStatus = 0) =>
       JSON.parse(runPackedCommand(driver, args, { cwd: root, env, expectedStatus }));
     const install = (archive, manifest, expectedStatus = 0) =>
@@ -96,6 +111,7 @@ await withNativeArtifact(values['driver-archive'], driverArtifact, async (driver
       fs.readdirSync(path.join(prefix, 'lib', `tmt-${product}`, 'releases')).length;
 
     const initial = install(values['previous-archive'], values['previous-manifest']);
+    assertMacOsArchitecture(path.join(prefix, 'bin', `tmt-${product}`), target, { cwd: root, env });
     assert.equal(initial.extension, product);
     assert.equal(initial.installed, true);
     assert.equal(initial.changed, true);
@@ -104,6 +120,7 @@ await withNativeArtifact(values['driver-archive'], driverArtifact, async (driver
     assert.equal(releases(), 1);
 
     const upgraded = install(values.archive, values.manifest);
+    assertMacOsArchitecture(path.join(prefix, 'bin', `tmt-${product}`), target, { cwd: root, env });
     assert.equal(upgraded.changed, true);
     assert.equal(upgraded.version, current.version);
     assert.equal(installedVersion(), current.version);

@@ -39,6 +39,7 @@ impl Handler for Site {
         }
     }
     fn shutdown(&self) {
+        self.routes.shutdown();
         self.mounts.shutdown();
     }
 }

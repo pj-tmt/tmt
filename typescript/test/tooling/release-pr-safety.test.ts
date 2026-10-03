@@ -376,31 +376,43 @@ describe('release notes coverage', () => {
       ).toBe(1);
     }));
 
-  it('ignores another component but requires direct and private-leaf Squad changes', () =>
-    fixture(async ({ reader, commit }) => {
-      const header = notes('unused', squadTag).split('\n')[0];
-      const other = commit('feat: core only', 'rust/crates/tmt-core/src/lib.rs');
-      expect(
-        (await checkReleaseNotes({ pr: pr(header, 'tmt-squad'), base: other, components, reader }))
-          ?.linkedCommits
-      ).toBe(0);
-      const direct = commit('fix: Squad change', 'extensions/tmt-squad/rust/tmt-squad/src/main.rs');
-      const leaf = commit('fix: private TUI change', 'rust/crates/tmt-tui/src/text.rs');
-      const body = notes(direct, squadTag);
-      await expect(
-        checkReleaseNotes({ pr: pr(body, 'tmt-squad'), base: leaf, components, reader })
-      ).rejects.toThrow(`COVERAGE missing commit(s): ${leaf}`);
-      expect(
-        (
-          await checkReleaseNotes({
-            pr: pr(body + notes(leaf, squadTag).split('\n').at(-2), 'tmt-squad'),
-            base: leaf,
-            components,
-            reader,
-          })
-        )?.linkedCommits
-      ).toBe(2);
-    }));
+  it.each(['tmt-tui', 'tmt-cli-style', 'tmt-invoke'])(
+    'ignores core but requires direct and %s Squad changes',
+    (name) =>
+      fixture(async ({ reader, commit }) => {
+        const header = notes('unused', squadTag).split('\n')[0];
+        const other = commit('feat: core only', 'rust/crates/tmt-core/src/lib.rs');
+        expect(
+          (
+            await checkReleaseNotes({
+              pr: pr(header, 'tmt-squad'),
+              base: other,
+              components,
+              reader,
+            })
+          )?.linkedCommits
+        ).toBe(0);
+        const direct = commit(
+          'fix: Squad change',
+          'extensions/tmt-squad/rust/tmt-squad/src/main.rs'
+        );
+        const leaf = commit('fix: shared leaf change', `rust/crates/${name}/src/text.rs`);
+        const body = notes(direct, squadTag);
+        await expect(
+          checkReleaseNotes({ pr: pr(body, 'tmt-squad'), base: leaf, components, reader })
+        ).rejects.toThrow(`COVERAGE missing commit(s): ${leaf}`);
+        expect(
+          (
+            await checkReleaseNotes({
+              pr: pr(body + notes(leaf, squadTag).split('\n').at(-2), 'tmt-squad'),
+              base: leaf,
+              components,
+              reader,
+            })
+          )?.linkedCommits
+        ).toBe(2);
+      })
+  );
 
   it('uses configured visible sections and overrides hidden types at the candidate base', () =>
     fixture(async ({ reader, commit, base, directory }) => {

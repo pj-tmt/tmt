@@ -54,7 +54,10 @@ fn negotiates_the_qualified_revisions_and_requires_initialization() {
                 "tmt_operation",
                 "tmt_inbox",
                 "tmt_request",
-                "tmt_result"
+                "tmt_result",
+                "tmt_send",
+                "tmt_answer",
+                "tmt_ack"
             ]
         );
         assert_eq!(
@@ -200,4 +203,69 @@ fn protocol_metadata_is_descriptive_and_null_parameters_are_invalid() {
         .unwrap()["error"]["code"],
         -32600
     );
+}
+
+#[test]
+fn writing_tools_require_frozen_correlation_and_exact_bounded_content() {
+    let mut session = initialized(PROTOCOLS[0]);
+    let operation = "82f646c8-39fd-41ea-a6e8-1a62b8d3817e";
+    let recipient = "694648f4-a55d-47e0-9ee5-337e6f67d8ab";
+    for params in [
+        json!({"name":"tmt_send","arguments":{"recipientId":recipient,"message":"work"}}),
+        json!({"name":"tmt_send","arguments":{"operationId":operation,"recipientId":recipient,"message":"  \r\n"}}),
+        json!({"name":"tmt_send","arguments":{"operationId":operation,"recipientId":recipient,"message":"work","identity":"Other"}}),
+        json!({"name":"tmt_send","arguments":{"operationId":operation,"recipientId":"name","message":"work"}}),
+        json!({"name":"tmt_send","arguments":{"operationId":operation,"recipientId":recipient,"message":"x".repeat(tmt_core::exact_text::MAX_EXCHANGE_TEXT_BYTES+1)}}),
+        json!({"name":"tmt_answer","arguments":{"message":"final"}}),
+        json!({"name":"tmt_answer","arguments":{"requestId":"req_test","message":null}}),
+        json!({"name":"tmt_answer","arguments":{"requestId":"req_test","message":"x".repeat(tmt_core::exact_text::MAX_EXCHANGE_TEXT_BYTES+1)}}),
+        json!({"name":"tmt_ack","arguments":{"requestId":"req_test","revision":0}}),
+        json!({"name":"tmt_ack","arguments":{"requestId":"req_test","revision":9007199254740992u64}}),
+        json!({"name":"tmt_ack","arguments":{"requestId":"req_test"}}),
+        json!({"name":"tmt_ack","arguments":{"requestId":"req_test","revision":1,"incoming":false}}),
+    ] {
+        assert_eq!(
+            message(
+                &mut session,
+                json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":params})
+            )
+            .unwrap()["error"]["code"],
+            -32602
+        );
+    }
+    let exact = "\u{feff}\r\n\0日本語 😀\n";
+    for (name, args) in [
+        (
+            "tmt_send",
+            json!({"operationId":operation,"recipientId":recipient,"message":exact}),
+        ),
+        (
+            "tmt_answer",
+            json!({"requestId":"req_test","message":exact}),
+        ),
+        ("tmt_answer", json!({"requestId":"req_test","message":""})),
+        ("tmt_ack", json!({"requestId":"req_test","revision":1})),
+    ] {
+        let mut calls = 0;
+        let response = session.receive(&serde_json::to_vec(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":args}})).unwrap(), &mut |tool| {
+            match tool {
+                ToolCall::Send(input) => { assert_eq!(input.originator,tmt_core::request::Originator::Unknown); assert_eq!(input.message,exact); },
+                ToolCall::Answer { request_id, message } => { assert_eq!(request_id,"req_test"); assert_eq!(message,args["message"].as_str().unwrap()); },
+                ToolCall::Ack { request_id, revision } => { assert_eq!(request_id,"req_test"); assert_eq!(revision,1); },
+                _ => panic!("wrong writing tool"),
+            }
+            calls += 1; Ok(json!({"accepted":true}))
+        }).unwrap();
+        assert_eq!(calls, 1);
+        assert_eq!(response["result"]["isError"], false);
+    }
+    assert!(message(&mut session,json!({"jsonrpc":"2.0","method":"tools/call","params":{"name":"tmt_send","arguments":{"operationId":operation,"recipientId":recipient,"message":"work"}}})).is_none());
+    for tool in tools::definitions() {
+        let writing = matches!(
+            tool["name"].as_str().unwrap(),
+            "tmt_send" | "tmt_answer" | "tmt_ack"
+        );
+        assert_eq!(tool["annotations"]["readOnlyHint"], !writing);
+        assert_eq!(tool["annotations"]["idempotentHint"], true);
+    }
 }

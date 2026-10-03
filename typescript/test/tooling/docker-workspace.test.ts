@@ -75,3 +75,23 @@ it.each([
   const misplaced = dockerfile.replace(/\/workspace\/typescript\/scripts\//g, '/wrong/');
   expect(missing(misplaced)).toEqual(inputs);
 });
+
+// test/support/cli-process launches every native scenario through the neutral caller fixture,
+// so each image that runs native scenarios must place it where that module resolves it.
+it('places the native caller fixture in the Office browser test image', () => {
+  const dockerfile = readFileSync(
+    path.join(root, 'extensions/tmt-office/typescript/services/office/Dockerfile'),
+    'utf8'
+  );
+  const stage = (name: string) =>
+    dockerfile.split(/^FROM /m).find((part) => part.split('\n')[0].endsWith(` AS ${name}`))!;
+  expect(stage('native-office')).toMatch(
+    /cargo \+\S+ build --locked --release -p tmt-adapters --example runtime-caller-fixture/
+  );
+  expect(stage('browser-tests')).toContain(
+    'COPY --from=native-office --chown=node:node /workspace/rust/target/release/examples/runtime-caller-fixture /workspace/rust/target/debug/examples/runtime-caller-fixture'
+  );
+  expect(readFileSync(path.join(root, 'typescript/test/support/cli-process.ts'), 'utf8')).toContain(
+    "'../../../rust/target/debug/examples/runtime-caller-fixture'"
+  );
+});

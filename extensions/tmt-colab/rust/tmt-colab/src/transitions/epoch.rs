@@ -76,7 +76,7 @@ impl Prepared {
         key: &Keyring,
         authority: &Authority,
         now: u64,
-    ) -> Result<(statement::Envelope, Vec<wrap::Envelope>)> {
+    ) -> Result<(Vec<statement::Envelope>, Vec<wrap::Envelope>)> {
         let revision = tx
             .head()
             .ok_or(OwnerFault::Invalid)?
@@ -134,7 +134,20 @@ impl Prepared {
             tx.put_wrap(wrapped)?;
         }
         tx.advance_epoch(&self.page, self.snapshot.epoch)?;
-        Ok((statement, wraps))
+        let mut statements = vec![statement];
+        if authority.policy.public_mode {
+            let payload = super::sharing::share_payload(
+                tx,
+                &self.page,
+                super::ShareMode::Public,
+                authority.policy.history_current,
+            )?;
+            let published =
+                key.sign_statement(tx.head(), "page.share", &serde_json::to_vec(&payload)?)?;
+            tx.append_statement(&published)?;
+            statements.push(published);
+        }
+        Ok((statements, wraps))
     }
 }
 pub(super) fn recheck(tx: &OwnerTransaction<'_>, snapshot: &Snapshot, page: &str) -> Result<()> {

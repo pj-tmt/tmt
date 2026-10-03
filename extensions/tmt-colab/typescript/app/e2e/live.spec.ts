@@ -1,9 +1,14 @@
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { expect, test, type BrowserContext, type WebSocketRoute } from '@playwright/test';
 import * as c from '@tmt/colab-client';
+import type { PageView } from '../src/transport.js';
 import * as Y from 'yjs'; // Test-only producer. Foreign update decoding stays in the app Worker.
 const v = JSON.parse(
   readFileSync(new URL('../../../contracts/vectors/authority-v1.json', import.meta.url), 'utf8'),
+);
+const ownVector = JSON.parse(
+  readFileSync(new URL('../../../contracts/vectors/own-v1.json', import.meta.url), 'utf8'),
 );
 const hex = (s: string) => Uint8Array.from(s.match(/../g) ?? [], (n) => parseInt(n, 16));
 const json = (value: unknown) => c.text(JSON.stringify(value));
@@ -11,7 +16,7 @@ const mount = '/r/abcd/x/colab/';
 async function wire(
   context: BrowserContext,
   reset?: { source: string; invalid?: 'commitment' | 'source' | 'descriptor' | 'oldEpoch' },
-  compacted?: { invalid?: 'prefix' | 'n' | 'namespace' | 'body' | 'gap' },
+  compacted?: { invalid?: 'prefix' | 'n' | 'namespace' | 'body' | 'gap' | 'ownBody' | 'ownTail' },
   statementTransfer?: 'valid' | 'hash',
 ) {
   const epoch = reset ? '2' : '1';
@@ -296,11 +301,11 @@ async function wire(
     let previous = new Uint8Array(32);
     const prefixUpdates = [
       c.binary(cp.contentUpdates[0], 256 * 1024),
-      new Uint8Array([255]),
+      new Uint8Array([0, 0]),
       Y.mergeUpdates([c.binary(cp.contentUpdates[1], 256 * 1024), firstPadding]),
-      new Uint8Array([255]),
+      new Uint8Array([0, 0]),
       secondPadding,
-      new Uint8Array([255]),
+      new Uint8Array([0, 0]),
     ];
     for (let index = 0; index < 6; index++) {
       const env = await c.Envelope.seal(
@@ -347,13 +352,20 @@ async function wire(
           ? compacted.invalid === 'body'
             ? new Uint8Array([255])
             : new Uint8Array(Y.mergeUpdates([c.binary(cp.checkpoint, 256 * 1024), padding]))
-          : new Uint8Array([255]),
+          : compacted.invalid === 'ownBody'
+            ? new Uint8Array([255])
+            : c.binary(ownVector.checkpoint, 256 * 1024),
       );
       checkpoints.push({ namespace, row: await entry(env) });
     }
     for (const [namespace, bytes] of [
       ['content', c.binary(cp.tail, 256 * 1024)],
-      ['own', new Uint8Array([255])],
+      [
+        'own',
+        compacted.invalid === 'ownTail'
+          ? new Uint8Array([255])
+          : c.binary(ownVector.tail, 256 * 1024),
+      ],
     ] as const) {
       const env = await c.Envelope.seal(
         {
@@ -375,6 +387,45 @@ async function wire(
       previous = await env.hash();
     }
   }
+  const otherDevice = '00000000-0000-4000-8000-000000000126';
+  const otherSigner = await crypto.subtle.generateKey('Ed25519', false, ['sign', 'verify']);
+  const otherCertificate = c.certificate.input({
+    space: v.space,
+    issuerKind: 'member',
+    issuerId: genesis.head.ownerMember.id,
+    deviceId: otherDevice,
+    signingKey: new Uint8Array(await crypto.subtle.exportKey('raw', otherSigner.publicKey)),
+    encryptionKey: c.wrap.Envelope.fromJson(json(v.wrap)).header().recipientKey,
+    membershipRevision: '1',
+    issuedAt: Date.now() - 1000,
+    expiresAt: Date.now() + 86400000,
+  });
+  const otherChain = {
+    version: 1,
+    issuerStatement: c.encodeBinary(genesis.head.hash),
+    deviceCertificate: c.encodeBinary(otherCertificate),
+    issuerSignature: c.encodeBinary(await c.sign(signer, otherCertificate)),
+  };
+  const otherObject = compacted
+    ? await entry(
+        await c.Envelope.seal(
+          {
+            space: v.space,
+            page: v.page,
+            epoch,
+            kind: 'update',
+            namespace: 'own',
+            authorDevice: otherDevice,
+            membershipRevision: '2',
+            streamSeq: '1',
+            prevHash: new Uint8Array(32),
+          },
+          hex(v.epochKey),
+          otherSigner.privateKey,
+          c.binary(ownVector.checkpoint, 256 * 1024),
+        ),
+      )
+    : null;
   const scope = { version: 1, space: v.space, page: v.page, epoch };
   let queue = Promise.resolve(),
     drop = false,
@@ -427,6 +478,12 @@ async function wire(
       const frame = JSON.parse(String(message));
       if (frame.type === 'ack') {
         for (const cursor of frame.cursors) {
+          if (cursor.streamId === otherDevice) {
+            expect(cursor.namespace).toBe('own');
+            expect(cursor.seq).toBe('1');
+            expect(cursor.envelopeHash).toBe(otherObject?.envelopeHash);
+            continue;
+          }
           const checkpoint = checkpoints.find(
             (x) =>
               x.namespace === cursor.namespace &&
@@ -520,28 +577,46 @@ async function wire(
             }
           }
           send(socket, 'catchup', {
-            chains: [{ deviceId: v.device, chain: c.encodeBinary(json(chain)) }],
+            chains: [
+              { deviceId: v.device, chain: c.encodeBinary(json(chain)) },
+              ...(otherObject
+                ? [{ deviceId: otherDevice, chain: c.encodeBinary(json(otherChain)) }]
+                : []),
+            ],
             wraps: [c.encodeBinary(json(epochWrap))],
             streams: [],
             more: true,
           });
           const objects = [
-            ...checkpoints.map((x) => ({ row: x.row, namespace: x.namespace, checkpoint: true })),
+            ...checkpoints.map((x) => ({
+              streamId: v.device,
+              row: x.row,
+              namespace: x.namespace,
+              checkpoint: true,
+            })),
             ...entries.slice(compacted ? (compacted.invalid === 'gap' ? 7 : 6) : 0).map((row) => ({
               row,
+              streamId: v.device,
               namespace: c.decodeHeader(
                 c.Envelope.fromJson(c.binary(row.envelope, 400 * 1024)).header(),
               ).context.namespace,
               checkpoint: false,
             })),
           ];
-          for (const { row, namespace, checkpoint } of objects) {
+          if (otherObject)
+            objects.push({
+              streamId: otherDevice,
+              row: otherObject,
+              namespace: 'own',
+              checkpoint: false,
+            });
+          for (const { streamId, row, namespace, checkpoint } of objects) {
             const bytes = c.binary(row.envelope, 400 * 1024),
               id = c.decodeHeader(c.Envelope.fromJson(bytes).header()).objectId;
             send(socket, 'catchup', {
               streams: [
                 {
-                  streamId: v.device,
+                  streamId,
                   namespace,
                   checkpoint: checkpoint
                     ? { ...row, envelope: bytes.length > 32768 ? { objectId: id } : row.envelope }
@@ -633,6 +708,7 @@ async function wire(
     });
   });
   return {
+    head: head.head,
     entries,
     statement: largeStatement ? c.encodeBinary(largeStatement.toJson()) : null,
     get statementChunks() {
@@ -659,7 +735,7 @@ async function wire(
         },
         hex(v.epochKey),
         signer,
-        new Uint8Array([0]),
+        c.binary(ownVector.checkpoint, 256 * 1024),
       );
       const row = await entry(env);
       entries.push(row);
@@ -803,6 +879,7 @@ for (const invalid of ['commitment', 'source', 'descriptor', 'oldEpoch'] as cons
     await page.getByRole('link', { name: new RegExp(v.page) }).click();
     await expect(page.getByRole('alert')).toBeVisible();
     await expect(page.locator('iframe')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Export page' })).toHaveCount(0);
     await expect
       .poll(() =>
         page.evaluate(
@@ -865,7 +942,7 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
     )
     .toBe(0);
 });
-for (const invalid of ['prefix', 'n', 'namespace', 'body', 'gap'] as const)
+for (const invalid of ['prefix', 'n', 'namespace', 'body', 'gap', 'ownBody', 'ownTail'] as const)
   test(`compacted catchup rejects ${invalid} without a partial content projection`, async ({
     page,
     context,
@@ -933,4 +1010,212 @@ test('tampered statement reference preserves the verified prefix and publishes n
   expect(log).toHaveLength(2);
   expect(log).not.toContain(f.statement);
   await expect.poll(() => f.connections).toBe(0);
+});
+
+test('signed catchup publishes detached own maps for two authors while source stays content-only', async ({
+  page,
+  context,
+}) => {
+  const f = await wire(context, undefined, {});
+  await page.goto(mount);
+  const result = await page.evaluate(
+    async ({ pageId, device }) => {
+      const path = '/src/mounted.ts',
+        { mountedTransport } = await import(path);
+      const { transport } = await mountedTransport();
+      const snapshot = await transport.page(pageId);
+      try {
+        const own = structuredClone(snapshot.own);
+        const unsubscribe = snapshot.binding!.subscribe(
+          (view: PageView) => {
+            if (view.own) view.own[device].threads = {};
+          },
+          () => {},
+        );
+        const subscriptionIsDetached = Object.keys(snapshot.own![device].threads).length > 0;
+        unsubscribe();
+        return { own, subscriptionIsDetached, source: snapshot.source };
+      } finally {
+        snapshot.binding?.close();
+      }
+    },
+    { pageId: v.page, device: v.device },
+  );
+  expect(result.own![v.device]).toEqual(ownVector.expected);
+  expect(result.own!['00000000-0000-4000-8000-000000000126']).toEqual(ownVector.expectedPrefix);
+  expect(result.subscriptionIsDetached).toBe(true);
+  expect(result.source).toBe('<p>after tail</p>' + 'x'.repeat(300000));
+  await expect.poll(() => f.connections).toBe(0);
+});
+
+test('parent export downloads exact frozen baseline files, ignores drafts and renderer messages, and cleans URLs', async ({
+  page,
+  context,
+}) => {
+  const source =
+    '<h1>Exact export</h1>\r\n<p>λ 😀\0</p><script>parent.postMessage({type:"export"},"*");</script>';
+  const f = await wire(context, { source });
+  await page.addInitScript(() => {
+    if (window !== window.top) return;
+    const active = new Set<string>();
+    Object.defineProperty(window, 'exportUrls', { value: active });
+    const create = URL.createObjectURL.bind(URL),
+      revoke = URL.revokeObjectURL.bind(URL);
+    URL.createObjectURL = (blob) => {
+      const url = create(blob);
+      active.add(url);
+      return url;
+    };
+    URL.revokeObjectURL = (url) => {
+      active.delete(url);
+      revoke(url);
+    };
+  });
+  let requested = 0;
+  page.on('download', () => requested++);
+  await page.goto(mount);
+  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Exact export' }),
+  ).toBeVisible();
+  const exportButton = page.getByRole('button', { name: 'Export page', exact: true });
+  await exportButton.evaluate((button: HTMLButtonElement) => button.click());
+  await expect(page.getByRole('region', { name: 'Export page' })).toHaveCount(0);
+  expect(requested).toBe(0);
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await page.getByRole('textbox').fill('<p>Unsaved draft</p>');
+  const before = Date.now();
+  await exportButton.click();
+  const panel = page.getByRole('region', { name: 'Export page' });
+  await expect(panel).toContainText(
+    'This creates an unencrypted copy of the page. Anyone with these files can read it.',
+  );
+  await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeEnabled();
+  await panel
+    .getByRole('button', { name: 'Download page.html' })
+    .evaluate((button: HTMLButtonElement) => button.click());
+  expect(requested).toBe(0);
+  await page.screenshot({ path: '/private/tmp/1309-export-light.png', fullPage: true });
+  await page.getByRole('button', { name: 'Change color theme' }).click();
+  await page.screenshot({ path: '/private/tmp/1309-export-dark.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: '/private/tmp/1309-export-mobile.png', fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  async function download(name: string) {
+    const pending = page.waitForEvent('download');
+    await panel.getByRole('button', { name: new RegExp(`Download ${name}`) }).click();
+    const received = await pending;
+    expect(received.suggestedFilename()).toBe(name);
+    expect(await received.failure()).toBeNull();
+    const path = await received.path();
+    expect(path).not.toBeNull();
+    return readFileSync(path!);
+  }
+  const html = await download('page.html');
+  expect(html).toEqual(Buffer.from(source, 'utf8'));
+  await expect(panel.getByRole('status')).toContainText('One file requested');
+  const other = await context.newPage();
+  await other.goto(mount);
+  await other.getByRole('link', { name: new RegExp(v.page) }).click();
+  await other.getByRole('button', { name: 'Source', exact: true }).click();
+  await other.getByRole('textbox').fill('<h1>New live page</h1>');
+  await other.getByRole('button', { name: 'Save source' }).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'New live page' }),
+  ).toBeVisible();
+  const manifestBytes = await download('manifest.json');
+  const manifest = JSON.parse(manifestBytes.toString('utf8'));
+  expect(manifest.exportedAtMs).toBeGreaterThanOrEqual(before);
+  expect(manifest.exportedAtMs).toBeLessThanOrEqual(Date.now());
+  expect(manifestBytes.toString('utf8')).toBe(
+    JSON.stringify({
+      format: 'tmt-colab-page-export',
+      version: 1,
+      spaceId: v.space,
+      pageId: v.page,
+      title: 'Live fixture',
+      exportedAtMs: manifest.exportedAtMs,
+      membershipHead: { revision: '3', statementHash: Buffer.from(f.head.hash).toString('hex') },
+      epoch: '2',
+      plaintext: true,
+      discussions: 'not-included',
+      files: [
+        {
+          name: 'page.html',
+          sizeBytes: html.length,
+          sha256: createHash('sha256').update(html).digest('hex'),
+        },
+      ],
+    }),
+  );
+  await expect(panel.getByRole('status')).toContainText('Both downloads requested');
+  expect(await download('page.html')).toEqual(html);
+  expect(await download('manifest.json')).toEqual(manifestBytes);
+  const urlCount = () =>
+    page.evaluate(() => (window as unknown as { exportUrls: Set<string> }).exportUrls.size);
+  await expect.poll(urlCount).toBe(0);
+  await download('page.html');
+  await panel.getByRole('button', { name: 'Close export' }).click();
+  await expect.poll(urlCount).toBe(0);
+  await exportButton.click();
+  await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeEnabled();
+  await download('page.html');
+  await page.getByRole('link', { name: 'Space home' }).click();
+  await expect.poll(urlCount).toBe(0);
+  await other.close();
+  await expect.poll(() => f.connections).toBe(0);
+});
+
+test('failed export preparation requests no files and closing clears pending preparation', async ({
+  page,
+  context,
+}) => {
+  await wire(context);
+  await page.goto(mount);
+  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await expect(page.getByRole('heading', { name: 'Live fixture', exact: true })).toBeVisible();
+  let downloads = 0;
+  page.on('download', () => downloads++);
+  await page.evaluate(() => {
+    const original = crypto.subtle.digest.bind(crypto.subtle);
+    crypto.subtle.digest = () => {
+      crypto.subtle.digest = original;
+      return Promise.reject(new Error('Hash failed'));
+    };
+  });
+  await page.getByRole('button', { name: 'Export page', exact: true }).click();
+  const panel = page.getByRole('region', { name: 'Export page' });
+  await expect(panel.getByRole('status')).toContainText('Could not prepare');
+  await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeDisabled();
+  expect(downloads).toBe(0);
+  await panel.getByRole('button', { name: 'Close export' }).click();
+  await page.evaluate(() => {
+    const original = crypto.subtle.digest.bind(crypto.subtle);
+    crypto.subtle.digest = async (...args) => {
+      crypto.subtle.digest = original;
+      await new Promise<void>((resolve) => {
+        Object.defineProperty(window, 'releaseExportHash', { value: resolve });
+      });
+      return original(...args);
+    };
+  });
+  await page.getByRole('button', { name: 'Export page', exact: true }).click();
+  await expect(panel.getByRole('status')).toContainText('Preparing an exact copy');
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => typeof (window as unknown as { releaseExportHash?: unknown }).releaseExportHash,
+      ),
+    )
+    .toBe('function');
+  await panel.getByRole('button', { name: 'Close export' }).click();
+  await page.evaluate(() =>
+    (window as unknown as { releaseExportHash(): void }).releaseExportHash(),
+  );
+  await expect(panel).toHaveCount(0);
+  expect(downloads).toBe(0);
+  await page.getByRole('button', { name: 'Export page', exact: true }).click();
+  await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeEnabled();
+  await panel.getByRole('button', { name: 'Close export' }).click();
+  await page.getByRole('link', { name: 'Space home' }).click();
 });

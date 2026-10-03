@@ -86,3 +86,50 @@ fn child_projection_rejects_namespace_type_and_size_substitution() {
     assert!(validate_projection(Namespace::Own, &own).is_err());
     assert!(binary("AA==", 1).is_err());
 }
+
+#[test]
+fn injected_deadline_preserves_production_defaults_and_cleanup_fence() {
+    let config = Config::new("/missing-decoder".into());
+    assert_eq!(config.deadline, Duration::from_secs(2));
+    let mut decoder = Decoder::with_config(Config {
+        deadline: Duration::from_secs(60),
+        ..config.clone()
+    })
+    .unwrap();
+    assert_eq!(decoder.config.deadline, Duration::from_secs(60));
+    decoder.blocked = true;
+    decoder.set_deadline(DEADLINE).unwrap();
+    assert!(matches!(
+        decoder.decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &[],
+                updates: &[]
+            },
+            Role::Editor,
+            None,
+        ),
+        Err(DecodeFault::CleanupBlocked)
+    ));
+    for deadline in [Duration::ZERO, Duration::MAX] {
+        assert!(matches!(
+            Decoder::with_config(Config {
+                deadline,
+                ..config.clone()
+            }),
+            Err(DecodeFault::InvalidInput)
+        ));
+        assert!(matches!(
+            decoder.set_deadline(deadline),
+            Err(DecodeFault::InvalidInput)
+        ));
+        assert_eq!(decoder.config.deadline, DEADLINE);
+    }
+    assert!(matches!(
+        Decoder::with_config(Config {
+            program: "relative-decoder".into(),
+            ..config
+        }),
+        Err(DecodeFault::InvalidInput)
+    ));
+}

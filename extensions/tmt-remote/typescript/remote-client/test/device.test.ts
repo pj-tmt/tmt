@@ -9,6 +9,8 @@ import {
   type KeyObject,
 } from 'node:crypto';
 import { test } from 'vite-plus/test';
+import vectors from './vectors.json' with { type: 'json' };
+import signatures from '../../../rust/tmt-remote/tests/fixtures/webcrypto-vectors.json' with { type: 'json' };
 import {
   base64url,
   enrollmentPossessionSigningBytes,
@@ -19,6 +21,7 @@ import {
   responseKeyInput,
   serverProofInput,
   type Envelope,
+  type ExtCert,
 } from '../src/canonical-bytes.js';
 import {
   DeviceKey,
@@ -222,26 +225,62 @@ test('the device key is non-extractable and restores only as itself', async () =
   await assert.rejects(DeviceKey.fromHandle(exportable.privateKey, key.publicKey()));
 });
 
-test('an extension certificate verifies over the contract bytes', async () => {
-  const key = await DeviceKey.generate();
-  const extensionKey = randomBytes(32);
-  const certificate = await certify(
-    key,
-    { extension: 'colab', purpose: 'sign', publicKey: extensionKey },
-    1790770000000,
-  );
-  assert.equal(certificate.publicKey, base64url(extensionKey));
-  const bytes = extCertSigningBytes({
-    extension: 'colab',
-    purpose: 'sign',
-    publicKey: extensionKey,
-    issuedAtMs: 1790770000000,
+for (const vector of vectors.extCerts) {
+  test(`fixed certificate signature binds every field: ${vector.name}`, async () => {
+    // Public RFC 8032 TEST 1 seed only, restored as a non-extractable handle.
+    const handle = await crypto.subtle.importKey(
+      'pkcs8',
+      Buffer.from(
+        '302e020100300506032b657004220420' +
+          '9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60',
+        'hex',
+      ),
+      'Ed25519',
+      false,
+      ['sign'],
+    );
+    const devicePublic = Buffer.from(
+      'd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a',
+      'hex',
+    );
+    const key = await DeviceKey.fromHandle(handle, devicePublic);
+    const value = {
+      ...vector.input,
+      publicKey: Buffer.from(vector.input.publicKey, 'hex'),
+    } as ExtCert;
+    const fixed = signatures.cases.find((v) => v.name === vector.name);
+    assert.ok(fixed, 'every Python certificate has a fixed WebCrypto signature');
+    const certificate = await certify(key, value, value.issuedAtMs);
+    assert.equal(certificate.publicKey, base64url(value.publicKey));
+    assert.equal(raw(certificate.signature).toString('hex'), fixed.signature);
+    const baseline = extCertSigningBytes(value);
+    assert.equal(Buffer.from(baseline).toString('hex'), fixed.message);
+    const signature = raw(certificate.signature);
+    const verifies = (message: Uint8Array): boolean =>
+      verify(null, message, publicKeyObject(devicePublic), signature);
+    assert.ok(verifies(baseline));
+    for (const change of [
+      { extension: 'other' },
+      { purpose: value.purpose === 'sign' ? ('enc' as const) : ('sign' as const) },
+      { publicKey: Uint8Array.from(value.publicKey, (byte, i) => (i === 0 ? byte ^ 1 : byte)) },
+      { issuedAtMs: value.issuedAtMs === 0 ? 1 : value.issuedAtMs - 1 },
+    ]) {
+      assert.equal(verifies(extCertSigningBytes({ ...value, ...change })), false);
+    }
+    const domain = baseline.slice();
+    domain[4 + 'tmt-ext-cert-v1'.length - 1] = '2'.charCodeAt(0);
+    assert.equal(verifies(domain), false);
+    const littleEndian = baseline.slice();
+    littleEndian.subarray(0, 4).reverse();
+    assert.equal(verifies(littleEndian), false);
+    const differentSignature = Buffer.from(signature);
+    differentSignature[0]! ^= 1;
+    assert.equal(verify(null, baseline, publicKeyObject(devicePublic), differentSignature), false);
+    const other = await DeviceKey.generate();
+    assert.equal(verify(null, baseline, publicKeyObject(other.publicKey()), signature), false);
+    await assert.rejects(certify(key, { ...value, extension: 'Colab' }, value.issuedAtMs));
   });
-  assert.ok(verify(null, bytes, publicKeyObject(key.publicKey()), raw(certificate.signature)));
-  await assert.rejects(
-    certify(key, { extension: 'Colab', purpose: 'sign', publicKey: extensionKey }),
-  );
-});
+}
 
 test('pairing links carry a strict descriptor and the code only in the fragment', () => {
   const door = new Door();

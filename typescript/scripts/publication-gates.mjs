@@ -24,6 +24,7 @@ import { ownerOf, parseComponentMap } from './ci-scope.mjs';
 import { BUNDLE_ASSET, FAILURE_ASSET, HOLD_ASSET } from './plan-release-builds.mjs';
 import { clearHold, ghApi, readHold, recordHold } from './release-draft-assets.mjs';
 import { selectPrevious } from './release-upgrade.mjs';
+import { componentOfProduct } from './native-release-policy.mjs';
 import {
   compareVersions,
   isAlphaVersion,
@@ -270,7 +271,7 @@ function releaseCommits({ from, to, product, map }) {
 
 function earlyChecks({ product, tag, release, releases, repository, map }) {
   const sha = release.target_commitish;
-  const component = map.components.find(({ name }) => name === product);
+  const component = componentOfProduct(map, product);
   return {
     channel: () => checkChannel({ product, tag }),
     commit: () => {
@@ -317,7 +318,7 @@ function earlyChecks({ product, tag, release, releases, repository, map }) {
         files: component.migrations,
         counts: count(sha),
         previous: { tag: previousRelease.tag_name, counts: count(previousSha) },
-        commits: releaseCommits({ from: previousSha, to: sha, product, map }),
+        commits: releaseCommits({ from: previousSha, to: sha, product: component.name, map }),
         alpha,
       });
     },

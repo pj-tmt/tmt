@@ -3,9 +3,10 @@ mod epoch;
 mod links;
 mod membership;
 mod request;
+mod sharing;
 use crate::{
     Result,
-    decoder::Decoder,
+    decoder::{Config as DecoderConfig, Decoder},
     fold::Snapshot,
     keyring::Keyring,
     store::{
@@ -99,14 +100,17 @@ pub struct EpochAdvance<'a> {
     pub page: &'a str,
 }
 pub struct Engine {
-    program: PathBuf,
+    decoder_config: DecoderConfig,
     decoders: BTreeMap<String, Decoder>,
 }
 impl Engine {
     pub fn new(program: PathBuf) -> Result<Self> {
-        Decoder::new(program.clone())?;
+        Self::with_decoder_config(DecoderConfig::new(program))
+    }
+    pub fn with_decoder_config(decoder_config: DecoderConfig) -> Result<Self> {
+        Decoder::with_config(decoder_config.clone())?;
         Ok(Self {
-            program,
+            decoder_config,
             decoders: BTreeMap::new(),
         })
     }
@@ -179,16 +183,18 @@ impl Engine {
             |tx, prepared| {
                 prepared.recheck(tx)?;
                 context.check_scope(&[request.page.into()])?;
-                let (statement, wraps) =
+                let (statements, wraps) =
                     prepared.commit(tx, key, &prepared.snapshot.authority, now)?;
-                membership::outcome(&[statement], wraps)
+                membership::outcome(&statements, wraps)
             },
         )
     }
     fn decoder(&mut self, page: &str) -> Result<&mut Decoder> {
         if !self.decoders.contains_key(page) {
-            self.decoders
-                .insert(page.into(), Decoder::new(self.program.clone())?);
+            self.decoders.insert(
+                page.into(),
+                Decoder::with_config(self.decoder_config.clone())?,
+            );
         }
         self.decoders
             .get_mut(page)

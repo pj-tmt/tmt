@@ -447,3 +447,129 @@ fn fresh_binding_is_immutable_and_ready_requires_exact_admitted_foreground() {
             .is_err()
     );
 }
+
+#[test]
+fn live_pruning_does_not_block_fresh_ready_publication() {
+    let fixture = TestDirectory::new();
+    let store = Store::open(&fixture.path).unwrap();
+    let original = record();
+    store.create(&original, |_| RuntimeLiveness::Alive).unwrap();
+    let pending = store
+        .fresh_endpoint(
+            &original,
+            FreshEndpoint {
+                server: Process::of(&ProcessIncarnation::new(12, "server").unwrap()),
+                port: 49000,
+                cwd: "/tmp".into(),
+                thread: None,
+            },
+        )
+        .unwrap();
+    let foreground = ProcessIncarnation::new(13, "foreground").unwrap();
+    let pending = store.foreground(&pending, &foreground).unwrap();
+    let candidate = store
+        .fresh_thread(&pending, "22222222-2222-4222-8222-222222222222")
+        .unwrap();
+    let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(0);
+    let (release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
+    let publication = std::thread::scope(|scope| {
+        let pruning_store = &store;
+        let pruning = scope.spawn(move || {
+            pruning_store.prune(Instant::now() + std::time::Duration::from_secs(5), |_| {
+                entered_tx.send(()).unwrap();
+                release_rx
+                    .recv_timeout(std::time::Duration::from_secs(5))
+                    .unwrap();
+                RuntimeLiveness::Alive
+            })
+        });
+        entered_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        let publication = store.admit_fresh(&candidate, &foreground, |_| RuntimeLiveness::Alive);
+        release_tx.send(()).unwrap();
+        assert_eq!(pruning.join().unwrap().unwrap(), 0);
+        publication
+    });
+    assert!(
+        publication.is_ok(),
+        "live-record liveness observation excluded Ready publication: {:?}",
+        publication.as_ref().err()
+    );
+    assert_eq!(
+        publication.unwrap().ready.unwrap().thread,
+        "22222222-2222-4222-8222-222222222222"
+    );
+}
+
+#[test]
+fn pruning_preserves_a_replacement_published_during_snapshot_observation() {
+    let fixture = TestDirectory::new();
+    let store = Store::open(&fixture.path).unwrap();
+    let original = record();
+    store.create(&original, |_| RuntimeLiveness::Alive).unwrap();
+    let original = store
+        .foreground(
+            &original,
+            &ProcessIncarnation::new(44, "foreground").unwrap(),
+        )
+        .unwrap();
+    let mut replacement = original.clone();
+    replacement.generation = uuid::Uuid::new_v4().to_string();
+    replacement.launch_owner = Process::of(&ProcessIncarnation::new(45, "new-owner").unwrap());
+    replacement.foreground = Foreground::Unknown;
+    let published = std::cell::Cell::new(false);
+    assert_eq!(
+        store
+            .prune(Instant::now() + std::time::Duration::from_secs(5), |_| {
+                if !published.replace(true) {
+                    store
+                        .create(&replacement, |process| {
+                            if process.pid() == 45 {
+                                RuntimeLiveness::Alive
+                            } else {
+                                RuntimeLiveness::Gone
+                            }
+                        })
+                        .unwrap();
+                }
+                RuntimeLiveness::Gone
+            })
+            .unwrap(),
+        0
+    );
+    assert!(store.read(&original.binding_id).unwrap() == Some(replacement));
+}
+
+#[test]
+fn pruning_rechecks_ended_proof_under_lock_before_removal() {
+    let fixture = TestDirectory::new();
+    let store = Store::open(&fixture.path).unwrap();
+    let original = record();
+    store.create(&original, |_| RuntimeLiveness::Alive).unwrap();
+    let original = store
+        .foreground(
+            &original,
+            &ProcessIncarnation::new(44, "foreground").unwrap(),
+        )
+        .unwrap();
+    let probes = std::cell::Cell::new(0);
+    assert_eq!(
+        store
+            .prune(Instant::now() + std::time::Duration::from_secs(5), |_| {
+                let count = probes.get();
+                probes.set(count + 1);
+                if count < 2 {
+                    assert!(store.lock(&original.binding_id).is_ok());
+                    RuntimeLiveness::Gone
+                } else {
+                    assert!(store.lock(&original.binding_id).is_err());
+                    RuntimeLiveness::Unknown
+                }
+            })
+            .unwrap(),
+        0
+    );
+    assert_eq!(probes.get(), 3);
+    assert!(store.read(&original.binding_id).unwrap() == Some(original));
+}

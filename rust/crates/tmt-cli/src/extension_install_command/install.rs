@@ -86,16 +86,7 @@ pub(super) fn install(
             ));
         }
     };
-    let report = result.map_err(|error| {
-        failure(
-            if archive.is_none() && error.kind() == io::ErrorKind::NotFound {
-                "EXTENSION_RELEASE_UNAVAILABLE"
-            } else {
-                "EXTENSION_INSTALL_FAILED"
-            },
-            error,
-        )
-    })?;
+    let report = result.map_err(installation_failure)?;
     let human = if report.changed {
         Human::done(format!(
             "Installed {name} {} at {}.",
@@ -113,4 +104,56 @@ pub(super) fn install(
         previous,
         changed: report.changed,
     })
+}
+
+fn installation_failure(error: io::Error) -> Failure {
+    if error
+        .get_ref()
+        .is_some_and(|cause| cause.is::<native_install::ReleaseUnavailable>())
+    {
+        return Failure::new(
+            "EXTENSION_RELEASE_UNAVAILABLE",
+            format!("{error} No installation was created or changed."),
+            1,
+        )
+        .caused_by(error);
+    }
+    failure("EXTENSION_INSTALL_FAILED", error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_published_extension_release_is_availability_not_installation_damage() {
+        for product in [Product::Remote, Product::Colab] {
+            let error = installation_failure(io::Error::new(
+                io::ErrorKind::NotFound,
+                native_install::ReleaseUnavailable {
+                    product,
+                    channel: Channel::Alpha,
+                },
+            ));
+            assert_eq!(error.code, "EXTENSION_RELEASE_UNAVAILABLE");
+            assert_eq!(error.status, 1);
+            assert_eq!(
+                error.message,
+                format!(
+                    "No published {} release yet in the alpha channel. No installation was created or changed.",
+                    product.as_str()
+                )
+            );
+            assert!(!error.message.contains("Inspect with"));
+        }
+    }
+
+    #[test]
+    fn missing_local_archive_and_invalid_published_bytes_remain_installation_failures() {
+        for kind in [io::ErrorKind::NotFound, io::ErrorKind::InvalidData] {
+            let error = installation_failure(io::Error::new(kind, "bad archive"));
+            assert_eq!(error.code, "EXTENSION_INSTALL_FAILED");
+            assert!(error.message.contains("bad archive"));
+        }
+    }
 }

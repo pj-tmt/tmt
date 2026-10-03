@@ -13,6 +13,7 @@ import {
   writePriorState,
 } from './migrated-state.mjs';
 import { runPackedCommand } from './packed-command.mjs';
+import { assertMacOsArchitecture } from './native-runtime-proof.mjs';
 
 const { values } = parseArgs({
   options: Object.fromEntries(
@@ -68,6 +69,8 @@ await withNativeArtifact(values.archive, current, async (source) => {
       const env = { HOME: root, TMUX_TEAM_HOME: state, PATH: '', LANG: 'C', TMPDIR: root };
       const options = { cwd: root, env };
       const installer = path.join(source, 'tmt');
+      assertMacOsArchitecture(installer, values.target, options);
+      assertMacOsArchitecture(path.join(oldSource, 'tmt'), values.target, options);
       assert.equal(runPackedCommand(installer, ['--version'], options).trim(), current.version);
       assert.equal(
         runPackedCommand(path.join(oldSource, 'tmt'), ['--version'], options).trim(),
@@ -97,6 +100,7 @@ await withNativeArtifact(values.archive, current, async (source) => {
           )
         );
       const initial = install(values['previous-archive'], values['previous-manifest'], ['--pin']);
+      assertMacOsArchitecture(managed, values.target, options);
       assert.equal(initial.changed, true);
       assert.equal(run(['--version']).trim(), previous.version);
       assert(
@@ -125,6 +129,7 @@ await withNativeArtifact(values.archive, current, async (source) => {
       assert.deepEqual(fs.readFileSync(database), originalDatabase);
 
       const upgraded = install(values.archive, values.manifest, ['--unpin']);
+      assertMacOsArchitecture(managed, values.target, options);
       assert.equal(upgraded.changed, true);
       assert.notEqual(fs.readlinkSync(pointer), originalPointer);
       assert.equal(run(['--version']).trim(), current.version);

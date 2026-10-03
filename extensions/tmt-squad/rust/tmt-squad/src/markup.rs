@@ -329,7 +329,10 @@ impl Grid {
                 })
             })
             .collect();
-        let mut shown = vec![true; count];
+        let mut shown: Vec<_> = rows.columns[..count]
+            .iter()
+            .map(|column| !rows.hidden_columns.contains(&column.field))
+            .collect();
         loop {
             let visible: Vec<_> = (0..count).filter(|i| shown[*i]).collect();
             let required = visible
@@ -488,3 +491,56 @@ pub fn fitted(
 
 #[cfg(test)]
 mod tests;
+
+#[test]
+fn hidden_tracks_shrink_spans_and_show_restores_the_original_grid() {
+    use crate::rows::Cell;
+    use tmt_cli_style::grid::Basis;
+    let mut rows = crate::rows::Rows::preset();
+    for column in &mut rows.columns {
+        column.width = Some(Basis::Cells(6));
+        column.grow = 0;
+        column.priority = None;
+    }
+    rows.lines = vec![
+        vec![
+            Cell {
+                field: Some("member".into()),
+                span: 1,
+                token: None,
+            },
+            Cell {
+                field: Some("state".into()),
+                span: 1,
+                token: None,
+            },
+            Cell {
+                field: Some("task".into()),
+                span: 2,
+                token: None,
+            },
+        ],
+        vec![Cell {
+            field: Some("member".into()),
+            span: 4,
+            token: None,
+        }],
+    ];
+    let original = rows.clone();
+    let grid = Grid::compile(&rows, |_| 6, 60).unwrap();
+    assert_eq!(grid.span(2..4).unwrap().visible, 13);
+    assert_eq!(grid.span(0..4).unwrap().visible, 27);
+    rows.hidden_columns.push("pr_link".into());
+    let hidden = Grid::compile(&rows, |_| 6, 60).unwrap();
+    assert!(hidden.columns[3].is_none());
+    assert_eq!(hidden.span(2..4).unwrap().visible, 6);
+    assert_eq!(hidden.span(0..4).unwrap().visible, 20);
+    assert!(hidden.span(3..4).is_none());
+    assert_eq!(rows.lines, original.lines);
+    rows.hidden_columns.clear();
+    assert_eq!(rows, original);
+    assert_eq!(
+        Grid::compile(&rows, |_| 6, 60).unwrap().columns,
+        grid.columns
+    );
+}

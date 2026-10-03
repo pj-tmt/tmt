@@ -37,13 +37,6 @@ pub struct Age {
 }
 
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Retained for the #1292 home painter in the next PR."
-    )
-)]
 pub struct MemberRow {
     pub squad: String,
     /// Retains the public request projection for the existing answer composer.
@@ -54,13 +47,6 @@ pub struct MemberRow {
 }
 
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Retained for the #1292 home painter in the next PR."
-    )
-)]
 pub struct MemberSection {
     /// Stable section keys, independent of display text or cursor position.
     pub key: String,
@@ -68,13 +54,6 @@ pub struct MemberSection {
 }
 
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Retained for the #1292 home painter in the next PR."
-    )
-)]
 pub struct SquadLine {
     pub squad: String,
     pub lead: Option<Value>,
@@ -83,13 +62,6 @@ pub struct SquadLine {
 }
 
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Retained for the #1292 home painter in the next PR."
-    )
-)]
 pub struct Home {
     pub summary: Counts,
     pub sections: Vec<MemberSection>,
@@ -271,3 +243,8 @@ fn model(order: &[String], acquired: &Acquired, now: u64) -> Home {
 
 #[cfg(test)]
 mod tests;
+
+mod controller;
+mod paint;
+pub(super) use controller::{Send, Target};
+pub(super) use paint::{age_label, hints, render, summary};

@@ -9,8 +9,12 @@ import { writeExecutable } from './executable-fixture.mjs';
 const { runtimeFiles, companionFiles } = (await import(
   new URL('../../scripts/native-artifact-policy.mjs', import.meta.url).href
 )) as unknown as {
-  runtimeFiles: (product?: 'cli' | 'office' | 'squad') => string[];
-  companionFiles: (product?: 'cli' | 'office' | 'squad') => string[];
+  runtimeFiles: (
+    product?: 'cli' | 'office' | 'squad' | 'remote' | 'colab' | 'driver-herdr'
+  ) => string[];
+  companionFiles: (
+    product?: 'cli' | 'office' | 'squad' | 'remote' | 'colab' | 'driver-herdr'
+  ) => string[];
 };
 
 export type ArtifactFixture = {
@@ -50,13 +54,14 @@ export async function createArtifact(
   sources: ArtifactSources,
   version: string,
   executableSuffix: Uint8Array = new Uint8Array(),
-  product: 'cli' | 'office' | 'squad' = 'cli',
+  product: 'cli' | 'office' | 'squad' | 'remote' | 'colab' | 'driver-herdr' = 'cli',
   companionExecutable = path.resolve('../rust/target/debug/tmt-office'),
   /** An extension's agent-skills tree, by path under `skills/`. */
-  skills: Record<string, string> = {}
+  skills: Record<string, string> = {},
+  archiveName?: string
 ): Promise<ArtifactFixture> {
   const target = nativeTarget();
-  const name = `${product}-${version}-${target}.tar.gz`;
+  const name = archiveName ?? `${product}-${version}-${target}.tar.gz`;
   const fixtureRoot = path.join(sources.root, 'native archive inputs with spaces', product);
   const tree = path.join(fixtureRoot, 'tree');
   const root = path.join(tree, name.slice(0, -'.tar.gz'.length));
@@ -70,7 +75,7 @@ export async function createArtifact(
       ? sources.cli?.executable
       : product === 'office'
         ? companionExecutable
-        : path.resolve('../rust/target/debug/tmt-squad');
+        : path.resolve(`../rust/target/debug/tmt-${product}`);
   if (source === undefined) throw new Error(`Missing ${product} executable for artifact fixture.`);
   const executable = path.join(root, executableName);
   writeExecutable(executable, Buffer.concat([readFileSync(source), executableSuffix]));

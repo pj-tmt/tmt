@@ -1,42 +1,53 @@
 ---
 source: site/src/chapters/start.mdx
-sourceRevision: 4816d68ed0c849f3496cf111a77af2958d473407
+sourceRevision: 4755caaba1c2fef857d8c058efef7a3a159f8c49
 title: 給所有 agent 的一條通道
 ---
 
 import { Cmd } from "../../components/Cmd";
+import { components as Mdx } from "../../components/mdx";
 import { LsSample } from "../../components/samples";
 import { PaneDemo, basicLoop, resumeAfterReboot } from "../../demos/PaneDemo";
 
+import { Concepts } from "../../home/Concepts";
 import { Hero } from "../../home/Hero";
 import { Journey } from "../../home/Journey";
+import { BandHead, Showcase } from "../../home/Showcase";
 
 <Hero />
 
+<BandHead name="start" />
+
 <h2
   id="start"
-  className="mt-16 mb-3 font-mono text-[clamp(26px,3.6vw,40px)] leading-[1.08] font-bold tracking-[-0.02em] text-balance"
+  className="mt-2.5 mb-3 font-mono text-[clamp(26px,3.6vw,40px)] leading-[1.08] font-bold tracking-[-0.02em] text-balance"
 >
   {"從"}
   <em className="text-accent not-italic">一則訊息</em>
   {"開始，逐步成長為團隊。"}
 </h2>
 
+<Concepts />
+
 從步驟 1 的 talk、reply 和 receipt 開始。board、colab 和 meet 都建立在同一個基礎上，你可以在任何一步停下來：已經有的功能照樣能用。
 
 <Journey />
 
-<h3 id="install">安裝</h3>
+<Showcase />
+
+<BandHead name="install" />
+
+<Mdx.h3 id="install">安裝</Mdx.h3>
 
 <Cmd>{`$ curl -fsSL https://github.com/pj-tmt/tmt/releases/latest/download/install.sh | sh`}</Cmd>
 
 安裝程式會把 `tmt` 放進 `~/.local/bin`；在終端機裡，它接著會執行 `tmt setup`：找出你的 agent，列出它將變更的每個檔案（每個 agent 的 skill，以及這台機器上已安裝者的 session hook），並只詢問一次。之後隨時可以再執行 `tmt setup`，它只會提供尚缺的項目。如果找不到 `tmt`，請把 `~/.local/bin` 加進 PATH（只需做一次）。tmt 是全新安裝，不會遷移舊資料：如果你是從 `tmux-team` npm 套件轉過來，請先執行 `npm uninstall -g tmux-team` 移除它。
 
-<h3 id="built-in-drivers">內建的 driver</h3>
+<Mdx.h3 id="built-in-drivers">內建的 driver</Mdx.h3>
 
 tmt 內建多數人需要的 driver，不必另外安裝。**tmux** 是 host driver，不需要任何設定。**Claude Code** 和 **Codex** 是 runtime driver：它們開箱即用；執行 `tmt setup claude` 或 `tmt setup codex` 之後，tmt 還會認得每個 agent 自己的對話、能精確恢復它，並顯示它是否正在執行。[所有 driver →](/drivers)
 
-<h3 id="the-basic-loop">基本流程</h3>
+<Mdx.h3 id="the-basic-loop">基本流程</Mdx.h3>
 
 在 tmux 裡，先為 agent 所在的窗格命名（`tmt name`，也可以寫成 `tmt this`），之後就能從任何地方對它說話。頁面頂端的逐步示範播放的就是這個流程。
 
@@ -68,7 +79,7 @@ $ tmt rm builder            # 移除一個名稱；窗格繼續執行
 
 `tmt ls reviewer` 會完整顯示一個 agent，包括它的 tmux 窗格。`--saved`、`--temp`、`--here` 和 `--all` 可以縮小或放大清單。
 
-<h3 id="start-agents-with-a-name">為 agent 命名並啟動</h3>
+<Mdx.h3 id="start-agents-with-a-name">為 agent 命名並啟動</Mdx.h3>
 
 `tmt run` 一步完成命名窗格和啟動 agent；名稱之後的一切，就是你平常用的指令。對應的 driver 會接手，所以之後 `tmt resume` 可以帶回同一段對話。[各個 driver 如何運作 →](/drivers)
 

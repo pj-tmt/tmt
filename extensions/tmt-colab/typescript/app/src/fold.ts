@@ -1,9 +1,10 @@
-import { exactKeys } from '@tmt/colab-client';
+import { exactKeys, generatedId, requireValue } from '@tmt/colab-client';
 import {
   BASELINE_UPDATE_BYTES,
   UPDATE_BYTES,
   STATE_BYTES,
   validateProjection,
+  validateOwn,
   type FoldCommand,
   type FoldResult,
 } from './fold-protocol.js';
@@ -12,8 +13,14 @@ import {
  * terminates the Worker and flags the binding; callers must resync from scratch. */
 export class Fold {
   #worker: Worker;
-  #pending: { id: number; resolve(value: FoldResult): void; reject(error: Error): void } | null =
-    null;
+  #pending: {
+    id: number;
+    resolve(value: FoldResult): void;
+    reject(error: Error): void;
+    writers: Set<string>;
+    commit: boolean;
+  } | null = null;
+  #writers = new Set<string>();
   #next = 0;
   #closed = false;
   #timer: ReturnType<typeof setTimeout> | undefined;
@@ -24,17 +31,34 @@ export class Fold {
     worker.onerror = () => this.close();
     worker.onmessage = (event: MessageEvent<unknown>) => {
       try {
-        exactKeys(event.data, ['id', 'source', 'title', 'update']);
+        exactKeys(event.data, ['id', 'source', 'title', 'update', 'own']);
         const value = event.data as unknown as FoldResult & { id: number; error?: string };
         if (!this.#pending || value.id !== this.#pending.id || value.error)
           throw new Error('Rejected decoder output');
         validateProjection(value);
+        validateOwn(value.own);
+        requireValue(
+          Object.keys(value.own).length === this.#pending.writers.size &&
+            Object.keys(value.own).every((writer) => this.#pending!.writers.has(writer)),
+        );
+        if (
+          new TextEncoder().encode(
+            JSON.stringify({ source: value.source, title: value.title, own: value.own }),
+          ).length > STATE_BYTES
+        )
+          throw new Error('Decoder projection capacity');
         if (!(value.update instanceof Uint8Array) || value.update.length > UPDATE_BYTES)
           throw new Error('Invalid decoder output');
         const pending = this.#pending;
+        if (pending.commit) this.#writers = pending.writers;
         this.#pending = null;
         clearTimeout(this.#timer);
-        pending.resolve({ source: value.source, title: value.title, update: value.update });
+        pending.resolve({
+          source: value.source,
+          title: value.title,
+          own: value.own,
+          update: value.update,
+        });
       } catch {
         this.close();
       }
@@ -44,8 +68,10 @@ export class Fold {
     if (this.#closed || this.#pending) return Promise.reject(new Error('Decoder unavailable'));
     if (
       (command.type === 'apply' || command.type === 'check') &&
-      (command.updates.length > 200 ||
-        command.updates.reduce((n, v) => n + v.length, 0) > UPDATE_BYTES)
+      (command.updates.length + (command.own?.length ?? 0) > 200 ||
+        command.updates.reduce((n, v) => n + v.length, 0) +
+          (command.own ?? []).reduce((n, v) => n + v.update.length, 0) >
+          UPDATE_BYTES)
     )
       return Promise.reject(new Error('Decoder input capacity'));
     if (command.type === 'checkpoint' && command.update.length > STATE_BYTES)
@@ -57,9 +83,27 @@ export class Fold {
         command.commitment.length !== 32)
     )
       return Promise.reject(new Error('Decoder baseline capacity'));
+    const writers = new Set(this.#writers);
+    for (const writer of command.type === 'checkpoint'
+      ? command.writer === undefined
+        ? []
+        : [command.writer]
+      : command.type === 'apply' || command.type === 'check'
+        ? (command.own ?? []).map((v) => v.writer)
+        : []) {
+      generatedId(writer);
+      writers.add(writer);
+    }
+    if (writers.size > 256) return Promise.reject(new Error('Decoder writer capacity'));
     return new Promise((resolve, reject) => {
       const id = ++this.#next;
-      this.#pending = { id, resolve, reject };
+      this.#pending = {
+        id,
+        resolve,
+        reject,
+        writers,
+        commit: command.type !== 'check' && command.type !== 'prepare',
+      };
       this.#timer = setTimeout(() => this.close(), 2000);
       try {
         this.#worker.postMessage({ id, command });

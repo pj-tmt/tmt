@@ -544,6 +544,10 @@ digits or hyphens, at most 32 bytes) and purpose is `sign` or `enc`. The certifi
 extension key to a device; it grants no remote authority by itself, and extension cryptography stays
 owned by the extension. The extension verifies it against the `publicKey` of a device context with
 the matching `deviceId`.
+Revocation does not change the mathematical validity of a retained certificate signature;
+the certificate grants no live authority. A revoked grant loses its forwarded owner-device
+context and cannot reopen a door session. Extensions learn revocation from the durable
+`device.revoked` tombstones below and own their device-bound key cleanup and revision handling.
 
 **Device events (local).** Remote delivers one channel to each mounted extension using ordinary
 HTTP/1.1 `POST /.tmt/remote/device-events` on that extension's existing owner-only
@@ -1028,6 +1032,10 @@ local door, device sign-in and relay where it meets this contract, rather than b
 relocated door and `/r/<prefix>/x/<extension>/` route mounting are implemented (#1039), with only
 colab allowlisted. Colab serves only its owner-only socket and has no door of its own; an owner
 session's device context reaches it through the mount (#1039).
+
+Core recognizes Remote through the shared native installer. Installation does
+not start `serve`, pair a device, grant operation authority or change
+`<dataRoot>/remote/` state. Archive publication remains separately gated.
 
 ## Conformance and acceptance
 

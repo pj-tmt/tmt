@@ -1,4 +1,4 @@
-//! Read-only settings shared by the CLI and board; Config owns all resolution.
+//! Settings shared by the CLI and board; Config owns resolution, validation and writes.
 use crate::{config::Config, core::SquadError, effects, tab_view};
 use clap::{Arg, ArgMatches, Command};
 use serde_json::{Value, json};
@@ -9,6 +9,8 @@ pub struct BoardSetting {
     pub value: Value,
     pub source: String,
     pub editable: bool,
+    /// Presentation-only binding prose; JSON keeps the literal value and source.
+    pub description: Option<String>,
 }
 pub struct BoardSettings {
     pub path: String,
@@ -27,6 +29,7 @@ impl BoardSettings {
             value,
             source: source.into(),
             editable: false,
+            description: None,
         });
     }
 }
@@ -34,6 +37,12 @@ impl BoardSettings {
 pub fn grammar() -> Command {
     tmt_cli_style::command(crate::specs::CONFIG)
         .subcommand_required(true)
+        .subcommand(
+            tmt_cli_style::command(crate::specs::CONFIG_SET)
+                .arg(Arg::new("key").required(true).value_name("KEY"))
+                .arg(Arg::new("value").required(true).value_name("VALUE"))
+                .arg(Arg::new("squad").long("squad").value_name("NAME")),
+        )
         .subcommand(
             tmt_cli_style::command(crate::specs::CONFIG_SHOW)
                 .arg(
@@ -46,22 +55,46 @@ pub fn grammar() -> Command {
         )
 }
 
-pub fn run(config: &Config, matches: &ArgMatches) -> Result<Value, SquadError> {
-    let (_, flags) = matches.subcommand().expect("required config subcommand");
+pub fn run(config: &mut Config, matches: &ArgMatches) -> Result<Value, SquadError> {
+    let (command, flags) = matches.subcommand().expect("required config subcommand");
     let squad = flags.get_one::<String>("squad");
     if let Some(name) = squad
         && !crate::squad::valid_name(name)
     {
         return Err(crate::squad::name_invalid(name));
     }
-    let tab = flags
-        .get_one::<String>("tab")
-        .map(|name| tab_view::key(config, name))
-        .transpose()?;
+    let changed = if command == "set" {
+        Some(config.set_setting(
+            squad.map(String::as_str),
+            flags.get_one::<String>("key").unwrap(),
+            flags.get_one::<String>("value").unwrap(),
+        )?)
+    } else {
+        None
+    };
+    let tab = (command == "show")
+        .then(|| {
+            flags
+                .get_one::<String>("tab")
+                .map(|name| tab_view::key(config, name))
+                .transpose()
+        })
+        .transpose()?
+        .flatten();
     let context = tab.as_deref().or(squad.map(String::as_str));
-    Ok(config
+    let mut result = config
         .settings(context, effects::tmux_socket().is_some(), None)?
-        .value())
+        .value();
+    if let Some(changed) = changed {
+        result["changed"] = json!(changed);
+        if matches!(
+            flags.get_one::<String>("key").unwrap().as_str(),
+            "board.direction" | "board.sizes" | "board.panes"
+        ) {
+            result["notices"].as_array_mut().unwrap().push(json!(format!("Saved layout {} and its split (direction, panes, sizes) to squad.toml. Later preset changes won't override them.", config.layout(squad.unwrap())?.as_str())));
+        }
+    }
+    Ok(result)
 }
 
 pub fn display(value: &Value) -> String {
@@ -86,9 +119,14 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
         fields.push((
             display(&entry["key"]),
             format!(
-                "{}  [from {}; read-only]",
+                "{}  [from {}; {}]",
                 display(&entry["value"]),
-                display(&entry["source"])
+                display(&entry["source"]),
+                if entry["editable"] == true {
+                    "editable"
+                } else {
+                    "read-only"
+                }
             ),
         ));
     }

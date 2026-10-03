@@ -124,7 +124,7 @@ impl Bundle {
             // Resolve this diagnostic only on failure, never replace fold admission.
             let inactive = store.owner_read(&key.space_id, &key.owner_public(), |tx| {
                 let (states, _) = crate::fold::verify_log(&tx.log()?, key, page)?;
-                Ok(states.last().is_some_and(|state| !state.active))
+                Ok(states.last().is_some_and(|state| !state.policy.writable()))
             });
             if matches!(inactive, Ok(true)) {
                 Box::new(Fault::Inactive) as _

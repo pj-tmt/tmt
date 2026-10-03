@@ -170,7 +170,7 @@ o = "run touch ${marker}"
         key: 'board.refresh',
         value: 'off',
         source: 'squad.product.board.refresh',
-        editable: false,
+        editable: true,
       });
       expect(
         shown.body.entries.find((entry: { key: string }) => entry.key === 'fields.probe').value.run
@@ -188,6 +188,134 @@ o = "run touch ${marker}"
       ).not.toBe(0);
       expect(readFileSync(config, 'utf8')).toBe(original);
       expect(existsSync(marker)).toBe(false);
+      expect(observe(sandbox)).toEqual(before);
+    });
+  });
+
+  it('config set validates, preserves unrelated TOML and hides tracks without removing JSON values', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'settings-owner');
+      await identity(sandbox, 'settings-worker');
+      await squad(sandbox, ['init', 'product', '--me', 'settings-owner']);
+      await squad(sandbox, ['add', 'settings-worker', '--squad', 'product']);
+      await squad(sandbox, [
+        'set',
+        'settings-worker',
+        'state=working',
+        'task=Keep task',
+        'pr_link=https://example.com/keep-hidden',
+      ]);
+      const marker = path.join(sandbox.root, 'must-not-run');
+      const config = path.join(sandbox.globalDir, 'squad.toml');
+      const original = `# keep settings comments
+opaque = "retained"
+[squad.product]
+layout = "crew"
+[squad.product.board]
+refresh = "5s" # keep timing comment
+[squad.product.rows]
+columns = [{name="member"}, {name="state"}, {name="task"}, {name="pr_link"}]
+lines = [["member", "state", "task", "pr_link"], [{field="task", span=4}]]
+[squad.product.fields.probe]
+run = ["touch", "${marker}"]
+[bind]
+o = "run touch ${marker}"
+`;
+      writeFileSync(config, original);
+      const before = observe(sandbox);
+      const edited = await squad(sandbox, [
+        'config',
+        'set',
+        'board.refresh',
+        '10s',
+        '--squad',
+        'product',
+      ]);
+      expect(edited.status, edited.stderr).toBe(0);
+      expect(edited.body.changed).toBe(true);
+      expect(edited.body.entries).toContainEqual({
+        key: 'board.refresh',
+        value: '10s',
+        source: 'squad.product.board.refresh',
+        editable: true,
+      });
+      const saved = readFileSync(config, 'utf8');
+      expect(saved).toContain('# keep timing comment');
+      expect(saved).toContain('opaque = "retained"');
+      for (const [key, value] of [
+        ['board.refresh', '0s'],
+        ['board.hidden_columns', '["unknown"]'],
+        ['board.hidden_columns', '["member","state","task","pr_link"]'],
+        ['fields.probe', 'run touch /never'],
+        ['bind.o', 'refresh'],
+      ]) {
+        expect(
+          (await squad(sandbox, ['config', 'set', key, value, '--squad', 'product'])).status
+        ).not.toBe(0);
+        expect(readFileSync(config, 'utf8')).toBe(saved);
+      }
+      expect(
+        (await squad(sandbox, ['config', 'set', 'board.refresh', '10s', '--squad', 'product'])).body
+          .changed
+      ).toBe(false);
+      expect(existsSync(marker)).toBe(false);
+      expect(observe(sandbox)).toEqual(before);
+      // Ordinary roster reads use this provider-free fixture; edits above never ran its command.
+      writeFileSync(
+        config,
+        saved.replace(`[squad.product.fields.probe]\nrun = ["touch", "${marker}"]\n`, '')
+      );
+      const opening = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(opening.status).toBe(0);
+      expect(
+        (
+          await squad(sandbox, [
+            'config',
+            'set',
+            'board.hidden_columns',
+            '["pr_link"]',
+            '--squad',
+            'product',
+          ])
+        ).status
+      ).toBe(0);
+      const hidden = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(hidden.body.hidden_columns).toEqual(['pr_link']);
+      expect(hidden.body.columns).toEqual(opening.body.columns);
+      expect(hidden.body.lines).toEqual(opening.body.lines);
+      expect(
+        hidden.body.sections[0].rows.find((row: { name: string }) => row.name === 'settings-worker')
+          .fields.pr_link
+      ).toBe('https://example.com/keep-hidden');
+      const text = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
+      expect(text.stdout).toContain('Keep task');
+      expect(text.stdout).not.toContain('example.com/keep-hidden');
+      expect(
+        (
+          await squad(sandbox, [
+            'config',
+            'set',
+            'board.hidden_columns',
+            '[]',
+            '--squad',
+            'product',
+          ])
+        ).status
+      ).toBe(0);
+      expect((await runCli(sandbox, ['sq', 'ls', '--squad', 'product'])).stdout).toContain(
+        'example.com/keep-hidden'
+      );
+      const pinned = await squad(sandbox, [
+        'config',
+        'set',
+        'board.direction',
+        'top-bottom',
+        '--squad',
+        'product',
+      ]);
+      expect(pinned.status).toBe(0);
+      expect(pinned.body.notices.join(' ')).toContain('Saved layout crew and its split');
       expect(observe(sandbox)).toEqual(before);
     });
   });
