@@ -278,14 +278,14 @@ export function proveArchiveAcceptance({
       '--quiet',
       '--locked',
       '--manifest-path',
-      'rust/Cargo.toml',
+      'Cargo.toml',
       '-p',
       'tmt-adapters',
       '--lib',
       '--no-run',
       '--message-format=json',
     ],
-    { cwd: root, env, timeoutMs: 600_000 }
+    { cwd: path.join(root, 'rust'), env, timeoutMs: 600_000 }
   );
   report(
     `Real-archive adapter acceptance compile: ${Math.ceil((performance.now() - started) / 1000)} seconds.`

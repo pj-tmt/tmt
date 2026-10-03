@@ -421,12 +421,13 @@ describe('fetchUpgrade and proveStaged', () => {
     });
 
     it('compiles the adapter only, binds verified archives, and executes exactly the ignored test', () => {
-      const calls: { executable: string; args: string[]; env: NodeJS.ProcessEnv }[] = [];
+      const calls: { executable: string; args: string[]; env: NodeJS.ProcessEnv; cwd: string }[] =
+        [];
       const fixture = input();
       const result = proveArchiveAcceptance({
         ...fixture,
         execute: (executable, args, options) => {
-          calls.push({ executable, args, env: options.env });
+          calls.push({ executable, args, env: options.env, cwd: options.cwd });
           return [compiled, listed, passed][calls.length - 1];
         },
       });
@@ -435,6 +436,8 @@ describe('fetchUpgrade and proveStaged', () => {
       expect(calls[0].executable).toBe('cargo');
       expect(calls[0].args).toContain('--no-run');
       expect(calls[0].args).toContain('tmt-adapters');
+      expect(calls[0].args).toContain('Cargo.toml');
+      expect(calls[0].cwd).toBe(path.join(calls[1].cwd, 'rust'));
       expect(calls[0].args).not.toContain('--release');
       expect(calls[0].env.CARGO_BUILD_JOBS).toBe('2');
       expect(calls[0].env.CARGO_TARGET_DIR).toBe('/shared/task-target');

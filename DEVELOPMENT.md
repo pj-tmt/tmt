@@ -2018,7 +2018,8 @@ the `upgrade` hold marker carries that reason with the run URL.
 For CLI, each `prove` host also runs the real-archive adapter acceptance test after
 the installer/migration proof, using the same digest-checked previous and candidate
 archives. `release-upgrade.mjs acceptance` compiles only `tmt-adapters`' lib tests
-with two Cargo workers, no debug information or incremental compilation, then
+from `rust/` to select its pinned toolchain, with two Cargo workers, no debug
+information or incremental compilation, then
 requires exactly one discovered and executed passing ignored test. The existing
 read-only `native-rust` dependency cache is restored without another writer. The
 job retains its ten-minute timeout; compile duration and the test's output appear
@@ -2211,7 +2212,7 @@ TMT_UPGRADE_OLD_MANIFEST=/absolute/old/manifest.json \
 TMT_UPGRADE_NEW_ARCHIVE=/absolute/new/archive.tar.gz \
 TMT_UPGRADE_NEW_MANIFEST=/absolute/new/manifest.json \
 TMT_UPGRADE_TARGET=aarch64-apple-darwin \
-CARGO_BUILD_JOBS=2 cargo test --locked --manifest-path rust/Cargo.toml -p tmt-adapters --lib \
+CARGO_BUILD_JOBS=2 cargo +1.97.0 test --locked --manifest-path rust/Cargo.toml -p tmt-adapters --lib \
   native_install::upgrade::artifact_tests::cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts \
   -- --exact --ignored --nocapture
 ```
