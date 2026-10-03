@@ -8,8 +8,9 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
-import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
+import { expectError, parseWholeStdout, runCli } from '../support/cli-process.js';
 import { createArtifact } from '../support/native-artifact.js';
+import { withReleaseSandbox } from '../support/native-installation.js';
 import { workspaceVersion } from '../support/workspace-version.js';
 
 describe('frozen Office extension lifecycle', () => {
@@ -17,7 +18,7 @@ describe('frozen Office extension lifecycle', () => {
     'refuses acquisition, preserves listing/removal and skips root upgrade with %s Office',
     { timeout: 60_000 },
     async (state) => {
-      await withSandbox(async (sandbox) => {
+      await withReleaseSandbox(async (sandbox) => {
         const prefix = path.join(sandbox.root, 'managed prefix');
         const version = (await runCli(sandbox, ['--version'])).stdout.trim();
         const cli = await createArtifact(sandbox, version);

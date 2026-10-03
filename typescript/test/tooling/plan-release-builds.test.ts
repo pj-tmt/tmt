@@ -82,6 +82,27 @@ describe('release build plan', () => {
     expect(plan.blocked).toEqual([]);
   });
 
+  it('plans exactly the allocated tag without selecting another active or failed draft', () => {
+    const releases = [
+      draft('v5.0.0-alpha.49', '1', [FAILURE_ASSET]),
+      draft('v5.0.0-alpha.50', '2'),
+      draft('v5.0.0-alpha.51', '3'),
+    ];
+    const plan = planReleaseBuilds({ product: 'cli', tag: 'v5.0.0-alpha.50', releases });
+    expect(tags(plan)).toEqual(['v5.0.0-alpha.50']);
+    expect(plan.blocked).toEqual([]);
+    expect(() => planReleaseBuilds({ product: 'cli', tag: 'v5.0.0-alpha.52', releases })).toThrow(
+      'not a draft release'
+    );
+    expect(() =>
+      planReleaseBuilds({
+        product: 'cli',
+        tag: 'v5.0.0-alpha.50',
+        retry: 'v5.0.0-alpha.49',
+        releases,
+      })
+    ).toThrow('separate runs');
+  });
   it('selects activated standalone driver drafts without planning CLI builds or publication', () => {
     const releases = [draft('tmt-driver-herdr-v0.1.0-alpha.1', '1'), draft('v5.0.0-alpha.9', '2')];
     expect(tags(planReleaseBuilds({ product: 'driver-herdr', released: true, releases }))).toEqual([

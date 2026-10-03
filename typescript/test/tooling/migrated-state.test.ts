@@ -1,18 +1,14 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { afterAll, describe, expect, it } from 'vite-plus/test';
 import type { StateSnapshot } from '../../scripts/migrated-state.mjs';
 
-// vite-node of Vitest 1 cannot resolve `node:sqlite`, so Node loads the module (which imports it)
-// and the builtin itself, outside the transform.
-const nodeRequire = createRequire(import.meta.url);
+// Publication attribution imports an async ESM graph; do not load it with require().
 const { DatabaseSync } = process.getBuiltinModule('node:sqlite');
-const { checkMigratedState, expectedMigrations, snapshotState, writePriorState } = nodeRequire(
-  '../../scripts/migrated-state.mjs'
-) as typeof import('../../scripts/migrated-state.mjs');
+const { checkMigratedState, expectedMigrations, snapshotState, writePriorState } =
+  await import('../../scripts/migrated-state.mjs');
 
 const directory = mkdtempSync(path.join(tmpdir(), 'migrated-state-'));
 afterAll(() => rmSync(directory, { recursive: true, force: true }));

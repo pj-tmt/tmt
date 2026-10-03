@@ -33,19 +33,19 @@ entries and current exceptions with their removal issues. Component ownership co
 from [`.github/components.json`](.github/components.json), through `ci-scope.ownerOf`;
 layout permission does not change component ownership, CI selection or release policy.
 
-| Home                      | Responsibility                                                                                                                         |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Repository root           | Short entry points, contributor guidance, license and required repository/tool configuration; no product source or generated evidence. |
-| `.agents/`                | Repository contributor procedures.                                                                                                     |
-| `.github/`                | Component ownership, layout allowlist, workflows, shared Actions and isolated release tooling.                                         |
-| `rust/`                   | Native CLI, core, adapters, shared Rust leaves, private fixtures and the release archive note; extensions retain their own crates.     |
-| `typescript/`             | Private developer tooling, tests and shared fixture support; no product-runtime fallback.                                              |
-| `extensions/<extension>/` | Feature-owned runtimes, contracts, skills, documentation and assets.                                                                   |
-| `contracts/`              | Core public contracts and their normative fixtures.                                                                                    |
-| `scripts/`                | Shared root shell/build/development helpers.                                                                                           |
-| `skills/`                 | Canonical bundled user-agent guidance.                                                                                                 |
-| `site/`                   | User handbook and its build. Translated pages: `site/src/i18n/<lang>/`.                                                                |
-| `design/`                 | Shared design tokens and CLI style guidance.                                                                                           |
+| Home                      | Responsibility                                                                                                                                      |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository root           | Short entry points, contributor guidance, license and required repository/tool configuration; no product source or generated evidence.              |
+| `.agents/`                | Repository contributor procedures.                                                                                                                  |
+| `.github/`                | Component ownership, layout allowlist, workflows, shared Actions and isolated release tooling.                                                      |
+| `rust/`                   | Native CLI, core, adapters, shared Rust leaves, private fixtures, release tooling and the release archive note; extensions retain their own crates. |
+| `typescript/`             | Private developer tooling, tests and shared fixture support; no product-runtime fallback.                                                           |
+| `extensions/<extension>/` | Feature-owned runtimes, contracts, skills, documentation and assets.                                                                                |
+| `contracts/`              | Core public contracts and their normative fixtures.                                                                                                 |
+| `scripts/`                | Shared root shell/build/development helpers.                                                                                                        |
+| `skills/`                 | Canonical bundled user-agent guidance.                                                                                                              |
+| `site/`                   | User handbook and its build. Translated pages: `site/src/i18n/<lang>/`.                                                                             |
+| `design/`                 | Shared design tokens and CLI style guidance.                                                                                                        |
 
 Homes of moved guidance:
 
@@ -53,8 +53,8 @@ Core public process and request/response contracts live in `contracts/extension-
 and `contracts/request-response-v1.md`; the Remote channel contract lives in
 `contracts/remote-channel-v1.md`. The local MCP wire is owned by
 `contracts/mcp-v1.md`. CLI style guidance lives in `design/cli-style.md`.
-Release-verification procedures belong to
-[DEVELOPMENT's release section](DEVELOPMENT.md#native-release-verification).
+Release procedures belong to the
+[release skill](.agents/skills/tmt-release/SKILL.md) and its references.
 
 - The handbook owns user guidance. Office documentation and art helpers live in
   `extensions/tmt-office/docs/` and `extensions/tmt-office/scripts/art/`.
@@ -63,6 +63,10 @@ Release-verification procedures belong to
   is part of the installer contract, so the name stays. Runtime performance probes
   are in [DEVELOPMENT](DEVELOPMENT.md#optional-performance-probes). No top-level
   exception remains.
+
+The infra-owned Rust paths include `rust/crates/tmt-release-tool`, the private
+release-version TOML binary. It is excluded from CLI release roots and has its own
+non-released component entry, like `rust/crates/tmt-test-support`.
 
 New homes or exceptions require an infra-reviewed proposal with a component owner
 and bounded responsibility. Update this map and the JSON allowlist together;
@@ -755,63 +759,12 @@ Playwright version. Only successful runs on the main ref save browser binaries; 
 restore. Reports/logs are advisory L1 evidence, with commands owned by
 [Development](DEVELOPMENT.md#colab-browser-verification).
 
-The same map feeds release versioning. `typescript/scripts/release-please-config.mjs`
-generates `release-please-config.json` from the map (one release-please package per
-component root, minus its excludes), the Cargo workspace (which crates declare their own
-version, which path dependencies a component links, which crates have a `Cargo.lock`
-entry, which files are tracked) and `native-release-policy.mjs`, the one owner of tags and publication flags. Its
-`readWorkspace()` exposes Cargo-resolved crate versions through bounded, offline metadata. Native
-CLI version expectations and Office installation/hook fixtures select their crate from that
-reader once per suite instead of parsing TOML separately. A `Cargo.lock` line is updated by
-whichever component declares that crate's version: a crate
-that inherits the workspace version is declared by the owner of `rust/Cargo.toml`, even when
-a private `release: false` component owns the crate, because the next locked build fails
-when that release leaves its entry behind. Office is parked this way: it owns its files and
-CI scope but has no release-please package, manifest entry or release run, and its binary
-opts out of cargo-dist with `dist = false`. The native-release entry delegates to
-`native-release-policy.mjs require-released`, which checks the same component policy
-before preparation or draft planning, so a parked product cannot enter the bundle
-pipeline through manual preparation. Native tests compare the CLI's installable
-extensions with the released extension components in the map.
-Revival is owned by [DEVELOPMENT](DEVELOPMENT.md#revive-office) and requires maintainer approval.
-release-please attributes a commit to a package by the files it touches under the package
-path and can only drop paths, so the CLI's `exclude-paths` lists everything under each
-extension root except the crates the CLI links (today the Office model, command and service
-crates), and a change to those crates counts toward the CLI release as well as Office's. The
-reverse direction has no release-please config option. The map's private TUI, CLI style and invoke leaves declare
-`releaseConsumers: ["squad"]`. `release-please-run.mjs` wraps the pinned public commit iterator
-and adds a consumer-root marker to each matching commit's in-memory file list before the normal
-split, excludes and per-product release cutoff. Original files and ordering are preserved;
-no source file, private-leaf version or release manifest entry is created. TUI-only fixes therefore
-propose Squad, while the CLI remains excluded. Style-only and invoke-only fixes propose both
-Squad and CLI; their original package-root attribution to CLI and other consumers is preserved.
-The config generator uses its existing Cargo metadata graph to require declared attribution for
-every external production workspace dependency, including transitive links, of a release consumer.
-Expanding consumption requires a separate ownership review; private leaves remain unpublished
-and retain their existing version and lockfile owners.
-`.release-please-manifest.json` holds the last published versions and belongs to
-release-please after its first release pull request. The CLI is pinned with a lockfile in
-`.github/release-please/`, outside the `typescript` workspace. Only the release job and CI jobs running
-release-config tests install it; tests load that same isolated pin to verify the wrapper's API shape
-and real Manifest attribution, without adding release tooling to other workspace installs.
-`check:tooling` runs the wrapper's read-only install prerequisite before type checking;
-[Development](DEVELOPMENT.md) owns the explicit installation command.
-The config retains `always-update` for conflict recovery: each component edits the shared
-manifest, whose adjacent lines can conflict. `release-please-run.mjs` wraps the pinned
-GitHub update boundary to preserve an open PR's head when its title, complete inline
-notes, generated file bytes and modes are unchanged and GitHub does not report a conflict.
-File comparisons use the observed immutable head SHA. Changed content, missing files
-and confirmed conflicts use the original updater; unknown mergeability preserves an
-otherwise unchanged head and returns normally so draft reconciliation continues. Acquisition
-errors fail visibly without treating uncertainty as equality. Overflow notes retain the
-original update/overflow behavior. This avoids CI restarts for unchanged release content;
-new release content still needs a new verified head.
-A tooling test fails when the committed config is not what the generator writes, when a
-workspace crate's lock entry or declared version is managed zero or several times, or when
-a tag disagrees with the policy or a package could leave the alpha line (release-please's
-`prerelease` option also keeps the version line, so `false` would graduate 5.0.0-alpha.8 to
-5.0.0; the flags a published release carries come from the policy when the draft is
-published). Nothing runs the pinned CLI until the release workflow adopts it.
+The same component map feeds release attribution through the shared Cargo metadata
+owner and released-root lookup. CI selection, path ownership, production binary
+consumption and version inheritance remain separate contracts. Native version
+fixtures consume Cargo-resolved versions from that owner rather than parsing TOML
+again. The [release boundary](#release-boundary) owns cut and publication behavior;
+[Development](DEVELOPMENT.md#revive-office) owns parked-product revival.
 
 ## Browser add-on shell
 
@@ -3179,8 +3132,8 @@ The ordinary metadata path is one refs request and one release lookup, preservin
 unauthenticated request capacity. Optional Link pagination stays on the same
 product endpoint under one metadata byte budget and deadline; incomplete discovery
 fails closed. DEVELOPMENT owns page/request bounds and verification cases.
-GitHub's latest pointer cannot select stable: CLI alphas are normal releases marked
-latest. Acquisition retains the existing immutable release, product prerelease
+GitHub's latest pointer cannot select a channel: it tracks the highest published
+CLI version under the [main release model](#main-release-cuts). Acquisition retains the existing immutable release, product prerelease
 flag, asset digest and manifest checks before installation. The shared
 `release_http::Https` adapter classifies API 403/429 responses only when primary
 rate-limit headers report zero remaining requests with a reset header, or a
@@ -4267,16 +4220,15 @@ consumers. Only Adapters, CLI, Squad, Office, Colab and Office Command may decla
 its canonical untargeted dev-dependency; no production or build edge may consume
 it. The architecture guard checks those exact edges, production references and
 publication metadata. Its only production dependency is the neutral `tmt-invoke` leaf.
-Its developer-only `release-version` example owns the release TOML tool described
-[below](#release-cut-shadow), with exact untargeted `serde_json`/`toml_edit` dev edges;
-these dependencies cannot enter the library or become production/build edges.
 Its separate `colab-runtime-fixture` example is the reviewed native stand-in
 for archive and public-install verifier sensitivity. Embedded tiny app bytes and
 argument-selected defects belong to this executable, with scenario assertions in
 tooling tests. Its `signal-hook` dev-dependency owns fixture SIGTERM cleanup; the
 library's production dependency boundary and publication helper are unchanged.
 Its `recording-cli-fixture` example is the native driver for synthetic
-extension-upgrade archives on every platform. The scenario owns absolute
+extension-upgrade archives on every platform. Its `serde_json` dev-dependency
+parses fixture configuration; release TOML edits belong to `tmt-release-tool`.
+The scenario owns absolute
 delegate/log configuration in its synthetic `NATIVE-INSTALL.md`; the example
 records the first two argv values and execs the selected CLI without changing
 process or environment ownership. Executable publication and exact macOS
@@ -4462,7 +4414,7 @@ The component owns its Cargo version and lock entry, and CLI release paths exclu
 it. The component is parked with `release:false` and Cargo `dist=false`;
 release cut (#1399) activates both for its first standalone release. The retained
 `bootstrapSha` is that cut's first-release history boundary, the last commit before
-the component existed. No Herdr package or cutoff is added to release-please.
+the component existed. Herdr remains excluded from live release planning until owner-authorized activation.
 CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 
@@ -4494,66 +4446,70 @@ local file path. It never alters registry contents or fetches license text.
 Cargo-about retains target filtering and `--offline --locked --fail`; the final
 artifact verifier still rejects placeholder attribution.
 
-### Release-cut shadow
+### Main release cuts
 
-The [#1399 migration](https://github.com/pj-tmt/tmt/issues/1399) is in shadow mode.
-The existing release-please path still creates release PRs and native drafts;
-`release-cut.yml` performs no publication or queue mutations. Its trusted-main
-metadata job uses bounded REST GETs to obtain complete releases (including drafts)
-and active native runs. Draft visibility requires contents-write permission;
-only sanitized metadata crosses to the read-only planner, never credentials.
-`native-release.yml` names each run with its product so queued/running work is
-attributable. Older or unknown active run identities block the shadow plan.
+A release is a product-prefixed tag on a main commit X. `release.yml` evaluates
+released components hourly or on manual dispatch, with recovery in the hourly run; main's crates retain fixed
+development versions. `release-cut.mjs` is the pure cut planner, and
+`release-cut-live.mjs` owns bounded REST draft creation and native dispatch. The
+adapter captures main HEAD once, exports tracked X, warms its locked dependencies
+with the pinned acquisition toolchain, then reads its component map and offline
+Cargo graph, and rechecks the release catalog immediately before each component
+mutation. Missing history or incomplete metadata fails closed.
 
-`release-cut.mjs` owns the proposed cut computation. It captures one main SHA X,
-reads the component map at X through `parseComponentMap`/`ownerOf`, and attributes
-paths by ownership, exclusions, selected globs and declared `releaseConsumers`.
-Private-leaf consumers add attribution without replacing matching released-root
-membership: style/invoke remain CLI plus Squad, while explicitly CLI-excluded
-TUI is Squad only. `releasedComponentsForPath` in `ci-scope.mjs` owns released-root
-membership plus every workspace crate directory in each product package's transitive
-normal/build dependency closure for both this planner and the Project release sweep.
-Dev edges never contribute. `cargo-workspace.mjs::readCargoWorkspace` is the shared
-Cargo reader: callers supply a repository root directory, exporting an immutable ref
-when needed; it performs offline locked format-version-1 metadata acquisition without
-Git logic or manifest parsing. It exposes resolved package versions, manifest
-paths/directories, binary targets, dist metadata and workspace edges by dependency
+Attribution adds product binary transitive normal/build workspace dependencies to
+the shared released-root membership rule; dev dependencies do not count. Private
+non-Rust consumers remain additive. CI selection is unchanged. Pinned conventional
+parser/renderer dependencies produce notes for the releasable first-parent commits
+across the shared range below; linked SHAs equal that set by construction.
+A short serialized allocation section counts existing drafts and Git tags to
+reserve the next alpha number; each allocated tag then owns its independent pipeline. Explicit owner-selected
+versions must advance it; first release requires a reviewed bootstrap and seed.
+Authorization belongs to the [release skill](.agents/skills/tmt-release/SKILL.md).
+
+`cargo-workspace.mjs::readCargoWorkspace` is the shared Cargo reader: callers
+supply a repository root directory, exporting an immutable ref when needed. It
+performs offline locked format-version-1 metadata acquisition without Git logic
+or manifest parsing. It exposes resolved package versions, manifest paths and
+directories, binary targets, dist metadata and workspace edges by dependency
 kind, with a cycle-safe closure operation and injectable command runner. Version
-inheritance and editing remain owned by the Rust `release-version` tool (`toml_edit`).
-The cut caller exports the captured cut and removes that temporary checkout on success or failure.
-`ownerOf` supplies the selected owner and its declared consumers from the same parsed map.
-There is no generated release-config path expansion. Direct pinned conventional
-parser/renderer dependencies produce notes from first-parent commits in
-(previous product tag, X]; their linked SHA set must equal the releasable set.
-The last published product tag supplies the next alpha number. Stable/core-version
-changes and a first release without an approved initial version are reported as
-requiring the owner; missing history or draft/run evidence cannot mean an empty
-range or an idle component. A draft blocks that component. Breaking notes remain
-explicitly owner-required.
+inheritance and editing stay with the Rust `release-version` tool (`toml_edit`).
 
-`release-version-injection.mjs` owns the shadow checkout version contract. It
-discovers Cargo inheritance, edits only the selected version declaration, and
-verifies full offline locked resolution against the tag. All tracked source
-hashes, the exact manifest edit and semantic lock entries are checked; only local
-package versions and their implied qualified dependency references may change.
-The developer-only `tmt-test-support` example `release-version` is the single TOML owner:
-workspace-pinned `toml_edit` parses manifests/locks and preserves formatting and
-comments while editing the version. It is not a shipped product command.
-The Linux x64 runtime producer transfers this example as a separate fixture
-artifact to ordinary tooling tests; product runtime artifacts retain their existing shape.
-The dist plan, build manifest and extracted binary must agree with the tag. The
-four-host PR workflow builds fixture versions without committing, tagging,
-dispatching or publishing. The independently versioned private Herdr fixture stays unchanged.
+Each releasable cut gets one tagless draft targeting X and one tag-keyed native
+pipeline. A component needs releasable commits after its newest allocated ancestor
+(draft or published) before another cut; unrelated main movement does not repeat
+failed content. Notes, migrations and breaking authorization cover (newest published ancestor, X]. Existing drafts, running pipelines
+and failed cuts never prevent new component work from being cut; failed drafts stay unpublished. Automatic allocation at an already-cut product/X is idempotent; a later X remains
+independent. Concurrent cuts may have overlapping notes until publication advances
+the shared ancestor boundary. CLI publication converges GitHub latest to the highest published CLI version;
+extensions never change latest. Ordering gates and owner operations belong to the release skill.
+No release PR, merge-queue release hold or version commit mediates a cut. Publication
+creates its tag on X after every gate passes.
 
-Historical comparison fixtures carry the public release bodies and source-map
-snapshots for CLI alpha.44→45/45→46 and Squad alpha.12→13. Their cuts are those
-historical release PRs' merge parents, only in the fixtures; the production planner
-uses ordinary tag/main ancestry. Those comparisons and one main-push shadow run
-gate the later switch, rather than new old-path publications. Live cut creation,
-production injection, fixed main development versions and old-path removal remain
-future migration phases. Procedures belong to
-[DEVELOPMENT](DEVELOPMENT.md#release-cut-shadow-verification); authorization belongs
-to the [release skill](.agents/skills/tmt-release/SKILL.md).
+`release-version-injection.mjs` owns the checkout version contract. It discovers
+Cargo inheritance, edits only the selected version declaration, and verifies full
+offline locked resolution. Every tracked source hash, exact manifest bytes and
+semantic lock entry is checked; only local versions and their implied qualified
+dependency references may change. Already-versioned reruns require byte-identical source and lock. Tagless
+preparation follows the non-publishing synthetic-version contract in the release
+skill and passes the same source, artifact and installation gates. Build, assembly, archive proof
+and upgrade proof including CLI adapter acceptance each recheck this contract;
+dist plan, build manifest and extracted binary must agree with the captured tag.
+
+The infra-owned private `rust/crates/tmt-release-tool` crate supplies
+`release-version`, the single TOML parsing and formatting-preserving edit owner.
+It depends only on `serde_json` and `toml_edit`, is neither published nor
+distributed, and no product crate may depend on it in any dependency kind. The
+Linux runtime producer transfers it separately to tooling fixtures. The persistent
+four-host PR workflow reuses the production injection action without release
+secrets or publishing privileges. Herdr and other parked products remain private;
+activation and first alpha belong to #1418 and require owner authorization.
+
+Historical comparison fixtures retain public release bodies, source maps and the
+historical release PR parent cuts for CLI alpha.44→45/45→46 and Squad alpha.12→13.
+Those parents are fixture provenance only; production ancestry uses main tags.
+Procedures belong to the [release skill](.agents/skills/tmt-release/SKILL.md)
+and its [main-cut reference](.agents/skills/tmt-release/references/main-cuts.md).
 
 ### Release-to-Project tracking
 
@@ -4564,14 +4520,13 @@ release App token owns bounded batched Project/closing-PR GraphQL reads and fiel
 writes; `GITHUB_TOKEN` reads the complete paginated published release catalog.
 Only trusted main tooling executes. A full-history checkout supplies each merged
 closing PR's first-parent changed paths and tags containing its merge commit.
-`ci-scope.ownerOf` and the component map own product attribution. Private-leaf
-`releaseConsumers` add consumers to the released packaged roots returned by
-`ci-scope.releasedComponentsForPath`, which matches `owns`/`excludes` and adds the
-Cargo normal/build workspace closure independently of CI `selectedBy`. Thus Office
-model/command/service changes require CLI evidence; Office runtime/storage/pairing
-and dev-only test support do not. This release attribution does not change CI selection. Style and invoke therefore retain CLI membership alongside
-Squad; the explicitly CLI-excluded TUI leaf belongs only to Squad. Native release
-policy and version helpers own product/tag identities. Notes, commit types and recency windows are not evidence.
+The updater exports today's main HEAD once and reads its component map and Cargo
+graph once for the entire sweep. Product attribution reuses the shared membership
+rule described in [Main release cuts](#main-release-cuts), including normal/build
+linked dependencies and explicit non-Rust consumers. Historical closing commits
+supply paths and ancestry, not historical attribution rules. Native release policy
+and version helpers own product/tag identities. Notes, commit types and recency
+windows are not evidence.
 
 For each affected product, the earliest publication whose tag contains all of
 that issue's closing merge commits is the canonical `Released in` entry. Every
@@ -4606,105 +4561,20 @@ and genuine smoke failures. All updater runs serialize project-wide. Caps fail
 visibly before mutation on incomplete discovery, never silently truncate.
 DEVELOPMENT owns token setup, request budgets and dry-run review procedures.
 
-The release workflow is a product-selected preparation, verification and publication
-workflow; publication is authorized by the owner: the standing trunk-based alpha authorization
-in the release skill covers the pipeline publishing an alpha draft that passes every gate, and
-nothing else. `native-release.yml` is the per-product
-run (one queued concurrency group per product) and calls `native-release-bundle.yml`,
-the build, assemble, verify and publish pipeline, once per draft release that lacks a verified
-bundle or is complete and waits for its publication; the state lives on the draft itself (`release-publication.json` marks a complete
-bundle, `verification-failed.json` parks a failed draft), so a replaced or cancelled run
-loses nothing and a known-bad commit is not rebuilt. `release.yml` runs release-please
-(the CLI pinned in `.github/release-please`, configured by the generated
-`release-please-config.json`) on every push to `main`, documentation included: it
-reconciles merged release PRs through `github-release` first, checks fresh REST
-draft evidence (including drafts created in this run), prepares/dequeues stale
-queued candidates, then refreshes one release PR per unheld component and enables
-auto-merge on at most one (through required checks and the merge queue). It starts
-the per-product run for each product that has a draft without a bundle. A
-GitHub App token, created only in that job and only in a live run on `main`, is what lets
-the release pull requests run the required checks; the job runs in the `release`
-Environment and the App credentials are secrets of that Environment, restricted to `main`.
-Until they exist every push is a dry run that opens, merges, creates and starts nothing.
-`typescript/scripts/release-please-queue.mjs` owns paginated release-PR discovery and
-single-active auto-merge selection under the workflow's existing concurrency group.
-The pre-check completes discovery and skips `release-pr` only when the queued
-candidates' head-matched REST notes pass `checkReleaseNotes` against fetched
-`origin/main`, preserving the candidate after `github-release` has run. Proven invalid or incomplete
-notes require the queue owner to recheck the observed PR identity, head and queue entry,
-then dequeue it once with the release App token before regeneration. A failed or
-unverified dequeue skips generation and auto-merge enabling with a visible recovery
-summary after `github-release`, while downstream draft processing continues. Dry runs
-only report the planned dequeue. Acquisition and metadata failures during initial
-coverage discovery remain visible failures. Full checkout history and tags support the
-shared safety owner; the queue owner has no second coverage policy. Complete discovery precedes
-auto-merge enabling; an existing enabled or queued release blocks another. Otherwise
-the oldest eligible same-repository main release PR is enabled with its observed head
-SHA as a fence. Multiple already-active releases fail with reconciliation guidance.
-The owner does not update BEHIND branches: the queue verifies the merged result against
-current main. Query and release-please errors remain failures. Discovery is not atomic
-with external enqueues or a later branch update; [Development](DEVELOPMENT.md#queued-release-pull-requests)
-owns bounds, token and recovery behavior.
-`release-pr-safety.mjs` owns the read-only release PR safety gates. `Code quality`
-checks PR notes on PR updates and merge groups: the compare base must be the
-component's newest published tag, and each linked commit must descend from that
-tag and be an ancestor of the candidate base, excluding the tag itself. COVERAGE
-requires links for every commit the pinned release-please notes renderer lists
-in that range for the component. The safety owner uses candidate-base config paths,
-exclusions and changelog sections (or pinned defaults), the pinned parser/splitter
-and the existing private-leaf attribution wrapper to project those links.
-`release-please-commits.mjs` owns the pinned internal import/compatibility boundary;
-a missing interface fails visibly before coverage planning. No
-parallel conventional-type or entry-count policy owns visibility; bounded local
-history and unsupported renderer evidence fail closed. It reuses release
-version/policy owners and does not plan version updates or write changelogs.
-Pending squash queue commits have no REST commit/PR associations yet;
-the gate resolves their GitHub-appended PR numbers and identifies release branches
-before verifying their title/repository/base metadata and current notes in the
-cumulative pending range. Ordinary PR metadata mismatches do not fail this gate.
-Body/title edits do not restart full PR CI; the merge-group REST read gates the current body.
-Missing or inconsistent anchors, notes, queue data and bounded discovery fail visibly.
-The same owner checks every manifest component version after `github-release`
-and before `release-pr`, using fresh REST reads:
-a visible matching draft without an exact git tag holds only its manifest path.
-The workflow passes held paths to the pinned wrapper, whose ManifestPlugin hook
-filters those path-aware candidates before separate PRs are emitted or updated.
-Unheld components regenerate normally; only all-held paths skip `release-pr`.
-`github-release` and build dispatch remain available. Published releases and tagged drafts do not
-hold creation. REST reads use explicit workflow credentials and bounded pages;
-no release or tag is mutated by either gate.
+`native-release.yml` serializes a complete run per product and calls the bundle
+pipeline for drafts lacking verification or awaiting publication. Draft assets
+carry durable state: `release-publication.json` marks a complete bundle,
+`verification-failed.json` parks a failed build and `publication-held.json` records
+a gate hold. Replaced or cancelled runs recover from this state without rebuilding
+known failures. All existing build, archive, installation, upgrade, immutable-tag
+readback and public smoke gates remain required.
 
-`release-stall.mjs` owns advisory monitoring after release-please, separate from
-required gates. It observes component guard holds and uses the pinned manifest’s
-read-only candidates to identify newest releasable commits. An immutable full
-checkout supplies commit/file/tag acquisition; the attribution wrapper still
-owns private-leaf consumption. No duplicate conventional-commit parser or
-changelog generator selects release work. The release job’s existing App-token
-reader alone discovers drafts, because read-only credentials cannot see them;
-it emits only matching draft path/ID/tag/time metadata alongside held paths.
-A separate advisory job consumes those outputs with only `contents: read` and
-`issues: write` permission. It holds no App token or Environment secrets: all of
-its own REST uses `github.token` for published releases, PR/head ancestry and the
-single fixed-title `Release stalled` issue, plus open post-publication reporter issues for
-current published manifest tags. Historical rate-limit infrastructure and current check failures produce
-distinct advisory findings; neither permits publication replay. Later publication
-supersedes the snapshot; missing or malformed draft evidence cannot declare healthy. Stable occurrence
-markers in comments suppress retry duplicates; healthy complete discovery closes
-the same issue. Uncertainty warns without closing, and dry runs only summarize.
-Its request/deadline budget and isolated workflow timeout keep all monitor failures
-advisory; existing release and publication gates retain their failure behavior.
-[Development](DEVELOPMENT.md#release-stall-monitoring) owns thresholds and bounds.
-
-The same safety owner provides `titles-report`, invoked only for merge groups.
-Notes and title feedback share the bounded cumulative squash-subject reader;
-title feedback checks the actual queued subjects, without comparing ordinary PRs
-against mutable REST titles. It checks conventional title syntax only, leaving
-release attribution and changelog generation with release-please. Findings and
-unavailable evidence are reported to stdout and the job summary, with a zero exit
-status throughout the report-only phase, including summary-write failures.
-[Development](DEVELOPMENT.md#conventional-pr-title-rollout) owns the observation
-window and the separate, explicit UTC enforcement cutover. No edit trigger or
-additional workflow restarts full PR CI for this feedback.
+`pr-title-check.mjs` independently reports conventional merge-group squash-title
+syntax through the bounded cumulative subject reader. Findings and unavailable
+evidence go to stdout and the job summary with zero exit status, including summary
+write failures. [Development](DEVELOPMENT.md#conventional-pr-title-rollout) owns the
+separate enforcement cutover. Title reporting neither restarts ordinary PR CI nor
+owns release attribution.
 
 `release.yml` never publishes. `native-release-upgrade.yml` proves, for a draft or
 published release, its upgrade from the last published release of the same product on the

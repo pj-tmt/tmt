@@ -27,5 +27,4 @@ export function readCutMetadata(
     body?: string;
     target_commitish?: string;
   }[];
-  runs: { id: number; status: string; display_title: string; html_url?: string }[];
 };

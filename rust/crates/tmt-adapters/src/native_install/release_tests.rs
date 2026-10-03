@@ -413,6 +413,27 @@ fn selects_latest_stable_and_alpha_versions_and_uses_canonical_asset_urls() {
 }
 
 #[test]
+fn alpha_channel_selects_the_highest_version_after_out_of_order_publication() {
+    let (mut higher, manifest, archive, _) = valid_fixture("5.0.0-alpha.50", TARGET, 105);
+    let (mut lower, _, _, _) = valid_fixture("5.0.0-alpha.49", TARGET, 104);
+    higher["published_at"] = "2026-10-03T10:00:00Z".into();
+    lower["published_at"] = "2026-10-03T11:00:00Z".into();
+    let mut fixture = HttpFixture::default();
+    fixture.releases(&[lower, higher.clone()]);
+    register(&mut fixture, &higher, &manifest, &archive);
+
+    let selected = call_download(&mut fixture, Channel::Alpha, None, TARGET).unwrap();
+    assert_eq!(selected.version.to_string(), "5.0.0-alpha.50");
+    assert_eq!(fixture.calls[1].url, exact_url("5.0.0-alpha.50"));
+    assert!(
+        fixture
+            .calls
+            .iter()
+            .all(|call| !call.url.contains("/releases/latest"))
+    );
+}
+
+#[test]
 fn exact_selection_uses_tag_api_and_numeric_asset_endpoints() {
     let (release, manifest, archive, _) = valid_fixture("1.2.3", TARGET, 220);
     let mut fixture = HttpFixture::default();

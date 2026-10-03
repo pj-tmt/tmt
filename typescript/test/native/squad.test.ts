@@ -18,6 +18,7 @@ import Database from 'better-sqlite3';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vite-plus/test';
+import { workspaceVersion } from '../support/workspace-version.js';
 import { parseWholeStdout, runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 
 // Scenario-local selector: the built squad extension, never an installed copy.
@@ -133,14 +134,7 @@ async function readyContextFixture(sandbox: Sandbox, file: string, payload: stri
 }
 
 /** The version tmt-squad reports: its package version. */
-const squadVersion = /^version = "([^"]+)"$/m.exec(
-  readFileSync(
-    fileURLToPath(
-      new URL('../../../extensions/tmt-squad/rust/tmt-squad/Cargo.toml', import.meta.url)
-    ),
-    'utf8'
-  )
-)?.[1];
+const squadVersion = workspaceVersion('tmt-squad');
 
 describe('squad extension', () => {
   it('config show reports effective sources without writing or executing configured commands', async () => {
@@ -881,7 +875,7 @@ o = "run touch ${marker}"
   it('prints exactly squad <version> for --version and -V, directly and through tmt', async () => {
     await withSandbox(async (sandbox) => {
       const bin = installSquad(sandbox);
-      expect(squadVersion).toBeTruthy();
+      expect(squadVersion).toBe('0.1.0-dev');
       const direct = { ...sandbox, cli: { executable: path.join(bin, 'tmt-squad'), args: [] } };
       for (const [target, args] of [
         [direct, ['--version']],

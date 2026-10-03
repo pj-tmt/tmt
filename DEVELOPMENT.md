@@ -179,12 +179,11 @@ Keep this procedure as the single owner of the revival steps:
    writers before switching a development build. Any migration needs owner approval.
 2. Restore Office release eligibility in `.github/components.json`, its binary's
    Cargo `package.metadata.dist` setting, the native-release product choices, and
-   the CLI's `INSTALLABLE_EXTENSIONS` together. Regenerate with
-   `node typescript/scripts/release-please-config.mjs` and verify with `--check`.
-   Follow the [native release verification](#native-release-verification)
-   for the generated config/manifest and compatible archive checks; do not reset
+   the CLI's `INSTALLABLE_EXTENSIONS` together. Review its bootstrap and first-alpha
+   seed under #1418. Follow [native release verification](#native-release-verification)
+   for the cut, version injection and compatible archive checks; do not reset
    a historical release version or recreate a published tag.
-3. Run the release-policy, workflow and release-config tooling tests, and the
+3. Run the release-policy, workflow and release-cut tooling tests, and the
    native extension-install and Office lifecycle tests. Update the frozen-state
    expectations for the approved eligibility change; keep the installable-set
    comparison against the component map and retained/partial-removal coverage.
@@ -389,42 +388,11 @@ retries. The action removes the unused Chrome source before updating; package
 selection stays with each caller. Revisit the attempt bound before adding large
 packages to the current small dependency sets.
 
-`release-please-config.json` is generated, not hand-edited. After changing the component
-map, a crate's version declaration, the workspace's crates or its dependencies between
-them (including a new file or directory under an extension root, because the CLI's exclude
-list is written out from the tracked files), run
-`node typescript/scripts/release-please-config.mjs --write`; the
-`release-please-config` tooling test (and `--check`) fails while the file is stale; `Code quality`
-runs that test on every pull request, including Squad-only ones whose Unit tests are skipped,
-because Squad's manifest is one of its inputs. The
-generator needs `cargo` and reads no network. Update the pinned release-please CLI in
-`.github/release-please/` with `pnpm install` there and commit its lockfile; the test
-requires an exact version and an integrity hash for every locked package. Before local tooling
-checks or release-config tests, run this explicit prerequisite from the repository root:
-
-```bash
-pnpm --dir .github/release-please install --frozen-lockfile --ignore-scripts
-```
-
-Tests and the release wrapper load this single isolated pin. `pnpm check:tooling`
-(and therefore `pnpm check`) first checks its runtime and type entry files through
-`release-please-run.mjs check-install`. A missing install stops before TypeScript
-checking with the command above, rather than cascading implicit-any diagnostics.
-The guard only reads files; it never installs packages. Direct `pnpm type:check` and
-release-config test runs also require the explicit install.
-
-Private leaves declare `releaseConsumers` in the component map; TUI, CLI style and invoke name Squad.
-The config generator checks the Cargo metadata graph it already reads: every external production
-workspace dependency of a declared consumer, including transitive links, needs a private component
-with that consumer in `releaseConsumers`. A missing declaration fails with the leaf, consumer and
-map change needed after ownership review. New Squad workspace dependencies must pass this guard.
-The release workflow uses `release-please-run.mjs` with the pinned API to attribute these commits
-before the ordinary splitter, excludes and product release cutoffs. No `additional-paths` option
-exists in 17.11.2. An upgrade must re-verify the API shape and run
-`pnpm exec vp test run --config vitest.config.ts test/tooling/release-please-config.test.ts` from `typescript/`:
-the suite exercises real release candidates, shared-only and unrelated/private controls, mixed commits
-and independent release cutoffs. Style and invoke keep CLI attribution while also selecting Squad;
-TUI keeps its CLI exclusion. Ownership, CI selection and version/lock updates remain separate.
+Release attribution and Cargo-resolved version fixtures use the shared metadata
+owner. After changing component eligibility or Rust production dependencies, run
+the cut, component-scope and workflow tests below. Keep CI scope separate from
+release attribution; normal/build workspace dependencies follow the product
+binary through Cargo-resolved metadata.
 
 For the separate Office Auth/Firestore environment, follow
 [`extensions/tmt-office/typescript/services/office/README.md`](extensions/tmt-office/typescript/services/office/README.md). It uses Docker-contained
@@ -1484,13 +1452,10 @@ and storage probe remain debug fixtures. Rust debug tests, Clippy, MSRV builds
 and embedded service tests remain separate required checks; process deadlines
 and assertions are unchanged. Local selection still defaults to the debug CLI.
 
-CLI version expectations and Office installation/hook fixtures use the shared workspace reader
-once per suite, selecting the relevant crate by name and running bounded
-`cargo metadata --no-deps --offline --locked`. The reader also reads `rust/Cargo.lock` and
-lists tracked files with `git ls-files -z`, so the suite needs a Git checkout. Cargo, the
-lockfile and workspace resolution inputs must remain available even when selecting an explicit
-CLI executable. The documented build below supplies the resolution inputs; the expectation
-has no alternate version reader.
+Native version expectations reuse the shared
+[Cargo metadata reader](ARCHITECTURE.md#main-release-cuts) once per suite. The
+selected checkout's locked workspace inputs must be available even with an
+explicit executable selector.
 
 Build first, then explicitly select the test-only storage probe. The product CLI
 uses its repository-native default; the probe is never an installed SQL command:
@@ -1501,6 +1466,9 @@ cargo build --locked --manifest-path rust/Cargo.toml --example storage-probe
 TMT_TEST_STORAGE_PROBE='{"executable":"/absolute/checkout/rust/target/debug/examples/storage-probe","args":[]}' \
   pnpm test:native
 ```
+
+Installation and upgrade tests use the
+[release skill's fixture procedure](.agents/skills/tmt-release/references/installation-fixtures.md).
 
 Native process and archive fixtures need both the CLI and Herdr executable. When
 narrowing Cargo package selection, build them together with
@@ -1520,23 +1488,8 @@ full scope builds it beside the storage probe, while Squad scope builds it expli
 Keep these fixture builds in the process job itself; another job's workspace build
 or a warm local target does not supply its executables.
 
-Extension-upgrade proofs use one native recording driver on macOS and Linux.
-Build it before running `test/native/extension-upgrade-proof.test.ts`:
-
-```sh
-cargo build --locked --manifest-path rust/Cargo.toml -p tmt-test-support --example recording-cli-fixture
-(cd typescript && corepack pnpm exec vp test run --config test/native/vitest.config.ts test/native/extension-upgrade-proof.test.ts)
-```
-
-The example is selected from `rust/target/debug/examples/recording-cli-fixture`,
-matching the host architecture (including an x64 Node/Rust pair under Rosetta).
-Both native-process CI scopes build it. The synthetic driver archive's
-`NATIVE-INSTALL.md` contains JSON with absolute `executable` and `log` fixture
-paths; the driver records the first two arguments and replaces itself with the
-selected CLI, preserving argv, stdio, cwd, environment and exit behavior.
-The note is fixture configuration, not shipped installation guidance.
-Publish the built bytes through `writeExecutable`; do not package a shell driver,
-compile during a scenario, relax exact Mach-O inspection or extend its deadline.
+Extension-upgrade fixture preparation follows the
+[release skill](.agents/skills/tmt-release/references/installation-fixtures.md#native-recording-driver).
 
 Squad context fixtures separate successful core-invocation evidence from deadline
 termination. Cold/fresh reads and a promptly returning stale-context sentinel
@@ -1608,7 +1561,6 @@ shell-script stand-in named `claude` in a pane, never a real agent. Without
 (cd rust && cargo clippy --locked -p tmt-driver-herdr -p tmt-cli --all-targets -- -D warnings)
 (cd rust && cargo test --locked -p tmt-adapters --lib host::external)
 (cd rust && cargo test --locked -p tmt-cli --test architecture)
-node typescript/scripts/release-please-config.mjs --check
 ```
 
 A change to the protocol crate itself (wire types, decoding, `serve` or either
@@ -2136,68 +2088,11 @@ The same distinction applies to release artifacts: raw PR executables prove
 source-runtime behavior only. They do not prove archive inventory, notices,
 checksums or bootstrap behavior. Linkage is checked in both raw and archive proof.
 
-## Release-cut shadow verification
+## Main release cuts
 
-The [architecture contract](ARCHITECTURE.md#release-cut-shadow) owns the current
-shadow model and the proposed migration. Release-please remains active until the
-separate switch PR; this procedure creates no release or publishing dispatch.
-
-On main pushes and the daily schedule, `release-cut.yml` captures draft/native-run
-metadata and posts each component's cut, next tag, notes, SHA membership and skip
-reason in its run summary. Download `release-cut-metadata` and
-`release-cut-shadow-plan` for a reviewable input/output pair. Treat unavailable
-draft visibility, pagination, tag history or native-run product identity as a
-blocked plan. Do not reinterpret an unavailable snapshot as no work in flight.
-
-The persistent `release-version-injection.yml` PR check runs CLI and Squad on all
-four matching native hosts. It fetches dependencies before setting offline mode,
-captures the source/version contract, demonstrates that full locked metadata
-rejects the stale lock, updates the lock offline, verifies the exact version edit,
-and checks dist plan/build plus the extracted binary. `--no-deps` metadata is for
-inheritance discovery only; it cannot establish the stale-lock gate. A failure in
-the version/source/lock gate is a failure, not permission to broaden its allowed
-diff. Review `release-injection-<product>-<target>` artifacts and job summaries.
-No release secrets or publication privileges enter these PR jobs.
-The ordinary Unit tests job also runs the injection fixtures. Its existing Linux
-x64 runtime producer builds the Rust TOML example as a separate
-`release-version-fixture` artifact; the tooling job downloads it to
-`rust/target/debug/examples` and restores executable permission before tests.
-
-Run targeted fixture checks, then the tooling quality and affected workflow checks:
-
-```bash
-(cd rust && cargo build --locked -p tmt-test-support --example release-version && cargo test --locked -p tmt-test-support --example release-version)
-(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/release-cut.test.ts test/tooling/release-version-injection.test.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/repository-layout.test.ts)
-(cd typescript && corepack pnpm check:tooling)
-actionlint .github/workflows/release-cut.yml .github/workflows/release-version-injection.yml .github/workflows/native-release.yml
-```
-
-`test/fixtures/release-cut-history.json` is immutable comparison input from the
-published release REST records and Git objects, with repository, endpoints, PRs,
-tag SHAs, parent cuts, component maps and complete first-parent commit ranges.
-The tests compare rendered notes and linked SHAs at CLI alpha.44→45 and 45→46,
-and Squad alpha.12→13. Regeneration must verify the public tag equals the recorded
-release PR's merge commit and use its parent only for this historical fixture.
-This is not a production release ancestry helper. Explain any ownership change
-against the direct component map instead of adding generated-config exclusions.
-Private style/invoke controls retain byte-identical CLI notes while adding Squad;
-the explicitly CLI-excluded TUI control remains Squad only.
-Release-cut and the Project sweep reuse `ci-scope.mjs` released-root membership;
-CI selected globs add attribution without replacing a matching released root.
-The switch additionally requires one successful shadow run on a main push; live
-old-path publications can add evidence but do not gate it. Herdr's independent
-private version boundary is a fixture until the switch enables it for release-cut.
-
-For an authorized local native spike, follow the existing heavy-build/disk rules
-and use one target directory. Build the developer-only `tmt-test-support`
-`release-version` example first; the Node gate finds it under that target's `debug/examples/`
-(or the default `rust/target`). Invoke `release-version-injection.mjs prepare
-<checkout> <snapshot-outside-checkout> <product> <tag>`, run the full stale-lock
-probe and offline workspace lock update, then `verify <checkout> <snapshot>`.
-After the existing native build, `artifact <checkout> <snapshot> <plan.json>
-<build.json> <extracted-binary>` checks the tag/version agreement; run `verify`
-again after packaging. The checkout must start clean and stay at its captured
-SHA. Never commit the injected versions or replace an existing release/tag.
+Release-cut and version-injection procedures belong to the
+[release skill](.agents/skills/tmt-release/SKILL.md) and its
+[main-cut reference](.agents/skills/tmt-release/references/main-cuts.md).
 
 ## Native release verification
 
@@ -2214,11 +2109,10 @@ For changes to `typescript/scripts/packed-command.mjs`, run its process fixtures
 and the release-note consumer that exercises rapid Git subprocess teardown:
 
 ```bash
-(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/packed-command.test.ts test/tooling/release-pr-safety.test.ts)
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/packed-command.test.ts test/tooling/release-cut-live.test.ts)
 (cd typescript && corepack pnpm check:tooling)
 ```
 
-The pinned release-please install described above is required by the consumer.
 The fixtures cover exact output and diagnostics, timeout descendant cleanup,
 closed-child EPERM with independently observed group absence, and live or
 uninspectable groups. Keep the negative controls and the original subprocess
@@ -2230,19 +2124,10 @@ archive, installer or bootstrap acceptance when those artifacts change.
 
 #### Explicit multi-platform release preparation
 
-`Native release artifacts` (`.github/workflows/native-release.yml`) is the per-product
-release run, with explicit product routing, not part of every PR. It currently
-accepts `cli` and `squad`. Office is frozen and Herdr awaits the release cut
-(#1399): parked components allow neither preparation nor draft publication;
-existing releases remain untouched. The [Herdr archive section](#herdr-driver-archives)
-owns its activation flags and retained CLI companion. It has two modes. The default `prepare` builds and verifies one bundle from the
-current main commit without a draft release and attaches nothing: dispatch each authorized
-product on the release's reviewed, required-checks-green main commit and record the
-product, run ID and exact SHA in its issue. With `prepare` off, the run plans the
-product's draft releases that carry neither a verified bundle nor a recorded failure,
-oldest first, and builds, verifies and attaches each one at its own commit
-(`target_commitish`), one at a time. `.github/workflows/native-release-bundle.yml` is the
-pipeline it calls once per draft. The pipeline builds both macOS targets on
+The [release skill's main-cut reference](.agents/skills/tmt-release/references/main-cuts.md)
+owns exact-tag dispatch and version-only checkout preparation. The matching-host
+archive pipeline is `.github/workflows/native-release-bundle.yml`.
+The pipeline builds both macOS targets on
 arm64 and Linux targets on matching
 arm64/x64 hosts using the existing pinned tools and `build-native-artifact.sh`.
 The shared matrix keeps build and final verification hosts aligned; x64 macOS
@@ -2258,17 +2143,8 @@ Rosetta tooling, with an explicit owner rerun remedy. Ordinary proofs retain
 candidate tooling; only an owner-authorized `native-release` `rerun=<tag>` uses
 current tooling against the recorded release data.
 
-The draft release carries the state of its own build. A draft with
-`release-publication.json` has a complete bundle: the archives, the final manifest and, for
-the CLI, both installers are uploaded first, their digests compared with the local bytes,
-and that file last, after every final verifier passed. A draft with
-`verification-failed.json` (run URL, commit, failed jobs) is parked: later runs list it in
-their summary and skip it. A cancelled run records nothing and is retried. Retry a parked
-draft by dispatching the run with `prepare` off and `retry` set to its tag, or delete the
-draft. Each product has one queued run group (`release-<product>`); GitHub keeps one pending
-run per group and replaces it, which loses nothing because a run plans from the drafts
-when it starts. The run asserts that the draft tag is the tag prefix and Cargo version of
-its commit, and it never creates, edits or publishes a release.
+For exact-tag pipeline selection and failed-draft recovery, follow the
+[release procedure](.agents/skills/tmt-release/references/main-cuts.md#native-pipeline-selection).
 
 cargo-dist itself merges the downloaded `*-dist-manifest.json` inputs through
 `dist build --artifacts global --output-format=json --no-local-paths`. Do not
@@ -2286,87 +2162,12 @@ in seven days. Product-qualified artifact names prevent concurrent product runs
 from being mistaken for one bundle. Notices alongside each bundle are
 verification inputs; every archive also contains its own target-filtered notices.
 
-`Release` (`.github/workflows/release.yml`) runs on every push to `main`, documentation
-included (a merge of any kind moves `main` under the open release pull requests), and on a
-manual dispatch with `dry_run` (default on). Its `release-please` job
-runs the pinned release-please CLI (`.github/release-please`, exact version and lockfile
-integrity) against the generated `release-please-config.json` and
-`.release-please-manifest.json`: it opens one release pull request per released component, and when
-one is merged it creates the draft release (release-please's drafts, so a published release
-never has to receive assets). A live run, which is only allowed on `main`, creates a GitHub
-App token in that job alone, enables auto-merge for one open release PR at a time (the merge queue sets the strategy; paused for push runs until the release cut in #1399 lands, so only an explicit `workflow_dispatch` run enables it),
-through the normal required checks and merge queue. An enabled or queued release PR
-blocks enabling another component until it merges. The workflow does not refresh a
-BEHIND branch: the queue tests the combined result on current main, including required
-checks. release-please retains `always-update` for conflict recovery, subject to the
-[queued-PR pre-check](#queued-release-pull-requests), but the pinned wrapper suppresses
-an update when the title, complete inline notes, generated release-file bytes and modes
-already match the observed immutable head and GitHub does not report a conflict. This
-preserves running CI across main pushes that do not change the release content. Changed
-release content, missing files, confirmed conflicts and overflow notes use the original
-updater. Unknown mergeability preserves an otherwise unchanged head and returns normally,
-so `github-release` still reconciles merged release PRs in the same invocation; acquisition
-errors fail visibly and can be retried on the next main push. New releasable commits
-may still restart CI; this policy does not promise bounded latency under continuously
-changing release content. A `dispatch` job
-then starts the per-product run above for every
-product that has a draft without a bundle. The job runs in the `release` Environment and the
-App credentials, `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`, are secrets of that
-Environment, not repository secrets, so only a run its deployment branch rule admits can read
-them; the step that decides the mode is told whether they exist, never their values. Until
-both secrets exist a push is a dry run: `release-please` runs with `--dry-run` and the run
-summary shows what it would open, tag and start; nothing is created. A manual run with
-`dry_run` off and no secrets fails instead of falling back, and so does one on any ref but
-`main`. Neither job publishes.
+Follow [Main release cuts](#main-release-cuts) for draft creation, dry-run review,
+explicit versions and the protected Environment. The native pipeline below owns
+verification and publication; the cut workflow only drafts and dispatches it.
 
-Owner setup, once, when the release App exists: create the Environment `release` and limit
-its deployment branches to `main`; add `RELEASE_APP_ID` (the numeric App ID) and
-`RELEASE_APP_PRIVATE_KEY` as secrets of that Environment; install the App on this repository
-only, with Contents and Pull requests read/write and no webhook. GitHub creates the
-Environment without a rule the first time the workflow names it, and the secrets are added
-only after the rule exists. Once the rule exists a dispatch from any other ref, even a dry
-one, is refused by the Environment. Do not add repository secrets of the same names: those
-are readable from every ref.
-
-Once a draft's bundle is attached, the run evaluates the publication gates in order:
-`channel` (the version is an alpha, `X.Y.Z-alpha.N`; a stable version or any other pre-release
-label such as `beta` or `rc` is held, and releasing that hold is refused: the owner publishes it
-by hand), `commit` (the release's commit is on `main` and the pull request that produced it passed
-`Code quality`, `Unit tests`, `Docker E2E` and `Native package matrix`), `immutability` (the
-repository's newest published release is immutable, which shows that the setting was on; the
-workflow token cannot read the setting itself), `monotonic` (the release is newer than every
-published release of its product), `migration` (no commit of the release carries `!` or a
-`BREAKING CHANGE:` footer; outside the alpha channel the component's migration list, named in
-`.github/components.json`, also has no more entries than at the product's last published
-release, while an alpha publishes new entries and the gate's summary only reports them) and
-`upgrade` (the proof above, which for the CLI includes migrating state the previous release
-wrote; the first release of a product has nothing to upgrade from). A failed gate does
-not make the draft a failed build. The draft gets `publication-held.json` (`tag`, `sha`,
-`gate`, `reason`, `runUrl`, `recordedAt`), and later runs list it as held and leave it alone.
-The jobs that evaluate the gates hold the write token, so they run `main`'s code and only read
-the release commit's data through git and the API. To release a hold once its cause is dealt
-with, publish the draft by hand as below, or dispatch `native-release.yml` on `main` with the
-product, `prepare` off and `hold` set to the tag: the run evaluates the gates again without
-the one gate the marker names (never another, and never `channel`), removes the marker when
-they pass and then publishes the draft as below.
-
-An owner-authorized `rerun=<tag>` dispatch on main with `prepare` off instead re-proves
-all gates, including the gate named in `publication-held.json`; it skips none. `retry`,
-`hold` and `rerun` are mutually exclusive. The selected tag must be a bundled, held
-product draft with a commit target. The gates validate the marker's tag, SHA and known
-gate, and finish refuses a changed gate. Any failed gate leaves the original marker
-unchanged; only after all gates pass is it removed, followed by normal publication,
-attestation and public-install smoke checks. The
-[release skill](.agents/skills/tmt-release/SKILL.md#automated-alpha-publication) owns rerun authorization.
-
-Rerun uses the main commit selected by the dispatch for Node verifier scripts and
-their locked dependencies. Archives, manifest, version and digests come from the
-draft; CLI expected skill bytes, migration counts and applicable Rust adapter
-acceptance code come from a separate checkout of its release SHA (`release-source`).
-The read-only proof job compiles that source's adapter test with its own locked
-dependencies and toolchain pin; release-source Node verifier scripts do not run.
-Ordinary upgrade proof retains release-commit tooling. This separates repaired tooling
-from the unchanged candidate under test without rebuilding or replacing its assets.
+The [release reference](.agents/skills/tmt-release/references/main-cuts.md#publication-gates-and-recovery)
+owns publication gates, hold recovery and exact-tag reruns.
 
 Fixture-only verification (no dispatch or Docker):
 
@@ -2381,58 +2182,14 @@ choice is the standing authorization, recorded in the release skill, for the rel
 to publish an alpha draft that passes every gate above; everything a gate holds, every stable
 release and every publication by hand needs the owner's explicit authorization.
 
-When every gate passes, the `publish` job publishes the draft. `release-publish.mjs publish`
-reads the draft again and refuses unless its version is an alpha, its component is released
-(`release: false` in `.github/components.json` parks a component: release-please opens nothing
-for it, the planner leaves its drafts alone and this command refuses them, so a draft that
-predates the flag cannot publish), and it carries the bundle and neither
-`publication-held.json` nor `verification-failed.json`; then one `gh release edit <tag>
---draft=false --prerelease=<bool> --latest=<bool>` applies the product's policy below. Both
-flags are explicit because release-please makes every draft a prerelease. The `published` job
-then reads the release back: it is public and `immutable: true`, its flags are the policy's (a
-CLI release is the repository's latest release, an extension release never is), its tag is on
-the release commit, it carries `release-publication.json`, and GitHub's attestation verifies
-(`gh release verify`, and `gh release verify-asset` for every asset downloaded from the
-published release). GitHub finishes the attestation after publishing, so these checks are
-retried for about two minutes. A failed check opens an issue and fails the run; nothing is
-rolled back, because a published release is immutable and a repair needs a new reviewed
-version. A `smoke` job then installs the published release as a user does
-(`.github/workflows/native-release-smoke.yml`, also run by hand with `product` and `tag`, for
-the newest published CLI/extension release or an exact published driver tag: CLI and
-extension acquisition uses current public entry points, while a driver uses its versioned
-archive URLs. A failed run reports on the issue like any other). On the four hosts of the upgrade proof, in an isolated home, state directory
-and prefix, a CLI alpha goes through the public
-`releases/latest/download/install.sh`: the installer names the tag's version, the installed `tmt`
-is the one PATH selects and reports that version, the installed shared skills are the tag's
-`skills/*` (same names, same `SKILL.md`), and `tmt upgrade --channel alpha --json` reads the live
-metadata and reports the installation current (a newer alpha that appeared since passes with a
-note). An extension alpha is installed by the newest published CLI's `tmt extension install
-<extension>` into a separate prefix; `tmt extension list` must report the tag's version and no
-CLI link may appear. A Herdr driver alpha downloads its exact tag’s
-`dist-manifest.json` and matching standalone archive through public versioned URLs,
-checks the bounded manifest, digest and inventory, then uses the current public CLI’s
-supported `driver install <extracted-path> --yes --json` and `driver ls` surfaces
-to verify capabilities and durable approval. Named released-driver acquisition belongs to #1084.
-The tag is checked out only so its skills can be read; none of its code runs.
-The shared `.github/actions/public-install-smoke` action supplies the workflow's
-`contents: read` `GITHUB_TOKEN` only through the verifier's process environment.
-The verifier forwards it to the shell bootstrap and native acquisition commands,
-never argv, inspection commands or asset fetches. The native HTTPS client sends it
-only to `api.github.com`, rebuilding authorization per redirect hop; public bootstrap
-and archive downloads remain unauthenticated. Native bounded HTTPS retries are unchanged.
+The [release reference](.agents/skills/tmt-release/references/main-cuts.md#publication-readback-and-public-smoke)
+owns publication readback and installer selection.
 
 Acquisition errors, including exhausted GitHub rate limits, are failed smoke checks
 reported on the post-publication failure issue. There is no smoke-level rate-limit
 retry or deferred retry workflow. The verifier redacts the credential before writing
 bounded reasons, diagnostics, summaries or result artifacts and checks its isolated
 home, state, temporary files and installation prefix for persisted credentials.
-The CLI latest-installer read still retries only an older alpha than the just-published
-tag (three reads, two 20-second waits); unchanged lag fails, while a newer or malformed
-version and download errors fail immediately. Install jobs have a 25-minute bound and
-read-only contents permissions; a separate issue writer reports failures with all four
-host artifacts. Historical anonymous rate-limit issues remain visible to the release
-stall monitor; they are not automatically closed by this change.
-
 `.github/workflows/public-install-smoke-pr.yml` provides a pull-request-only dry proof:
 it resolves an existing published CLI and uses the same authenticated action on all
 four matching hosts. It is filtered to the smoke action, verifier, its own workflow
@@ -2445,7 +2202,7 @@ evidence, with the daily sweep as a safety net.
 Fixture-only checks (no live install, dispatch or Docker):
 
 ```bash
-(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/verify-public-install.test.ts test/tooling/release-publish.test.ts test/tooling/release-workflow.test.ts test/tooling/release-stall.test.ts test/tooling/xcrun-warmup.test.ts test/tooling/intel-verification.test.ts test/tooling/repository-layout.test.ts)
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/verify-public-install.test.ts test/tooling/release-publish.test.ts test/tooling/release-workflow.test.ts test/tooling/xcrun-warmup.test.ts test/tooling/intel-verification.test.ts test/tooling/repository-layout.test.ts)
 (cd typescript && corepack pnpm check:tooling)
 actionlint .github/workflows/native-release-smoke.yml .github/workflows/public-install-smoke-pr.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release.yml .github/workflows/native-intel.yml
 ```
@@ -2455,24 +2212,18 @@ with `issues: write` comments on, or opens, the issue of the checks above; nothi
 back. Both `publish` and `published` run `main`'s code and never the release commit's: `publish`
 holds the write token, `published` only read access and `issues: write`; the install legs have
 neither. A run that stopped before it published is completed by the
-next run of the product: it plans every complete draft without a hold again and evaluates its
-gates again. A bundle prepared without a draft (`prepare`) never publishes.
+next owner-authorized dispatch of that exact tag; it evaluates the complete draft
+again without selecting another tag. A bundle prepared without a draft (`prepare`) never publishes.
 
 For a manual publication, verify the selected product run's exact commit and all required PR
 checks, and enable GitHub release immutability before creating a draft release.
 
 Each bundle carries `release-publication.json` from
 `typescript/scripts/native-release-policy.mjs`; create the draft with its
-`flags` (`gh release create <tag> --draft <flags> …`). The CLI release is
-published as a normal release with `--latest=true`, so
-`releases/latest/download/install.sh` reaches its installer; alpha status stays
-in the version and title. Office and Squad releases keep `--prerelease` and
-`--latest=false` and can never become latest. `tmt upgrade` accepts a CLI
-pre-release published either way (earlier alphas were flagged prereleases) but
-never a stable CLI flagged prerelease, and accepts an extension release only when
-its flag matches whether its version is a pre-release
-(`Product::accepts_prerelease_flag`). After a manual publication, check
-`node typescript/scripts/release-policy.mjs --check-latest "$(gh api repos/pj-tmt/tmt/releases/latest --jq .tag_name)"`. A CLI
+`flags` (`gh release create <tag> --draft <flags> …`). Publication flags and channel
+authorization belong to the [release skill](.agents/skills/tmt-release/SKILL.md).
+For manual publication readback and public installer selection, follow the
+[release reference](.agents/skills/tmt-release/references/main-cuts.md#manual-publication-readback). A CLI
 release attaches its four tar.gz archives, final `dist-manifest.json`,
 `tmt-installer.sh` and the byte-identical `install.sh` (the name the one-line
 install uses); an Office release uses the independent `tmt-office-v<version>`
@@ -2862,9 +2613,8 @@ authorize publication or a CLI tag.
 #### Herdr driver archives
 
 The `driver-herdr` component is parked (`release:false` in the component map and
-`package.metadata.dist.dist=false` in its Cargo package). The release cut (#1399)
-activates both flags for its first standalone release; it does not register a
-release-please package. Its retained `bootstrapSha` is the last commit before the
+`package.metadata.dist.dist=false` in its Cargo package). Owner-authorized activation under #1418 changes both flags for its first standalone
+alpha; the CLI/Squad switch does not activate it. Its retained `bootstrapSha` is the last commit before the
 component existed, the first-release history boundary for that cut. CLI release
 paths exclude the driver crate, while CLI archives continue shipping its binary
 through the first standalone Herdr release. Named acquisition remains #1084.
@@ -3160,130 +2910,14 @@ no-op, core and cross-owner claims, force backup, Office adoption, removal by
 owner (all skills or a named subset) and drift. Runtime/linkage proof shared by archive
 and raw verification lives in `typescript/scripts/native-runtime-proof.mjs`.
 
-## Release PR safety gates
-
-`Code quality` runs `node typescript/scripts/release-pr-safety.mjs notes` for PRs
-(opened, synchronized or reopened) and merge groups. Body/title edits do not
-restart full CI; the merge-group step re-reads the current PR body over REST
-and gates it at queue time. A release branch under
-`release-please--branches--main--` must resolve to a released component. Its notes
-must compare from that component's newest published tag; each linked commit SHA
-must be a descendant of that tag and an ancestor of the candidate base, excluding
-the tag itself. COVERAGE also requires every commit that release-please would list
-for this component in `(published tag, candidate base]` to have a commit link.
-The gate projects links with the isolated pinned release-please parser, path
-splitter, exclusions and default notes renderer, including the shared private-leaf
-attribution. Package paths, `exclude-paths` and visible `changelog-sections` come
-from `release-please-config.json` at the candidate base; omitted sections use the
-pinned renderer's defaults. Breaking changes, nested messages and revert suppression
-retain that renderer's behavior. There is no separate type list or entry-count
-policy. Local coverage history is capped at 500 commits with 30-second command
-bounds; missing config, unsupported changelog renderers or incomplete evidence fail
-closed. Missing tags and malformed notes also fail.
-Existing locked Cargo workers verify the cumulative queue result through the
-[CI selector](ARCHITECTURE.md#ci-selection-and-worker-model), so a later prose-only HEADGREEN tip retains earlier
-release version/lock changes.
-
-The notes job fetches full history and tags. For a PR it uses the event's base SHA;
-for a merge group it reads all pending squash commits from the common ancestor of
-fetched `origin/main` and the queue head. GitHub appends `(#PR)` to each squash
-subject; REST reads resolve those PRs and identify release branches first. Only
-release candidates must have matching title, repository and main base metadata;
-ordinary PR title/base mismatches are skipped by this gate. A candidate's parent is
-its notes range endpoint. Unavailable, stale or oversized queue evidence fails
-rather than dropping a candidate. Rerun after publication metadata settles; an
-outdated compare anchor, out-of-range note or missing COVERAGE link requires
-release-please regeneration on the next main push. A late merged commit therefore
-holds the merge group until refreshed notes cover it, preventing silent omissions.
-
-After `github-release` reconciles merged release PRs and before `release-pr`,
-`node typescript/scripts/release-pr-safety.mjs draft`
-checks all manifest versions with fresh App-token REST reads, including drafts
-created in this invocation. A matching draft with no exact git tag holds only
-its manifest path. The step writes JSON `held_paths`, sanitized matching `drafts` evidence and a
-summary naming held paths;
-`skip=true` only when every released manifest path is held. The workflow passes
-`TAGLESS_DRAFT_PATHS` to the pinned wrapper. Its ManifestPlugin candidate hook
-filters held paths before separate PR updates, allowing unheld components to
-regenerate; malformed/unknown hold paths fail closed. Both held means a full
-`release-pr` skip; either held alone does not stall the other component.
-`github-release` and draft build/publication dispatch continue. The guard needs a
-token that can see draft releases: live mode uses the Release App token. Dry runs
-fall back to `github.token` with `contents: read`, which sees no drafts, so the
-tagless-draft guard does nothing in those runs. Once its tag exists, the next main
-push resumes that component’s release PR creation. This pre-check is an observation, not an atomic
-fence with later publication.
-
-Both gates use workflow tokens and REST only, with 30-second command bounds,
-at most ten 100-item pages per list and 60 requests per invocation; queue discovery
-is capped at 40 commits. Errors and caps fail visibly. Test with fixtures only:
-
-```bash
-cd typescript
-pnpm exec vp test run --config vitest.config.ts test/tooling/release-pr-safety.test.ts
-pnpm test:run
-pnpm check
-cd ..
-actionlint .github/workflows/ci.yml .github/workflows/release.yml
-```
-
-## Release stall monitoring
-
-`release.yml` runs `node typescript/scripts/release-stall.mjs` in its own advisory
-job after release-please. The release job retains read-only workflow-token
-permissions; only the monitor job has `contents: read` plus `issues: write`.
-It consumes mode, held-path, queue-skip and sanitized matching-draft outputs;
-no credentials cross job outputs.
-A tagless component hold or queue skip warns when its matching manifest draft is
-strictly older than 30 minutes. An open component release PR warns when its head
-commit timestamp is more than one hour older than that component’s newest
-releasable commit, and a REST ancestry comparison proves the commit is absent
-from the head. The timestamp difference is between commits, not time since the
-workflow ran. Candidates come from real pinned release-please planning, including
-private-leaf attribution, excludes and component cutoffs; unrelated component or
-nonreleasable pushes do not make a preserved head stale.
-
-The full checkout supplies bounded local history/files/tags for this read-only
-plan. Discovery uses REST only, at most 60 requests and ten 100-row pages per
-list, with a 90-second total deadline and ten-second individual command bound.
-Planning consumes at most 500 commits; incomplete history, missing candidate
-links or unavailable metadata warn instead of declaring healthy. Proven draft
-stalls still open/update the issue when independent PR planning is unavailable. No GraphQL or
-live API tests are used. The separate job’s five-minute bound and
-`continue-on-error`, plus the monitor step’s two-minute bound, isolate setup,
-startup, summary and API failures from release gating and dispatch.
-
-The monitor uses `github.token` for all its REST reads and issue writes. The
-push-capable App token stays in the release job, where the existing draft guard
-needs it to see unpublished releases. That one discovery now also emits matching
-draft path/ID/tag/creation-time metadata, excluding bodies, assets and credentials.
-Read-only monitor credentials cannot list drafts: the transported snapshot supplies
-their evidence. A current published-release read supersedes any draft published
-since the guard ran; absent or inconsistent transport warns without closing the
-issue. No second App token is minted or passed to monitoring.
-A complete fixed-title search
-finds the single `Release stalled` issue, reopening it for later stalls. A recent
-REST issue page also checks for a just-created issue not yet indexed by search. Each new
-draft ID or stale PR head/commit pair receives a comment marker; retries do not
-repeat the occurrence. Complete healthy discovery closes it automatically.
-Ambiguous discovery or mutation errors leave a visible summary warning; resolve
-multiple matching issues before retrying. Dry runs only summarize and do not
-edit issues. If the App token is unavailable, dry reads cannot observe drafts,
-as described in the safety gate above. For current published manifest tags, the monitor also
-reads open reporter issues and distinguishes historical anonymous public-smoke rate-limit
-infrastructure from current post-publication check failures. It recommends retrying smoke after reset for the former, never publication.
-Old release issues and pull requests are ignored; unavailable issue discovery cannot
-declare healthy. The detector never edits release PRs, tags, drafts or publication state. Fixtures verify both thresholds, component
-isolation, real pinned planning, occurrence lifecycle and nonblocking failure.
-
 ## Conventional PR-title rollout
 
-`Code quality` runs `node typescript/scripts/release-pr-safety.mjs titles-report`
-only for `merge_group`. It reuses the notes gate's bounded cumulative queue reader
+`Code quality` runs `node typescript/scripts/pr-title-check.mjs`
+only for `merge_group`. It owns the bounded cumulative queue subject reader
 and checks every pending squash subject after removing GitHub's final `(#PR)`
 suffix. It checks `type(scope)?: subject`: a lowercase type, optional nonempty
 scope, optional `!` breaking-change marker, colon/space and a nonempty subject.
-This is syntax feedback; release-please remains the owner of release attribution
+This is syntax feedback; the cut planner remains the owner of release attribution
 and changelog parsing. A title edited after queue entry is not compared against
 REST: the squash subject is the release input being checked.
 
@@ -3291,8 +2925,7 @@ The current mode is **report-only**. Findings include PR number, commit SHA and
 escaped title in job output and `GITHUB_STEP_SUMMARY`. Invalid titles, unavailable
 queue evidence and summary I/O errors leave the command's exit code at zero, so
 this step cannot fail a group before enforcement. Missing evidence is visible as
-an unavailable report; it is not a clean title result. Existing notes and other
-required gates retain their failure behavior. Full CI has no `edited` trigger
+an unavailable report; it is not a clean title result. Required checks and native publication gates retain their failure behavior. Full CI has no `edited` trigger
 and there is no separate feedback workflow.
 
 The observation day starts when the report-only PR for #1125 merges. Enforcement
@@ -3307,89 +2940,12 @@ Fixture and full verification commands:
 
 ```bash
 cd typescript
-pnpm exec vp test run --config vitest.config.ts test/tooling/pr-title-check.test.ts test/tooling/release-pr-safety.test.ts
+pnpm exec vp test run --config vitest.config.ts test/tooling/pr-title-check.test.ts
 pnpm test:run
 pnpm check
 cd ..
 actionlint .github/workflows/ci.yml
 ```
-
-## Queued release pull requests
-
-`Release` runs `github-release` first, then the fresh tagless-draft check, then
-`typescript/scripts/release-please-queue.mjs` before `release-pr`. The pinned
-release-please refuses PR updates while a merged release PR is still untagged;
-reconciling it first lets the same run refresh remaining PRs against updated main.
-A `github-release` failure stops the job and explicitly reports that `release-pr`
-was not attempted. Both commands still only plan in a dry run.
-Explicit-token GraphQL discovery follows up to 20 cursor pages of 100 open PRs, ordered
-by creation time, and considers only same-repository heads starting with
-`release-please--branches--main--` targeting `main`. Complete discovery is required
-before deciding. A queued PR skips `release-pr` only when the shared
-`checkReleaseNotes` gate accepts its current notes against fetched `origin/main`, even when the push-event
-checkout lags that main HEAD.
-The release job uses the same `fetch-depth: 0` checkout as Code quality, including tags.
-A queued candidate held by a tagless draft keeps its queue entry; release-please's
-existing manifest-path filter preserves that candidate while unheld components regenerate.
-Invalid compare anchors, out-of-range links or missing COVERAGE links require a
-live dequeue before `release-pr`: GitHub locks a queued PR's head branch against
-updates. The pre-check re-reads the selected PR's node ID, number, open state,
-repository, head SHA/ref, base, draft state and queue entry; they must match the
-observed same-repository main release PR. It then makes one `dequeuePullRequest`
-mutation with the same release App token used for auto-merge enabling and verifies
-the returned PR and queue entry IDs. Each request has the existing 30-second bound;
-there are no retries or polling. Multiple queued release PRs with stale notes
-require reconciliation before any mutation. Successful dequeue permits refresh in
-this invocation; the existing enable step can re-enqueue the refreshed candidate.
-A failed recheck or failed/unverified dequeue emits `blocked`, writes a clear
-recovery notice in the step summary, and skips both `release-pr` and auto-merge
-enabling. `github-release` has already run, allowing downstream draft processing to
-continue; its own failures still fail the job. Verify the PR and queue state before
-retrying the Release run through the normal authorized workflow. Dry runs only
-report the planned dequeue and run release-please in dry-run mode. Covered queued
-notes retain their head and a summary notice;
-`github-release` precedes either decision. REST notes must match the discovered PR head.
-Acquisition failures, malformed PR metadata and incomplete history fail the run
-visibly rather than silently skipping. Malformed responses, repeated
-cursors, duplicate PRs, API errors and exhausted discovery fail visibly.
-
-The same script's live-only `enable` command finishes discovery before choosing one
-non-draft release PR by ascending PR number. An existing enabled or queued release
-retains the slot; multiple active releases fail with instructions to reconcile them.
-Enabling uses `--auto --match-head-commit`, with no strategy flag: under a merge queue `gh`
-warns on stderr when one is passed, which the packed-command contract treats as a
-failure. It propagates failures without
-trying a second PR. It never updates a BEHIND branch or jumps the queue. The next main
-push after the active PR merges permits the remaining component to be regenerated and
-enabled against the updated manifest.
-
-A single active release PR with permanently failing checks holds the slot and blocks
-the other component. `tmt-infra-lead` coordinates diagnosis and a fix with the owning
-squad; if the release PR is to be abandoned, the lead asks tmt-lead or Ben to close it.
-The next main push can then select the remaining component. Automation does not bypass
-failed checks or abandon an active release on its own.
-
-Discovery, dequeue and enabling use the release App token in live runs (dry-run
-discovery uses the workflow token), never an agent's token. The existing workflow concurrency group
-serializes automatic enabling; external/manual enabling and enqueues are not atomic
-with discovery. A PR queued between the pre-check and a branch update can still fail
-once and recover on the next main push. The recheck and dequeue are not atomic with
-external enqueues or head updates; a changed or unverified entry blocks refresh
-rather than authorizing another mutation. Required checks and publication
-authorization are unchanged.
-
-Fixture-only verification (no dispatch or Docker):
-
-```bash
-(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/release-queue.test.ts test/tooling/release-pr-safety.test.ts test/tooling/release-please-config.test.ts test/tooling/release-workflow.test.ts)
-(cd typescript && corepack pnpm check:tooling)
-actionlint .github/workflows/release.yml
-```
-
-Fixtures cover stale queued notes → recheck/dequeue/refresh, failed dequeue → skip
-with summary and prior `github-release`, covered queued notes → skip, and
-non-queued PRs → refresh. Identity/head/queue races, dry runs and failure responses
-must prove no retry or unintended mutation; unchanged generated heads remain preserved.
 
 ## Project tracking
 
@@ -3610,8 +3166,7 @@ uses only a stub. No official remote installer/release exists.
 (cd rust && cargo test --offline --locked -p tmt-remote)
 (cd rust && cargo clippy --offline --locked -p tmt-remote --all-targets -- -D warnings)
 (cd rust && cargo test --offline --locked -p tmt-cli --test architecture)
-node typescript/scripts/release-please-config.mjs --check
-(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/release-please-config.test.ts test/tooling/ci-scope.test.ts)
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/release-cut.test.ts test/tooling/ci-scope.test.ts)
 ```
 
 The door embeds `extensions/tmt-remote/rust/tmt-remote/assets/remote-v1.js`,
@@ -3675,7 +3230,6 @@ Build and verify it from the repository root:
 (cd rust && cargo test --offline --locked -p tmt-colab)
 (cd rust && cargo clippy --offline --locked -p tmt-colab --all-targets -- -D warnings)
 (cd rust && cargo test --offline --locked -p tmt-cli --test architecture)
-node typescript/scripts/release-please-config.mjs --check
 (cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts)
 ```
 

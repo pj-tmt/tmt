@@ -1,4 +1,4 @@
-//! Developer-only TOML owner for release checkout version injection.
+//! Private release-tooling TOML owner for release checkout version injection.
 use serde_json::{Map, Number, Value as Json};
 use std::io::{self, Read};
 use toml_edit::{DocumentMut, Item, Table, Value};
@@ -42,7 +42,7 @@ fn value_json(value: &Value) -> Result<Json, String> {
     })
 }
 
-fn edit(source: &str, section: &str, old: &str, new: &str) -> Result<String, String> {
+fn edit_version(source: &str, section: &str, old: &str, new: &str) -> Result<String, String> {
     let mut document = source.parse::<DocumentMut>().map_err(|e| e.to_string())?;
     let target = match section {
         "workspace.package" => document
@@ -71,7 +71,7 @@ fn run(args: &[String], source: &str) -> Result<String, String> {
             let document = source.parse::<DocumentMut>().map_err(|e| e.to_string())?;
             table_json(document.as_table()).map(|value| value.to_string())
         }
-        [action, section, old, new] if action == "edit" => edit(source, section, old, new),
+        [action, section, old, new] if action == "edit" => edit_version(source, section, old, new),
         _ => Err("Usage: release-version parse | edit <package|workspace.package> <old> <new>; TOML on stdin".into()),
     }
 }
@@ -106,7 +106,7 @@ mod tests {
         let source =
             "# owner\n[workspace.package]\nversion  =  '5.0.0-dev' # keep\nedition = \"2024\"\n";
         assert_eq!(
-            edit(source, "workspace.package", "5.0.0-dev", "5.0.0-alpha.9").unwrap(),
+            edit_version(source, "workspace.package", "5.0.0-dev", "5.0.0-alpha.9").unwrap(),
             source.replace("'5.0.0-dev'", "\"5.0.0-alpha.9\"")
         );
     }
@@ -128,7 +128,7 @@ mod tests {
             "[package]\nversion = \"1.0.0\"\nversion = \"1.0.0\"\n",
             "[package]\nversion.workspace = true\n",
         ] {
-            assert!(edit(source, "package", "1.0.0", "1.0.1").is_err());
+            assert!(edit_version(source, "package", "1.0.0", "1.0.1").is_err());
         }
     }
 }

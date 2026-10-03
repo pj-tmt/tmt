@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   checkPublishedRelease,
+  convergeCliLatest,
   publishBlocker,
   publishDraft,
   renderFailureIssue,
@@ -113,11 +114,62 @@ describe('publishBlocker', () => {
   });
 });
 
+describe('convergent CLI latest selection', () => {
+  it('heals a stale publisher after the newer publisher has already promoted its version', () => {
+    const low = draft('v5.0.0-alpha.49', [], { draft: false });
+    const high = draft('v5.0.0-alpha.50', [], { draft: false });
+    const releases = [low];
+    let latest = low.tag_name;
+    const corrections: string[] = [];
+    const api: PublishApi = {
+      listReleases: () => releases,
+      latestRelease: () => ({ tag_name: latest }),
+      publish: () => {},
+      upload: () => {},
+      deleteAsset: () => {},
+      setLatest: (tag) => {
+        latest = tag;
+        corrections.push(tag);
+      },
+    };
+    // The low publisher reads an obsolete latest, while high publishes and promotes itself.
+    let race = true;
+    api.latestRelease = () => {
+      if (race) {
+        race = false;
+        releases.push(high);
+        latest = high.tag_name;
+        return null;
+      }
+      return { tag_name: latest };
+    };
+    expect(convergeCliLatest({ api, tag: low.tag_name })).toBe(high.tag_name);
+    expect(corrections).toEqual([low.tag_name, high.tag_name]);
+    expect(latest).toBe(high.tag_name);
+  });
+  it('fails visibly after bounded disagreement and makes no publication rollback', () => {
+    const api: PublishApi = {
+      listReleases: () => [draft(TAG, [], { draft: false })],
+      latestRelease: () => null,
+      setLatest: () => {},
+      publish: () => {},
+      upload: () => {},
+      deleteAsset: () => {},
+    };
+    expect(() => convergeCliLatest({ api, tag: TAG, attempts: 3 })).toThrow('did not converge');
+  });
+});
+
 describe('publishDraft', () => {
   function fakeApi(releases: DraftRelease[]) {
     const published: { tag: string; flags: readonly string[] }[] = [];
+    let latest: { tag_name: string } | null = null;
     const api: PublishApi = {
       listReleases: () => releases,
+      latestRelease: () => latest,
+      setLatest: (tag) => {
+        latest = { tag_name: tag };
+      },
       upload: () => {
         throw new Error('nothing is uploaded');
       },
@@ -126,13 +178,15 @@ describe('publishDraft', () => {
       },
       publish: (tag, flags) => {
         published.push({ tag, flags });
+        const release = releases.find((release) => release.tag_name === tag)!;
+        releases[releases.indexOf(release)] = { ...release, draft: false };
       },
     };
     return { api, published };
   }
 
   it.each([
-    ['cli', TAG, ['--draft=false', '--prerelease=false', '--latest=true']],
+    ['cli', TAG, ['--draft=false', '--prerelease=false', '--latest=false']],
     ['squad', EXTENSION_TAG, ['--draft=false', '--prerelease=true', '--latest=false']],
   ])('publishes a %s draft with the flags of its policy, once', (product, tag, flags) => {
     const { api, published } = fakeApi([
@@ -301,6 +355,7 @@ describe('verifyPublication', () => {
   function fakeApi(overrides: Partial<PublishedApi> = {}) {
     const calls: string[] = [];
     const api: PublishedApi = {
+      listReleases: () => [published()],
       getRelease: (tag) => {
         calls.push(`get ${tag}`);
         return published();

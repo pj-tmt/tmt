@@ -1,0 +1,22 @@
+[package]
+name = "tmt-release-tool"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+
+[package.metadata.dist]
+dist = false
+
+[[bin]]
+name = "release-version"
+path = "src/main.rs"
+
+[dependencies]
+serde_json.workspace = true
+toml_edit.workspace = true
+
+[lints]
+workspace = true

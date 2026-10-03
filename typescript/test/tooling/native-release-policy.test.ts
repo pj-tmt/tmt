@@ -98,7 +98,7 @@ describe('native release publication policy', () => {
     }
   });
 
-  it('publishes a draft with every flag explicit, since release-please makes each draft a prerelease', () => {
+  it('publishes a draft with every flag explicit, since each draft starts with component publication policy', () => {
     expect(publishFlags('cli')).toEqual(['--draft=false', '--prerelease=false', '--latest=true']);
     for (const extension of ['office', 'squad', 'driver-herdr', 'colab']) {
       expect(publishFlags(extension)).toEqual([

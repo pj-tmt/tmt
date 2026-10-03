@@ -41,8 +41,8 @@ import {
 
 const COMPONENTS = fileURLToPath(new URL('../../.github/components.json', import.meta.url));
 
-export const installerUrl = (repository) =>
-  `https://github.com/${repository}/releases/latest/download/install.sh`;
+export const installerUrl = (repository, tag) =>
+  `https://github.com/${repository}/releases/${tag ? `download/${encodeURIComponent(tag)}` : 'latest/download'}/install.sh`;
 
 /** `text` as one bounded line, so a result is safe to put in a log, a summary or an issue. */
 function oneLine(text, limit = 300) {
@@ -221,6 +221,16 @@ export async function smokeRelease({
       const embedded = /^\s*version='([^']+)'$/m.exec(installer)?.[1];
       if (!embedded) throw new Error('the installer names no version');
       if (!isCli || embedded === version) break;
+      if (isAlphaVersion(embedded) && compareVersions(embedded, version) > 0) {
+        // A higher published CLI owns latest; independently prove this older cut's installer.
+        installer = await read(installerUrl(repository, tag));
+        const exact = /^\s*version='([^']+)'$/m.exec(installer)?.[1];
+        if (exact !== version)
+          throw new Error(
+            `the versioned installer is for ${exact ?? 'no version'}, not ${version}`
+          );
+        break;
+      }
       const mismatch = `the latest installer is for ${embedded}, not ${version}`;
       // The published latest entry can briefly lag. Only an older alpha is that condition;
       // download errors, malformed data and an unexpected newer version fail immediately.

@@ -13,10 +13,11 @@ import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vite-plus/test';
-import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
+import { expectError, parseWholeStdout, runCli } from '../support/cli-process.js';
 import { createArtifact, type ArtifactFixture } from '../support/native-artifact.js';
 
 import {
+  withReleaseSandbox,
   INSTALL_PROCESS_BUDGET_MS,
   installPrefix,
   install,
@@ -48,7 +49,7 @@ describe('native installation process contract', () => {
     'versioned candidate handoff fences publication and retains provenance and same-version repair',
     { timeout: 60_000 },
     async () => {
-      await withSandbox(async (sandbox) => {
+      await withReleaseSandbox(async (sandbox) => {
         const probe = await runCli(sandbox, [
           '__native-install',
           '--handoff-version',
@@ -147,7 +148,7 @@ describe('native installation process contract', () => {
   );
 
   it('prints the requested command path even through an aliased prefix ancestor', async () => {
-    await withSandbox(async (sandbox) => {
+    await withReleaseSandbox(async (sandbox) => {
       const version = (await runCli(sandbox, ['--version'])).stdout.trim();
       const fixture = await createArtifact(sandbox, version);
       const physical = path.join(sandbox.root, 'physical');
@@ -179,7 +180,7 @@ describe('native installation process contract', () => {
   });
 
   it('retains a generated operation ID across a companion storage uncertainty and replay', async () => {
-    await withSandbox(async (sandbox) => {
+    await withReleaseSandbox(async (sandbox) => {
       const prefix = installPrefix(sandbox);
       const companion = path.join(sandbox.root, 'storage-uncertain-office');
       writeExecutable(
@@ -281,7 +282,7 @@ esac
     'installs a real copied native executable from spaced paths and runs it with an empty PATH',
     { timeout: 60_000 },
     async () => {
-      await withSandbox(async (sandbox) => {
+      await withReleaseSandbox(async (sandbox) => {
         const versionResult = await runCli(sandbox, ['--version']);
         expect(versionResult.status).toBe(0);
         expect(versionResult.stderr).toBe('');
@@ -315,7 +316,7 @@ esac
     'repeats as a no-op while application-state selectors change',
     { timeout: 60_000 },
     async () => {
-      await withSandbox(async (sandbox) => {
+      await withReleaseSandbox(async (sandbox) => {
         const versionResult = await runCli(sandbox, ['--version']);
         const fixture = await createArtifact(sandbox, versionResult.stdout.trim());
         const prefix = installPrefix(sandbox);
@@ -347,7 +348,7 @@ esac
     'records pin and unpin transitions while retaining the old release bytes',
     { timeout: 60_000 },
     async () => {
-      await withSandbox(async (sandbox) => {
+      await withReleaseSandbox(async (sandbox) => {
         const versionResult = await runCli(sandbox, ['--version']);
         const fixture = await createArtifact(sandbox, versionResult.stdout.trim());
         const prefix = installPrefix(sandbox);
@@ -452,7 +453,7 @@ esac
     'rejects an equal-version artifact with changed file bytes even when its archive digest is forged into the receipt',
     { timeout: 60_000 },
     async () => {
-      await withSandbox(async (sandbox) => {
+      await withReleaseSandbox(async (sandbox) => {
         const versionResult = await runCli(sandbox, ['--version']);
         const version = versionResult.stdout.trim();
         const originalFixture = await createArtifact(sandbox, version);
@@ -515,7 +516,7 @@ esac
     'refuses unmanaged collisions and a tampered receipt without changing owned bytes or pointer',
     { timeout: 60_000 },
     async () => {
-      await withSandbox(async (sandbox) => {
+      await withReleaseSandbox(async (sandbox) => {
         const versionResult = await runCli(sandbox, ['--version']);
         const fixture = await createArtifact(sandbox, versionResult.stdout.trim());
         const prefix = installPrefix(sandbox);
@@ -579,7 +580,7 @@ esac
   );
 
   it('keeps the internal installer out of help and completion output', async () => {
-    await withSandbox(async (sandbox) => {
+    await withReleaseSandbox(async (sandbox) => {
       const help = await runCli(sandbox, ['help']);
       expect(help.status).toBe(0);
       expect(help.stdout).not.toContain('__native-install');

@@ -480,9 +480,10 @@ describe('component map', () => {
     // them: they check inputs that Squad-only changes can also change.
     const alwaysRun = [
       'typescript/test/tooling/ci-scope.test.ts',
-      'typescript/test/tooling/release-please-config.test.ts',
-      'typescript/test/tooling/release-stall.test.ts',
-      'typescript/test/tooling/release-pr-safety.test.ts',
+      'typescript/test/tooling/release-cut.test.ts',
+      'typescript/test/tooling/release-cut-live.test.ts',
+      'typescript/test/tooling/release-version-injection.test.ts',
+      'typescript/test/tooling/release-workflow.test.ts',
     ];
     const qualityCommand = /vp test run ([^\n]+)/.exec(
       readFileSync(path.join(repository, '.github/workflows/ci.yml'), 'utf8')
@@ -1195,7 +1196,7 @@ describe('CI diff and command integration', () => {
         expect(fallback.outputs).toEqual(full);
         expect(fallback.evidence).toContain('diff unreadable; using full verification');
       }
-      // The earlier queued release selects native, even when HEADGREEN's last tip is site-only.
+      // The earlier queued workspace change selects native, even when HEADGREEN's last tip is site-only.
       git(['checkout', '--quiet', '--detach', base]);
       mkdirSync(path.join(root, 'rust'), { recursive: true });
       writeFileSync(
@@ -1206,14 +1207,17 @@ describe('CI diff and command integration', () => {
         path.join(root, 'rust/Cargo.lock'),
         '[[package]]\nname = "tmt-cli"\nversion = "5.0.0-alpha.35"\n'
       );
-      const release = commit('.release-please-manifest.json', '{".":"5.0.0-alpha.35"}\n');
+      const workspace = commit(
+        'rust/Cargo.toml',
+        '[workspace.package]\nversion = "5.0.0-alpha.35"\n'
+      );
       const siteTip = commit('site/src/chapters/start.mdx', 'site-only tip');
       // The old event-base range contains no native files: this is the causal negative control.
-      expect(select([release, siteTip]).outputs.native_scope).toBe('none');
+      expect(select([workspace, siteTip]).outputs.native_scope).toBe('none');
       const pending = select(['merge-group', siteTip]);
       expect(pending.outputs).toEqual(full);
       expect(pending.evidence).toContain(`${base.slice(0, 12)}..${siteTip.slice(0, 12)}`);
-      for (const file of ['rust/Cargo.toml', 'rust/Cargo.lock', '.release-please-manifest.json']) {
+      for (const file of ['rust/Cargo.toml', 'rust/Cargo.lock']) {
         expect(pending.evidence).toContain(file);
       }
       git(['update-ref', '-d', 'refs/remotes/origin/main']);

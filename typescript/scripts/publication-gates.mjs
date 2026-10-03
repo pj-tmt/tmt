@@ -17,14 +17,19 @@
 // Both run with a token that can see drafts, so they run this repository's main and only read the
 // release commit's data through git and the API, never its code.
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { ownerOf, parseComponentMap } from './ci-scope.mjs';
+import { readReleaseSourceAtRef } from './release-source-at-ref.mjs';
+import { componentOfProduct } from './native-release-policy.mjs';
+import {
+  attributeCutCommits,
+  parseReleaseCommits,
+  readCutRange,
+  releaseCutHistory,
+} from './release-cut.mjs';
 import { BUNDLE_ASSET, FAILURE_ASSET, HOLD_ASSET } from './plan-release-builds.mjs';
 import { clearHold, ghApi, readHold, recordHold } from './release-draft-assets.mjs';
-import { selectPrevious } from './release-upgrade.mjs';
-import { componentOfProduct } from './native-release-policy.mjs';
 import {
   compareVersions,
   isAlphaVersion,
@@ -98,8 +103,13 @@ export function checkImmutability({ releases }) {
     : fail(`the newest published release ${newest.tag_name} is not immutable`);
 }
 
-/** `latest` cannot move backwards: the candidate must be newer than everything published. */
+/** Stable latest remains monotonic; alpha tags are unique and converge latest separately. */
 export function checkMonotonic({ releases, product, tag }) {
+  if (isAlphaVersion(versionOfTag(tag, product))) {
+    return releases.some((release) => release.draft !== true && release.tag_name === tag)
+      ? fail(`${tag} is already published`)
+      : pass('unique alpha tag; latest selection is verified independently');
+  }
   const [newest] = publishedReleases(releases, product);
   if (!newest) return pass('no published release of the product yet');
   return compareVersions(versionOfTag(tag, product), versionOfTag(newest.tag_name, product)) > 0
@@ -148,14 +158,14 @@ export function countMigrations(source) {
 }
 
 /** A conventional-commit `!` after the type or scope, or a `BREAKING CHANGE:` footer. */
-export function isBreaking({ subject, body = '' }) {
-  return /^[a-z]+(\([^)]*\))?!:/.test(subject) || /^BREAKING[ -]CHANGE:/m.test(body);
+export function isBreaking({ subject, body = '', breaking = false }) {
+  return breaking || /^[a-z]+(\([^)]*\))?!:/.test(subject) || /^BREAKING[ -]CHANGE:/m.test(body);
 }
 
 /**
  * Holds a release that carries a breaking change, and outside the alpha channel one that carries
  * a new migration: `counts` are the entries of each of the component's migration files at the
- * candidate's commit and at the last published release's (`previous.counts`), `commits` the
+ * candidate's commit and at its newest published ancestor release (`previous.counts`), `commits` the
  * release's own commits. An alpha publishes its migrations, which are forward-only, so it only
  * reports them.
  */
@@ -242,7 +252,10 @@ function spawn(command, args, options = {}) {
 }
 const git = (args) => {
   const result = spawn('git', args);
-  if (result.status !== 0) throw new Error(`git ${args[0]} failed: ${result.stderr.trim()}`);
+  if (result.status !== 0)
+    throw new Error(`git ${args[0]} failed: ${result.stderr.trim()}`, {
+      cause: { status: result.status },
+    });
   return result.stdout;
 };
 const ghJson = (args) => {
@@ -256,22 +269,20 @@ function fileCount(sha, file) {
   return result.status === 0 ? countMigrations(result.stdout) : 0;
 }
 
-/** The commits `from..to` that touch a file the component owns, with their messages. */
-function releaseCommits({ from, to, product, map }) {
-  const text = git(['log', '--name-only', '--format=%x1e%H%x1f%s%x1f%b%x1f', `${from}..${to}`]);
-  return text
-    .split('\x1e')
-    .filter(Boolean)
-    .map((entry) => {
-      const [sha, subject, body, names] = entry.split('\x1f');
-      return { sha, subject, body, files: names.split('\n').filter(Boolean) };
+/** Publication sees the same cut range, additive consumers and nested breaks as the notes. */
+export function releaseCommits({ from, to, product, map, workspace }, readGit = git) {
+  return attributeCutCommits(readCutRange(readGit, from, to), map, product, workspace).map(
+    (commit) => ({
+      sha: commit.sha,
+      subject: commit.message.split('\n')[0],
+      body: commit.message,
+      breaking: parseReleaseCommits([commit]).some((parsed) => parsed.notes.length > 0),
     })
-    .filter(({ files }) => files.some((file) => ownerOf(file, map) === product));
+  );
 }
 
-function earlyChecks({ product, tag, release, releases, repository, map }) {
+function earlyChecks({ product, tag, release, releases, repository }) {
   const sha = release.target_commitish;
-  const component = componentOfProduct(map, product);
   return {
     channel: () => checkChannel({ product, tag }),
     commit: () => {
@@ -296,11 +307,19 @@ function earlyChecks({ product, tag, release, releases, repository, map }) {
     immutability: () => checkImmutability({ releases }),
     monotonic: () => checkMonotonic({ releases, product, tag }),
     migration: () => {
+      const { map, workspace } = readReleaseSourceAtRef(sha, { root: process.cwd(), warm: true });
+      const component = componentOfProduct(map, product);
       const alpha = isAlphaVersion(versionOfTag(tag, product));
-      const previousRelease = selectPrevious({ releases, product, candidateTag: tag });
+      const previousCut = releaseCutHistory({
+        releases,
+        product,
+        cut: sha,
+        git,
+        excludeTag: tag,
+      }).previous;
       const count = (at) =>
         Object.fromEntries(component.migrations.map((file) => [file, fileCount(at, file)]));
-      if (!previousRelease) {
+      if (!previousCut) {
         return checkMigration({
           files: component.migrations,
           counts: {},
@@ -309,16 +328,18 @@ function earlyChecks({ product, tag, release, releases, repository, map }) {
           alpha,
         });
       }
-      const previousSha = git([
-        'rev-parse',
-        '--verify',
-        `refs/tags/${previousRelease.tag_name}^{commit}`,
-      ]).trim();
+      const previousSha = previousCut.sha;
       return checkMigration({
         files: component.migrations,
         counts: count(sha),
-        previous: { tag: previousRelease.tag_name, counts: count(previousSha) },
-        commits: releaseCommits({ from: previousSha, to: sha, product: component.name, map }),
+        previous: { tag: previousCut.tag, counts: count(previousSha) },
+        commits: releaseCommits({
+          from: previousSha,
+          to: sha,
+          product,
+          map,
+          workspace,
+        }),
         alpha,
       });
     },
@@ -400,7 +421,6 @@ function main(argv, environment) {
   };
 
   if (command === 'early') {
-    const map = parseComponentMap(readFileSync('.github/components.json', 'utf8'));
     if (values.rerun && values['release-hold'])
       throw new Error('Rerun and release-hold are separate runs.');
     let skip = '';
@@ -426,7 +446,6 @@ function main(argv, environment) {
         release,
         releases,
         repository,
-        map,
       }),
       skip: EARLY_GATES.includes(skip) ? skip : '',
     });

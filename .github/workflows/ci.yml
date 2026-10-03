@@ -95,6 +95,8 @@ jobs:
 
   code-quality:
     name: Code quality
+    env:
+      RUSTUP_TOOLCHAIN: 1.97.0
     needs: [changes, office]
     if: ${{ always() && needs.changes.outputs.verify != 'false' }}
     runs-on: ubuntu-latest
@@ -113,23 +115,22 @@ jobs:
       - name: Install dependencies
         working-directory: typescript
         run: pnpm --filter tmux-team install --frozen-lockfile
-      - name: Install pinned release-config test API
-        working-directory: .github/release-please
-        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Build the Rust TOML helper for cut and source-gate fixtures
+        env:
+          RUSTUP_TOOLCHAIN: 1.97.0
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal
+          cargo build --locked -p tmt-release-tool --bin release-version --manifest-path rust/Cargo.toml
       - name: Run code quality checks
         working-directory: typescript
         run: |
           pnpm check:tooling
-          pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/release-please-config.test.ts test/tooling/release-stall.test.ts test/tooling/release-pr-safety.test.ts
-      - name: Verify release PR notes
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: node typescript/scripts/release-pr-safety.mjs notes
+          pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-source-at-ref.test.ts test/tooling/release-version-injection.test.ts test/tooling/release-workflow.test.ts
       - name: Report conventional PR titles
         if: github.event_name == 'merge_group'
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: node typescript/scripts/release-pr-safety.mjs titles-report
+        run: node typescript/scripts/pr-title-check.mjs
       - name: Require selected Office verification
         env:
           OFFICE_SELECTED: ${{ needs.changes.outputs.office }}
@@ -372,6 +373,37 @@ jobs:
           cargo build --locked -p tmt-adapters --example runtime-caller-fixture
           cargo build --locked -p tmt-test-support --example recording-cli-fixture
           cargo build --locked --release -p tmt-cli -p tmt-driver-herdr --bins
+      - name: Inject the synthetic alpha installation fixture
+        if: needs.changes.outputs.native_scope == 'full' || contains(needs.changes.outputs.scoped_native_tests, 'extension-install.test.ts')
+        uses: ./.github/actions/inject-release-version
+        with:
+          product: cli
+      - name: Build the synthetic alpha installation fixture in debug mode
+        if: needs.changes.outputs.native_scope == 'full' || contains(needs.changes.outputs.scoped_native_tests, 'extension-install.test.ts')
+        working-directory: rust
+        run: |
+          set -euo pipefail
+          started=$SECONDS
+          cargo build --offline --locked -p tmt-cli --bin tmt
+          expected=$(node -pe 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).version' "$RUNNER_TEMP/release-version-state.json")
+          test "$(target/debug/tmt --version)" = "$expected"
+          mkdir -p target/debug/native-release-fixture
+          cp target/debug/tmt target/debug/native-release-fixture/tmt
+          cp target/release/tmt-driver-herdr target/debug/native-release-fixture/tmt-driver-herdr
+          echo "Synthetic alpha installation fixture debug build: $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Verify the synthetic alpha fixture source gate
+        if: needs.changes.outputs.native_scope == 'full' || contains(needs.changes.outputs.scoped_native_tests, 'extension-install.test.ts')
+        uses: ./.github/actions/inject-release-version
+        with:
+          product: cli
+          phase: verify
+      - name: Restore the reviewed development source before process tests
+        if: needs.changes.outputs.native_scope == 'full' || contains(needs.changes.outputs.scoped_native_tests, 'extension-install.test.ts')
+        run: |
+          set -euo pipefail
+          # The source gate has proved these are the only edits, implied by the CLI version.
+          git restore --source=HEAD -- rust/Cargo.toml rust/Cargo.lock
+          git diff --exit-code HEAD --
       - name: Download the verified Office companion
         if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_office == 'true'
         uses: actions/download-artifact@v4
@@ -491,9 +523,6 @@ jobs:
       - name: Install dependencies
         working-directory: typescript
         run: pnpm --filter tmux-team install --frozen-lockfile
-      - name: Install pinned release-config test API
-        working-directory: .github/release-please
-        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Prepare locked Cargo metadata inputs
         working-directory: rust
         run: cargo fetch --locked
@@ -506,9 +535,9 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: release-version-fixture
-          path: rust/target/debug/examples
+          path: rust/target/debug
       - name: Make the Rust TOML helper executable
-        run: chmod +x rust/target/debug/examples/release-version
+        run: chmod +x rust/target/debug/release-version
       - name: Download the native caller launcher for tooling tests
         uses: actions/download-artifact@v4
         with:
@@ -627,13 +656,13 @@ jobs:
       - name: Build the Rust TOML helper for tooling fixtures
         if: matrix.target == 'x86_64-unknown-linux-musl'
         working-directory: rust
-        run: cargo build --locked -p tmt-test-support --example release-version
+        run: cargo build --locked -p tmt-release-tool --bin release-version
       - name: Share the Rust TOML helper with tooling tests
         if: matrix.target == 'x86_64-unknown-linux-musl'
         uses: actions/upload-artifact@v4
         with:
           name: release-version-fixture
-          path: rust/target/debug/examples/release-version
+          path: rust/target/debug/release-version
           if-no-files-found: error
           retention-days: 1
       - name: Build the native caller launcher for tooling tests
