@@ -160,11 +160,18 @@ pub(in crate::grammar) fn setup(hooked: Vec<&'static str>) -> Command {
         "Set up every detected agent: skills and session hooks, after one approval",
         [
             "Review and apply what is missing" => "tmt setup",
-            "Only Claude's session hooks" => "tmt setup claude --yes",
+            "Claude's session and usage hooks" => "tmt setup claude --yes",
             "Remove Claude's session hooks" => "tmt setup claude --remove",
         ]
     ))
     .arg(operand("provider", false).value_parser(hooked))
+    .arg(
+        Arg::new("status")
+            .long("status")
+            .action(ArgAction::SetTrue)
+            .help("Show installed consumption collection status without changing anything")
+            .conflicts_with_all(["usage", "no-usage", "remove", "yes"]),
+    )
     .arg(
         Arg::new("remove")
             .long("remove")
@@ -176,14 +183,14 @@ pub(in crate::grammar) fn setup(hooked: Vec<&'static str>) -> Command {
         Arg::new("usage")
             .long("usage")
             .action(ArgAction::SetTrue)
-            .help("Also install the turn-end hook that records context usage")
+            .help("Enable context and consumption collection (default for new installs)")
             .conflicts_with_all(["no-usage", "remove"]),
     )
     .arg(
         Arg::new("no-usage")
             .long("no-usage")
             .action(ArgAction::SetTrue)
-            .help("Remove only the turn-end usage hook")
+            .help("Disable context and consumption collection and remember this choice")
             .conflicts_with("remove"),
     )
     .arg(option("yes"))

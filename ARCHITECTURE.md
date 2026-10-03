@@ -1402,7 +1402,7 @@ provider session and runtime incarnation match the caller, and recheck the
 binding/preferences after callbacks before handing context to the provider.
 They neither admit a session nor replay the SessionStart identity preamble.
 Setup includes one synchronous prompt-submit entry in its consented plan;
-existing SessionStart and opt-in Stop behavior retain their owners.
+existing SessionStart and Stop behavior retain their owners.
 
 With no consent file or no enabled observer, a command performs at most one read
 attempt of the consent file, on its first storage open, and spawns nothing;
@@ -1682,11 +1682,24 @@ main-turn event, not all background tasks. Runtime uncertainty is unknown;
 ended requires a conclusive core process observation. Timestamps are accepted
 observation times, never inferred from silence, usage, terminal text or probes.
 The state clock has no stalled threshold. Storage-only identity output does not
-assert activity liveness. The Stop entry remains opt-in through `setup --usage`;
-without it, no end event can be recorded.
+assert activity liveness. The Stop entry is included in consented setup by default; `--no-usage`
+disables it. Without it, no end event can be recorded.
 
-Context usage (#519) is opt-in: `tmt setup --usage` adds a TMT `Stop` hook next
-to the lifecycle hooks, and `--no-usage` removes only that entry. A turn end is not
+Context usage (#519) and consumption are included in the same consented
+`tmt setup` plan as lifecycle hooks. `--no-usage` removes the TMT `Stop` entry
+and records the disabled choice; `--usage` explicitly enables it again.
+The existing setup record owns the optional per-driver/settings-path `usage`
+boolean. New unrecorded installations default on. Legacy records without the
+field preserve the installed Stop state: absence could reflect an old explicit
+opt-out and cannot safely be distinguished from omission. Successful setup
+records the resolved choice; full hook removal forgets it. Invalid records stop
+setup before settings publication. Settings and record publication remain
+separate: a record failure reports the already-applied settings and a retry.
+`tmt setup [provider] --status` reads settings without consent, record adoption,
+provider execution or database access. Setup and status report disabled
+collection with the exact `tmt setup <provider> --usage` command. Consent names
+context usage, consumption and activity, and explains the transcript read.
+A turn end is not
 a session transition. The worker verifies the caller exactly as for a lifecycle
 event, and writes only when the binding's current conversation is the
 remembered one the event names. It replaces the remembered state in one

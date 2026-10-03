@@ -228,11 +228,12 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::Setup {
             provider,
+            status,
             remove,
             usage,
             yes,
         } => {
-            return setup_command::execute(provider, remove, usage, yes, parsed.mode);
+            return setup_command::execute(provider, status, remove, usage, yes, parsed.mode);
         }
         Invocation::ProviderHook {
             provider,

@@ -142,6 +142,7 @@ pub enum Invocation {
     },
     Setup {
         provider: Option<String>,
+        status: bool,
         remove: bool,
         usage: tmt_core::driver::descriptor::UsageHook,
         yes: bool,

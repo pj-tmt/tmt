@@ -48,8 +48,12 @@ for pane death.
 Check the selected executable's help instead of inferring capabilities from
 a remembered version number.
 
-The opt-in `tmt setup --usage` hook can expose `resume.usage` (context size) and
-optional `resume.consumption` in ls/identity JSON. Consumption reports cumulative
+Consented `tmt setup` includes the Stop hook by default, exposing
+`resume.usage` (context size) and
+optional `resume.consumption` in ls/identity JSON. `--no-usage` disables
+collection and preserves the choice; `--usage` enables it again. Legacy recorded
+lifecycle-only installs stay off until explicitly enabled. Inspect without
+changes using `tmt setup [provider] --status`. Consumption reports cumulative
 completed-request counters; measure changes within an epoch. Cached input
 already belongs to input.
 Use its epoch/sequence and completeness/gap evidence, never context-size

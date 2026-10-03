@@ -1731,6 +1731,10 @@ measurements are local evidence, not a flaky CI threshold.
 
 ### Provider setup and lifecycle verification
 
+Setup and guided-setup native tests cover default-on Stop installation, named
+consent, persisted opt-out, explicit re-enable, legacy record adoption and
+read-only `setup --status` diagnostics for both providers. Status needs no stable
+launcher on PATH and changes neither provider settings nor setup records.
 Setup planning/publication tests use disposable settings files and preserve user
 hook/permission bytes, exact reruns, recovery copies and changed-input refusal.
 Claude cases cover unset/empty, absolute and relative `CLAUDE_CONFIG_DIR` roots
