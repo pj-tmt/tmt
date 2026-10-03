@@ -479,8 +479,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
     }, 60000);
   }
 
-  // Quarantined pending channel Ready publication diagnosis: https://github.com/pj-tmt/tmt/issues/1432
-  it.skip('explicit opt-in channel hooks preserve the foreground and remembered model through exact resume', async () => {
+  it('explicit opt-in channel hooks preserve the foreground and remembered model through exact resume', async () => {
     await withE2EFixture(async (f) => {
       const preference = () =>
         sql(f, (db) =>
@@ -638,8 +637,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
     }, 60000);
   }
 
-  // Quarantined pending channel Ready publication diagnosis: https://github.com/pj-tmt/tmt/issues/1432
-  it.skip('reply notification uses native route while a never-enrolled originator proves paste control', async () => {
+  it('reply notification uses native route while a never-enrolled originator proves paste control', async () => {
     await withE2EFixture(async (f) => {
       const worker = start(f, 'Worker', true);
       const boss = start(f, 'Boss', true, { MOCK_AUTOREPLY: '0' });
@@ -903,8 +901,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
     });
   }, 60000);
 
-  // Quarantined pending channel Ready publication diagnosis: https://github.com/pj-tmt/tmt/issues/1432
-  it.skip('an unavailable native originator never gets pasted a reply; duplicate durable reply does not redeliver the hint', async () => {
+  it('an unavailable native originator never gets pasted a reply; duplicate durable reply does not redeliver the hint', async () => {
     await withE2EFixture(async (f) => {
       const worker = start(f, 'Worker', true, { MOCK_AUTOREPLY: '0' });
       const boss = start(f, 'Boss', true, { MOCK_AUTOREPLY: '0' });
