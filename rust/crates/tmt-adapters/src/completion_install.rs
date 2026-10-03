@@ -99,7 +99,10 @@ impl Plan {
                 .filter(|word| !word.is_empty())
                 .collect();
             if !words.windows(2).any(|pair| {
-                matches!(pair[0], "tmt" | "tmux-team")
+                let executable = Path::new(pair[0].trim_matches(['\'', '"']))
+                    .file_name()
+                    .and_then(|name| name.to_str());
+                matches!(executable, Some("tmt" | "tmux-team"))
                     && matches!(pair[1], "completion" | "__completion-script")
             }) {
                 continue;

@@ -107,3 +107,24 @@ fn changed_unreadable_and_ambiguous_files_are_preserved() {
     assert!(Plan::inspect(Shell::Bash, path).is_err());
     assert!(Plan::inspect(Shell::Bash, root.0.clone()).is_err());
 }
+
+#[test]
+fn absolute_legacy_executables_require_manual_review_instead_of_a_duplicate_append() {
+    for command in ["/usr/local/bin/tmt", "'/opt/homebrew/bin/tmux-team'"] {
+        let text = format!("source <({command} completion bash)\n");
+        let plan = Plan::from_bytes(Shell::Bash, "ignored".into(), text.into_bytes()).unwrap();
+        assert!(
+            !plan.configured,
+            "complex line is not asserted to be configured"
+        );
+        assert!(
+            plan.warnings
+                .iter()
+                .any(|warning| warning.contains("old completion"))
+        );
+        assert!(
+            plan.append().is_err(),
+            "never add a duplicate to an unrecognized existing line"
+        );
+    }
+}
