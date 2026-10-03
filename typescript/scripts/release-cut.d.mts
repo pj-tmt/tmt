@@ -1,3 +1,4 @@
+import type { CargoWorkspace } from './cargo-workspace.mjs';
 import type { ComponentMap } from './ci-scope.mjs';
 export interface CutCommit {
   sha: string;
@@ -47,7 +48,8 @@ export function parseReleaseCommits(commits: CutCommit[]): {
 export function attributeCutCommits(
   commits: CutCommit[],
   map: ComponentMap,
-  product: string
+  product: string,
+  workspace?: CargoWorkspace
 ): CutCommit[];
 export function nextAlphaVersion(version: string): string;
 export function renderCutNotes(input: {
@@ -68,6 +70,7 @@ export function planReleaseCuts(input: {
   map: ComponentMap;
   git: (args: string[]) => string;
   date?: string;
+  workspace?: CargoWorkspace;
   initialVersions?: Record<string, string>;
 }): Promise<CutPlan>;
 export function renderCutSummary(plan: CutPlan): string;

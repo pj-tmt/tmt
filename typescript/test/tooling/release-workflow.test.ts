@@ -26,6 +26,21 @@ describe('release-cut shadow workflow boundaries', () => {
     );
     expect(run).toContain("run-name: 'Native release: ${{ inputs.product }}'");
   });
+  it('prepares locked Cargo inputs before offline attribution without publication permissions', () => {
+    for (const [file, name, command] of [
+      ['.github/workflows/ci.yml', 'unit-tests', 'pnpm test:run'],
+      ['.github/workflows/release-cut.yml', 'shadow', 'node typescript/scripts/release-cut.mjs'],
+      [
+        '.github/workflows/project-release.yml',
+        'update',
+        'node typescript/scripts/project-release.mjs',
+      ],
+    ]) {
+      const text = job(read(file), name);
+      expect(text).toContain('working-directory: rust\n        run: cargo fetch --locked');
+      expect(text.indexOf('cargo fetch --locked')).toBeLessThan(text.indexOf(command));
+    }
+  });
   it('builds and transfers the Rust TOML helper before ordinary tooling injection fixtures', () => {
     const ci = read('.github/workflows/ci.yml');
     const build = job(ci, 'native-runtime-build');

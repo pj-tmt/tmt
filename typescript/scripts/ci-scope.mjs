@@ -61,6 +61,7 @@ export function parseComponentMap(text) {
     name,
     package: component.package,
     release: component.release,
+    releaseStatus: component.releaseStatus,
     bootstrapSha: component.bootstrapSha,
     releaseConsumers:
       component.releaseConsumers === undefined
@@ -83,9 +84,16 @@ export function parseComponentMap(text) {
       throw new Error(`Component ${component.name} bootstrapSha must be a commit SHA.`);
     if (component.release !== undefined && typeof component.release !== 'boolean')
       throw new Error(`Component ${component.name} release must be boolean.`);
+    if (
+      component.releaseStatus !== undefined &&
+      (component.release !== false || !['never', 'parked'].includes(component.releaseStatus))
+    )
+      throw new Error(`Invalid releaseStatus of ${component.name}.`);
+    if (component.releaseStatus === 'never' && component.releaseConsumers.length)
+      throw new Error(`Never-shipped component ${component.name} cannot have release consumers.`);
     for (const name of component.releaseConsumers) {
       const consumer = components.find((candidate) => candidate.name === name);
-      if (component.release !== false || !consumer?.package || consumer.release === false)
+      if (component.release !== false || !consumer?.package || consumer.releaseStatus === 'never')
         throw new Error(`Invalid release consumer ${name} of ${component.name}.`);
     }
   }
@@ -128,14 +136,17 @@ function componentMap() {
 
 const within = (root, path) => root === '.' || path === root || path.startsWith(`${root}/`);
 
-/** Released product roots containing a path; CI selectedBy and longest ownership do not replace membership. */
-export function releasedComponentsForPath(path, map = componentMap()) {
+/** Released roots plus Cargo normal/build workspace closure; CI selection remains independent. */
+export function releasedComponentsForPath(path, map = componentMap(), workspace) {
   return map.components.filter(
     (component) =>
       component.package &&
       component.release !== false &&
-      component.owns.some((root) => within(root, path)) &&
-      !component.excludes.some((root) => within(root, path))
+      ((component.owns.some((root) => within(root, path)) &&
+        !component.excludes.some((root) => within(root, path))) ||
+        workspace
+          ?.closure(component.package, ['normal', 'build'])
+          .some((crate) => within(crate.dir, path)))
   );
 }
 

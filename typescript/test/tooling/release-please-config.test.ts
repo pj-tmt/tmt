@@ -573,7 +573,9 @@ describe('private leaf release attribution with pinned release-please', () => {
     for (const changed of [
       map.map((c) => (c.name === 'tmt-tui' ? { ...c, release: true } : c)),
       map.map((c) => (c.name === 'tmt-tui' ? { ...c, releaseConsumers: ['missing'] } : c)),
-      map.map((c) => (c.name === 'squad' ? { ...c, release: false } : c)),
+      map.map((c) =>
+        c.name === 'squad' ? { ...c, release: false, releaseStatus: 'never' as const } : c
+      ),
       map.map((c) => (c.name === 'tmt-tui' ? { ...c, releaseConsumers: ['cli'] } : c)),
     ])
       expect(() => releaseConsumption(changed)).toThrow();

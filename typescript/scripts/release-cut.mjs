@@ -1,8 +1,10 @@
 // Plans release cuts in shadow mode. This module has no network/mutation interface.
 import assert from 'node:assert/strict';
-import { appendFileSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { appendFileSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
+import { readCargoWorkspace } from './cargo-workspace.mjs';
 import parser from '@conventional-commits/parser';
 import presetFactory from 'conventional-changelog-conventionalcommits';
 import writer from 'conventional-changelog-writer';
@@ -98,7 +100,7 @@ export function parseReleaseCommits(commits) {
 }
 
 /** Ownership is the component map's responsibility, including private-leaf consumers. */
-export function attributeCutCommits(commits, map, product) {
+export function attributeCutCommits(commits, map, product, workspace) {
   const byName = new Map(map.components.map((c) => [c.name, c]));
   const selected = new Map();
   for (const commit of commits) {
@@ -107,7 +109,9 @@ export function attributeCutCommits(commits, map, product) {
         const owner = ownerOf(path, map);
         return (
           owner === product ||
-          releasedComponentsForPath(path, map).some((component) => component.name === product) ||
+          releasedComponentsForPath(path, map, workspace).some(
+            (component) => component.name === product
+          ) ||
           byName.get(owner)?.releaseConsumers.includes(product)
         );
       })
@@ -210,7 +214,14 @@ export function readCutRange(git, previous, cut) {
   return commits;
 }
 
-export async function planReleaseCuts({ metadata, map, git, date, initialVersions = {} }) {
+export async function planReleaseCuts({
+  metadata,
+  map,
+  git,
+  date,
+  workspace,
+  initialVersions = {},
+}) {
   if (
     metadata.schema !== 1 ||
     !SHA.test(metadata.cut ?? '') ||
@@ -272,7 +283,12 @@ export async function planReleaseCuts({ metadata, map, git, date, initialVersion
         : initialVersions[component.name];
       if (!previousRelease) nextAlphaVersion(version); // validate the explicitly supplied alpha seed
       const tag = `${tagPrefix}${version}`;
-      const commits = attributeCutCommits(readCutRange(git, previous, cut), map, component.name);
+      const commits = attributeCutCommits(
+        readCutRange(git, previous, cut),
+        map,
+        component.name,
+        workspace
+      );
       const notes = await renderCutNotes({
         commits,
         repository,
@@ -331,12 +347,23 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       runPackedCommand('git', args, { cwd: ROOT, env: process.env, timeoutMs: 10_000 }).trimEnd();
     // All release decisions use the map from the captured cut, never a later main checkout.
     const map = parseComponentMap(git(['show', `${metadata.cut}:.github/components.json`]));
-    const plan = await planReleaseCuts({
-      metadata,
-      map,
-      git,
-      date: metadata.capturedAt?.slice(0, 10),
-    });
+    // Cargo must read the same immutable cut as the map, not the running checkout.
+    const directory = mkdtempSync(join(tmpdir(), 'tmt-cut-workspace-'));
+    let plan;
+    try {
+      const archive = join(directory, 'source.tar');
+      git(['archive', '--format=tar', `--output=${archive}`, metadata.cut]);
+      runPackedCommand('tar', ['-xf', archive, '-C', directory], { cwd: ROOT, env: process.env });
+      plan = await planReleaseCuts({
+        metadata,
+        map,
+        git,
+        workspace: readCargoWorkspace(directory),
+        date: metadata.capturedAt?.slice(0, 10),
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
     console.log(JSON.stringify(plan, null, 2));
     if (process.env.GITHUB_STEP_SUMMARY)
       appendFileSync(process.env.GITHUB_STEP_SUMMARY, renderCutSummary(plan));

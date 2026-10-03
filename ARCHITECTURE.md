@@ -4382,8 +4382,17 @@ paths by ownership, exclusions, selected globs and declared `releaseConsumers`.
 Private-leaf consumers add attribution without replacing matching released-root
 membership: style/invoke remain CLI plus Squad, while explicitly CLI-excluded
 TUI is Squad only. `releasedComponentsForPath` in `ci-scope.mjs` owns released-root
-membership for both this planner and the Project release sweep; `ownerOf` supplies
-the selected owner and its declared consumers from the same parsed map.
+membership plus every workspace crate directory in each product package's transitive
+normal/build dependency closure for both this planner and the Project release sweep.
+Dev edges never contribute. `cargo-workspace.mjs::readCargoWorkspace` is the shared
+Cargo reader: callers supply a repository root directory, exporting an immutable ref
+when needed; it performs offline locked format-version-1 metadata acquisition without
+Git logic or manifest parsing. It exposes resolved package versions, manifest
+paths/directories, binary targets, dist metadata and workspace edges by dependency
+kind, with a cycle-safe closure operation and injectable command runner. Version
+inheritance and editing remain owned by the Rust `release-version` tool (`toml_edit`).
+The cut caller exports the captured cut and removes that temporary checkout on success or failure.
+`ownerOf` supplies the selected owner and its declared consumers from the same parsed map.
 There is no generated release-config path expansion. Direct pinned conventional
 parser/renderer dependencies produce notes from first-parent commits in
 (previous product tag, X]; their linked SHA set must equal the releasable set.
@@ -4428,8 +4437,10 @@ Only trusted main tooling executes. A full-history checkout supplies each merged
 closing PR's first-parent changed paths and tags containing its merge commit.
 `ci-scope.ownerOf` and the component map own product attribution. Private-leaf
 `releaseConsumers` add consumers to the released packaged roots returned by
-`ci-scope.releasedComponentsForPath`, which matches `owns`/`excludes` independently
-of CI `selectedBy`. Style and invoke therefore retain CLI membership alongside
+`ci-scope.releasedComponentsForPath`, which matches `owns`/`excludes` and adds the
+Cargo normal/build workspace closure independently of CI `selectedBy`. Thus Office
+model/command/service changes require CLI evidence; Office runtime/storage/pairing
+and dev-only test support do not. This release attribution does not change CI selection. Style and invoke therefore retain CLI membership alongside
 Squad; the explicitly CLI-excluded TUI leaf belongs only to Squad. Native release
 policy and version helpers own product/tag identities. Notes, commit types and recency windows are not evidence.
 
@@ -4438,7 +4449,15 @@ that issue's closing merge commits is the canonical `Released in` entry. Every
 affected product must have such a release before Status is `Released`; otherwise
 it is `Merged`, with available product evidence retained. Private components
 without a native publication policy remain visibly waiting rather than inheriting
-an unrelated product's release. Closed-issue status definitions belong to
+an unrelated product's release. A `release:false` component may explicitly declare
+`releaseStatus:"never"` (no release contains it) or `releaseStatus:"parked"` (Office).
+Never-shipped leaves have no consumers and require no release; changes confined to
+them reconcile to Done. Only waits confined to parked products reconcile to Done with
+one `ships with the first <product> release` line per waited-on product
+(`Office` today); any other wait keeps Merged. Available published
+evidence is retained. An absent marker means not yet activated, preserving Colab,
+Remote and Herdr waits. `colab-app` declares its embedded consumer `tmt-colab`; private
+consumers may name a packaged product awaiting activation, but never a never-shipped one. Closed-issue status definitions belong to
 [Project tracking](DEVELOPMENT.md#project-tracking). Issues labeled `epic` are
 excluded from both field writes and listed as skipped: their owning lead retains
 acceptance/dogfood authority. Open issues, PR items, other repositories and project

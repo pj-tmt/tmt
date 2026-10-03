@@ -121,30 +121,34 @@ function excludedPaths(component, linked, files) {
   });
 }
 
-/** Private source roots and their released consumers, independent of version/CI ownership. */
+/** Private source roots and their active released consumers, independent of version/CI ownership. */
 export function releaseConsumption(components) {
   return components.flatMap((leaf) => {
     if (!leaf.releaseConsumers?.length) return [];
     if (leaf.release !== false || leaf.owns.length !== 1 || leaf.excludes.length) {
       throw new Error(`Release consumption requires a private single-root leaf: ${leaf.name}.`);
     }
-    return [...new Set(leaf.releaseConsumers)].map((name) => {
-      const consumer = components.find((component) => component.name === name);
-      if (
-        !consumer ||
-        consumer.release === false ||
-        consumer.owns.length !== 1 ||
-        !consumer.package
-      ) {
-        throw new Error(`Invalid release consumer ${name} of ${leaf.name}.`);
-      }
-      const [source] = leaf.owns;
-      const [target] = consumer.owns;
-      if (source === '.' || target === '.' || source === target) {
-        throw new Error(`Release consumption requires distinct non-root paths: ${leaf.name}.`);
-      }
-      return { source, target };
-    });
+    return [...new Set(leaf.releaseConsumers)]
+      .map((name) => {
+        const consumer = components.find((component) => component.name === name);
+        if (
+          !consumer ||
+          consumer.releaseStatus === 'never' ||
+          consumer.owns.length !== 1 ||
+          !consumer.package
+        ) {
+          throw new Error(`Invalid release consumer ${name} of ${leaf.name}.`);
+        }
+        // Awaiting-activation consumers remain declared in the map without creating a release-please package.
+        if (consumer.release === false) return undefined;
+        const [source] = leaf.owns;
+        const [target] = consumer.owns;
+        if (source === '.' || target === '.' || source === target) {
+          throw new Error(`Release consumption requires distinct non-root paths: ${leaf.name}.`);
+        }
+        return { source, target };
+      })
+      .filter(Boolean);
   });
 }
 

@@ -65,6 +65,9 @@ jobs:
         with:
           name: release-cut-metadata
           path: ${{ runner.temp }}
+      - name: Prepare locked Cargo inputs for offline attribution
+        working-directory: rust
+        run: cargo fetch --locked
       - name: Report immutable cuts, versions, note SHAs and skip reasons
         run: node typescript/scripts/release-cut.mjs "$RUNNER_TEMP/release-cut-metadata.json" > "$RUNNER_TEMP/release-cut-plan.json"
       - uses: actions/upload-artifact@v4
