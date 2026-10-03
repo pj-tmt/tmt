@@ -20,6 +20,15 @@ struct Step {
 
 fn main() {
     let mut args: Vec<_> = std::env::args_os().skip(1).collect();
+    if let Some(mock) = std::env::var_os("TMT_TEST_CLAUDE_MOCK") {
+        let status = Command::new(std::env::var_os("TMT_TEST_CLAUDE_NODE").expect("fixture node"))
+            .arg(mock)
+            .args(&args)
+            .status()
+            .expect("run model-free MCP peer");
+        std::process::exit(status.code().unwrap_or(1));
+    }
+
     if args.first().is_some_and(|arg| arg == "app-server") {
         args.remove(0);
     }

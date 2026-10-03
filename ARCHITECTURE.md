@@ -1629,6 +1629,19 @@ from a host's or driver's text.
   matching what `ProcessIncarnation` accepts.
 - **Cursor:** the bindings cursor update trigger compares the column.
 
+Schema 45 adds nullable `identity_session_preferences.channel`, the effective
+channel/plain choice for the preferred harness, recorded by an admitted fresh
+launch or an explicit channel flag on an admitted resume.
+Legacy null keeps the driver's default. Exact resume reuses the matching
+harness preference, with true resolved as Required (never a paste fallback)
+and false as Disabled. Explicit resume flags overwrite the preference after
+successful admission: `--channel` records true only after enrollment succeeds,
+and `--no-channel` records false. A flagless resume does not rewrite the choice,
+including legacy null. Failed launches do not record a new channel choice; changing
+harness clears it, and forgetting the session clears it. Hook observations
+preserve it for the same harness. The existing preferences transaction and
+change-cursor trigger own persistence; no channel lease or endpoint is reused.
+
 Schema 43 adds `identities.auto_named`, a private boolean defaulting to false.
 Only an unnamed registered-runtime launch inserts true, independently of temporary
 or saved lifetime. No name pattern or user-editable metadata grants this provenance.
@@ -1658,6 +1671,12 @@ A model is never inferred from transcripts or arguments. Resume replays a stored
 model (`claude --resume <id> --model <m>`, `codex resume -m <m> <id>`, following
 each CLI's recorded usage) only when the document is readable and the slug is a
 safe single argv value. Otherwise it resumes with the provider's default.
+
+A launched Claude process can be admitted before its first provider session is
+known. Its first resumed SessionStart may attach that session only when the
+same process is Running, has a launch owner and has no provider session yet.
+Known-session switches still require the preliminary continuation transition;
+ended or conflicting incarnations cannot use this first-session path.
 
 Main-turn activity (#656) comes from TMT's own UserPromptSubmit/Stop command
 hooks as installed by `tmt setup`. Claude runs these synchronously: admitted

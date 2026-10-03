@@ -989,6 +989,7 @@ mod tests {
         use tmt_core::binding::session::DriverState;
         let registry = RuntimeRegistry::first_party();
         let remembered = |harness: &str, state: Option<DriverState>| SessionPreferences {
+            channel: None,
             preferred_harness: None,
             remembered: Some(RememberedSession {
                 harness: id(harness),
@@ -1078,6 +1079,7 @@ mod tests {
             }
 
             let mut preferences = SessionPreferences {
+                channel: None,
                 preferred_harness: None,
                 remembered: Some(RememberedSession {
                     harness: id(harness),

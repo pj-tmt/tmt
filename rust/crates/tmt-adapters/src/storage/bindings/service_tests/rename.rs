@@ -147,6 +147,7 @@ fn automatic_naming_is_one_verified_transaction_and_keeps_binding_and_preference
         .unwrap();
         let id = &bound.presence.identity.id;
         let preferences = SessionPreferences {
+            channel: None,
             preferred_harness: Some(HarnessId::new("claude").unwrap()),
             remembered: None,
         };

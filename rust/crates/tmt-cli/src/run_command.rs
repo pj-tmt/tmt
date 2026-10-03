@@ -273,8 +273,43 @@ mod tests {
         );
     }
 
+    #[test]
+    fn only_inherited_required_channel_failures_offer_plain_resume() {
+        use crate::invocation::ChannelMode;
+        for requested in [
+            ChannelMode::Default,
+            ChannelMode::Required,
+            ChannelMode::Disabled,
+        ] {
+            for remembered in [Some(true), Some(false), None] {
+                let effective = channel::resume_mode(requested, true, remembered);
+                for code in ["CHANNEL_PROVIDER_UNSUPPORTED", "CHANNEL_UNAVAILABLE"] {
+                    let error = run::channel_preflight_failure(
+                        Failure::new(code, "Provider preflight refused", 1),
+                        requested,
+                        effective,
+                        "-Saved agent",
+                    );
+                    assert_eq!(error.code, code);
+                    assert_eq!(error.status, 1);
+                    assert_eq!(error.message, "Provider preflight refused");
+                    if requested == ChannelMode::Default && remembered == Some(true) {
+                        assert_eq!(effective, ChannelMode::Required);
+                        assert_eq!(
+                            error.document()["error"]["suggestion"],
+                            "This session was launched with a message channel; resume without it: tmt resume --no-channel -- '-Saved agent'"
+                        );
+                    } else {
+                        assert!(error.document()["error"].get("suggestion").is_none());
+                    }
+                }
+            }
+        }
+    }
+
     fn preferences(harness: &str, mode: &str, session: &str) -> SessionPreferences {
         SessionPreferences {
+            channel: None,
             preferred_harness: Some(HarnessId::new(harness).unwrap()),
             remembered: Some(RememberedSession {
                 harness: HarnessId::new(harness).unwrap(),

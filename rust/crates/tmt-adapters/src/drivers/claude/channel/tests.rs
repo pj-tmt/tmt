@@ -981,7 +981,7 @@ fn enrollment_is_durable_before_launch_and_plans_the_command() {
 }
 
 #[test]
-fn exact_resume_is_refused_before_enrollment_writes() {
+fn exact_resume_keeps_session_model_and_creates_a_new_launch_lease() {
     let scratch = Scratch::new();
     let owner = live_owner();
     let session = ProviderSessionId::new("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").unwrap();
@@ -997,15 +997,25 @@ fn exact_resume_is_refused_before_enrollment_writes() {
     let server = server();
     let mut planned = plan(&scratch.0, &owner, &command, &server);
     planned.resume_session = Some(&session);
-    let error = ClaudeChannel.enroll(&planned).err().unwrap();
-    assert_eq!(
-        error,
-        ChannelError::Unsupported(
-            "Claude channel enrollment on resume is not supported yet; resume without --channel"
-        )
+    let first = ClaudeChannel.enroll(&planned).unwrap();
+    assert_eq!(first.command().args[..4], command.args);
+    let generation = read_record(&scratch.0, BINDING)
+        .unwrap()
+        .unwrap()
+        .generation;
+    first.withdraw();
+    assert!(read_record(&scratch.0, BINDING).unwrap().is_none());
+    let second = ClaudeChannel.enroll(&planned).unwrap();
+    assert_eq!(second.command().args[..4], command.args);
+    assert_ne!(
+        read_record(&scratch.0, BINDING)
+            .unwrap()
+            .unwrap()
+            .generation,
+        generation
     );
-    assert_eq!(fs::read_dir(&scratch.0).unwrap().count(), 0);
-    assert_eq!(read_record(&scratch.0, BINDING).unwrap(), None);
+    second.withdraw();
+    assert!(read_record(&scratch.0, BINDING).unwrap().is_none());
 }
 
 #[test]
