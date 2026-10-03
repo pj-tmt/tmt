@@ -3183,8 +3183,16 @@ strict response/scope admission, signed-log result verification and metadata soc
 cleanup. Chromium exercises unavailable/uncertain responses, exact retry, bearer
 copy disclosure and narrowing confirmation, with light/dark/mobile screenshots.
 These remain signed protocol fixtures, not native reader/subscription acceptance.
-Run the app check/test/build gates before one handoff Chromium invocation; use the
-commands above. Home lifecycle is #1358; expiry time is unavailable pending #1350.
+The lifecycle suite adds signed retention bounds/forever, archive catchup through
+the same readable page, deletion through another page's signed log plus discovery,
+and last-page acknowledged/awaiting verification. It rejects discovery-only
+completion and mismatched acknowledgment evidence. Chromium covers home archived
+filtering, retention confirmations, archive/delete cancellation, verification retry
+without resending, and the expected DENIED close after an acknowledged deletion.
+It captures lifecycle light/dark/mobile views without opening a renderer. Expiry
+time is unavailable pending #1350. Run app check/test/build before the single
+handoff Chromium invocation after the authorized prerequisite-stack rebase; use
+the commands above. These fixtures do not replace native lifecycle verification.
 
 The private browser primitives use the existing frozen pnpm workspace. From the
 repository root:

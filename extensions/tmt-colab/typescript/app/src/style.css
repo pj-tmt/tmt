@@ -113,7 +113,8 @@ footer {
   padding: 0;
   list-style: none;
 }
-.pages a {
+.pages a,
+.archived-page {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -334,4 +335,12 @@ footer {
 .bearer {
   border: 2px solid var(--c-accent);
   padding: 16px;
+}
+
+.archived-page {
+  overflow-wrap: anywhere;
+}
+.management-dialog input[type='checkbox'] {
+  width: auto;
+  align-self: flex-start;
 }

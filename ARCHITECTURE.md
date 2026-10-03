@@ -4530,12 +4530,18 @@ or generates caller-selected baselines, cuts, wraps or epoch keys. Caller-held l
 seeds are transient local inputs and require encryption to the owner before relay
 transport. The prerequisite runner reserves page-policy actions as UNAVAILABLE until #1160.
 Exact DTOs, limits and failure codes live in colab-v1. Public CLI commands,
-reader admission and home lifecycle are separately tracked by #1307, #1310 and #1358.
+reader admission are separately tracked by #1307 and #1310.
 The browser's parent-owned `management` adapter uses existing membership admission
 for bounded metadata-only catchup, frozen device-signed requests and exact-result
 verification. `share-dialog` owns confirmation/retry state and transient bearer
-copy; no capabilities enter the renderer or content Worker. Mounted home refreshes
-discovery and derives labels from the signed log. Preview loading remains separate,
+copy and retention/archive/delete controls; no capabilities enter the renderer or
+content Worker. Mounted home refreshes discovery and projects sharing, retention
+and archived/deleted state from the signed log; parent home owns the archived
+filter. Archived rows expose management independently of preview loading. Archive
+verification uses the initiating page's readable metadata context. Delete uses
+another readable context and discovery absence, retaining the frozen initiating
+context; last-page deletion stays acknowledged/awaiting verification. Refresh on
+dialog exit preserves that state. Preview loading remains separate,
 including visible reset-baseline blocking until #1264.
 
 ### Stream sync transport

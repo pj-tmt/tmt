@@ -365,3 +365,180 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Manage page' })).toBeFocused();
 });
+
+test('trusted home manages retention, archive and verified or awaiting deletion', async ({
+  page,
+}, testInfo) => {
+  const f = await fixture(page),
+    other = '00000000-0000-4000-8000-000000000103',
+    log = [f.genesis, f.shared];
+  let head = f.head.head;
+  const added = await f.signed('page.share', { pageId: other, mode: 'private', epoch: '1' }, head);
+  head = (await added.verifyNext(f.space, f.ownerKey, head)).head;
+  log.push(added);
+  const states = new Map(
+    [pageId, other].map((id) => [
+      id,
+      { pageId: id, epoch: '1', sharing: 'private', history: 'shared', archived: false },
+    ]),
+  );
+  const contexts: string[] = [];
+  let withheld = false,
+    requests = 0;
+  await page.route(`**${mount}api/pages`, (route) =>
+    route.fulfill({
+      json: {
+        spaceId: f.space,
+        ownerKey: c.encodeBinary(f.ownerKey),
+        revision: String(head.revision),
+        pages: [...states.values()],
+      },
+    }),
+  );
+  await page.routeWebSocket(`**${mount}sync`, (socket) =>
+    socket.onMessage((message) => {
+      const hello = JSON.parse(String(message));
+      if (hello.type !== 'hello') return;
+      contexts.push(hello.page);
+      if (!states.has(hello.page) || withheld) {
+        socket.close({ code: 1008, reason: 'DENIED' });
+        return;
+      }
+      socket.send(
+        JSON.stringify({
+          version: 1,
+          type: 'catchup',
+          space: f.space,
+          page: hello.page,
+          epoch: '1',
+          streams: [],
+          more: true,
+          baseline: null,
+          membershipHead: {
+            revision: String(head.revision),
+            statementHash: c.encodeBinary(head.hash),
+            ownerKey: c.encodeBinary(f.ownerKey),
+            statements: log
+              .slice(Number(hello.membershipRevision))
+              .map((v) => c.encodeBinary(v.toJson())),
+            more: false,
+          },
+        }),
+      );
+    }),
+  );
+  await page.route(`**${mount}api/management`, async (route) => {
+    requests++;
+    const request = route.request().postDataJSON(),
+      bytes = c.binary(request.request, 1024),
+      fields = c.fields(bytes, 11),
+      operation = c.decodeText(fields[6]),
+      selected = JSON.parse(c.decodeText(c.binary(request.payload, 16384)));
+    expect(await c.strictVerify(f.deviceKey(), c.binary(request.signature, 64, 64), bytes)).toBe(
+      true,
+    );
+    expect(c.decodeText(fields[4])).toBe(String(head.revision));
+    expect(c.decodeText(fields[3])).toBe(selected.pageId);
+    const envelope = await f.signed(operation, selected, head);
+    head = (await envelope.verifyNext(f.space, f.ownerKey, head)).head;
+    log.push(envelope);
+    if (operation === 'page.archive') states.get(selected.pageId)!.archived = true;
+    if (operation === 'page.delete') {
+      states.delete(selected.pageId);
+      // A temporarily unavailable other page must not turn an acknowledgment into success.
+      withheld = states.size > 0;
+    }
+    await route.fulfill({
+      json: {
+        operationId: c.decodeText(fields[5]),
+        membershipHead: {
+          revision: String(head.revision),
+          statementHash: c.encodeBinary(head.hash),
+        },
+      },
+    });
+  });
+  await page.goto(mount);
+  const row = (id: string) => page.locator('.pages li').filter({ hasText: id });
+  await row(pageId).getByRole('button', { name: 'Manage page' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Expiry time unavailable');
+  await dialog.getByLabel('Retention days').fill('14');
+  await dialog.getByRole('button', { name: 'Set retention', exact: true }).click();
+  await expect(dialog).toContainText('14 days after the last page update');
+  await dialog.getByRole('button', { name: 'Confirm set retention' }).click();
+  await expect(dialog.getByRole('status')).toContainText('Change verified');
+  await dialog.getByRole('button', { name: 'Manage another change' }).click();
+  await expect(dialog.getByLabel('Retention days')).toHaveValue('14');
+  await dialog.getByLabel('Keep forever').check();
+  await expect(dialog.getByLabel('Retention days')).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Set retention', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Confirm set retention' }).click();
+  await expect(dialog.getByRole('status')).toContainText('Change verified');
+  await dialog.getByRole('button', { name: 'Manage another change' }).click();
+  await expect(dialog.getByLabel('Keep forever')).toBeChecked();
+  await dialog.getByRole('button', { name: 'Archive page', exact: true }).click();
+  await expect(dialog).toContainText('freeze writes');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(requests).toBe(2);
+  await dialog.getByRole('button', { name: 'Archive page', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Confirm archive page' }).click();
+  await expect(dialog.getByRole('status')).toContainText('Change verified');
+  expect(contexts.at(-1)).toBe(pageId);
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(row(pageId)).toHaveCount(0);
+  await expect(row(other)).toBeVisible();
+  await page.getByLabel('Show archived pages').check();
+  await expect(row(pageId)).toContainText('Archived');
+  await expect(row(pageId)).toContainText('Retention: forever');
+  await expect(row(pageId).getByRole('link')).toHaveCount(0);
+  await row(pageId).getByRole('button', { name: 'Manage page' }).click();
+  await expect(dialog.getByRole('button', { name: 'Archive page', exact: true })).toBeDisabled();
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+    }, theme);
+    await page.screenshot({ path: testInfo.outputPath(`lifecycle-${theme}.png`) });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: testInfo.outputPath('lifecycle-mobile.png') });
+  expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
+  await expect(dialog).toContainText('Copies already made cannot be recalled');
+  await expect(dialog).toContainText(pageId);
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(requests).toBe(3);
+  await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Confirm delete page' }).click();
+  await expect(dialog.getByRole('alert')).toContainText(
+    'Deletion acknowledged, awaiting verification',
+  );
+  await expect(dialog).not.toContainText('Management access was denied');
+  expect(contexts.at(-1)).toBe(other);
+  withheld = false;
+  await dialog.getByRole('button', { name: 'Verify signed log' }).click();
+  await expect(dialog.getByRole('status')).toContainText('Deletion verified');
+  await expect(dialog.getByRole('alert')).toHaveCount(0);
+  expect(requests).toBe(4);
+  await expect(dialog.getByRole('button', { name: 'Manage another change' })).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.getByText('No archived pages.', { exact: true })).toBeVisible();
+  await page.getByLabel('Show archived pages').uncheck();
+  await row(other).getByRole('button', { name: 'Manage page' }).click();
+  await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Confirm delete page' }).click();
+  await expect(dialog.getByRole('alert')).toContainText(
+    'Deletion acknowledged, awaiting verification',
+  );
+  const sockets = contexts.length;
+  await dialog.getByRole('button', { name: 'Verify signed log' }).click();
+  await expect(dialog.getByRole('alert')).toContainText(
+    'Deletion acknowledged, awaiting verification',
+  );
+  expect(requests).toBe(5);
+  expect(contexts).toHaveLength(sockets);
+  await expect(page.locator('iframe')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.locator('.pages li')).toHaveCount(0);
+  await expect(page.getByText('No active pages.', { exact: true })).toBeVisible();
+});

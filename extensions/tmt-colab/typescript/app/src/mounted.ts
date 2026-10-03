@@ -21,16 +21,20 @@ export async function mountedTransport(): Promise<{ space: string; transport: Pa
         const { boot, log } = await management.snapshot();
         return {
           title: text.product,
-          pages: boot.pages
-            .filter((page) => !project(page, log).page.archived)
-            .map((page) => {
-              const policy = project(page, log).page;
-              return {
-                id: page.pageId,
-                title: page.pageId,
-                sharing: policy.sharing,
-              };
-            }),
+          pages: boot.pages.flatMap((page) => {
+            const policy = project(page, log).page;
+            return policy.deleted
+              ? []
+              : [
+                  {
+                    id: page.pageId,
+                    title: page.pageId,
+                    sharing: policy.sharing,
+                    archived: policy.archived,
+                    retentionDays: policy.retentionDays,
+                  },
+                ];
+          }),
         };
       },
       async page(id, signal) {

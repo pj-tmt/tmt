@@ -316,3 +316,187 @@ it('admits paged signed metadata without opening content; forged log, wrong scop
   await expect(loading).rejects.toMatchObject({ code: 'UNAVAILABLE' });
   expect(closed).toBe(4);
 });
+
+/** Discovery is routing evidence; all policies below still require owner signatures. */
+function serve(f: Awaited<ReturnType<typeof fixture>>) {
+  const contexts: string[] = [];
+  let closed = 0;
+  vi.stubGlobal('location', { hash: `#space=${f.boot.space}` });
+  vi.stubGlobal('history', { replaceState: vi.fn() });
+  vi.stubGlobal(
+    'fetch',
+    async () =>
+      new Response(
+        JSON.stringify({
+          spaceId: f.boot.space,
+          ownerKey: c.encodeBinary(f.boot.owner),
+          revision: String(f.log.at(-1)!.head.revision),
+          pages: f.boot.pages,
+        }),
+      ),
+  );
+  class Socket {
+    protocol = 'colab-sync-v1';
+    onopen: (() => void) | null = null;
+    onclose: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    onmessage: ((e: { data: string }) => void) | null = null;
+    constructor() {
+      queueMicrotask(() => this.onopen?.());
+    }
+    close() {
+      closed++;
+    }
+    send(raw: string) {
+      const hello = JSON.parse(raw);
+      if (hello.type !== 'hello') return;
+      contexts.push(hello.page);
+      // Deleted target catchup is denied, so only a different readable context works.
+      if (!f.boot.pages.some((p) => p.pageId === hello.page)) {
+        queueMicrotask(() => this.onclose?.());
+        return;
+      }
+      const head = f.log.at(-1)!.head;
+      queueMicrotask(() =>
+        this.onmessage?.({
+          data: JSON.stringify({
+            version: 1,
+            type: 'catchup',
+            space: f.boot.space,
+            page: hello.page,
+            epoch: hello.epoch,
+            streams: [],
+            baseline: null,
+            more: true,
+            membershipHead: {
+              revision: String(head.revision),
+              statementHash: c.encodeBinary(head.hash),
+              ownerKey: c.encodeBinary(f.boot.owner),
+              statements: f.raw.slice(Number(hello.membershipRevision)),
+              more: false,
+            },
+          }),
+        }),
+      );
+    }
+  }
+  vi.stubGlobal('WebSocket', Socket);
+  return { contexts, closed: () => closed };
+}
+function acknowledgment(f: Awaited<ReturnType<typeof fixture>>, p: Pending) {
+  const head = f.log.at(-1)!.head;
+  return {
+    operationId: p.id,
+    membershipHead: { revision: String(head.revision), statementHash: c.encodeBinary(head.hash) },
+  };
+}
+it('projects signed retention and rejects invalid days, extra fields and wrong page before signing', async () => {
+  const f = await fixture();
+  expect(f.view.page.retentionDays).toBe(30);
+  for (const days of [1, Number.MAX_SAFE_INTEGER, null]) {
+    const selected = { operation: 'retention.set' as const, value: { pageId: v.page, days } };
+    const pending = await f.client.prepare(f.view, selected);
+    expect(JSON.parse(c.decodeText(c.binary(JSON.parse(pending.body).payload, 16384)))).toEqual(
+      selected.value,
+    );
+    await f.append('retention.set', selected.value);
+    expect(project(page, f.log).page.retentionDays).toBe(days);
+  }
+  for (const days of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity]) {
+    await expect(
+      f.client.prepare(f.view, { operation: 'retention.set', value: { pageId: v.page, days } }),
+    ).rejects.toThrow();
+  }
+  for (const value of [
+    { pageId: v.page, days: 1, expiresAt: 123 },
+    { pageId: crypto.randomUUID(), days: 1 },
+  ]) {
+    expect(() =>
+      selectionBytes(f.view, { operation: 'retention.set', value } as Selection),
+    ).toThrow();
+  }
+});
+it('verifies retention at its acknowledged position despite a later retention change', async () => {
+  const f = await fixture(),
+    p = await f.client.prepare(f.view, {
+      operation: 'retention.set',
+      value: { pageId: v.page, days: null },
+    });
+  await f.append('retention.set', { pageId: v.page, days: null });
+  const ack = acknowledgment(f, p);
+  await f.append('retention.set', { pageId: v.page, days: 14 });
+  serve(f);
+  expect((await f.client.verify(p, ack)).page.retentionDays).toBe(14);
+});
+it('reads and verifies archive through the same owner-readable page, without relying on its discovery label', async () => {
+  const f = await fixture(),
+    other = { ...page, pageId: crypto.randomUUID() };
+  f.boot.pages = [other, page].sort((a, b) => a.pageId.localeCompare(b.pageId));
+  const transport = serve(f),
+    view = await f.client.read(v.page);
+  const p = await f.client.prepare(view, { operation: 'page.archive', value: { pageId: v.page } });
+  await f.append('page.archive', { pageId: v.page });
+  // Discovery deliberately still says active; policy is established by the log.
+  const archived = await f.client.verify(p, acknowledgment(f, p));
+  expect(archived.page.archived).toBe(true);
+  expect(archived.page.deleted).toBe(false);
+  expect(transport.contexts).toEqual([v.page, v.page]);
+  expect(transport.closed()).toBe(2);
+  await expect(
+    f.client.prepare(archived, { operation: 'page.archive', value: { pageId: v.page } }),
+  ).rejects.toThrow();
+});
+it('freezes initiating context and verifies deletion using discovery plus another readable signed-log context', async () => {
+  const f = await fixture(),
+    other = { ...page, pageId: crypto.randomUUID() };
+  f.boot.pages = [other, page].sort((a, b) => a.pageId.localeCompare(b.pageId));
+  const transport = serve(f),
+    preparing = f.client.prepare(f.view, { operation: 'page.delete', value: { pageId: v.page } });
+  f.view.page.epoch = '99';
+  f.view.revision = '99';
+  const p = await preparing;
+  expect(p.context.epoch).toBe('1');
+  expect(p.expectedRevision).toBe('2');
+  expect(Object.isFrozen(p.context)).toBe(true);
+  await f.append('page.delete', { pageId: v.page });
+  const ack = acknowledgment(f, p);
+  f.boot.pages = [other];
+  const result = await f.client.verify(p, ack);
+  expect(result.page.deleted).toBe(true);
+  expect(result.page.pageId).toBe(v.page);
+  expect(transport.contexts).toEqual([other.pageId]);
+  expect(transport.closed()).toBe(1);
+  await expect(
+    f.client.prepare(result, { operation: 'retention.set', value: { pageId: v.page, days: null } }),
+  ).rejects.toThrow();
+  await expect(
+    f.client.verify(p, {
+      ...ack,
+      membershipHead: { ...ack.membershipHead, statementHash: c.encodeBinary(new Uint8Array(32)) },
+    }),
+  ).rejects.toThrow();
+  f.boot.pages = [other, page].sort((a, b) => a.pageId.localeCompare(b.pageId));
+  await expect(f.client.verify(p, ack)).rejects.toThrow();
+});
+it('does not claim deletion from discovery absence without the matching signed change', async () => {
+  const f = await fixture(),
+    p = await f.client.prepare(f.view, { operation: 'page.delete', value: { pageId: v.page } });
+  await f.append('page.archive', { pageId: v.page });
+  f.boot.pages = [{ ...page, pageId: crypto.randomUUID() }];
+  serve(f);
+  await expect(f.client.verify(p, acknowledgment(f, p))).rejects.toThrow();
+});
+it('keeps last-page deletion acknowledged and awaiting verification without trying the denied target socket or resending', async () => {
+  const f = await fixture(),
+    p = await f.client.prepare(f.view, { operation: 'page.delete', value: { pageId: v.page } });
+  await f.append('page.delete', { pageId: v.page });
+  f.boot.pages = [];
+  const transport = serve(f),
+    ack = acknowledgment(f, p),
+    send = vi.spyOn(f.client, 'send');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await expect(f.client.verify(p, ack)).rejects.toMatchObject({ code: 'AWAITING_VERIFICATION' });
+  }
+  expect(transport.contexts).toEqual([]);
+  expect(send).not.toHaveBeenCalled();
+});

@@ -1366,8 +1366,27 @@ remains acknowledged/awaiting verification. Stale preview/writer state closes.
 New link IDs/seeds appear once after verification with a copy action; they are not
 persisted or logged. Reader access remains #1310, so no reader URL is fabricated;
 a lost seed requires Reset. Reset uses the full stored assignment and the existing
-atomic removal/rotation/replacement request. Home retention/archive/delete are
-#1358; expiry timestamps are #1350; reset content adoption remains #1264.
+atomic removal/rotation/replacement request. Reset content adoption remains #1264.
+
+### Trusted browser home lifecycle (#1358)
+
+Home defaults to active pages and offers an archived filter. Parent management
+uses the same frozen-request and signed-log admission boundaries for retention
+(positive safe-integer days or forever), archive and explicit deletion. Retention
+policy is projected from owner statements; expiry timestamps remain #1350 and the
+UI states that expiry time is unavailable. It does not schedule local deletion.
+Archived rows remain manageable without opening a renderer; no unarchive request
+is invented. Delete confirmation identifies the page, loss of access and backend
+ciphertext, and states that copies already made cannot be recalled.
+
+Archive verification catches up through the same owner-readable page. Delete
+verification requires discovery absence plus the exact acknowledged signed-log
+position and matching `page.delete` change from another readable page; the frozen
+operation retains its initiating page context. A deleted target's expected
+1008 DENIED close or transport drop is not success evidence. Last-page deletion
+remains acknowledged/awaiting verification because discovery alone is not signed
+owner authority. Verification retry retains the acknowledgment and never resends
+the mutation. Home refresh waits until dialog exit, preserving this state.
 
 ## Conformance and acceptance gates
 

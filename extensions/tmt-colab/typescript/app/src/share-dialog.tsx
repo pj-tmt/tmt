@@ -35,6 +35,8 @@ export function ShareDialog({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const submitting = useRef(false);
+  const lifetime = useRef<AbortController | null>(null);
+  const [forever, setForever] = useState(false);
   const [view, setView] = useState<ManagementView | null>(null);
   const [action, setAction] = useState<{
     selection: Selection;
@@ -52,6 +54,10 @@ export function ShareDialog({
     [signKey, setSignKey] = useState(''),
     [encKey, setEncKey] = useState('');
   const [role, setRole] = useState<payload.Role>('viewer');
+  function showView(next: ManagementView) {
+    setView(next);
+    setForever(next.page.retentionDays === null);
+  }
   useEffect(() => {
     const trigger = document.activeElement;
     const element = dialog.current;
@@ -64,11 +70,12 @@ export function ShareDialog({
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
+    lifetime.current = controller;
     void port
       .read(pageId, controller.signal)
       .then((v) => {
         if (active) {
-          setView(v);
+          showView(v);
           setPhase('ready');
         }
       })
@@ -90,10 +97,13 @@ export function ShareDialog({
     setAction(null);
     setUnknown(false);
     try {
-      setView(await port.read(pageId));
+      const next = await port.read(pageId, lifetime.current?.signal);
+      if (lifetime.current?.signal.aborted) return;
+      showView(next);
       setError('');
       setPhase('ready');
     } catch {
+      if (lifetime.current?.signal.aborted) return;
       setError('Management metadata is unavailable. Refresh to retry.');
       setPhase('error');
     }
@@ -105,14 +115,17 @@ export function ShareDialog({
   }
   async function verify(p: Pending, a: Acknowledgment) {
     setPhase('busy');
+    setError('');
     try {
-      const next = await port.verify(p, a);
-      setView(next);
+      const next = await port.verify(p, a, lifetime.current?.signal);
+      if (lifetime.current?.signal.aborted) return;
+      showView(next);
       setPhase('done');
       committed();
     } catch {
+      if (lifetime.current?.signal.aborted) return;
       setError(
-        'Change acknowledged, awaiting verification. Refresh the signed log before claiming completion.',
+        `${p.operation === 'page.delete' ? 'Deletion' : 'Change'} acknowledged, awaiting verification. Refresh the signed log before claiming completion.`,
       );
       setPhase('verify');
     }
@@ -125,14 +138,17 @@ export function ShareDialog({
     let p = pending;
     try {
       p ??= await port.prepare(view, action.selection);
+      if (lifetime.current?.signal.aborted) return;
       setPending(p);
       const a = await port.send(p);
+      if (lifetime.current?.signal.aborted) return;
       setAck(a);
       setUnknown(false);
       // An acknowledged management change closes stale preview/writer state.
       committed();
       await verify(p, a);
     } catch (e) {
+      if (lifetime.current?.signal.aborted) return;
       const code = e instanceof ManagementError ? e.code : p ? 'UNKNOWN' : 'INVALID';
       setError(errors[code] ?? errors.UNKNOWN);
       setUnknown(code === 'UNKNOWN');
@@ -203,7 +219,10 @@ export function ShareDialog({
       )}
       {phase === 'done' && (
         <section>
-          <p role="status">Change verified in the signed owner log.</p>
+          <p role="status">
+            {pending?.operation === 'page.delete' ? 'Deletion' : 'Change'} verified in the signed
+            owner log.
+          </p>
           {pending?.artifact && (
             <div className="bearer">
               <p>
@@ -234,7 +253,9 @@ export function ShareDialog({
               </button>
             </div>
           )}
-          {view && <button onClick={() => void refresh()}>Manage another change</button>}
+          {view && !view.page.deleted && (
+            <button onClick={() => void refresh()}>Manage another change</button>
+          )}
         </section>
       )}
       {phase === 'ready' && view && (
@@ -243,6 +264,78 @@ export function ShareDialog({
             Latest verified revision {view.revision}.{' '}
             {view.page.archived ? 'Archived: readable, writes frozen.' : 'Active page.'}
           </p>
+          <section aria-label="Page lifecycle">
+            <h3>Retention and lifecycle</h3>
+            <p>
+              Retention:{' '}
+              {view.page.retentionDays === null ? 'forever' : `${view.page.retentionDays} days`}.
+              Expiry time unavailable.
+            </p>
+            <form
+              key={view.revision}
+              onSubmit={(e) => {
+                e.preventDefault();
+                const days = forever ? null : Number(new FormData(e.currentTarget).get('days'));
+                if (days !== null && (!Number.isSafeInteger(days) || days < 1)) {
+                  setError('Retention must be a positive whole number of days or forever.');
+                  return;
+                }
+                review(
+                  { operation: 'retention.set', value: { pageId, days } },
+                  'Set retention',
+                  days === null
+                    ? 'Keep this page until it is explicitly deleted.'
+                    : `Set retention to ${days} days after the last page update. Expiry time is unavailable.`,
+                );
+              }}
+            >
+              <label>
+                Keep forever
+                <input
+                  type="checkbox"
+                  checked={forever}
+                  onChange={(e) => setForever(e.target.checked)}
+                />
+              </label>
+              <label>
+                Retention days
+                <input
+                  name="days"
+                  type="number"
+                  min="1"
+                  max={Number.MAX_SAFE_INTEGER}
+                  step="1"
+                  required
+                  disabled={forever}
+                  defaultValue={view.page.retentionDays ?? 30}
+                />
+              </label>
+              <button>Set retention</button>
+            </form>
+            <button
+              disabled={view.page.archived}
+              onClick={() =>
+                review(
+                  { operation: 'page.archive', value: { pageId } },
+                  'Archive page',
+                  'Hide this page from the active list and freeze writes. Owner reading and management metadata remain available. There is no unarchive control.',
+                )
+              }
+            >
+              Archive page
+            </button>{' '}
+            <button
+              onClick={() =>
+                review(
+                  { operation: 'page.delete', value: { pageId } },
+                  'Delete page',
+                  `Delete page ${pageId}? Access will cease and backend ciphertext will be removed. Copies already made cannot be recalled. This page cannot be restored by replay. If no other readable page remains, deletion will stay acknowledged, awaiting verification.`,
+                )
+              }
+            >
+              Delete page
+            </button>
+          </section>
           <section>
             <h3>Sharing</h3>
             <label>
