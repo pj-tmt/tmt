@@ -112,6 +112,15 @@ impl RuntimeRegistry {
         registry
     }
 
+    /// Computed from registered drivers, never a caller-configured timeout.
+    pub fn maximum_send_duration(&self) -> std::time::Duration {
+        self.registrations
+            .iter()
+            .map(|entry| entry.driver.maximum_send_duration())
+            .max()
+            .unwrap_or_default()
+    }
+
     pub fn register(
         &mut self,
         harness: HarnessId,
@@ -432,6 +441,47 @@ mod tests {
 
     fn id(name: &str) -> HarnessId {
         HarnessId::new(name).unwrap()
+    }
+
+    #[test]
+    fn maximum_send_duration_is_computed_from_registered_drivers() {
+        struct Budget(std::time::Duration);
+        impl Driver for Budget {
+            type Target = BindingEntry;
+            type Error = RuntimeError;
+            type Launch = RuntimeCommand;
+            fn maximum_send_duration(&self) -> std::time::Duration {
+                self.0
+            }
+        }
+        let mut registry = RuntimeRegistry::default();
+        assert_eq!(registry.maximum_send_duration(), std::time::Duration::ZERO);
+        for (name, seconds) in [("short", 2), ("long", 17), ("middle", 9)] {
+            registry
+                .register(
+                    id(name),
+                    name,
+                    0,
+                    Budget(std::time::Duration::from_secs(seconds)),
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            registry.maximum_send_duration(),
+            std::time::Duration::from_secs(17)
+        );
+        let first_party = RuntimeRegistry::first_party();
+        let declared = crate::drivers::Registry::builtin()
+            .iter()
+            .filter_map(|driver| {
+                driver
+                    .runtime
+                    .as_ref()
+                    .map(|runtime| (runtime.driver)().maximum_send_duration())
+            })
+            .max()
+            .unwrap();
+        assert_eq!(first_party.maximum_send_duration(), declared);
     }
 
     #[test]

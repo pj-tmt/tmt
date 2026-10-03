@@ -1021,6 +1021,16 @@ seconds across these stages. Talk's observer deadline still starts before the
 synchronous send and includes its elapsed time; it is not a transport cancellation
 boundary. The [Codex contract](contracts/codex-channel-v1.md#transport-and-qualification)
 owns these budgets and terminal uncertainty.
+Reply-notice waiter timing is checked with
+`cargo test --locked -p tmt-cli --bin tmt reply_notice_command::tests`.
+These deterministic tests use an injected monotonic clock and sender gate over
+real isolated SQLite claims: the competitor waits through the longest declared
+single send, dispatches its untouched notice once after settlement, and preserves
+the live claim and queued notice when grace expires. The old three-second grace
+must fail the positive control. Registry maximum selection is checked with
+`cargo test --locked -p tmt-adapters runtime::tests::maximum_send_duration`.
+Existing `storage::requests::service_tests::notification` tests retain ownership
+of dead-sender recovery and attempted-frame no-replay assertions.
 The refusal fixture holds a bound, non-listening socket through the connect attempt;
 it never releases a port for a parallel test to claim. It uses the existing nix
 Unix dev-dependency with `net`, without a new runtime dependency. These tests do
