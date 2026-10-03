@@ -44,6 +44,8 @@ impl RuntimeCommand {
 pub enum RuntimeError {
     InvalidSession,
     InvalidRegistration,
+    DriverUnavailable,
+    DriverRefused,
     Channel(channel::ChannelFault),
 }
 
@@ -54,6 +56,10 @@ impl fmt::Display for RuntimeError {
             Self::InvalidRegistration => {
                 "Runtime registration requires a unique harness ID and a bare command name."
             }
+            Self::DriverUnavailable => {
+                "The approved runtime driver is unavailable; approve it again."
+            }
+            Self::DriverRefused => "The runtime driver could not plan an exact resume.",
             Self::Channel(fault) => return fault.fmt(formatter),
         })
     }
@@ -80,6 +86,7 @@ struct Registration {
 #[derive(Default)]
 pub struct RuntimeRegistry {
     registrations: Vec<Registration>,
+    unavailable: Vec<HarnessId>,
 }
 
 impl RuntimeRegistry {
@@ -91,7 +98,22 @@ impl RuntimeRegistry {
     /// One registration per driver with a runtime, run by its first executable.
     pub fn from_drivers(drivers: &crate::drivers::Registry) -> Self {
         let mut registry = Self::default();
-        for driver in drivers.iter() {
+        for entry in drivers.entries() {
+            let driver = match entry {
+                crate::drivers::DriverEntry::Builtin(driver) => driver,
+                crate::drivers::DriverEntry::Approved(driver) => {
+                    if driver.available() {
+                        driver
+                            .register(&mut registry)
+                            .expect("valid approved runtime registration");
+                    } else {
+                        registry.unavailable.push(
+                            HarnessId::new(entry.name()).expect("valid approved runtime name"),
+                        );
+                    }
+                    continue;
+                }
+            };
             let Some(runtime) = &driver.runtime else {
                 continue;
             };
@@ -273,6 +295,10 @@ impl RuntimeRegistry {
             .as_deref()
     }
 
+    pub fn unavailable(&self, harness: &HarnessId) -> bool {
+        self.unavailable.contains(harness)
+    }
+
     pub fn claim(&self, executable: &OsStr) -> Option<HarnessId> {
         let executable = executable.to_str()?;
         self.registrations.iter().find_map(|entry| {
@@ -320,7 +346,11 @@ impl RuntimeRegistry {
             .iter_mut()
             .find(|entry| entry.harness == session.harness)
         else {
-            return ActionResult::Unsupported;
+            return if self.unavailable(&session.harness) {
+                ActionResult::Failed(RuntimeError::DriverUnavailable)
+            } else {
+                ActionResult::Unsupported
+            };
         };
         entry.driver.resume(HarnessResume {
             start: HarnessStart {
@@ -351,6 +381,9 @@ impl RuntimeRegistry {
     pub fn reconcile(&self, preferences: &mut SessionPreferences) -> Option<StateReconciliation> {
         let remembered = preferences.remembered.as_mut()?;
         let harness = remembered.harness.clone();
+        if self.unavailable(&harness) {
+            return None;
+        }
         if !self
             .registrations
             .iter()
@@ -393,11 +426,12 @@ impl RuntimeRegistry {
             .state_consumption(session.state.as_ref()?)
     }
 
-    /// Harness IDs with a registration, for purging sessions of removed drivers.
+    /// Registered or still-approved harness IDs, for purging sessions of removed drivers.
     pub fn harnesses(&self) -> impl Iterator<Item = &str> {
         self.registrations
             .iter()
             .map(|entry| entry.harness.as_str())
+            .chain(self.unavailable.iter().map(HarnessId::as_str))
     }
 }
 

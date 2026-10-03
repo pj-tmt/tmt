@@ -19,10 +19,12 @@ and guides link here instead of repeating it.
   `tmt driver install|ls|rm`. Herdr is served only by its first-party driver,
   `tmt-driver-herdr`, which ships in the CLI release (#1082).
 - **Runtime drivers:** the format, the crate's encoding and the conformance
-  harness, approval registry and bounded client exist. `tmt driver install|ls|rm`
+  harness, approval registry, bounded client and opt-in registry/lifecycle seam exist. `tmt driver install|ls|rm`
   accepts either kind. Runtime approval calls `locations`, validates its write
   targets and discloses them before consent. Runtime recognition, launch,
-  hooks and setup/detection integration are not wired yet (#1266).
+  hooks and setup/detection integration are not wired into production yet (#1266).
+  Production default registries remain built-in only. The opt-in seam has no sender
+  and adds zero to the runtime send allowance; declarative hook decoding spawns no driver.
 
 ## Invocation
 

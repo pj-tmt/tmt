@@ -1459,7 +1459,17 @@ fixture covers disclosure, no-terminal refusal, both kinds in one registry,
 claim/name conflicts, write-target containment, malformed locations and explicit
 re-approval, timeout rollback and registry capacity. `DriverProcess::locations` is the shared `within(home)` admission
 boundary for approval and future setup consumers. Runtime launch/hooks and the
-kill/restart delivery case belong to PR B2, not approval evidence.
+kill/restart delivery case belong to the remaining #1266 integration, not approval evidence.
+
+The approved runtime seam is checked with
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters --lib drivers::external`.
+Its real-process fixture proves default/built-in registries remain unaffected,
+the external send allowance is explicitly zero, resume argv is validated, disabled
+claims stay disabled, and changed/missing approvals preserve remembered sessions
+until withdrawal. Declarative lifecycle tests assert the shared transition policy
+and no child calls on hook decoding. Run the Claude and runtime filters after
+changes to their shared policy. These component tests do not prove production
+integration or crash recovery.
 
 The suite covers grammar, configuration-before-effects, identity metadata and
 binding lifecycle, role/preamble, response/receipts, exchanges/attention, inbox listening, talk,
