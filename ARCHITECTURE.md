@@ -1200,7 +1200,9 @@ shares option-value boundaries with error-mode recovery, so `-h`/`--help` can by
 required operands without interpreting payload data as flags. Public help and
 completion use command-owned options, not inherited placement-only options. The
 public projection preserves command-owned supplemental help instead of adding
-per-command presentation branches. Help
+per-command presentation branches. Every public core option has a nonblank,
+single-line description, checked recursively against that projection; extension-owned
+grammars retain their own review boundary. Help
 for core commands never enters runtime dispatch or skill-drift inspection; JSON
 core help remains unsupported.
 
@@ -1413,7 +1415,11 @@ started local Office, or terminal-only managed-skill drift. Repeated no-op
 commands do not create a discovery transition; `TMT_HINTS=off` disables optional
 transition hints without hiding error recovery or managed-skill drift. This
 owner does not add fields to JSON, alter raw stdout, persist cooldown state or
-scan tmux for discovery. Saved inactive target recovery remains a targeted
+scan tmux for discovery. Identity creation outcomes carry the stored display name
+from the successful command result. Hints quote that name as a shell word: only
+temporary identities receive save guidance, while saved identities receive a named
+listen command. Saving by name also works when the new binding belongs to another
+pane. Saved inactive target recovery remains a targeted
 `NAME_NOT_FOUND` suggestion in the existing error presenter.
 
 `output::table` is the single plain human-table renderer for binding, identity,

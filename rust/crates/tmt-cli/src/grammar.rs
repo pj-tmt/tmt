@@ -206,13 +206,14 @@ fn with_options(mut command: Command, ids: &[&'static str]) -> Command {
 fn extension_target(command: Command) -> Command {
     command
         .arg(operand("name", true))
-        .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue))
-        .arg(Arg::new("prefix").long("prefix"))
+        .arg(option("yes"))
+        .arg(option("prefix"))
 }
 
 fn channel_option() -> Arg {
     Arg::new("channel")
         .long("channel")
+        .help("Select the release channel")
         .value_parser(tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str()))
 }
 
@@ -317,6 +318,10 @@ fn option(id: &'static str) -> Arg {
     };
     match id {
         "json" => flag("Output one JSON document"),
+        "yes" => flag("Approve without a prompt"),
+        "prefix" => value("The extension installation prefix (default: ~/.local)"),
+        "to" => value("Install and pin an exact version").conflicts_with("unpin"),
+        "unpin" => flag("Remove the version pin and resume channel updates"),
         "force" => {
             flag("Authorize the command's documented protected replacement or removal").short('f')
         }

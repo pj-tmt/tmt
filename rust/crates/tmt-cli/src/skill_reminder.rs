@@ -7,24 +7,30 @@ use tmt_adapters::{
     skill_installation::{ProviderEnvironment, inspect_local_drift},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
     None,
-    TemporaryIdentityCreated,
-    SavedIdentityCreated,
+    TemporaryIdentityCreated { name: String },
+    SavedIdentityCreated { name: String },
 }
 
-fn optional_hint(outcome: Outcome, mode: OutputMode, enabled: bool) -> Option<&'static str> {
+fn optional_hint(outcome: &Outcome, mode: OutputMode, enabled: bool) -> Option<String> {
     if mode.json || !enabled {
         return None;
     }
     match outcome {
         Outcome::None => None,
-        Outcome::TemporaryIdentityCreated => Some(
-            "this temporary identity ends with its pane; keep it with tmt identity create <name>",
-        ),
-        Outcome::SavedIdentityCreated => {
-            Some("receive work for this saved identity with tmt x listen --identity <name>")
+        Outcome::TemporaryIdentityCreated { name } => {
+            let name = crate::output::shell_word(name);
+            Some(format!(
+                "this temporary identity ends with its pane; keep it with tmt identity create -- {name}; use -s when binding"
+            ))
+        }
+        Outcome::SavedIdentityCreated { name } => {
+            let name = crate::output::shell_word(name);
+            Some(format!(
+                "receive work for this saved identity with tmt x listen --identity={name}"
+            ))
         }
     }
 }
@@ -156,8 +162,8 @@ pub fn present(outcome: Outcome, mode: OutputMode, inspect_drift: bool) {
     }
     let mut stderr = tmt_cli_style::stream::stderr();
     let terminal = stderr.terminal();
-    if let Some(hint) = optional_hint(outcome, mode, hints_enabled()) {
-        write_hint(&mut stderr, terminal, hint);
+    if let Some(hint) = optional_hint(&outcome, mode, hints_enabled()) {
+        write_hint(&mut stderr, terminal, &hint);
         return;
     }
     if !inspect_drift || !io::stdin().is_terminal() || !stderr.is_terminal() {
@@ -197,7 +203,7 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[],
     ),
     crate::cli_style_tests::HintSpec::core(
-        "receive work for this saved identity with tmt x listen --identity <name>",
+        "receive work for this saved identity with tmt x listen --identity={name}",
         &[""],
         &[],
     ),
@@ -207,8 +213,8 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[],
     ),
     crate::cli_style_tests::HintSpec::core(
-        "this temporary identity ends with its pane; keep it with tmt identity create <name>",
-        &[""],
+        "this temporary identity ends with its pane; keep it with tmt identity create -- {name}; use -s when binding",
+        &["; use -s when binding"],
         &[],
     ),
 ];
@@ -220,14 +226,76 @@ mod tests {
     #[test]
     fn hints_require_real_transitions_and_human_output() {
         let human = OutputMode::default();
-        assert!(optional_hint(Outcome::None, human, true).is_none());
+        assert!(optional_hint(&Outcome::None, human, true).is_none());
         for transition in [
-            Outcome::TemporaryIdentityCreated,
-            Outcome::SavedIdentityCreated,
+            Outcome::TemporaryIdentityCreated {
+                name: "worker".into(),
+            },
+            Outcome::SavedIdentityCreated {
+                name: "worker".into(),
+            },
         ] {
-            assert!(optional_hint(transition, human, true).is_some());
-            assert!(optional_hint(transition, human, false).is_none());
-            assert!(optional_hint(transition, OutputMode { json: true }, true).is_none());
+            assert!(optional_hint(&transition, human, true).is_some());
+            assert!(optional_hint(&transition, human, false).is_none());
+            assert!(optional_hint(&transition, OutputMode { json: true }, true).is_none());
+        }
+    }
+
+    #[test]
+    fn identity_hints_preserve_names_and_only_temporary_identities_offer_saving() {
+        use crate::invocation::IdentityRequest;
+        for name in [
+            "worker",
+            "Team Lead",
+            "Team's Lead",
+            "-worker",
+            "worker; echo hello",
+            "作業者",
+        ] {
+            let temporary = optional_hint(
+                &Outcome::TemporaryIdentityCreated { name: name.into() },
+                OutputMode::default(),
+                true,
+            )
+            .unwrap();
+            let saved = optional_hint(
+                &Outcome::SavedIdentityCreated { name: name.into() },
+                OutputMode::default(),
+                true,
+            )
+            .unwrap();
+            assert!(temporary.ends_with("; use -s when binding"));
+            assert!(!saved.contains("use -s"));
+            for (hint, temporary) in [(temporary, true), (saved, false)] {
+                let command = hint.split_once("tmt ").unwrap().1;
+                let command = if temporary {
+                    command.strip_suffix("; use -s when binding").unwrap()
+                } else {
+                    command
+                };
+                let args = tmt_cli_style::help::ShownExample {
+                    note: String::new(),
+                    command: format!("tmt {command}"),
+                }
+                .argv()
+                .unwrap()
+                .into_iter()
+                .skip(1)
+                .map(std::ffi::OsString::from)
+                .collect::<Vec<_>>();
+                let parsed = crate::parser::parse_core(&args).unwrap();
+                match parsed.invocation {
+                    Invocation::Identity(IdentityRequest::Create(actual)) if temporary => {
+                        assert_eq!(actual, name)
+                    }
+                    Invocation::Exchange {
+                        identity,
+                        operation: crate::invocation::ExchangeOperation::Listen { .. },
+                        ..
+                    } if !temporary => assert_eq!(identity.as_deref(), Some(name)),
+                    invocation => panic!("wrong hint command: {invocation:?}"),
+                }
+            }
         }
     }
 

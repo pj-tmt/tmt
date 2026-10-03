@@ -463,7 +463,7 @@ describe('native durable identity process boundary', () => {
       expect(human.stdout).toContain("Created saved identity 'Human'");
       expect(human.stdout).toContain('saved');
       expect(human.stderr).toBe(
-        'hint: receive work for this saved identity with tmt x listen --identity <name>\n'
+        'hint: receive work for this saved identity with tmt x listen --identity=Human\n'
       );
       const repeatedHuman = await runCli(sandbox, ['identity', 'create', 'human']);
       expect(repeatedHuman.status).toBe(0);

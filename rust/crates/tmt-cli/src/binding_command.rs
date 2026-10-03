@@ -581,9 +581,13 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
     let outcome = match &report {
         Report::Bound(result) if result.created => {
             if result.presence.identity.lifetime == tmt_core::identity::Lifetime::Temporary {
-                Outcome::TemporaryIdentityCreated
+                Outcome::TemporaryIdentityCreated {
+                    name: result.presence.identity.name.clone(),
+                }
             } else {
-                Outcome::SavedIdentityCreated
+                Outcome::SavedIdentityCreated {
+                    name: result.presence.identity.name.clone(),
+                }
             }
         }
         _ => Outcome::None,

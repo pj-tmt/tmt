@@ -1145,6 +1145,15 @@ The CLI style guards ([enforcement](design/cli-style.md#enforcement)) run in
 --locked -p tmt-squad cli_style` and the architecture test below. A failure
 prints the exact list entry to add or remove.
 
+Core's `cli_style` tests also require a nonblank, single-line description for every
+option in the public core grammar, recursively excluding the extension-owned Office
+tree. The guard's negative controls cover missing, blank and multiline descriptions;
+hidden commands/options and positional arguments are outside that help-option rule.
+Run `cargo test --locked -p tmt-cli --bin tmt skill_reminder` for named identity hints
+and their JSON/opt-out suppression. Native `discovery.test.ts` and `identity.test.ts`
+check saved-identity creation and no-op output; Docker `discovery.e2e.test.ts` checks
+temporary and saved bindings through the real CLI and private tmux server.
+
 The same core command runs the [printed command guard](design/cli-style.md#enforcement).
 When adding or changing a printed command template, update its presentation site's
 test-only `HintSpec` list. Supply explicit command boundaries, representative
