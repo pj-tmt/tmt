@@ -23,8 +23,8 @@ and cross-process ordering. Tooling tests prove verifiers and policy, not runtim
 or release archives. Real-companion `office-*` scenarios stay Office-owned,
 including stress selection; shared setup stays in support. Retained-release
 setup uses the private installer, while public frozen-product refusal belongs in
-native lifecycle scenarios. See [scenario ownership](../../../../DEVELOPMENT.md#scenario-ownership) and the
-[smoke matrix](../../../../DEVELOPMENT.md#runtime-smoke-matrix) before replacing coverage.
+native lifecycle scenarios. See [scenario ownership](e2e-scenarios.md#scenario-ownership) and the
+[smoke matrix](runtime-smoke-matrix.md) before replacing coverage.
 
 Office's opt-in `playwright.visual.config.ts` reuses its local HTTP fixture and
 real renderer for reviewed pixel baselines. Its read-only world is not an
