@@ -1500,9 +1500,10 @@ management and local-agent grants remain distinct controls.
 
 ## Plaintext page export (#1309)
 
-The native export v1 emits exactly `page.html` and `manifest.json` from one
-owner-authenticated read snapshot and the existing isolated decoder. HTML is the
-exact admitted UTF-8 source, including CR/LF, Unicode and NUL; export MUST NOT
+Export v1 emits exactly `page.html` and `manifest.json`. Native captures one
+owner-authenticated read snapshot through its isolated decoder; the mounted
+browser captures one admitted committed projection through its connection executor.
+HTML is the exact admitted UTF-8 source, including CR/LF, Unicode and NUL; export MUST NOT
 inject renderer CSP/bootstrap, normalize source or execute it. The title, epoch
 and verified membership head MUST belong to that same snapshot. A later write
 cannot change an already captured bundle. This head is locally verified, not a
@@ -1559,10 +1560,27 @@ this is not a crash-recovery guarantee.
 
 The CLI human disclosure and successful JSON `disclosure` say exactly:
 "This creates an unencrypted copy of the page. Anyone with these files can read it."
-The browser download surface is the subsequent #1309 slice. Its two downloads
-MUST freeze one admitted bundle, live only in trusted parent chrome, use and
-revoke parent-owned Blob URLs, show partial-download state and the same
-disclosure, and expose no download capability to the renderer.
+The mounted browser uses a trusted-parent Export panel and the same disclosure.
+Capture MUST copy committed source/title, pinned space/page, current epoch and
+verified owner head together through the existing connection executor. Await a
+ready connection and refuse closed/blocked bindings, missing admitted keys/heads
+and inactive pages. A source textarea draft, sample adapter or renderer message
+MUST NOT supply this bundle. Source changes after capture cannot alter either file.
+Browser serialization MUST match native field for field and byte for byte for
+identical inputs, including field order, lowercase hex hashes and decimal strings.
+The shared `vectors/export-v1.json` fixture injects `exportedAtMs` and pins those
+exact bytes, with intentional Unicode/control-byte source and title data.
+
+Preparing exposes no download. A ready panel offers one explicit trusted-click
+request per file; it identifies partial requests and allows repeated requests
+of the same frozen bytes. A requested download is not confirmation that a file
+was saved; the user checks browser downloads. Failure exposes no new download
+request. Native create-only filesystem and permission guarantees do not apply
+to browser-managed downloads. Parent-owned Blob URLs use attachment filenames
+`page.html` and `manifest.json`, never source/title paths. Revoke each URL after
+bounded download handoff and all outstanding URLs on close/navigation or blocked
+binding cleanup. The renderer receives no export handler, URL or capability.
+Archived browser export remains deferred until #1348; deletion stays denied.
 
 ## Conformance and acceptance gates
 

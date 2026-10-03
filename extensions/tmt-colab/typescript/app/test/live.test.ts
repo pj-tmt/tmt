@@ -3,9 +3,27 @@ import type { Bootstrap, PageInfo } from '../src/bootstrap.js';
 import type { Registration } from '../src/registration.js';
 import { Live } from '../src/live.js';
 
-const connections = vi.hoisted(() => [] as { failed(error: Error): void }[]);
+const connections = vi.hoisted(
+  () =>
+    [] as {
+      failed(error: Error): void;
+      admission: {
+        head: { revision: bigint; hash: Uint8Array } | null;
+        root: object | null;
+        validatePage: ReturnType<typeof vi.fn>;
+      };
+    }[],
+);
 vi.mock('../src/admission.js', () => ({
   Admission: class {
+    head = { revision: 2n, hash: new Uint8Array(32).fill(10) };
+    root = {};
+    validatePage = vi.fn();
+    constructor(
+      readonly space: string,
+      readonly page: string,
+      readonly epoch: string,
+    ) {}
     async restore() {}
   },
 }));
@@ -13,7 +31,7 @@ vi.mock('../src/connection.js', () => ({
   Connection: class {
     ready = Promise.resolve({ source: 'verified', title: 'Page' });
     constructor(
-      _admission: unknown,
+      readonly admission: (typeof connections)[number]['admission'],
       _mount: URL,
       _sharing: string,
       publish: (value: { source: string; title: string }) => void,
@@ -21,6 +39,9 @@ vi.mock('../src/connection.js', () => ({
     ) {
       connections.push(this);
       publish({ source: 'verified', title: 'Page' });
+    }
+    async run<T>(fn: () => Promise<T>) {
+      return fn();
     }
     close() {}
   },
@@ -52,4 +73,34 @@ it('successful catchup resets reconnect failures across the page lifetime', asyn
   } finally {
     live.close();
   }
+});
+
+it('exports admitted committed view/head and denies blocked, missing-key and closed bindings', async () => {
+  const live = new Live(
+    new URL('https://example.test/colab/'),
+    { space: 'uqvpga22vglwpngpg7jd7zpk5vzjtoud', owner: new Uint8Array(32) } as Bootstrap,
+    { deviceId: 'device' } as Registration,
+    { pageId: '00000000-0000-4000-8000-000000000002', epoch: '1', sharing: 'private' } as PageInfo,
+  );
+  try {
+    await live.snapshot();
+    const c = connections.at(-1)!;
+    const bundle = await live.export();
+    expect(await bundle.blob('page.html').text()).toBe('verified');
+    const manifest = JSON.parse(await bundle.blob('manifest.json').text());
+    expect(manifest.title).toBe('Page');
+    expect(manifest.membershipHead).toEqual({ revision: '2', statementHash: '0a'.repeat(32) });
+    expect(manifest.epoch).toBe('1');
+    expect(c.admission.validatePage).toHaveBeenCalledWith('private');
+    c.admission.root = null;
+    await expect(live.export()).rejects.toThrow();
+    c.admission.root = {};
+    c.admission.head = null;
+    await expect(live.export()).rejects.toThrow();
+    c.failed(new Error('Invalid signature'));
+    await expect(live.export()).rejects.toThrow();
+  } finally {
+    live.close();
+  }
+  await expect(live.export()).rejects.toThrow();
 });

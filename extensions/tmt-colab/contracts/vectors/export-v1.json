@@ -1,0 +1,17 @@
+{
+  "provenance": "Independent Python standard-library UTF-8, hashlib SHA-256 and compact JSON oracle. Unicode and control characters are intentional exact-byte fixture data. Shared by native and browser tests; exportedAtMs is injected.",
+  "input": {
+    "spaceId": "uqvpga22vglwpngpg7jd7zpk5vzjtoud",
+    "pageId": "00000000-0000-4000-8000-000000000002",
+    "source": "﻿<!doctype html>\r\n<p>λ 😀\u0000 & exact</p>\r\n<script>parent.postMessage({type:\"export\"},\"*\")</script>",
+    "title": "Exact \"title\" \\ / λ\u0000\n\t",
+    "exportedAtMs": 1700000000123,
+    "membershipHead": {
+      "revision": "9007199254740993",
+      "statementHash": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    },
+    "epoch": "9007199254740995"
+  },
+  "manifestUtf8": "{\"format\":\"tmt-colab-page-export\",\"version\":1,\"spaceId\":\"uqvpga22vglwpngpg7jd7zpk5vzjtoud\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"title\":\"Exact \\\"title\\\" \\\\ / λ\\u0000\\n\\t\",\"exportedAtMs\":1700000000123,\"membershipHead\":{\"revision\":\"9007199254740993\",\"statementHash\":\"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f\"},\"epoch\":\"9007199254740995\",\"plaintext\":true,\"discussions\":\"not-included\",\"files\":[{\"name\":\"page.html\",\"sizeBytes\":101,\"sha256\":\"a19f047132105eeb376bc37dbdb2d41b72a6c21e7e8f6d433630e7d6c37711e7\"}]}",
+  "manifestSha256": "d1f7c8536b43cdeb08b8e81a5168c00655577cb3b567a707d685b7598a79366d"
+}

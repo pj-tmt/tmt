@@ -5,6 +5,7 @@ import type { PageBinding, PageSnapshot, PageView } from './transport.js';
 import { Admission } from './admission.js';
 import { Connection } from './connection.js';
 import { Writer } from './writer.js';
+import { prepareExport, hex, type ExportBundle } from './export.js';
 
 /** Mounted update-only page binding. A fresh reconnect reconstructs from seq 1;
  * unsupported history is a blocking failure rather than a partial projection. */
@@ -110,6 +111,24 @@ export class Live implements PageBinding {
         if (this.#listeners.size === 0) this.close();
       });
     };
+  }
+  async export(): Promise<ExportBundle> {
+    const c = await this.#current;
+    const view = await c.run(async () => {
+      requireValue(!this.#closed && !this.#error && c === this.#connection);
+      const a = c.admission;
+      a.validatePage(this.page.sharing);
+      requireValue(a.head !== null && a.root !== null);
+      return {
+        ...this.#projection,
+        spaceId: a.space,
+        pageId: a.page,
+        epoch: a.epoch,
+        membershipHead: { revision: a.head.revision.toString(), statementHash: hex(a.head.hash) },
+        exportedAtMs: Date.now(),
+      };
+    });
+    return prepareExport(view);
   }
   async edit(source: string, base: string) {
     if (this.#closed || this.#error) throw new Error('Page editing unavailable');
