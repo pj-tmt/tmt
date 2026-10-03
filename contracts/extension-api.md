@@ -142,6 +142,13 @@ never replays old transcript prefixes. Provider formats are unofficial; missing
 records, bounded reads and source loss can leave partial history. Counter
 arithmetic is checked against JavaScript's safe integer bound.
 
+Closed buckets can gain coverage when a later accepted read verifies an interval;
+responses are snapshots, not an append-only delta feed. Use the included
+`latest` driver/session/epoch/sequence and cumulative counters as the live seed
+watermark. `throughMs` alone cannot identify which counters were included. The
+shared fixture demonstrates an open read completing a closed bucket's coverage
+without changing that bucket's included cumulative counter.
+
 A meter seeds its existing Rate owner from the **longest returned window once**;
 shorter windows overlap and must not be added again. It uses the included
 `latest` snapshot as its live `ls` baseline. For example, the shared fixture's

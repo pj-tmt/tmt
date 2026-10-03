@@ -348,7 +348,10 @@ fn invalid_cached_delta_creates_gap_instead_of_freezing_future_reads() {
         .as_array()
         .unwrap();
     assert_eq!(rows[1]["gap"], true);
-    assert_eq!(rows[1]["coveredMs"], 0);
+    // The correction establishes a new baseline at 11s; the next valid read
+    // proves 11..15s, while 10..11s remains unknown in this closed bucket.
+    assert_eq!(rows[1]["coveredMs"], 4000);
+    assert_eq!(rows[1]["complete"], false);
     assert_eq!(rows[2]["inputTokens"], 4);
     assert_eq!(rows[2]["outputTokens"], 2);
     storage.close().unwrap();
