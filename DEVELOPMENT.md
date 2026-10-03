@@ -1057,7 +1057,14 @@ For cumulative completed-request counters (#872), run
 `cargo test --locked -p tmt-adapters runtime::consumption` and
 `cargo test --locked -p tmt-cli --bin tmt output::tests`. Redacted real provider
 fixtures and source provenance live beside the runtime owner; failure and reset
-variants are assembled. `usage-hooks.e2e.test.ts` verifies admitted hooks,
+variants are assembled. Streaming scan tests also cover multi-MiB appends,
+buffer-boundary deduplication, escaped keys, captured EOF and injected deadline
+exhaustion. For manual release-mode measurements, run the ignored
+`runtime::consumption::tests::streaming_scan_measurement` test with `TMT_SCAN_MIB`
+set to `1`, `10` or `100` and `TMT_SCAN_MIX` set to `foreign`, `usage` or `long`.
+Fixture generation precedes the reported scan time; run the built test binary
+under `/usr/bin/time -l` on macOS for process peak RSS. These measurements are
+evidence, never scan-budget calibration. `usage-hooks.e2e.test.ts` verifies admitted hooks,
 unchanged context usage, public consumption, silent failures and compaction.
 
 Before native installation/process tests, build the two product fixtures

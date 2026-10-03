@@ -114,14 +114,15 @@ pub trait RuntimeLifecycle {
 
     /// The driver state after `turn`, given the remembered session's previous
     /// state; `None` leaves it unchanged. Reads stay under the driver's own
-    /// tree in `environment`, with each context/consumption read bounded by
-    /// [`super::transcript::TAIL_LIMIT`] (plus consumption's boundary byte).
+    /// tree in `environment`. Context and Codex consumption use bounded tails;
+    /// Claude consumption streams bounded records within the hook deadline.
     fn turn_state(
         &self,
         _turn: &TurnEnd,
         _environment: &ProviderEnvironment,
         _previous: Option<&DriverState>,
         _now_ms: u64,
+        _deadline: Instant,
     ) -> Option<DriverState> {
         None
     }

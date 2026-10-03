@@ -1637,8 +1637,9 @@ only for usage numbers:
   (`~/.claude/projects`, or `$CODEX_HOME/sessions`);
 - it is opened without following a final symlink and without blocking;
 - context usage reads at most the last MiB, skipping a line cut by that window;
-- consumption reads at most one additional MiB (plus a boundary byte), from the
-  appended Claude cursor or the latest Codex tail. No polling is introduced.
+- Codex consumption reads at most one additional MiB from its latest tail;
+- Claude consumption streams from its appended cursor once per Stop hook under
+  the deadline and record bound below (plus a boundary byte). There is no polling.
 
 Unusable context usage writes nothing for that value. A start that changes the context
 (startup, clear, compact) drops usage; a resumed Claude start records the
@@ -1666,9 +1667,25 @@ not expected and may count again: exact historical-ID dedup is deliberately
 outside the bounded one-KiB contract. In-place rewrites that retain inode and
 do not shrink also violate the append-only assumption. A partial final line
 waits for its newline, with `complete=false` and `gap=false`. Cursor loss, shrink,
-replacement, a scan over one MiB, invalid main records or overflow starts a new
+replacement, scan deadline/record-limit exhaustion, invalid main records or overflow starts a new
 epoch at current EOF with `gap=true` and `complete=false`; a cut fragment is
 discarded through its next newline, and history is never recounted.
+
+Claude's incremental scan (#887) receives the hook owner's absolute `Instant`
+through `RuntimeLifecycle::turn_state`. After the existing context-tail read,
+it allocates half the remaining hook time to consumption, leaving the other
+half for state handling and the existing commit guard. There is no independent
+scan-duration or aggregate-byte constant: the two-second hook worker budget is
+the authority. An 8 KiB buffered reader stops at the captured end, reusing one
+line buffer capped at the existing one-MiB `TAIL_LIMIT` (including newline).
+Memory is independent of appended-range size; candidate JSON allocations are
+also bounded by that single-record cap. Clearly foreign unescaped lines receive
+syntax validation without constructing their JSON values; assistant candidates,
+escapes and deeply nested/ambiguous evidence use the existing full validation.
+Malformed foreign records still cause gaps. Time is checked around bounded reads
+and candidate validation; any accumulated counts are discarded on exhaustion.
+A single bounded parse or filesystem operation can cross the cooperative scan
+deadline; the hook supervisor remains the hard termination/cleanup owner.
 
 Codex's first observation baselines at the provider's cumulative totals.
 Unterminated final records wait for a newline with complete=false; an invalid
