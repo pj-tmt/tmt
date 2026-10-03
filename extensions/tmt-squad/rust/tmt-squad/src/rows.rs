@@ -11,8 +11,6 @@ use crate::{
     source::{ColumnSource, Format, PATHS},
 };
 use serde_json::{Value, json};
-#[cfg(test)]
-use tmt_cli_style::grid;
 use tmt_cli_style::{
     Role,
     grid::{Align, Basis, Overflow, Track, Truncate},
@@ -276,24 +274,6 @@ impl Rows {
             .map(|line| line.iter().map(|cell| cell.span).sum::<usize>())
             .max()
             .unwrap_or(0)
-    }
-
-    /// Legacy CLI-policy oracle for coverage tests; production boards use Taffy.
-    #[cfg(test)]
-    pub fn solve(
-        &self,
-        natural: impl Fn(usize) -> usize,
-        available: usize,
-        gap: usize,
-    ) -> Vec<Option<usize>> {
-        let tracks: Vec<_> = self.columns[..self.covered_tracks()]
-            .iter()
-            .enumerate()
-            .map(|(index, column)| column.track(natural(index)))
-            .collect();
-        let mut widths = grid::solve(&tracks, Some(available), gap);
-        widths.resize(self.columns.len(), None);
-        widths
     }
 
     /// Inspect the configured row lines in tests, in first-occurrence order.

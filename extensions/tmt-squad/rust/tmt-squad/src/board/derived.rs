@@ -23,8 +23,11 @@ pub(super) struct NotebookLines {
 pub(super) struct Grid {
     pub width: usize,
     pub search: String,
+    #[cfg(test)]
     pub layout: crate::markup::Grid,
+    #[cfg(test)]
     pub cells: Vec<tmt_tui::binding::Node>,
+    pub scene: super::row_paint::RowPaint,
 }
 
 /// Rendered bodies belong to the immutable view; headers and prompts stay fresh.

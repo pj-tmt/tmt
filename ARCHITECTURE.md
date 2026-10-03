@@ -904,7 +904,8 @@ preorder into a caller-owned Ratatui buffer. Both use `Cell::text_width`, never 
 rounded spare cell. Cuts ellipsize already measured lines without rewrapping;
 wide graphemes crossing clip edges leave styled blanks. Theme/Depth are injected,
 roles inherit and resolve through the shared screen adapter. The caller supplies
-the complete selected-role style: Squad's Look remains the selection policy owner.
+the complete selected-role style, or a minimal preorder-indexed decoration/alignment
+callback; Squad's Look remains the selection policy owner.
 Hits borrow scoped IDs and semantic row IDs, inherit identity, intersect visible
 buffer clips, omit zero areas and resolve in reverse paint order. No input dispatch,
 terminal lifecycle, markdown or provider acquisition lives in this leaf.
@@ -916,8 +917,17 @@ member order is never identity. `App::shown_tab` supplies the retained view owne
 while another tab loads; resize/search never substitutes the requested tab.
 UUID-free display rows have no actionable IDs.
 Taffy is the board's only row sizing owner and `text` its only scalar fitter;
-`grid::fit/fit_lines` remain only for CLI lists. Squad retains styled row spans,
-selection, scrolling and actions; full markup paint/hit adoption is still #776.
+`grid::fit/fit_lines` remain only for CLI lists. `board::row_paint` caches scalar scenes with admitted scoped identities and resolved
+boxes, then delegates buffer painting and clipped hits to this leaf. It preserves
+Squad decoration, full-width row/annotation clicks and anonymous selection coverage;
+App owns action eligibility, selection and Scrolls reveal/indicator state. There is
+one renderer, with no manual row-span fallback or test-only CLI sizing oracle.
+`tmt sq layout validate <file>` is an offline authoring admission door before
+Core/config/storage discovery. A bounded reader feeds XML/style admission and
+eager binding compilation against the explicit `squad-projected-v1` schema and
+compile-only Squad source/format registry. It never materializes data or runs
+providers, and the board never loads user layout files. The installed Squad skill
+owns the authoring schema and examples.
 The private component has no release; its inherited version/lock entry follows
 the workspace, while product notices include only their actual dependency graph.
 
@@ -3299,8 +3309,11 @@ ignores their sizing settings so flat text lists retain natural values. No share
 CLI solver contract changes. Lists keep after-gap percentages, largest-remainder
 rounding, cell bounds and growth; their hiding recomputes the shown set.
 `grid::fit_lines` remains the list wrapping owner. The board's immutable-view
-width/search cache retains admitted projected row cells and geometry together;
-selection-only frames change styles without rebuilding templates or sizing. Column metadata preserves percent strings and adds `overflow`
+width/search cache retains the scalar paint scene prepared from admitted projected
+row cells and geometry together;
+selection-only frames change styles without rebuilding templates or sizing.
+Scene preparation precedes cache replacement; admission/layout failure renders a
+muted notice and publishes no new row starts or hits. Column metadata preserves percent strings and adds `overflow`
 and wrap `max_lines` only when opted in; full row values never change.
 `rows::ListSizing` chooses the text sizing policy once from shown column
 settings: without percent/overflow it keeps legacy list sizing and complete

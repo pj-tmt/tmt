@@ -11,6 +11,7 @@ mod meter;
 pub(crate) mod notes;
 mod rate;
 mod refresh;
+mod row_paint;
 mod scroll;
 mod settings;
 pub(crate) use crate::tabs;

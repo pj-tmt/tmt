@@ -455,10 +455,22 @@ fn uncovered_tracks_supply_values_without_reserving_width() {
     let mut covered = rows.clone();
     covered.columns.truncate(4);
     for available in [144, 198] {
-        let widths = rows.solve(|_| 80, available, 1);
-        assert_eq!(&widths[..4], covered.solve(|_| 80, available, 1));
+        let widths = crate::markup::Grid::compile(&rows, |_| 80, available)
+            .unwrap()
+            .columns;
+        assert_eq!(
+            &widths[..4],
+            crate::markup::Grid::compile(&covered, |_| 80, available)
+                .unwrap()
+                .columns
+        );
         assert_eq!(&widths[4..], [None, None]);
-        assert_eq!(widths.iter().flatten().sum::<usize>() + 3, available);
+        assert_eq!(&widths[..2], [Some(30), Some(10)]);
+        assert!(
+            widths.iter().flatten().sum::<usize>()
+                + widths.iter().flatten().count().saturating_sub(1)
+                <= available
+        );
     }
     let value = rows.value();
     assert!(value["columns"][0].get("valueOnly").is_none());
@@ -475,19 +487,14 @@ fn uncovered_tracks_supply_values_without_reserving_width() {
 }
 
 #[test]
-fn empty_cells_and_spans_cover_tracks_and_all_covered_solves_are_unchanged() {
+fn empty_cells_and_spans_use_production_covered_geometry() {
     let rows = parse(HANDBOOK).unwrap();
-    let legacy = rows
-        .columns
-        .iter()
-        .enumerate()
-        .map(|(i, c)| c.track(i + 15))
-        .collect::<Vec<_>>();
     for available in [40, 146, 200] {
-        assert_eq!(
-            rows.solve(|i| i + 15, available, 1),
-            grid::solve(&legacy, Some(available), 1)
-        );
+        let geometry = crate::markup::Grid::compile(&rows, |i| i + 15, available).unwrap();
+        assert_eq!(geometry.columns.len(), rows.covered_tracks());
+        let used = geometry.columns.iter().flatten().sum::<usize>()
+            + geometry.columns.iter().flatten().count().saturating_sub(1);
+        assert!(used <= available);
     }
     assert!(
         rows.value()["columns"]

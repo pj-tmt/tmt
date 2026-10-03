@@ -2,7 +2,7 @@
 //! cells so wide characters never misalign columns.
 
 use super::{
-    app::{App, Hit, Item, Notes, Switcher, TabHit, TitleHit},
+    app::{App, Item, Notes, Switcher, TabHit, TitleHit},
     markdown,
     notes::{sanitize, wrap},
 };
@@ -10,7 +10,6 @@ use crate::{
     attention::Attention,
     config::{BoardMode, NotesRender, Pane, TabColors},
     requests::{BODIES, age},
-    rows::Rows,
 };
 use ratatui::{
     Frame,
@@ -20,11 +19,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 use serde_json::Value;
-use tmt_cli_style::{
-    Role,
-    grid::{Align, Truncate},
-    mark::Mark,
-};
+use tmt_cli_style::{Role, grid::Align, mark::Mark};
 use unicode_width::UnicodeWidthStr;
 
 const KEYS: &[&str] = &[
@@ -207,124 +202,6 @@ pub fn fit(text: &str, width: usize) -> String {
 
 /// Space between grid columns.
 const GAP: usize = 1;
-
-/// One line of a row on the solved grid: each cell across its spanned
-/// columns, fitted by the first column's alignment and truncation. The first
-/// line shows `–` for a missing value; a later line with nothing to show is
-/// left out.
-fn grid_line(
-    look: crate::look::Look,
-    rows: &Rows,
-    layout: &crate::markup::Grid,
-    admitted: &tmt_tui::binding::Node,
-    row: &Value,
-    line: usize,
-    selected: bool,
-) -> Option<Vec<Vec<Span<'static>>>> {
-    let first = line == 0;
-    let mut fitted = Vec::new();
-    let mut position = 0;
-    let mut shown_any = false;
-    for (cell, admitted) in rows.lines[line]
-        .iter()
-        .zip(&admitted.children[line].children)
-    {
-        let range = position..position + cell.span;
-        position += cell.span;
-        let Some(box_width) = layout.span(range.clone()) else {
-            continue;
-        };
-        let width = box_width.visible;
-        let value = admitted.text.as_deref();
-        shown_any |= value.is_some_and(|value| !value.is_empty());
-        let text = match (value, &cell.field, first) {
-            (Some(value), _, _) => value,
-            (None, Some(_), true) => "–",
-            _ => "",
-        };
-        let column = &rows.columns[range.start];
-        let failed = cell.field.as_deref().is_some_and(|field| {
-            row["failed"]
-                .as_array()
-                .is_some_and(|failed| failed.iter().any(|name| name == field))
-        });
-        // Admitted cell tokens override projected decoration; absent and
-        // failed providers without projected colors stay quiet. Look owns selection.
-        let token = cell
-            .field
-            .as_deref()
-            .and_then(|field| row["colors"][field].as_str());
-        let role = admitted
-            .style
-            .token
-            .filter(|_| !failed || token.is_some())
-            .or_else(|| token.and_then(crate::look::role));
-        let style = if value.is_none_or(str::is_empty) || (failed && token.is_none()) {
-            look.role(Role::Dim)
-        } else if let Some(role) = role {
-            look.role(role)
-        } else {
-            Style::new()
-        };
-        let emphasize = value.is_some_and(|value| !value.is_empty())
-            && (matches!(cell.field.as_deref(), Some("state" | "pending"))
-                || role.is_some_and(|role| matches!(role, Role::Waiting | Role::Blocked)));
-        let style = look.row_span(selected, style, emphasize);
-        fitted.push((
-            crate::markup::fitted(text, box_width, admitted.style.text_flow, column.align),
-            style,
-            width,
-        ));
-    }
-    if !first && !shown_any {
-        return None;
-    }
-    let height = fitted
-        .iter()
-        .map(|(lines, _, _)| lines.len())
-        .max()
-        .unwrap_or(1);
-    Some(
-        (0..height)
-            .map(|line| {
-                let mut spans = Vec::new();
-                for (values, style, width) in &fitted {
-                    if !spans.is_empty() {
-                        spans.push(Span::raw(" ".repeat(GAP)));
-                    }
-                    spans.push(Span::styled(
-                        values
-                            .get(line)
-                            .cloned()
-                            .unwrap_or_else(|| " ".repeat(*width)),
-                        *style,
-                    ));
-                }
-                spans
-            })
-            .collect(),
-    )
-}
-
-/// Puts a row's age at the right edge of its first line when it fits after
-/// the cells; a narrow board drops it before any cell.
-fn age_mark(
-    spans: &mut Vec<Span<'static>>,
-    age: &str,
-    width: usize,
-    look: crate::look::Look,
-    selected: bool,
-) {
-    let used: usize = spans.iter().map(Span::width).sum();
-    let mark = age.width();
-    if used + GAP + mark <= width {
-        spans.push(Span::raw(" ".repeat(width - used - mark)));
-        spans.push(Span::styled(
-            age.to_owned(),
-            look.row_span(selected, look.role(Role::Dim), false),
-        ));
-    }
-}
 
 /// Shown only when a switch takes long enough to notice.
 pub(super) const SPINNER_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
@@ -1571,7 +1448,10 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         let layout = match crate::markup::Grid::compile(rows, natural, available) {
             Ok(layout) => layout,
             Err(error) => {
-                frame.render_widget(Paragraph::new(format!("Row layout: {error}")), area);
+                frame.render_widget(
+                    Paragraph::new(format!("Row layout: {error}")).style(look.role(Role::Dim)),
+                    area,
+                );
                 return;
             }
         };
@@ -1601,152 +1481,48 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         let cells = match crate::markup::row_values(rows, tab, app.rows()) {
             Ok(cells) => cells,
             Err(error) => {
-                frame.render_widget(Paragraph::new(format!("Row values: {error}")), area);
+                frame.render_widget(
+                    Paragraph::new(format!("Row values: {error}")).style(look.role(Role::Dim)),
+                    area,
+                );
                 return;
             }
         };
+        let scene =
+            super::row_paint::RowPaint::build(app, rows, &layout, &cells, usize::from(area.width));
         derived.grid = Some(super::derived::Grid {
             width: available,
             search: app.search.clone(),
+            #[cfg(test)]
             layout,
+            #[cfg(test)]
             cells,
+            scene,
         });
     }
-    let layout = &derived.grid.as_ref().expect("prepared grid").layout;
-    let mut lines = vec![Line::from(Span::styled(
-        format!(
-            "  {}",
-            rows.columns
-                .iter()
-                .enumerate()
-                .filter_map(|(index, column)| {
-                    layout.span(index..index + 1).map(|box_width| {
-                        crate::markup::fitted(
-                            &column.title,
-                            box_width,
-                            if column.truncate == Truncate::Middle {
-                                tmt_tui::style::TextFlow::Middle
-                            } else {
-                                tmt_tui::style::TextFlow::Truncate
-                            },
-                            column.align,
-                        )
-                        .remove(0)
-                    })
-                })
-                .collect::<Vec<_>>()
-                .join(&" ".repeat(GAP))
-        ),
-        look.role(Role::Muted),
-    ))];
-    let mut selected_lines = 0..0;
-    let mut row_index = 0;
-    // The screen lines of each row, for mouse events.
-    let mut row_lines = Vec::new();
-    for item in app.items() {
-        match item {
-            Item::Header(title) => lines.push(Line::from(Span::styled(
-                title.to_uppercase(),
-                Style::new().add_modifier(Modifier::BOLD),
-            ))),
-            Item::Row(row) => {
-                let selected = row_index == app.selected;
-                let start = lines.len();
-                app.row_starts.borrow_mut().push(start);
-                let marker = if row["pending"].is_string() {
-                    "◆ "
-                } else {
-                    "  "
-                };
-                // Its age mark: a row nobody updated for a while is quiet,
-                // and says how long. This is the row's content age, not the
-                // frame still loading another squad.
-                let age = crate::staleness::label(&row["staleness"]);
-                let style = if selected {
-                    look.selection()
-                } else if age.is_some() {
-                    look.role(Role::Dim)
-                } else {
-                    Style::new()
-                };
-                for index in 0..rows.lines.len() {
-                    let first = index == 0;
-                    let Some(cells) = grid_line(
-                        look,
-                        rows,
-                        layout,
-                        &derived.grid.as_ref().expect("prepared grid").cells[row_index],
-                        row,
-                        index,
-                        selected,
-                    ) else {
-                        continue;
-                    };
-                    for (visual, cells) in cells.into_iter().enumerate() {
-                        let initial = first && visual == 0;
-                        let mut spans = vec![Span::styled(
-                            if initial { marker } else { "  " },
-                            look.row_span(
-                                selected,
-                                Style::new(),
-                                initial && row["pending"].is_string(),
-                            ),
-                        )];
-                        spans.extend(cells);
-                        if let Some(age) = age.as_deref().filter(|_| initial) {
-                            age_mark(&mut spans, age, usize::from(area.width), look, selected);
-                        }
-                        row_lines.push((lines.len(), row_index));
-                        lines.push(Line::from(spans).style(style));
-                    }
-                }
-                if let Some(text) = row["annotation"]["text"].as_str() {
-                    let to = row["annotation"]["to"].as_str().unwrap_or_default();
-                    lines.push(Line::from(Span::styled(
-                        fit(
-                            &format!("    ✎ sent to {to}: {text}"),
-                            usize::from(area.width),
-                        ),
-                        look.role(Role::Dim),
-                    )));
-                    row_lines.push((lines.len() - 1, row_index));
-                }
-                if selected {
-                    selected_lines = start..lines.len();
-                }
-                row_index += 1;
-            }
-        }
-    }
-    if row_index == 0 {
-        lines.push(Line::from(Span::styled(
-            if app.search.is_empty() {
-                "  (no members)"
-            } else {
-                "  (no matching members)"
-            },
-            look.role(Role::Dim),
-        )));
-    }
-    // The selection stays on screen until the wheel moves the rows away from
-    // it; the column header scrolls with the list.
+    let scene = &derived.grid.as_ref().expect("prepared grid").scene;
+    app.row_starts.borrow_mut().extend(&scene.starts);
     if app.follow {
+        let range = scene.starts.get(app.selected).copied().unwrap_or(0)
+            ..scene.ends.get(app.selected).copied().unwrap_or(0);
         app.scrolls
-            .reveal_range(Pane::Rows, selected_lines, area, lines.len());
+            .reveal_range(Pane::Rows, range, area, scene.height);
     }
-    let (offset, viewport) = app
-        .scrolls
-        .show(frame, Pane::Rows, area, lines, look.role(Role::Dim));
-    app.hits.borrow_mut().extend(
-        row_lines
-            .into_iter()
-            .filter(|(line, _)| (offset..offset + viewport).contains(line))
-            .map(|(line, row)| Hit {
-                y: area.y + (line - offset) as u16,
-                x: area.x,
-                width: area.width,
-                row,
-            }),
+    app.scrolls.show_paint(
+        frame,
+        Pane::Rows,
+        area,
+        scene.height,
+        look.role(Role::Dim),
+        |frame, body, offset| {
+            app.hits.borrow_mut().extend(scene.paint(
+                frame.buffer_mut(),
+                body,
+                offset,
+                app.selected,
+                look,
+            ));
+        },
     );
 }
 
@@ -1757,6 +1533,8 @@ mod tests {
     use super::*;
     use crate::board::app::{Effect, Notes, Snapshot, View};
     use crate::config::{BoardMode, Direction, Pane};
+    use crate::rows::Rows;
+    use ratatui::buffer::Buffer;
     use ratatui::crossterm::event::{
         KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
@@ -1902,6 +1680,32 @@ mod tests {
         draw(&app, 120, 30);
         assert_eq!(id(&app), a);
         assert!(!app.loading(), "cached switch restores the view's identity");
+    }
+
+    #[test]
+    fn failed_scene_preparation_preserves_cache_without_publishing_hits() {
+        let mut app = board(
+            json!([{"title":null,"rows":[row("a", "working", "task", json!({"id":"member-a"}))]}]),
+        );
+        draw(&app, 120, 10);
+        assert!(!app.hits.borrow().is_empty());
+        let cached_width = |app: &App| {
+            app.view
+                .as_ref()
+                .unwrap()
+                .derived
+                .borrow()
+                .grid
+                .as_ref()
+                .unwrap()
+                .width
+        };
+        let prior = cached_width(&app);
+        app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["id"] = json!("123");
+        assert!(draw(&app, 80, 10).join("\n").contains("Row values:"));
+        assert_eq!(cached_width(&app), prior);
+        assert!(app.hits.borrow().is_empty());
+        assert!(app.row_starts.borrow().is_empty());
     }
 
     #[test]
@@ -2529,39 +2333,36 @@ columns = [{ name = "member", width = "30%" },
         crate::config::Board::simple(BoardMode::Split, direction, panes, &sizes)
     }
 
+    fn row_buffer(rows: &Rows, row: Value, look: crate::look::Look, selected: bool) -> Buffer {
+        let mut app = board(json!([{"title":null,"rows":[row]}]));
+        let view = app.view.as_mut().unwrap();
+        view.rows = rows.clone();
+        view.look = look;
+        app.selected = if selected { 0 } else { usize::MAX };
+        let mut terminal = Terminal::new(TestBackend::new(26, 4)).unwrap();
+        terminal
+            .draw(|frame| render_rows(frame, &app, frame.area()))
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
     #[test]
     fn state_cells_use_the_projected_token_for_pattern_and_exact_states() {
-        let rows = rows_from("[p.columns]\nshow = ['state']\nstate = { width = 20 }\n");
+        let rows = rows_from("[p.columns]\nshow=['state']\nstate={width=20}\n");
         let look = crate::look::Look::default();
         for state in ["blocked", "blocked-on-ci"] {
-            let row =
-                json!({"state": state, "fields": {"state": state}, "colors": {"state": "review"}});
-            let spans = grid_line(
-                look,
-                &rows,
-                &crate::markup::Grid::compile(&rows, |_| 20, 20).unwrap(),
-                &crate::markup::row_values(&rows, "product", vec![(0, &row)]).unwrap()[0],
-                &row,
-                0,
-                false,
-            )
-            .unwrap();
-            assert_eq!(spans.len(), 1);
-            assert_eq!(spans[0][0].style.fg, look.named("review").fg);
-            assert_eq!(spans[0][0].content.trim(), state);
-            let plain = json!({"state": state, "fields": {"state": state}});
-            let spans = grid_line(
-                look,
-                &rows,
-                &crate::markup::Grid::compile(&rows, |_| 20, 20).unwrap(),
-                &crate::markup::row_values(&rows, "product", vec![(0, &plain)]).unwrap()[0],
-                &plain,
-                0,
-                false,
-            )
-            .unwrap();
-            assert_eq!(spans.len(), 1);
-            assert_eq!(spans[0][0].style, Style::new());
+            for token in ["default", "review"] {
+                let buffer = row_buffer(
+                    &rows,
+                    json!({"fields":{"state":state},"colors":{"state":token}}),
+                    look,
+                    false,
+                );
+                assert_eq!(buffer[(2, 1)].fg, look.named(token).fg.unwrap_or_default());
+                let actual: String = (2..2 + state.len() as u16)
+                    .map(|x| buffer[(x, 1)].symbol())
+                    .collect();
+                assert_eq!(actual, state);
+            }
         }
     }
 
@@ -2668,7 +2469,6 @@ lines = [
         let rows = rows_from(
             "[p.rows]\ncolumns=[{name='task',width=12,overflow='wrap',max_lines=2}]\nlines=[[{field='task',token='waiting'}]]\n",
         );
-        let grid = crate::markup::Grid::compile(&rows, |_| 20, 12).unwrap();
         for depth in [
             tmt_cli_style::Depth::TrueColor,
             tmt_cli_style::Depth::Ansi16,
@@ -2687,16 +2487,18 @@ lines = [
                 (json!({"fields":{"task":""}}), Role::Dim),
                 (json!({"fields":{}}), Role::Dim),
             ] {
-                let scene = crate::markup::row_values(&rows, "product", vec![(0, &row)]).unwrap();
                 for selected in [false, true] {
-                    let lines =
-                        grid_line(look, &rows, &grid, &scene[0], &row, 0, selected).unwrap();
-                    for spans in lines {
-                        assert_eq!(spans.len(), 1);
-                        assert_eq!(
-                            spans[0].style,
-                            look.row_span(selected, look.role(role), role == Role::Waiting)
-                        );
+                    let buffer = row_buffer(&rows, row.clone(), look, selected);
+                    let mut expected = ratatui::buffer::Cell::default();
+                    let mut style = look.row_span(selected, look.role(role), role == Role::Waiting);
+                    if selected {
+                        style = look.selection().patch(style);
+                    }
+                    expected.set_style(style);
+                    for y in 1..=if role == Role::Waiting { 2 } else { 1 } {
+                        for x in 2..14 {
+                            assert_eq!(buffer[(x, y)].style(), expected.style());
+                        }
                     }
                 }
             }
