@@ -12,7 +12,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
 };
-use tmt_cli_style::{Role, grid::Align, table::escape};
+use tmt_cli_style::{Role, grid::Align, mark::Mark, table::escape};
 use unicode_width::UnicodeWidthStr;
 
 pub(super) enum Input {
@@ -22,6 +22,36 @@ pub(super) enum Input {
     Close,
 }
 
+struct SettingNotice {
+    message: String,
+    mark: Mark,
+}
+impl SettingNotice {
+    fn error(message: String, key: &str, scope: Option<&str>) -> Self {
+        let short = setting_name(key).1;
+        let mut message = message;
+        if let Some(scope) = scope {
+            message = message.replace(&format!("`squad.{scope}.{key}`"), short);
+        }
+        Self {
+            message: message
+                .replace(&format!("`{key}`"), short)
+                .replace('`', "")
+                .replace(
+                    "whole s/m/h units, such as \"30m\"",
+                    "whole s, m or h, e.g. 30m",
+                ),
+            mark: Mark::Failed,
+        }
+    }
+    fn text(&self) -> String {
+        format!("{} {}", self.mark.symbol(), self.message)
+    }
+    fn style(&self, look: Look) -> ratatui::style::Style {
+        look.role(self.mark.token().role().expect("notice mark has a token"))
+    }
+}
+
 pub(super) struct Overlay {
     pub settings: BoardSettings,
     scrolls: Scrolls,
@@ -29,7 +59,7 @@ pub(super) struct Overlay {
     config: Option<Config>,
     pub draft: Option<Config>,
     editing: Option<(String, String)>,
-    notice: Option<String>,
+    notice: Option<SettingNotice>,
     selected: usize,
     reveal: std::cell::Cell<bool>,
     section: Option<usize>,
@@ -131,7 +161,10 @@ impl Overlay {
             KeyCode::Enter if self.config.is_some() => {
                 if let Some(entry) = self.settings.entries.get(self.selected) {
                     if !entry.editable {
-                        self.notice = Some("This setting is read-only; edit squad.toml.".into());
+                        self.notice = Some(SettingNotice {
+                            message: "This setting is read-only; edit squad.toml.".into(),
+                            mark: Mark::Warning,
+                        });
                         return Input::None;
                     }
                     self.editing =
@@ -183,7 +216,9 @@ impl Overlay {
             .preview_setting(self.scope(), &name, &text)
         {
             Ok(config) => self.draft = Some(config),
-            Err(error) => self.notice = Some(error.message),
+            Err(error) => {
+                self.notice = Some(SettingNotice::error(error.message, &name, self.scope()))
+            }
         }
     }
 
@@ -210,19 +245,24 @@ impl Overlay {
                 group_entries(&mut self.settings);
                 self.editing = None;
                 self.draft = None;
-                self.notice = Some(
-                    crate::settings::saved_notice(
-                        self.config.as_ref().unwrap(),
-                        scope.as_deref(),
-                        &name,
-                    )
-                    .expect("validated saved setting")
-                    .unwrap_or_else(|| "Saved to squad.toml".into()),
-                );
+                let pinning = crate::settings::saved_notice(
+                    self.config.as_ref().unwrap(),
+                    scope.as_deref(),
+                    &name,
+                )
+                .expect("validated saved setting");
+                self.notice = Some(SettingNotice {
+                    mark: if pinning.is_some() {
+                        Mark::Warning
+                    } else {
+                        Mark::Done
+                    },
+                    message: pinning.unwrap_or_else(|| "Saved to squad.toml".into()),
+                });
                 true
             }
             Err(error) => {
-                self.notice = Some(error.message);
+                self.notice = Some(SettingNotice::error(error.message, &name, scope.as_deref()));
                 false
             }
         }
@@ -304,10 +344,18 @@ fn value_lines(text: &str, width: usize, structured: bool) -> Vec<String> {
 pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rect) {
     if let Some((name, text)) = &overlay.editing {
         let width = body.width.saturating_sub(4);
-        let notice = overlay
-            .notice
-            .as_deref()
-            .unwrap_or("Valid preview · Enter save · Esc cancel · Ctrl-U clear");
+        let (notice, notice_style) = overlay.notice.as_ref().map_or_else(
+            || {
+                (
+                    format!(
+                        "{} valid · Enter save · Esc cancel · Ctrl-U clear",
+                        Mark::Done.symbol()
+                    ),
+                    look.role(Role::Dim),
+                )
+            },
+            |notice| (notice.text(), notice.style(look)),
+        );
         let input = tmt_tui::text::fit_line(
             &format!("{text}▏"),
             width.saturating_sub(1),
@@ -316,9 +364,9 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
         );
         let mut lines = vec![Line::styled(format!(" {input}"), look.role(Role::Text))];
         lines.extend(
-            super::notes::wrap(notice, usize::from(width.max(1)))
+            super::notes::wrap(&notice, usize::from(width.saturating_sub(1).max(1)))
                 .into_iter()
-                .map(|line| Line::styled(line, look.role(Role::Muted))),
+                .map(|line| Line::styled(format!(" {line}"), notice_style)),
         );
         let height = (lines.len() as u16 + 2).min(body.height);
         let area = Rect {
@@ -349,10 +397,13 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
     inner.width = inner.width.saturating_sub(2);
     let mut footer_lines: Vec<Line> = overlay
         .notice
-        .as_deref()
+        .as_ref()
         .into_iter()
-        .flat_map(|notice| super::notes::wrap(notice, usize::from(inner.width.max(1))))
-        .map(|line| Line::styled(line, look.role(Role::Waiting)))
+        .flat_map(|notice| {
+            super::notes::wrap(&notice.text(), usize::from(inner.width.max(1)))
+                .into_iter()
+                .map(|line| Line::styled(line, notice.style(look)))
+        })
         .collect();
     footer_lines.push(Line::styled(
         super::view::fit(
@@ -759,7 +810,7 @@ mod tests {
     }
     #[test]
     fn confirm_preserves_file_and_sources_then_conflicting_save_refuses() {
-        let mut f = fixture("save", "");
+        let mut f = fixture("save-notes.render", "");
         edit(&mut f.app, "board.sizes", "[30,70]");
         assert_eq!(
             press(&mut f.app, KeyCode::Enter),
@@ -788,6 +839,7 @@ mod tests {
                 .notice
                 .as_ref()
                 .unwrap()
+                .message
                 .contains("Later preset changes won't override them.")
         );
         edit(&mut f.app, "notes.render", "plain");
@@ -807,7 +859,20 @@ mod tests {
                 .notice
                 .as_ref()
                 .unwrap()
+                .message
                 .contains("changed")
+        );
+        assert!(
+            f.app
+                .settings
+                .as_ref()
+                .unwrap()
+                .notice
+                .as_ref()
+                .unwrap()
+                .message
+                .contains(f.path.to_str().unwrap()),
+            "conflict identifies the actual file even when its path contains the edited key"
         );
         press(&mut f.app, KeyCode::Esc);
         assert_eq!(
@@ -842,6 +907,7 @@ mod tests {
                     .notice
                     .as_ref()
                     .unwrap()
+                    .message
                     .contains("read-only")
             );
         }
