@@ -3647,7 +3647,8 @@ characters are intentional fixture data. No browser/SQLite version migration,
 new dependency or lockfile resolution is required by this foundation.
 
 The dev server binds loopback and serves in-process sample pages. Its exact
-`/renderer.html` route uses the native-owned renderer response CSP, including
+`/renderer.html` route and its mounted protocol-fixture path serve the same
+build-owned renderer with the native-owned response CSP, including
 `sandbox allow-scripts`. The development parent has an explicit policy exception:
 Vite/React hot reload injects inline scripts and styles, so this loopback-only
 parent carries no production app CSP. Dev chrome therefore does not prove parent

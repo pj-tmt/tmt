@@ -28,7 +28,14 @@ export default defineConfig({
         const policy = source.match(/pub const RENDERER_POLICY: &str = "([^"]+)";/)?.[1];
         if (!policy) throw new Error('Missing native renderer policy');
         server.middlewares.use((request, response, next) => {
-          if (request.url?.split('?')[0] === '/renderer.html') {
+          const path = request.url?.split('?')[0] ?? '';
+          if (
+            path === '/renderer.html' ||
+            /^\/r\/[a-z0-9]+\/x\/colab\/renderer\.html$/.test(path)
+          ) {
+            // Mirror the native exact renderer route for mounted protocol fixtures.
+            // Vite otherwise serves the app fallback at this prefix.
+            request.url = '/renderer.html';
             response.setHeader('Content-Security-Policy', policy);
             response.setHeader('Referrer-Policy', 'no-referrer');
             response.setHeader('X-Content-Type-Options', 'nosniff');
