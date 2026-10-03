@@ -18,7 +18,7 @@ use tmt_tui::{
 };
 
 const FILE: &str = "squad.help.xml";
-const MARKUP: &str = r#"<tmt-view version="1"><tmt-modal id="help" title="help" placement="body"><tmt-scroll id="help-body"><tmt-key-help id="help-keys" bind="$.help"/></tmt-scroll><tmt-text slot="footer" token="muted" bind="$.footer"/></tmt-modal></tmt-view>"#;
+const MARKUP: &str = r#"<tmt-view version="1"><tmt-modal id="help" title="help" placement="body"><tmt-scroll id="help-body"><tmt-key-help id="help-keys" bind="$.help" heading-token="text" heading-bold="true" section-gap="1"/></tmt-scroll><tmt-text slot="footer" token="muted" bind="$.footer"/></tmt-modal></tmt-view>"#;
 pub(super) const FOOTER: &str = "↑↓ scroll · PgUp/PgDn page · Esc close";
 struct Data;
 impl Sources for Data {
@@ -217,17 +217,23 @@ pub(super) fn model(app: &App) -> KeyHelp {
                 ),
             ),
         );
-        for id in &app.excluded_counters {
-            let name = rate
-                .input
-                .names
-                .get(id)
-                .map(String::as_str)
-                .unwrap_or("unknown member");
+        if !app.excluded_counters.is_empty() {
+            let names = app
+                .excluded_counters
+                .iter()
+                .map(|id| {
+                    rate.input
+                        .names
+                        .get(id)
+                        .map(String::as_str)
+                        .unwrap_or("unknown member")
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
             meter.entries.push(entry(
-                &format!("excluded-{id}"),
                 "excluded",
-                format!("{name}: no usage counters at last board refresh"),
+                "excluded",
+                format!("{names}: no usage counters at last board refresh"),
             ));
         }
         sections.push(meter);
@@ -244,9 +250,9 @@ pub(super) fn model(app: &App) -> KeyHelp {
         if let Some(action) = bindings.remove(&key) {
             let mut description = action.description();
             if action.verb == crate::action::Verb::Toggle
-                && let Some(label) = super::view::toggle_label(app, &action)
+                && super::view::toggle_label(app, &action).is_some()
             {
-                description.push_str(&format!(" ({label}; ▾ open, ▸ folded)"));
+                description.push_str(" (▾ open, ▸ folded)");
             }
             entries.push(entry(&format!("binding-{key}"), &key, description));
         }

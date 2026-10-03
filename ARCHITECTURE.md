@@ -3559,7 +3559,9 @@ wording for help and settings; settings retain their literal JSON value and sour
 separately from presentation prose. Meter input retains observed roster names,
 including the lead and members omitted from displayed rows, for excluded labels.
 The admitted help surface uses body placement and shared opaque modal chrome,
-one all-section key column, wrapping and a fixed inside footer. Its caller-owned
+one all-section key column, wrapping and a fixed inside footer. Shared key-help
+heading and spacing properties let help select bold text and one blank line
+between sections without changing the theme palette. Its caller-owned
 scroll and focus state routes keys and mouse before board actions; close is
 consumed, Ctrl-C quits, and base cursors and scrolls remain with their existing
 owners. Refresh replaces help data and clamps the shared viewport without

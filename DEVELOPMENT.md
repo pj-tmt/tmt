@@ -1280,7 +1280,10 @@ one literal-ID scroll body and optional direct `tmt-text slot="footer"`/`"status
 children; components cannot occur in repeats yet. Primitive content can repeat.
 `tmt-key-help id="keys" bind="$.help"` uses `KeyHelp::schema()` and the typed
 section/entry model's `value()`; applications supply effective keys, descriptions
-and names. Use `placement="body"` for references, `"center"` for small overlays,
+and names. Optional `heading-token` (existing theme role, default `muted`),
+`heading-bold` (`true`/`false`, default `false`) and `section-gap` (0–4096 lines,
+default 0) style headings and add space only between sections.
+Use `placement="body"` for references, `"center"` for small overlays,
 or `"docked"` for prompts. `surface::render` accepts caller-owned ScrollState,
 body Rect/Buffer, RenderStyle (Theme/Depth) and selection styling. It returns
 visible scoped hits; route current input through `app::route` before base handlers.

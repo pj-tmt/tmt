@@ -84,7 +84,11 @@ fn excluded_help_uses_roster_names_for_members_absent_from_displayed_rows() {
     });
     app.excluded_counters = vec![lead.into(), "missing-roster-id".into()];
     let help = help_lines(&app).join("\n");
-    assert!(help.contains("design-lead: no usage counters"), "{help}");
+    assert!(
+        help.contains("design-lead, unknown member: no usage counters"),
+        "{help}"
+    );
+    assert_eq!(help.matches("no usage counters").count(), 1);
     assert!(help.contains("unknown member: no usage counters"));
     assert!(!help.contains(lead));
     assert!(!help.contains("missing-roster-id"));

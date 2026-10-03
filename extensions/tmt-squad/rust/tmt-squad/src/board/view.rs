@@ -5151,9 +5151,7 @@ columns = [{ name = "member", width = "30%" },
                 let full = hints(&app, usize::MAX);
                 assert!(full.contains(&hint), "{full}");
                 let description = app.bindings()["d"].description();
-                assert!(help_lines(&app).contains(&format!(
-                    "d  {description} ({label} {state}; ▾ open, ▸ folded)"
-                )));
+                assert!(help_lines(&app).contains(&format!("d  {description} (▾ open, ▸ folded)")));
                 for width in 0..160 {
                     let shown = hints(&app, width);
                     if shown.contains(&format!("d {label}")) {

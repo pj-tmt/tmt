@@ -213,7 +213,8 @@ fn read(
         } else {
             ["id", "id-bind", "class", "token", "selected"].contains(&name)
                 || (kind == Kind::Modal && ["title", "placement"].contains(&name))
-                || (kind == Kind::KeyHelp && name == "bind")
+                || (kind == Kind::KeyHelp
+                    && ["bind", "heading-token", "heading-bold", "section-gap"].contains(&name))
                 || (kind == Kind::Text && name == "slot")
                 || (root && name == "version")
                 || (kind == Kind::Row && ["row-id", "row-bind"].contains(&name))

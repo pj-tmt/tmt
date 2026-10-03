@@ -59,11 +59,14 @@ pub fn paint<'a>(
         if visible.width == 0 || visible.height == 0 {
             continue;
         }
-        let style = if selected {
+        let mut style = if selected {
             selected_style(role)
         } else {
             screen::style(theme, role, depth)
         };
+        if cell.node.style.bold {
+            style = style.add_modifier(ratatui::style::Modifier::BOLD);
+        }
         for y in visible.y..visible.y + visible.height as i32 {
             for x in visible.x..visible.x + visible.width as i32 {
                 let target = &mut buffer[(x as u16, y as u16)];
