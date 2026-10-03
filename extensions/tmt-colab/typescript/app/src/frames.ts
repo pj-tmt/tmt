@@ -4,6 +4,7 @@ import {
   decodeText,
   decodeHeader,
   Envelope,
+  MAX_ENVELOPE_JSON,
   encodeBinary,
   exactKeys,
   requireValue,
@@ -23,6 +24,7 @@ export class Frames {
     parts: Uint8Array[];
     size: number;
     count: number | null;
+    limit: number;
   } | null = null;
   #timer: ReturnType<typeof setTimeout> | undefined;
   constructor(
@@ -65,7 +67,7 @@ export class Frames {
           frame.envelopeHash === p.hash &&
           Number.isSafeInteger(frame.count) &&
           (frame.count as number) > 0 &&
-          (frame.count as number) <= 11 &&
+          (frame.count as number) <= Math.ceil(p.limit / (32 * 1024)) &&
           frame.index === p.parts.length &&
           (frame.index as number) < (frame.count as number) &&
           (p.count === null || p.count === frame.count),
@@ -76,7 +78,7 @@ export class Frames {
           (frame.index === (frame.count as number) - 1 || bytes.length === 32 * 1024),
       );
       p.size += bytes.length;
-      requireValue(p.size <= UPDATE_ENVELOPE_BYTES);
+      requireValue(p.size <= p.limit);
       p.count = frame.count as number;
       p.parts.push(bytes);
       if (p.parts.length !== p.count) return null;
@@ -95,9 +97,17 @@ export class Frames {
     }
     requireValue(this.#pending === null);
     let target: Record<string, unknown> | undefined;
+    let limit = UPDATE_ENVELOPE_BYTES;
     if (frame.type === 'broadcast') target = frame;
     if (frame.type === 'catchup') {
       requireValue(Array.isArray(frame.streams) && frame.streams.length <= 256);
+      if (Object.hasOwn(frame, 'baselineObject')) {
+        requireValue(typeof frame.baseline === 'string' && frame.streams.length === 0);
+        binary(frame.baseline, 8 * 1024);
+        exactKeys(frame.baselineObject, ['envelopeHash', 'envelope']);
+        target = frame.baselineObject;
+        limit = MAX_ENVELOPE_JSON;
+      }
       let count = 0;
       for (const stream of frame.streams) {
         exactKeys(stream, ['streamId', 'namespace', 'checkpoint', 'tail']);
@@ -126,6 +136,7 @@ export class Frames {
         parts: [],
         size: 0,
         count: null,
+        limit,
       };
       this.#timer = setTimeout(() => {
         this.close();

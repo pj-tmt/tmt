@@ -8,7 +8,11 @@ const v = JSON.parse(
 const hex = (s: string) => Uint8Array.from(s.match(/../g) ?? [], (n) => parseInt(n, 16));
 const json = (value: unknown) => c.text(JSON.stringify(value));
 const mount = '/r/abcd/x/colab/';
-async function wire(context: BrowserContext) {
+async function wire(
+  context: BrowserContext,
+  reset?: { source: string; invalid?: 'commitment' | 'source' | 'descriptor' | 'oldEpoch' },
+) {
+  const epoch = reset ? '2' : '1';
   const signer = await crypto.subtle.importKey(
     'pkcs8',
     c.concat(hex('302e020100300506032b657004220420'), hex(v.seed)),
@@ -34,7 +38,7 @@ async function wire(context: BrowserContext) {
       signature: c.encodeBinary(await c.sign(signer, input)),
     }),
   );
-  const head = await shared.verifyNext(v.space, owner, genesis.head);
+  let head = await shared.verifyNext(v.space, owner, genesis.head);
   // Public fixture seeds only: prepopulate opaque handles without replacing them on reload.
   await context.addInitScript(
     ({ seed, recipient, device, pub, enc }) => {
@@ -116,10 +120,8 @@ async function wire(context: BrowserContext) {
       json: {
         spaceId: v.space,
         ownerKey: c.encodeBinary(owner),
-        revision: '2',
-        pages: [
-          { pageId: v.page, epoch: '1', sharing: 'private', history: 'current', archived: false },
-        ],
+        revision: reset ? '3' : '2',
+        pages: [{ pageId: v.page, epoch, sharing: 'private', history: 'current', archived: false }],
       },
     }),
   );
@@ -147,23 +149,83 @@ async function wire(context: BrowserContext) {
     await route.fulfill({ json: { issuerStatement: JSON.parse(c.decodeText(g.toJson())), chain } });
   });
   const doc = new Y.Doc();
-  doc.getText('html').insert(0, '<h1>Live fixture</h1>');
+  doc.getText('html').insert(0, reset?.source ?? '<h1>Live fixture</h1>');
   doc.getMap('meta').set('title', 'Live fixture');
+  let baseline: Record<string, string> | null = null;
+  let baselineEnvelope: c.Envelope | null = null;
+  let advance: c.statement.Envelope | null = null;
+  let epochWrap = v.wrap;
+  if (reset) {
+    const update = new Uint8Array(Y.encodeStateAsUpdate(doc));
+    baselineEnvelope = await c.Envelope.seal(
+      {
+        space: v.space,
+        page: v.page,
+        epoch,
+        kind: 'html',
+        namespace: 'content',
+        authorDevice: genesis.head.ownerMember.id,
+        membershipRevision: '3',
+        streamSeq: '0',
+        prevHash: new Uint8Array(32),
+      },
+      hex(v.epochKey),
+      signer,
+      json({
+        source: reset.source + (reset.invalid === 'source' ? 'changed' : ''),
+        update: c.encodeBinary(update),
+      }),
+    );
+    baseline = {
+      pageId: v.page,
+      epoch,
+      sourceDigest: c.encodeBinary(await c.digest(c.text(reset.source))),
+      baselineCommitment: c.encodeBinary(
+        reset.invalid === 'commitment'
+          ? new Uint8Array(32)
+          : await c.digest(
+              c.frame(c.text('tmt-colab-baseline-v1'), c.text('1'), c.text(reset.source), update),
+            ),
+      ),
+      title: 'Live fixture',
+      objectEnvelopeHash: c.encodeBinary(await baselineEnvelope.hash()),
+      membershipRevision: '3',
+    };
+    // Generated once by the existing Rust browser_authority example using public
+    // authority-v1 seeds, with the wrap header changed to epoch 2 / revision 3.
+    epochWrap = JSON.parse(readFileSync(new URL('./baseline-wrap.json', import.meta.url), 'utf8'));
+    const value = json({ pageId: v.page, epoch, cuts: [], baseline, wraps: [epochWrap] });
+    const input = c.statement.input({
+      space: v.space,
+      operation: 'epoch.advance',
+      revision: '3',
+      previousHash: head.head.hash,
+      payloadDigest: await c.digest(value),
+    });
+    advance = c.statement.Envelope.fromJson(
+      json({
+        statement: c.encodeBinary(input),
+        payload: c.encodeBinary(value),
+        signature: c.encodeBinary(await c.sign(signer, input)),
+      }),
+    );
+    head = await advance.verifyNext(v.space, owner, head.head);
+  }
   const initial = await c.Envelope.seal(
     {
       space: v.space,
       page: v.page,
-      epoch: '1',
+      epoch: reset?.invalid === 'oldEpoch' ? '1' : epoch,
       kind: 'update',
       namespace: 'content',
       authorDevice: v.device,
-      membershipRevision: '2',
+      membershipRevision: reset ? '3' : '2',
       streamSeq: '1',
       prevHash: new Uint8Array(32),
     },
     hex(v.epochKey),
     signer,
-    new Uint8Array(Y.encodeStateAsUpdate(doc)),
+    reset ? new Uint8Array([0, 0]) : new Uint8Array(Y.encodeStateAsUpdate(doc)),
   );
   doc.destroy();
   const entry = async (env: c.Envelope) => ({
@@ -173,7 +235,7 @@ async function wire(context: BrowserContext) {
   });
   const entries = [await entry(initial)],
     peers = new Set<WebSocketRoute>();
-  const scope = { version: 1, space: v.space, page: v.page, epoch: '1' };
+  const scope = { version: 1, space: v.space, page: v.page, epoch };
   let queue = Promise.resolve(),
     drop = false,
     retries = 0,
@@ -235,28 +297,59 @@ async function wire(context: BrowserContext) {
       queue = queue.then(async () => {
         expect(frame.space).toBe(v.space);
         expect(frame.page).toBe(v.page);
-        expect(frame.epoch).toBe('1');
+        expect(frame.epoch).toBe(epoch);
         if (frame.type === 'hello') {
           hellos++;
           const statements =
             frame.membershipRevision === '0'
-              ? [c.encodeBinary(g.toJson()), c.encodeBinary(shared.toJson())]
+              ? [g, shared, ...(advance ? [advance] : [])].map((e) => c.encodeBinary(e.toJson()))
               : [];
           send(socket, 'catchup', {
             membershipHead: {
-              revision: '2',
+              revision: reset ? '3' : '2',
               statementHash: c.encodeBinary(head.head.hash),
               ownerKey: c.encodeBinary(owner),
               statements,
               more: false,
             },
-            baseline: null,
+            baseline: baseline
+              ? c.encodeBinary(
+                  json(
+                    reset?.invalid === 'descriptor'
+                      ? { ...baseline, title: 'substituted' }
+                      : baseline,
+                  ),
+                )
+              : null,
+            ...(baselineEnvelope
+              ? {
+                  baselineObject: {
+                    envelopeHash: baseline!.objectEnvelopeHash,
+                    envelope:
+                      baselineEnvelope.toJson().length > 32768
+                        ? { objectId: c.decodeHeader(baselineEnvelope.header()).objectId }
+                        : c.encodeBinary(baselineEnvelope.toJson()),
+                  },
+                }
+              : {}),
             streams: [],
             more: true,
           });
+          if (baselineEnvelope && baselineEnvelope.toJson().length > 32768) {
+            const bytes = baselineEnvelope.toJson(),
+              count = Math.ceil(bytes.length / 32768);
+            for (let index = 0; index < count; index++)
+              send(socket, 'chunk', {
+                objectId: c.decodeHeader(baselineEnvelope.header()).objectId,
+                envelopeHash: baseline!.objectEnvelopeHash,
+                index,
+                count,
+                bytes: c.encodeBinary(bytes.slice(index * 32768, (index + 1) * 32768)),
+              });
+          }
           send(socket, 'catchup', {
             chains: [{ deviceId: v.device, chain: c.encodeBinary(json(chain)) }],
-            wraps: [c.encodeBinary(json(v.wrap))],
+            wraps: [c.encodeBinary(json(epochWrap))],
             streams: [],
             more: true,
           });
@@ -477,3 +570,49 @@ test('two same-device tabs edit one durable stream, chunk, reload and retry exac
     )
     .toBe(0);
 });
+
+test('chunked epoch baseline opens identical source in two tabs, survives edits and reload', async ({
+  page,
+  context,
+}) => {
+  const source = '<h1>Reset baseline</h1>' + 'x'.repeat(300_000);
+  await wire(context, { source });
+  const other = await context.newPage();
+  for (const tab of [page, other]) {
+    await tab.goto(mount);
+    await tab.getByRole('link', { name: new RegExp(v.page) }).click();
+    await expect(
+      tab.frameLocator('iframe').getByRole('heading', { name: 'Reset baseline' }),
+    ).toBeVisible();
+    await tab.getByRole('button', { name: 'Source', exact: true }).click();
+    await expect(tab.getByRole('textbox')).toHaveValue(source);
+  }
+  const next = source.replace('Reset baseline', 'New epoch edit');
+  await page.getByRole('textbox').fill(next);
+  await page.getByRole('button', { name: 'Save source' }).click();
+  await expect(other.getByRole('textbox')).toHaveValue(next);
+  await other.reload();
+  await expect(
+    other.frameLocator('iframe').getByRole('heading', { name: 'New epoch edit' }),
+  ).toBeVisible();
+});
+for (const invalid of ['commitment', 'source', 'descriptor', 'oldEpoch'] as const)
+  test(`signed reset rejects ${invalid} without partial renderer publication`, async ({
+    page,
+    context,
+  }) => {
+    await wire(context, { source: '<h1>Never publish</h1>', invalid });
+    await page.goto(mount);
+    await page.getByRole('link', { name: new RegExp(v.page) }).click();
+    await expect(page.getByRole('alert')).toBeVisible();
+    await expect(page.locator('iframe')).toHaveCount(0);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          async () =>
+            (await navigator.locks.query()).held?.filter((l) => l.name?.startsWith('writer:'))
+              .length,
+        ),
+      )
+      .toBe(0);
+  });

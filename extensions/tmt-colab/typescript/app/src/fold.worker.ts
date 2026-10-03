@@ -1,5 +1,7 @@
 import * as Y from 'yjs';
+import { digest, equal, frame, text } from '@tmt/colab-client';
 import {
+  BASELINE_UPDATE_BYTES,
   STATE_BYTES,
   UPDATE_BYTES,
   validateProjection,
@@ -8,6 +10,7 @@ import {
 
 // One document per dedicated Worker; only this module imports/decodes Yjs.
 let committed = new Y.Doc();
+let initialized = false;
 function declare(doc: Y.Doc) {
   doc.getText('html');
   doc.getMap('meta');
@@ -36,7 +39,7 @@ function project(doc: Y.Doc) {
   validateProjection(projection);
   return projection;
 }
-self.onmessage = (event: MessageEvent<{ id: number; command: FoldCommand }>) => {
+self.onmessage = async (event: MessageEvent<{ id: number; command: FoldCommand }>) => {
   const { id, command } = event.data;
   const candidate = new Y.Doc();
   declare(candidate);
@@ -44,7 +47,11 @@ self.onmessage = (event: MessageEvent<{ id: number; command: FoldCommand }>) => 
     const state = Y.encodeStateAsUpdate(committed);
     Y.applyUpdate(candidate, state);
     let update = new Uint8Array();
-    if (command.type === 'apply' || command.type === 'check') {
+    if (command.type === 'baseline') {
+      if (initialized || command.update.length > BASELINE_UPDATE_BYTES)
+        throw new Error('Invalid baseline state or capacity');
+      Y.applyUpdate(candidate, command.update);
+    } else if (command.type === 'apply' || command.type === 'check') {
       if (
         command.updates.length > 200 ||
         command.updates.reduce((n, item) => n + item.length, 0) > UPDATE_BYTES
@@ -79,11 +86,29 @@ self.onmessage = (event: MessageEvent<{ id: number; command: FoldCommand }>) => 
       if (update.length > UPDATE_BYTES) throw new Error('Edit exceeds update capacity');
     } else throw new Error('Invalid decoder command');
     const projection = project(candidate);
+    if (
+      command.type === 'baseline' &&
+      (projection.title !== command.title ||
+        !equal(await digest(text(projection.source)), command.sourceDigest) ||
+        !equal(
+          await digest(
+            frame(
+              text('tmt-colab-baseline-v1'),
+              text('1'),
+              text(projection.source),
+              command.update,
+            ),
+          ),
+          command.commitment,
+        ))
+    )
+      throw new Error('Baseline commitment or projection mismatch');
     if (Y.encodeStateAsUpdate(candidate).length > STATE_BYTES)
       throw new Error('Decoder state capacity');
     // Prepared local bytes have no durable receipt yet. Keep their projection out
     // of committed state so later foreign updates cannot publish an unsaved draft.
-    if (command.type === 'apply') {
+    if (command.type === 'apply' || command.type === 'baseline') {
+      initialized = true;
       committed.destroy();
       committed = candidate;
     } else candidate.destroy();

@@ -3118,9 +3118,11 @@ reload reconstruction and retry of exact accepted bytes after receipt interrupti
 The fixture paces server delivery with the existing ACK frame; native ACK-window
 backpressure is a #1248 acceptance gate. Large history against the current native
 server can block visibly until that gate lands. It covers unpruned content updates
-from sequence one, not checkpoints, own data or
-reset baselines (#1264). Production-rotated pages remain blocked until reset
-adoption. This is signed protocol-fixture evidence, not native mounted E2E:
+from sequence one, plus signed reset-baseline fixtures. The baseline suite covers
+chunked retrieval, descriptor/log binding, exact baseline struct identity, subsequent
+edits/reload and rejection of commitment/source/descriptor/old-epoch substitution
+without partial rendering. Checkpoints and own data remain unsupported (#1280);
+native rotated-page opening still needs #1248 baseline-object delivery. This is signed protocol-fixture evidence, not native mounted E2E:
 #1248/#1250 supply bootstrap/refresh and #1253 owns native assets.
 The content Worker suite proves concurrent writer convergence and reload
 reconstruction, rejects malformed/mixed roots, checks termination/cleanup and

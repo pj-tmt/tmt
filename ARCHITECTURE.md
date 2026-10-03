@@ -4270,10 +4270,17 @@ Its writer persists exact envelopes before send and retries those frozen bytes
 across interruption. The socket and Worker share one bounded executor; referenced
 objects have one bounded assembly and an absolute deadline. Last-subscriber release
 closes socket, Worker and relay; reconnect reconstructs a fresh verified fold.
-Absent wraps, invalid registration/pins, checkpoints, own-namespace data and reset
-baselines remain visible blocking states. Catchup has a 200-update/256 KiB plaintext
-budget; the live reader retains at most 4,096 sequence hashes. #1264 owns history,
-compaction/ledger proofs and reset adoption; rotated pages remain blocked until then.
+Before a reset page is published, the parent binds its descriptor to the verified
+`epoch.advance`, verifies the management-member-signed sequence-zero baseline
+object and passes its exact update to the Worker. The Worker checks the source
+digest, commitment and exact source/title projection before initializing a fresh
+content document; tails are restricted to that epoch. Baseline objects share the
+bounded assembly owner with updates but use the model's non-update envelope cap.
+Native baseline-object delivery remains a #1248 integration gate; signed browser
+fixtures do not establish native mounted E2E. Absent wraps, invalid registration/
+pins, checkpoints and own-namespace data remain visible blocking states. Catchup has a 200-update/256 KiB plaintext
+budget; the live reader retains at most 4,096 sequence hashes. #1280 owns interleaved namespace chains and paired checkpoint loading; own grammar
+and folding remain deferred to #1110.
 The native placeholder is unchanged: #1248/#1250/#1253 own bootstrap/refresh/assets.
 
 The content-only Yjs decoder lives in a dedicated Worker. It accepts bounded

@@ -156,6 +156,17 @@ export class Connection {
       if (!this.admission.root) throw new Error(strings.noWraps);
       const updates = this.#catchup.updates;
       try {
+        const baseline = this.#catchup.baseline;
+        if (baseline) {
+          const result = await this.fold.run({
+            type: 'baseline',
+            update: baseline.update,
+            title: baseline.title,
+            sourceDigest: baseline.sourceDigest,
+            commitment: baseline.commitment,
+          });
+          requireValue(result.source === baseline.source && result.title === baseline.title);
+        }
         const projection = await this.fold.run({ type: 'apply', updates });
         requireValue(!this.#stopped);
         this.#complete = true;
@@ -163,6 +174,8 @@ export class Connection {
         this.publish(projection);
         this.#resolve(projection);
       } finally {
+        this.#catchup.baseline?.update.fill(0);
+        this.#catchup.baseline = null;
         updates.forEach((v) => v.fill(0));
         this.#catchup.updates = [];
       }
@@ -266,8 +279,7 @@ export class Connection {
     this.#stopped = true;
     clearTimeout(this.#timer);
     this.#frames.close();
-    this.#catchup.updates.forEach((v) => v.fill(0));
-    this.#catchup.updates = [];
+    this.#catchup.close();
     this.fold.close();
     this.#socket.onopen =
       this.#socket.onmessage =
