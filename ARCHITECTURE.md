@@ -4172,7 +4172,7 @@ device context, certificates and silent session reopening.
 ## Colab extension proposal
 
 **Status: persistence, foreground socket executable, isolated decoder and model foundation implemented;
-the stream sync library is available without socket wiring; owner-browser registration is implemented;
+mounted owner stream sync and owner-browser registration are implemented;
 the owner-local epoch engine is implemented; the browser page preview runs on a local adapter; backend work remains proposed.** The local-build-only pilot lives under
 `extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
 owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
@@ -4274,8 +4274,9 @@ keeps the relocated door's bounds (16 request workers, 8 KiB/32 header fields,
 placeholder page for owner and non-owner requests. It accepts a `colab-sync-v1`
 WebSocket upgrade only with an active registered owner context, version 13 and a well-formed
 16-byte key, computing the accept value with the workspace `tungstenite`
-handshake, then holds the tunnel (16 at most, closed after 120 s without
-inbound bytes) pending stream-sync socket composition (#1211). Shutdown closes
+handshake, then drives the shared sync server (16 tunnels at most, closed after
+120 s without inbound bytes). The worker preserves HTTP read-ahead and drives
+sync acquisition/write deadlines even without input. Shutdown closes
 every request socket and tunnel before joining.
 
 Servers never decode Yjs; foreign-writer decoding/merging runs in a bounded
@@ -4381,8 +4382,13 @@ The trusted revision-ordered revocation callback atomically clears an active
 registration and retains a tombstone, including for unknown IDs. Mounted owner
 upgrades in the executable require an active registered device and recheck the
 tombstone/expiry. Remote already terminates its session tunnels on revocation;
-its event delivery into this callback awaits #1100. Owner-signed revocation cuts
-and epoch rotation remain #1157. The callback is not an HTTP capability.
+the exact reserved socket device-events route consumes its level-triggered events.
+Only the remote-only header and strict body on that path admit a callback;
+browser mount paths cannot reach it. The sync lock serializes durable revocation
+and shutdown of all matching live handles, including pre-hello tunnels; equal or
+older revisions repeat neither writes nor tunnel effects. Rename has no local
+presentation state. Owner-signed revocation cuts
+and epoch rotation remain #1157.
 Socket shutdown closes retained sockets before joining workers and closing the
 registration store. Real SQLite and socket tests prove persistence, retry,
 rollback, admission denial, renewal, ordered revocation and cleanup.
@@ -4424,8 +4430,14 @@ the existing append transaction. Outbound objects reserve queue entries and emit
 one frame per turn from immutable shared bytes. Revocation/drop clears partial
 state and pending transfer bytes; clients verify reassembled data before applying.
 The exact grammar/budgets live in colab-v1, with timers and socket workers still
-caller-owned. Owner registration is implemented under #1162; socket wiring belongs to #1211.
-The foreground executable holds registered-owner upgrades without sync composition.
+caller-owned. The foreground socket composes `registration::OwnerAdmission`
+with a Store connection and this shared Server. Upgrade verifies remote binding
+and the registered chain. Rechecks read a durable owner/device/issuer/epoch snapshot
+without writer reservation or repeated signatures; Append additionally fences the
+membership revision and namespace and supplies the registered signing key. The
+pinned management member represents the owner across local pages. Catchup uses
+`Store::owner_head`; reset baseline production remains #1157. Socket workers own
+readiness, idle timers, retained handles and revocation/shutdown cleanup.
 
 ### Isolated Colab decoder
 

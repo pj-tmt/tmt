@@ -393,7 +393,8 @@ fn mounted_endpoint_rejects_cookie_only_and_accepts_certified_owner_twice() {
         let key = Keyring::read(&f.layout).unwrap();
         let socket = MountSocket::bind(&f.layout, &key.space_id, Tunnels::PRODUCT)
             .unwrap()
-            .with_registration(Arc::clone(&service));
+            .with_registration(&f.layout, Arc::clone(&service))
+            .unwrap();
         let path = socket.path.clone();
         let stop = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&stop);

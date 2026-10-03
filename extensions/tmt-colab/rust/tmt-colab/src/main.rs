@@ -72,7 +72,7 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         let space_id = keyring.space_id.clone();
         let registration = Arc::new(Mutex::new(Registration::new(store, keyring)));
         let socket = MountSocket::bind(&layout, &space_id, Tunnels::PRODUCT)?
-            .with_registration(Arc::clone(&registration));
+            .with_registration(&layout, Arc::clone(&registration))?;
         if json_output {
             writeln!(
                 output,

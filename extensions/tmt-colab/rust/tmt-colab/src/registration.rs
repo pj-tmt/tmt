@@ -317,9 +317,9 @@ impl Registration {
         )?;
         Ok(())
     }
-    /// Local tombstone only. Remote event delivery is #1100; owner-signed cuts
-    /// and epoch rotation are #1157. This must be called by a trusted consumer.
-    pub fn revoke(&mut self, device_id: &str, grant_revision: u64) -> Result<()> {
+    /// Local tombstone only; true means durable state changed. Owner-signed cuts
+    /// and epoch rotation are #1157. Call only from a trusted event consumer.
+    pub fn revoke(&mut self, device_id: &str, grant_revision: u64) -> Result<bool> {
         self.store.revoke_remote_device(
             &self.keyring.space_id,
             &self.keyring.owner_public(),
@@ -327,7 +327,7 @@ impl Registration {
             grant_revision,
         )
     }
-    /// Admission seam for socket/sync composition (#1211), checked against durable
+    /// Admission for socket/sync composition, checked against durable
     /// revocation every time. A forwarded cookie/session alone is insufficient.
     pub fn active_device(
         &mut self,
@@ -390,6 +390,95 @@ impl Registration {
         bytes.try_into().map_err(|_| Code::Unavailable)
     }
 }
+/// Mounted owner admission. Signature/remote binding verification happens at
+/// upgrade through active_device; each sync turn reads current durable authority.
+/// The pinned local management member represents the owner across local pages.
+pub struct OwnerAdmission(pub std::sync::Arc<std::sync::Mutex<Registration>>);
+impl crate::sync::Admission for OwnerAdmission {
+    fn catchup_context(
+        &self,
+        _: &str,
+        scope: &crate::sync::SyncScope,
+        store: &Store,
+    ) -> std::result::Result<crate::sync::CatchupContext, crate::sync::Code> {
+        let service = self.0.lock().map_err(|_| crate::sync::Code::Denied)?;
+        Ok(crate::sync::CatchupContext {
+            membership_head: store
+                .owner_head(&scope.space, &service.keyring.owner_public())
+                .map_err(|_| crate::sync::Code::Denied)?
+                .ok_or(crate::sync::Code::Denied)?,
+            baseline: None,
+        })
+    }
+    fn authorize(
+        &self,
+        principal: &str,
+        scope: &crate::sync::SyncScope,
+        access: crate::sync::Access<'_>,
+    ) -> std::result::Result<[u8; 32], crate::sync::Code> {
+        use crate::sync::Code as SyncCode;
+        let service = self.0.lock().map_err(|_| SyncCode::Denied)?;
+        if scope.space != service.keyring.space_id {
+            return Err(SyncCode::Denied);
+        }
+        let now = now_ms().map_err(|_| SyncCode::Denied)?;
+        service
+            .store
+            .owner_read(&scope.space, &service.keyring.owner_public(), |tx| {
+                let row = tx.registration(principal)?.ok_or(SyncCode::Denied)?;
+                if row.revoked {
+                    return Err(SyncCode::Denied.into());
+                }
+                let binding: DeviceRegistration =
+                    serde_json::from_slice(&row.binding.ok_or(SyncCode::Denied)?)?;
+                let device = tx.device(principal)?.ok_or(SyncCode::Denied)?;
+                if device.revoked {
+                    return Err(SyncCode::Denied.into());
+                }
+                let chain = certificate::Chain::from_json(&device.chain)?;
+                let cert = chain.certificate()?;
+                let head = tx.head().ok_or(SyncCode::Denied)?;
+                let member = &head.owner_member;
+                let issuer = tx
+                    .recipient("member", &member.id)?
+                    .ok_or(SyncCode::Denied)?;
+                if issuer.revoked
+                    || issuer.role.as_deref() != Some("editor")
+                    || issuer.signing_key != member.signing_key
+                    || issuer.encryption_key != member.encryption_key
+                    || cert.device_id != principal
+                    || cert.space != scope.space
+                    || cert.issuer_kind != "member"
+                    || cert.issuer_id != member.id
+                    || cert.signing_key != &binding.signing
+                    || cert.encryption_key != &binding.encryption
+                    || values::decimal(cert.membership_revision, false)? > head.revision
+                {
+                    return Err(SyncCode::Denied.into());
+                }
+                if now < cert.issued_at || now >= cert.expires_at {
+                    return Err(SyncCode::Expired.into());
+                }
+                if tx.page_epoch(&scope.page)?.as_deref() != Some(scope.epoch.as_str()) {
+                    return Err(SyncCode::StaleEpoch.into());
+                }
+                if let crate::sync::Access::Append(c) = access
+                    && (values::decimal(&c.membership_revision, false)? != head.revision
+                        || !matches!(c.namespace.as_str(), "content" | "own"))
+                {
+                    return Err(SyncCode::Denied.into());
+                }
+                Ok(binding.signing)
+            })
+            .map_err(|error| {
+                error
+                    .downcast_ref::<SyncCode>()
+                    .copied()
+                    .unwrap_or(SyncCode::Denied)
+            })
+    }
+}
+
 fn issuer(
     tx: &OwnerTransaction<'_>,
     keyring: &Keyring,
@@ -444,4 +533,14 @@ fn map_error(error: Box<dyn std::error::Error + Send + Sync>) -> Code {
         .downcast_ref::<Code>()
         .copied()
         .unwrap_or(Code::Unavailable)
+}
+
+pub(crate) fn now_ms() -> std::result::Result<u64, Code> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| Code::Unavailable)?
+        .as_millis()
+        .try_into()
+        .map_err(|_| Code::Unavailable)
 }

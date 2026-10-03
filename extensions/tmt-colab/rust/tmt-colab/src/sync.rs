@@ -32,6 +32,12 @@ pub enum Code {
     Conflict,
     ResyncRequired,
 }
+impl std::fmt::Display for Code {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+impl std::error::Error for Code {}
 impl From<tmt_colab_model::Invalid> for Code {
     fn from(_: tmt_colab_model::Invalid) -> Self {
         Self::Invalid

@@ -8,7 +8,9 @@ use crate::{
     Result,
     keyring::{Layout, StateFault},
     limits,
-    registration::{self, Registration},
+    registration::{self, OwnerAdmission, Registration},
+    store::Store,
+    sync::{Progress, Server},
 };
 use nix::poll::{PollFd, PollFlags, poll};
 use serde_json::Value;
@@ -38,6 +40,7 @@ pub const SOCKET: &str = "door.sock";
 const SOCKET_PATH_BYTES: usize = 103;
 /// The device context header the remote door sets for an owner session.
 const CONTEXT_HEADER: &str = "tmt-device-context";
+const EVENTS: &str = "/.tmt/remote/device-events";
 const PROTOCOL: &str = "colab-sync-v1";
 const POLICY: &str = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
@@ -97,6 +100,7 @@ pub struct MountSocket {
     space_id: String,
     tunnels: Tunnels,
     registration: Option<Arc<Mutex<Registration>>>,
+    sync: Option<Server<OwnerAdmission>>,
 }
 struct Worker {
     socket: UnixStream,
@@ -139,65 +143,87 @@ impl MountSocket {
             space_id: space_id.to_owned(),
             tunnels,
             registration: None,
+            sync: None,
         })
     }
-    pub fn with_registration(mut self, registration: Arc<Mutex<Registration>>) -> Self {
+    pub fn with_registration(
+        mut self,
+        layout: &Layout,
+        registration: Arc<Mutex<Registration>>,
+    ) -> Result<Self> {
+        self.sync = Some(Server::new(
+            Store::open(layout)?,
+            OwnerAdmission(Arc::clone(&registration)),
+        ));
         self.registration = Some(registration);
-        self
+        Ok(self)
     }
     pub fn run(self, stop: &AtomicBool) -> Result<()> {
         let mut workers: Vec<Worker> = Vec::new();
         let live = Arc::new(AtomicUsize::new(0));
+        let active = Arc::new(Mutex::new(Vec::new()));
         let space_id: Arc<str> = self.space_id.as_str().into();
-        let result =
-            (|| -> Result<()> {
-                while !stop.load(Ordering::Acquire) {
-                    for i in (0..workers.len()).rev() {
-                        if workers[i].handle.is_finished() {
-                            workers
-                                .swap_remove(i)
-                                .handle
-                                .join()
-                                .map_err(|_| "Socket worker panicked.")?;
-                        }
-                    }
-                    let mut events = [PollFd::new(self.listener.as_fd(), PollFlags::POLLIN)];
-                    match poll(&mut events, 100u16) {
-                        Ok(_) => {}
-                        Err(nix::errno::Errno::EINTR) => continue,
-                        Err(e) => return Err(e.into()),
-                    }
-                    for _ in 0..limits::SOCKETS {
-                        let (mut socket, _) = match self.listener.accept() {
-                            Ok(c) => c,
-                            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
-                            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                            Err(e) => return Err(e.into()),
-                        };
-                        if stop.load(Ordering::Acquire) {
-                            break;
-                        }
-                        socket.set_nonblocking(false)?;
-                        let busy = workers.len().saturating_sub(live.load(Ordering::Acquire));
-                        if busy >= limits::SOCKETS {
-                            let _ = response(&mut socket, 429, b"CAPACITY", false);
-                            continue;
-                        }
-                        let retained = socket.try_clone()?;
-                        let (live, space_id, tunnels) =
-                            (Arc::clone(&live), Arc::clone(&space_id), self.tunnels);
-                        let registration = self.registration.clone();
-                        let handle = thread::Builder::new().name("colab-socket".into()).spawn(
-                            move || serve(socket, &space_id, &live, tunnels, registration.as_ref()),
-                        )?;
-                        workers.push(Worker {
-                            socket: retained,
-                            handle,
-                        });
+        let result = (|| -> Result<()> {
+            while !stop.load(Ordering::Acquire) {
+                for i in (0..workers.len()).rev() {
+                    if workers[i].handle.is_finished() {
+                        workers
+                            .swap_remove(i)
+                            .handle
+                            .join()
+                            .map_err(|_| "Socket worker panicked.")?;
                     }
                 }
-                Ok(())
-            })();
+                let mut events = [PollFd::new(self.listener.as_fd(), PollFlags::POLLIN)];
+                match poll(&mut events, 100u16) {
+                    Ok(_) => {}
+                    Err(nix::errno::Errno::EINTR) => continue,
+                    Err(e) => return Err(e.into()),
+                }
+                for _ in 0..limits::SOCKETS {
+                    let (mut socket, _) = match self.listener.accept() {
+                        Ok(c) => c,
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                        Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                        Err(e) => return Err(e.into()),
+                    };
+                    if stop.load(Ordering::Acquire) {
+                        break;
+                    }
+                    socket.set_nonblocking(false)?;
+                    let busy = workers.len().saturating_sub(live.load(Ordering::Acquire));
+                    if busy >= limits::SOCKETS {
+                        let _ = response(&mut socket, 429, b"CAPACITY", false);
+                        continue;
+                    }
+                    let retained = socket.try_clone()?;
+                    let (live, space_id, tunnels) =
+                        (Arc::clone(&live), Arc::clone(&space_id), self.tunnels);
+                    let registration = self.registration.clone();
+                    let sync = self.sync.clone();
+                    let active = Arc::clone(&active);
+                    let handle =
+                        thread::Builder::new()
+                            .name("colab-socket".into())
+                            .spawn(move || {
+                                serve(
+                                    socket,
+                                    &space_id,
+                                    &live,
+                                    tunnels,
+                                    registration.as_ref(),
+                                    sync.as_ref(),
+                                    &active,
+                                )
+                            })?;
+                    workers.push(Worker {
+                        socket: retained,
+                        handle,
+                    });
+                }
+            }
+            Ok(())
+        })();
         // Close retained handles before joining, interrupting blocked reads,
         // writes and held tunnels.
         for worker in &workers {
@@ -229,6 +255,8 @@ struct Request {
     owner: Option<String>,
     context: Option<String>,
     body: Vec<u8>,
+    event: Option<String>,
+    prefetched: Vec<u8>,
     upgrade: bool,
     key: Option<String>,
     version: Option<String>,
@@ -240,6 +268,8 @@ fn serve(
     live: &AtomicUsize,
     tunnels: Tunnels,
     registration: Option<&Arc<Mutex<Registration>>>,
+    sync: Option<&Server<OwnerAdmission>>,
+    active: &ActiveTunnels,
 ) {
     let request = match acquire(&mut socket) {
         Ok(request) => request,
@@ -248,6 +278,25 @@ fn serve(
             return;
         }
     };
+    if request.path == EVENTS {
+        let result =
+            if request.method != "POST" || request.upgrade || request.event.as_deref() != Some("1")
+            {
+                Err(registration::Code::Invalid)
+            } else {
+                apply_event(&request.body, sync, active)
+            };
+        let (status, text) = match result {
+            Ok(()) => (200, "OK"),
+            Err(code) => (code.status(), code.text()),
+        };
+        let _ = response(&mut socket, status, text.as_bytes(), false);
+        return;
+    }
+    if request.path == "/.tmt" || request.path.starts_with("/.tmt/") {
+        let _ = response(&mut socket, 404, b"NOT FOUND", false);
+        return;
+    }
     if request.method == "POST" && request.path == registration::PATH && !request.upgrade {
         let result = registration
             .ok_or(registration::Code::Unavailable)
@@ -255,7 +304,7 @@ fn serve(
                 let mut service = service
                     .lock()
                     .map_err(|_| registration::Code::Unavailable)?;
-                let now = now_ms()?;
+                let now = registration::now_ms()?;
                 service.register(request.context.as_deref(), &request.body, now)
             });
         match result {
@@ -270,6 +319,7 @@ fn serve(
     }
     if request.upgrade {
         let accepted = request.method == "GET"
+            && request.body.is_empty()
             && request.path == "/sync"
             && request.version.as_deref() == Some("13")
             && request.key.as_deref().is_some_and(websocket_key)
@@ -283,18 +333,58 @@ fn serve(
             let _ = response(&mut socket, 403, b"DENIED", false);
             return;
         }
-        if let Some(service) = registration {
-            let admitted = service
-                .lock()
-                .map_err(|_| registration::Code::Unavailable)
-                .and_then(|mut service| {
-                    service.active_device(request.context.as_deref(), now_ms()?)
-                });
-            if let Err(code) = admitted {
+        let Some(server) = sync else {
+            let _ = response(&mut socket, 403, b"DENIED", false);
+            return;
+        };
+        // Publish the retained tunnel under the sync lock, serializing admission
+        // with durable revocation even before the peer has sent hello.
+        let mut admitted = Err(registration::Code::Unavailable);
+        let retained = match socket.try_clone() {
+            Ok(s) => Arc::new(s),
+            Err(_) => return,
+        };
+        if server
+            .update_admission(|admission| {
+                admitted = (|| {
+                    let mut service = admission
+                        .0
+                        .lock()
+                        .map_err(|_| registration::Code::Unavailable)?;
+                    service.active_device(request.context.as_deref(), registration::now_ms()?)?;
+                    let context: Value = serde_json::from_str(
+                        request
+                            .context
+                            .as_deref()
+                            .ok_or(registration::Code::Denied)?,
+                    )
+                    .map_err(|_| registration::Code::Denied)?;
+                    let device = context["deviceId"]
+                        .as_str()
+                        .ok_or(registration::Code::Denied)?
+                        .to_owned();
+                    active
+                        .lock()
+                        .map_err(|_| registration::Code::Unavailable)?
+                        .push((device.clone(), Arc::clone(&retained)));
+                    Ok(device)
+                })();
+            })
+            .is_err()
+        {
+            return;
+        }
+        let device = match admitted {
+            Ok(device) => device,
+            Err(code) => {
                 let _ = response(&mut socket, code.status(), code.text().as_bytes(), false);
                 return;
             }
-        }
+        };
+        let _guard = TunnelGuard {
+            active,
+            socket: retained,
+        };
         let reserved = live
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
                 (n < tunnels.cap).then_some(n + 1)
@@ -304,7 +394,14 @@ fn serve(
             let _ = response(&mut socket, 503, b"CAPACITY", false);
             return;
         }
-        hold(&mut socket, &key, tunnels.idle);
+        drive(
+            socket,
+            &key,
+            tunnels.idle,
+            server,
+            device,
+            request.prefetched,
+        );
         live.fetch_sub(1, Ordering::AcqRel);
         return;
     }
@@ -325,20 +422,175 @@ fn serve(
     );
     let _ = response(&mut socket, 200, page.as_bytes(), true);
 }
-/// Accept a colab-sync-v1 upgrade and hold the tunnel until either side
-/// closes or no bytes arrive within `idle`. Frames are later work, so input
-/// is read and discarded.
-fn hold(socket: &mut UnixStream, key: &str, idle: Duration) {
+type ActiveTunnels = Arc<Mutex<Vec<(String, Arc<UnixStream>)>>>;
+struct TunnelGuard<'a> {
+    active: &'a ActiveTunnels,
+    socket: Arc<UnixStream>,
+}
+impl Drop for TunnelGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut active) = self.active.lock() {
+            active.retain(|(_, socket)| !Arc::ptr_eq(socket, &self.socket));
+        }
+    }
+}
+#[derive(serde::Deserialize)]
+#[serde(tag = "type", deny_unknown_fields)]
+enum DeviceEvent {
+    #[serde(rename = "device.revoked")]
+    Revoked {
+        #[serde(rename = "deviceId")]
+        device: String,
+        #[serde(rename = "grantRevision")]
+        revision: u64,
+    },
+    #[serde(rename = "device.renamed")]
+    Renamed {
+        #[serde(rename = "deviceId")]
+        device: String,
+        #[serde(rename = "grantRevision")]
+        revision: u64,
+        name: String,
+    },
+}
+fn apply_event(
+    body: &[u8],
+    server: Option<&Server<OwnerAdmission>>,
+    active: &ActiveTunnels,
+) -> std::result::Result<(), registration::Code> {
+    use registration::Code;
+    let event: DeviceEvent = serde_json::from_slice(body).map_err(|_| Code::Invalid)?;
+    let (device, revision) = match &event {
+        DeviceEvent::Revoked { device, revision }
+        | DeviceEvent::Renamed {
+            device, revision, ..
+        } => (device, *revision),
+    };
+    tmt_colab_model::values::generated_id(device)?;
+    if revision == 0 || revision > 9_007_199_254_740_991 {
+        return Err(Code::Invalid);
+    }
+    if let DeviceEvent::Renamed { name, .. } = &event {
+        if name.is_empty()
+            || name.len() > 64
+            || name.trim().is_empty()
+            || name.chars().any(char::is_control)
+        {
+            return Err(Code::Invalid);
+        }
+        // Colab owns no remote presentation state or rename effects.
+        return Ok(());
+    }
+    let mut result = Err(Code::Unavailable);
+    server
+        .ok_or(Code::Unavailable)?
+        .update_admission(|admission| {
+            result = (|| {
+                // Lock the handles before committing so a poisoned registry cannot
+                // acknowledge a tombstone whose tunnels were left open.
+                let mut handles = active.lock().map_err(|_| Code::Unavailable)?;
+                let changed = admission
+                    .0
+                    .lock()
+                    .map_err(|_| Code::Unavailable)?
+                    .revoke(device, revision)
+                    .map_err(|_| Code::Unavailable)?;
+                if changed {
+                    handles.retain(|(id, socket)| {
+                        if id != device {
+                            return true;
+                        }
+                        let _ = socket.shutdown(std::net::Shutdown::Both);
+                        false
+                    });
+                }
+                Ok(())
+            })();
+        })
+        .map_err(|_| Code::Unavailable)?;
+    result
+}
+/// Count inbound bytes, including partial frames, for the existing idle bound.
+struct Transport {
+    socket: UnixStream,
+    prefetched: std::io::Cursor<Vec<u8>>,
+    received: Arc<Mutex<Instant>>,
+}
+impl Read for Transport {
+    fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+        let n = if self.prefetched.position() < self.prefetched.get_ref().len() as u64 {
+            self.prefetched.read(bytes)?
+        } else {
+            self.socket.read(bytes)?
+        };
+        if n > 0 {
+            *self
+                .received
+                .lock()
+                .map_err(|_| std::io::ErrorKind::Other)? = Instant::now();
+        }
+        Ok(n)
+    }
+}
+impl Write for Transport {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.socket.write(bytes)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.socket.flush()
+    }
+}
+fn drive(
+    mut socket: UnixStream,
+    key: &str,
+    idle: Duration,
+    server: &Server<OwnerAdmission>,
+    device: String,
+    prefetched: Vec<u8>,
+) {
     let accept = tungstenite::handshake::derive_accept_key(key.as_bytes());
     let head = format!(
         "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\nSec-WebSocket-Protocol: {PROTOCOL}\r\n\r\n"
     );
-    if socket.write_all(head.as_bytes()).is_err() || socket.set_read_timeout(Some(idle)).is_err() {
+    if socket.set_write_timeout(Some(limits::RESPONSE)).is_err()
+        || socket.write_all(head.as_bytes()).is_err()
+        || socket.set_nonblocking(true).is_err()
+    {
         return;
     }
-    let mut discarded = [0; 1024];
-    while matches!(socket.read(&mut discarded), Ok(n) if n > 0) {}
-    let _ = socket.shutdown(std::net::Shutdown::Both);
+    let readiness = match socket.try_clone() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let received = Arc::new(Mutex::new(Instant::now()));
+    let transport = Transport {
+        socket,
+        prefetched: std::io::Cursor::new(prefetched),
+        received: Arc::clone(&received),
+    };
+    let Ok(mut connection) = server.connect(transport, device) else {
+        return;
+    };
+    loop {
+        if received.lock().map_or(true, |last| last.elapsed() >= idle) {
+            break;
+        }
+        match connection.poll() {
+            Progress::Closed => break,
+            Progress::Advanced => continue,
+            Progress::Pending => {
+                // Bounded timer turns also service cross-worker delivery and
+                // acquisition/write deadlines when no input arrives.
+                let mut events = [PollFd::new(readiness.as_fd(), PollFlags::POLLIN)];
+                if let Err(e) = poll(&mut events, 20u16)
+                    && e != nix::errno::Errno::EINTR
+                {
+                    break;
+                }
+            }
+        }
+    }
+    let _ = readiness.shutdown(std::net::Shutdown::Both);
 }
 /// RFC 6455: the key is the base64 of exactly 16 bytes, so 22 symbols (the
 /// last one carrying no unused bits) and `==`.
@@ -461,6 +713,8 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
         owner: None,
         context: None,
         body: Vec::new(),
+        event: None,
+        prefetched: Vec::new(),
         upgrade: false,
         key: None,
         version: None,
@@ -488,6 +742,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             "sec-websocket-protocol" => {
                 request.protocols = value.split(',').map(|p| p.trim().to_owned()).collect()
             }
+            "tmt-device-event" => request.event = Some(value.to_owned()),
             CONTEXT_HEADER => request.context = Some(value.to_owned()),
             "content-length" => {
                 if value.is_empty()
@@ -511,11 +766,12 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
     while bytes.len() < end + size {
         read(socket, &mut bytes, &mut chunk, deadline)?;
     }
-    if bytes.len() != end + size {
+    if bytes.len() != end + size && !request.upgrade {
         return Err(400);
     }
-    request.body = bytes[end..].to_vec();
-    if request.path != registration::PATH {
+    request.body = bytes[end..end + size].to_vec();
+    request.prefetched = bytes[end + size..].to_vec();
+    if request.path != registration::PATH && request.path != EVENTS {
         request.owner = request.context.as_deref().map(owner_name).transpose()?;
     }
     Ok(request)
@@ -530,15 +786,7 @@ fn owner_name(value: &str) -> std::result::Result<String, u16> {
         _ => Err(400),
     }
 }
-fn now_ms() -> std::result::Result<u64, registration::Code> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| registration::Code::Unavailable)?
-        .as_millis()
-        .try_into()
-        .map_err(|_| registration::Code::Unavailable)
-}
+
 fn read(
     socket: &mut UnixStream,
     bytes: &mut Vec<u8>,
