@@ -18,6 +18,12 @@ const workflow = readFileSync(
   new URL('../../../.github/workflows/release.yml', import.meta.url),
   'utf8'
 );
+// Release paths come from the central manifest, not component source directories.
+const manifestPaths = Object.keys(
+  JSON.parse(
+    readFileSync(new URL('../../../.release-please-manifest.json', import.meta.url), 'utf8')
+  )
+);
 function workflowShell(name: string): string {
   const step = workflow.split(`      - name: ${name}\n`)[1].split('\n      - ')[0];
   return step
@@ -449,9 +455,8 @@ describe('release PR queue pre-check', () => {
   });
 
   it.each([
-    { held: ['.'], refresh: true },
-    { held: ['extensions/tmt-squad'], refresh: true },
-    { held: ['.', 'extensions/tmt-squad'], refresh: false },
+    ...manifestPaths.map((path) => ({ held: [path], refresh: manifestPaths.length > 1 })),
+    { held: manifestPaths, refresh: false },
   ])('sees drafts created in this run before deciding held paths: $held', ({ held, refresh }) => {
     const result = execute(connection([]), { sameRunDrafts: held });
     expect(result.status).toBe(0);
