@@ -1154,6 +1154,18 @@ it also checks editable config keys through the pure settings policy. Its negati
 controls retain the original invalid context and config commands from #1014/#1015,
 plus unknown flags, subcommands and keys.
 
+Request-ID prefix selection is checked with
+`cargo test --locked -p tmt-core --lib request::service::responses`,
+`cargo test --locked -p tmt-adapters storage::requests::service_tests::response`,
+`cargo test --locked -p tmt-adapters retained_request_id_sample_and_overflow_count`,
+and `cargo test --locked -p tmt-cli --test result_prefix` from `rust/`.
+The service cases use real isolated SQLite and an injected clock for logical
+expiry, late-final horizons and unchanged attention; the storage query-plan case
+requires indexed request-ID ranges for both the sample and overflow count.
+The CLI cases compare full-ID and prefix human/JSON output and assert bounded
+ambiguity errors, unknown/short prefixes, announcements and help. They start no
+tmux server or model and use the shared isolated CLI process harness.
+
 The architecture guard is included in `cargo test`. A focused offline run is:
 
 ```bash

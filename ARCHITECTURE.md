@@ -2200,6 +2200,16 @@ of non-delivery. Final bodies are immutable: identical retries are idempotent,
 conflicting second finals fail, and terminal text is never used as completion
 evidence. `talk` waits for a stored final unless detached or timed out;
 `result` reads by request, while identity-owned `x` exposes outstanding attention.
+CLI result selection also accepts a unique UUID prefix with at least eight hex
+characters, optionally prefixed by `req_`. `RequestService::get_response_by_prefix`
+resolves and reads under one transaction and clock sample; exact service reads
+used by observers and receipt-based submission remain unchanged. The narrow
+`RequestRecords::retained_request_ids` port uses the existing request-ID index
+for a half-open range with a bounded sample. It filters logical metadata expiry
+before limiting, counts the same range only on sample overflow, and returns at
+most five ordered ambiguity candidates plus the total. CLI maps short and
+ambiguous prefixes to `USAGE_ERROR`; unknown prefixes keep unavailable-result
+semantics. No schema, acknowledgment or retention-renewal policy changes.
 Reads do not acknowledge. `ackall` acknowledges one snapshot, so a later final
 becomes unread again. Acknowledgment means handled, not successful or cancelled.
 Retention is frozen per attempt; bounded lazy housekeeping must respect active

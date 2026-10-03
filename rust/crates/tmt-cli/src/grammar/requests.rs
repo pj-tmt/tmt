@@ -124,8 +124,10 @@ pub(in crate::grammar) fn result() -> Command {
     storage(spec!(
             "result",
             "Retrieve a retained final response",
+            details = "Use the full request ID or a unique UUID prefix of at least 8 hex characters, with or without req_. Ambiguous prefixes list up to five retained candidate IDs.",
             [
                 "Print a request's final response" => "tmt result req_0f8e4b52-3c1d-4a6e-9b7f-2d5c8a1e6f30",
+                "Use a unique short request ID" => "tmt result 0f8e4b52",
             ]
         )).arg(operand("request-id", true))
 }

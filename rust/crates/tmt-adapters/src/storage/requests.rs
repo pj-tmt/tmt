@@ -13,7 +13,7 @@ mod rows;
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use tmt_core::request::{
     AttemptStatus, FinalResponse, RawRequestContext, RequestAttempt, RequestEndpoint,
-    RequestRecords, RequestRepository, RequestRoute, StoredPrompt, WakeState,
+    RequestIdMatches, RequestRecords, RequestRepository, RequestRoute, StoredPrompt, WakeState,
 };
 
 use super::{
@@ -55,6 +55,12 @@ const DELETE_RETAINED_SQL: &str = "DELETE FROM request_attempts
                  ORDER BY retention_expires_at_ms, attempt_id
                  LIMIT ?
              )";
+
+const RETAINED_REQUEST_IDS_SQL: &str = "SELECT request_id FROM request_attempts
+    WHERE request_id >= ?1 AND request_id < ?2 AND retention_expires_at_ms > ?3
+    ORDER BY request_id LIMIT ?4";
+const RETAINED_REQUEST_IDS_COUNT_SQL: &str = "SELECT COUNT(*) FROM request_attempts
+    WHERE request_id >= ?1 AND request_id < ?2 AND retention_expires_at_ms > ?3";
 
 fn incoming_watermark_sql(scoped: bool) -> String {
     let (recipient_index, response_index, scope) = if scoped {
@@ -229,6 +235,46 @@ impl RequestRecords for RequestRows<'_> {
             )
             .optional()
             .map_err(|error| classify(error, "Find request"))
+    }
+
+    fn retained_request_ids(
+        &self,
+        lower: &str,
+        upper: &str,
+        now_ms: u64,
+        limit: u64,
+    ) -> Result<RequestIdMatches, Self::Error> {
+        let now = checked_now(now_ms, "Request-ID lookup clock")?;
+        let limit = checked_limit(limit)?;
+        let sample_limit = limit.checked_add(1).ok_or_else(|| {
+            StorageError::new(
+                StorageErrorCode::Unknown,
+                "Request-ID sample limit overflow",
+            )
+        })?;
+        let mut statement = self
+            .0
+            .prepare(RETAINED_REQUEST_IDS_SQL)
+            .map_err(|error| classify(error, "Prepare retained request-ID range"))?;
+        let mut ids = statement
+            .query_map(params![lower, upper, now, sample_limit], |row| row.get(0))
+            .and_then(|rows| rows.collect::<rusqlite::Result<Vec<String>>>())
+            .map_err(|error| classify(error, "Read retained request-ID range"))?;
+        let total = if ids.len() as u64 > limit as u64 {
+            self.0
+                .query_row(
+                    RETAINED_REQUEST_IDS_COUNT_SQL,
+                    params![lower, upper, now],
+                    |row| row.get::<_, i64>(0),
+                )
+                // SQLite COUNT is nonnegative and fits its signed integer.
+                .map(|count| count as u64)
+                .map_err(|error| classify(error, "Count retained request-ID range"))?
+        } else {
+            ids.len() as u64
+        };
+        ids.truncate(limit as usize);
+        Ok(RequestIdMatches { ids, total })
     }
 
     fn wake_state(&self, request_id: &str) -> Result<Option<WakeState>, Self::Error> {
