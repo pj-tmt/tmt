@@ -3480,6 +3480,21 @@ every escape sequence, control character and hidden bidi/format character before
 display, since notes are agent-written. `board::markdown` is a thin
 pulldown-cmark view over that sanitized text: it styles headings, lists,
 emphasis, inline code and links, and shows every other construct as its source.
+The detail pane appends the selected member's saved-identity notebook after its
+fields. The session requests only a visible, expanded selected detail, accounting
+for effective Board previews, tab focus and the last painted viewport; temporary
+identities show `(temporary identity: no notebook)` without a read. Leads/all
+remain rows-only. `board::refresh::Deferred::Notebook` runs public `notes.read`
+with the same bounded cancellable reader and 1 MiB API notebook limit as lead
+notes, never creating a file. Full reloads take priority; queued selection jobs
+collapse to the latest. Events retain the existing generation cancellation and a
+session selection/refresh revision, so obsolete results cannot update the cache.
+Each accepted snapshot revalidates the visible selection; hidden detail does not
+read. `App` owns the last eight identities' sanitized notebooks, preserving the
+rendered body for unchanged content and invalidating it on width, look or render
+mode changes. Both notebook panes share safe Markdown/plain rendering and the
+missing placeholder; failures replace the selected cache entry. Paint and input
+perform no core reads.
 State `sort` overrides reorder the vocabulary for both `ls` and the board.
 `effects` holds the row actions behind the plain `jump`, `open` and `copy`
 commands and the board. `template` fills `{field}` placeholders into one value and refuses

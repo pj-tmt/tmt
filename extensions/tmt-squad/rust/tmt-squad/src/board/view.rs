@@ -1042,16 +1042,35 @@ fn render_pane(frame: &mut Frame, app: &App, pane: Pane, area: Rect) {
     }
 }
 
-fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
-    let look = app.look();
-    let Some(view) = &app.view else { return };
-    let text = match &view.notes {
+/// Both notebook panes share inert text, Markdown and placeholder styles.
+pub(super) fn notebook_lines(
+    notes: &Notes,
+    width: usize,
+    look: crate::look::Look,
+    render: NotesRender,
+) -> Vec<Line<'static>> {
+    let text = match notes {
         Notes::Text(text) => text.as_str(),
         Notes::Missing => "(no notes yet)",
         Notes::NoLead => "(the squad has no lead)",
         Notes::NotShown => "",
         Notes::Failed(error) => error.as_str(),
     };
+    match (notes, render) {
+        (Notes::Text(text), NotesRender::Markdown) => markdown::render(text, width, look),
+        (Notes::Text(text), NotesRender::Plain) => {
+            wrap(text, width).into_iter().map(Line::from).collect()
+        }
+        _ => wrap(text, width)
+            .into_iter()
+            .map(|line| Line::styled(line, look.role(Role::Dim)))
+            .collect(),
+    }
+}
+
+fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
+    let look = app.look();
+    let Some(view) = &app.view else { return };
     let width = usize::from(area.width);
     let mut derived = view.derived.borrow_mut();
     if derived
@@ -1059,16 +1078,7 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
         .as_ref()
         .is_none_or(|(cached_width, cached_look, _)| *cached_width != width || *cached_look != look)
     {
-        let lines: Vec<Line> = match (&view.notes, view.render) {
-            (Notes::Text(text), NotesRender::Markdown) => markdown::render(text, width, look),
-            (Notes::Text(text), NotesRender::Plain) => {
-                wrap(text, width).into_iter().map(Line::from).collect()
-            }
-            _ => wrap(text, width)
-                .into_iter()
-                .map(|line| Line::styled(line, look.role(Role::Dim)))
-                .collect(),
-        };
+        let lines = notebook_lines(&view.notes, width, look, view.render);
         derived.notes = Some((width, look, lines));
     }
     let lines = &derived.notes.as_ref().expect("prepared notes").2;
@@ -1272,7 +1282,7 @@ fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
         }
     }
     let width = usize::from(area.width);
-    let lines: Vec<Line> = lines
+    let mut lines: Vec<Line> = lines
         .into_iter()
         .flat_map(|line| {
             let style = line.style;
@@ -1286,6 +1296,30 @@ fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
                 .map(move |part| Line::styled(part, style))
         })
         .collect();
+    lines.push(Line::default());
+    let label = "─ notebook ";
+    let divider = format!(
+        "{label}{}",
+        "─".repeat(width.saturating_sub(label.chars().count()))
+    );
+    lines.push(Line::styled(
+        divider.chars().take(width).collect::<String>(),
+        look.role(Role::Dim),
+    ));
+    if row["lifetime"] != "saved" {
+        lines.extend(
+            wrap("(temporary identity: no notebook)", width)
+                .into_iter()
+                .map(|line| Line::styled(line, look.role(Role::Dim))),
+        );
+    } else if let Some(identity) = row["id"].as_str() {
+        let render = app.view.as_ref().unwrap().render;
+        lines.extend(
+            app.notebooks
+                .borrow_mut()
+                .lines(identity, width, look, render),
+        );
+    }
     app.scrolls
         .show(frame, Pane::Detail, area, lines, look.role(Role::Dim));
 }
@@ -2625,6 +2659,41 @@ lines = [
         }
     }
 
+    #[test]
+    fn detail_notebook_uses_safe_markdown_and_existing_scroll() {
+        let app = board(
+            json!([{"rows":[row("worker", "working", "ship", json!({"id":"W", "lifetime":"saved"}))]}]),
+        );
+        let safe = super::super::notes::sanitize(
+            "## Current state\n- Now: **testing**\n\u{1b}[31mSafe\nNext: review\nBlocked: none",
+        );
+        app.notebooks
+            .borrow_mut()
+            .keep("W".into(), Notes::Text(safe));
+        let full = detail_text(&detail_buffer(&app, 50, 20)).join("\n");
+        assert!(
+            full.contains("─ notebook ─")
+                && full.contains("Current state")
+                && full.contains("testing")
+        );
+        assert!(!full.contains("**") && !full.contains('\u{1b}'));
+        let buffer = detail_buffer(&app, 50, 20);
+        assert!(!buffer[(0, 4)].modifier.contains(Modifier::BOLD));
+        assert_eq!(buffer[(49, 4)].symbol(), "─");
+        detail_buffer(&app, 16, 5);
+        app.scrolls
+            .scroll(Pane::Detail, super::super::scroll::Step::Bottom);
+        assert!(
+            detail_text(&detail_buffer(&app, 16, 5))
+                .join("")
+                .contains("none")
+        );
+        app.notebooks.borrow_mut().keep("W".into(), Notes::Missing);
+        app.scrolls
+            .scroll(Pane::Detail, super::super::scroll::Step::Top);
+        assert!(detail_text(&detail_buffer(&app, 50, 20)).contains(&"(no notes yet)".into()));
+    }
+
     fn detail_buffer(app: &App, width: u16, height: u16) -> ratatui::buffer::Buffer {
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         terminal
@@ -2669,6 +2738,8 @@ lines = [
                 "task: rotate tokens",
                 "activity: testing",
                 "links: pr_link https://example.com/412",
+                &format!("─ notebook {}", "─".repeat(89)),
+                "(temporary identity: no notebook)",
             ]
         );
         for column in &app.view.as_ref().unwrap().rows.columns {
@@ -2703,6 +2774,8 @@ lines = [
                 "task: rotate tokens",
                 "pr: #412 open · changes requested",
                 "model: a full session model name",
+                &format!("─ notebook {}", "─".repeat(69)),
+                "(temporary identity: no notebook)",
             ]
         );
         // New lines inherit the terminal foreground; no grid/provider tint.
@@ -2719,7 +2792,14 @@ lines = [
         app.view.as_mut().unwrap().rows =
             rows_from("[p.rows]\ncolumns = [{name = 'model', width = 4}]\n");
         let text = detail_text(&detail_buffer(&app, 9, 20));
-        assert_eq!(text[2..].concat(), format!("model:{value}"));
+        assert_eq!(
+            text[2..]
+                .iter()
+                .take_while(|line| !line.starts_with("─ note"))
+                .cloned()
+                .collect::<String>(),
+            format!("model:{value}")
+        );
         assert!(!text.join("").contains('…'));
         // Existing bounds handle zero area and single-cell panes.
         detail_buffer(&app, 0, 0);
@@ -2746,6 +2826,8 @@ lines = [
                     "build: {}",
                     tmt_cli_style::table::escape("one\ntwo\t\u{1b}[31m")
                 ),
+                &format!("─ notebook {}", "─".repeat(89)),
+                "(temporary identity: no notebook)",
             ]
         );
     }

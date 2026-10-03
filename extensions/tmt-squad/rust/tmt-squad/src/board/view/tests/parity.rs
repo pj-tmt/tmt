@@ -1,4 +1,4 @@
-//! Frozen output from #1088 view-picker implementation 6ef4a96a; markup remains test-scoped.
+//! Frozen output from #1087 selected-notebook implementation f8c73805; markup remains test-scoped.
 //! Existing CJK fixture strings intentionally exercise terminal width.
 use super::*;
 use crate::config::{Config, Layout};
@@ -85,7 +85,7 @@ fn baseline() -> Value {
             "ls_json": serde_json::to_string(&document).unwrap()}),
         );
     }
-    json!({"source": "6ef4a96a6c45a7ff9dc53698609f28881240fb4d", "fixtures": fixtures})
+    json!({"source": "f8c73805d64538647f4fada66910cd652c225394", "fixtures": fixtures})
 }
 
 #[test]

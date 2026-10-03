@@ -113,6 +113,13 @@ impl Scrolls {
         self.offsets.borrow_mut().insert(pane, offset);
     }
 
+    pub fn visible(&self, pane: Pane) -> bool {
+        self.drawn
+            .borrow()
+            .get(&pane)
+            .is_some_and(|drawn| !drawn.area.is_empty() && drawn.viewport > 0)
+    }
+
     /// The pane drawn under a screen cell, for the wheel.
     pub fn pane_at(&self, column: u16, row: u16) -> Option<Pane> {
         self.drawn

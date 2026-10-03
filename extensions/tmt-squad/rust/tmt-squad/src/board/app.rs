@@ -232,6 +232,7 @@ pub struct TitleHit {
 
 #[derive(Default)]
 pub struct App {
+    pub(super) notebooks: RefCell<super::notes::Notebooks>,
     pub(super) meter: Option<super::meter::Meter>,
     meters: BTreeMap<String, super::meter::Meter>,
     pub(super) token_window: crate::config::TokenWindow,
@@ -1481,6 +1482,23 @@ impl App {
         self.theme_picker
             .as_ref()
             .map_or(saved, |picker| picker.preview(saved.depth))
+    }
+
+    /// Lazy acquisition follows the effective detail, including folds and tabs.
+    pub(super) fn notebook_identity(&self) -> Option<String> {
+        let board = self.effective_board()?;
+        if self.loading()
+            || !self.scrolls.visible(Pane::Detail)
+            || !board.panes.contains(&Pane::Detail)
+            || self.collapsed_panes().contains(&Pane::Detail)
+            || (board.mode == BoardMode::Tabs && self.focused_pane() != Some(Pane::Detail))
+        {
+            return None;
+        }
+        let row = self.selected_row()?;
+        (row["lifetime"] == "saved")
+            .then(|| row["id"].as_str().map(str::to_owned))
+            .flatten()
     }
 
     pub fn selected_row(&self) -> Option<&Value> {

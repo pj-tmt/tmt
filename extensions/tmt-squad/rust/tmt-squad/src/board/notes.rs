@@ -1,4 +1,4 @@
-//! The lead's notebook, shown as inert text. Notes are agent-written, so every
+//! Identity notebooks, shown as inert text. Notes are agent-written, so every
 //! terminal escape and control character is removed before display; this is
 //! the plain rendering that Markdown rendering (#391) builds on.
 
@@ -129,9 +129,97 @@ pub fn wrap(text: &str, width: usize) -> Vec<String> {
     lines
 }
 
+/// The last eight selected identities, with one rendered body per notebook.
+/// Public notes.read owns the same 1 MiB bound as the lead pane.
+#[derive(Default)]
+pub(super) struct Notebooks {
+    entries: std::collections::VecDeque<(String, super::app::Notes, Option<Rendered>)>,
+}
+
+type Rendered = (
+    usize,
+    crate::look::Look,
+    crate::config::NotesRender,
+    Vec<ratatui::text::Line<'static>>,
+);
+
+impl Notebooks {
+    pub fn keep(&mut self, identity: String, notes: super::app::Notes) {
+        let old = self
+            .entries
+            .iter()
+            .position(|entry| entry.0 == identity)
+            .and_then(|index| self.entries.remove(index));
+        let rendered = old
+            .filter(|entry| entry.1 == notes)
+            .and_then(|entry| entry.2);
+        self.entries.push_back((identity, notes, rendered));
+        if self.entries.len() > 8 {
+            self.entries.pop_front();
+        }
+    }
+
+    pub fn lines(
+        &mut self,
+        identity: &str,
+        width: usize,
+        look: crate::look::Look,
+        render: crate::config::NotesRender,
+    ) -> Vec<ratatui::text::Line<'static>> {
+        let Some(index) = self.entries.iter().position(|entry| entry.0 == identity) else {
+            return super::view::notebook_lines(
+                &super::app::Notes::Failed("(loading notebook…)".into()),
+                width,
+                look,
+                render,
+            );
+        };
+        let mut entry = self.entries.remove(index).unwrap();
+        if entry
+            .2
+            .as_ref()
+            .is_none_or(|cached| (cached.0, cached.1, cached.2) != (width, look, render))
+        {
+            entry.2 = Some((
+                width,
+                look,
+                render,
+                super::view::notebook_lines(&entry.1, width, look, render),
+            ));
+        }
+        let lines = entry.2.as_ref().unwrap().3.clone();
+        self.entries.push_back(entry);
+        lines
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn notebook_cache_is_bounded_and_reuses_only_unchanged_content() {
+        let mut cache = Notebooks::default();
+        let look = crate::look::Look::default();
+        let mode = crate::config::NotesRender::Markdown;
+        for id in 0..8 {
+            cache.keep(
+                id.to_string(),
+                super::super::app::Notes::Text("## Now".into()),
+            );
+        }
+        let first = cache.lines("0", 20, look, mode);
+        cache.keep("0".into(), super::super::app::Notes::Text("## Now".into()));
+        assert!(cache.entries.back().unwrap().2.is_some());
+        cache.keep("8".into(), super::super::app::Notes::Missing);
+        assert_eq!(cache.entries.len(), 8);
+        assert!(!cache.entries.iter().any(|entry| entry.0 == "1"));
+        assert_eq!(cache.lines("0", 20, look, mode), first);
+        cache.keep("0".into(), super::super::app::Notes::Text("Next".into()));
+        assert!(cache.entries.back().unwrap().2.is_none());
+        assert_ne!(cache.lines("0", 5, look, mode), first);
+        assert_eq!(cache.entries.back().unwrap().2.as_ref().unwrap().0, 5);
+    }
 
     #[test]
     fn escapes_and_controls_cannot_reach_the_terminal() {
