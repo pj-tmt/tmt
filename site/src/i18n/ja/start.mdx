@@ -1,0 +1,101 @@
+---
+source: site/src/chapters/start.mdx
+sourceRevision: 4755caaba1c2fef857d8c058efef7a3a159f8c49
+title: すべての agent に共通の通信経路
+---
+
+import { Cmd } from "../../components/Cmd";
+import { components as Mdx } from "../../components/mdx";
+import { LsSample } from "../../components/samples";
+import { PaneDemo, basicLoop, resumeAfterReboot } from "../../demos/PaneDemo";
+
+import { Concepts } from "../../home/Concepts";
+import { Hero } from "../../home/Hero";
+import { Journey } from "../../home/Journey";
+import { BandHead, Showcase } from "../../home/Showcase";
+
+<Hero />
+
+<BandHead name="start" />
+
+<h2
+  id="start"
+  className="mt-2.5 mb-3 font-mono text-[clamp(26px,3.6vw,40px)] leading-[1.08] font-bold tracking-[-0.02em] text-balance"
+>
+  {"まずは"}
+  <em className="text-accent not-italic">1 件のメッセージ</em>
+  {"から。そこからチームへ広げられます。"}
+</h2>
+
+<Concepts />
+
+ステップ 1 の talk、reply、receipt から始めます。board、colab、meet はすべて同じ基盤の上にあります。どのステップで止めても、そこまでの機能はそのまま使えます。
+
+<Journey />
+
+<Showcase />
+
+<BandHead name="install" />
+
+<Mdx.h3 id="install">インストール</Mdx.h3>
+
+<Cmd>{`$ curl -fsSL https://github.com/pj-tmt/tmt/releases/latest/download/install.sh | sh`}</Cmd>
+
+インストーラーは `tmt` を `~/.local/bin` に配置します。ターミナルで実行すると、そのまま `tmt setup` に進みます。agent を検出し、変更するファイルをすべて表示してから、一度だけ確認します。対象は各 agent の skill と、このマシンにインストールされている agent の session hook です。後からいつでも `tmt setup` を実行できます。その場合は、まだ設定されていない項目だけが表示されます。`tmt` が見つからない場合は、`~/.local/bin` を PATH に一度追加してください。tmt は新規インストールで、古いデータは移行しません。`tmux-team` npm パッケージから切り替える場合は、先に `npm uninstall -g tmux-team` で削除してください。
+
+<Mdx.h3 id="built-in-drivers">組み込みの driver</Mdx.h3>
+
+tmt には、通常必要になる driver が組み込まれています。追加のインストールは不要です。**tmux** は host driver で、設定は不要です。**Claude Code** と **Codex** は runtime driver で、そのまま使えます。`tmt setup claude` または `tmt setup codex` を実行すると、tmt は各 agent の会話も識別できるようになり、その会話を再開して、実行中かどうかを表示できます。[driver の一覧 →](/drivers)
+
+<Mdx.h3 id="the-basic-loop">基本の流れ</Mdx.h3>
+
+tmux の中で、agent が動いているペインに名前を付けます（`tmt name`、または同じ意味の `tmt this`）。その後は、どこからでもメッセージを送れます。ページ上部のデモは、この流れを示しています。
+
+<Cmd>{`
+$ tmt name reviewer                   # in the agent's pane: name it
+$ tmt talk reviewer "Review the diff."  # from any pane: send, then wait for the reply
+$ tmt reply req_4f36… --receipt v2_… --message "…"   # the agent answers; talk prints it
+$ tmt check reviewer                  # look at the pane if something seems stuck
+`}</Cmd>
+
+agent がこの行を覚えておく必要はありません。受け取るリクエストには、receipt を含む正確な `tmt reply` コマンドが入っています。
+
+<PaneDemo
+  {...basicLoop}
+  label="3 つの tmux ペインでの手順を示すデモです。Claude Code と Codex を起動し、それぞれの CLI から reviewer と builder という名前を付けます。サーバーログのペインには server-log と名付けます。reviewer に修正を依頼すると builder に作業を委任し、その後 reviewer が server-log を読んでバグを見つけます。各手順の字幕は英語です。"
+/>
+
+次に、付けた名前を管理します。
+
+<Cmd>{`
+$ tmt ls                    # every name, its lifetime and whether it's present
+$ tmt add 0:1.2 builder     # name another pane without switching to it
+$ tmt rm builder            # retire a name; the pane keeps running
+`}</Cmd>
+
+名前は、`-s` を付けない限り一時的なものです。`tmt ls` は agent を中心に表示します。保存済みの名前が先に、一時的な名前が後に並びます。それぞれの所在は `driver:session` で表示され、実行できる操作がある場合だけ、その操作も表示されます。
+
+<LsSample />
+
+`tmt ls reviewer` は、tmux ペインを含め、1 つの agent の詳細を表示します。`--saved`、`--temp`、`--here`、`--all` で、一覧に含める範囲を絞ったり広げたりできます。
+
+<Mdx.h3 id="start-agents-with-a-name">名前を付けて agent を起動する</Mdx.h3>
+
+`tmt run` は、ペインへの命名と agent の起動を一度に行います。名前の後には、普段使っているコマンドをそのまま書きます。その後は対応する driver が処理するので、後から `tmt resume` で同じ会話を再開できます。[各 driver の動作 →](/drivers)
+
+<Cmd>{`
+$ tmt run -s reviewer claude --model sonnet
+$ tmt resume reviewer       # later, in any pane: reviewer's own conversation
+`}</Cmd>
+
+先に起動して、後から名前を付けることもできます。`tmt run claude` は、`claude-12ab34cd56ef` のような一時的な名前で Claude Code をすぐに起動します。agent の shell ツールから `tmt name reviewer` を実行すると、指定した名前に変わります。名前を付けても同じ会話は保持されますが、名前は保存されません。保存するには `-s` を付けてください。
+
+<Cmd>{`
+$ tmt run claude --model sonnet
+$ tmt name -s reviewer      # from the agent's shell tool: name it, and keep the name
+`}</Cmd>
+
+<PaneDemo
+  {...resumeAfterReboot}
+  label="再起動後の手順を示すデモです。tmux のレイアウトは復元されていますが、agent は起動していません。tmt resume で reviewer と builder がそれぞれの会話に戻ります。会話が見つからない場合は、新しく始めるのではなく、その旨を報告します。各手順の字幕は英語です。"
+/>

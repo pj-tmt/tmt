@@ -1,0 +1,249 @@
+{
+  "$source": {
+    "source": "site/src/lang/strings.ts",
+    "sourceRevision": "03b536e0b424ea20f22f9ffa99dea681217e09e3"
+  },
+  "ui": {
+    "notTranslated": "まだ翻訳されていないため、このページは英語で表示しています。",
+    "language": "言語",
+    "chapterWindows": "章のウィンドウ",
+    "allChapters": "すべての章",
+    "closeMenu": "メニューを閉じる",
+    "onThisPage": "このページの内容",
+    "pageNavigation": "ページの移動",
+    "previous": "← 前のページ",
+    "next": "次のページ →"
+  },
+  "home": {
+    "eyebrow": "ホーム",
+    "title": "シンプルな基盤で、AI の協働を*さまざまな形*に。",
+    "tagline": "agent 間の通信をシンプルに。機能を組み合わせて使えます。",
+    "lede": "異なるツールの agent を混ぜて使えます。Claude Code から Codex へ、あるいはコマンドを実行できるどの agent へも作業を渡し、答えを受け取れます。tmt は各返信をその依頼に結びつける receipt を残します。tmt はレイヤーを一枚足すだけで、何も置き換えません。ターミナルも agent もアカウントもそのままです。board、colab、meet はこの一つのコアの上に作られています。",
+    "worksWith": "対応環境",
+    "yourHarness": "お使いの harness",
+    "yourServer": "お使いのサーバー",
+    "planned": "計画中",
+    "designing": "設計中",
+    "install": "インストール",
+    "start": "1 件のメッセージから始める ↓",
+    "handoff": {
+      "label": "異なる provider 間でリクエストをやり取りするデモです。Claude Code で動く reviewer が、Codex で動く builder に tmt talk で diff のレビューを依頼します。リクエストを受け取った Codex は、tmt reply と渡された receipt で返信します。その返信が Claude Code に戻ります。リクエスト ID と receipt が、リクエストと返信を結び付けます。",
+      "request": "リクエスト",
+      "tied": "receipt が返信とリクエストを結び付けます"
+    },
+    "concepts": {
+      "items": [
+        {
+          "text": "名前を付けて、ほかから連絡できるようにしたプログラムです。`tmt run reviewer claude`、または起動したプログラムの中から `tmt name reviewer` を実行します。"
+        },
+        {
+          "text": "agent が別の agent に送るものです。`tmt talk builder \"…\"` が ID と receipt を付けて保存し、届けます。"
+        },
+        {
+          "text": "戻ってくる結果です。agent が `tmt reply` で送信し、`tmt result req_…` で読み取れます。"
+        }
+      ],
+      "receiptText": "receipt は結果をリクエストに結び付けます。返信には、そのリクエストに付いていた receipt が必要です。"
+    },
+    "showcase": {
+      "chapter": "この章を読む →",
+      "sections": {
+        "start": {
+          "eyebrow": "はじめに"
+        },
+        "working": {
+          "eyebrow": "使い方",
+          "title": "リクエストがペインからペインへ*届きます*。",
+          "text": "`tmt talk` が相手の agent のペインにリクエストを入力します。返信は receipt で照合され、こちらに戻ってきます。ウィンドウ間でテキストをコピーする必要はありません。"
+        },
+        "squad": {
+          "eyebrow": "squad",
+          "title": "各マークの意味は*1 つ*です。",
+          "text": "Squad 拡張機能は、普段使っているターミナルの 1 つの board に lead とメンバーを表示します。"
+        },
+        "colab": {
+          "eyebrow": "colab",
+          "title": "*チーム全員*で共有する 1 つのページ。",
+          "text": "lead の計画、メモ、決定を 1 つのページにまとめます。どのマシンの agent も、チームメンバーも、読んでコメントできる設計です。"
+        },
+        "meet": {
+          "eyebrow": "meet",
+          "title": "あなたと*agent* のための会議室。",
+          "text": "あなた、lead、そのメンバーが 1 つの会議に参加します。発言したい人が手を挙げ、あなたが発言者を指定する設計です。まずはテキストでの会議です。"
+        },
+        "install": {
+          "eyebrow": "インストール",
+          "title": "インストールしたら、最初の agent に*名前*を付けます。"
+        }
+      }
+    },
+    "agents": "agent",
+    "anyAgent": "任意の CLI agent",
+    "hosts": "実行環境",
+    "next": "次に"
+  },
+  "chapters": {
+    "travel": {
+      "label": "lead から builder にリクエストが届き、返信が戻るデモです。lead が tmt talk を実行します。tmt は ID と receipt を付けてリクエストを保存し、builder のペインに入力します。builder が作業して、tmt reply と receipt で返信します。tmt は返信を保存し、talk が lead に返します。",
+      "examples": "どの harness の agent でも使える仕組みです。Claude Code と Codex はその例で、現在の組み込み host は tmux です。",
+      "steps": [
+        {
+          "text": "lead がリクエストを送ります。tmt が ID と receipt を付けて保存します。"
+        },
+        {
+          "title": "2 · 配信",
+          "text": "builder のペインにリクエストが入力され、普段どおり作業します。"
+        },
+        {
+          "text": "builder が receipt を付けて返信します。返信が保存され、talk が lead に返します。"
+        }
+      ]
+    },
+    "colab": {
+      "label": "共有する colab ページの設計例です。リリース計画の項目に完了のチェックが付き、あなたの判断を待つ決定と、agent やチームメンバーのコメントが表示されます。",
+      "pageTitle": "colab · リリース計画",
+      "sketch": "設計例",
+      "planHeading": "Release 5.0",
+      "items": ["token の更新", "ログインのテスト", "5.0 のドキュメント", "#412 のリリース"],
+      "needsYou": "あなたの判断待ち：",
+      "question": "今夜 #412 をリリースしますか？",
+      "shipTonight": "今夜リリースする",
+      "waitForDocs": "ドキュメントを待つ",
+      "decided": "決定：",
+      "everyone": "全員に共有されます",
+      "you": "あなた",
+      "decision": "決定",
+      "comments": [
+        "token を更新しました。PR #412 を作成しました。",
+        "ビルドサーバーで E2E が通りました。",
+        "ドキュメントの修正を待てますか？",
+        "5.0 のドキュメントを書き、レビュー中です。"
+      ],
+      "machines": ["あなたのノート PC", "ビルドサーバー", "Mei のノート PC"],
+      "human": "人間",
+      "roadmap": [
+        {
+          "title": "現在 · ローカル",
+          "text": "自分のマシン上のページ（開発中）"
+        },
+        {
+          "title": "次 · Firestore",
+          "text": "チームメンバーが参加できる、自分の Firebase プロジェクト（計画中）"
+        },
+        {
+          "title": "その後 · Cloudflare",
+          "text": "自分の Cloudflare アカウント（計画中）"
+        }
+      ]
+    },
+    "meet": {
+      "label": "ターミナルでのテキスト会議の設計例です。builder が発言中で、2 つの agent が手を挙げています。次に誰が発言するか、あなたが指定します。",
+      "title": "tmt meet · リリースの時間帯",
+      "sketch": "設計例",
+      "floor": "発言権",
+      "host": "あなたが指定",
+      "first": "挙手順",
+      "hasFloor": "発言中",
+      "hands": "挙手",
+      "noHands": "挙手なし",
+      "inRoom": "参加者",
+      "roadmap": [
+        {
+          "title": "現在 · 計画中",
+          "text": "設計は合意済み（#842）、未着手です"
+        },
+        {
+          "title": "次 · テキスト",
+          "text": "ターミナルでのテキスト会議。手を挙げ、順番に発言し、あなたが進行します"
+        },
+        {
+          "title": "その後 · Web と音声",
+          "text": "colab 上の Web 画面、その後に音声対応"
+        }
+      ]
+    },
+    "marks": {
+      "label": "board と各コマンドで使うマークです。それぞれの意味は 1 つです。",
+      "intro": "board は表示を抑え、あなたの対応が必要な項目を目立たせます。各コマンドでも同じマークを使います。",
+      "boardOnly": "board のみ",
+      "items": [
+        {
+          "text": "実行中またはアクティブ"
+        },
+        {
+          "text": "オフラインまたは終了済み"
+        },
+        {
+          "text": "ペインに紐付いていますが、agent は実行されていません"
+        },
+        {
+          "text": "あなたの判断を待っています"
+        },
+        {
+          "text": "失敗または処理が進められない状態"
+        },
+        {
+          "text": "完了"
+        },
+        {
+          "text": "再開操作の前に付きます。行の状態には使いません"
+        },
+        {
+          "text": "折りたたまれたペインです。d またはタイトルのクリックで展開します"
+        }
+      ]
+    }
+  },
+  "journey": {
+    "stepsLabel": "ステップ",
+    "layersLabel": "共通の基盤に重なる各層",
+    "steps": [
+      {
+        "hint": "2 つのペイン、1 件のメッセージ",
+        "caption": "最小の構成は、2 つのペインにいる 2 つの agent です。一方が `tmt talk` でもう一方にリクエストを送ります。返信は receipt とともに戻ります。この先の機能も、この仕組みの上にあります。"
+      },
+      {
+        "hint": "チーム全体を 1 つの画面に",
+        "caption": "agent が増えたら、`tmt sq board` でチーム全体を 1 つの画面に表示できます。誰が作業中で、誰があなたを待ち、誰の作業が止まっているかを確認できます。Squad 拡張機能に含まれています。同じ agent に、ウィンドウをもう 1 つ追加するだけです。"
+      },
+      {
+        "hint": "1 つの共有ページ",
+        "status": "開発中",
+        "caption": "Colab は、lead の計画、メモ、議論をまとめる共有ページです。チームメンバーや別のマシンの agent が同じページを読んでコメントできる設計です。ここに示しているのは設計で、リリース済みの機能ではありません。"
+      },
+      {
+        "hint": "agent と会議する",
+        "status": "計画中",
+        "caption": "Meet（#842）は、あなた、lead、そのメンバーが 1 つのテキスト会議に参加する設計です。発言したい人が手を挙げ、あなたが発言者を指定します。まだ着手していません。"
+      }
+    ],
+    "layers": [
+      "会議室 · 計画中",
+      "共有ページ · 開発中",
+      "チーム全体を 1 つの画面に · alpha",
+      "すべての層が使う基盤"
+    ],
+    "scenes": {
+      "talkArrow": "lead ⇄ builder · 2 つのペイン · リクエストを送り、receipt 付きの返信が戻ります",
+      "boardArrow": "同じ agent に、ウィンドウをもう 1 つ",
+      "boardNew": "新規",
+      "yourLaptop": "あなたのノート PC",
+      "buildServer": "ビルドサーバー",
+      "teammate": "チームメンバー",
+      "human": "（人間）",
+      "herLead": "相手の lead",
+      "sharedPage": "1 つの共有ページ",
+      "inProgress": "開発中",
+      "pageTitle": "colab · リリース計画",
+      "planHeading": "Release 5.0 の計画",
+      "planOne": "token の更新",
+      "planTwo": "ログインのテスト",
+      "planThree": "今夜 #412 をリリース",
+      "decide": "決定する",
+      "reviewerSays": "diff は小さく、リリースできます",
+      "meiSays": "ドキュメントの修正を待てますか？",
+      "meetArrow": "挙手した人（↑）が順番を待ち、あなたが発言者を指定します",
+      "planned": "計画中"
+    }
+  }
+}
