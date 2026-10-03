@@ -2764,6 +2764,7 @@ dependencies = [
  "signal-hook 0.4.4",
  "tmt-cli-style",
  "tmt-colab-model",
+ "tmt-extension-state",
  "tmt-invoke",
  "tungstenite",
  "yrs",
@@ -2825,6 +2826,13 @@ dependencies = [
  "serde",
  "serde_json",
  "tmt-host-grammar",
+]
+
+[[package]]
+name = "tmt-extension-state"
+version = "5.0.0-alpha.44"
+dependencies = [
+ "nix",
 ]
 
 [[package]]
@@ -2960,6 +2968,7 @@ dependencies = [
  "sha2",
  "signal-hook 0.4.4",
  "tmt-cli-style",
+ "tmt-extension-state",
  "tmt-invoke",
 ]
 

@@ -256,6 +256,110 @@ fn listing_layout_lookup_is_read_only_and_missing_root_is_created_only_on_open()
 }
 
 #[test]
+fn shared_layout_preserves_root_permissions_sibling_bytes_and_state_faults() {
+    use tmt_colab::keyring::StateFault;
+    let fixture = Fixture::new();
+    fs::set_permissions(&fixture.0, fs::Permissions::from_mode(0o751)).unwrap();
+    let sibling = fixture.0.join("remote");
+    fs::create_dir(&sibling).unwrap();
+    let machine = sibling.join("machine.key");
+    fs::write(&machine, [2; 32]).unwrap();
+    let layout = fixture.layout();
+    Keyring::open(&layout).unwrap();
+    assert_eq!(fs::metadata(&fixture.0).unwrap().mode() & 0o777, 0o751);
+    assert_eq!(fs::read(machine).unwrap(), [2; 32]);
+    for name in ["../machine.key", "machine.key", "owner.key/"] {
+        let error = layout.file(name).err().unwrap();
+        assert_eq!(
+            error.downcast_ref::<StateFault>(),
+            Some(&StateFault::InvalidFileName)
+        );
+        assert_eq!(error.to_string(), "Invalid private file name.");
+    }
+    let held = layout.serve_lock().unwrap();
+    assert_eq!(
+        layout
+            .serve_lock()
+            .err()
+            .unwrap()
+            .downcast_ref::<StateFault>(),
+        Some(&StateFault::AlreadyServing)
+    );
+    drop(held);
+    assert!(!layout.running().unwrap());
+}
+
+#[test]
+fn bounded_owner_keys_fail_with_the_same_downcastable_fault_and_keep_exact_bytes() {
+    use tmt_colab::keyring::StateFault;
+    let fixture = Fixture::new();
+    let layout = fixture.layout();
+    Keyring::open(&layout).unwrap();
+    let path = layout.directory.join("owner.key");
+    for length in [0, 31, 33, 4096] {
+        let original = vec![7; length];
+        fs::write(&path, &original).unwrap();
+        for error in [
+            Keyring::read(&layout).err().unwrap(),
+            Keyring::open(&layout).err().unwrap(),
+        ] {
+            assert_eq!(
+                error.downcast_ref::<StateFault>(),
+                Some(&StateFault::InvalidOwnerKey)
+            );
+            assert_eq!(
+                error.to_string(),
+                "Invalid owner key length; key was not replaced."
+            );
+        }
+        assert_eq!(fs::read(&path).unwrap(), original);
+    }
+    fs::write(&path, [7; 32]).unwrap();
+    assert!(Keyring::open(&layout).is_ok(), "valid key positive control");
+    let temporary = layout.directory.join(format!(".owner-{}", "b".repeat(32)));
+    fs::write(&temporary, [8; 33]).unwrap();
+    fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(
+        Keyring::open(&layout)
+            .err()
+            .unwrap()
+            .downcast_ref::<StateFault>(),
+        Some(&StateFault::InvalidOwnerKey)
+    );
+    assert_eq!(fs::read(temporary).unwrap(), [8; 33]);
+    assert_eq!(fs::read(path).unwrap(), [7; 32]);
+}
+
+#[test]
+fn no_follow_and_missing_owner_key_errors_remain_raw_io_errors() {
+    let fixture = Fixture::new();
+    let layout = fixture.layout();
+    let missing = Keyring::read(&layout).err().unwrap();
+    assert_eq!(
+        missing.downcast_ref::<std::io::Error>().unwrap().kind(),
+        std::io::ErrorKind::NotFound
+    );
+    let path = layout.directory.join("owner.key");
+    let outside = fixture.0.join("outside");
+    fs::write(&outside, [9; 32]).unwrap();
+    symlink(&outside, &path).unwrap();
+    for error in [
+        Keyring::read(&layout).err().unwrap(),
+        Keyring::open(&layout).err().unwrap(),
+    ] {
+        assert_eq!(
+            error
+                .downcast_ref::<std::io::Error>()
+                .unwrap()
+                .raw_os_error(),
+            Some(nix::libc::ELOOP)
+        );
+    }
+    assert_eq!(fs::read(outside).unwrap(), [9; 32]);
+    assert!(fs::symlink_metadata(path).unwrap().is_symlink());
+}
+
+#[test]
 fn namespace_conflict_and_byte_capacity_preserve_existing_ciphertext() {
     let fixture = Fixture::new();
     let layout = fixture.layout();

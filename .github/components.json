@@ -19,7 +19,8 @@
         "extensions/tmt-squad",
         "extensions/tmt-remote",
         "extensions/tmt-colab",
-        "rust/crates/tmt-tui"
+        "rust/crates/tmt-tui",
+        "rust/crates/tmt-extension-state"
       ],
       "migrations": ["rust/crates/tmt-adapters/src/storage/migrations.rs"]
     },
@@ -80,6 +81,7 @@
     },
     "tmt-remote": {
       "owns": ["extensions/tmt-remote/rust"],
+      "selectedBy": ["rust/crates/tmt-extension-state/**"],
       "release": false
     }
   },

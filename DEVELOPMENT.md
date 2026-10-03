@@ -2694,6 +2694,28 @@ objects. Use structured output or a focused formatter test, not mocked
 `console.log`. Apply the [architecture maintenance contract](ARCHITECTURE.md#maintenance-contract)
 when changing an owner, boundary or verification procedure.
 
+## Shared extension state verification
+
+The [extension state leaf](ARCHITECTURE.md#shared-extension-state-layout) is
+library-only and shared by the Remote and Colab executables. From the repository
+root, run its primitive tests and both consumers' real temporary-root preservation
+suites, then the dependency/import guard:
+
+```bash
+(cd rust && cargo test --offline --locked -p tmt-extension-state)
+(cd rust && cargo test --offline --locked -p tmt-remote --test state)
+(cd rust && cargo test --offline --locked -p tmt-colab --test state)
+(cd rust && cargo clippy --offline --locked -p tmt-extension-state -p tmt-remote -p tmt-colab --all-targets -- -D warnings)
+(cd rust && cargo test --offline --locked -p tmt-cli --test architecture)
+```
+
+These suites assert exact retained bytes, private admission, read-only lookup,
+lock contention before cleanup, bounded reads and create-only publication. The
+consumer tests also retain extension-specific errors, identity and database
+behavior. Synced publication tests prove filesystem behavior, not power-loss
+recovery. New workspace paths also require the tracked-file layout, generated
+release configuration and CI-scope checks described in this guide.
+
 ## Browser add-on shell
 
 The private MV3 demo shell lives in

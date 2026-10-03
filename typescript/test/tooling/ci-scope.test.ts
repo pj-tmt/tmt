@@ -39,6 +39,32 @@ const { runPackedCommand } = await import(
 );
 
 describe('CI area selection', () => {
+  it('keeps the extension state leaf privately owned by Remote with full native verification', () => {
+    const paths = [
+      'rust/crates/tmt-extension-state/Cargo.toml',
+      'rust/crates/tmt-extension-state/src/lib.rs',
+      'rust/crates/tmt-extension-state/tests/state.rs',
+    ];
+    for (const file of paths) expect(ownerOf(file)).toBe('tmt-remote');
+    expect(
+      isReleased(
+        parseComponentMap(
+          readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
+        ),
+        'tmt-remote'
+      )
+    ).toBe(false);
+    const rows = explainCiSelection(paths);
+    for (const row of rows) {
+      expect(row.owner).toBe('tmt-remote');
+      expect(row.rule).toBe('native-source');
+      expect(selectCiAreas([row.path])).toEqual(
+        selectCiAreas(['rust/crates/tmt-invoke/src/lib.rs'])
+      );
+    }
+    expect(ownerOf('rust/crates/tmt-extension-state-other/src/lib.rs')).toBe('cli');
+  });
+
   it('rejects a misspelled private-release declaration', () => {
     expect(() =>
       parseComponentMap(

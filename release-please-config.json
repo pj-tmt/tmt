@@ -26,7 +26,8 @@
         "extensions/tmt-squad",
         "extensions/tmt-remote",
         "extensions/tmt-colab",
-        "rust/crates/tmt-tui"
+        "rust/crates/tmt-tui",
+        "rust/crates/tmt-extension-state"
       ],
       "extra-files": [
         {
@@ -68,6 +69,11 @@
           "type": "toml",
           "path": "rust/Cargo.lock",
           "jsonpath": "$.package[?(@.name.value=='tmt-driver-protocol')].version"
+        },
+        {
+          "type": "toml",
+          "path": "rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-extension-state')].version"
         },
         {
           "type": "toml",
