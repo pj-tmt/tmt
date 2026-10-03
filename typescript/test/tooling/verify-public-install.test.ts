@@ -23,6 +23,17 @@ const executableWriter = fileURLToPath(
   new URL('../support/executable-fixture.mjs', import.meta.url)
 );
 const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+const { assertMacOsArchitecture, nativeHostTarget } = (await import(
+  new URL('../../scripts/native-runtime-proof.mjs', import.meta.url).href
+)) as {
+  nativeHostTarget: () => string;
+  assertMacOsArchitecture: (
+    executable: string,
+    target: string,
+    options: { cwd: string; env: Record<string, string> },
+    inspect: (command: string) => string
+  ) => void;
+};
 
 const SKILL = '# The tmux-team skill\n';
 const INBOX = '# The inbox skill\n';
@@ -124,6 +135,8 @@ function run(
     fetchError?: string;
     retry?: boolean;
     download?: (url: string, maximum: number) => Promise<Uint8Array>;
+    target?: string;
+    architectures?: string[];
   } = {}
 ) {
   const root = path.join(base, `run-${(counter += 1)}`);
@@ -139,10 +152,12 @@ function run(
   writeFileSync(path.join(source, 'skills', 'index.txt'), 'not a skill\n');
   const fetched: string[] = options.fetches ?? [];
   const waits: number[] = [];
+  const inspected: string[] = [];
   return {
     root,
     waits,
     fetched,
+    inspected,
     results: smokeRelease({
       product: options.product ?? 'cli',
       tag: options.tag ?? 'v5.0.0-alpha.12',
@@ -150,6 +165,17 @@ function run(
       repository: 'wkh237/tmt',
       target: nativeTarget(),
       root: path.join(root, 'work'),
+      target: options.target,
+      inspectArchitecture: (executable, target, settings) => {
+        assertMacOsArchitecture(executable, target, settings, (command) => {
+          if (command === '/usr/bin/xcrun') return '/selected/lipo';
+          inspected.push(executable);
+          return (
+            options.architectures?.[inspected.length - 1] ??
+            (globalThis.process.arch === 'arm64' ? 'arm64' : 'x86_64')
+          );
+        });
+      },
       now: () => 1893456000000,
       retry: options.retry,
       ...(options.download ? { download: options.download } : {}),
@@ -179,6 +205,23 @@ function run(
 const failed = (results: SmokeResult[]) => results.filter(({ ok }) => !ok);
 
 describe('the public installer smoke of a CLI release', () => {
+  it('stops an arm64 install before running it and rejects an upgrade that switches architecture', async () => {
+    const target = 'x86_64-apple-darwin';
+    const control = run({}, { target, architectures: ['x86_64', 'x86_64'] });
+    expect(failed(await control.results)).toEqual([]);
+    expect(control.inspected).toHaveLength(2);
+    const wrongInstall = run({}, { target, architectures: ['arm64'] });
+    expect((await wrongInstall.results).at(-1)).toMatchObject({
+      check: 'installed version',
+      ok: false,
+    });
+    expect((await wrongInstall.results).at(-1)?.reason).toContain('exactly x86_64');
+    expect(wrongInstall.inspected).toHaveLength(1);
+    const wrongUpgrade = run({}, { target, architectures: ['x86_64', 'arm64'] });
+    expect((await wrongUpgrade.results).at(-1)).toMatchObject({ check: 'tmt upgrade', ok: false });
+    expect((await wrongUpgrade.results).at(-1)?.reason).toContain('exactly x86_64');
+  });
+
   it('passes a release that installs, is selected by PATH, has its skills and is current', async () => {
     const attempt = run({});
     const results = await attempt.results;
@@ -435,7 +478,14 @@ describe('failed command diagnostics', () => {
       const preload = path.join(root, 'fetch.mjs');
       writeExecutable(
         preload,
-        `globalThis.fetch = async () => ({ ok: true, text: async () => ${JSON.stringify(
+        `import { createRequire, syncBuiltinESMExports } from 'node:module';
+const child = createRequire(import.meta.url)('node:child_process');
+const spawn = child.spawnSync;
+child.spawnSync = (command, ...args) => command.endsWith('/lipo')
+  ? { status: 0, signal: null, stdout: '${globalThis.process.arch === 'arm64' ? 'arm64' : 'x86_64'}', stderr: '' }
+  : spawn(command, ...args);
+syncBuiltinESMExports();
+globalThis.fetch = async () => ({ ok: true, text: async () => ${JSON.stringify(
           installerText(
             limited
               ? {
@@ -465,7 +515,7 @@ describe('failed command diagnostics', () => {
           '--source',
           source,
           '--target',
-          'aarch64-apple-darwin',
+          nativeHostTarget(),
           '--result-file',
           resultFile,
         ],
@@ -478,7 +528,7 @@ describe('failed command diagnostics', () => {
       expect(process.error).toBeUndefined();
       expect(process.status).toBe(1);
       const result = JSON.parse(readFileSync(resultFile, 'utf8'));
-      expect(result.target).toBe('aarch64-apple-darwin');
+      expect(result.target).toBe(nativeHostTarget());
       expect(result.failed).toHaveLength(1);
       const failure = result.failed[0];
       expect(failure.check).toBe('tmt upgrade');
@@ -545,6 +595,16 @@ describe('the public installer smoke of an extension release', () => {
     const linked = await smoke({ link: true });
     expect(linked.at(-1)).toMatchObject({ check: 'squad list', ok: false });
     expect(linked.at(-1)?.reason).toContain('must not create the CLI link');
+  });
+
+  it('inspects both the installed CLI driver and extension bytes for an Intel target', async () => {
+    const options = { product: 'squad', tag, target: 'x86_64-apple-darwin' };
+    const control = run({}, { ...options, architectures: ['x86_64', 'x86_64'] });
+    expect(failed(await control.results)).toEqual([]);
+    expect(control.inspected.map((file) => path.basename(file))).toEqual(['tmt', 'tmt-squad']);
+    const wrong = run({}, { ...options, architectures: ['x86_64', 'arm64'] });
+    expect((await wrong.results).at(-1)).toMatchObject({ check: 'squad install', ok: false });
+    expect((await wrong.results).at(-1)?.reason).toContain('exactly x86_64');
   });
 });
 

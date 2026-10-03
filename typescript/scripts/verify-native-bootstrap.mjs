@@ -7,6 +7,7 @@ import { parseArgs } from 'node:util';
 import { generateNativeBootstrap } from './native-bootstrap.mjs';
 import { selectNativeArtifact } from './native-artifact-policy.mjs';
 import { runPackedCommand } from './packed-command.mjs';
+import { assertMacOsArchitecture } from './native-runtime-proof.mjs';
 
 const { values } = parseArgs({
   options: Object.fromEntries(
@@ -92,6 +93,7 @@ exec cp "$source" "$destination"
   assert.match(first, /npm uninstall -g tmux-team/);
   assert(!fs.existsSync(state), 'Binary-only bootstrap must not create application state');
   const executable = path.join(prefix, 'bin/tmt');
+  assertMacOsArchitecture(executable, values.target, options);
   const run = (args) => runPackedCommand(executable, args, options);
   assert.equal(run(['--version']).trim(), metadata.version);
   const pointer = path.join(prefix, 'lib/tmux-team/current');
@@ -142,6 +144,7 @@ exec cp "$source" "$destination"
   assert.match(fresh, /\/\.local\/bin is not in PATH yet/);
   assert.doesNotMatch(fresh, /another installation|npm uninstall/);
   const defaultExecutable = path.join(root, '.local/bin/tmt');
+  assertMacOsArchitecture(defaultExecutable, values.target, options);
   assert.equal(
     runPackedCommand(defaultExecutable, ['--version'], options).trim(),
     metadata.version

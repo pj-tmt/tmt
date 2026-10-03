@@ -188,7 +188,11 @@ procedures referenced below; DEVELOPMENT owns ordinary native checks.
   product-neutral offline note without version numbers: user guidance belongs to the
   handbook, and the onboarding test runs the note's PATH block in Bash and Zsh.
 - Release targets are macOS x64/arm64 (build deployment target 11.0) and Linux
-  x64/arm64 with a static musl runtime. A deployment target is not testing on every
+  x64/arm64 with a static musl runtime. macOS x64 follows DEVELOPMENT's
+  [runtime acceptance policy](../../../DEVELOPMENT.md#runtime-smoke-matrix):
+  cross-build on arm64, complete Rosetta verifier process trees with exact
+  installed-byte architecture checks, plus weekly native Intel public
+  installation and upgrade coverage. A deployment target is not testing on every
   macOS version; cite the release's verification evidence for tested hosts.
 - The manifest's SHA-256 checksums detect corruption, not a compromised download
   origin. Locally generated checksums are not signatures, and no local test artifact

@@ -31,6 +31,11 @@ import { parseArgs } from 'node:util';
 import { isReleased, parseComponentMap } from './ci-scope.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 import { compareVersions, isAlphaVersion, versionOfTag } from './release-versions.mjs';
+import {
+  assertMacOsArchitecture,
+  assertNativeTarget,
+  nativeHostTarget,
+} from './native-runtime-proof.mjs';
 
 const ATTEMPTS = 2;
 const MAX_WAIT_MS = 5 * 60_000;
@@ -176,9 +181,10 @@ export async function smokeRelease({
   source,
   repository,
   root,
+  target = nativeHostTarget(),
+  inspectArchitecture = assertMacOsArchitecture,
   fetch: read = fetchText,
   download = fetchBytes,
-  target,
   wait = sleep,
   now = Date.now,
   retry = false,
@@ -201,6 +207,7 @@ export async function smokeRelease({
   };
   const tmt = (args, { timeoutMs = 120_000 } = {}) =>
     runPackedCommand(binary, args, { cwd: root, env, timeoutMs });
+  const inspect = (executable) => inspectArchitecture(executable, target, { cwd: root, env });
   const results = [];
   const check = async (name, step) => {
     try {
@@ -267,6 +274,7 @@ export async function smokeRelease({
   if (!selected) return results;
   if (
     !(await check('installed version', async () => {
+      inspect(binary);
       const actual = tmt(['--version']).trim();
       if (actual !== cliVersion) throw new Error(`tmt --version is ${actual}, not ${cliVersion}`);
       return actual;
@@ -299,6 +307,7 @@ export async function smokeRelease({
         { wait, now, retry }
       );
       const report = JSON.parse(stdout);
+      inspect(binary);
       if (resolved(report.executable) !== resolved(binary)) {
         throw new Error(`it upgraded ${report.executable}, not ${binary}`);
       }
@@ -401,6 +410,7 @@ export async function smokeRelease({
     );
     if (report.version !== version)
       throw new Error(`it installed ${report.version}, not ${version}`);
+    inspect(path.join(extensionPrefix, 'bin', `tmt-${product}`));
     return report.version;
   });
   if (!extensionInstalled) return results;
@@ -436,7 +446,7 @@ async function main(argv, environment) {
       product: { type: 'string' },
       tag: { type: 'string' },
       source: { type: 'string' },
-      target: { type: 'string', default: process.platform },
+      target: { type: 'string', default: nativeHostTarget() },
       'result-file': { type: 'string', default: '' },
       retry: { type: 'boolean', default: false },
     },
@@ -454,6 +464,7 @@ async function main(argv, environment) {
   }
   const repository = environment.GITHUB_REPOSITORY;
   if (!repository) throw new Error('GITHUB_REPOSITORY is not set.');
+  assertNativeTarget(values.target, 'Public install requires a matching verification process');
   const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'tmt public install ')));
   let results;
   try {

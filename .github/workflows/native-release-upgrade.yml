@@ -133,7 +133,7 @@ jobs:
           - target: aarch64-apple-darwin
             runner: macos-15
           - target: x86_64-apple-darwin
-            runner: macos-15-intel
+            runner: macos-15
           - target: aarch64-unknown-linux-musl
             runner: ubuntu-24.04-arm
           - target: x86_64-unknown-linux-musl
@@ -156,8 +156,17 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.fetch.outputs.sha }}
           path: release-source
+      - name: Require candidate Rosetta tooling
+        if: matrix.target == 'x86_64-apple-darwin'
+        run: |
+          if [ ! -x scripts/run-native-verification.sh ]; then
+            echo '::error::candidate predates #547 Rosetta tooling; the owner reruns with native-release rerun=<tag>'
+            exit 1
+          fi
       - name: Set up Node.js and pnpm
         uses: ./.github/actions/setup-tooling
+        with:
+          architecture: ${{ matrix.target == 'x86_64-apple-darwin' && 'x64' || '' }}
       - name: Install verification dependencies
         working-directory: typescript
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -188,6 +197,8 @@ jobs:
           TARGET: ${{ matrix.target }}
           CURRENT_TOOLING: ${{ inputs.current-tooling }}
         run: |
+          scripts/run-native-verification.sh "$TARGET" <<'VERIFY'
+          started=$SECONDS
           # The log is kept so the conclusion can name the first error; pipefail keeps the exit status.
           set -o pipefail
           source_args=()
@@ -199,6 +210,8 @@ jobs:
           node typescript/scripts/release-upgrade.mjs prove --product "$PRODUCT" --tag "$RELEASE_TAG" \
             --target "$TARGET" --directory "$RUNNER_TEMP/upgrade" --skill "$skill" "${source_args[@]}" \
             2>&1 | tee "$RUNNER_TEMP/upgrade-proof.log"
+          echo "Verified $TARGET in $((SECONDS - started)) s." >> "$GITHUB_STEP_SUMMARY"
+          VERIFY
       - name: Prove the real-archive CLI upgrade adapter
         if: inputs.product == 'cli'
         env:
