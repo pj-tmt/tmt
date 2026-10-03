@@ -3393,12 +3393,23 @@ earlier and owns reaping. Ordinary Core calls retain their existing independent
 groups and allowances. No resident worker or core Squad concept is introduced.
 The extension guide owns the observed-age, claim-loss and cache-loss limits.
 
-`tabs` owns the tab
-keys: a squad's name, or a built-in key starting with `@` (`@leads`, `@all`),
-which no squad name can. `[tabs] order` and `hide` arrange them. `tab_view` owns cross-squad roster acquisition and the leads/all documents,
-called by the board worker and `ls --tab leads|all`. Both receive the same
-projected rows, attention and row-grid metadata; `status::text` renders the list
-from that document. The leads tab joins one global `ls` read for presence. Its rows carry their squad, so talk goes to that
+`tabs` owns squad keys, built-in keys (`@leads`, `@all`) and configured member
+view keys (`@tab:<name>`), which cannot collide with squad names. `[tabs] order`,
+`pin` and `hide` refer to user views as `tab:<name>`; unplaced user views follow
+the defaults in definition order. Config reading validates every `tabs.<name>`
+filter, sort, section and binding, including hidden views. Built-in names remain
+reserved. `tab_view` owns cross-squad acquisition and aggregate documents for
+both the board worker and `ls --tab <name>`. A single roster read per squad feeds
+source documents and the public member projection, retaining numeric sort values
+and source state ranks beside JSON. Configured field providers contribute their
+existing cache; aggregate reads never run them. User selection applies before the shared
+`status::sections` pipeline; section matches may repeat a row, while unmatched
+rows follow untitled. User views use `Rows::leads` with a MEMBER caption, without per-tab row overrides.
+Both callers receive the same projected rows, attention and row-grid metadata;
+`status::text` renders that document. Unreadable squads are omitted with located
+`failures`; a failed inbox read retains available roster fields. Both cases set
+`partial`, with a board summary indicator and text warnings, and clear on the
+next successful read. Member views join one global `ls` read for presence. Its rows carry their squad, so talk goes to that
 squad's room and a jump is the ordinary `tmt focus`. The all tab's rows are
 squads, not members: their `tab` action opens the squad's tab, and member
 bindings don't apply there. `jump lead` (`L` in the tmux preset) resolves a

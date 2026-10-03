@@ -2,7 +2,7 @@
 //! rendered from the JSON document so the two views cannot disagree.
 
 use crate::{
-    config::{Layout, Section, SortKey, States},
+    config::{Layout, Rank, Section, SortKey, States},
     filter::Row,
     rows::{Column as RowColumn, ListSizing, Rows},
     squad::{Member, Squad},
@@ -43,7 +43,7 @@ fn member_value(member: &Member) -> Value {
 
 /// Crew puts rows that owe the user a decision first; then the layout's state
 /// order (unknown states after known ones); then name.
-fn sort(rows: &mut [Member], layout: Layout, states: &States) {
+pub(crate) fn sort(rows: &mut [Member], layout: Layout, states: &States) {
     let rank = |member: &Member| {
         let pending = layout.pending_first() && !member.fields.contains_key("pending");
         let state = member.fields.get("state").map(String::as_str);
@@ -61,16 +61,30 @@ fn sort(rows: &mut [Member], layout: Layout, states: &States) {
 /// Missing values sort last in both directions; a bound column's numbers
 /// sort as numbers, whatever their format shows.
 fn compare(key: &SortKey, states: &States, a: &Member, b: &Member) -> Ordering {
+    compare_values(
+        key,
+        a,
+        b,
+        (a.numbers.get(&key.field), b.numbers.get(&key.field)),
+        (states.rank(a.value("state")), states.rank(b.value("state"))),
+    )
+}
+
+pub(crate) fn compare_values(
+    key: &SortKey,
+    a: &impl Row,
+    b: &impl Row,
+    numbers: (Option<&f64>, Option<&f64>),
+    ranks: (Rank, Rank),
+) -> Ordering {
     let (left, right) = (a.value(&key.field), b.value(&key.field));
-    let numbers = (a.numbers.get(&key.field), b.numbers.get(&key.field));
     let ordering = match (left, right) {
         (None, None) => return Ordering::Equal,
         (None, Some(_)) => return Ordering::Greater,
         (Some(_), None) => return Ordering::Less,
-        (Some(left), Some(right)) if key.field == "state" => states
-            .rank(Some(left))
-            .cmp(&states.rank(Some(right)))
-            .then_with(|| left.cmp(right)),
+        (Some(left), Some(right)) if key.field == "state" => {
+            ranks.0.cmp(&ranks.1).then_with(|| left.cmp(right))
+        }
         (Some(left), Some(right)) => match numbers {
             (Some(left), Some(right)) => left.total_cmp(right),
             _ => left.cmp(right),
@@ -144,8 +158,51 @@ fn apply_colors(rows: &Rows, states: &States, members: &mut [Member]) {
     }
 }
 
-fn rows(members: &[&Member]) -> Vec<Value> {
-    members.iter().map(|member| member_value(member)).collect()
+/// One section/filter/sort pipeline for acquired members and projected tab rows.
+pub(crate) fn sections<T: Row>(
+    all: &[T],
+    sections: &[Section],
+    compare: impl Fn(&SortKey, &T, &T) -> Ordering,
+    project: impl Fn(&T) -> Value,
+) -> Value {
+    let rows = |items: &[&T]| items.iter().map(|row| project(row)).collect::<Vec<_>>();
+    let all = all.iter().collect::<Vec<_>>();
+    if sections.is_empty() {
+        return json!([{"title": null, "rows": rows(&all)}]);
+    }
+    let mut shaped = sections
+        .iter()
+        .map(|section| {
+            let mut matching = all
+                .iter()
+                .copied()
+                .filter(|row| section.includes(*row))
+                .collect::<Vec<_>>();
+            matching.sort_by(|a, b| {
+                section
+                    .sort
+                    .iter()
+                    .map(|key| compare(key, a, b))
+                    .find(|order| order.is_ne())
+                    .unwrap_or(Ordering::Equal)
+            });
+            json!({"title": section.title, "rows": rows(&matching)})
+        })
+        .collect::<Vec<_>>();
+    let rest = all
+        .iter()
+        .copied()
+        .filter(|row| !sections.iter().any(|section| section.includes(*row)))
+        .collect::<Vec<_>>();
+    if !rest.is_empty() {
+        shaped.push(json!({"title": null, "rows": rows(&rest)}));
+    }
+    json!(shaped)
+}
+
+pub(crate) fn prepare(row_layout: &Rows, states: &States, members: &mut [Member]) {
+    apply_sources(row_layout, members, now_ms());
+    apply_colors(row_layout, states, members);
 }
 
 /// Without user-defined sections, `sections` holds exactly one untitled
@@ -161,43 +218,25 @@ pub fn document(
     row_layout: &Rows,
     mut members: Vec<Member>,
 ) -> Value {
-    apply_sources(row_layout, &mut members, now_ms());
-    apply_colors(row_layout, states, &mut members);
+    prepare(row_layout, states, &mut members);
+    prepared_document(squad, layout, states, sections, members)
+}
+
+pub(crate) fn prepared_document(
+    squad: &Squad,
+    layout: Layout,
+    states: &States,
+    sections: &[Section],
+    members: Vec<Member>,
+) -> Value {
     let (leads, mut members): (Vec<_>, Vec<_>) = members.into_iter().partition(Member::is_lead);
     sort(&mut members, layout, states);
-    let all: Vec<&Member> = members.iter().collect();
-    let sections: Vec<Value> = if sections.is_empty() {
-        vec![json!({"title": null, "rows": rows(&all)})]
-    } else {
-        sections
-            .iter()
-            .map(|section| {
-                let mut matching: Vec<&Member> = all
-                    .iter()
-                    .copied()
-                    .filter(|member| section.includes(*member))
-                    .collect();
-                matching.sort_by(|a, b| {
-                    section
-                        .sort
-                        .iter()
-                        .map(|key| compare(key, states, a, b))
-                        .find(|ordering| ordering.is_ne())
-                        .unwrap_or(Ordering::Equal)
-                });
-                json!({"title": section.title, "rows": rows(&matching)})
-            })
-            .chain({
-                // Nobody is hidden: rows no section matched follow, untitled.
-                let rest: Vec<&Member> = all
-                    .iter()
-                    .copied()
-                    .filter(|member| !sections.iter().any(|section| section.includes(*member)))
-                    .collect();
-                (!rest.is_empty()).then(|| json!({"title": null, "rows": rows(&rest)}))
-            })
-            .collect()
-    };
+    let sections = self::sections(
+        &members,
+        sections,
+        |key, a, b| compare(key, states, a, b),
+        member_value,
+    );
     json!({
         "squad": {
             "name": squad.name, "roomId": squad.room_id, "layout": layout.as_str(),
@@ -265,6 +304,16 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
         }
         squad_text(squad, terminal, &mut output);
     }
+    for failure in document["failures"].as_array().into_iter().flatten() {
+        let source = failure["squad"]
+            .as_str()
+            .unwrap_or_else(|| failure["source"].as_str().unwrap_or("read"));
+        let what = format!(
+            "Partial tab: {source}: {}",
+            cell(&failure["error"]["message"])
+        );
+        let _ = tmt_cli_style::message::warning(&mut output, terminal, &escape(&what), None);
+    }
     if !squads.is_empty() && document.get("you").is_some_and(Value::is_null) {
         let _ = writeln!(output, "\n{}", terminal.paint(Token::Dim, UNKNOWN_YOU));
     }
@@ -278,12 +327,16 @@ const LIST_PREFIX: usize = 2 + 1 + 2;
 /// board's), a leading mark and a trailing detail.
 fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
     let squad = &document["squad"];
-    let header = format!(
-        "squad {} · lead {} · layout {}",
-        cell(&squad["name"]),
-        cell(&squad["lead"]["name"]),
-        cell(&squad["layout"]),
-    );
+    let header = if let Some(tab) = document["tab"].as_str() {
+        format!("tab {tab}")
+    } else {
+        format!(
+            "squad {} · lead {} · layout {}",
+            cell(&squad["name"]),
+            cell(&squad["lead"]["name"]),
+            cell(&squad["layout"]),
+        )
+    };
     let _ = writeln!(output, "{}\n", terminal.paint(Token::Dim, &escape(&header)));
     if let Some(stale) = crate::staleness::label(&squad["notesStaleness"]) {
         let _ = writeln!(

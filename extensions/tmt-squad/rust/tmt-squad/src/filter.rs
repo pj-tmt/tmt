@@ -10,6 +10,29 @@ pub trait Row {
     fn value(&self, field: &str) -> Option<&str>;
 }
 
+impl<T: Row + ?Sized> Row for &T {
+    fn value(&self, field: &str) -> Option<&str> {
+        (*self).value(field)
+    }
+}
+
+/// Lookup over the public projection; attention never comes from another read.
+impl Row for serde_json::Value {
+    fn value(&self, field: &str) -> Option<&str> {
+        match field {
+            "name" | "member" => self["name"].as_str(),
+            "waiting_on_you" => self["waitingOnYou"]
+                .as_array()
+                .filter(|items| !items.is_empty())
+                .map(|_| "true"),
+            "activity" => self["activity"]["activity"].as_str(),
+            _ => self[field]
+                .as_str()
+                .or_else(|| self["fields"][field].as_str()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Filter {
     /// The field is present and non-empty.

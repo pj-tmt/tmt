@@ -11,12 +11,25 @@ pub const ALL: &str = "@all";
 
 /// Whether the key is a built-in tab rather than a squad.
 pub fn builtin(key: &str) -> bool {
-    key.starts_with('@')
+    matches!(key, LEADS | ALL)
+}
+
+pub fn user_key(name: &str) -> String {
+    format!("@tab:{name}")
+}
+pub fn user_name(key: &str) -> Option<&str> {
+    key.strip_prefix("@tab:")
+}
+pub fn aggregate(key: &str) -> bool {
+    builtin(key) || user_name(key).is_some()
+}
+pub fn reserved(name: &str) -> bool {
+    ["leads", "all", "colors", "order", "pin", "hide"].contains(&name)
 }
 
 /// What the tab line shows for a key.
 pub fn label(key: &str) -> &str {
-    key.strip_prefix('@').unwrap_or(key)
+    user_name(key).unwrap_or_else(|| key.strip_prefix('@').unwrap_or(key))
 }
 
 /// The tabs in order, and how many of them are pinned: pinned tabs first,
@@ -25,7 +38,12 @@ pub fn label(key: &str) -> &str {
 /// order, then the built-in tabs not placed. Hidden tabs are left out, even
 /// when pinned; a hidden squad is still reachable by name.
 pub fn arrange(squads: &[String], tabs: &Tabs) -> (Vec<String>, usize) {
-    let exists = |key: &&String| builtin(key) || squads.contains(key);
+    let users = tabs
+        .user
+        .iter()
+        .map(|tab| user_key(&tab.name))
+        .collect::<Vec<_>>();
+    let exists = |key: &&String| builtin(key) || users.contains(key) || squads.contains(key);
     let shown = |key: &&String| !tabs.hide.contains(key);
     let mut keys: Vec<String> = tabs
         .pin
@@ -41,7 +59,8 @@ pub fn arrange(squads: &[String], tabs: &Tabs) -> (Vec<String>, usize) {
         .filter(exists)
         .cloned()
         .chain(squads.iter().cloned())
-        .chain([LEADS.to_owned(), ALL.to_owned()]);
+        .chain([LEADS.to_owned(), ALL.to_owned()])
+        .chain(users.iter().cloned());
     for key in rest {
         if !keys.contains(&key) && !tabs.hide.contains(&key) {
             keys.push(key);

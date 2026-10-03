@@ -17,7 +17,7 @@ use crate::{
     provider::{self, Provider},
     requests,
     squad::{Member, Squad},
-    tab_view::{self, roster_documents, tab_attention},
+    tab_view::{self, roster_documents},
 };
 use serde_json::Value;
 use std::{
@@ -243,8 +243,8 @@ impl AttentionJob {
             .filter(|squad| squad.name != self.shown)
             .collect::<Vec<_>>();
         let mut documents = roster_documents(core, &self.config, &others, self.me.as_ref(), None);
-        documents.insert(self.shown, self.document);
-        tab_attention(&documents)
+        documents.include(&self.config, &self.shown, self.document);
+        documents.attention(&self.config, &[])
     }
 }
 
@@ -444,25 +444,39 @@ fn load(
     let names: Vec<String> = squads.iter().map(|squad| squad.name.clone()).collect();
     let config = Config::load(core);
     // An invalid [tabs] still shows every squad; the view reports the error.
-    let (tabs, pinned) = if names.is_empty() {
+    let settings = config
+        .as_ref()
+        .ok()
+        .and_then(|config| config.tabs().ok())
+        .unwrap_or_default();
+    let users = settings
+        .user
+        .iter()
+        .map(|tab| tabs::user_key(&tab.name))
+        .collect::<Vec<_>>();
+    let (tabs, pinned) = if names.is_empty() && users.is_empty() {
         (Vec::new(), 0)
     } else {
-        let settings = config.as_ref().ok().and_then(|config| config.tabs().ok());
-        tabs::arrange(&names, &settings.unwrap_or_default())
+        tabs::arrange(&names, &settings)
     };
-    let hidden: Vec<String> = if names.is_empty() {
+    let hidden: Vec<String> = if names.is_empty() && users.is_empty() {
         Vec::new()
     } else {
         names
             .iter()
             .cloned()
             .chain([LEADS.to_owned(), ALL.to_owned()])
+            .chain(users.iter().cloned())
             .filter(|key| !tabs.contains(key))
             .collect()
     };
     // A hidden squad is still shown when asked for by name.
     let chosen = match &wanted {
-        Some(key) if (tabs::builtin(key) && !names.is_empty()) || names.contains(key) => {
+        Some(key)
+            if (tabs::builtin(key) && !names.is_empty())
+                || users.contains(key)
+                || names.contains(key) =>
+        {
             Some(key.clone())
         }
         Some(_) => None,
@@ -490,6 +504,8 @@ fn load(
             leads_view(core, tmux, config, &squads, &tabs, me)?
         } else if key == ALL {
             all_view(core, config, &squads, &tabs, me)?
+        } else if tabs::user_name(&key).is_some() {
+            member_view(core, tmux, config, &squads, &tabs, me, &key)?
         } else {
             let squad = squads
                 .iter()
@@ -634,19 +650,41 @@ fn leads_view(
     tabs: &[String],
     me: Option<crate::me::Me>,
 ) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
+    member_view(core, tmux, config, squads, tabs, me, LEADS)
+}
+
+fn member_view(
+    core: &Core,
+    tmux: bool,
+    config: &Config,
+    squads: &[Squad],
+    tabs: &[String],
+    me: Option<crate::me::Me>,
+    key: &str,
+) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
     let settings = config.tabs()?;
     // The cross-squad tabs have no squad table: the global theme alone.
     let (theme, theme_notice) = config.theme("")?;
-    let loaded = tab_view::load(core, config, squads, tabs, me.as_ref(), LEADS)?;
+    let loaded = tab_view::load(core, config, squads, tabs, me.as_ref(), key)?;
     let mut bindings = config.bindings(tmux, &[])?;
-    bindings.extend(settings.leads);
+    let tab = settings
+        .user
+        .iter()
+        .find(|tab| Some(tab.name.as_str()) == tabs::user_name(key));
+    let section_bindings = tab.map_or_else(Vec::new, |tab| {
+        tab.sections
+            .iter()
+            .map(|section| section.bind.clone())
+            .collect()
+    });
+    bindings.extend(tab.map_or(settings.leads.clone(), |tab| tab.selection.bind.clone()));
     let view = View {
         token_rate: None,
         derived: Default::default(),
         rows: loaded.rows,
         render: NotesRender::Markdown,
         bindings,
-        section_bindings: Vec::new(),
+        section_bindings,
         opener: config.program("opener")?,
         clipboard: config.program("clipboard")?,
         tab_colors: settings.colors,
@@ -654,7 +692,7 @@ fn leads_view(
         theme_notice,
         me: me.map(|me| me.name),
         replies: Vec::new(),
-        refresh: config.refresh(LEADS)?,
+        refresh: config.refresh(key)?,
         board: Board::simple(
             BoardMode::Split,
             Direction::LeftRight,
@@ -745,7 +783,7 @@ fn lead_notes(read: Option<Result<Value, crate::core::SquadError>>) -> Notes {
 mod tests {
     use super::*;
     use crate::squad::Member;
-    use crate::tab_view::{all_document, leads_document, roster_document};
+    use crate::tab_view::{all_document, leads_document, roster_document, tab_attention};
     use serde_json::json;
 
     fn member(id: &str, fields: &[(&str, &str)]) -> Member {
@@ -1062,6 +1100,136 @@ esac
                 .code,
             "SQUAD_TAB_NOT_FOUND"
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn user_board_and_ls_share_members_sections_bindings_and_failed_reads() {
+        let root = std::env::temp_dir().join(format!("squad-user-tab-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let executable = root.join("tmt");
+        crate::test_support::write_ready_executable(
+            &executable,
+            r##"#!/bin/sh
+root=${0%/*}
+case "$1" in
+room) printf '%s\n' '{"rooms":[{"id":"P","name":"squad-product"},{"id":"Q","name":"squad-quiet"}]}' ;;
+whoami) printf '%s\n' '{"bound":false}' ;;
+identity) printf '%s\n' '{"identity":{"id":"7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f","name":"ben"}}' ;;
+ls) printf '%s\n' '{"identities":[]}' ;;
+inbox)
+ if test -f "$root/fail-inbox"; then printf '%s\n' '{"error":{"code":"READ_FAILED","message":"inbox unavailable"}}'; exit 1; fi
+ printf '%s\n' '{"items":[{"requestId":"R","from":{"identityId":"S"},"preview":"approve","preparedAtMs":1}],"more":false}' ;;
+api)
+ input=$(cat)
+ case "$input" in
+ *'"room":"P"'*) printf '%s\n' '{"members":[{"id":"S","name":"sol","lifetime":"saved","metadata":{"squad.product.role":"lead","squad.product.state":"blocked","squad.product.task":"ship","usage.count":"1200"}},{"id":"L","name":"legacy","lifetime":"saved","metadata":{"squad.product.role":"lead","squad.product.pending":"review","usage.count":"950"}},{"id":"W","name":"worker","lifetime":"saved","metadata":{"squad.product.task":"hidden"}}]}' ;;
+ *'"room":"Q"'*)
+ if test -f "$root/fail-squad"; then printf '%s\n' '{"error":{"code":"READ_FAILED","message":"roster unavailable"}}'; exit 1; fi
+ printf '%s\n' '{"members":[{"id":"S","name":"sol","lifetime":"saved","metadata":{"squad.quiet.pending":"quiet approval","squad.quiet.state":"blocked"}}]}' ;;
+ *) exit 2 ;;
+ esac ;;
+*) exit 2 ;;
+esac
+"##,
+        );
+        let core = Core::at(executable);
+        let path = root.join("squad.toml");
+        std::fs::write(
+            &path,
+            r#"me = "ben"
+me_id = "7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f"
+[tabs]
+hide = ["quiet", "tab:needs-me"]
+[bind]
+enter = "tab"
+[tabs.needs-me]
+filter = "pending or waiting_on_you"
+sort = ["ctx", "squad", "name"]
+[tabs.needs-me.bind]
+enter = "jump"
+[[tabs.needs-me.section]]
+title = "Blocked"
+filter = "state = blocked"
+[tabs.needs-me.section.bind]
+o = "tab"
+[[tabs.needs-me.section]]
+title = "All decisions"
+filter = "pending or waiting_on_you"
+[[squad.product.section]]
+title = "Repeated"
+filter = "task"
+[[squad.quiet.section]]
+title = "First copy"
+filter = "pending"
+[[squad.quiet.section]]
+title = "Second copy"
+filter = "pending"
+[squad.product.rows]
+columns = [{ name = "member" }, { name = "ctx", from = "meta.usage.count", format = "tokens" }]
+"#,
+        )
+        .unwrap();
+        let mut config = Config::read(path).unwrap();
+        let squads = Squad::list(&core).unwrap();
+        let (tabs, _) = tabs::arrange(&["product".into(), "quiet".into()], &config.tabs().unwrap());
+        let key = tabs::user_key("needs-me");
+        for partial in [false, true, false] {
+            for marker in ["fail-inbox", "fail-squad"] {
+                if partial {
+                    std::fs::write(root.join(marker), "").unwrap();
+                } else {
+                    let _ = std::fs::remove_file(root.join(marker));
+                }
+            }
+            let view = member_view(
+                &core,
+                false,
+                &config,
+                &squads,
+                &tabs,
+                Some(crate::me::Me {
+                    id: "7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f".into(),
+                    name: "ben".into(),
+                }),
+                &key,
+            )
+            .unwrap()
+            .0;
+            let mut listed = crate::ls_tab_document(&core, &mut config, "needs-me")
+                .unwrap()
+                .document;
+            listed.as_object_mut().unwrap().remove("you");
+            assert_eq!(view.document, listed);
+            let mut expected = crate::rows::Rows::leads().value();
+            expected["columns"][1]["title"] = json!("MEMBER");
+            assert_eq!(view.rows.value(), expected);
+            assert_eq!(view.bindings["enter"].verb, crate::action::Verb::Jump);
+            assert_eq!(view.section_bindings[0]["o"].verb, crate::action::Verb::Tab);
+            if partial {
+                assert_eq!(listed["partial"], true);
+                assert_eq!(listed["failures"].as_array().unwrap().len(), 2);
+                assert_eq!(listed["sections"][1]["rows"][0]["name"], "legacy");
+                let text = crate::status::text(&listed, tmt_cli_style::Terminal::PLAIN);
+                assert!(text.contains("inbox unavailable") && text.contains("roster unavailable"));
+            } else {
+                assert!(listed.get("partial").is_none());
+                assert_eq!(listed["sections"][0]["rows"].as_array().unwrap().len(), 2);
+                let rows = listed["sections"][1]["rows"].as_array().unwrap();
+                assert_eq!(
+                    rows.iter()
+                        .map(|row| (
+                            row["squad"].as_str().unwrap(),
+                            row["name"].as_str().unwrap()
+                        ))
+                        .collect::<Vec<_>>(),
+                    [("product", "legacy"), ("product", "sol"), ("quiet", "sol")]
+                );
+                assert_eq!(rows[1]["waitingOnYou"][0]["requestId"], "R");
+                assert_eq!(rows[0]["fields"]["ctx"], "950");
+                assert_eq!(rows[1]["fields"]["ctx"], "1k");
+            }
+        }
         std::fs::remove_dir_all(root).unwrap();
     }
 

@@ -703,6 +703,13 @@ fn summary_line(app: &App) -> Line<'_> {
         plural(rows(), "squad lead", "squad leads")
     } else if app.current.as_deref() == Some(super::ALL) {
         plural(rows(), "squad", "squads")
+    } else if app
+        .current
+        .as_deref()
+        .and_then(super::tabs::user_name)
+        .is_some()
+    {
+        plural(count, "member", "members")
     } else {
         format!("{lead} · {}", plural(count, "member", "members"))
     };
@@ -730,13 +737,19 @@ fn summary_line(app: &App) -> Line<'_> {
             look.role(Role::Waiting),
         ));
     }
+    if view.document["partial"] == true {
+        spans.push(Span::styled(
+            " · partial: failed reads",
+            look.role(Role::Waiting),
+        ));
+    }
     Line::from(spans)
 }
 
 /// Reserve a fixed band only when the complete lead/attention summary fits.
 /// The normal ratatui render/diff owns all terminal writes.
 fn meter_region(app: &App, summary: Rect) -> Option<(Rect, super::meter::Layout)> {
-    if app.loading() || app.current.as_deref().is_none_or(super::tabs::builtin) {
+    if app.loading() || app.current.as_deref().is_none_or(super::tabs::aggregate) {
         return None;
     }
     let left = summary_line(app).width() + 2;

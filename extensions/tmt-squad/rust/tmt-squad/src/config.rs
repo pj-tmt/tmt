@@ -16,7 +16,7 @@ use std::{
 use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 
 mod states;
-pub use states::States;
+pub use states::{Rank, States};
 
 const FILE_LIMIT: u64 = 1024 * 1024;
 const MAX_SECTIONS: usize = 16;
@@ -308,6 +308,67 @@ pub struct Tabs {
     pub leads: Bindings,
     /// `[tabs.all.bind]`, over the `all` tab's own preset.
     pub all: Bindings,
+    pub user: Vec<UserTab>,
+}
+
+/// A configured member view; selection applies before section shaping.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserTab {
+    pub name: String,
+    pub selection: Section,
+    pub sections: Vec<Section>,
+}
+
+impl UserTab {
+    fn read(name: &str, item: &Item) -> Result<Self, SquadError> {
+        let place = format!("tabs.{name}");
+        if !crate::squad::valid_name(name) {
+            return Err(invalid(format!("`{place}` must use a squad-style name.")));
+        }
+        let mut table = item
+            .as_table()
+            .cloned()
+            .ok_or_else(|| invalid(format!("`{place}` must be a [tabs.{name}] table.")))?;
+        if let Some(key) = table
+            .iter()
+            .map(|(key, _)| key)
+            .find(|key| !["filter", "sort", "section", "bind"].contains(key))
+        {
+            return Err(invalid(format!(
+                "`{place}.{key}` is not a tab setting; use filter, sort, section or bind."
+            )));
+        }
+        let sections = read_sections(
+            table.remove("section").as_ref(),
+            &format!("{place}.section"),
+        )?;
+        table.insert("title", value(name));
+        let selection = Section::read(&table, &place)?;
+        Ok(Self {
+            name: name.into(),
+            selection,
+            sections,
+        })
+    }
+}
+
+fn read_sections(item: Option<&Item>, place: &str) -> Result<Vec<Section>, SquadError> {
+    let Some(item) = item else {
+        return Ok(Vec::new());
+    };
+    let tables = item
+        .as_array_of_tables()
+        .ok_or_else(|| invalid(format!("`{place}` must be [[{place}]] tables.")))?;
+    if tables.len() > MAX_SECTIONS {
+        return Err(invalid(format!(
+            "`{place}` allows at most {MAX_SECTIONS} sections."
+        )));
+    }
+    tables
+        .iter()
+        .enumerate()
+        .map(|(index, table)| Section::read(table, &format!("{place}[{index}]")))
+        .collect()
 }
 
 /// A built-in tab's table: only `bind`.
@@ -342,6 +403,15 @@ fn tab_list(item: &Item, place: &str) -> Result<Vec<String>, SquadError> {
         let key = match name {
             "leads" => crate::board::LEADS.to_owned(),
             "all" => crate::board::ALL.to_owned(),
+            _ if name.starts_with("tab:") => {
+                let tab = &name[4..];
+                if !crate::squad::valid_name(tab) || crate::tabs::reserved(tab) {
+                    return Err(invalid(format!(
+                        "`{place}` names invalid user tab `{name}`."
+                    )));
+                }
+                crate::tabs::user_key(tab)
+            }
             _ => {
                 let squad = name.strip_prefix("squad:").unwrap_or(name);
                 if !crate::squad::valid_name(squad) {
@@ -807,6 +877,7 @@ impl Config {
         config.me()?;
         config.me_id()?;
         config.validate_views()?;
+        config.tabs()?;
         Ok(config)
     }
 
@@ -1031,26 +1102,11 @@ impl Config {
     /// the single default list. `bind` is shape-checked here and used by the
     /// board's actions; it never comes from row data.
     pub fn sections(&self, squad: &str) -> Result<Vec<Section>, SquadError> {
-        let Some(item) = self
-            .squad_table(squad)?
-            .and_then(|table| table.get("section"))
-        else {
-            return Ok(Vec::new());
-        };
-        let place = format!("squad.{squad}.section");
-        let tables = item
-            .as_array_of_tables()
-            .ok_or_else(|| invalid(format!("`{place}` must be [[{place}]] tables.")))?;
-        if tables.len() > MAX_SECTIONS {
-            return Err(invalid(format!(
-                "`{place}` allows at most {MAX_SECTIONS} sections."
-            )));
-        }
-        tables
-            .iter()
-            .enumerate()
-            .map(|(index, table)| Section::read(table, &format!("{place}[{index}]")))
-            .collect()
+        read_sections(
+            self.squad_table(squad)?
+                .and_then(|table| table.get("section")),
+            &format!("squad.{squad}.section"),
+        )
     }
 
     /// How rows are laid out: `[squad.<name>.rows]`, the older `columns`
@@ -1801,9 +1857,25 @@ impl Config {
                 "colors" => tabs.colors = tab_colors(item)?,
                 "leads" => tabs.leads = tab_bindings(item, "tabs.leads")?,
                 "all" => tabs.all = tab_bindings(item, "tabs.all")?,
-                other => {
+                other => tabs.user.push(UserTab::read(other, item)?),
+            }
+        }
+        if tabs.user.len() > MAX_SECTIONS {
+            return Err(invalid(format!(
+                "`tabs` allows at most {MAX_SECTIONS} user tabs."
+            )));
+        }
+        for (place, list) in [
+            ("order", &tabs.order),
+            ("hide", &tabs.hide),
+            ("pin", &tabs.pin),
+        ] {
+            for key in list {
+                if let Some(name) = crate::tabs::user_name(key)
+                    && !tabs.user.iter().any(|tab| tab.name == name)
+                {
                     return Err(invalid(format!(
-                        "`tabs.{other}` is not a tabs setting; use order, pin, hide, colors, leads or all."
+                        "`tabs.{place}` references undefined `tabs.{name}`."
                     )));
                 }
             }
@@ -1856,6 +1928,9 @@ impl Config {
                 crate::board::LEADS => "leads".to_owned(),
                 crate::board::ALL => "all".to_owned(),
                 "leads" | "all" => format!("squad:{key}"),
+                key if crate::tabs::user_name(key).is_some() => {
+                    format!("tab:{}", crate::tabs::user_name(key).unwrap())
+                }
                 squad => squad.to_owned(),
             })
             .collect();
@@ -3099,7 +3174,10 @@ panes = ["rows", "notes"]
             "# my board\n[tabs] # arranged by hand\nhide = [\"quiet\"]\norder = [\"all\", \"product\", \"squad:leads\", \"leads\"]\n\n[bind]\no = \"open {pr_link}\"\n"
         );
         assert_eq!(
-            Config::read(path.clone()).unwrap().tabs().unwrap().order,
+            Config::read(path.clone())
+                .and_then(|config| config.tabs())
+                .unwrap()
+                .order,
             keys
         );
 
@@ -3138,7 +3216,7 @@ panes = ["rows", "notes"]
         let path = temp("tabs");
         let read = |body: &str| {
             fs::write(&path, body).unwrap();
-            Config::read(path.clone()).unwrap().tabs()
+            Config::read(path.clone()).and_then(|config| config.tabs())
         };
         assert_eq!(read("").unwrap(), Tabs::default());
         let tabs = read(
@@ -3182,6 +3260,66 @@ panes = ["rows", "notes"]
         }
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
+    #[test]
+    fn user_tabs_validate_eagerly_and_keep_distinct_squad_keys() {
+        let path = temp("user-tabs");
+        let body = r#"[tabs]
+order = ["tab:needs-me", "needs-me", "all"]
+pin = ["tab:needs-me"]
+hide = ["tab:quiet"]
+[tabs.needs-me]
+filter = "pending or waiting_on_you"
+sort = ["squad", "-name"]
+[tabs.needs-me.bind]
+enter = "jump"
+[[tabs.needs-me.section]]
+title = "Blocked"
+filter = "state = blocked"
+[tabs.needs-me.section.bind]
+o = "tab"
+[tabs.quiet]
+filter = "not pending"
+"#;
+        fs::write(&path, body).unwrap();
+        let mut config = Config::read(path.clone()).unwrap();
+        let tabs = config.tabs().unwrap();
+        assert_eq!(tabs.user[0].name, "needs-me");
+        assert_eq!(
+            tabs.user[0].sections[0].bind["o"].verb,
+            crate::action::Verb::Tab
+        );
+        let (keys, pinned) = crate::tabs::arrange(&["needs-me".into()], &tabs);
+        assert_eq!(keys, ["@tab:needs-me", "needs-me", "@all", "@leads"]);
+        assert_eq!(pinned, 1);
+        config.set_tab_order(&keys).unwrap();
+        assert_eq!(
+            Config::read(path.clone()).unwrap().tabs().unwrap().order,
+            keys
+        );
+        for (body, place) in [
+            (
+                "[tabs.hidden]\nfilter = 'pending and'",
+                "tabs.hidden.filter",
+            ),
+            ("[tabs.hidden]\nsort = [1]", "tabs.hidden.sort"),
+            ("[tabs.hidden]\nrows = {}", "tabs.hidden.rows"),
+            ("[tabs.hidden.bind]\nx = 'launch'", "tabs.hidden.bind"),
+            (
+                "[[tabs.hidden.section]]\ntitle = 'X'\nfilter = '('",
+                "tabs.hidden.section[0].filter",
+            ),
+            ("[tabs]\nhide = ['tab:missing']", "tabs.hide"),
+            ("[tabs.leads]\nfilter = 'pending'", "tabs.leads.filter"),
+            ("[tabs.Bad]", "tabs.Bad"),
+        ] {
+            fs::write(&path, body).unwrap();
+            let error = Config::read(path.clone()).err().unwrap();
+            assert_eq!(error.code, "SQUAD_CONFIG_INVALID");
+            assert!(error.message.contains(place), "{error:?}");
+        }
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
     #[test]
     fn implicit_team_preserves_simple_board_configs_and_explicit_team_is_strict() {
         let path = temp("layout-resolution");

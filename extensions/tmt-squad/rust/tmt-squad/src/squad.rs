@@ -160,7 +160,11 @@ impl Squad {
         self.roster_with(core, false)
     }
 
-    fn roster_with(&self, core: &Core, metadata: bool) -> Result<Vec<Member>, SquadError> {
+    pub(crate) fn roster_with(
+        &self,
+        core: &Core,
+        metadata: bool,
+    ) -> Result<Vec<Member>, SquadError> {
         let prefix = self.prefix();
         let input = if metadata {
             json!({"room": self.room_id})

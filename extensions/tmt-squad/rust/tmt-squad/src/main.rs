@@ -150,7 +150,7 @@ fn grammar() -> Command {
                 .arg(squad_option())
                 .arg(Arg::new("tab").long("tab").value_name("NAME")
                     .conflicts_with_all(["squad", "refresh-fields"])
-                    .help("List the same rows as the leads or all board tab"))
+                    .help("List the same rows as a built-in or configured board tab"))
                 .arg(
                     Arg::new("refresh-fields")
                         .long("refresh-fields")
@@ -858,7 +858,7 @@ fn run(
 
 /// List one aggregate tab through the same owner as the board worker.
 fn ls_tab_document(core: &Core, config: &mut Config, name: &str) -> Result<Outcome, SquadError> {
-    let key = tab_view::key(name)?;
+    let key = tab_view::key(config, name)?;
     let squads = Squad::list(core)?;
     let names = squads
         .iter()
@@ -872,7 +872,7 @@ fn ls_tab_document(core: &Core, config: &mut Config, name: &str) -> Result<Outco
         &squads,
         &tabs,
         you.as_ref().map(|(me, _)| me),
-        key,
+        &key,
     )?
     .document;
     document["you"] = you.map_or(

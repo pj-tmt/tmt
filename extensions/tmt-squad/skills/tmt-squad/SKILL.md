@@ -17,11 +17,59 @@ same command as `tmt squad`.
 tmt squad ls --json [--squad <name>]
 ```
 
-`tmt sq ls --tab leads` and `--tab all` return one built-in board tab's document,
+`tmt sq ls --tab <name>` returns one configured or built-in board tab's document,
 with the same rows, sections, attention, columns and lines as the board. Hidden
 squads remain included. `leads` lists each squad lead; `all` lists squad summaries.
 `--tab` cannot be combined with `--squad` or `--refresh-fields`. An unknown tab
 returns `SQUAD_TAB_NOT_FOUND`; an empty tab has an empty rows array.
+
+Define a cross-squad member view in `squad.toml`:
+
+```toml
+[tabs]
+order = ["tab:needs-me", "leads", "all"]
+pin = ["tab:needs-me"]
+
+[tabs.needs-me]
+filter = "pending or waiting_on_you"
+sort = ["squad", "name"]
+
+[tabs.needs-me.bind]
+enter = "jump"
+
+[[tabs.needs-me.section]]
+title = "Blocked"
+filter = "state = blocked"
+sort = ["squad", "name"]
+
+[tabs.needs-me.section.bind]
+o = "tab"
+```
+
+Run `tmt sq ls --tab needs-me --json` for that view. It includes leads and
+members across all squads, including hidden squads. Names use the squad-name
+rules; `leads`, `all`, `colors`, `order`, `pin` and `hide` are reserved.
+`tab:<name>` distinguishes a user view from a squad in `order`, `pin` and
+`hide`; unplaced views follow the default tabs in definition order. Hidden views
+remain reachable through the switcher and `ls --tab`.
+
+Filters use the section language: field presence, `=`, `!=`, `and`, `or`, `not`
+and parentheses. Fields include `squad`, `name`/`member`, `state`, `pending`,
+`presence`, `lifetime`, `role`, `task`, `activity`, projected custom fields, and
+`waiting_on_you` (present when a member waits on the recorded user). With no
+recorded user, that field is absent. Sort keys ascend by default; prefix `-` to
+descend. Missing values stay last; bound numeric values retain numeric order.
+The view filter selects rows before sections. Each matching section may repeat
+a row, with unmatched rows following untitled; an omitted filter selects all.
+Tab bindings override global bindings, and section bindings override tab bindings.
+Views use the squad/member/state/task row preset; per-tab `rows` are unsupported.
+At most 16 user views and 16 sections per view are allowed. Invalid definitions
+fail Config reading with their setting path, including hidden views.
+
+Failed roster or inbox reads set `partial: true` and include `failures` with
+source, optional squad, and error code/message. The board marks a partial view;
+text lists show warnings. Available rows remain visible, so an empty partial
+view must not be treated as evidence that nobody waits on you.
 
 With `--squad <name>` the document is that squad's; without it, it is always
 `{squads: [...], you}`, one document per squad in name order (even for one
