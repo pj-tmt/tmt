@@ -17,7 +17,7 @@ pub(crate) fn observe_named_in_pane(
     caller_pid: u64,
     pane_pid: u64,
     deadline: Instant,
-    executable: &str,
+    executables: &[&str],
 ) -> Option<ProcessIncarnation> {
     let snapshot = query_ps(
         runner,
@@ -26,11 +26,12 @@ pub(crate) fn observe_named_in_pane(
         4 * 1024 * 1024,
     )
     .ok()?;
-    let process = ancestor(
+    let process = named_ancestor(
         std::str::from_utf8(&snapshot.stdout).ok()?,
         caller_pid,
         pane_pid,
-        executable,
+        executables,
+        false,
     )?;
     match observe_runtime_process(runner, process, deadline).ok()? {
         ProcessObservation::Live(incarnation) => Some(incarnation),
@@ -62,7 +63,7 @@ pub(crate) fn observe_replacement(
             continue;
         }
         let pid = pid.parse::<u64>().ok()?;
-        if named_ancestor(text, pid, pane_pid, executable, true) == Some(pid) {
+        if named_ancestor(text, pid, pane_pid, &[executable], true) == Some(pid) {
             candidates.push(pid);
         }
     }
@@ -75,15 +76,16 @@ pub(crate) fn observe_replacement(
     }
 }
 
+#[cfg(test)]
 fn ancestor(text: &str, caller: u64, pane: u64, executable: &str) -> Option<u64> {
-    named_ancestor(text, caller, pane, executable, false)
+    named_ancestor(text, caller, pane, &[executable], false)
 }
 
 fn named_ancestor(
     text: &str,
     caller: u64,
     pane: u64,
-    executable: &str,
+    executables: &[&str],
     include_caller: bool,
 ) -> Option<u64> {
     let mut rows = HashMap::new();
@@ -111,7 +113,7 @@ fn named_ancestor(
         if (include_caller || pid != caller)
             && Path::new(command)
                 .file_name()
-                .is_some_and(|name| name == executable)
+                .is_some_and(|name| executables.iter().any(|executable| name == *executable))
             && runtime.is_none()
         {
             runtime = Some(pid);
@@ -130,6 +132,20 @@ fn named_ancestor(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn declared_aliases_match_exactly_on_the_verified_ancestry() {
+        let tree = "10 1 /bin/sh\n20 10 /opt/agent-alt\n30 20 /bin/tmt\n40 1 /bin/sh\n";
+        assert_eq!(
+            named_ancestor(tree, 30, 10, &["agent", "agent-alt"], false),
+            Some(20)
+        );
+        assert_eq!(named_ancestor(tree, 30, 10, &["agent"], false), None);
+        assert_eq!(
+            named_ancestor(tree, 30, 40, &["agent", "agent-alt"], false),
+            None
+        );
+    }
+
     #[test]
     fn claude_must_be_on_the_chain_in_the_verified_pane() {
         let tree = "10 1 /bin/zsh\n20 10 /opt/bin/claude\n30 20 /bin/sh\n40 30 /bin/tmt\n50 40 /bin/tmt\n60 1 /bin/zsh\n";

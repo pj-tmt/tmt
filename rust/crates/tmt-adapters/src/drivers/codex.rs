@@ -43,7 +43,7 @@ pub fn observe_in_pane(
     pane_pid: u64,
     deadline: std::time::Instant,
 ) -> Option<ProcessIncarnation> {
-    crate::runtime::evidence::observe_named_in_pane(runner, caller_pid, pane_pid, deadline, NAME)
+    crate::runtime::evidence::observe_named_in_pane(runner, caller_pid, pane_pid, deadline, &[NAME])
 }
 
 #[derive(Debug, Clone)]

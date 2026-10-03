@@ -328,7 +328,10 @@ pub fn commit(global_dir: &Path, mut record: DriverRecord) -> Result<DriverRecor
 }
 
 /// Whether `record` may join `drivers`, replacing one of its own name.
-fn admissible(record: &DriverRecord, drivers: &[DriverRecord]) -> Result<(), RegistryError> {
+pub(crate) fn admissible(
+    record: &DriverRecord,
+    drivers: &[DriverRecord],
+) -> Result<(), RegistryError> {
     let name = &record.name;
     if record.capabilities.name() != name
         || tmt_core::driver::ALL

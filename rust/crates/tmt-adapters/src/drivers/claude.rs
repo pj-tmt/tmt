@@ -7,9 +7,10 @@ pub use crate::runtime::hook_protocol::{
 use serde::Deserialize;
 pub mod channel;
 use tmt_core::binding::session::{
-    BindingSessionState, ObservedSessionKey, ProviderSessionId, RuntimeLiveness, RuntimeState,
-    SessionTransition,
+    BindingSessionState, ProviderSessionId, RuntimeLiveness, SessionTransition,
 };
+#[cfg(test)]
+use tmt_core::binding::session::{ObservedSessionKey, RuntimeState};
 use tmt_core::endpoint::ProcessIncarnation;
 
 pub fn observe_in_pane(
@@ -18,7 +19,7 @@ pub fn observe_in_pane(
     pane_pid: u64,
     deadline: std::time::Instant,
 ) -> Option<ProcessIncarnation> {
-    crate::runtime::evidence::observe_named_in_pane(runner, caller_pid, pane_pid, deadline, NAME)
+    crate::runtime::evidence::observe_named_in_pane(runner, caller_pid, pane_pid, deadline, &[NAME])
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,60 +43,14 @@ impl ClaudeObservation {
         incarnation: &ProcessIncarnation,
         previous_liveness: RuntimeLiveness,
     ) -> Option<BindingSessionState> {
-        let key = ObservedSessionKey {
-            incarnation: incarnation.clone(),
-            provider_session: Some(self.session.clone()),
-        };
-        if !self.starting {
-            let mut next = current.transition(&key, self.transition, None)?;
-            if matches!(
-                self.transition,
-                SessionTransition::Cleared | SessionTransition::Resumed
-            ) {
-                // A conversation switch is not a terminal end, but input is
-                // not deliverable until its matching start has been observed.
-                next.state = RuntimeState::Unknown;
-            }
-            return Some(next);
-        }
-        if let Some(previous) = &current.key {
-            if previous.incarnation != *incarnation {
-                if previous_liveness != RuntimeLiveness::Gone {
-                    return None;
-                }
-            } else {
-                if current.state == RuntimeState::Ended {
-                    return None;
-                }
-                match self.transition {
-                    SessionTransition::Compacted => {
-                        return current.transition(&key, self.transition, None);
-                    }
-                    SessionTransition::Cleared | SessionTransition::Resumed
-                        if previous.provider_session != key.provider_session =>
-                    {
-                        // The matching preliminary end records continuation. A
-                        // delayed start from an older conversation cannot jump
-                        // over a completed newer start with no matching end.
-                        if current.state != RuntimeState::Unknown
-                            || current.last_transition != Some(self.transition)
-                        {
-                            return None;
-                        }
-                        return current.transition(
-                            previous,
-                            self.transition,
-                            Some(self.session.clone()),
-                        );
-                    }
-                    SessionTransition::Cleared | SessionTransition::Resumed => {
-                        return current.transition(&key, self.transition, None);
-                    }
-                    _ => {}
-                }
-            }
-        }
-        current.admit(key, self.transition, RuntimeLiveness::Alive)
+        crate::runtime::lifecycle::propose_session(
+            &self.session,
+            self.transition,
+            self.starting,
+            current,
+            incarnation,
+            previous_liveness,
+        )
     }
 }
 

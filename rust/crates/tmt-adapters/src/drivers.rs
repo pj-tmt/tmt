@@ -7,6 +7,7 @@
 pub mod agy;
 pub mod claude;
 pub mod codex;
+pub mod external;
 pub mod gemini;
 pub mod opencode;
 pub mod pi;
@@ -119,11 +120,82 @@ pub(crate) fn suggested_name(command: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// One inventory: built-in definitions and owned approved declarations.
+#[derive(Debug, Clone)]
+pub enum DriverEntry {
+    Builtin(&'static DriverDefinition),
+    Approved(std::sync::Arc<external::ApprovedRuntime>),
+}
+
+impl DriverEntry {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Builtin(driver) => driver.name(),
+            Self::Approved(driver) => &driver.record.name,
+        }
+    }
+    pub fn executables(&self) -> Vec<&str> {
+        match self {
+            Self::Builtin(driver) => driver.descriptor.executables.to_vec(),
+            Self::Approved(driver) => driver
+                .declaration
+                .executables()
+                .iter()
+                .map(String::as_str)
+                .collect(),
+        }
+    }
+    pub fn hue(&self) -> Hue {
+        match self {
+            Self::Builtin(driver) => driver.descriptor.hue,
+            Self::Approved(_) => Hue::Neutral,
+        }
+    }
+    pub fn hook_format(&self) -> Option<HookFormat> {
+        match self {
+            Self::Builtin(driver) => driver.descriptor.hooks,
+            Self::Approved(driver) => driver
+                .declaration
+                .hooks()
+                .map(|_| HookFormat::SessionHooksJson),
+        }
+    }
+    pub fn env(&self) -> Vec<&str> {
+        match self {
+            Self::Builtin(driver) => driver.env.to_vec(),
+            Self::Approved(driver) => driver
+                .declaration
+                .env()
+                .iter()
+                .map(String::as_str)
+                .collect(),
+        }
+    }
+    /// Approval snapshot for externals; production setup refresh/context matching belongs to #1266 integration.
+    pub fn locations(&self, environment: &ProviderEnvironment) -> Option<Locations> {
+        match self {
+            Self::Builtin(driver) => Some(environment.locations(driver)),
+            Self::Approved(driver) => {
+                let answer = driver.record.locations.as_ref()?;
+                if !answer.within(environment.home().to_str()?) {
+                    return None;
+                }
+                Some(Locations {
+                    config_dirs: answer.config_dirs.iter().map(PathBuf::from).collect(),
+                    skills: PathBuf::from(&answer.skills),
+                    legacy_skills: Vec::new(),
+                    hook_settings: answer.hook_settings.as_ref().map(PathBuf::from),
+                })
+            }
+        }
+    }
+}
+
 /// An ordered set of drivers with unique names. Production uses
 /// [`Registry::builtin`]; a test can add a descriptor with [`Registry::with`].
 #[derive(Debug, Clone)]
 pub struct Registry {
-    drivers: Vec<&'static DriverDefinition>,
+    drivers: Vec<DriverEntry>,
 }
 
 impl Registry {
@@ -140,25 +212,68 @@ impl Registry {
                     MODULES
                         .into_iter()
                         .find(|module| std::ptr::eq(module.descriptor, *descriptor))
+                        .map(DriverEntry::Builtin)
                         .expect("every core descriptor has an adapter module")
                 })
                 .collect(),
         }
     }
 
+    /// Opt-in seam; production callers continue using `builtin` until #1266 integration.
+    pub fn with_approved(
+        mut self,
+        global: &std::path::Path,
+        tmt: &std::path::Path,
+    ) -> Result<Self, crate::driver_protocol::registry::RegistryError> {
+        let records = crate::driver_protocol::registry::read(global)?;
+        let mut approved = Vec::new();
+        for record in &records {
+            if record.capabilities.host().is_some() {
+                continue;
+            }
+            crate::driver_protocol::registry::admissible(record, &records)?;
+            if self.entries().any(|entry| entry.name() == record.name)
+                || approved
+                    .iter()
+                    .any(|entry: &DriverEntry| entry.name() == record.name)
+            {
+                return Err(crate::driver_protocol::registry::RegistryError::Invalid(
+                    "Duplicate driver name.".into(),
+                ));
+            }
+            approved.push(DriverEntry::Approved(std::sync::Arc::new(
+                external::ApprovedRuntime::load(global, record.clone(), tmt)?,
+            )));
+        }
+        approved.sort_by(|left, right| left.name().cmp(right.name()));
+        self.drivers.extend(approved);
+        Ok(self)
+    }
+
+    pub fn entries(&self) -> impl Iterator<Item = &DriverEntry> {
+        self.drivers.iter()
+    }
+
     /// # Panics
     /// When the name is invalid or already registered: a caller bug.
     pub fn with(mut self, driver: &'static DriverDefinition) -> Self {
         assert!(
-            DriverDescriptor::is_valid_name(driver.name()) && self.find(driver.name()).is_none(),
+            DriverDescriptor::is_valid_name(driver.name())
+                && self
+                    .entries()
+                    .all(|entry| !entry.name().eq_ignore_ascii_case(driver.name())),
             "a driver name must be valid and unique"
         );
-        self.drivers.push(driver);
+        self.drivers.push(DriverEntry::Builtin(driver));
         self
     }
 
+    /// Built-in projection used by existing production consumers until #1266 integration.
     pub fn iter(&self) -> impl Iterator<Item = &'static DriverDefinition> + '_ {
-        self.drivers.iter().copied()
+        self.drivers.iter().filter_map(|entry| match entry {
+            DriverEntry::Builtin(driver) => Some(*driver),
+            DriverEntry::Approved(_) => None,
+        })
     }
 
     /// The driver with this name, ignoring ASCII case.

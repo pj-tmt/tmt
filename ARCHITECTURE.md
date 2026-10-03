@@ -2770,7 +2770,26 @@ that answer and calls `within(home)` before admitting write targets. The CLI
 shows claims, executables, argv policy, hooks, paths and environment names before
 consent. Optional `claims: false` permits skills-only declarations without runtime
 recognition. Runtime launch, hooks and setup/detection consumers remain unwired
-until PR B2 of #1266; approval alone writes no provider files.
+until the production integration of #1266; approval alone writes no provider files.
+
+`drivers::Registry` owns one inventory of `DriverEntry::Builtin` definitions and
+owned `Approved` runtimes. Its opt-in `with_approved` loader reads and revalidates
+the common registry, verifies executable trust, and retains changed/missing
+approvals as unavailable. Entries expose names, executables, hue, hook format,
+environment names and approval locations. Existing built-in projections and
+production `RuntimeRegistry::first_party()` still use only built-ins; the approved
+seam is not adopted by run, hooks, setup or detection. The approval locations
+snapshot is not a refreshed setup target or hook usage context.
+
+`RuntimeRegistry::from_drivers` admits available approved runtimes, their claims
+and validated resume argv. `claims: false` disables recognition. Unavailable
+approvals retain remembered sessions and opaque state, refuse resume and provide
+no lifecycle; withdrawal permits the existing unregistered-driver purge. External
+runtimes expose no sender or channel and override their send allowance to zero.
+Their declarative lifecycle decodes start/end, prompt/activity and turn events
+without spawning a driver, using the same session-transition policy as Claude.
+Model/usage projections use the existing state format. Usage calls and production
+consumer wiring remain pending (#1266).
 
 A host's name, pane-ID prefix and target template (parsing, matching and the
 overlap check between hosts) are defined once in `rust/crates/tmt-host-grammar`,

@@ -7,7 +7,7 @@ use std::{
 };
 use tmt_core::binding::session::{
     BindingSessionState, DriverState, ObservedSessionKey, ProviderSessionId, RuntimeLiveness,
-    RuntimeMode, SessionPreferences,
+    RuntimeMode, RuntimeState, SessionPreferences, SessionTransition,
 };
 use tmt_core::endpoint::ProcessIncarnation;
 
@@ -244,6 +244,67 @@ pub trait RuntimeLifecycle {
 
 pub struct NoLifecycle;
 impl RuntimeLifecycle for NoLifecycle {}
+
+/// Session policy shared by built-in and declaratively decoded observations.
+pub(crate) fn propose_session(
+    session: &ProviderSessionId,
+    transition: SessionTransition,
+    starting: bool,
+    current: &BindingSessionState,
+    incarnation: &ProcessIncarnation,
+    previous_liveness: RuntimeLiveness,
+) -> Option<BindingSessionState> {
+    let key = ObservedSessionKey {
+        incarnation: incarnation.clone(),
+        provider_session: Some(session.clone()),
+    };
+    if !starting {
+        let mut next = current.transition(&key, transition, None)?;
+        if matches!(
+            transition,
+            SessionTransition::Cleared | SessionTransition::Resumed
+        ) {
+            // A conversation switch is not a terminal end, but input is
+            // not deliverable until its matching start has been observed.
+            next.state = RuntimeState::Unknown;
+        }
+        return Some(next);
+    }
+    if let Some(previous) = &current.key {
+        if previous.incarnation != *incarnation {
+            if previous_liveness != RuntimeLiveness::Gone {
+                return None;
+            }
+        } else {
+            if current.state == RuntimeState::Ended {
+                return None;
+            }
+            match transition {
+                SessionTransition::Compacted => {
+                    return current.transition(&key, transition, None);
+                }
+                SessionTransition::Cleared | SessionTransition::Resumed
+                    if previous.provider_session != key.provider_session =>
+                {
+                    // The matching preliminary end records continuation. A
+                    // delayed start from an older conversation cannot jump
+                    // over a completed newer start with no matching end.
+                    if current.state != RuntimeState::Unknown
+                        || current.last_transition != Some(transition)
+                    {
+                        return None;
+                    }
+                    return current.transition(previous, transition, Some(session.clone()));
+                }
+                SessionTransition::Cleared | SessionTransition::Resumed => {
+                    return current.transition(&key, transition, None);
+                }
+                _ => {}
+            }
+        }
+    }
+    current.admit(key, transition, RuntimeLiveness::Alive)
+}
 
 #[cfg(test)]
 mod admission_tests {
