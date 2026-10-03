@@ -58,55 +58,53 @@ impl Default for Reminders {
     }
 }
 
-/// Completed-request meter policy; independent of the ordinary board reload.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum TokenWindow {
-    Five,
-    #[default]
-    Minute,
-    HalfHour,
-    Hour,
+/// A board observation window, never persisted usage history.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TokenWindow(u64);
+
+impl Default for TokenWindow {
+    fn default() -> Self {
+        Self::MINUTE
+    }
 }
 
 impl TokenWindow {
+    pub const MINUTE: Self = Self(60_000);
+    pub const FIVE_MINUTES: Self = Self(300_000);
+    pub const HOUR: Self = Self(3_600_000);
+    pub const DEFAULTS: [Self; 3] = [Self::MINUTE, Self::FIVE_MINUTES, Self::HOUR];
+
     pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "5s" => Some(Self::Five),
-            "1m" => Some(Self::Minute),
-            "30m" => Some(Self::HalfHour),
-            "1h" => Some(Self::Hour),
-            _ => None,
+        let (number, scale) = value
+            .strip_suffix('m')
+            .map(|n| (n, 60_000))
+            .or_else(|| value.strip_suffix('h').map(|n| (n, 3_600_000)))?;
+        if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
         }
+        let milliseconds = number.parse::<u64>().ok()?.checked_mul(scale)?;
+        (60_000..=86_400_000)
+            .contains(&milliseconds)
+            .then_some(Self(milliseconds))
     }
     pub fn milliseconds(self) -> u64 {
-        match self {
-            Self::Five => 5_000,
-            Self::Minute => 60_000,
-            Self::HalfHour => 1_800_000,
-            Self::Hour => 3_600_000,
-        }
+        self.0
     }
-    pub fn available(self, every: Duration) -> Self {
-        if self == Self::Five && every != Duration::from_secs(5) {
-            Self::Minute
-        } else {
+    pub fn available(self, windows: [Self; 3]) -> Self {
+        if windows.contains(&self) {
             self
+        } else {
+            windows[0]
         }
     }
-    pub fn next(self, every: Duration) -> Self {
-        match self {
-            Self::Five => Self::Minute,
-            Self::Minute => Self::HalfHour,
-            Self::HalfHour => Self::Hour,
-            Self::Hour => Self::Five.available(every),
-        }
+    pub fn next(self, windows: [Self; 3]) -> Self {
+        windows[(windows.iter().position(|w| *w == self).unwrap_or(2) + 1) % 3]
     }
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Five => "5s",
-            Self::Minute => "1m",
-            Self::HalfHour => "30m",
-            Self::Hour => "1h",
+    pub fn label(self) -> String {
+        if self.0 > 3_600_000 && self.0 % 3_600_000 == 0 {
+            format!("{}h", self.0 / 3_600_000)
+        } else {
+            format!("{}m", self.0 / 60_000)
         }
     }
 }
@@ -117,6 +115,7 @@ pub struct TokenRate {
     pub every: Duration,
     pub reduced_motion: bool,
     pub window: TokenWindow,
+    pub windows: [TokenWindow; 3],
 }
 
 impl Default for TokenRate {
@@ -125,7 +124,8 @@ impl Default for TokenRate {
             enabled: false,
             every: Duration::from_secs(5),
             reduced_motion: false,
-            window: TokenWindow::Minute,
+            window: TokenWindow::MINUTE,
+            windows: TokenWindow::DEFAULTS,
         }
     }
 }
@@ -1372,6 +1372,12 @@ impl Config {
         )
     }
 
+    pub fn has_custom_rows(&self, squad: &str) -> Result<bool, SquadError> {
+        Ok(self
+            .squad_table(squad)?
+            .is_some_and(|t| t.get("rows").is_some() || t.get("columns").is_some()))
+    }
+
     pub fn rows(&self, squad: &str) -> Result<crate::rows::Rows, SquadError> {
         self.rows_setting(squad).map(|resolved| resolved.0)
     }
@@ -1636,6 +1642,7 @@ impl Config {
                 "collapsed",
                 "fold_below",
                 "token_rate",
+                "tok",
                 "view",
                 "hidden_columns",
             ]
@@ -1804,6 +1811,40 @@ impl Config {
         self.refresh_setting(squad).map(|resolved| resolved.0)
     }
 
+    /// Validate both layers, including a masked global value; source is for settings inspection.
+    pub fn token_windows(&self, squad: &str) -> Result<([TokenWindow; 3], String), SquadError> {
+        let mut result = (TokenWindow::DEFAULTS, "default".to_owned());
+        for (item, place) in [
+            (
+                self.document
+                    .get("board")
+                    .and_then(Item::as_table_like)
+                    .and_then(|t| t.get("tok")),
+                "board.tok".to_owned(),
+            ),
+            (
+                self.squad_table(squad)?
+                    .and_then(|t| t.get("board"))
+                    .and_then(Item::as_table_like)
+                    .and_then(|t| t.get("tok")),
+                format!("squad.{squad}.board.tok"),
+            ),
+        ] {
+            let Some(item) = item else { continue };
+            let windows: Option<[TokenWindow; 3]> = item.as_str().and_then(|text| {
+                text.split('/')
+                    .map(TokenWindow::parse)
+                    .collect::<Option<Vec<_>>>()?
+                    .try_into()
+                    .ok()
+            });
+            let windows = windows.filter(|w| w[0].0 < w[1].0 && w[1].0 < w[2].0)
+                .ok_or_else(|| invalid(format!("`{place}` needs three distinct ascending whole m/h durations from 1m through 24h (for example 1m/5m/60m).")))?;
+            result = (windows, place);
+        }
+        Ok(result)
+    }
+
     /// Preset, then global, then per-squad keys; no implicit second team path.
     pub fn token_rate(&self, squad: &str) -> Result<TokenRate, SquadError> {
         let mut settings = TokenRate::default();
@@ -1843,7 +1884,7 @@ impl Config {
                     "window" => {
                         settings.window =
                             item.as_str().and_then(TokenWindow::parse).ok_or_else(|| {
-                                invalid(format!("`{place}.window` must be 5s, 1m, 30m or 1h."))
+                                invalid(format!("`{place}.window` must be a whole m/h duration from 1m through 24h."))
                             })?;
                     }
                     "every" => {
@@ -1863,7 +1904,8 @@ impl Config {
                 }
             }
         }
-        settings.window = settings.window.available(settings.every);
+        settings.windows = self.token_windows(squad)?.0;
+        settings.window = settings.window.available(settings.windows);
         Ok(settings)
     }
 
@@ -3730,16 +3772,14 @@ filter = "not pending"
         assert!(config.enabled && config.reduced_motion);
         assert_eq!(config.every, Duration::from_secs(5));
         assert_eq!(
-            read("[board.token_rate]\nwindow='5s'\nevery='10s'", "p")
+            read("[board.token_rate]\nwindow='1m'\nevery='10s'", "p")
                 .unwrap()
                 .window,
-            TokenWindow::Minute
+            TokenWindow::MINUTE
         );
         assert_eq!(
-            read("[board.token_rate]\nwindow='30m'", "p")
-                .unwrap()
-                .window,
-            TokenWindow::HalfHour
+            read("[board.token_rate]\nwindow='5m'", "p").unwrap().window,
+            TokenWindow::FIVE_MINUTES
         );
         for value in ["off", "4s", "11s"] {
             assert!(read(&format!("[board.token_rate]\nevery='{value}'"), "p").is_err());
@@ -3747,10 +3787,57 @@ filter = "not pending"
         for setting in [
             "enabled=1",
             "reduced_motion='yes'",
-            "window='2m'",
+            "window='5s'",
             "every=5",
         ] {
             assert!(read(&format!("[squad.p.board.token_rate]\n{setting}"), "p").is_err());
         }
+    }
+    #[test]
+    fn tok_windows_validate_masked_layers_and_report_the_source() {
+        let path = temp("tok-windows");
+        for text in [
+            "1m/1m/60m",
+            "5m/1m/60m",
+            "1m/5m",
+            "0m/5m/60m",
+            "1m/5m/25h",
+            "1s/5m/60m",
+            "1m/5m/60m/24h",
+            "1m /5m/60m",
+        ] {
+            fs::write(
+                &path,
+                format!("[board]\ntok='{text}'\n[squad.p.board]\ntok='1m/5m/60m'\n"),
+            )
+            .unwrap();
+            let config = Config::read(path.clone()).unwrap();
+            assert!(
+                config
+                    .token_windows("p")
+                    .unwrap_err()
+                    .message
+                    .contains("board.tok"),
+                "{text}"
+            );
+        }
+        fs::write(
+            &path,
+            "[board]\ntok='5m/60m/24h'\n[squad.p.board]\ntok='1m/5m/60m'\n",
+        )
+        .unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        let (windows, source) = config.token_windows("other").unwrap();
+        assert_eq!(
+            windows.map(|w| w.milliseconds()),
+            [300_000, 3_600_000, 86_400_000]
+        );
+        assert_eq!(source, "board.tok");
+        assert_eq!(
+            config.token_windows("p").unwrap(),
+            (TokenWindow::DEFAULTS, "squad.p.board.tok".into())
+        );
+        assert_eq!(config.token_rate("other").unwrap().window, windows[0]);
+        fs::remove_file(path).unwrap();
     }
 }
