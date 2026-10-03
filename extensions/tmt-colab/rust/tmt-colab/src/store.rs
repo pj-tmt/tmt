@@ -125,8 +125,12 @@ impl Store {
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
         )?;
         connection.busy_timeout(Duration::from_secs(2))?;
-        schema::check_read_version(&connection)?;
+        schema::check_version(&connection)?;
         Ok(Self { connection })
+    }
+    /// Management inspection requires current tables, without migrating legacy state.
+    pub fn require_current_schema(&self) -> StoreResult<()> {
+        schema::check_read_version(&self.connection)
     }
     pub fn create_page(&self, page: &str) -> StoreResult<()> {
         bounded_id(page)?;

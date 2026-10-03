@@ -296,7 +296,7 @@ fn error_code(error: &(dyn std::error::Error + Send + Sync + 'static)) -> &'stat
         })
         .or_else(|| {
             error
-                .downcast_ref::<cli_management::Failure>()
+                .downcast_ref::<cli_management::ManagementFault>()
                 .map(|e| e.code)
         })
         .or_else(|| {
@@ -358,7 +358,7 @@ fn main() -> ExitCode {
     match run(&matches) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            let cli_failure = error.downcast_ref::<cli_management::Failure>();
+            let cli_failure = error.downcast_ref::<cli_management::ManagementFault>();
             let code = error_code(error.as_ref());
             if matches
                 .subcommand()

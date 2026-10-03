@@ -24,19 +24,19 @@ use tmt_colab::{
 use tmt_colab_model::values;
 
 #[derive(Debug)]
-pub struct Failure {
+pub struct ManagementFault {
     pub code: &'static str,
     pub message: String,
     pub correlation: Value,
 }
-impl std::fmt::Display for Failure {
+impl std::fmt::Display for ManagementFault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.message)
     }
 }
-impl std::error::Error for Failure {}
+impl std::error::Error for ManagementFault {}
 fn fail(code: &'static str, message: &str) -> Box<dyn std::error::Error + Send + Sync> {
-    Box::new(Failure {
+    Box::new(ManagementFault {
         code,
         message: message.into(),
         correlation: json!({}),
@@ -399,6 +399,7 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
     }
     let key = Keyring::read(&layout)?;
     let store = Store::read(&layout)?;
+    store.require_current_schema()?;
     let mut catalog = inspection::catalog(&store, &key)?;
     if command == "ls" {
         let pages = catalog["pages"]
@@ -490,14 +491,14 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         Ok(value)
     })()
     .map_err(|e| {
-        if let Some(f) = e.downcast_ref::<Failure>() {
-            Box::new(Failure {
+        if let Some(f) = e.downcast_ref::<ManagementFault>() {
+            Box::new(ManagementFault {
                 code: f.code,
                 message: f.message.clone(),
                 correlation: correlation.clone(),
             }) as Box<dyn std::error::Error + Send + Sync>
         } else {
-            Box::new(Failure {
+            Box::new(ManagementFault {
                 code: crate::error_code(e.as_ref()),
                 message: e.to_string(),
                 correlation: correlation.clone(),
@@ -532,7 +533,7 @@ fn output(value: &Value, json_output: bool) -> Result<()> {
                 )),
             ]);
         }
-        tmt_cli_style::list::Section {title:"PAGES",count:Some(pages.len()),rows,note:Some("Expiry times unavailable pending #1350; local data is never automatically deleted.".into()),hint:None}.write(&mut out,terminal)?;
+        tmt_cli_style::list::Section {title:"PAGES",count:Some(pages.len()),rows,note:Some("Expiry times unavailable pending #1350; local data is never automatically deleted."),hint:None}.write(&mut out,terminal)?;
     } else {
         let fields = value
             .as_object()

@@ -5007,8 +5007,9 @@ Member, history, retention, archive and delete commands are deferred.
 Subcommand names precede page operands; the shared help audit stays
 unchanged. `inspection` verifies policy/member/link views through existing Store
 snapshots and materializes active titles only through the authenticated isolated
-fold. Read-only Store opening admits existing private files and current schemas
-without creation, journal changes or migrations. Archived titles and expiry
+fold. The CLI reuses read-only Store opening for existing private files and
+requires current schemas explicitly, without creation, journal changes or
+migrations; native export retains its existing legacy-read behavior. Archived titles and expiry
 without durable update evidence are explicitly unavailable (#1350).
 The CLI captures mutation IDs, revisions and selections once, checks explicit
 confirmation for widening, and chooses private IPC or the existing
