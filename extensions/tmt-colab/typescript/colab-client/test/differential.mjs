@@ -105,12 +105,20 @@ try {
       await page.goto(origin);
       await page.waitForFunction(() => window.client);
       const result = await page.evaluate(
-        async ({ corpus, fixture, nativeEnvelope, authority, nativeAuthority, ownerCases }) => {
+        async ({
+          engine,
+          corpus,
+          fixture,
+          nativeEnvelope,
+          authority,
+          nativeAuthority,
+          ownerCases,
+        }) => {
           const c = window.client;
           const hex = (s) => Uint8Array.from(s.match(/../g) ?? [], (n) => parseInt(n, 16));
           const same = (a, b) => c.equal(a, hex(b));
-          const assert = (ok) => {
-            if (!ok) throw new Error('Browser conformance check failed');
+          const assert = (ok, message = 'Browser conformance check failed') => {
+            if (!ok) throw new Error(message);
           };
           await c.probeCapabilities();
           const root = hex(authority.public);
@@ -325,6 +333,73 @@ try {
             false,
             ['sign'],
           );
+          const rootHandle = await crypto.subtle.importKey(
+            'raw',
+            hex(fixture.master),
+            'HKDF',
+            false,
+            ['deriveBits'],
+          );
+          assert(rootHandle.extractable === false, 'HKDF root is extractable');
+          assert(
+            same(
+              await env.open(decoded.context, rootHandle, hex(fixture.public)),
+              fixture.plaintext,
+            ),
+          );
+          const frozenSeals = [];
+          const entropy = Object.getOwnPropertyDescriptor(crypto, 'getRandomValues');
+          // Harness-only entropy control; no caller-selected ID API is added.
+          try {
+            Object.defineProperty(crypto, 'getRandomValues', {
+              configurable: true,
+              value: (bytes) => {
+                assert(bytes instanceof Uint8Array && bytes.length === 32);
+                bytes.set(hex(decoded.objectId));
+                return bytes;
+              },
+            });
+            for (const root of [hex(fixture.master), rootHandle]) {
+              const sealed = await c.Envelope.seal(
+                decoded.context,
+                root,
+                privateKey,
+                hex(fixture.plaintext),
+              );
+              assert(c.equal(sealed.header(), env.header()), 'frozen root-path header differs');
+              assert(
+                c.equal(sealed.ciphertext(), env.ciphertext()),
+                'frozen root-path ciphertext differs',
+              );
+              assert(
+                await c.strictVerify(
+                  hex(fixture.public),
+                  sealed.signature(),
+                  await c.signatureInput(sealed.header(), sealed.ciphertext()),
+                ),
+                'frozen root-path signature is invalid',
+              );
+              assert(
+                same(
+                  await sealed.open(decoded.context, rootHandle, hex(fixture.public)),
+                  fixture.plaintext,
+                ),
+              );
+              // WebKit's native signer uses randomized Ed25519 signatures. Derivation is exact;
+              // full frozen-envelope equality belongs to the deterministic engines and Node.
+              if (engine !== 'webkit') {
+                assert(c.equal(sealed.toJson(), env.toJson()), 'frozen root-path envelope differs');
+                assert(
+                  same(await sealed.hash(), fixture.envelopeHash),
+                  'frozen root-path hash differs',
+                );
+              }
+              frozenSeals.push(sealed);
+            }
+          } finally {
+            if (entropy) Object.defineProperty(crypto, 'getRandomValues', entropy);
+            else delete crypto.getRandomValues;
+          }
           const master = hex(fixture.master),
             pt = hex(fixture.plaintext);
           const pending = c.Envelope.seal(decoded.context, master, privateKey, pt);
@@ -333,19 +408,11 @@ try {
           decoded.context.prevHash.fill(9);
           const a = await pending,
             original = c.decodeHeader(h).context;
-          const b = await c.Envelope.seal(
-            original,
-            hex(fixture.master),
-            privateKey,
-            hex(fixture.plaintext),
-          );
+          const b = await c.Envelope.seal(original, rootHandle, privateKey, hex(fixture.plaintext));
           assert(!c.equal(a.header(), b.header()));
           for (const e of [a, b])
             assert(
-              same(
-                await e.open(original, hex(fixture.master), hex(fixture.public)),
-                fixture.plaintext,
-              ),
+              same(await e.open(original, rootHandle, hex(fixture.public)), fixture.plaintext),
             );
           const signer = hex(fixture.public),
             sig = hex(fixture.signature),
@@ -420,7 +487,7 @@ try {
           return {
             rows,
             checks: true,
-            outgoing: [a, b].map((e) => ({
+            outgoing: [...frozenSeals, a, b].map((e) => ({
               envelope: c.decodeText(e.toJson()),
               public: fixture.public,
               secret: fixture.master,
@@ -428,7 +495,7 @@ try {
             })),
           };
         },
-        { corpus, fixture, nativeEnvelope, authority, nativeAuthority, ownerCases },
+        { engine: name, corpus, fixture, nativeEnvelope, authority, nativeAuthority, ownerCases },
       );
       results.push({ engine: name, version: browser.version(), ...result });
     } catch (error) {
@@ -444,13 +511,14 @@ const destination =
   process.env.COLAB_REPORT ?? fileURLToPath(new URL('differential-results.json', root));
 await writeFile(destination, JSON.stringify({ engines, results }, null, 2) + '\n');
 validateReport(results, corpus, engines);
-const opened = native({
-  seal: false,
-  cases: results.flatMap((r) =>
-    r.outgoing.map((v) => ({ ...v, envelope: JSON.parse(v.envelope) })),
-  ),
-});
-if (opened.length !== engines.length * 2 || opened.some((v) => v !== true))
+// Keep each engine's four seals within the native example's bounded input batch.
+const opened = results.flatMap((r) =>
+  native({
+    seal: false,
+    cases: r.outgoing.map((v) => ({ ...v, envelope: JSON.parse(v.envelope) })),
+  }),
+);
+if (opened.length !== engines.length * 4 || opened.some((v) => v !== true))
   throw new Error('Incomplete browser-to-Rust interop');
 console.log(`Selected engines: ${engines.join(', ')}`);
 console.log(

@@ -30,12 +30,20 @@ owner/issuer signature. Syntax grants nothing: every authority use still require
 a successful strict native signature. No custom curve or extra possession step
 is introduced.
 
-Object seal generates its ID internally. Retrying means retaining the same
-immutable envelope. Mutable byte inputs are copied before asynchronous crypto.
+Object seal generates its ID internally. WebKit's native Ed25519 signer produces
+valid randomized signatures. No Colab code may rely on re-signing to reproduce
+envelope bytes or hashes: every retry must resend the stored frozen bytes. The
+envelope hash covers the signature, so a re-seal is a new object. Mutable byte
+inputs are copied before asynchronous crypto.
 Signing and recipient private keys are non-extractable native handles; recipient
 restoration verifies its public-key binding using native X25519. No seed import
 or intermediate-secret API is provided. Capability probes require a secure
 context and fail on unavailable Ed25519/X25519 without a fallback.
+
+Object seal/open accepts either a 32-byte epoch root or a non-extractable
+HKDF/deriveBits handle imported from a validated 32-byte root. Handle input length
+is hidden by WebCrypto, so its importing caller owns that check. No handle is
+exported; derivation labels and cipher inputs remain the contract's frozen values.
 
 Unit tests use the workspace-pinned Vite+ runner and explicitly select
 `vitest.config.ts`; lint, formatting and the three-engine harness retain their
@@ -52,7 +60,10 @@ a scoped run is not full L1 evidence. Developers run the default full set before
 The test-only harness checks WebCrypto snapshots, opaque keys, independent known
 answers and fresh ciphertext interoperability both ways with the Rust model
 through developer-only examples, plus exact authority answers and fresh native
-wraps/statements in all engines. Its imported keys are public fixtures, never
+wraps/statements in all engines. Root-handle checks require exact frozen
+headers/ciphertexts, handle-open and strict signature verification in every engine,
+then Rust verification of all fresh seals. Full frozen-envelope equality is checked
+in Node, Chromium and Firefox. Its imported keys are public fixtures, never
 product inputs. The independent frozen-vector generators remain documented in
 [the vector provenance](../../contracts/vectors/README.md).
 
