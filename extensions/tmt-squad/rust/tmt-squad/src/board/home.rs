@@ -58,7 +58,8 @@ pub struct SquadLine {
     pub squad: String,
     pub lead: Option<Value>,
     pub counts: Counts,
-    pub pressing: Option<Value>,
+    /// Each non-lead membership contributes one mark, in urgency order.
+    pub members: Counts,
 }
 
 #[derive(Debug)]
@@ -139,6 +140,33 @@ fn counts(rows: &[Value]) -> Counts {
         working: rows.iter().filter(|row| row["state"] == "working").count(),
         idle: rows.iter().filter(|row| row["state"] == "idle").count(),
     }
+}
+
+fn member_counts(rows: &[Value], lead: &Value) -> Counts {
+    let mut counts = Counts::default();
+    for row in rows {
+        if lead["id"].is_string() && row["id"] == lead["id"] {
+            continue;
+        }
+        counts.members += 1;
+        if row["pending"].is_string()
+            || row["waitingOnYou"]
+                .as_array()
+                .is_some_and(|requests| !requests.is_empty())
+        {
+            counts.waiting += 1;
+        } else {
+            match row["state"].as_str() {
+                Some("blocked") => counts.blocked += 1,
+                Some("review") => counts.review += 1,
+                Some("working") => counts.working += 1,
+                Some("idle") => counts.idle += 1,
+                // Custom or unreported states still count as members.
+                _ => (),
+            }
+        }
+    }
+    counts
 }
 
 fn model(order: &[String], acquired: &Acquired, now: u64) -> Home {
@@ -232,31 +260,12 @@ fn model(order: &[String], acquired: &Acquired, now: u64) -> Home {
             summary.review += one.review;
             summary.working += one.working;
             summary.idle += one.idle;
-            let pressing = sections
-                .iter()
-                .flat_map(|section| &section.rows)
-                .find(|row| row.squad == name)
-                .map(|row| &row.member)
-                .or_else(|| {
-                    rows.iter().min_by_key(|row| {
-                        (
-                            match row["state"].as_str() {
-                                Some("review") => 0,
-                                Some("working") => 1,
-                                Some("idle") => 2,
-                                _ => 3,
-                            },
-                            row["name"].as_str().unwrap_or_default(),
-                        )
-                    })
-                })
-                .cloned();
             let lead = &acquired.documents[name]["squad"]["lead"];
             SquadLine {
                 squad: name.into(),
                 lead: lead.is_object().then(|| lead.clone()),
                 counts: one,
-                pressing,
+                members: member_counts(&rows, lead),
             }
         })
         .collect();
@@ -280,5 +289,4 @@ mod paint;
 pub(super) use controller::{Send, Target};
 pub(super) use paint::{age_label, hints, render, summary};
 
-#[cfg(test)]
 mod tiles;

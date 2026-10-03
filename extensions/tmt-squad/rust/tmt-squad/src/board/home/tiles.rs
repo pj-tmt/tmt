@@ -1,6 +1,6 @@
 //! The squad section returns lines and local regions to the single home painter.
 use super::{Counts, SquadLine};
-use crate::look::Look;
+use crate::{board::app::HomeUsage, config::TokenWindow, look::Look};
 use ratatui::text::{Line, Span};
 use std::ops::Range;
 use tmt_cli_style::{Role, grid::Align};
@@ -14,6 +14,16 @@ pub(super) struct TileItem<'a> {
     pub squad: &'a SquadLine,
     /// Exclusive non-lead state counts, projected from acquired memberships.
     pub members: &'a Counts,
+    /// Already sampled runtime windows; this section only formats observations.
+    pub usage: Option<HomeUsage<'a>>,
+}
+
+impl TileItem<'_> {
+    fn windows(&self) -> [TokenWindow; 3] {
+        self.usage
+            .as_ref()
+            .map_or(TokenWindow::DEFAULTS, |usage| usage.windows)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -184,15 +194,159 @@ fn lead<'a>(item: &'a TileItem<'_>) -> &'a str {
         .unwrap_or("no lead")
 }
 
-fn tile(item: &TileItem<'_>, width: u16, selected: bool, look: Look) -> Vec<Line<'static>> {
+fn mixed_windows(items: &[TileItem<'_>]) -> bool {
+    items
+        .first()
+        .is_some_and(|first| items.iter().any(|item| item.windows() != first.windows()))
+}
+
+/// The home painter owns the section heading; column names appear there once.
+pub(super) fn legend(items: &[TileItem<'_>], width: u16) -> String {
+    if mixed_windows(items) {
+        return "lead tokens · windows vary".into();
+    }
+    let windows = items
+        .first()
+        .map_or(TokenWindow::DEFAULTS, TileItem::windows);
+    let labels = windows[usize::from(width < 150 || compact(width, items.len()))..]
+        .iter()
+        .map(|window| window.label())
+        .collect::<Vec<_>>()
+        .join(" · ");
+    if compact(width, items.len()) {
+        format!("lead tokens · {labels}")
+    } else {
+        format!("lead tokens · {labels} · share ({})", windows[2].label())
+    }
+}
+
+fn tokens(item: &TileItem<'_>, index: usize) -> String {
+    item.usage
+        .as_ref()
+        .and_then(|usage| usage.lead[index])
+        .map_or_else(
+            || "—".into(),
+            |reading| {
+                format!(
+                    "{}{}",
+                    if reading.partial { "~" } else { "" },
+                    crate::source::render_value(
+                        &serde_json::Value::String(reading.tokens.to_string()),
+                        crate::source::Format::Tokens,
+                        0
+                    )
+                    .expect("token count is numeric")
+                )
+            },
+        )
+}
+
+fn share(item: &TileItem<'_>) -> String {
+    item.usage
+        .as_ref()
+        .and_then(|usage| usage.share.as_ref())
+        .map_or_else(
+            || "—".into(),
+            |share| {
+                format!(
+                    "{}{:.0}%",
+                    if share.partial { "~" } else { "" },
+                    share.fraction * 100.0
+                )
+            },
+        )
+}
+
+fn value_span(value: &str, width: u16, selected: bool, look: Look) -> Span<'static> {
+    span(
+        tmt_tui::text::fit_line(value, width, TextFlow::Truncate, Align::Right),
+        Role::Text,
+        selected,
+        look,
+    )
+}
+
+fn lead_line(
+    item: &TileItem<'_>,
+    width: u16,
+    all_windows: bool,
+    mixed: bool,
+    selected: bool,
+    look: Look,
+) -> Line<'static> {
+    let token_width: u16 = if mixed { 9 } else { 6 };
+    let share_width: u16 = if mixed { 10 } else { 6 };
+    let first = usize::from(!all_windows);
+    let values_width = token_width * (3 - first) as u16 + share_width;
+    let model_width = width.saturating_sub(values_width).min(8);
+    let name_width = width.saturating_sub(values_width + model_width);
+    let mut spans = vec![
+        span(fit(lead(item), name_width), Role::Text, selected, look),
+        span(
+            fit(
+                item.usage
+                    .as_ref()
+                    .and_then(|usage| usage.lead_model)
+                    .unwrap_or("—"),
+                model_width,
+            ),
+            Role::Muted,
+            selected,
+            look,
+        ),
+    ];
+    for index in first..3 {
+        let value = tokens(item, index);
+        let value = if mixed {
+            format!("{}:{value}", item.windows()[index].label())
+        } else {
+            value
+        };
+        let available = width.saturating_sub(spans.iter().map(Span::width).sum::<usize>() as u16);
+        spans.push(value_span(
+            &value,
+            token_width.min(available),
+            selected,
+            look,
+        ));
+    }
+    let value = if mixed {
+        format!("{}:{}", item.windows()[2].label(), share(item))
+    } else {
+        share(item)
+    };
+    let available = width.saturating_sub(spans.iter().map(Span::width).sum::<usize>() as u16);
+    spans.push(value_span(
+        &value,
+        share_width.min(available),
+        selected,
+        look,
+    ));
+    Line::from(spans)
+}
+
+fn tile(
+    item: &TileItem<'_>,
+    width: u16,
+    all_windows: bool,
+    mixed: bool,
+    selected: bool,
+    look: Look,
+) -> Vec<Line<'static>> {
     vec![
         heading(item, width, selected, look),
-        Line::from(span(fit(lead(item), width), Role::Text, selected, look)),
+        lead_line(item, width, all_windows, mixed, selected, look),
         member_line(item.members, width, selected, look),
     ]
 }
 
-fn compact_line(item: &TileItem<'_>, width: u16, selected: bool, look: Look) -> Line<'static> {
+fn compact_line(
+    item: &TileItem<'_>,
+    width: u16,
+    mixed: bool,
+    selected: bool,
+    look: Look,
+) -> Line<'static> {
     let (badge, role) = if item.squad.counts.waiting > 0 {
         (" ◆ ", Role::Waiting)
     } else if item.squad.counts.blocked > 0 {
@@ -202,8 +356,23 @@ fn compact_line(item: &TileItem<'_>, width: u16, selected: bool, look: Look) -> 
     };
     let badge_width = width.min(3);
     let room = width - badge_width;
-    let name_width = (room / 4).min(18);
-    let lead_width = (room / 4).min(20);
+    let values = if mixed {
+        format!(
+            " {}:{} {}:{} {}:{}",
+            item.windows()[1].label(),
+            tokens(item, 1),
+            item.windows()[2].label(),
+            tokens(item, 2),
+            item.windows()[2].label(),
+            share(item)
+        )
+    } else {
+        format!(" {:>6}{:>6}", tokens(item, 1), tokens(item, 2))
+    };
+    let value_width = (unicode_width::UnicodeWidthStr::width(values.as_str()) as u16).min(room / 2);
+    let room = room - value_width;
+    let name_width = (room / 3).min(18);
+    let lead_width = (room / 3).min(20);
     let mut spans = vec![
         span(fit(badge, badge_width), role, selected, look),
         span(
@@ -215,6 +384,7 @@ fn compact_line(item: &TileItem<'_>, width: u16, selected: bool, look: Look) -> 
         span(fit(lead(item), lead_width), Role::Text, selected, look),
     ];
     spans.extend(member_line(item.members, room - name_width - lead_width, selected, look).spans);
+    spans.push(value_span(&values, value_width, selected, look));
     Line::from(spans)
 }
 
@@ -230,6 +400,7 @@ pub(super) fn paint(
         .map(|item| item.squad.squad.as_str())
         .collect::<Vec<_>>();
     let placements = placement(width, &names)?;
+    let mixed = mixed_windows(items);
     let height = placements
         .iter()
         .map(|(region, _)| region.lines.end)
@@ -241,9 +412,9 @@ pub(super) fn paint(
         let item = &items[region.item];
         let selected = selected == Some(region.item);
         let rows = if compact(width, items.len()) {
-            vec![compact_line(item, text_width, selected, look)]
+            vec![compact_line(item, text_width, mixed, selected, look)]
         } else {
-            tile(item, text_width, selected, look)
+            tile(item, text_width, width >= 150, mixed, selected, look)
         };
         for (index, mut row) in region.lines.clone().zip(rows) {
             let target = &mut lines[index];

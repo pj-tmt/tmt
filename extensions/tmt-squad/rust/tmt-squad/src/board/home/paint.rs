@@ -1,6 +1,9 @@
-//! Flat home painting; ordinary pane geometry and scalar rows keep their owners.
+//! One home painter; ordinary pane geometry and scalar rows keep their owners.
 
-use super::{Age, AgeSource, Counts, Home};
+use super::{
+    Age, AgeSource, Counts, Home,
+    tiles::{self, TileItem},
+};
 use crate::{
     board::{
         app::{App, Hit},
@@ -123,6 +126,8 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
         ));
     }
     let mut starts = Vec::new();
+    let mut regions = Vec::new();
+    let receipt_now = std::time::Instant::now();
     let mut section = "";
     if !entries
         .iter()
@@ -153,87 +158,98 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                 _ => ("③ squads", Role::Muted),
             };
             lines.push(Line::default());
-            let title = format!("── {label} · {count} ");
+            let items = if section == "squads" {
+                entries[index..]
+                    .iter()
+                    .take_while(|entry| entry.target.section == "squads")
+                    .map(|entry| {
+                        let squad = home
+                            .squads
+                            .iter()
+                            .find(|squad| squad.squad == entry.target.squad)
+                            .expect("home target retains its acquired squad");
+                        TileItem {
+                            squad,
+                            members: &squad.members,
+                            usage: app.home_usage(&squad.squad, receipt_now),
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+            let legend = if items.is_empty() {
+                String::new()
+            } else {
+                format!(" · {}", tiles::legend(&items, area.width))
+            };
+            let title = format!("── {label} · {count}{legend} ");
             let tail = width.saturating_sub(unicode_width::UnicodeWidthStr::width(title.as_str()));
             lines.push(Line::styled(
                 fit(&format!("{title}{}", "─".repeat(tail)), width),
                 look.role(role),
             ));
+            if section == "squads" {
+                let start = lines.len();
+                let selected = app
+                    .selected
+                    .checked_sub(index)
+                    .filter(|local| *local < items.len());
+                match tiles::paint(&items, area.width, look, selected) {
+                    Ok(painted) => {
+                        for region in painted.regions {
+                            starts.push(start + region.lines.start);
+                            regions.push((
+                                index + region.item,
+                                start + region.lines.start..start + region.lines.end,
+                                region.x,
+                                region.width,
+                            ));
+                        }
+                        lines.extend(painted.lines);
+                    }
+                    Err(error) => lines.push(Line::styled(
+                        format!("tiles unavailable: {error}"),
+                        look.role(Role::Waiting),
+                    )),
+                }
+            }
+        }
+        if section == "squads" {
+            continue;
         }
         starts.push(lines.len());
+        regions.push((index, lines.len()..lines.len() + 1, 0, area.width));
         let selected = index == app.selected;
         let name = escape(entry.row["name"].as_str().unwrap_or_default());
         let mut spans = Vec::new();
         let text_span = |text: String, role: Role, emphasize| {
             Span::styled(text, look.row_span(selected, look.role(role), emphasize))
         };
-        if let Some(one) = entry.counts {
-            let (badge, role) = if one.waiting > 0 {
-                ("◆", Role::Waiting)
-            } else if one.blocked > 0 {
-                ("✗", Role::Blocked)
+        let waiting = entry.target.section == "needs-you";
+        let age = entry.age.map(|age| age_label(age, now)).unwrap_or_default();
+        let age_width = unicode_width::UnicodeWidthStr::width(age.as_str());
+        let available = width.saturating_sub(4 + age_width);
+        let name_width = (available / 2).min(24);
+        spans.push(text_span(
+            format!(" {} ", if waiting { "◆" } else { "✗" }),
+            if waiting {
+                Role::Waiting
             } else {
-                (" ", Role::Dim)
-            };
-            let name_width = (width / 5).min(22);
-            let lead_width = (width / 5).min(24);
-            spans.push(text_span(format!(" {badge} "), role, true));
-            spans.push(text_span(fit(&name, name_width), Role::Accent, true));
-            spans.push(text_span(
-                fit(&escape(entry.lead.unwrap_or("no lead")), lead_width),
-                Role::Text,
-                false,
-            ));
-            let distribution = counts(one, look, false);
-            let demand: usize = distribution.iter().map(Span::width).sum();
-            let room = width.saturating_sub(3 + name_width + lead_width);
-            if demand <= room {
-                spans.extend(distribution.into_iter().map(|span| {
-                    Span::styled(span.content, look.row_span(selected, span.style, true))
-                }));
-                let pressing = entry
-                    .pressing
-                    .filter(|_| one.waiting > 0 || one.blocked > 0 || one.review > 0)
-                    .and_then(|row| row["name"].as_str())
-                    .unwrap_or("");
-                spans.push(text_span(
-                    fit(&escape(pressing), room - demand),
-                    Role::Muted,
-                    false,
-                ));
-            } else {
-                spans.push(text_span(
-                    fit(&format!("{} members", one.members), room),
-                    Role::Dim,
-                    false,
-                ));
-            }
-        } else {
-            let waiting = entry.target.section == "needs-you";
-            let age = entry.age.map(|age| age_label(age, now)).unwrap_or_default();
-            let age_width = unicode_width::UnicodeWidthStr::width(age.as_str());
-            let available = width.saturating_sub(4 + age_width);
-            let name_width = (available / 2).min(24);
-            spans.push(text_span(
-                format!(" {} ", if waiting { "◆" } else { "✗" }),
-                if waiting {
-                    Role::Waiting
-                } else {
-                    Role::Blocked
-                },
-                true,
-            ));
-            spans.push(text_span(fit(&name, name_width), Role::Text, false));
-            spans.push(text_span(
-                fit(
-                    &escape(&entry.target.squad),
-                    available.saturating_sub(name_width),
-                ),
-                Role::Muted,
-                false,
-            ));
-            spans.push(text_span(format!(" {age}"), Role::Dim, false));
-        }
+                Role::Blocked
+            },
+            true,
+        ));
+        spans.push(text_span(fit(&name, name_width), Role::Text, false));
+        spans.push(text_span(
+            fit(
+                &escape(&entry.target.squad),
+                available.saturating_sub(name_width),
+            ),
+            Role::Muted,
+            false,
+        ));
+        spans.push(text_span(format!(" {age}"), Role::Dim, false));
         let mut line = Line::from(spans);
         let padding = width.saturating_sub(line.width());
         line.spans.push(Span::raw(" ".repeat(padding)));
@@ -248,25 +264,25 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
         lines.push(Line::styled("③ squads · 0", look.role(Role::Dim)));
     }
     if app.follow
-        && let Some(start) = starts.get(app.selected)
+        && let Some((_, range, _, _)) = regions.iter().find(|(row, _, _, _)| *row == app.selected)
     {
         app.scrolls
-            .reveal_range(Pane::Rows, *start..start + 1, area, lines.len());
+            .reveal_range(Pane::Rows, range.clone(), area, lines.len());
     }
     let (offset, shown) = app
         .scrolls
         .show(frame, Pane::Rows, area, &lines, look.role(Role::Dim));
-    for (row, start) in starts
-        .iter()
-        .enumerate()
-        .filter(|(_, start)| **start >= offset && **start < offset + shown)
-    {
-        app.hits.borrow_mut().push(Hit {
-            y: area.y + (*start - offset) as u16,
-            x: area.x,
-            width: area.width,
-            row,
-        });
+    for (row, range, x, width) in regions {
+        for line in range.start.max(offset)..range.end.min(offset + shown) {
+            if width > 0 {
+                app.hits.borrow_mut().push(Hit {
+                    y: area.y + (line - offset) as u16,
+                    x: area.x + x,
+                    width,
+                    row,
+                });
+            }
+        }
     }
     *app.row_starts.borrow_mut() = starts;
 }

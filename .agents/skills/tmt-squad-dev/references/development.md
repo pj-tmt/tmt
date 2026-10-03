@@ -39,6 +39,11 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
   and partial-read recovery. `board::home::tests` checks the retained board model
   against that aggregate. Use an isolated `XDG_CACHE_HOME` when testing board
   observation.
+- Home tile checks cover literal 160/100/80 geometry, exclusive non-lead marks/counts,
+  missing/zero/partial observations, configured and mixed window labels, full selection
+  in `tmt`, `tmt-light` and `NO_COLOR`, continuation clicks, complete selected-range
+  reveal, clipped hits and resize without target drift. Capture quiet/waiting/blocked/many
+  squads with isolated state; frozen board/list parity remains unchanged.
 - Settings editor changes: cover live preview, focus and age-evidence restoration on cancel,
   invalid input, read-only command entries and stale-file refusal (native edits verify shared
   staleness after reload, including the disabled no-publication path); capture normal and
