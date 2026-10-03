@@ -99,9 +99,7 @@ fn alternate_home_uses_invocation_directory_and_never_changes_files() {
 }
 
 #[test]
-fn oversized_and_unreadable_config_remain_unchanged() {
-    use std::os::unix::fs::PermissionsExt;
-
+fn oversized_config_is_unknown_and_unchanged() {
     let fixture = TestDirectory::new();
     let home = fixture.path.join(".codex");
     fs::create_dir(&home).unwrap();
@@ -114,14 +112,6 @@ fn oversized_and_unreadable_config_remain_unchanged() {
         LocalProjectTrust::Unknown
     );
     assert_eq!(fs::read(&path).unwrap(), oversized);
-    fs::write(&path, "# unreadable fixture\n").unwrap();
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
-    let result = local_project_trust(&env, &fixture.path);
-    let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
-    assert_eq!(mode, 0);
-    assert_eq!(result, LocalProjectTrust::Unknown);
-    assert_eq!(fs::read_to_string(&path).unwrap(), "# unreadable fixture\n");
 }
 
 #[test]
@@ -135,16 +125,19 @@ fn missing_home_is_not_created_and_unsupported_inputs_are_unknown() {
     );
     assert!(!home.exists());
     fs::create_dir(&home).unwrap();
-    for contents in ["[invalid", "projects = 3", "projects = []"] {
+    // Invalid UTF-8 and malformed/unsupported TOML remain unknown even for root.
+    for contents in [
+        b"[invalid".as_slice(),
+        b"projects = 3",
+        b"projects = []",
+        b"\xff",
+    ] {
         fs::write(home.join("config.toml"), contents).unwrap();
         assert_eq!(
             local_project_trust(&env, &fixture.path),
             LocalProjectTrust::Unknown
         );
-        assert_eq!(
-            fs::read_to_string(home.join("config.toml")).unwrap(),
-            contents
-        );
+        assert_eq!(fs::read(home.join("config.toml")).unwrap(), contents);
     }
     fs::remove_file(home.join("config.toml")).unwrap();
     fs::create_dir(home.join("config.toml")).unwrap();
