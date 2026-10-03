@@ -43,7 +43,12 @@ sensitivity of that check.
 
 ## Cases
 
-`ask.spec.ts` lists the Ask cases. A case that needs code that has not landed is
-`test.fixme` with its dependency; enable it by writing its body, never with a stand-in. Assert
-the recipient's text equals the previewed bytes, including the `[remote: <device>]` line, and
-that the agent list shows `unavailable` for delivery.
+`ask.spec.ts` holds the seven Ask cases (direct send with exact bytes and a second viewer,
+browser reload, Remote restart after and before the core acts, Colab restart, revocation,
+held grant). Their bodies drive the real Ask UI (`harness/ask.ts`: `selectInRenderer`,
+`previewAsk`, `send`, `askEntry`, `askState`). They are `test.fixme` for one reason: v1 has no
+product way to create a page, so `createPage` fails visibly until `tmt colab page create`
+exists; the suite never seeds a page with a test-only producer. The held case also needs a
+hold grant for the device. Enable a case by removing `fixme`, never with a stand-in.
+Assert the recipient's text equals the previewed text, including the `[remote: <device>]`
+line, and that no delivery state is shown (presence only).

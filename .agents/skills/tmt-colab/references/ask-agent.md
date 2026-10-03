@@ -69,6 +69,32 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   matching) and the decoder validates the `intents`, `messages` and `replies` roots with it.
   Nothing there dispatches or persists.
 
+## Page wiring
+
+- **Session and client.** `registration.ts` keeps the exact Session returned by
+  `sdk.reopenSession()` as `remoteSession`. `mounted.ts` builds one shared `RemoteClient`
+  from it before any sync `Connection` opens; an SDK without `operations` leaves Ask
+  unavailable and source usable. On reconnect it coalesces re-registration, owner and
+  same-device verification and a new client into one shared replacement.
+- **`live-ask.ts` (`LiveAsk`) and `live.ts`.** `LiveAsk` composes the controller and store for
+  a page: constructing or reconnecting it sends nothing, every effect starts from an explicit
+  trusted action. `Live#replaceAsk` closes the old facade and builds the new one, binding the
+  store to the registration keys, the admitted own state and `Writer.submitOwn`. The
+  observer runs only while the page is visible and has subscribers, and a Session end fails
+  the Live connection.
+- **Reading asks.** `pageAsks`/`readAskViews` run per admitted writer; other writers' asks
+  verify with `Objects.ownSigningKey`, a display-only key captured from an authenticated,
+  cut-admitted own envelope (revoked history stays inert and grants no authority). Slow
+  verification keeps one active and the latest pending snapshot, so source edit and export
+  keep reading the committed document.
+- **UI.** The parent (`ask-panel.tsx`, `ask-preview.tsx`) owns the picker, preview and Send
+  (`event.isTrusted`); test IDs: `ask-action`, `ask-agent-picker`, `ask-agent-option`
+  (`data-agent-id`), `ask-agents-unavailable`, `ask-preview` (`data-operation-id`),
+  `ask-preview-text`, `ask-send`, `ask-panel`, `ask-entry` (`data-operation-id`,
+  `data-writer`), `ask-state` (`data-state`), `ask-reply` (`data-empty`) and
+  `ask-reply-attribution`. Entries show the publisher labels, with routing UUIDs under
+  Details.
+
 ## Invariants and gotchas
 
 - Reload, reconnect, a timer or an observer never dispatches. A resend, even with the same

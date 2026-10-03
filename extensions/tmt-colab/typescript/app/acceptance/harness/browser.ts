@@ -15,10 +15,12 @@ export interface Door {
 }
 
 /** Real tmt-remote door with real tmt-colab mounted on its owner-only socket. */
-export async function startDoor(world: AcceptanceWorld): Promise<Door> {
+export async function startDoor(world: AcceptanceWorld, port = 0): Promise<Door> {
   const remote = world.spawn(`remote-serve-${Date.now()}`, world.binaries.remote, [
     'serve',
     '--json',
+    '--port',
+    String(port),
   ]);
   const descriptor = await remote.event((value) => typeof value.address === 'string');
   const colab = world.spawn(`colab-serve-${Date.now()}`, world.binaries.colab, ['serve', '--json']);
@@ -80,4 +82,34 @@ export async function openColab(door: Door, browser: PairedBrowser): Promise<Pag
   const response = await page.goto(`${door.mounts}colab/`);
   expect(response?.status()).toBe(200);
   return page;
+}
+
+/**
+ * Kill tmt-remote with SIGKILL and start it again on the same port, so paired
+ * browsers keep their origin. The caller releases any core barrier first when
+ * the owned core child must finish before Remote's serve lease frees.
+ */
+export async function restartRemote(world: AcceptanceWorld, door: Door): Promise<void> {
+  await door.remote.kill();
+  const port = Number(new URL(door.address).port);
+  const remote = world.spawn(`remote-serve-${Date.now()}`, world.binaries.remote, [
+    'serve',
+    '--json',
+    '--port',
+    String(port),
+  ]);
+  const descriptor = await remote.event((value) => typeof value.address === 'string');
+  if (new URL(descriptor.address as string).origin !== door.origin)
+    throw new Error('Remote restarted on another origin');
+  door.remote = remote;
+  door.address = descriptor.address as string;
+  door.mounts = `${door.address}/x/`;
+}
+
+/** Stop and start tmt-colab so its mounted socket and sync state are rebuilt. */
+export async function restartColab(world: AcceptanceWorld, door: Door): Promise<void> {
+  await door.colab.stop();
+  const colab = world.spawn(`colab-serve-${Date.now()}`, world.binaries.colab, ['serve', '--json']);
+  await colab.event((value) => value.state === 'mounted');
+  door.colab = colab;
 }
