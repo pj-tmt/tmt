@@ -4,6 +4,24 @@ The [architecture](../../../../ARCHITECTURE.md#main-release-cuts) owns the relea
 model; this reference owns the cut/source tooling contract and procedures; the [release skill](../SKILL.md#main-cut-authorization)
 owns authorization.
 
+## Branch lines and versions
+
+`main` is the active v5 line; `v4` is the maintenance line rooted at
+`7056679dfa816a1acef8e7c978cf1733a578115b`. If remote `v4` is absent, create it
+at that anchor only on an explicit maintenance-line request, then verify the
+remote ref. Before branch mutations verify remote refs and ancestry; never
+force-push or repoint a long-lived line. Keep v4 fixes on that line unless an
+explicitly scoped backport is requested. Use its available checks and record
+coverage gaps rather than requiring contexts that branch cannot produce.
+
+`rust/Cargo.toml` owns the CLI version exposed through Cargo. Keep retained
+developer-package versions and public instructions consistent on version changes;
+the embedded native skill has no separate plugin version. The nested v5 TypeScript
+package is private tooling; npm publishing or a download wrapper needs a separately
+scoped distribution decision. Historical v4 publishing follows that branch's rules.
+
+## Cut allocation
+
 `release.yml` runs on main pushes, the hourly backup schedule (minute 17 UTC) and
 manual dispatch. Under the serialized `release-cut` group, a push proceeds only
 when no admitted live cut started within the preceding 55 minutes. The gate reads
@@ -167,8 +185,8 @@ and semantic lock entry. Only the selected local version declaration and implied
 qualified dependency references may change. Build, assembly, archive and upgrade
 proofs each recheck this contract, including CLI adapter acceptance. Dist plan,
 build manifest and extracted binary must agree. Already-versioned reruns require
-byte-identical source and lock. Preparation uses the skill's non-publishing
-synthetic version and keeps the same source/artifact/installation gates.
+byte-identical source and lock. Preparation uses the [fixture reference's non-publishing
+synthetic version](installation-fixtures.md#synthetic-preparation-version) and keeps the same source/artifact/installation gates.
 
 ## Native pipeline selection
 
@@ -235,9 +253,13 @@ reads the draft again and refuses unless its version is an alpha, its component 
 (`release: false` in `.github/components.json` disables release for a component: the cut planner creates nothing
 for it and the native planner leaves its drafts alone and this command refuses them, so a draft that
 predates the flag cannot publish), and it carries the bundle and neither
-`publication-held.json` nor `verification-failed.json`; then publication applies the
-[release skill's explicit flags and bounded latest convergence](../SKILL.md#main-cut-authorization). Both
-flags are explicit because draft flags are not publication policy. The `published` job
+`publication-held.json` nor `verification-failed.json`; then publication applies the bundle's `release-publication.json` flags. Both flags
+are explicit because draft flags are not publication policy. CLI alphas are normal
+releases (`prerelease=false`), initially published with `latest=false`. Bounded
+read/correct/readback rounds converge latest to the highest published CLI version;
+a stale publisher corrects again to the current maximum, and disagreement after
+the bound fails visibly. Extensions and drivers remain prereleases with
+`latest=false`. Managed alpha discovery must choose the highest eligible version. The `published` job
 then reads the release back: it is public and `immutable: true`, its flags are the policy's (a
 CLI latest names the highest published CLI version, an extension release never is), its tag is on
 the release commit, it carries `release-publication.json`, and GitHub's attestation verifies
@@ -267,7 +289,8 @@ The tag is checked out only so its skills can be read; none of its code runs.
 The shared `.github/actions/public-install-smoke` action supplies the workflow's
 `contents: read` `GITHUB_TOKEN` only through the verifier's process environment.
 The verifier forwards it to the shell bootstrap and native acquisition commands,
-never argv, inspection commands or asset fetches. The native HTTPS client sends it
+never argv, disk, inspection commands or asset fetches. Redact output and verify
+isolated installed state contains no credential. The native HTTPS client sends it
 only to `api.github.com`, rebuilding authorization per redirect hop; public bootstrap
 and archive downloads remain unauthenticated. Native bounded HTTPS retries are unchanged.
 
@@ -275,7 +298,10 @@ The CLI latest-installer read retries only an older alpha than the highest just-
 tag (three reads, two 20-second waits); unchanged lag fails, while malformed versions and download errors fail immediately. A newer valid
 alpha selects the candidate's versioned installer for its exact installation proof. Install jobs have a 25-minute bound and
 read-only contents permissions; a separate issue writer reports failures with all four
-host artifacts. Historical anonymous rate-limit issues are not automatically closed.
+host artifacts. Exhausted rate limits fail smoke; there is no deferred rate-limit retry
+workflow. Use PR-only four-host proof against published releases for tooling changes,
+never a publishing dispatch. Historical anonymous rate-limit issues remain visible
+to the release monitor and are not automatically closed.
 
 ## Manual publication readback
 

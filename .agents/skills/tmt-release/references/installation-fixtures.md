@@ -13,15 +13,23 @@ development CLI.
 
 For local installation-fixture preparation, start with a clean, committed task
 checkout and follow the [version-injection procedure](main-cuts.md) using
-`product=cli`, an empty tag and a snapshot outside the checkout. The
-[release skill](../SKILL.md#main-cut-authorization) owns the
-synthetic-version rule. Build
+`product=cli`, an empty tag and a snapshot outside the checkout. Use the
+[synthetic preparation version](#synthetic-preparation-version) below. Build
 only `tmt-cli --bin tmt` in debug mode, copy it and the independently built Herdr
 companion into `debug/native-release-fixture/`, and verify the source gate again.
 After that succeeds, restore only `rust/Cargo.toml` and `rust/Cargo.lock` from the
 captured commit and confirm `git diff --exit-code HEAD --` before running tests.
 Retain the fixture, build time and source-gate evidence in the delivery record;
 never publish this synthetic version. Shared-host Cargo limits still apply.
+
+## Synthetic preparation version
+
+Non-publishing `prepare` rehearsals and installation fixtures use
+`<committed major.minor.patch>-alpha.999999`, derived only through
+`release-versions.syntheticAlphaVersion`. This synthetic version is never a real
+cut or publication target. Preparation keeps the draft tag empty, creates no Git
+tag and runs all source, archive and installation gates against the injected
+version. It adds no dispatch input and activates no product.
 
 ## Development version comparisons
 
