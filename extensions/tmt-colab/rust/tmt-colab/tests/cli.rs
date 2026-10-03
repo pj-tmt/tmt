@@ -357,3 +357,346 @@ fn package_version_exits_without_core_or_state_access() {
         );
     }
 }
+
+const PAGE: &str = "10000000-0000-4000-8000-000000000001";
+const MEMBER: &str = "20000000-0000-4000-8000-000000000001";
+const NEW_MEMBER: &str = "20000000-0000-4000-8000-000000000002";
+const OPERATION: &str = "40000000-0000-4000-8000-000000000001";
+fn seed_page(pilot: &Pilot) {
+    use ed25519_dalek::{Signer, SigningKey};
+    use tmt_colab::{
+        keyring::{Keyring, Layout},
+        store::{
+            Envelope, Namespace, Store, StreamScope,
+            owner::{Device, Mutation, Recipient},
+        },
+    };
+    use tmt_colab_model::{certificate, object, values, wrap};
+    use yrs::{Doc, Map, ReadTxn, StateVector, Text, Transact};
+    let layout = Layout::open(&pilot.root.join("selected")).unwrap();
+    let key = Keyring::open(&layout).unwrap();
+    let mut store = Store::open(&layout).unwrap();
+    store.create_page(PAGE).unwrap();
+    let editor = SigningKey::from_bytes(&[7; 32]);
+    let device = SigningKey::from_bytes(&[9; 32]);
+    let device_id = "30000000-0000-4000-8000-000000000001";
+    store.owner_transaction(&key.space_id,&key.owner_public(),Mutation {operation_id:OPERATION,digest:[7;32],expected_revision:0},|tx| {
+        let owner=key.management_member()?;
+        for r in [Recipient {kind:"member".into(),id:owner.id,role:Some("editor".into()),signing_key:owner.signing_key,encryption_key:owner.encryption_key,pages:vec![],revoked:false},
+            Recipient {kind:"member".into(),id:MEMBER.into(),role:Some("editor".into()),signing_key:editor.verifying_key().to_bytes(),encryption_key:wrap::RecipientKey::from_seed(&[8;32])?.public_key(),pages:vec![PAGE.into()],revoked:false}] {
+            let payload=serde_json::to_vec(&json!({"memberId":r.id,"role":r.role,"signKey":values::encode_binary(&r.signing_key),"encKey":values::encode_binary(&r.encryption_key),"pages":r.pages}))?;
+            let statement=key.sign_statement(tx.head(),"member.add",&payload)?;
+            tx.append_statement(&statement)?;tx.put_recipient(&r)?;
+            if r.id==MEMBER {
+                let cert=certificate::input(&certificate::Certificate {space:&key.space_id,issuer_kind:"member",issuer_id:MEMBER,device_id,
+                    signing_key:&device.verifying_key().to_bytes(),encryption_key:&wrap::RecipientKey::from_seed(&[10;32])?.public_key(),membership_revision:"2",issued_at:1,expires_at:9007199254740991})?;
+                tx.put_device(&Device {revoked:false,chain:serde_json::to_vec(&json!({"version":1,"issuerStatement":values::encode_binary(&statement.hash()?),"deviceCertificate":values::encode_binary(&cert),"issuerSignature":values::encode_binary(&editor.sign(&cert).to_bytes())}))?})?;
+            }
+        }
+        tx.put_epoch_secret(PAGE,1,&[11;32])?;Ok(b"seeded".to_vec())
+    }).unwrap();
+    let doc = Doc::new();
+    let html = doc.get_or_insert_text("html");
+    let meta = doc.get_or_insert_map("meta");
+    {
+        let mut tx = doc.transact_mut();
+        html.insert(&mut tx, 0, "<h1>Encrypted source</h1>");
+        meta.insert(&mut tx, "title", "Encrypted π\u{1b}[31m");
+    }
+    let update = doc
+        .transact()
+        .encode_state_as_update_v1(&StateVector::default());
+    let object = object::seal(
+        &object::Context {
+            space: key.space_id.clone(),
+            page: PAGE.into(),
+            epoch: "1".into(),
+            kind: "update".into(),
+            namespace: "content".into(),
+            author_device: device_id.into(),
+            membership_revision: "2".into(),
+            stream_seq: "1".into(),
+            prev_hash: [0; 32],
+        },
+        &[11; 32],
+        &device,
+        &update,
+    )
+    .unwrap();
+    store
+        .append(&Envelope {
+            scope: StreamScope {
+                page: PAGE,
+                epoch: 1,
+                stream: device_id,
+            },
+            namespace: Namespace::Content,
+            seq: 1,
+            hash: object.hash().unwrap(),
+            previous: [0; 32],
+            bytes: &object.to_json().unwrap(),
+        })
+        .unwrap();
+    store.close().unwrap();
+}
+fn failure(pilot: &Pilot, args: &[&str], code: &str) -> Value {
+    let output = pilot.command().args(args).output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stderr.is_empty(), "{:?}", output);
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["error"]["code"], code, "{result}");
+    result
+}
+#[test]
+fn management_reads_verify_encrypted_titles_and_preserve_missing_and_existing_state() {
+    let pilot = Pilot::new(None);
+    assert_eq!(pilot.call(&["ls", "--json"])["pages"], json!([]));
+    assert!(!pilot.root.join("selected").exists());
+    failure(&pilot, &["show", PAGE, "--json"], "COLAB_PAGE_NOT_FOUND");
+    assert!(!pilot.root.join("selected").exists());
+    seed_page(&pilot);
+    let db = pilot.root.join("selected/colab/space.db");
+    let before = fs::read(&db).unwrap();
+    let list = pilot.call(&["ls", "--json"]);
+    let show = pilot.call(&["show", PAGE, "--json"]);
+    assert_eq!(list["pages"][0]["title"], "Encrypted π\u{1b}[31m");
+    assert_eq!(show["page"], list["pages"][0]);
+    assert_eq!(show["members"][0]["id"], MEMBER);
+    assert_eq!(show["page"]["warnings"], json!(["expiry-unavailable"]));
+    assert_eq!(show["page"]["lastUpdateAtMs"], Value::Null);
+    assert_eq!(show["page"]["expiresAtMs"], Value::Null);
+    assert_eq!(show["discussions"], "not-available");
+    assert_eq!(
+        pilot.call(&["retention", PAGE, "--json"])["page"]["retentionDays"],
+        30
+    );
+    let human = pilot.command().args(["ls"]).output().unwrap();
+    assert!(human.status.success());
+    assert!(!human.stdout.contains(&0x1b));
+    assert!(String::from_utf8_lossy(&human.stdout).contains("Expiry times unavailable"));
+    assert_eq!(fs::read(db).unwrap(), before);
+}
+#[test]
+fn management_confirmation_and_input_denials_have_no_state_effects() {
+    let pilot = Pilot::new(None);
+    seed_page(&pilot);
+    let db = pilot.root.join("selected/colab/space.db");
+    let before = fs::read(&db).unwrap();
+    for args in [
+        vec!["delete", PAGE, "--json"],
+        vec!["share", "mode", PAGE, "link", "--json"],
+        vec!["share", "mode", PAGE, "public", "--json"],
+    ] {
+        failure(&pilot, &args, "COLAB_CONFIRMATION_REQUIRED");
+    }
+    failure(
+        &pilot,
+        &["retention", PAGE, "--days", "0", "--json"],
+        "COLAB_INPUT_INVALID",
+    );
+    failure(
+        &pilot,
+        &["retention", PAGE, "--days", "30", "--forever", "--json"],
+        "COLAB_INPUT_INVALID",
+    );
+    failure(
+        &pilot,
+        &["show", "not-a-page", "--json"],
+        "COLAB_INPUT_INVALID",
+    );
+    assert_eq!(fs::read(&db).unwrap(), before);
+    // Valid confirmed request reaches the reserved policy action on this base.
+    let allowed = failure(
+        &pilot,
+        &["delete", PAGE, "--yes", "--json"],
+        "COLAB_UNAVAILABLE",
+    );
+    assert!(allowed["operationId"].as_str().is_some());
+    assert_eq!(allowed["expectedRevision"], "2");
+    assert_eq!(fs::read(db).unwrap(), before);
+}
+#[test]
+fn management_member_cli_uses_serving_and_offline_service_with_durable_replay() {
+    use ed25519_dalek::SigningKey;
+    use tmt_colab_model::{values, wrap};
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        seed_page(&pilot);
+        let selection = json!({"memberId":NEW_MEMBER,"role":"viewer","signKey":values::encode_binary(&SigningKey::from_bytes(&[17;32]).verifying_key().to_bytes()),"encKey":values::encode_binary(&wrap::RecipientKey::from_seed(&[18;32]).unwrap().public_key()),"pages":[PAGE]});
+        let path = pilot.root.join("member.json");
+        fs::write(&path, selection.to_string()).unwrap();
+        if serving {
+            pilot.start();
+        }
+        let op = "40000000-0000-4000-8000-000000000002";
+        let args = [
+            "share",
+            "members",
+            "add",
+            PAGE,
+            "--file",
+            path.to_str().unwrap(),
+            "--yes",
+            "--operation-id",
+            op,
+            "--expected-revision",
+            "2",
+            "--json",
+        ];
+        let result = pilot.call(&args);
+        assert_eq!(result["operationId"], op);
+        assert_eq!(result["expectedRevision"], "2");
+        assert_eq!(result["membershipHead"]["revision"], "3");
+        if serving {
+            pilot.stop();
+        }
+        let db = pilot.root.join("selected/colab/space.db");
+        let committed = fs::read(&db).unwrap();
+        assert_eq!(pilot.call(&args), result);
+        assert_eq!(fs::read(&db).unwrap(), committed);
+        let mut changed = selection;
+        changed["role"] = "editor".into();
+        fs::write(&path, changed.to_string()).unwrap();
+        let conflict = failure(&pilot, &args, "COLAB_CONFLICT");
+        assert_eq!(conflict["operationId"], op);
+        assert_eq!(fs::read(&db).unwrap(), committed);
+        let stale = failure(
+            &pilot,
+            &[
+                "share",
+                "members",
+                "remove",
+                PAGE,
+                NEW_MEMBER,
+                "--operation-id",
+                "40000000-0000-4000-8000-000000000003",
+                "--expected-revision",
+                "2",
+                "--json",
+            ],
+            "COLAB_STALE_HEAD",
+        );
+        assert_eq!(stale["expectedRevision"], "2");
+        assert_eq!(fs::read(&db).unwrap(), committed);
+        assert!(
+            pilot.call(&["share", "members", "ls", PAGE, "--json"])["members"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["id"] == NEW_MEMBER)
+        );
+    }
+}
+
+#[test]
+fn management_seed_admission_and_interrupted_ipc_never_fall_back_to_offline_mutation() {
+    use tmt_colab::{keyring::Layout, socket::SOCKET};
+    use tmt_colab_model::values;
+    let pilot = Pilot::new(None);
+    seed_page(&pilot);
+    let db = pilot.root.join("selected/colab/space.db");
+    let before = fs::read(&db).unwrap();
+    let path = pilot.root.join("seed");
+    let encoded = values::encode_binary(&[17; 32]);
+    fs::write(&path, &encoded).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    let args = [
+        "share",
+        "link",
+        "add",
+        PAGE,
+        "--seed-file",
+        path.to_str().unwrap(),
+        "--link-id",
+        NEW_MEMBER,
+        "--yes",
+        "--operation-id",
+        "40000000-0000-4000-8000-000000000002",
+        "--expected-revision",
+        "2",
+        "--json",
+    ];
+    let denial = failure(&pilot, &args, "COLAB_INPUT_INVALID");
+    assert!(!denial.to_string().contains(&encoded));
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    let link = pilot.root.join("seed-link");
+    std::os::unix::fs::symlink(&path, &link).unwrap();
+    let mut symlink_args = args;
+    symlink_args[5] = link.to_str().unwrap();
+    let output = pilot.command().args(symlink_args).output().unwrap();
+    assert!(!output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains(&encoded));
+    let layout = Layout::existing(&pilot.root.join("selected"))
+        .unwrap()
+        .unwrap();
+    let _lock = layout.serve_lock().unwrap();
+    let socket = layout.directory.join(SOCKET);
+    let listener = UnixListener::bind(&socket).unwrap();
+    fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut request = Vec::new();
+        let mut header_end = None;
+        let mut total = None;
+        loop {
+            let mut buffer = [0; 4096];
+            let n = stream.read(&mut buffer).unwrap();
+            assert!(n > 0);
+            request.extend_from_slice(&buffer[..n]);
+            if header_end.is_none() {
+                header_end = request
+                    .windows(4)
+                    .position(|w| w == b"\r\n\r\n")
+                    .map(|n| n + 4);
+            }
+            if let Some(end) = header_end {
+                let headers = String::from_utf8_lossy(&request[..end]);
+                let length = headers
+                    .lines()
+                    .find_map(|line| line.strip_prefix("Content-Length: "))
+                    .unwrap()
+                    .parse::<usize>()
+                    .unwrap();
+                total = Some(end + length);
+            }
+            if total == Some(request.len()) {
+                break;
+            }
+        }
+        assert!(request.starts_with(b"POST /.tmt/colab/management HTTP/1.1"));
+        assert!(!String::from_utf8_lossy(&request[..header_end.unwrap()]).contains("tmt-device"));
+        let body: Value = serde_json::from_slice(&request[header_end.unwrap()..]).unwrap();
+        assert_eq!(body["operation"], "link.add");
+        // Drop after acquisition, before acknowledgment. A CLI fallback would
+        // apply this valid request through the offline service and alter state.
+    });
+    let unknown = failure(&pilot, &args, "COLAB_OUTCOME_UNKNOWN");
+    server.join().unwrap();
+    assert_eq!(unknown["linkId"], NEW_MEMBER);
+    assert_eq!(unknown["expectedRevision"], "2");
+    assert!(!unknown.to_string().contains(&encoded));
+    assert_eq!(fs::read(db).unwrap(), before);
+    fs::remove_file(socket).unwrap();
+}
+#[test]
+fn management_read_refuses_unsafe_or_old_state_without_migration() {
+    let pilot = Pilot::new(None);
+    seed_page(&pilot);
+    let directory = pilot.root.join("selected/colab");
+    let db = directory.join("space.db");
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.pragma_update(None, "user_version", 3).unwrap();
+    drop(conn);
+    let before = fs::read(&db).unwrap();
+    failure(&pilot, &["ls", "--json"], "COLAB_SCHEMA_UNSUPPORTED");
+    assert_eq!(fs::read(&db).unwrap(), before);
+    let key = directory.join("owner.key");
+    fs::remove_file(&key).unwrap();
+    std::os::unix::fs::symlink("missing", &key).unwrap();
+    let output = pilot.command().args(["ls", "--json"]).output().unwrap();
+    assert!(!output.status.success());
+    assert_eq!(fs::read(db).unwrap(), before);
+}

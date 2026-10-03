@@ -5001,6 +5001,18 @@ loopback publication is selected by this trusted socket composition.
 Exact DTOs, limits and failure codes live in colab-v1. Public CLI commands,
 browser controls and reader admission are separately tracked by #1307, #1308 and #1310.
 
+`cli_grammar` and `cli_management` compose root-local management commands in the
+executable. Subcommand names precede page operands; the shared help audit stays
+unchanged. `inspection` verifies policy/member/link views through existing Store
+snapshots and materializes active titles only through the authenticated isolated
+fold. Read-only Store opening admits existing private files and current schemas
+without creation, journal changes or migrations. Archived titles and expiry
+without durable update evidence are explicitly unavailable (#1350).
+The CLI captures mutation IDs, revisions and selections once, checks explicit
+confirmation for delete/widening, and chooses private IPC or the existing
+lifecycle-locked offline service. An uncertain IPC reply never selects a second
+writer. API/runner/signing ownership and management DTOs are unchanged.
+
 ### Native plaintext export
 
 `export::Bundle` captures exact source/title through the existing owner-local
