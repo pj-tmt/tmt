@@ -21,6 +21,7 @@
         "extensions/tmt-remote",
         "extensions/tmt-colab",
         "rust/crates/tmt-tui",
+        "rust/crates/tmt-extension-state",
         "rust/crates/tmt-test-support",
         "rust/crates/tmt-driver-herdr"
       ],
@@ -99,6 +100,7 @@
       "owns": ["extensions/tmt-remote/rust"],
       "release": false,
       "selectedBy": [
+        "rust/crates/tmt-extension-state/**",
         "typescript/test/e2e/remote-operations.e2e.test.ts",
         "typescript/test/e2e/remote-recovery.e2e.test.ts",
         "typescript/test/support/remote-device.ts",

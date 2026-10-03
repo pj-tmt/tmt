@@ -10,7 +10,7 @@ use syn::{
 
 // Exact dev edges: one reviewed row with its fixture reason per dependency.
 // Versions/features remain Cargo-owned; aliases require canonical crate names.
-// tmt-invoke retains its stricter all-kind leaf policy below.
+// The invoke and extension-state leaves retain their stricter all-kind policies below.
 const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
     ("tmt-adapters", "tmt-test-support", None), // Codex executable stand-ins
     ("tmt-cli", "tmt-test-support", None),      // target-resolution executable stand-in
@@ -227,6 +227,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "nix",
         ],
         "tmt-invoke" => &["subprocess", "nix"],
+        "tmt-extension-state" => &["nix"],
         // Case-2 publication reuses the neutral bounded process owner only.
         "tmt-test-support" => &["tmt-invoke"],
         // Taffy owns flex/grid geometry; text owns shared grapheme measurement/fitting.
@@ -256,6 +257,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "signal-hook",
             "tmt-cli-style",
             "tmt-invoke",
+            "tmt-extension-state",
         ],
         // Colab model owns pure codecs and fixed crypto, not core or extension behavior.
         "tmt-colab-model" => &[
@@ -289,6 +291,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "nix",
             // Remote's own state database under <dataRoot>/remote/ (#1039).
             "rusqlite",
+            "tmt-extension-state",
         ],
         _ => return vec![format!("unreviewed workspace package {name}")],
     };
@@ -298,7 +301,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         .iter()
         .filter_map(|d| {
             let dependency = d["name"].as_str().expect("Cargo dependency name");
-            if d["kind"] == "dev" && !["tmt-invoke", "tmt-tui"].contains(&name) {
+            if d["kind"] == "dev" && !["tmt-invoke", "tmt-tui", "tmt-extension-state"].contains(&name) {
                 let target = d["target"].as_str();
                 let entry = format!("({name:?}, {dependency:?}, {target:?}),");
                 let ledger = "DEV_DEPENDENCIES in rust/crates/tmt-cli/tests/architecture/policy.rs";
@@ -778,6 +781,8 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 && root.starts_with("tmt_")
                 && root != "tmt_cli_style"
                 && root != "tmt_invoke"
+                && !(root == "tmt_extension_state"
+                    && ["tmt-remote", "tmt-colab"].contains(&source.package.as_str()))
                 && !(source.package == "tmt-squad" && root == "tmt_tui")
                 && !(root == "tmt_colab_model" && colab_model_consumer)
                 && root != source.package.replace('-', "_")
@@ -792,6 +797,24 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 violations.push(format!(
                     "{location}: invoke leaf cannot reach {}",
                     path.join("::")
+                ));
+            }
+            if source.package == "tmt-extension-state"
+                && root.starts_with("tmt_")
+                && root != "tmt_extension_state"
+            {
+                violations.push(format!(
+                    "{location}: extension state leaf cannot reach {}",
+                    path.join("::")
+                ));
+            }
+            if root == "tmt_extension_state"
+                && !["tmt-extension-state", "tmt-remote", "tmt-colab"]
+                    .contains(&source.package.as_str())
+            {
+                violations.push(format!(
+                    "{location}: unreviewed extension state consumer {}",
+                    source.package
                 ));
             }
             if source.package == "tmt-tui"

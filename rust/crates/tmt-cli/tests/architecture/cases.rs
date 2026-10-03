@@ -1738,6 +1738,124 @@ fn squad_may_use_the_neutral_invoke_leaf_but_not_core_process_adapters() {
 }
 
 #[test]
+fn extension_state_is_a_leaf_with_only_the_two_reviewed_executable_consumers() {
+    for consumer in ["tmt-remote", "tmt-colab"] {
+        assert!(
+            policy::dependency_violations(&package(
+                consumer,
+                vec![dependency("tmt-extension-state", "normal", None, None)]
+            ))
+            .is_empty()
+        );
+        assert_exact(
+            &[syntax(
+                consumer,
+                "state.rs",
+                "use tmt_extension_state::Layout;",
+            )],
+            &[],
+        );
+        assert!(
+            !policy::dependency_violations(&package(
+                consumer,
+                vec![dependency(
+                    "tmt-extension-state",
+                    "normal",
+                    None,
+                    Some("state")
+                )]
+            ))
+            .is_empty()
+        );
+    }
+    for kind in ["normal", "dev", "build"] {
+        for target in [None, Some("cfg(unix)")] {
+            assert!(
+                policy::dependency_violations(&package(
+                    "tmt-extension-state",
+                    vec![dependency("nix", kind, target, None)]
+                ))
+                .is_empty()
+            );
+            for dependency_name in [
+                "tmt-core",
+                "tmt-adapters",
+                "tmt-remote",
+                "tmt-colab",
+                "tmt-cli-style",
+                "getrandom",
+                "ed25519-dalek",
+            ] {
+                assert!(
+                    !policy::dependency_violations(&package(
+                        "tmt-extension-state",
+                        vec![dependency(dependency_name, kind, target, None)]
+                    ))
+                    .is_empty()
+                );
+            }
+            assert!(
+                !policy::dependency_violations(&package(
+                    "tmt-extension-state",
+                    vec![dependency("nix", kind, target, Some("system"))]
+                ))
+                .is_empty()
+            );
+            for consumer in [
+                "tmt-core",
+                "tmt-adapters",
+                "tmt-cli",
+                "tmt-colab-model",
+                "tmt-squad",
+            ] {
+                assert!(
+                    !policy::dependency_violations(&package(
+                        consumer,
+                        vec![dependency("tmt-extension-state", kind, target, None)]
+                    ))
+                    .is_empty()
+                );
+            }
+        }
+    }
+    for consumer in [
+        "tmt-core",
+        "tmt-adapters",
+        "tmt-cli",
+        "tmt-colab-model",
+        "tmt-squad",
+    ] {
+        assert!(
+            !policy::source_violations(&[syntax(
+                consumer,
+                "state.rs",
+                "use tmt_extension_state::Layout;"
+            )])
+            .is_empty()
+        );
+    }
+    for source in [
+        "use tmt_core::identity::Identity;",
+        "pub use tmt_adapters::process;",
+        "use tmt_remote::state::Layout;",
+        "use tmt_colab::keyring::Layout;",
+    ] {
+        assert!(
+            !policy::source_violations(&[syntax("tmt-extension-state", "lib.rs", source)])
+                .is_empty()
+        );
+    }
+    assert_exact(
+        &[syntax(
+            "tmt-extension-state",
+            "state.rs",
+            "use tmt_extension_state::Layout;",
+        )],
+        &[],
+    );
+}
+
+#[test]
 fn invoke_is_a_leaf_even_in_tests_builds_and_target_dependencies() {
     assert!(
         policy::dependency_violations(&package(

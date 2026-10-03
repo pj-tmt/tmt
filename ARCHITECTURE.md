@@ -4605,6 +4605,31 @@ adapter, CLI composition and tests. New policy belongs in the existing owner;
 do not add a parallel TypeScript implementation, provider inventory, config path
 registry, release catalog, process runner, archive parser or memory/MCP layer.
 
+## Shared extension state layout
+
+`rust/crates/tmt-extension-state` is a library-only, unpublished filesystem leaf
+owned by the Remote component. Only the Remote and Colab executables consume it;
+its sole dependency is the existing `nix` pin, with no TMT, crypto or storage
+crate dependency. Core, adapters and the Colab model do not consume it. The
+architecture guard enforces the reviewed manifest, source edges and all dependency
+kinds, including aliases and target-specific dependencies.
+
+`Layout` admits an extension-selected private subtree beneath the injected
+absolute core-reported data root. It preserves existing root permissions and
+canonicalizes aliases only in that trusted root. Private directories must be
+owned 0700 directories; allowlisted files must be owned regular 0600 files,
+opened with no-follow and nonblocking flags. Read-only lookup and lock probes
+create nothing. Reads retain the caller's byte bound.
+
+`Publication` holds a nonblocking lock through stale temporary admission,
+cleanup and publication. Only the selected prefix plus 32 lowercase hex digits
+matches a temporary; unsafe or oversized matches refuse and foreign names remain.
+A staged file borrows that guard and links create-only after writing and syncing
+its bytes. The extension retains entropy, key interpretation, error mapping and
+its existing staging/removal/directory-sync failure ordering. Store schemas,
+identity derivation and Remote's serve-lock proof remain extension-owned; this
+leaf neither discovers roots nor accesses core state or provider configuration.
+
 ## Remote extension pilot
 
 `extensions/tmt-remote/rust/tmt-remote` is a separate executable reached as
@@ -4612,7 +4637,7 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 remains source-only until packaging and publication pass their separate gates. `main` owns style/foreground composition and two bounded
 startup calls: capabilities and `storage.root`. `core::CoreClient` owns fixed public `api`/`ls`
 subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
-`rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf. Request-carried launch options preserve environment inheritance by default or explicitly clear it and copy only named allowlisted caller variables, preserving OS-string bytes and leaving the caller environment unchanged. This policy is configured through the existing invocation entry point; it supplies no memory sandbox or resource-limit guarantee. `LaunchOptions::process_group` defaults to `New`, preserving owned group creation/termination. Explicit `InheritCaller` omits group creation; a started failure detaches and returns `Cleanup::CallerOwned` without signalling or waiting for cleanup. Pre-start failures remain `NotStarted`. The caller must supervise that group. Squad's context wrapper retains its live group-leader check and whole-group abort on a started failure; capture/deadlines/caps remain invoke-owned. Ordinary Squad, Remote and Colab calls use `New`. The shared 20 ms `PULSE` bounds stop-flag observation latency; each wait is also bounded by the remaining request deadline.
+`rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation; its other reviewed leaves are `tmt-cli-style` and `tmt-extension-state`. Request-carried launch options preserve environment inheritance by default or explicitly clear it and copy only named allowlisted caller variables, preserving OS-string bytes and leaving the caller environment unchanged. This policy is configured through the existing invocation entry point; it supplies no memory sandbox or resource-limit guarantee. `LaunchOptions::process_group` defaults to `New`, preserving owned group creation/termination. Explicit `InheritCaller` omits group creation; a started failure detaches and returns `Cleanup::CallerOwned` without signalling or waiting for cleanup. Pre-start failures remain `NotStarted`. The caller must supervise that group. Squad's context wrapper retains its live group-leader check and whole-group abort on a started failure; capture/deadlines/caps remain invoke-owned. Ordinary Squad, Remote and Colab calls use `New`. The shared 20 ms `PULSE` bounds stop-flag observation latency; each wait is also bounded by the remaining request deadline.
 
 `http::Door` is the colab loopback door relocated under remote (#1039). It owns
 IPv4-loopback sockets, joined workers, strict HTTP/1.1 framing, exact numeric
@@ -4679,11 +4704,11 @@ rollback. No core DB is opened. The foreground door has no default deadline;
 it runs until interrupted. Colab has no door of its own; remote
 mounts its owner-only socket.
 
-`state` owns remote's private `<dataRoot>/remote/` subtree, relocated from the
-colab keyring: an owned 0700 directory, owned 0600 regular files opened without
-following symlinks, a lock-guarded create-only Ed25519 machine key
-(`machine.key`, a software file with no hardware claim) and one foreground
-serve lock per data root. `store::Store` owns `remote.db` (SQLite) and opens only
+`state::Layout` delegates remote's private `<dataRoot>/remote/` subtree to the
+[extension state leaf](#shared-extension-state-layout). `MachineKey` retains the
+lock-guarded create-only Ed25519 machine key
+(`machine.key`, a software file with no hardware claim). `state::Layout` supplies
+one foreground serve lock per data root. `store::Store` owns `remote.db` (SQLite) and opens only
 with the `state::Serving` proof that the serve lock is held: while serve runs it
 is the database's only opener and writer, and every other path (pairing, device
 management) reaches remote state only through serve, over its owner-only control socket.
@@ -4711,8 +4736,8 @@ re-adoption; at 1000 ownership records/client new adoption refuses. Frozen pendi
 is bounded to 64 MiB/client and 256 MiB total. Audit retains at most 30 days/the newest 100,000 records; pruning and append share
 the adoption/refusal transaction. Budget keys are bounded to 100,000. Write or
 ownership/budget capacity failure refuses before adoption. Public operation transitions
-and frozen-payload release are not wired yet. Colab keeps its own copy of the layout
-code until a shared leaf exists (#1041).
+and frozen-payload release are not wired yet. Remote retains its state error codes
+and messages while delegating filesystem operations to the shared leaf.
 
 `control::Control` binds `<dataRoot>/remote/control.sock` (0600, in the 0700
 state directory) under the serve lock and speaks one JSON object per line; a
@@ -4908,7 +4933,8 @@ source-only until packaging and publication pass their separate
 gates. No deployment or official archive publication is claimed.
 The [channel boundary](extensions/tmt-colab/contracts/colab-v1.md#channel-boundary) marks which colab-v1 sections move to remote, stay or retire.
 
-Current executable dependencies are `tmt-invoke`, `tmt-cli-style`, the pure
+Current executable dependencies are `tmt-invoke`, `tmt-cli-style`,
+`tmt-extension-state`, the pure
 `tmt-colab-model` space-ID derivation and reviewed workspace pins. The model owns
 canonical bytes/codecs/crypto without I/O or core access. The
 executable owns CLI composition, foreground door, SQLite/files and keyring;
@@ -5109,11 +5135,12 @@ documents the current local build and foreground run commands.
 ### Persistence implementation
 
 `extensions/tmt-colab/rust/tmt-colab` is a private, local-build-only library
-slice for #847. `keyring::Layout` owns the injected absolute data root's
-`colab/` subtree, with owned 0700 directories and no-follow, bounded regular
-0600 files. It preserves existing root permissions and touches no core database,
-configuration or provider settings. `Keyring` publishes one software owner seed
-with create-only, synced file publication; existing invalid keys fail closed.
+slice for #847. `keyring::Layout` delegates the injected absolute data root's
+`colab/` subtree to the [extension state leaf](#shared-extension-state-layout),
+including read-only existing-layout lookup and serve-lock probing. Colab retains
+its downcastable `StateFault` values, raw I/O errors and publication failure
+ordering. `Keyring` supplies one software owner seed to the shared create-only,
+synced publication primitives; existing invalid keys fail closed.
 Its statement-signing and wrap-sealing methods call the model without exporting
 the root key. The caller owns request and transition authorization.
 
@@ -5149,7 +5176,7 @@ preserving previous rows. Schema 4 adds immutable `baselines` (descriptor and en
 typed fault before database mutation. Tests own isolated directories and SQL
 oracles for preservation, rollback, concurrent head fencing and durable replay.
 Sync composition and membership/link transition policy remain later slices.
-The executable depends on the reviewed invoke/style leaves and pinned
+The executable depends on the reviewed invoke/style/state leaves and pinned
 storage/network/crypto primitives, never core, adapter, Remote or Office crates. Its component is excluded from release;
 workspace checks and Docker build contexts include its manifest.
 
