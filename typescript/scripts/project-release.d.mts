@@ -43,6 +43,7 @@ export interface Plan {
 }
 export interface Api {
   counts: { graphql: number; rest: number };
+  points: { cost: number; remaining: number | null };
   rest(path: string): unknown;
   graphql(query: string): unknown;
   reserve(requests: number): void;
@@ -76,6 +77,7 @@ export interface Reconciliation {
   rows: Change[];
   changed: Change[];
   requests: Api['counts'];
+  points: Api['points'];
 }
 export const PROJECT_ID: string;
 export const LIMITS: { graphql: number; rest: number; pages: number; prs: number; batch: number };
@@ -118,3 +120,5 @@ export function reconcile(options: {
 }): Reconciliation;
 export function renderSummary(result: Reconciliation): string;
 export function main(env?: NodeJS.ProcessEnv): void;
+
+export function renderFailure(error: Error, api: Api): string;

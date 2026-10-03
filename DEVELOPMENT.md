@@ -3212,9 +3212,11 @@ JSON
 # After reviewing the table, repeat with dry_run=false.
 ```
 
-A run allows at most 200 GraphQL requests, 20 REST requests, 20 pages of 100 rows
-per connection and 2,000 distinct merged closing PRs. Project field schemas and
-each issue’s labels must fit a complete 100-row page or discovery fails before writes. Both issue reads and field
+A run allows at most 200 GraphQL requests, 20 REST requests, 20 pages per connection and 2,000 distinct merged closing PRs. Release and Project
+item pages contain 100 rows; closing-PR pages contain 10. Project field schemas
+must fit a complete 100-row page and each issue’s labels a complete 20-row page,
+or discovery fails before writes. Smaller nested connections limit point cost
+on the shared release App token. Both issue reads and field
 writes batch 25 aliases. Ordinary discovery costs R REST release pages plus P
 GraphQL Project pages and ceil(I/25) closing-PR queries for I closed issues,
 plus any additional closing-PR pages. Each mutation phase costs ceil(F/25) for
@@ -3223,7 +3225,11 @@ nothing. Mutation reservation includes all planned field batches plus 20 possibl
 readback pages before the first write. A ceiling can be reached before a nominal
 row cap: incomplete discovery or insufficient reserve aborts with no writes.
 Requests have a 30-second timeout with no retries or polling; the job deadline is
-15 minutes. Exact REST/GraphQL attempt counts are reported on success and error.
+15 minutes. Each GraphQL read includes `rateLimit { cost remaining }`. The
+summary and failure message report exact REST/GraphQL attempt counts, summed
+reported read points and the last reported remaining quota. Mutation costs and
+requests without returned telemetry are not included in that point sum; missing
+valid telemetry on an otherwise successful read fails before proceeding.
 Local git requires complete history and every published tag; missing evidence
 fails visibly. False Released states are demoted before text changes, and new
 Released promotions follow evidence. Partial failures remain safely retryable.

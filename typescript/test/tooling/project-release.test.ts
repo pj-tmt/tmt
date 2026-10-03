@@ -17,6 +17,7 @@ import {
   reconcile,
   releaseIdentity,
   renderSummary,
+  renderFailure,
   type Api,
   type ClosingPr,
   type Project,
@@ -66,14 +67,20 @@ const release = (tag_name: string, minute = 0): Release => ({
 });
 function fakeApi(rest: Api['rest'] = () => [], graphql: Api['graphql'] = () => ({})): Api {
   const counts = { graphql: 0, rest: 0 };
+  const points = { cost: 0, remaining: null as number | null };
   return {
     counts,
+    points,
     rest: vi.fn((url) => {
       counts.rest++;
       return rest(url);
     }),
     graphql: vi.fn((query) => {
       counts.graphql++;
+      if (query.startsWith('query')) {
+        points.cost++;
+        points.remaining = 5000 - points.cost;
+      }
       return graphql(query);
     }),
     reserve: vi.fn(),
@@ -389,7 +396,12 @@ describe('bounded discovery and mutation safety', () => {
     }));
     expect(readClosingPrs(paged, [item(1)], repository).prs.size).toBe(1);
     expect(paged.graphql).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(paged.graphql).mock.calls[0][0]).toContain('includeClosedPrs:true');
+    for (const [query] of vi.mocked(paged.graphql).mock.calls) {
+      expect(query).toContain('includeClosedPrs:true');
+      expect(query).toContain('closedByPullRequestsReferences(first:10,');
+      expect(query).not.toContain('closedByPullRequestsReferences(first:100,');
+      expect(query).toContain('rateLimit{cost remaining}');
+    }
   });
   it('batches issue reads and follows Project pages, excluding foreign/open items from reconciliation', () => {
     const p = project([item(1)]);
@@ -397,6 +409,12 @@ describe('bounded discovery and mutation safety', () => {
       projectResponse(p, query.includes('after:"next"') ? null : 'next')
     );
     expect(readProject(api).pages).toBe(2);
+    for (const [query] of vi.mocked(api.graphql).mock.calls) {
+      expect(query).toContain('items(first:100,');
+      expect(query).toContain('labels(first:20)');
+      expect(query).not.toContain('labels(first:100)');
+      expect(query).toContain('rateLimit{cost remaining}');
+    }
     const rows = Array.from({ length: 26 }, (_, i) => item(i));
     const reads = stateApi(project(rows), [], new Map());
     readClosingPrs(reads, rows, repository);
@@ -524,7 +542,7 @@ describe('bounded discovery and mutation safety', () => {
   it('counts real transport attempts, scopes credentials and stops without retries', () => {
     const spawn = vi.fn(() => ({
       status: 0,
-      stdout: '{"data":{}}',
+      stdout: '{"data":{"rateLimit":{"cost":1,"remaining":4999}}}',
     })) as unknown as typeof spawnSync;
     const api = githubApi({
       repository,
@@ -537,6 +555,7 @@ describe('bounded discovery and mutation safety', () => {
     expect(() => api.graphql('query{}')).toThrow('budget exceeded');
     expect(spawn).toHaveBeenCalledTimes(LIMITS.graphql);
     expect(api.counts.graphql).toBe(LIMITS.graphql);
+    expect(api.points).toEqual({ cost: LIMITS.graphql, remaining: 4999 });
     expect(() => githubApi({ repository })).toThrow('RELEASE_APP_TOKEN');
     const denied = githubApi({
       repository,
@@ -549,6 +568,42 @@ describe('bounded discovery and mutation safety', () => {
     expect(() => denied.graphql('query{}')).toThrow('denied');
     expect(denied.counts.graphql).toBe(1);
   });
+  it('sums reported read costs, retains partial-error telemetry and reports it on failure', () => {
+    const spawn = vi
+      .fn()
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: JSON.stringify({ data: { rateLimit: { cost: 21, remaining: 4979 } } }),
+      })
+      .mockReturnValueOnce({
+        status: 1,
+        stdout: JSON.stringify({
+          data: { rateLimit: { cost: 3, remaining: 4976 } },
+          errors: [{ message: 'partial read failed' }],
+        }),
+      });
+    const api = githubApi({
+      repository,
+      appToken: 'token',
+      spawn: spawn as unknown as typeof spawnSync,
+    });
+    api.graphql('query{rateLimit{cost remaining}}');
+    expect(() => api.graphql('query{rateLimit{cost remaining}}')).toThrow('partial read failed');
+    expect(api.points).toEqual({ cost: 24, remaining: 4976 });
+    expect(renderFailure(new Error('partial read failed'), api)).toContain(
+      'GraphQL points: 24 (reported reads); last remaining: 4976.'
+    );
+    expect(renderFailure(new Error('before reads'), fakeApi())).toContain(
+      'last remaining: unavailable'
+    );
+    const missing = githubApi({
+      repository,
+      appToken: 'token',
+      spawn: vi.fn(() => ({ status: 0, stdout: '{"data":{}}' })) as unknown as typeof spawnSync,
+    });
+    expect(() => missing.graphql('query{}')).toThrow('omitted valid rate-limit');
+  });
+
   it('escapes table cells and keeps full daily/main-only dispatch wiring', () => {
     const p = project([item(1, 'Merged', '<script>|x\ny')]);
     const row = planUpdates(
@@ -562,8 +617,10 @@ describe('bounded discovery and mutation safety', () => {
       rows: row.rows,
       changed: row.changes,
       requests: { graphql: 2, rest: 1 },
+      points: { cost: 7, remaining: 4993 },
     });
     expect(summary).toContain('&lt;script&gt;&#124;x<br>y');
+    expect(summary).toContain('GraphQL points: 7 (reported reads); last remaining: 4993.');
     expect(summary).not.toContain('<script>');
     const workflow = readFileSync(
       new URL('../../../.github/workflows/project-release.yml', import.meta.url),

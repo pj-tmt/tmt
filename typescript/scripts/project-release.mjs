@@ -37,6 +37,7 @@ export function githubApi({ appToken, readToken, repository, spawn = spawnSync }
     );
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error('Invalid repository.');
   const counts = { graphql: 0, rest: 0 };
+  const points = { cost: 0, remaining: null };
   const invoke = (kind, endpoint, input) => {
     if (counts[kind] >= LIMITS[kind])
       throw new Error(`${kind} request budget exceeded. ${recovery}`);
@@ -58,6 +59,17 @@ export function githubApi({ appToken, readToken, repository, spawn = spawnSync }
     } catch {
       /* Transport errors may have no JSON body. */
     }
+    const rateLimit = kind === 'graphql' ? data?.data?.rateLimit : undefined;
+    const validRateLimit =
+      Number.isSafeInteger(rateLimit?.cost) &&
+      rateLimit.cost >= 0 &&
+      Number.isSafeInteger(rateLimit?.remaining) &&
+      rateLimit.remaining >= 0;
+    // Preserve reported cost even when GitHub also returns a partial-query error.
+    if (validRateLimit) {
+      points.cost += rateLimit.cost;
+      points.remaining = rateLimit.remaining;
+    }
     if (data?.errors?.length) {
       throw new Error(
         `GitHub GraphQL rejected the request: ${data.errors.map((error) => error.message).join('; ')}. ${recovery}`
@@ -67,10 +79,13 @@ export function githubApi({ appToken, readToken, repository, spawn = spawnSync }
       throw new Error(
         `GitHub ${kind} request failed for ${endpoint}; no automatic retry. ${recovery}`
       );
+    if (kind === 'graphql' && input.query.startsWith('query') && !validRateLimit)
+      throw new Error('GraphQL read omitted valid rate-limit cost/remaining evidence.');
     return kind === 'graphql' ? data.data : data;
   };
   return {
     counts,
+    points,
     rest: (path) => invoke('rest', `repos/${repository}/${path}`),
     graphql: (query) => invoke('graphql', 'graphql', { query }),
     reserve: (requests) => {
@@ -116,7 +131,7 @@ export function readProject(api, projectId = PROJECT_ID) {
   let fields;
   for (let page = 0; page < LIMITS.pages; page++) {
     const data = api.graphql(
-      `query{node(id:${quote(projectId)}){... on ProjectV2{id fields(first:100){nodes{... on ProjectV2Field{id name dataType} ... on ProjectV2SingleSelectField{id name options{id name}}} pageInfo{hasNextPage endCursor}} items(first:100,after:${quote(cursor)}){nodes{id content{__typename ... on Issue{id number url state repository{nameWithOwner} labels(first:100){nodes{name} pageInfo{hasNextPage endCursor}}}} status:fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}} released:fieldValueByName(name:"Released in"){... on ProjectV2ItemFieldTextValue{text}}} pageInfo{hasNextPage endCursor}}}}}`
+      `query{rateLimit{cost remaining} node(id:${quote(projectId)}){... on ProjectV2{id fields(first:100){nodes{... on ProjectV2Field{id name dataType} ... on ProjectV2SingleSelectField{id name options{id name}}} pageInfo{hasNextPage endCursor}} items(first:100,after:${quote(cursor)}){nodes{id content{__typename ... on Issue{id number url state repository{nameWithOwner} labels(first:20){nodes{name} pageInfo{hasNextPage endCursor}}}} status:fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}} released:fieldValueByName(name:"Released in"){... on ProjectV2ItemFieldTextValue{text}}} pageInfo{hasNextPage endCursor}}}}}`
     );
     if (!data.node || nextCursor(data.node.fields))
       throw new Error('Missing project or incomplete field schema.');
@@ -172,10 +187,10 @@ export function readClosingPrs(api, items, repository) {
       const fields = pending
         .map(
           ({ id, cursor }, i) =>
-            `i${i}:node(id:${quote(id)}){... on Issue{id state closedByPullRequestsReferences(first:100,after:${quote(cursor)},includeClosedPrs:true){nodes{id number merged mergeCommit{oid} repository{nameWithOwner}} pageInfo{hasNextPage endCursor}}}}`
+            `i${i}:node(id:${quote(id)}){... on Issue{id state closedByPullRequestsReferences(first:10,after:${quote(cursor)},includeClosedPrs:true){nodes{id number merged mergeCommit{oid} repository{nameWithOwner}} pageInfo{hasNextPage endCursor}}}}`
         )
         .join('\n');
-      const data = api.graphql(`query{${fields}}`);
+      const data = api.graphql(`query{rateLimit{cost remaining} ${fields}}`);
       const more = [];
       pending.forEach(({ id }, i) => {
         const issue = data[`i${i}`];
@@ -430,7 +445,16 @@ export function reconcile({
     ],
     changed: plan.changes,
     requests: { ...api.counts },
+    points: { ...api.points },
   };
+}
+
+function renderPoints(points) {
+  return `GraphQL points: ${points.cost} (reported reads); last remaining: ${points.remaining ?? 'unavailable'}.`;
+}
+
+export function renderFailure(error, api) {
+  return `Project release tracking failed: ${error.message}\nRequests: ${JSON.stringify(api.counts)}\n${renderPoints(api.points)}\n`;
 }
 
 export function renderSummary(result) {
@@ -445,6 +469,8 @@ export function renderSummary(result) {
     `### Project release tracking${result.dryRun ? ' (dry run)' : ''}`,
     '',
     `${result.issues} closed issues; ${result.changed.length} changes; REST ${result.requests.rest}/${LIMITS.rest}; GraphQL ${result.requests.graphql}/${LIMITS.graphql}.`,
+    '',
+    renderPoints(result.points),
     '',
     '| Item | Status: current → planned | Released in: current → planned | Waiting |',
     '| --- | --- | --- | --- |',
@@ -476,7 +502,7 @@ export function main(env = process.env) {
     process.stdout.write(summary);
     if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, summary);
   } catch (error) {
-    const message = `Project release tracking failed: ${error.message}\nRequests: ${JSON.stringify(api.counts)}\n`;
+    const message = renderFailure(error, api);
     if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, message);
     throw new Error(message);
   }

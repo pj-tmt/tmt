@@ -107,7 +107,8 @@ retains the acceptance/dogfood gate, and the summary lists them as skipped. The 
 classified infrastructure failures still reconcile without weakening smoke.
 Retain the daily safety net. Follow [DEVELOPMENT's Project release tracking
 procedure](../../../DEVELOPMENT.md#project-release-tracking) for full dry-run table
-review, request budgets, exact verification commands and activation evidence.
+review, request and GraphQL point-cost reporting, exact verification commands and
+activation evidence.
 A tracking dispatch never authorizes publication or a publishing-workflow replay.
 
 ## Promotion and prerelease checks
