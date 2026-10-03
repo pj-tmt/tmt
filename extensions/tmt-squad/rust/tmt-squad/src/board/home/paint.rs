@@ -159,7 +159,7 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                 .count();
             let (label, role) = match section {
                 "needs-you" => ("② ◆ needs you", Role::Waiting),
-                "blocked" => ("② ✗ blocked · observed age", Role::Blocked),
+                "blocked" => ("② ✗ blocked", Role::Blocked),
                 _ => ("③ squads", Role::Muted),
             };
             lines.push(Line::default());
@@ -203,6 +203,7 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                 }));
                 let pressing = entry
                     .pressing
+                    .filter(|_| one.waiting > 0 || one.blocked > 0 || one.review > 0)
                     .and_then(|row| row["name"].as_str())
                     .unwrap_or("");
                 spans.push(text_span(

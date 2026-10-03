@@ -273,6 +273,7 @@ fn snapshots() -> Value {
                 })
                 .collect::<Vec<_>>();
             assert!(!lines.iter().any(|line| line.contains("private question")));
+            assert!(scenario != "quiet" || lines.join("").matches("lead-a").count() == 1);
             assert!(
                 lines.last().unwrap().contains("? more")
                     && lines.last().unwrap().contains("q quit")
