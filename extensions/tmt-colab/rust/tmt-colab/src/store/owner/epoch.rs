@@ -6,7 +6,7 @@ pub struct StoredBaseline {
     pub descriptor: Vec<u8>,
     pub envelope: Vec<u8>,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Cut {
     pub page: String,
     pub epoch: u64,
@@ -63,6 +63,44 @@ impl Store {
     }
 }
 impl OwnerTransaction<'_> {
+    pub(crate) fn pages(&self) -> Result<Vec<String>> {
+        let mut query = self.tx.prepare("SELECT page FROM pages ORDER BY page")?;
+        Ok(query
+            .query_map([], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?)
+    }
+    pub(crate) fn recent_secrets(&self, page: &str, epoch: u64) -> Result<Vec<(u64, [u8; 32])>> {
+        let mut query = self.tx.prepare("SELECT epoch,secret FROM epoch_secrets WHERE page=? AND epoch>=? AND epoch<=? ORDER BY epoch")?;
+        let rows = query
+            .query_map(
+                params![
+                    page,
+                    sequence(epoch.saturating_sub(63).max(1)),
+                    sequence(epoch)
+                ],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?)),
+            )?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        if rows.len() > 64 {
+            return Err(OwnerFault::Capacity.into());
+        }
+        rows.into_iter()
+            .map(|(e, s)| Ok((e.parse()?, array(s)?)))
+            .collect()
+    }
+    pub(crate) fn tombstone(&mut self, id: &str, revision: u64) -> Result<()> {
+        values::generated_id(id)?;
+        if revision == 0 {
+            return Err(OwnerFault::Invalid.into());
+        }
+        self.tx.execute("INSERT INTO device_registrations VALUES (?,NULL,1,?) ON CONFLICT(device_id) DO UPDATE SET binding=NULL,revoked=1,grant_revision=excluded.grant_revision",
+            params![id,sequence(revision)])?;
+        if let Some(mut device) = self.device(id)? {
+            device.revoked = true;
+            self.put_device(&device)?;
+        }
+        Ok(())
+    }
     pub(crate) fn current_epoch(&self, page: &str) -> Result<u64> {
         values::generated_id(page)?;
         let epoch: String =

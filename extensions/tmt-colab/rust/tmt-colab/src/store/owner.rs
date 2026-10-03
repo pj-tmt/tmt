@@ -185,7 +185,7 @@ impl Store {
         Ok(outcome)
     }
     /// Trusted remote event consumer only; no HTTP route grants this capability.
-    /// An unknown device is tombstoned too, so late registration cannot revive it.
+    /// Unknown IDs alone use this local tombstone; known devices require the engine.
     pub(crate) fn revoke_remote_device(
         &mut self,
         space: &str,
@@ -205,30 +205,27 @@ impl Store {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         read_head(&tx, space, root)?;
         let revision = sequence(grant_revision);
-        let previous: Option<String> = tx
+        let previous: Option<(String, bool)> = tx
             .query_row(
-                "SELECT grant_revision FROM device_registrations WHERE device_id=?",
+                "SELECT grant_revision,revoked FROM device_registrations WHERE device_id=?",
                 [id],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()?;
         // Level-triggered remote replay must not rewrite an equal revision.
-        if previous.is_some_and(|old| old >= revision) {
+        if previous.is_some_and(|(old, revoked)| revoked || old >= revision) {
             return Ok(false);
+        }
+        let known: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM devices WHERE id=?)",
+            [id],
+            |r| r.get(0),
+        )?;
+        if known {
+            return Err(OwnerFault::StaleHead.into());
         }
         tx.execute("INSERT INTO device_registrations VALUES (?,NULL,1,?)
             ON CONFLICT(device_id) DO UPDATE SET binding=NULL,revoked=1,grant_revision=excluded.grant_revision", params![id,revision])?;
-        let bytes: Option<Vec<u8>> = tx
-            .query_row("SELECT record FROM devices WHERE id=?", [id], |r| r.get(0))
-            .optional()?;
-        if let Some(bytes) = bytes {
-            let mut device: Device = serde_json::from_slice(&bytes)?;
-            device.revoked = true;
-            tx.execute(
-                "UPDATE devices SET record=? WHERE id=?",
-                params![serde_json::to_vec(&device)?, id],
-            )?;
-        }
         tx.commit()?;
         Ok(true)
     }

@@ -2891,7 +2891,7 @@ and foreground process cleanup tests run lifecycle scenarios twice, with no core
 socket traffic. Owner-key temporary cleanup is publication-locked; it preserves
 foreign file names and refuses unsafe matching files.
 
-### Colab owner epoch verification
+### Colab owner transition verification
 
 Run `(cd rust && cargo test --offline --locked -p tmt-colab --test transitions)`
 for real SQLite/keyring and isolated-child fold/rotation tests. They cover exact
@@ -2914,8 +2914,13 @@ from a request. It verifies and decrypts stored envelopes, validates namespace
 roots through the isolated decoder, and produces the baseline before its short
 writer transaction. The exact signed response is replayed without regeneration.
 A fold exceeding the existing decoder batch/update/baseline caps fails closed;
-there is no truncation or fallback. Membership/devices, links/Reset, browser
-management requests and remote event wiring are subsequent #1157 work.
+there is no truncation or fallback. The same test target covers shared/current
+member joins, immutable owner membership, member removal, role reduction pins,
+known-device revocation and rollback across every authority effect. A nine-page
+join seeds signed/encrypted retained history with fresh Y.Doc identities and
+proves the 64-epoch cap, numeric ordering, 512/64 wrap lists and all-or-none
+rollback on the final page. Fresh operation IDs cannot rotate a revoked device
+again. Links/Reset and browser management requests remain subsequent work.
 
 ### Colab owner registration verification
 
@@ -2937,13 +2942,15 @@ HTTP success. Schema 3 adds device registration bindings/tombstones while retain
 all prior authority/ciphertext rows; newer schemas refuse without mutation.
 An existing incompatible management-member key binding fails closed.
 
-The trusted `Registration::revoke(deviceId, grantRevision)` callback removes active
-registration and retains a durable tombstone; older events cannot overwrite newer
-state; equal revisions return without a database write. The reserved socket
-consumer now delivers remote events and closes matching tunnels under the sync
-lock before acknowledgment. Owner-signed revocation and page epoch rotation
-remain #1157. The registration suite checks the callback; the socket suite checks
-the integrated event route and live tunnel cleanup.
+The trusted `Registration::revoke(deviceId, grantRevision) -> Result<bool>` callback
+atomically signs and rotates for a known device, with a durable tombstone. Unknown
+IDs only tombstone; equal/older events and already-revoked devices return false
+without writes, including before genesis. Inject the decoder executable when
+constructing Registration (`current_exe` in the executable, the product binary
+in tests). The reserved socket consumer delivers remote events and closes matching
+tunnels under the sync lock before acknowledgment. The registration suite checks
+the callback; the socket suite checks owner-signed rotation and live tunnel cleanup.
+The callback is not a browser management capability.
 
 ### Colab stream sync verification
 

@@ -7,6 +7,7 @@ use crate::{
         Store,
         owner::{Device, Mutation, OwnerTransaction, Recipient},
     },
+    transitions::Engine,
 };
 use serde::{Deserialize, Serialize};
 use tmt_colab_model::{certificate, crypto, framing, statement, values};
@@ -153,10 +154,19 @@ struct DeviceRegistration {
 pub struct Registration {
     store: Store,
     keyring: Keyring,
+    engine: Engine,
 }
 impl Registration {
-    pub fn new(store: Store, keyring: Keyring) -> Self {
-        Self { store, keyring }
+    pub fn new(
+        store: Store,
+        keyring: Keyring,
+        decoder_program: std::path::PathBuf,
+    ) -> Result<Self> {
+        Ok(Self {
+            store,
+            keyring,
+            engine: Engine::new(decoder_program)?,
+        })
     }
     pub fn close(self) -> Result<()> {
         self.store.close()
@@ -317,15 +327,59 @@ impl Registration {
         )?;
         Ok(())
     }
-    /// Local tombstone only; true means durable state changed. Owner-signed cuts
-    /// and epoch rotation are #1157. Call only from a trusted event consumer.
+    /// Local tombstone only. Remote event delivery is #1100; owner-signed cuts
+    /// and epoch rotation are #1157. This must be called by a trusted consumer.
     pub fn revoke(&mut self, device_id: &str, grant_revision: u64) -> Result<bool> {
-        self.store.revoke_remote_device(
-            &self.keyring.space_id,
-            &self.keyring.owner_public(),
-            device_id,
-            grant_revision,
-        )
+        values::generated_id(device_id)?;
+        if grant_revision == 0 {
+            return Err(crate::store::owner::OwnerFault::Invalid.into());
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis()
+            .try_into()?;
+        for _ in 0..3 {
+            let (known, noop) = self.store.owner_read(
+                &self.keyring.space_id,
+                &self.keyring.owner_public(),
+                |tx| {
+                    let device = tx.device(device_id)?;
+                    let row = tx.registration(device_id)?;
+                    Ok((
+                        device.is_some(),
+                        device.is_some_and(|d| d.revoked)
+                            || row.is_some_and(|r| r.revoked || r.grant_revision >= grant_revision),
+                    ))
+                },
+            )?;
+            if noop {
+                return Ok(false);
+            }
+            if known {
+                return self.engine.remote_revoke(
+                    &mut self.store,
+                    &self.keyring,
+                    device_id,
+                    grant_revision,
+                    now,
+                );
+            }
+            match self.store.revoke_remote_device(
+                &self.keyring.space_id,
+                &self.keyring.owner_public(),
+                device_id,
+                grant_revision,
+            ) {
+                Err(e)
+                    if e.downcast_ref::<crate::store::owner::OwnerFault>()
+                        == Some(&crate::store::owner::OwnerFault::StaleHead) =>
+                {
+                    continue;
+                }
+                other => return other,
+            }
+        }
+        Err(crate::store::owner::OwnerFault::StaleHead.into())
     }
     /// Admission for socket/sync composition, checked against durable
     /// revocation every time. A forwarded cookie/session alone is insufficient.

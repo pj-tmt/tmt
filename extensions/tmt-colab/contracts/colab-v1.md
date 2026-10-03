@@ -438,21 +438,22 @@ remote certificates silently renew it. Every retry still requires fresh input
 certificates and current owner context. Registration and local revocation are
 serialized; a context older than the highest observed grant revision is denied.
 
-The trusted `Registration::revoke(deviceId, grantRevision)` callback records a
-local tombstone, clears the active registration and marks an existing device
-revoked in one transaction. Unknown IDs are tombstoned too; older events are
-ignored; equal revisions return without a database write. No later context revives a tombstone.
-Registered-device admission rechecks durable revocation and certificate expiry.
+The trusted `Registration::revoke(deviceId, grantRevision) -> Result<bool>` callback
+uses the owner engine for a known device: tombstone, cleared registration,
+revoked device projection, owner-signed `device.revoke` cuts and affected-page
+baseline/epoch/wrap transitions commit in one owner transaction. An unknown ID
+uses the local tombstone transaction alone. Equal/older events and already-revoked
+devices return false with no write or signature, independently of operation ID;
+no later context revives a tombstone. Registered-device admission rechecks durable
+revocation and certificate expiry.
 The exact reserved socket `POST /.tmt/remote/device-events` consumes remote's
 [local device events](../../../contracts/remote-channel-v1.md#extension-channel-api)
 only with `tmt-device-event: 1` and a strict body. A revoke commits this callback
 and shuts down every live tunnel of that device under the sync server lock before
-HTTP success, including tunnels without hello. Older/equal events do not repeat
-writes or tunnel effects. Rename is validated and acknowledged without local
+HTTP success, including tunnels without hello. No-op events repeat neither writes
+nor tunnel effects. Rename is validated and acknowledged without local
 presentation state. Other reserved paths reject; remote refuses the `/.tmt`
 subtree beneath browser mounts. There is no browser revocation route.
-This local tombstone is not the owner-signed `device.revoke` transition with cuts
-and epoch rotation (#1157). Mounted owner tunnels use the sync server (#1211).
 
 ## Page state, roles and epochs
 

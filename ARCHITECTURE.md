@@ -4354,7 +4354,7 @@ The executable depends on the reviewed invoke/style leaves and pinned
 storage/network/crypto primitives, never core, adapter, Remote or Office crates. Its component is excluded from release;
 workspace checks and Docker build contexts include its manifest.
 
-### Owner-local epoch transitions
+### Owner-local transitions
 
 `fold` verifies the retained owner hash chain and derives historical page/issuer
 policy from signed statements. A SQLite read snapshot captures epoch keys,
@@ -4376,7 +4376,25 @@ receive no wrap. Keyring seals baseline objects with the pinned management key;
 that private key never leaves Keyring. Store provides scoped baseline retrieval,
 whose remote caller still owns access/history admission. Decoder batch limits
 fail closed rather than truncating a fold. This library has no management route;
-membership/device transitions and links/Reset remain the next #1157 slices.
+links/Reset remain the final #1157 slice.
+
+`transitions::membership` shares epoch preparation/commit with explicit advance.
+Member add, remove and role changes use one owner transaction across affected
+pages. A shared join receives at most the current epoch plus 63 retained earlier
+keys; wraps are ordered by page, numeric epoch and recipient and delivered in
+lists of at most 512, all or none. A current-history join rotates with a baseline
+and receives no earlier wraps. Removal rotates eligible pages and excludes the
+member and its devices; role reductions pin both namespaces without rotating.
+The pinned owner member cannot be removed or re-roled. Writer rechecks also fence
+the page catalog and device projections when there are no affected streams.
+
+Known-device revocation commits the local tombstone, owner-signed reduction cuts
+and affected-page rotations together. Grant revision and durable revocation fence
+replays independently of operation ID. Unknown IDs use the registration tombstone
+transaction without signing; equal/older and already-revoked events write nothing.
+Registration owns a persistent Engine with an injected decoder executable. Its
+Boolean revoke result lets the reserved event route close tunnels only after a
+successful durable change; route composition is supplied by #1241.
 
 ### Foreground composition and owner registration
 
@@ -4401,17 +4419,16 @@ certificate signing, binding and exact response persistence without advancing th
 owner log. Retry/renewal, key derivation, endpoint and failure codes are owned by
 [colab-v1](extensions/tmt-colab/contracts/colab-v1.md#implemented-owner-browser-registration-1162).
 
-The trusted revision-ordered revocation callback atomically clears an active
-registration and retains a tombstone, including for unknown IDs. Mounted owner
+The trusted revision-ordered revocation callback applies the owner transition
+for known devices and a local tombstone for unknown IDs. Mounted owner
 upgrades in the executable require an active registered device and recheck the
 tombstone/expiry. Remote already terminates its session tunnels on revocation;
 the exact reserved socket device-events route consumes its level-triggered events.
 Only the remote-only header and strict body on that path admit a callback;
-browser mount paths cannot reach it. The sync lock serializes durable revocation
-and shutdown of all matching live handles, including pre-hello tunnels; equal or
-older revisions repeat neither writes nor tunnel effects. Rename has no local
-presentation state. Owner-signed revocation cuts
-and epoch rotation remain #1157.
+browser mount paths cannot reach it. The sync lock serializes the durable owner
+transition and shutdown of all matching live handles, including pre-hello tunnels;
+equal/older events and already-revoked devices repeat neither writes nor tunnel
+effects. Rename has no local presentation state.
 Socket shutdown closes retained sockets before joining workers and closing the
 registration store. Real SQLite and socket tests prove persistence, retry,
 rollback, admission denial, renewal, ordered revocation and cleanup.
