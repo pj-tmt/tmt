@@ -1665,8 +1665,12 @@ matches, cross-squad memberships, and partial-read failure/recovery evidence.
 `board::home::tests` verifies the board-only retained model against that same
 aggregate document and text, shared section matches, per-squad membership
 counts, request/observed age provenance, bounded acquisition calls and partial
-failure recovery. The model does not change painting; frozen board parity stays
-unchanged. Use an isolated `XDG_CACHE_HOME` when testing board observation.
+failure recovery. Home interaction tests cover stable selection, cross-section
+navigation,
+request/lead/sender changes, cancellation and empty input. New home captures
+cover quiet/waiting/blocked/many squads at 160/100/80; ordinary frozen board
+parity stays unchanged. Use an isolated `XDG_CACHE_HOME` when testing board
+observation.
 
 User tab validation happens during Config reading, including hidden definitions. `--tab` conflicts
 with `--squad` and `--refresh-fields`; aggregate reads do not run providers.
