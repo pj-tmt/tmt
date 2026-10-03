@@ -1,5 +1,6 @@
 //! Remote binding routes on the door: `/pair` enrollment and the `session.open`
-//! control on `/append`. Every other `/r/` request is refused.
+//! control on `/append`. Authenticated normal messages receive signed refusals;
+//! application adoption is not enabled.
 use crate::{
     canonical,
     error::RemoteError,
@@ -25,6 +26,7 @@ pub struct Routes {
     /// Present while serve can open door sessions.
     sessions: Option<Arc<DoorSessions>>,
     body_limit: usize,
+    input_limit: usize,
     transport: LoopbackTransport,
     attempts: Mutex<Attempts>,
 }
@@ -49,8 +51,8 @@ impl Routes {
             prefix,
             pairing: None,
             sessions: None,
-            body_limit: 4 * (input_limit + limits::METADATA_BYTES).div_ceil(3)
-                + limits::METADATA_BYTES,
+            body_limit: 4 * input_limit.div_ceil(3) + limits::METADATA_BYTES,
+            input_limit,
             transport: LoopbackTransport::default(),
             attempts: Mutex::new(Attempts {
                 count: 0,
@@ -63,6 +65,7 @@ impl Routes {
         self
     }
     pub fn with_sessions(mut self, sessions: Arc<DoorSessions>) -> Self {
+        self.transport = LoopbackTransport::new(Arc::clone(&sessions), self.input_limit);
         self.sessions = Some(sessions);
         self
     }
@@ -119,18 +122,21 @@ impl Handler for Routes {
                     .sessions
                     .as_ref()
                     .and_then(|sessions| sessions.open(request.origin.as_deref(), &request.body));
-                let Some(opened) = opened else {
-                    return Some(Reply::empty(404));
-                };
-                let mut reply = Reply::empty(200);
-                reply.body = opened.response;
-                if let Some(cookie) = opened.cookie {
-                    reply.headers.push(("set-cookie".into(), cookie));
+                if let Some(opened) = opened {
+                    let mut reply = Reply::empty(200);
+                    reply.body = opened.response;
+                    if let Some(cookie) = opened.cookie {
+                        reply.headers.push(("set-cookie".into(), cookie));
+                    }
+                    return Some(reply);
                 }
-                return Some(reply);
+                self.transport
+                    .append(request.origin.as_deref(), &request.body)
             }
-            Some("/subscribe") => self.transport.subscribe(&request.body),
-            Some("/ack") => self.transport.ack(&request.body),
+            Some("/subscribe") => self
+                .transport
+                .subscribe(request.origin.as_deref(), &request.body),
+            Some("/ack") => self.transport.ack(request.origin.as_deref(), &request.body),
             Some("/pair") => {
                 let Some(pairing) = &self.pairing else {
                     return Some(Reply::empty(404));
@@ -159,8 +165,13 @@ impl Handler for Routes {
             }
             _ => return Some(Reply::empty(404)),
         };
-        // No successful admission exists in this slice. Fail closed if it changes.
-        let _ = denied;
-        Some(Reply::empty(404))
+        Some(match denied {
+            Ok(body) => {
+                let mut reply = Reply::empty(200);
+                reply.body = body;
+                reply
+            }
+            Err(_) => Reply::empty(404),
+        })
     }
 }

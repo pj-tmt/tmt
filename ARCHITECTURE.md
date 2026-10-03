@@ -4329,10 +4329,15 @@ CoreClient/storage reference. A `Handler` admits each framed head (route,
 Origin, cookie and body limit) before any body byte is read. `routes::Routes`
 is that handler for the machine's stable `/r/<prefix>/` binding routes and the
 20-attempt-per-minute unauthenticated budget; `limits` names the binding bounds.
-`transport::Transport` moves append/subscribe/ack envelopes to one message
-owner, which currently denies every request. Startup discovery is not a remote
-operation. Apart from pairing, the pilot cannot adopt a request, approve, send
-or subscribe; no journal or core DB is created. The foreground door has no default
+`transport::Transport` moves append/subscribe/ack envelopes and their HTTP Origin
+to one message owner. `wire` owns bounded strict JSON admission (including duplicate
+members at every payload depth) and preserves exact payload bytes for signatures.
+`admission` and `DoorSessions` verify live device/session authority, scope and route,
+serialize one normal message per session, and durably consume its expected sequence.
+Authenticated normal messages receive signed `REMOTE_CLOSED` refusals; there is
+still no application adoption, journal or core operation. Startup discovery is not a remote
+operation. The pilot cannot adopt a request, approve, send or return a subscription batch;
+normal-message authority is not application acceptance. No journal or core DB is created. The foreground door has no default
 deadline; it runs until interrupted. Colab has no door of its own; remote
 mounts its owner-only socket.
 
@@ -4352,8 +4357,14 @@ WAL database it keeps `journal_mode=DELETE`, since there is no concurrent
 reader, and `synchronous=FULL`, so committed grants and receipts survive power
 loss. Schema 1 creates the machine identity once: a UUIDv4 machine ID and the
 `/r/<32 lowercase hex>` route prefix, both stable across restarts and neither a
-credential. Schema 2 adds `grants`, with one live grant per device key. Unsafe
-state fails closed before the door binds. Colab keeps its own copy of the layout
+credential. Schema 2 adds `grants`, with one live grant per device key. Schema 3 adds per-device session/run IDs and independent decimal-string client
+and machine counters. A signed session open replaces its row, starting client input
+at 1 and machine responses at 2 after the open response. Counter exhaustion never
+wraps. These rows survive interruption, but only in-memory live sessions authorize
+normal messages; restart never revives an old row. `authority` consumes the existing
+grant fields as typed direct/hold and all/selected-agent policy, refusing malformed
+or unknown authority without changing pairing's producer. Unsafe state fails closed
+before the door binds. Colab keeps its own copy of the layout
 code until a shared leaf exists (#1041).
 
 `control::Control` binds `<dataRoot>/remote/control.sock` (0600, in the 0700
@@ -4471,8 +4482,8 @@ fingerprint over the pinned BIP-39 English list in
 `tmt-ext-cert-v1` extension key certificate bytes, and the mounted
 extension-name grammar that `mount` also uses. `crypto` owns strict Ed25519
 verification, full HMAC-SHA256 verification and pure `K_response`/`serverProof`
-derivation. Neither module has I/O, clock, storage or CoreClient access, and
-neither is wired into the deny-all door. Remote-generated IDs remain UUIDv4.
+derivation. Neither module has I/O, clock, storage or CoreClient access. Pairing and message
+admission compose these pure primitives; valid bytes alone grant no authority. Remote-generated IDs remain UUIDv4.
 Byte construction and valid signatures establish no authority.
 Rust tests consume the independent Python canonical fixtures read-only; Rust-owned
 RFC/Python/WebCrypto vectors exercise cryptographic validity separately. The codec

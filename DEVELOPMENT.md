@@ -3087,8 +3087,14 @@ paired records with an extra `certificates` field load without migration.
 Colab gets at most 16 live WebSocket tunnels, each closed after 120 seconds
 without traffic; a full pool answers 503 with `retry-after`, so colab should
 keep one socket per tab and reconnect after idle close.
-Signed operations, hold, sends, the relay and journal integration are not
-implemented. The [channel contract](contracts/remote-channel-v1.md) is
+Strict normal-message authority is implemented, but authenticated append/subscribe/ack
+currently return machine-signed `REMOTE_CLOSED` refusals, without journal adoption
+or core effects. Session opens and these refusals share one durable response counter;
+client sequences are consumed once, with one normal message in flight per session.
+Malformed/unsigned/expired/revoked inputs retain generic pre-auth refusal. Focused
+checks run from `rust/` with `CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-remote --test admission`; they cover exact bytes, strict JSON,
+replay, replacement/revocation and real-storage counter reopen/exhaustion. Application
+operations, hold, sends, the relay and journal integration are not implemented. The [channel contract](contracts/remote-channel-v1.md) is
 proposed; [the separately owned browser shell](#browser-add-on-shell)
 uses only a stub. No official remote installer/release exists.
 
