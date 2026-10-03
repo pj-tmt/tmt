@@ -357,19 +357,15 @@ fn compact_line(
     let badge_width = width.min(3);
     let room = width - badge_width;
     let values = if mixed {
-        format!(
-            " {}:{} {}:{} {}:{}",
-            item.windows()[1].label(),
-            tokens(item, 1),
-            item.windows()[2].label(),
-            tokens(item, 2),
-            item.windows()[2].label(),
-            share(item)
-        )
+        vec![
+            format!("{}:{}", item.windows()[1].label(), tokens(item, 1)),
+            format!("{}:{}", item.windows()[2].label(), tokens(item, 2)),
+            format!("{}:{}", item.windows()[2].label(), share(item)),
+        ]
     } else {
-        format!(" {:>6}{:>6}", tokens(item, 1), tokens(item, 2))
+        vec![tokens(item, 1), tokens(item, 2)]
     };
-    let value_width = (unicode_width::UnicodeWidthStr::width(values.as_str()) as u16).min(room / 2);
+    let value_width = if mixed { 28 } else { 13 }.min(room / 2);
     let room = room - value_width;
     let name_width = (room / 3).min(18);
     let lead_width = (room / 3).min(20);
@@ -384,7 +380,19 @@ fn compact_line(
         span(fit(lead(item), lead_width), Role::Text, selected, look),
     ];
     spans.extend(member_line(item.members, room - name_width - lead_width, selected, look).spans);
-    spans.push(value_span(&values, value_width, selected, look));
+    let prefix = value_width.min(1);
+    spans.push(span(
+        " ".repeat(prefix as usize),
+        Role::Text,
+        selected,
+        look,
+    ));
+    let room = value_width - prefix;
+    let count = values.len() as u16;
+    for (index, value) in values.iter().enumerate() {
+        let width = room / count + u16::from((index as u16) < room % count);
+        spans.push(value_span(value, width, selected, look));
+    }
     Line::from(spans)
 }
 
