@@ -58,7 +58,7 @@ pub struct SquadLine {
     pub squad: String,
     pub lead: Option<Value>,
     pub counts: Counts,
-    /// Each non-lead membership contributes one mark, in urgency order.
+    /// Exclusive non-lead membership counts, with one urgency state per known member.
     pub members: Counts,
 }
 
