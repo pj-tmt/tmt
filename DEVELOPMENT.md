@@ -1767,6 +1767,10 @@ The fixture waits for admitted foreground Running and, for explicit channel
 sessions, the private Ready record matched to that foreground before reading its
 thread or sending. Running alone does not establish channel readiness; plain
 controls keep their foreground-only gate.
+Record tests use a barrier-held live-process probe to verify concurrent Ready
+publication, plus replacement and under-lock ended-proof checks for pruning.
+Run them with `CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters
+drivers::codex::record` from `rust/`.
 The scenarios also cover unchanged original resume argv,
 thread-ID mismatch rejection, retained-evidence refusal, and Ctrl-C cleanup.
 Launcher unit tests toggle the channel port's advertised default independently

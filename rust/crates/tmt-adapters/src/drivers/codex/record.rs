@@ -481,8 +481,9 @@ impl Store {
     }
 
     /// Only enrollment mutates ended records. Read-only pane queries never prune.
-    /// Unknown survives even after server cleanup; observe again under each
-    /// record lock and leave replacements or unreadable records untouched.
+    /// Probe snapshots without excluding live startup publications. Lock only
+    /// ended candidates, then compare the exact snapshot and prove ended again.
+    /// Unknown, replacements and unreadable records remain untouched.
     pub fn prune(
         &self,
         deadline: Instant,
@@ -504,14 +505,26 @@ impl Store {
             if uuid::Uuid::parse_str(binding).is_err() {
                 continue;
             }
+            let Ok(Some(candidate)) = self.read(binding) else {
+                continue;
+            };
+            if !candidate.ended(&observe) {
+                continue;
+            }
+            if Instant::now() >= deadline {
+                return Err(io::ErrorKind::TimedOut.into());
+            }
             let Ok(_lock) = self.lock(binding) else {
                 continue;
             };
-            let Ok(Some(record)) = self.read(binding) else {
+            let Ok(Some(current)) = self.read(binding) else {
                 continue;
             };
-            if !record.ended(&observe) {
+            if current != candidate || !current.ended(&observe) {
                 continue;
+            }
+            if Instant::now() >= deadline {
+                return Err(io::ErrorKind::TimedOut.into());
             }
             fs::remove_file(self.path(binding)?)?;
             removed += 1;

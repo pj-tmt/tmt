@@ -341,6 +341,13 @@ undoes admission, pastes or silently downgrades. Claude and plain launches take
 the no-op path. Cleaning an endpoint never proves an Unknown foreground ended.
 Known foreground, owner and any recorded endpoint must all be conclusively gone
 before an ended record is pruned; read-only delivery never prunes.
+Enrollment pruning observes immutable record snapshots outside their publication
+locks. Snapshots without conclusive ended evidence do not take that lock for
+pruning, so their liveness probes cannot exclude concurrent foreground/thread/Ready
+publication. Only an ended candidate acquires the lock; its complete snapshot
+must still match and every ended proof is checked again under the same deadline
+before removal. Replacements and uncertain evidence remain intact. No provider
+action is retried and no startup timer is extended.
 
 `drivers/codex/supervisor` owns the original app-server child and its process
 group. A private, close-on-exec launcher socket controls its lifetime; neither

@@ -2629,7 +2629,11 @@ lifetime proof. Fresh records retain endpoint/candidate evidence while unready.
 The shared launch owner calls the default no-op `foreground_admitted` only after
 committed Running admission of its original child and storage closure; Codex
 then publishes Ready under its generation lock. Callback failure warns and
-retains the admitted child and unready evidence, without rollback or paste. The channel contract owns takeover, pruning and recovery limits.
+retains the admitted child and unready evidence, without rollback or paste.
+Enrollment pruning probes record snapshots outside publication locks, then locks
+only ended candidates and revalidates the exact snapshot and ended proof before
+removal. Live-record probes never exclude another startup's publication. The
+channel contract owns takeover, pruning and recovery limits.
 `drivers/codex/recovery` implements `inspect` and `recover` through
 `Store::recover`, which removes the exact observed record under its per-binding
 lock, and cleans a generation directory file by known file (the names
