@@ -2292,7 +2292,10 @@ columns = [{ name = "member", width = "30%" },
 
         app.view.as_mut().unwrap().bindings = crate::action::preset(false, &[]);
         app.help = true;
-        let help = draw(&app, 60, 29);
+        // Notes cursor guidance and the settings binding need one more help row.
+        let help = draw(&app, 60, 30);
+        assert!(help.iter().any(|line| line.starts_with("g G")));
+        assert!(help.iter().any(|line| line == ",             settings"));
         assert!(
             help.iter().any(|line| line == "y             copy"),
             "{help:#?}"
@@ -2303,7 +2306,7 @@ columns = [{ name = "member", width = "30%" },
             "{help:#?}"
         );
         app.view.as_mut().unwrap().refresh = None;
-        let help = draw(&app, 60, 29);
+        let help = draw(&app, 60, 30);
         assert!(
             help.iter()
                 .any(|line| line == "reload      automatic reload is off"),
