@@ -487,9 +487,11 @@ extension key without a gesture, for example on an extension's first use. The SD
 extension name from the door's mount mapping for the calling page, never from a caller argument or a
 visible path segment, so a page certifies keys only for its own extension. It runs only in
 same-origin trusted extension code: `/sdk/remote-v1.js` loads only into trusted extension chrome,
-and sandboxed opaque-origin renderer frames never load it or reach the device key. At most one
-certificate exists per (extension, purpose, key). The exception never covers operations or
-`session.open`, whose gesture and signing rules are unchanged.
+and sandboxed opaque-origin renderer frames never load it or reach the device key. The SDK signs a
+new certificate on every call, using the same device key and the current `issuedAtMs`; certificates
+are not cached. Each certificate carries `issuedAtMs`, and verifiers enforce their own freshness
+policy. The exception never covers operations or `session.open`, whose gesture and signing rules
+are unchanged.
 
 Remote keeps files only in its own subtree of the data root reported by `tmt api` operation
 `storage.root`, with owner-only directories, 0600 secret/state files, no-follow bounded
@@ -525,8 +527,11 @@ owner:true, grantRevision}`, where `publicKey` is the grant's raw 32-byte Ed2551
 canonical unpadded base64url, the only form remote forwards. A cloud edge attributes a non-owner
 principal it authenticated for that extension as `{principal, owner:false}`; on the local door a
 non-owner request arrives without a device context and the extension authenticates it (below).
-Extensions query the current principal from the CLI and browser SDK and receive the device events
-defined below (for example to drop a device's extension key or rotate page epochs). An extension that needs
+Extensions learn the current principal from the forwarded device context on each request
+(`tmt-device-context` on the local door). A page that needs the principal asks its own extension
+backend, as Colab does through `/api/session`; the browser SDK does not expose the principal.
+Extensions also receive the device events defined below (for example to drop a device's extension
+key or rotate page epochs). An extension that needs
 its own keys generates them on the device and asks the device key to certify them: the device signs
 LP(`tmt-ext-cert-v1`) || LP(extension) || LP(purpose) || LP(raw extension public key) || LP(decimal
 issuedAtMs), where extension is its mounted name (a lowercase ASCII letter, then lowercase letters,

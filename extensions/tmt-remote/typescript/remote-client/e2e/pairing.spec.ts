@@ -1,5 +1,8 @@
 import { expect, test, chromium, type Browser } from '@playwright/test';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { createPublicKey, verify } from 'node:crypto';
+import { extCertSigningBytes } from '../src/canonical-bytes.js';
+import type { ExtCertificate } from '../src/device.js';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:net';
 import { join } from 'node:path';
@@ -153,28 +156,81 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   // The page-facing SDK exposes no caller-chosen extension and keeps the key opaque.
   const result = await app.evaluate(async () => {
     const sdk = (await import('/sdk/remote-v1.js' as string)) as {
-      certifyKey(purpose: 'sign', key: Uint8Array): Promise<Record<string, unknown>>;
+      certifyKey(
+        purpose: 'sign',
+        key: Uint8Array,
+      ): Promise<import('../src/device.js').ExtCertificate>;
     };
-    const first = await sdk.certifyKey('sign', new Uint8Array(32).fill(7));
-    const again = await sdk.certifyKey('sign', new Uint8Array(32).fill(7));
-    const stored = await new Promise<{ handle: CryptoKey }>((resolve) => {
+    const database = await new Promise<IDBDatabase>((resolve) => {
       const open = indexedDB.open('tmt-remote', 1);
-      open.onsuccess = () => {
-        const get = open.result.transaction('device').objectStore('device').get('device');
-        get.onsuccess = () => resolve(get.result as { handle: CryptoKey });
-      };
+      open.onsuccess = () => resolve(open.result);
     });
+    const stored = await new Promise<{ handle: CryptoKey; certificates?: unknown }>((resolve) => {
+      const get = database.transaction('device').objectStore('device').get('device');
+      get.onsuccess = () => resolve(get.result as { handle: CryptoKey; certificates?: unknown });
+    });
+    const newRecordHasCache = Object.hasOwn(stored, 'certificates');
+    const key = new Uint8Array(32).fill(7);
+    const first = await sdk.certifyKey('sign', key);
+    // Restore the old record shape with a stale certificate for exactly this key.
+    const legacy = { ...stored, certificates: [{ ...first, issuedAtMs: 1 }] };
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction('device', 'readwrite');
+      transaction.objectStore('device').put(legacy, 'device');
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+    const now = Date.now;
+    const nextTime = first.issuedAtMs + 60_000;
+    let again;
+    try {
+      // Deterministic clock advancement detects stale reuse without waiting.
+      Date.now = () => nextTime;
+      again = await sdk.certifyKey('sign', key);
+    } finally {
+      Date.now = now;
+    }
+    // Extra JavaScript arguments cannot select another extension.
+    const override = await Reflect.apply(sdk.certifyKey, undefined, ['sign', key, 'other']);
+    database.close();
     return {
       exports: Object.keys(sdk).sort(),
       first,
-      same: first.issuedAtMs === again.issuedAtMs,
+      again,
+      override,
+      nextTime,
+      newRecordHasCache,
       extractable: stored.handle.extractable,
     };
   });
   expect(result.exports).toEqual(['certifyKey', 'reopenSession']);
-  expect(result.first).toMatchObject({ extension: 'colab', purpose: 'sign' });
-  expect(result.same).toBe(true);
+  expect(result.newRecordHasCache).toBe(false);
+  expect(result.again.issuedAtMs).toBe(result.nextTime);
+  expect(result.again.issuedAtMs).toBeGreaterThanOrEqual(result.first.issuedAtMs);
+  expect(result.again.signature).not.toBe(result.first.signature);
   expect(result.extractable).toBe(false);
+  const deviceKey = createPublicKey({
+    key: Buffer.concat([
+      Buffer.from('302a300506032b6570032100', 'hex'),
+      Buffer.from(device.publicKey as string, 'base64url'),
+    ]),
+    format: 'der',
+    type: 'spki',
+  });
+  for (const certificate of [result.first, result.again, result.override] as ExtCertificate[]) {
+    expect(certificate).toMatchObject({ extension: 'colab', purpose: 'sign' });
+    expect(
+      verify(
+        null,
+        extCertSigningBytes({
+          ...certificate,
+          publicKey: Buffer.from(certificate.publicKey, 'base64url'),
+        }),
+        deviceKey,
+        Buffer.from(certificate.signature, 'base64url'),
+      ),
+    ).toBe(true);
+  }
 
   // Without its cookie the page is non-owner until it silently reopens a session.
   await context.clearCookies();

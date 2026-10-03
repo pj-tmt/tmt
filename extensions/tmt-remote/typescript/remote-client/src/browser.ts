@@ -1,5 +1,5 @@
 import wordlist from '../../../rust/tmt-remote/assets/bip39-english.txt?raw';
-import { base64url, fingerprintIndexes } from './canonical-bytes.js';
+import { fingerprintIndexes } from './canonical-bytes.js';
 import {
   DeviceKey,
   certify,
@@ -27,7 +27,6 @@ interface Stored {
   handle: CryptoKey;
   publicKey: Uint8Array;
   paired: Paired;
-  certificates: ExtCertificate[];
 }
 
 function request<T>(open: () => IDBRequest<T>): Promise<T> {
@@ -86,24 +85,17 @@ export async function reopenSession(): Promise<Session> {
 
 /**
  * Certify a key of the calling page's own extension. The extension comes from
- * the door's mount mapping for this page, never from the caller; one
- * certificate is kept per (extension, purpose, key).
+ * the door's mount mapping for this page, never from the caller. Each call
+ * signs a new certificate with the current issuedAtMs; verifiers own freshness.
  */
 export async function certifyKey(
   purpose: 'sign' | 'enc',
   publicKey: Uint8Array,
 ): Promise<ExtCertificate> {
-  const { record, key } = await paired();
+  const { key } = await paired();
   const { extension } = await door();
   if (extension === null) throw new Error('Only a mounted extension page can certify keys.');
-  const encoded = base64url(publicKey);
-  const existing = record.certificates.find(
-    (c) => c.extension === extension && c.purpose === purpose && c.publicKey === encoded,
-  );
-  if (existing) return existing;
-  const certificate = await certify(key, { extension, purpose, publicKey });
-  await save({ ...record, certificates: [...record.certificates, certificate] });
-  return certificate;
+  return certify(key, { extension, purpose, publicKey });
 }
 
 function element(id: string): HTMLElement {
@@ -157,7 +149,6 @@ async function ceremony(
     handle: key.handle(),
     publicKey: key.publicKey(),
     paired: result,
-    certificates: [],
   });
   await openSession(result, key, descriptor.windowId);
   status.textContent = 'This browser is paired. You can close this page.';

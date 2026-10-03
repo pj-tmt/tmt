@@ -4146,7 +4146,12 @@ builders and the pinned BIP-39 list into one unminified ES module in the crate's
 pairing page (fragment removed first, words shown before the owner confirms, the
 key's opaque handle kept in this origin's IndexedDB) and gives mounted pages only
 `reopenSession` and `certifyKey`, whose extension comes from `/sdk/mount`, never
-from the caller. Remote-generated IDs remain UUIDv4, as defined by the channel
+from the caller. Every `certifyKey` call signs a new `tmt-ext-cert-v1` certificate
+with the same device key and current `issuedAtMs`; verifiers own freshness.
+The paired record stores no certificate cache; legacy records with an extra
+`certificates` field still load without migration. The browser SDK exposes no
+principal: mounted pages ask their extension backend, which uses the door-forwarded
+`tmt-device-context` for that request. Remote-generated IDs remain UUIDv4, as defined by the channel
 contract. Syntax validation establishes no authority. It uses standard UTF-8 and
 WebCrypto primitives and runs in the existing Code quality job: the independent
 Python oracle must pass before the workspace-pinned Vite+ test runner runs, and the SDK

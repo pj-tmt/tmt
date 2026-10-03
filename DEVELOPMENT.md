@@ -2723,7 +2723,11 @@ words; after the owner confirms, the browser opens a door session with a signed
 roots under `/tmp`, because Unix socket paths are limited to about 100 bytes. It mounts colab under `/r/<prefix>/x/colab/` (`serve --json` prints the route prefix `/r/<prefix>`) while
 `<dataRoot>/colab/door.sock` exists as an owner-only socket in a 0700
 directory; mounted requests carry a device context only under a live door
-session.
+session. Pages learn their principal from their own extension backend, using
+the per-request `tmt-device-context`; the browser SDK has no principal accessor.
+`certifyKey` signs a new mount-scoped `tmt-ext-cert-v1` certificate on each call
+with the current `issuedAtMs`; the extension verifier enforces freshness. Existing
+paired records with an extra `certificates` field load without migration.
 Colab gets at most 16 live WebSocket tunnels, each closed after 120 seconds
 without traffic; a full pool answers 503 with `retry-after`, so colab should
 keep one socket per tab and reconnect after idle close.
