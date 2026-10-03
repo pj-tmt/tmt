@@ -39,6 +39,12 @@ pub const CONFIG_SHOW: &CommandSpec = spec!(
         "Inspect an aggregate tab as JSON" => "tmt squad config show --tab all --json",
     ]
 );
+pub const CONFIG_SET: &CommandSpec = spec!(
+    "set", "Validate and save one simple Squad setting",
+    details = "Uses squad.toml only. Refuses changed files and read-only settings. Lists use JSON array syntax.",
+    ["Set one squad’s refresh interval" => "tmt squad config set board.refresh 10s --squad product",
+     "Hide a positional track without changing the grid" => "tmt squad config set board.hidden_columns '[\"pr_link\"]' --squad product"]
+);
 
 pub const ROOT: &CommandSpec = spec!(
     "squad",

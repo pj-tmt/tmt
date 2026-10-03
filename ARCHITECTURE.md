@@ -3477,18 +3477,39 @@ no second worker or arrangement resolver is introduced. The built-in leads/all
 tabs keep their opening rows-only Board throughout picker preview, save and
 cancel; they offer all-boards scope, which affects real squad tabs only.
 
-Squad's `settings` projection reads the existing Config readers and annotates
-resolved values with their setting paths or preset/default sources. `config show`
-and the bindable `settings` overlay (comma by default) share that projection;
-all entries are read-only, including provider argv and run bindings. Inspection
-never runs configured programs. `Config::bindings_for_tab`,
-`action::effective_bindings` and `tab_view::rows` keep inspection and the board's
-loaded tab/selected-section rules together. The overlay has its own instance of
-the shared scroll owner, blocks underlying input, and retains its opening snapshot
-while board data refreshes. It changes no config or member state; close/reopen
-reads the configuration again. Aggregate tabs expose their fixed grids and global
-appearance, without inventing per-squad panes or providers. CLI `config show`
-without a scope inspects board defaults; `--squad` and `--tab` are exclusive.
+Squad's `settings` coordinator delegates to arrangement, rows, notebook/state,
+meter, theme and tab/program area projections. Source-bearing Config reader
+results own provenance; presentation does not inspect TOML or resolve values.
+`config show` and the bindable inspection overlay (comma by default) share those
+results. Provider argv, run bindings, state patterns and reminders are read-only;
+inspection and edit validation never execute configured programs. Existing
+`Config::bindings_for_tab`, `action::effective_bindings` and `tab_view::rows` keep
+inspection and loaded tab/selected-section rules together. The overlay owns its
+scroll position, blocks underlying input and retains its opening snapshot during
+board refresh; close/reopen reads later configuration. It remains read-only.
+Aggregate tabs expose fixed grids and global appearance without squad providers.
+CLI `config show` without scope inspects board defaults; `--squad` and `--tab`
+are exclusive.
+
+`config::edit` owns the shared settings edit policy and disposable validated
+Config draft. `sq config set KEY VALUE` accepts only layout preset, flat split
+panes/direction/sizes, refresh, notes mode, hidden tracks, exact state colors and
+global tabs order/hide. Arrays use JSON syntax. Nested split-tree structural edits
+refuse rather than flattening a custom or factory tree. Partial flat edits retain
+the workflow preset and seed missing flat split keys from the resolved arrangement.
+The draft uses the existing area validators before `Config::set_setting` calls
+only the existing `Config::write` compare-and-set path. Changed files refuse;
+comments, ordering and unrelated keys are retained, without backups or a core
+writer. CLI edits change no roster or member metadata.
+
+`rows::Rows` carries optional per-squad `board.hidden_columns` as named original
+track positions alongside unchanged columns and lines. The reader rejects unknown,
+duplicate, uncovered and all-hidden track masks. `markup::Grid` seeds its existing
+shown set with this mask before priority hiding and Taffy sizing; cell spans count
+surviving tracks in their original ranges. Zero surviving tracks omit a cell.
+`ls` text uses the same range visibility; JSON keeps every field value, original
+column/line metadata, and emits `hidden_columns` when nonempty. The empty default
+adds no JSON member and changes no frozen board parity fixture.
 
 Squad's `theme` command module registers `theme ls` (hidden `list` alias),
 `set` and `rm`; bare `theme` lists. Lists and the board picker consume names and
