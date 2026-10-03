@@ -1,7 +1,7 @@
 {
   "$source": {
     "source": "site/src/lang/strings.ts",
-    "sourceRevision": "0463948902c1892865f41cf285790913270bbc27"
+    "sourceRevision": "69dbf4e8cb3b0ee9e608d84b7eac3a1e121167d8"
   },
   "ui": {
     "notTranslated": "尚未翻譯，此頁以英文顯示。",
@@ -43,12 +43,61 @@
       "local": "TMT / 本機交換流程",
       "note": "示意輸出 · Claude Code + Codex · tmux 或 Herdr"
     },
-    "boardLabel": "一個 tmt sq board 分四個步驟更新：builder 處理 token 輪替，reviewer 開始審查，接著等你決定是否發布，tester 開始端對端測試，你回覆之後其他人繼續。",
-    "boardWaits": "◆ reviewer 在等你",
     "agents": "agent",
     "anyAgent": "任何 CLI agent",
     "hosts": "執行環境",
-    "next": "接下來"
+    "next": "接下來",
+    "tagline": "agent 之間傳訊很簡單，也能組合使用。",
+    "concepts": {
+      "items": [
+        {
+          "name": "agent",
+          "text": "你為程式命名，其他人就能找到它：用 `tmt run reviewer claude`，或從程式裡執行 `tmt name reviewer`。"
+        },
+        {
+          "name": "請求",
+          "text": "一個 agent 傳給另一個的內容：`tmt talk builder \"…\"` 會為它加上 ID 與 receipt，儲存後送出。"
+        },
+        {
+          "name": "結果",
+          "text": "傳回來的內容：agent 用 `tmt reply` 提交，再用 `tmt result req_…` 讀取。"
+        }
+      ],
+      "receipt": "receipt",
+      "receiptText": "receipt 把結果對應到請求：回覆必須帶著該請求附上的 receipt。"
+    },
+    "showcase": {
+      "chapter": "閱讀章節 →",
+      "sections": {
+        "start": {
+          "eyebrow": "開始"
+        },
+        "working": {
+          "eyebrow": "工作流程",
+          "title": "請求在窗格之間*傳遞*。",
+          "text": "`tmt talk` 把請求輸入另一個 agent 的窗格，回覆則帶著相符的 receipt 回到你的窗格。你不必在視窗之間複製文字。"
+        },
+        "squad": {
+          "eyebrow": "squad",
+          "title": "每個標記只有*一個意思*。",
+          "text": "Squad 擴充套件把 lead 與成員放在同一個 board，就在你原本的終端機裡。"
+        },
+        "colab": {
+          "eyebrow": "colab",
+          "title": "整個*團隊*共用的一頁。",
+          "text": "lead 的計畫、筆記與決定放在同一頁，各台機器上的 agent 與隊友都能閱讀與留言。"
+        },
+        "meet": {
+          "eyebrow": "meet",
+          "title": "你與 *agent* 的會議室。",
+          "text": "你、lead 與成員一起開會。想發言的人舉手，由你點名。先用文字。"
+        },
+        "install": {
+          "eyebrow": "安裝",
+          "title": "安裝後，為第一個 agent *命名*。"
+        }
+      }
+    }
   },
   "chapters": {
     "travel": {
