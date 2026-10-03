@@ -1505,9 +1505,9 @@ fn large_membership_statement_bootstraps_with_exact_chunks_and_frame_credit() {
 }
 
 #[test]
-fn membership_transfer_refuses_sql_oversize_before_loading_bytes() {
+fn mounted_owner_rejects_corrupt_oversized_membership_log() {
     let server = Running::start(Tunnels::PRODUCT);
-    // Keep genesis intact so registered-owner admission remains a positive control.
+    // Owner admission verifies page policy before transport reads the corrupted log.
     let layout = Layout::open(&server.root).unwrap();
     let key = Keyring::read(&layout).unwrap();
     let mut store = Store::open(&layout).unwrap();
@@ -1552,7 +1552,7 @@ fn membership_transfer_refuses_sql_oversize_before_loading_bytes() {
             json!({"device":DEVICE,"membershipRevision":"0","cursors":[]}),
         ),
     );
-    assert_eq!(receive(&mut peer)["code"], "CAPACITY");
+    assert_eq!(receive(&mut peer)["code"], "DENIED");
     let size: i64 = server
         .oracle()
         .query_row(
