@@ -758,3 +758,214 @@ fn archive_preserves_reads_and_delete_denies_admission_catchup_and_queued_delive
     drop(reopened);
     store.close().unwrap();
 }
+
+fn create_page(
+    f: &mut Fixture,
+    page: &str,
+    operation: &str,
+    expected: u64,
+) -> tmt_colab::transitions::Applied {
+    f.service()
+        .apply_owner(
+            tmt_colab::transitions::OwnerRequest {
+                operation_id: operation,
+                expected_revision: expected,
+                action: tmt_colab::transitions::OwnerAction::Create {
+                    page,
+                    title: "Created title",
+                    source: "<h1>Created source</h1>",
+                },
+                transport_digest: None,
+                scope: None,
+            },
+            NOW,
+        )
+        .unwrap()
+}
+fn browser_reads_created_page(f: &Fixture, page: &str, device: &str) {
+    use tmt_colab_model::{object, wrap};
+    use yrs::{Doc, GetString, Map, ReadTxn, Transact, Update, updates::decoder::Decode};
+    let key = Keyring::read(&f.layout).unwrap();
+    let bytes: Vec<u8> = f.oracle().query_row(
+        "SELECT envelope FROM wraps WHERE page=? AND kind='device' AND recipient=? ORDER BY revision DESC LIMIT 1",
+        [page,device], |r| r.get(0),
+    ).unwrap();
+    let wrapped = wrap::Envelope::from_json(&bytes).unwrap();
+    let secret = wrap::open(
+        &wrapped,
+        &wrapped.header().unwrap(),
+        &wrap::RecipientKey::from_seed(&[11; 32]).unwrap(),
+        &key.owner_public(),
+    )
+    .unwrap();
+    let (bytes,writer): (Vec<u8>,String) = f.oracle().query_row(
+        "SELECT payload,stream FROM receipts WHERE page=? AND namespace='content' ORDER BY seq LIMIT 1", [page],
+        |r| Ok((r.get(0)?,r.get(1)?)),
+    ).unwrap();
+    let record: Vec<u8> = f
+        .oracle()
+        .query_row("SELECT record FROM devices WHERE id=?", [&writer], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    let registered: tmt_colab::store::owner::Device = serde_json::from_slice(&record).unwrap();
+    let chain = certificate::Chain::from_json(&registered.chain).unwrap();
+    let object = object::Envelope::from_json(&bytes).unwrap();
+    let header = object::Header::decode(object.header()).unwrap();
+    let update = object::open(
+        &object,
+        &header.context,
+        &secret,
+        chain.certificate().unwrap().signing_key,
+    )
+    .unwrap();
+    let doc = Doc::new();
+    doc.transact_mut()
+        .apply_update(Update::decode_v1(&update).unwrap())
+        .unwrap();
+    let tx = doc.transact();
+    assert_eq!(
+        tx.get_text("html").unwrap().get_string(&tx),
+        "<h1>Created source</h1>"
+    );
+    assert_eq!(
+        tx.get_map("meta")
+            .unwrap()
+            .get(&tx, "title")
+            .unwrap()
+            .to_string(&tx),
+        "Created title"
+    );
+}
+#[test]
+fn creation_wraps_existing_owner_and_late_registration_opens_only_active_pages_without_retry_growth()
+ {
+    use tmt_colab::transitions::{OwnerAction, OwnerRequest};
+    const PAGE_A: &str = "50000000-0000-4000-8000-000000000001";
+    const PAGE_B: &str = "50000000-0000-4000-8000-000000000002";
+    let mut f = Fixture::new();
+    register(
+        &mut f,
+        Some(&context(DEVICE, 1)),
+        &request(DEVICE, NOW),
+        NOW,
+    )
+    .unwrap();
+    create_page(&mut f, PAGE_A, PAGE_A, 1);
+    browser_reads_created_page(&f, PAGE_A, DEVICE);
+    create_page(&mut f, PAGE_B, PAGE_B, 2);
+    f.service()
+        .apply_owner(
+            OwnerRequest {
+                operation_id: "50000000-0000-4000-8000-000000000003",
+                expected_revision: 3,
+                action: OwnerAction::Archive { page: PAGE_A },
+                transport_digest: None,
+                scope: None,
+            },
+            NOW,
+        )
+        .unwrap();
+    let devices = f.rows("devices");
+    let bindings = f.rows("device_registrations");
+    let wraps = f.rows("wraps");
+    f.oracle().execute_batch("CREATE TRIGGER deny_forward_wrap BEFORE INSERT ON wraps BEGIN SELECT RAISE(FAIL,'forced rollback'); END;").unwrap();
+    assert_eq!(
+        register(&mut f, Some(&context(OTHER, 1)), &request(OTHER, NOW), NOW).unwrap_err(),
+        Code::Unavailable
+    );
+    assert_eq!(f.rows("devices"), devices);
+    assert_eq!(f.rows("device_registrations"), bindings);
+    assert_eq!(f.rows("wraps"), wraps);
+    f.oracle()
+        .execute_batch("DROP TRIGGER deny_forward_wrap")
+        .unwrap();
+    let first = register(&mut f, Some(&context(OTHER, 1)), &request(OTHER, NOW), NOW).unwrap();
+    browser_reads_created_page(&f, PAGE_B, OTHER);
+    let count: i64 = f
+        .oracle()
+        .query_row(
+            "SELECT count(*) FROM wraps WHERE page=? AND kind='device' AND recipient=?",
+            [PAGE_A, OTHER],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 0);
+    let count = f.rows("wraps");
+    let log = f.rows("membership_log");
+    f.reopen();
+    assert_eq!(
+        register(&mut f, Some(&context(OTHER, 1)), &request(OTHER, NOW), NOW).unwrap(),
+        first
+    );
+    assert_eq!(f.rows("wraps"), count);
+    assert_eq!(f.rows("membership_log"), log);
+    f.service().revoke(OTHER, 2).unwrap();
+    let count = f.rows("wraps");
+    assert_eq!(
+        register(&mut f, Some(&context(OTHER, 3)), &request(OTHER, NOW), NOW).unwrap_err(),
+        Code::Denied
+    );
+    assert_eq!(f.rows("wraps"), count);
+}
+#[test]
+fn fresh_creation_is_atomic_replayable_and_conflicting_selections_never_create_another_page() {
+    use tmt_colab::transitions::{OwnerAction, OwnerRequest};
+    const PAGE: &str = "50000000-0000-4000-8000-000000000004";
+    let mut f = Fixture::new();
+    f.oracle().execute_batch("CREATE TRIGGER deny_create_receipt BEFORE INSERT ON owner_operations BEGIN SELECT RAISE(FAIL,'forced rollback'); END;").unwrap();
+    let apply = |f: &mut Fixture, title: &str| {
+        f.service().apply_owner(
+            OwnerRequest {
+                operation_id: PAGE,
+                expected_revision: 0,
+                action: OwnerAction::Create {
+                    page: PAGE,
+                    title,
+                    source: "<h1>Created source</h1>",
+                },
+                transport_digest: None,
+                scope: None,
+            },
+            NOW,
+        )
+    };
+    assert!(apply(&mut f, "Created title").is_err());
+    for table in [
+        "pages",
+        "membership_log",
+        "epoch_secrets",
+        "wraps",
+        "receipts",
+        "devices",
+        "owner_operations",
+    ] {
+        assert_eq!(f.rows(table), 0, "{table} was partially committed");
+    }
+    f.oracle()
+        .execute_batch("DROP TRIGGER deny_create_receipt")
+        .unwrap();
+    let first = apply(&mut f, "Created title").unwrap();
+    assert_eq!(first.head.revision, 2);
+    f.reopen();
+    let again = apply(&mut f, "Created title").unwrap();
+    assert!(again.replayed);
+    assert_eq!(first.outcome, again.outcome);
+    assert_eq!(f.rows("pages"), 1);
+    assert_eq!(f.rows("receipts"), 1);
+    assert_eq!(
+        apply(&mut f, "Changed").unwrap_err().code,
+        tmt_colab::transitions::Code::Conflict
+    );
+    assert_eq!(f.rows("pages"), 1);
+    let key = Keyring::read(&f.layout).unwrap();
+    let store = Store::read(&f.layout).unwrap();
+    let mut decoder = tmt_colab::decoder::Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    let page = tmt_colab::page::read(&store, &key, PAGE, &mut decoder).unwrap();
+    assert_eq!(page.source, "<h1>Created source</h1>");
+    assert_eq!(page.title, "Created title");
+    store.close().unwrap();
+}

@@ -40,7 +40,7 @@ impl std::fmt::Display for Fault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::StaleBase => "Page changed since the editing base; read it again before writing.",
-            Self::Invalid => "Invalid page source or write input.",
+            Self::Invalid => "Invalid page source or input.",
             Self::Capacity => "Page source, update or decoder capacity exceeded.",
             Self::Missing => "Existing Colab state is required.",
             Self::Inactive => "Archived or deleted pages cannot be written.",
@@ -189,7 +189,7 @@ pub fn prepare(
     if expected.is_some_and(|r| r != revision) {
         return Err(Fault::StaleBase.into());
     }
-    let (id, sign, enc) = key.local_writer()?;
+    let (id, _, _) = key.local_writer()?;
     if s.authority.revoked_devices.contains(&id) {
         return Err(Fault::Denied.into());
     }
@@ -214,24 +214,7 @@ pub fn prepare(
     let chain = if let Some(chain) = reusable {
         chain
     } else {
-        let cert = certificate::Certificate {
-            space: &key.space_id,
-            issuer_kind: "member",
-            issuer_id: &s.authority.head.owner_member.id,
-            device_id: &id,
-            signing_key: &sign,
-            encryption_key: &enc,
-            membership_revision: "1",
-            issued_at: now,
-            expires_at: now
-                .checked_add(crate::registration::CERTIFICATE_MS)
-                .ok_or(Fault::Invalid)?,
-        };
-        serde_json::to_vec(
-            &serde_json::json!({"version":1,"issuerStatement":values::encode_binary(&issuer),
-            "deviceCertificate":values::encode_binary(&certificate::input(&cert)?),
-            "issuerSignature":values::encode_binary(&key.sign_device_certificate(&cert)?)}),
-        )?
+        writer_chain(key, &s.authority.head, &issuer, now)?
     };
     let view = s.materialize_edit(key, page, decoder, Some(source))?;
     let head = s
@@ -284,6 +267,32 @@ pub fn prepare(
         chain: values::encode_binary(&chain),
         envelope: values::encode_binary(&envelope.to_json()?),
     })
+}
+pub(crate) fn writer_chain(
+    key: &Keyring,
+    head: &statement::Head,
+    issuer: &[u8; 32],
+    now: u64,
+) -> Result<Vec<u8>> {
+    let (id, sign, enc) = key.local_writer()?;
+    let cert = certificate::Certificate {
+        space: &key.space_id,
+        issuer_kind: "member",
+        issuer_id: &head.owner_member.id,
+        device_id: &id,
+        signing_key: &sign,
+        encryption_key: &enc,
+        membership_revision: "1",
+        issued_at: now,
+        expires_at: now
+            .checked_add(crate::registration::CERTIFICATE_MS)
+            .ok_or(Fault::Invalid)?,
+    };
+    Ok(serde_json::to_vec(
+        &serde_json::json!({"version":1,"issuerStatement":values::encode_binary(issuer),
+            "deviceCertificate":values::encode_binary(&certificate::input(&cert)?),
+            "issuerSignature":values::encode_binary(&key.sign_device_certificate(&cert)?)}),
+    )?)
 }
 fn local_chain(
     chain: &certificate::Chain,

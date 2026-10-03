@@ -15,10 +15,16 @@ pub const HEADER_FIELDS: usize = 32;
 pub const HTTP_BODY_BYTES: usize = 64 * 1024;
 /// A prepared local update has two base64 layers plus a certified chain.
 pub const LOCAL_PAGE_BODY_BYTES: usize = 512 * 1024;
+/// Worst-case JSON escaping of bounded source/title plus the payload's base64 layer.
+pub const LOCAL_CREATE_PAYLOAD_BYTES: usize =
+    6 * (crate::decoder::BASELINE_BYTES + crate::decoder::BASELINE_TITLE_BYTES) + 1024;
+pub const LOCAL_MANAGEMENT_BODY_BYTES: usize = LOCAL_CREATE_PAYLOAD_BYTES.div_ceil(3) * 4 + 2048;
 /// One route-owned body rule for acquisition and local callers.
 pub fn http_body_bytes(path: &str) -> usize {
     if path == crate::page::ipc::PATH {
         LOCAL_PAGE_BODY_BYTES
+    } else if path == crate::management::LOCAL_PATH {
+        LOCAL_MANAGEMENT_BODY_BYTES
     } else {
         HTTP_BODY_BYTES
     }

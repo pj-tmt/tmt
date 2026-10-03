@@ -40,6 +40,7 @@ struct Command {
     action: Action,
 }
 enum Action {
+    Create(Create),
     Advance,
     Share(payload::ShareMode),
     History(payload::HistoryMode),
@@ -86,6 +87,13 @@ fn required_option<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> std::result::Result<Option<Link>, D::Error> {
     Option::deserialize(d)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct Create {
+    page_id: String,
+    title: String,
+    source: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -257,16 +265,34 @@ impl Command {
     }
     fn local(body: &[u8], space: &str) -> Result<Self> {
         let (selected_space, value) = (|| -> Syntax<_> {
-            if body.len() > crate::limits::HTTP_BODY_BYTES {
+            if body.len() > crate::limits::http_body_bytes(LOCAL_PATH) {
                 return Err(tmt_colab_model::Invalid);
             }
             let value: Local = typed(body)?;
             values::space_id(&value.space)?;
             values::generated_id(&value.page)?;
             values::generated_id(&value.operation_id)?;
-            let revision = values::decimal(&value.expected_revision, false)?;
-            let payload = values::binary(&value.payload, PAYLOAD_BYTES)?;
-            let selected = action(&value.operation, &payload, &value.page)?;
+            let creating = value.operation == "page.create";
+            let revision = values::decimal(&value.expected_revision, creating)?;
+            let cap = if creating {
+                crate::limits::LOCAL_CREATE_PAYLOAD_BYTES
+            } else {
+                PAYLOAD_BYTES
+            };
+            let payload = values::binary(&value.payload, cap)?;
+            let selected = if creating {
+                let create: Create = typed(&payload)?;
+                if create.page_id != value.page
+                    || create.title.is_empty()
+                    || create.title.len() > crate::decoder::BASELINE_TITLE_BYTES
+                    || create.source.len() > crate::decoder::BASELINE_BYTES
+                {
+                    return Err(tmt_colab_model::Invalid);
+                }
+                Action::Create(create)
+            } else {
+                action(&value.operation, &payload, &value.page)?
+            };
             let digest = crypto::digest(&framing::frame(&[
                 b"tmt-colab-local-management-transport-v1",
                 body,
@@ -385,6 +411,11 @@ fn apply(
     };
 
     let action = match &command.action {
+        Action::Create(v) => OwnerAction::Create {
+            page: &v.page_id,
+            title: &v.title,
+            source: &v.source,
+        },
         Action::Advance => OwnerAction::EpochAdvance {
             page: &command.page,
         },

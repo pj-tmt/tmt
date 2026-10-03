@@ -5,7 +5,7 @@ use crate::{
     keyring::Keyring,
     store::{
         Store,
-        owner::{Device, Mutation, OwnerTransaction, Recipient},
+        owner::{Device, Mutation, OwnerTransaction},
     },
     transitions::Engine,
 };
@@ -322,6 +322,7 @@ impl Registration {
                         &serde_json::to_vec(&saved)?,
                         saved.context.grant_revision,
                     )?;
+                    forward_owner_wraps(tx, keyring, &saved.context.device_id, &encryption)?;
                     return Ok(saved.outcome);
                 }
             } else if old_device.is_some() {
@@ -370,6 +371,7 @@ impl Registration {
                 &serde_json::to_vec(&binding)?,
                 binding.context.grant_revision,
             )?;
+            forward_owner_wraps(tx, keyring, &binding.context.device_id, &encryption)?;
             Ok(outcome)
         };
         self.store
@@ -385,20 +387,7 @@ impl Registration {
         {
             return Ok(());
         }
-        let member = key.management_member()?;
-        let recipient = Recipient {
-            kind: "member".into(),
-            id: member.id,
-            role: Some("editor".into()),
-            signing_key: member.signing_key,
-            encryption_key: member.encryption_key,
-            pages: vec![],
-            revoked: false,
-        };
-        let payload = serde_json::to_vec(
-            &serde_json::json!({"memberId":recipient.id,"role":"editor",
-            "signKey":values::encode_binary(&recipient.signing_key),"encKey":values::encode_binary(&recipient.encryption_key),"pages":[]}),
-        )?;
+        let (_, payload) = crate::transitions::owner_genesis(key)?;
         self.store.owner_transaction(
             &key.space_id,
             &key.owner_public(),
@@ -408,10 +397,9 @@ impl Registration {
                 expected_revision: 0,
             },
             |tx| {
-                let initial = key.sign_statement(None, "member.add", &payload)?;
-                tx.append_statement(&initial)?;
-                tx.put_recipient(&recipient)?;
-                Ok(initial.to_json()?)
+                Ok(crate::transitions::initialize_owner(tx, key)?
+                    .ok_or(Code::Unavailable)?
+                    .to_json()?)
             },
         )?;
         Ok(())
@@ -700,6 +688,59 @@ impl crate::sync::Admission for OwnerAdmission {
                     .unwrap_or(SyncCode::Denied)
             })
     }
+}
+
+/// Registration admission already authenticated the owner device and its pinned keys.
+/// Wrap additions share its device transaction; failed capacity/signing publishes none.
+fn forward_owner_wraps(
+    tx: &mut OwnerTransaction<'_>,
+    key: &Keyring,
+    device: &str,
+    recipient_key: &[u8; 32],
+) -> Result<()> {
+    let head = tx.head().ok_or(Code::Unavailable)?.clone();
+    let pages = tx.pages()?;
+    if pages.len() > 1000 {
+        return Err(Code::Capacity.into());
+    }
+    let mut added = 0;
+    for page in pages {
+        let policy = tx.page_policy_at(&page, head.revision)?;
+        if !policy.writable() {
+            continue;
+        }
+        let epochs = tx.recent_secrets(&page, policy.epoch)?;
+        for (epoch, mut secret) in epochs {
+            let result = (|| -> Result<()> {
+                if (policy.history_current && epoch != policy.epoch)
+                    || tx.device_wrap_exists(&page, epoch, device, recipient_key)?
+                {
+                    return Ok(());
+                }
+                added += 1;
+                if added > 512 {
+                    return Err(Code::Capacity.into());
+                }
+                tx.put_wrap(&key.seal_wrap(
+                    &tmt_colab_model::wrap::Header {
+                        space: key.space_id.clone(),
+                        page: page.clone(),
+                        epoch: epoch.to_string(),
+                        recipient_kind: "device".into(),
+                        recipient_id: device.into(),
+                        recipient_key: *recipient_key,
+                        signer_key: key.owner_public(),
+                        membership_revision: head.revision.to_string(),
+                    },
+                    &secret,
+                )?)?;
+                Ok(())
+            })();
+            secret.fill(0);
+            result?;
+        }
+    }
+    Ok(())
 }
 
 fn issuer(

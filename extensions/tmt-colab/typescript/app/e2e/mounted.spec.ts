@@ -6,7 +6,7 @@ const device = '00000000-0000-4000-8000-000000000100';
 const member = '00000000-0000-4000-8000-000000000101';
 const pageId = '00000000-0000-4000-8000-000000000102';
 const json = (v: unknown) => c.text(JSON.stringify(v));
-async function fixture(page: Page, tamper = false) {
+async function fixture(page: Page, tamper = false, empty = false) {
   const owner = (await crypto.subtle.generateKey('Ed25519', false, [
     'sign',
     'verify',
@@ -76,7 +76,9 @@ async function fixture(page: Page, tamper = false) {
         spaceId: space,
         ownerKey: c.encodeBinary(ownerKey),
         revision: '2',
-        pages: [{ pageId, epoch: '1', sharing: 'private', history: 'current', archived: false }],
+        pages: empty
+          ? []
+          : [{ pageId, epoch: '1', sharing: 'private', history: 'current', archived: false }],
       },
     }),
   );
@@ -201,4 +203,15 @@ test('a successful HTTP registration with a forged certificate remains blocked',
       return record(`pin:${location.origin}/r/abcd/x/colab/`);
     }),
   ).toBeUndefined();
+});
+
+test('empty owner space names the product page-create command', async ({ page }) => {
+  await fixture(page, false, true);
+  await page.goto(mount);
+  await expect(page.getByRole('heading', { name: 'Colab', exact: true })).toBeVisible();
+  await expect(page.getByText('No pages in this space yet.', { exact: false })).toContainText(
+    'tmt colab page create --title "Notes"',
+  );
+  await expect(page.locator('ul.pages')).toHaveCount(0);
+  await expect(page.locator('iframe')).toHaveCount(0);
 });

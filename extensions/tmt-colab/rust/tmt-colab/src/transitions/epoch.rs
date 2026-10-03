@@ -93,7 +93,7 @@ impl Prepared {
             return Err(OwnerFault::StaleHead.into());
         }
         tx.pin_cuts(&self.snapshot.cuts)?;
-        let targets = targets(tx, &self.snapshot, key, authority, &self.page, now)?;
+        let targets = targets(tx, &self.snapshot.devices, key, authority, &self.page, now)?;
         if targets.len() > 512 {
             return Err(OwnerFault::Capacity.into());
         }
@@ -160,9 +160,9 @@ pub(super) fn recheck(tx: &OwnerTransaction<'_>, snapshot: &Snapshot, page: &str
     }
     Ok(())
 }
-fn targets(
+pub(super) fn targets(
     tx: &OwnerTransaction<'_>,
-    snapshot: &Snapshot,
+    devices: &[crate::store::owner::Device],
     key: &Keyring,
     authority: &Authority,
     page: &str,
@@ -177,7 +177,7 @@ fn targets(
         let r = &issuer.recipient;
         targets.insert((r.kind.clone(), r.id.clone()), r.encryption_key);
     }
-    for device in &snapshot.devices {
+    for device in devices {
         if device.revoked {
             continue;
         }
@@ -198,7 +198,7 @@ fn targets(
         {
             continue;
         }
-        fold::verify_chain(&chain, issuer, key, snapshot.authority.head.revision)?;
+        fold::verify_chain(&chain, issuer, key, authority.head.revision)?;
         if tx.registration(cert.device_id)?.is_some_and(|r| r.revoked) {
             continue;
         }
