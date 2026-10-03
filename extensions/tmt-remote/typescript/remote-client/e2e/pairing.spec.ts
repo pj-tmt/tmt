@@ -144,6 +144,11 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     sameSite: 'Strict',
   });
   const app = await context.newPage();
+  const dialogs: string[] = [];
+  app.on('dialog', (dialog) => {
+    dialogs.push(dialog.type());
+    void dialog.dismiss();
+  });
   // The old root mount space is gone.
   expect((await app.goto(`${origin}/x/colab/home`))?.status()).toBe(404);
   await app.goto(`${mounts}colab/home`);
@@ -157,7 +162,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   const result = await app.evaluate(async () => {
     const sdk = (await import('/sdk/remote-v1.js' as string)) as {
       certifyKey(
-        purpose: 'sign',
+        purpose: 'sign' | 'enc',
         key: Uint8Array,
       ): Promise<import('../src/device.js').ExtCertificate>;
     };
@@ -172,6 +177,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     const newRecordHasCache = Object.hasOwn(stored, 'certificates');
     const key = new Uint8Array(32).fill(7);
     const first = await sdk.certifyKey('sign', key);
+    const enc = await sdk.certifyKey('enc', new Uint8Array(32).fill(8));
     // Restore the old record shape with a stale certificate for exactly this key.
     const legacy = { ...stored, certificates: [{ ...first, issuedAtMs: 1 }] };
     await new Promise<void>((resolve, reject) => {
@@ -196,6 +202,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     return {
       exports: Object.keys(sdk).sort(),
       first,
+      enc,
       again,
       override,
       nextTime,
@@ -217,8 +224,15 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     format: 'der',
     type: 'spki',
   });
-  for (const certificate of [result.first, result.again, result.override] as ExtCertificate[]) {
-    expect(certificate).toMatchObject({ extension: 'colab', purpose: 'sign' });
+  expect(result.first).toMatchObject({ purpose: 'sign' });
+  expect(result.enc).toMatchObject({ purpose: 'enc' });
+  for (const certificate of [
+    result.first,
+    result.enc,
+    result.again,
+    result.override,
+  ] as ExtCertificate[]) {
+    expect(certificate.extension).toBe('colab');
     expect(
       verify(
         null,
@@ -247,4 +261,41 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     deviceId: device.deviceId,
   });
   await exited(pair);
+  const revoke = spawn(BINARY, ['devices', 'revoke', device.deviceId as string, '--json'], { env });
+  const revoked = await lines(revoke).next();
+  await exited(revoke);
+  expect(revoke.exitCode).toBe(0);
+  expect(revoked.device).toMatchObject({ clientId: device.deviceId, revoked: true, revision: 2 });
+  // Keep the revoked cookie and certificate: neither is fresh owner authority.
+  await app.reload();
+  await expect(app.locator('#context')).toHaveText('none');
+  const refused = await app.evaluate(async () => {
+    const sdk = (await import('/sdk/remote-v1.js' as string)) as {
+      reopenSession(): Promise<unknown>;
+    };
+    try {
+      await sdk.reopenSession();
+      return 'opened';
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  });
+  expect(refused).toBe('The session was refused.');
+  await app.reload();
+  await expect(app.locator('#context')).toHaveText('none');
+  // Revocation changes grant admission, not the mathematics of a retained signature.
+  for (const certificate of [result.first, result.enc]) {
+    expect(
+      verify(
+        null,
+        extCertSigningBytes({
+          ...certificate,
+          publicKey: Buffer.from(certificate.publicKey, 'base64url'),
+        }),
+        deviceKey,
+        Buffer.from(certificate.signature, 'base64url'),
+      ),
+    ).toBe(true);
+  }
+  expect(dialogs).toEqual([]);
 });

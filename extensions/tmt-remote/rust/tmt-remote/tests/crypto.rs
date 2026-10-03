@@ -156,3 +156,72 @@ fn webcrypto_fixture_signatures_match_native_signing_and_verification() {
         }
     }
 }
+
+#[test]
+fn fixed_extension_certificates_bind_domain_extension_purpose_key_and_time() {
+    let framing: Value = serde_json::from_str(include_str!(
+        "../../../typescript/remote-client/test/vectors.json"
+    ))
+    .unwrap();
+    let signatures: Value =
+        serde_json::from_str(include_str!("fixtures/webcrypto-vectors.json")).unwrap();
+    let other_device = SigningKey::from_bytes(&[42; 32]);
+    for fixture in framing["extCerts"].as_array().unwrap() {
+        let input = &fixture["input"];
+        let key: [u8; 32] = bytes(input["publicKey"].as_str().unwrap())
+            .try_into()
+            .unwrap();
+        let mut value = canonical::ExtCert {
+            extension: input["extension"].as_str().unwrap(),
+            purpose: input["purpose"].as_str().unwrap(),
+            public_key: &key,
+            issued_at_ms: input["issuedAtMs"].as_u64().unwrap(),
+        };
+        let fixed = signatures["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["name"] == fixture["name"])
+            .expect("every Python certificate has a fixed WebCrypto signature");
+        let baseline = canonical::ext_cert(&value).unwrap();
+        assert_eq!(baseline, bytes(fixed["message"].as_str().unwrap()));
+        let signature = bytes(fixed["signature"].as_str().unwrap());
+        assert!(crypto::verify_signature(&bytes(KEY), &baseline, &signature).is_ok());
+        assert!(
+            crypto::verify_signature(
+                other_device.verifying_key().as_bytes(),
+                &baseline,
+                &signature
+            )
+            .is_err()
+        );
+        let refuses = |changed: &[u8]| {
+            assert_ne!(changed, baseline);
+            assert!(crypto::verify_signature(&bytes(KEY), changed, &signature).is_err());
+        };
+        let mut changed = baseline.clone();
+        changed[4 + b"tmt-ext-cert-v1".len() - 1] = b'2';
+        refuses(&changed); // A different domain with the same LP width.
+        changed = baseline.clone();
+        changed[..4].reverse();
+        refuses(&changed); // Little-endian LP instead of the contract's big-endian LP.
+        let extension = value.extension;
+        value.extension = "other";
+        refuses(&canonical::ext_cert(&value).unwrap());
+        value.extension = extension;
+        let purpose = value.purpose;
+        value.purpose = if purpose == "sign" { "enc" } else { "sign" };
+        refuses(&canonical::ext_cert(&value).unwrap());
+        value.purpose = purpose;
+        let mut different_key = key;
+        different_key[0] ^= 1;
+        value.public_key = &different_key;
+        refuses(&canonical::ext_cert(&value).unwrap());
+        value.public_key = &key;
+        value.issued_at_ms ^= 1;
+        refuses(&canonical::ext_cert(&value).unwrap());
+        let mut different_signature = signature;
+        different_signature[0] ^= 1;
+        assert!(crypto::verify_signature(&bytes(KEY), &baseline, &different_signature).is_err());
+    }
+}

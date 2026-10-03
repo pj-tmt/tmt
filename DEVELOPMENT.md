@@ -3083,7 +3083,11 @@ session. Pages learn their principal from their own extension backend, using
 the per-request `tmt-device-context`; the browser SDK has no principal accessor.
 `certifyKey` signs a new mount-scoped `tmt-ext-cert-v1` certificate on each call
 with the current `issuedAtMs`; the extension verifier enforces freshness. Existing
-paired records with an extra `certificates` field load without migration.
+paired records with an extra `certificates` field load without migration. The Chromium
+pairing smoke covers both certificate purposes without another gesture, then revokes the
+device and verifies that retained signatures stay cryptographically valid while owner
+context and session reopening are denied. Native session/device-event tests separately
+cover tunnel closure, durable tombstones and replay.
 Colab gets at most 16 live WebSocket tunnels, each closed after 120 seconds
 without traffic; a full pool answers 503 with `retry-after`, so colab should
 keep one socket per tab and reconnect after idle close.
@@ -3132,7 +3136,8 @@ node extensions/tmt-remote/rust/tmt-remote/tests/fixtures/webcrypto.mjs
 
 Use the repository Node 22 version and repeat the WebCrypto command locally on
 Node 24. No extra required-CI Node setup is needed. The script verifies deterministic
-signatures that Rust independently reproduces and verifies; `--write` regenerates
+signatures, including both extension-certificate purposes, that Rust independently
+reproduces and verifies; `--write` regenerates
 the public-test-key fixture. The Python oracle does not import product code.
 These checks do not prove real Chrome key persistence/non-extractability across
 MV3 worker restarts. Pairing, authority and browser integration remain separate.
