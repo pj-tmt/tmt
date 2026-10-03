@@ -17,6 +17,10 @@ impl DeadlineStream {
         Self { stream, deadline }
     }
 
+    pub(super) fn set_deadline(&mut self, deadline: Instant) {
+        self.deadline = deadline;
+    }
+
     fn timeout(&self) -> io::Result<std::time::Duration> {
         self.deadline
             .checked_duration_since(Instant::now())

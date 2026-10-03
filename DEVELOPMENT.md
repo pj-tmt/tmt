@@ -1008,6 +1008,15 @@ For Codex queue transport, focused deterministic checks are
 `cargo test --locked -p tmt-adapters drivers::codex::queue` and
 `cargo test --locked -p tmt-adapters drivers::codex::transport`. The transport
 tests own local loopback peers and exercise receipt loss and absolute deadlines.
+`cargo test --locked -p tmt-adapters drivers::codex::delivery` also checks peer
+readiness and a channel-gated final process observation: preparation cannot spend
+the queue/receipt budget, expired or unverifiable rechecks send no queue frame,
+and the old shared deadline fails the delayed-receipt positive control. Preparation
+and delivery each retain a three-second absolute bound; a send can spend six
+seconds across these stages. Talk's observer deadline still starts before the
+synchronous send and includes its elapsed time; it is not a transport cancellation
+boundary. The [Codex contract](contracts/codex-channel-v1.md#transport-and-qualification)
+owns these budgets and terminal uncertainty.
 The refusal fixture holds a bound, non-listening socket through the connect attempt;
 it never releases a port for a parallel test to claim. It uses the existing nix
 Unix dev-dependency with `net`, without a new runtime dependency. These tests do

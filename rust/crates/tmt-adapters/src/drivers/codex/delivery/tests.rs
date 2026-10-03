@@ -154,13 +154,44 @@ fn entry(record: &Record, current: BindingSessionState) -> BindingEntry {
         }),
     }
 }
-fn real_socket_send(
-    reply: u8,
+enum PeerReceipt {
+    Reply,
+    AfterGate {
+        queued: std::sync::mpsc::Sender<()>,
+        release: std::sync::mpsc::Receiver<()>,
+    },
+    NoQueue,
+}
+struct PeerControl {
     startup: Option<std::sync::mpsc::Receiver<()>>,
     wait_for_ready: bool,
     waiting: Option<std::sync::mpsc::Sender<()>>,
-    release_after_send: &[std::sync::mpsc::Sender<()>],
+    release_after_send: Vec<std::sync::mpsc::Sender<()>>,
+    receipt: PeerReceipt,
+}
+impl Default for PeerControl {
+    fn default() -> Self {
+        Self {
+            startup: None,
+            wait_for_ready: true,
+            waiting: None,
+            release_after_send: vec![],
+            receipt: PeerReceipt::Reply,
+        }
+    }
+}
+fn real_socket_send(
+    reply: u8,
+    control: PeerControl,
+    runner: &impl crate::process::CommandRunner,
 ) -> Sent {
+    let PeerControl {
+        startup,
+        wait_for_ready,
+        waiting,
+        release_after_send,
+        receipt,
+    } = control;
     use nix::poll::{PollFd, PollFlags, poll};
     use serde_json::{Value, json};
     use std::{
@@ -228,7 +259,11 @@ fn real_socket_send(
         // A pre-connect sender failure must fail this fixture, not leave a
         // peer blocked in accept while the test waits to join it.
         let mut events = [PollFd::new(listener.as_fd(), PollFlags::POLLIN)];
-        assert_eq!(poll(&mut events, 3000_u16).unwrap(), 1);
+        let available = poll(&mut events, 3000_u16).unwrap();
+        if available == 0 && matches!(receipt, PeerReceipt::NoQueue) {
+            return listener;
+        }
+        assert_eq!(available, 1);
         let (stream, _) = listener.accept().unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(3)))
@@ -257,9 +292,21 @@ fn real_socket_send(
             ))
             .unwrap();
         let _: Value = serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
-        let queue: Value = serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
+        let queue = socket.read();
+        if matches!(receipt, PeerReceipt::NoQueue) {
+            assert!(
+                queue.is_err(),
+                "expired preparation must send no queue frame"
+            );
+            return listener;
+        }
+        let queue: Value = serde_json::from_str(queue.unwrap().to_text().unwrap()).unwrap();
         assert_eq!(queue["method"], "thread/queue/add");
         assert_eq!(queue["params"]["threadId"], thread);
+        if let PeerReceipt::AfterGate { queued, release } = receipt {
+            queued.send(()).unwrap();
+            release.recv_timeout(Duration::from_secs(3)).unwrap();
+        }
         if reply != 3 {
             let response = match reply {
                 0 => {
@@ -290,7 +337,7 @@ fn real_socket_send(
     }
     let paste = std::cell::Cell::new(0);
     let outcome = tmt_core::driver::routing::send_preferred(
-        || send(Some(&fixture.path), &entry, "tiny"),
+        || send_with_runner(Some(&fixture.path), &entry, "tiny", runner),
         || {
             paste.set(paste.get() + 1);
             ActionResult::Completed(DeliveryAcceptance::Submitted)
@@ -315,7 +362,7 @@ fn real_socket_send(
 #[test]
 fn real_socket_send_outcomes_are_one_shot_and_zero_fallback() {
     for reply in 0..4 {
-        let outcome = real_socket_send(reply, None, true, None, &[]);
+        let outcome = real_socket_send(reply, PeerControl::default(), &UnixCommandRunner);
         match reply {
             0 => assert_eq!(outcome, ActionResult::Completed(DeliveryAcceptance::Queued)),
             2 => assert_eq!(outcome, denied(ChannelFault::Refused)),
@@ -330,18 +377,30 @@ fn peer_readiness_keeps_induced_startup_delay_outside_the_send_deadline() {
     let (release_ready, held_ready) = mpsc::channel();
     let (release_unready, held_unready) = mpsc::channel();
     let (waiting, waits) = mpsc::channel();
-    let synchronized =
-        std::thread::spawn(move || real_socket_send(0, Some(held_ready), true, Some(waiting), &[]));
+    let synchronized = std::thread::spawn(move || {
+        real_socket_send(
+            0,
+            PeerControl {
+                startup: Some(held_ready),
+                waiting: Some(waiting),
+                ..Default::default()
+            },
+            &UnixCommandRunner,
+        )
+    });
     // The synchronized fixture has finished setup and is waiting for its peer.
     // Hold both peers until the old unsynchronized ordering exhausts its real
     // production deadline; this induces startup delay without a sleep or retry.
     waits.recv().unwrap();
     let unready = real_socket_send(
         0,
-        Some(held_unready),
-        false,
-        None,
-        &[release_unready, release_ready],
+        PeerControl {
+            startup: Some(held_unready),
+            wait_for_ready: false,
+            release_after_send: vec![release_unready, release_ready],
+            ..Default::default()
+        },
+        &UnixCommandRunner,
     );
     let ready = synchronized.join().unwrap();
     assert_eq!(unready, denied(ChannelFault::NotReady));
@@ -375,4 +434,130 @@ fn missing_or_mismatched_bound_attribution_refuses_before_process_or_endpoint_io
             )))
         ));
     }
+}
+
+struct GatedObservation {
+    calls: std::cell::Cell<usize>,
+    entered: std::sync::mpsc::Sender<Instant>,
+    release: std::sync::mpsc::Receiver<()>,
+}
+impl crate::process::CommandRunner for GatedObservation {
+    fn execute(
+        &self,
+        request: crate::process::CommandRequest<'_>,
+    ) -> Result<crate::process::CommandOutput, crate::process::CommandError> {
+        let call = self.calls.get() + 1;
+        self.calls.set(call);
+        let deadline = request.deadline;
+        let result = UnixCommandRunner.execute(request);
+        if call == 6 {
+            // Capture genuine process evidence, then hold its return to simulate
+            // scheduling delay in the last observation before the queue attempt.
+            self.entered.send(deadline).unwrap();
+            self.release.recv_timeout(Duration::from_secs(3)).unwrap();
+        }
+        result
+    }
+}
+fn hold_until(deadline: Instant) {
+    let (_held, gate) = std::sync::mpsc::channel::<()>();
+    assert!(matches!(
+        gate.recv_timeout(deadline.saturating_duration_since(Instant::now())),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+    ));
+}
+#[test]
+fn final_process_recheck_cannot_spend_the_delivery_receipt_budget() {
+    use std::sync::mpsc;
+    let (entered, observes) = mpsc::channel();
+    let (release_observation, release) = mpsc::channel();
+    let (queued, queues) = mpsc::channel();
+    let (release_receipt, receipt) = mpsc::channel();
+    let controller = std::thread::spawn(move || {
+        let deadline = observes.recv_timeout(Duration::from_secs(3)).unwrap();
+        hold_until(deadline - Duration::from_millis(150));
+        release_observation.send(()).unwrap();
+        queues.recv_timeout(Duration::from_secs(3)).unwrap(); // independent proof that the sole queue frame arrived
+        hold_until(deadline + Duration::from_millis(10));
+        release_receipt.send(()).unwrap();
+    });
+    let runner = GatedObservation {
+        calls: std::cell::Cell::new(0),
+        entered,
+        release,
+    };
+    let outcome = real_socket_send(
+        0,
+        PeerControl {
+            receipt: PeerReceipt::AfterGate {
+                queued,
+                release: receipt,
+            },
+            ..Default::default()
+        },
+        &runner,
+    );
+    controller.join().unwrap();
+    assert_eq!(runner.calls.get(), 6);
+    assert_eq!(outcome, ActionResult::Completed(DeliveryAcceptance::Queued));
+}
+#[test]
+fn expired_final_process_recheck_sends_no_queue_frame() {
+    use std::sync::mpsc;
+    let (entered, observes) = mpsc::channel();
+    let (release_observation, release) = mpsc::channel();
+    let controller = std::thread::spawn(move || {
+        let deadline = observes.recv_timeout(Duration::from_secs(3)).unwrap();
+        hold_until(deadline + Duration::from_millis(10));
+        release_observation.send(()).unwrap();
+    });
+    let runner = GatedObservation {
+        calls: std::cell::Cell::new(0),
+        entered,
+        release,
+    };
+    let outcome = real_socket_send(
+        0,
+        PeerControl {
+            receipt: PeerReceipt::NoQueue,
+            ..Default::default()
+        },
+        &runner,
+    );
+    controller.join().unwrap();
+    assert_eq!(runner.calls.get(), 6);
+    assert_eq!(outcome, denied(ChannelFault::NotReady));
+}
+
+#[test]
+fn unverifiable_final_process_recheck_sends_no_queue_frame() {
+    struct UnverifiableFinal(std::cell::Cell<usize>);
+    impl crate::process::CommandRunner for UnverifiableFinal {
+        fn execute(
+            &self,
+            request: crate::process::CommandRequest<'_>,
+        ) -> Result<crate::process::CommandOutput, crate::process::CommandError> {
+            let call = self.0.get() + 1;
+            self.0.set(call);
+            if call == 6 {
+                Ok(crate::process::CommandOutput {
+                    stdout: b"unverifiable".to_vec(),
+                    stderr: vec![],
+                })
+            } else {
+                UnixCommandRunner.execute(request)
+            }
+        }
+    }
+    let runner = UnverifiableFinal(std::cell::Cell::new(0));
+    let outcome = real_socket_send(
+        0,
+        PeerControl {
+            receipt: PeerReceipt::NoQueue,
+            ..Default::default()
+        },
+        &runner,
+    );
+    assert_eq!(runner.0.get(), 6);
+    assert_eq!(outcome, denied(ChannelFault::Unverifiable));
 }

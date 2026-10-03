@@ -117,7 +117,11 @@ impl Client {
         Ok(client)
     }
 
-    pub fn queue(mut self, request: &QueueRequest) -> QueueOutcome {
+    pub fn queue(mut self, request: &QueueRequest, deadline: Instant) -> QueueOutcome {
+        // Set once at the consuming delivery boundary, after the caller's final
+        // qualification. Library-internal reads cannot renew this budget.
+        self.deadline = deadline;
+        self.socket.get_mut().set_deadline(deadline);
         // Any failure from the attempted delivery write onward is uncertain.
         // JSON-RPC rejection classification belongs to the bounded receipt.
         match self.call(&request.frame(), request.id()) {

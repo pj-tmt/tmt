@@ -2441,7 +2441,13 @@ Stored harness IDs are the descriptor names, so storage is unchanged.
 
 `drivers/codex/queue` owns exact native request/receipt validation, while
 `drivers/codex/transport` owns synchronous WebSocket framing and the absolute
-I/O deadline. The only new transport dependency is adapter-local tungstenite,
+I/O deadline of each stage. `delivery` retains a three-second preparation budget
+for qualification and its final recheck, then passes one fresh three-second
+absolute deadline to the consuming queue attempt on the same connection.
+`transport` sets that delivery deadline once on its client and stream; fragmented
+receipts cannot renew it. Expired preparation sends no queue frame, and delivery
+uncertainty remains terminal even when an attempted write did not reach the peer.
+The only new transport dependency is adapter-local tungstenite,
 exactly pinned with default features disabled and `handshake` enabled; no TLS
 or async runtime enters core or shared ports. The architecture dependency guard
 permits it only in adapters. The [Codex channel contract](contracts/codex-channel-v1.md)
