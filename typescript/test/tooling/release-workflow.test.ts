@@ -353,6 +353,8 @@ describe('release workflow (release.yml)', () => {
     expect(step).toContain(
       "if: steps.mode.outputs.live == 'true' && steps.release.outputs.queue_blocked != 'true'"
     );
+    // Paused for push runs until the release cut (#1399): only an explicit dispatch enqueues.
+    expect(step).toContain("&& github.event_name == 'workflow_dispatch'");
     expect(step).toContain('RELEASE_TOKEN: ${{ steps.app.outputs.token }}');
     expect(step).toContain('LIVE: ${{ steps.mode.outputs.live }}');
     expect(step).toContain('node typescript/scripts/release-please-queue.mjs enable');
