@@ -3068,6 +3068,27 @@ corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-matc
 corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-match dev
 ```
 
+The Ask preview foundation (#1312) has no production selection/threads entry
+point or live remote operation adapter. `test/ask.test.ts` verifies independent
+canonical/signature vectors, immutable async inputs, composed byte bounds,
+persist-before-send, conflicts, double-click coalescing, held/uncertain outcomes
+and no retry through a deterministic RemoteClient double. `e2e/ask.spec.ts`
+mounts the parent component through the test-only `test/ask-browser.tsx` entry
+and uses real WebCrypto/non-extractable keys, IndexedDB and Web Locks. It checks
+inert exact/control-byte previews, disabled absent runtime, trusted-click-only
+signing, frozen live-source inputs and durable reload without another send.
+These tests prove the browser primitive, not remote delivery or the L5 real-TMT
+acceptance gate. No real TMT home or provider is used by this fixture. Screenshot
+evidence is written under `/private/tmp/colab-1110-design/`.
+
+The frozen send-byte oracle is checked with
+`python3 extensions/tmt-colab/contracts/vectors/send-preview-reference.py` from
+the repository root, using the existing Python `cryptography` tooling described
+below. Add `--write` only after reviewing changed bytes. App tests read the
+frozen JSON without Python. The public RFC 8032 seed and exact Unicode/control
+characters are intentional fixture data. No browser/SQLite version migration,
+new dependency or lockfile resolution is required by this foundation.
+
 The dev server binds loopback and serves in-process sample pages. The paired mount
 client path is tested with Vite plus signed protocol fixtures: first-use key
 persistence/non-extractability, registration failure, root pin mismatch, strict

@@ -278,3 +278,44 @@ footer {
     padding: 16px 20px;
   }
 }
+
+.ask-preview {
+  max-width: 760px;
+  margin: 24px auto;
+  padding: 24px;
+  background: var(--c-sheet);
+  border: 2px solid var(--c-text);
+  box-shadow: 5px 5px 0 var(--c-accent);
+}
+.ask-preview h2 {
+  margin-top: 0;
+}
+.ask-preview dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 20px;
+}
+.ask-preview dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ask-preview pre {
+  font: 12px/1.65 var(--f-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+}
+.ask-preview summary {
+  cursor: pointer;
+}
+.ask-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 20px;
+}
+.ask-actions button:disabled {
+  cursor: default;
+  opacity: 0.6;
+  box-shadow: none;
+}
