@@ -1280,7 +1280,10 @@ one literal-ID scroll body and optional direct `tmt-text slot="footer"`/`"status
 children; components cannot occur in repeats yet. Primitive content can repeat.
 `tmt-key-help id="keys" bind="$.help"` uses `KeyHelp::schema()` and the typed
 section/entry model's `value()`; applications supply effective keys, descriptions
-and names. Use `placement="body"` for references, `"center"` for small overlays,
+and names. Optional `heading-token` (existing theme role, default `muted`),
+`heading-bold` (`true`/`false`, default `false`) and `section-gap` (0–4096 lines,
+default 0) style headings and add space only between sections.
+Use `placement="body"` for references, `"center"` for small overlays,
 or `"docked"` for prompts. `surface::render` accepts caller-owned ScrollState,
 body Rect/Buffer, RenderStyle (Theme/Depth) and selection styling. It returns
 visible scoped hits; route current input through `app::route` before base handlers.
@@ -1716,6 +1719,13 @@ compare `cargo tree -p tmt-cli -e normal,build -f '{p} {f}'` with `main` and the
 package-scoped release `tmt` (see Rust checks) to prove the CLI is unchanged. Notebook link checks cover wrapped Unicode
 hits, target previews, configured overrides, inert unknown schemes, argv isolation
 and sender/member/open-request revalidation. Parsing and paint must perform no actions.
+
+Help regression tests cover modal key/mouse capture, close-event consumption,
+base focus/selection/scroll preservation, opaque component chrome and End/Home
+scrolling at 160/100/80 columns. Verify real private-tmux captures in `tmt`,
+`tmt-light` and `NO_COLOR`, at the top and end, with isolated HOME,
+TMUX_TEAM_HOME and XDG cache. Settings tests retain raw binding JSON while
+checking shared description metadata.
 
 Native Squad tests verify leadership selection and clearing without membership
 or role loss, repeated additions without overwriting state, and explicit recovery

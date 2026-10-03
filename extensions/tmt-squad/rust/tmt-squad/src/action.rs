@@ -130,6 +130,45 @@ fn tokens(text: &str) -> Result<Vec<String>, String> {
 }
 
 impl Action {
+    /// Plain-language binding wording shared by help and settings. Describing an
+    /// action never fills templates, resolves a member or executes a program.
+    pub fn description(&self) -> String {
+        let target = self.args.first().and_then(Template::literal);
+        match self.verb {
+            Verb::Jump if target == Some("lead") => "go to the lead's pane".into(),
+            Verb::Jump => "go to the member's pane".into(),
+            Verb::Back => "go back to the previous pane".into(),
+            Verb::Open => "open the member's link".into(),
+            Verb::Copy => "copy from the selected row".into(),
+            Verb::Notes => "show the lead's notes".into(),
+            Verb::Refresh => "refresh the board now".into(),
+            Verb::TokenWindow => "switch the token time window".into(),
+            Verb::Theme => "pick a theme".into(),
+            Verb::Settings => "show settings".into(),
+            Verb::View => "pick a pane layout".into(),
+            Verb::Run => "run your program for this member".into(),
+            Verb::NextPane => "move to the next pane".into(),
+            Verb::Toggle => {
+                let panes: Vec<_> = self.args.iter().filter_map(Template::literal).collect();
+                let names = match panes.split_last() {
+                    Some((last, [])) => (*last).to_owned(),
+                    Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+                    None => String::new(),
+                };
+                format!(
+                    "fold or unfold the {names} {}",
+                    if panes.len() == 1 { "pane" } else { "panes" },
+                )
+            }
+            Verb::Menu => "show actions for this row".into(),
+            Verb::Tab => "open the selected squad".into(),
+            Verb::Talk => "send the member a message".into(),
+            Verb::Reply => "answer the member's request".into(),
+            Verb::Annotate if target == Some("member") => "send the member a note".into(),
+            Verb::Annotate => "send the lead a note".into(),
+        }
+    }
+
     pub fn parse(line: &str) -> Result<Self, String> {
         let line = line.trim();
         let (verb_name, rest) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
@@ -348,6 +387,40 @@ pub fn all_preset() -> Bindings {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn binding_descriptions_cover_presets_and_distinguish_action_targets() {
+        for bindings in [preset(true, &[]), preset(false, &[]), all_preset()] {
+            for action in bindings.values() {
+                let description = action.description();
+                assert_ne!(description, action.text);
+                assert!(description.contains(' '), "{description}");
+                for internal in ["next-pane", "token-window", "jump lead", "annotate lead"] {
+                    assert!(!description.contains(internal), "{description}");
+                }
+            }
+        }
+        for (configured, description) in [
+            ("jump", "go to the member's pane"),
+            ("jump lead", "go to the lead's pane"),
+            ("annotate member", "send the member a note"),
+            ("annotate lead", "send the lead a note"),
+            ("toggle notes", "fold or unfold the notes pane"),
+            (
+                "toggle detail replies",
+                "fold or unfold the detail and replies panes",
+            ),
+            (
+                "toggle rows notes detail replies",
+                "fold or unfold the rows, notes, detail and replies panes",
+            ),
+            ("run editor {cwd}", "run your program for this member"),
+        ] {
+            let action = Action::parse(configured).unwrap();
+            assert_eq!(action.description(), description);
+            assert_eq!(action.text, configured, "settings retain the literal value");
+        }
+    }
 
     fn row() -> Value {
         json!({

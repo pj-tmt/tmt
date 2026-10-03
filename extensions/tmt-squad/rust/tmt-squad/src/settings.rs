@@ -9,6 +9,8 @@ pub struct BoardSetting {
     pub value: Value,
     pub source: String,
     pub editable: bool,
+    /// Presentation-only binding prose; JSON keeps the literal value and source.
+    pub description: Option<String>,
 }
 pub struct BoardSettings {
     pub path: String,
@@ -27,6 +29,7 @@ impl BoardSettings {
             value,
             source: source.into(),
             editable: false,
+            description: None,
         });
     }
 }

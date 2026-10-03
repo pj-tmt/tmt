@@ -5,6 +5,7 @@ mod app;
 mod changes;
 mod composition;
 mod derived;
+mod help;
 mod home;
 mod markdown;
 mod meter;

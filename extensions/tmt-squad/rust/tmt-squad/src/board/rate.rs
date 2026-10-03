@@ -13,6 +13,8 @@ const SLOTS: usize = 720;
 pub struct Input {
     pub room: String,
     pub resumes: BTreeMap<String, Value>,
+    /// The observed roster includes the lead and members omitted by row filters.
+    pub names: BTreeMap<String, String>,
 }
 
 impl Input {
@@ -22,6 +24,10 @@ impl Input {
             resumes: members
                 .iter()
                 .map(|member| (member.id.clone(), member.seen["resume"].clone()))
+                .collect(),
+            names: members
+                .iter()
+                .map(|member| (member.id.clone(), member.name.clone()))
                 .collect(),
         }
     }
@@ -36,6 +42,7 @@ impl Input {
             .collect();
         Self {
             room: self.room.clone(),
+            names: self.names.clone(),
             resumes: self
                 .resumes
                 .keys()

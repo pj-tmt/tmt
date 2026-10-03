@@ -352,3 +352,71 @@ fn semantic_help_styles_and_escaping_use_injected_theme_at_each_depth() {
         );
     }
 }
+
+#[test]
+fn key_help_heading_properties_preserve_columns_and_section_spacing() {
+    let markup = MARKUP.replace(
+        "bind=\"$.help\"",
+        "bind=\"$.help\" heading-token=\"accent\" heading-bold=\"true\" section-gap=\"1\"",
+    );
+    let parsed = crate::parse("help.xml", &markup).unwrap();
+    let surface = compile("help.xml", &parsed, &schema(), &NoSources)
+        .unwrap()
+        .materialize(
+            "help.xml",
+            &json!({"help": model().value(), "footer": "Esc close", "status": "read-only"}),
+            &NoSources,
+        )
+        .unwrap();
+    let mut scroll = ScrollState::default();
+    let (buffer, map) = draw(&surface, &mut scroll, 120, 18);
+    let x = map.areas.content.x;
+    let y = map.areas.content.y;
+    assert!(line(&buffer, map.areas.content, y).starts_with("Navigation"));
+    assert!(line(&buffer, map.areas.content, y + 2).trim().is_empty());
+    assert!(line(&buffer, map.areas.content, y + 3).starts_with("Bindings"));
+    assert_eq!(
+        buffer[(x, y)].fg,
+        screen::style(&Theme::default(), Role::Accent, Depth::TrueColor)
+            .fg
+            .unwrap()
+    );
+    assert!(
+        buffer[(x, y)]
+            .modifier
+            .contains(ratatui::style::Modifier::BOLD)
+    );
+    assert!(
+        !buffer[(x, y + 1)]
+            .modifier
+            .contains(ratatui::style::Modifier::BOLD)
+    );
+    assert_eq!(buffer[(x + 8, y + 1)].symbol(), "f");
+    assert_eq!(buffer[(x + 8, y + 4)].symbol(), "s");
+    assert_eq!(scroll.content(), 5);
+    let (_, small) = draw(&surface, &mut scroll, 120, 7);
+    scroll.step(Step::Bottom);
+    let (buffer, end) = draw(&surface, &mut scroll, 120, 7);
+    assert_eq!(scroll.offset(), 5 - usize::from(small.areas.content.height));
+    assert!(
+        line(&buffer, end.areas.content, end.areas.content.bottom() - 1)
+            .contains("second description")
+    );
+}
+
+#[test]
+fn invalid_key_help_heading_properties_are_rejected() {
+    for property in [
+        "heading-token='title'",
+        "heading-bold='yes'",
+        "section-gap='-1'",
+        "section-gap='4097'",
+    ] {
+        let markup = MARKUP.replace("bind=\"$.help\"", &format!("bind=\"$.help\" {property}"));
+        let parsed = crate::parse("help.xml", &markup).unwrap();
+        assert!(
+            compile("help.xml", &parsed, &schema(), &NoSources).is_err(),
+            "{property}"
+        );
+    }
+}
