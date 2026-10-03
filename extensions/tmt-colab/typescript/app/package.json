@@ -13,7 +13,9 @@
   "dependencies": {
     "@tanstack/react-router": "1.170.33",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "@tmt/colab-client": "workspace:*",
+    "yjs": "13.6.32"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

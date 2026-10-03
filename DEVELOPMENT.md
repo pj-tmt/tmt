@@ -3009,13 +3009,18 @@ corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-matc
 corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-match dev
 ```
 
-The dev server binds loopback and serves in-process sample pages, independent of
-`colab serve` and Remote. The parent displays read-only source; no sign-in, sync,
-live editing or page persistence is implemented. The browser suite proves opaque
-origin isolation, CSP request blocking, source-digest/window binding and teardown.
-It also records the permitted self-navigation request before teardown rather than
-claiming complete exfiltration prevention. App Chromium evidence does not replace
-the primitive library's three-engine conformance gate below. Code quality runs
+The dev server binds loopback and serves in-process sample pages. The paired mount
+client path is tested with Vite plus signed protocol fixtures: first-use key
+persistence/non-extractability, registration failure, root pin mismatch, strict
+owner-log/author-chain admission and missing-wrap blocking. This does not replace
+the native placeholder; #1248/#1250 supply bootstrap and certificate refresh,
+#1253 owns native assets, and #1252 owns live editing/transport acceptance.
+The content Worker suite proves concurrent writer convergence and reload
+reconstruction, rejects malformed/mixed roots, and checks termination and cleanup.
+The unchanged renderer suite proves opaque origin isolation, CSP request blocking,
+source-digest/window binding and teardown, including the permitted self-navigation
+request before teardown. These app fixtures do not establish real mounted
+co-editing or replace the primitive library's three-engine conformance gate below. Code quality runs
 filtered frozen install, check, unit tests and build; renderer tests run locally.
 
 The private browser primitives use the existing frozen pnpm workspace. From the

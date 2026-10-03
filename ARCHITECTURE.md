@@ -4180,14 +4180,29 @@ client primitives; log verification, Yjs state and SyncBinding are planned addit
 `typescript/app` is the private React/Vite/TanStack app member, using the same
 workspace pins and shared design tokens as Office without importing Office behavior.
 Its read-only `PageTransport` supplies detached home/page snapshots through an
-in-process sample adapter. The trusted parent owns routing, source display and
-render lifecycle; only captured HTML enters an opaque `allow-scripts` iframe.
-The renderer prepends the contract CSP, uses `no-referrer`, binds fresh render IDs
-to exact source digests and tears down the frame on subsequent load/navigation or
-route cleanup. Its handshake grants no effectful capability. Page self-navigation
-can still leak a request before teardown; this is not complete exfiltration prevention.
-The app has no sign-in UI, sync-wire binding, persistence or live editing. A future
-Remote adapter belongs behind the same app port; backend packages remain proposed. Shared
+in-process sample adapter. The mounted browser path uses Remote's served SDK to
+reopen a paired session and certify Colab's non-extractable Ed25519/X25519 handles.
+Colab owns their IndexedDB records and first-use Web Lock; it never reads Remote's
+keyring. Registration/discovery/catchup follow the Colab contract. The owner-only
+TOFU exception pins the root per origin/mount and keeps the space in the fragment.
+Verified log bytes persist before dependent state; the client admits author chains
+and device wraps, importing unwrapped roots as non-extractable HKDF handles.
+The bounded metadata probe closes after catchup; absent wraps, invalid registration/
+pins, stream objects and reset baselines remain blocking states. The native
+placeholder is unchanged: #1248/#1250/#1253 own bootstrap/refresh/assets;
+#1252 owns live transport/editing.
+
+The content-only Yjs decoder lives in a dedicated Worker. It accepts bounded
+plaintext/edit requests and validates exhaustive roots/types before committing a
+candidate document. The parent independently checks its projection and terminates
+it on failure or deadline. No keys or transport capabilities enter the Worker;
+this is resource containment, not a security sandbox. UI adoption is #1252.
+The trusted parent owns routing, source display and render lifecycle; only captured
+HTML enters an opaque `allow-scripts` iframe. The renderer prepends the contract CSP,
+uses `no-referrer`, binds fresh render IDs to exact source digests and tears down the
+frame on subsequent load/navigation or route cleanup. Its handshake grants no
+effectful capability. Page self-navigation can still leak a request before teardown;
+this is not complete exfiltration prevention. Shared
 workspace/component edits follow the two-lead rule; architecture guards and
 full runtime CI-scope coverage include the persistence library. Runtime
 consumers require their own adoption review. The private component

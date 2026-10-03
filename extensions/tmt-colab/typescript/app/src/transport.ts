@@ -11,11 +11,11 @@ export interface SpaceHome {
   readonly pages: readonly PageSummary[];
 }
 
-/** App data port. Future Remote adapters own authentication and admission;
+/** App data port. Mounted adapters own authentication and admission;
  * neither HTML nor the renderer receives that adapter or its capabilities. */
 export interface PageTransport {
   spaceHome(): Promise<SpaceHome>;
-  page(id: string): Promise<PageSnapshot>;
+  page(id: string, signal?: AbortSignal): Promise<PageSnapshot>;
 }
 
 /** Detached, read-only local fixture adapter; not a persisted or authenticated backend. */
