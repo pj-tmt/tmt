@@ -431,6 +431,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         environment: &crate::skill_installation::ProviderEnvironment,
         previous: Option<&tmt_core::binding::session::DriverState>,
         now_ms: u64,
+        _deadline: std::time::Instant,
     ) -> Option<tmt_core::binding::session::DriverState> {
         let root = codex_home(environment).join("sessions");
         let path = turn.transcript.as_deref()?;

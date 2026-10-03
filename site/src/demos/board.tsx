@@ -185,7 +185,7 @@ export function SplitBoardSketch() {
   return (
     <div
       role="img"
-      aria-label="Sketch of a split board: rows on the left with auth-fix selected, showing the lead's one-line note and an annotation sent to sol; the lead's notes on the right; and an annotation being typed."
+      aria-label="Sketch of a split board: rows on the left with auth-fix selected, showing what the member waits on you for and an annotation sent to sol; the lead's notes on the right; and an annotation being typed."
       className={sketch}
     >
       <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
@@ -204,7 +204,7 @@ export function SplitBoardSketch() {
             {"  #412 "}
           </span>
           {"\n      "}
-          <span className="text-t-dim">note</span>
+          <span className="text-t-dim">pending</span>
           {" needs login-vs-sweep call\n      "}
           <span className="text-t-waiting">✎ sent to sol</span>
           {" keep old tokens…\n    docs-sweep  "}

@@ -6,6 +6,16 @@ const CLAUDE: &str = include_str!("../fixtures/claude-usage-sequence.jsonl");
 const CODEX: &str = include_str!("../fixtures/codex-token-count.jsonl");
 const NOW: u64 = 1_790_000_000_000;
 
+fn claude(root: &Path, path: &Path, previous: Option<&State>, now: u64) -> Option<State> {
+    super::claude(
+        root,
+        path,
+        previous,
+        now,
+        Instant::now() + std::time::Duration::from_secs(2),
+    )
+}
+
 fn append(path: &Path, text: &str) {
     let mut file = fs::OpenOptions::new().append(true).open(path).unwrap();
     file.write_all(text.as_bytes()).unwrap();
@@ -401,4 +411,202 @@ fn legacy_missing_ids_are_context_only_and_the_scanner_shares_path_safety() {
     let fifo = root.path.join("fifo.jsonl");
     nix::unistd::mkfifo(&fifo, nix::sys::stat::Mode::S_IRWXU).unwrap();
     assert!(claude(&root.path, &fifo, None, NOW).is_none());
+}
+
+#[test]
+fn large_appends_stream_and_deduplicate_across_buffer_boundaries() {
+    let (root, path, first) = claude_file();
+    let foreign = format!(
+        "{{\"type\":\"user\",\"text\":\"{}\"}}\n",
+        "x".repeat(13_000)
+    );
+    for _ in 0..170 {
+        append(&path, &foreign);
+    }
+    let mut record: Value = serde_json::from_str(CLAUDE.lines().nth(1).unwrap()).unwrap();
+    record["message"]["content"] = "x".repeat(9_000).into();
+    append(&path, &format!("{record}\n{record}\n"));
+    let next = claude(&root.path, &path, Some(&first), NOW + 1).unwrap();
+    assert_eq!(
+        next.value.counts(),
+        claude_message(&record.to_string()).unwrap().unwrap().counts
+    );
+    assert_eq!(next.value.epoch, first.value.epoch);
+    assert!(next.value.complete && !next.value.gap);
+    assert_eq!(
+        next.cursor.unwrap().offset,
+        fs::metadata(path).unwrap().len()
+    );
+}
+
+#[test]
+fn prefilter_preserves_escaped_keys_missing_usage_and_malformed_foreign_evidence() {
+    let record = CLAUDE.lines().nth(1).unwrap();
+    for line in [
+        record.replace("\"usage\"", "\"\\u0075sage\""),
+        record.replace("assistant", "\\u0061ssistant"),
+        "{\"type\":\"user\",\"text\":\"large tool output\"}".into(),
+        "{\"type\":\"assistant\",\"message\":{}}".into(),
+        "{\"type\":\"user\", broken}".into(),
+        format!("{}0{}", "[".repeat(128), "]".repeat(128)),
+    ] {
+        // The old full-Value path is the independent acceptance oracle.
+        let reference = serde_json::from_str::<Value>(&line);
+        let valid = reference
+            .as_ref()
+            .is_ok_and(|v| v["type"] != "assistant" || v["message"]["usage"].is_object());
+        let (root, path, first) = claude_file();
+        append(&path, &format!("{line}\n"));
+        let next = claude(&root.path, &path, Some(&first), NOW + 1).unwrap();
+        assert_eq!(next.value.gap, !valid, "{line}");
+        if valid && reference.unwrap()["type"] == "assistant" {
+            assert_eq!(
+                next.value.counts(),
+                claude_message(record).unwrap().unwrap().counts
+            );
+        }
+    }
+}
+
+#[test]
+fn deadline_exhaustion_discards_all_scan_progress_and_recovers_at_captured_eof() {
+    for expire_at in [0, 1, 4, 20] {
+        let (root, path, first) = claude_file();
+        append(&path, CLAUDE);
+        append(&path, "partial");
+        let end = fs::metadata(&path).unwrap().len();
+        let mut checks = 0;
+        let gap = claude_until(&root.path, &path, Some(&first), NOW + 1, || {
+            let expired = checks >= expire_at;
+            checks += 1;
+            expired
+        })
+        .unwrap();
+        assert!(gap.value.gap && !gap.value.complete);
+        assert_ne!(gap.value.epoch, first.value.epoch);
+        assert_eq!(gap.value.counts(), Counts::default());
+        assert_eq!(gap.cursor.as_ref().unwrap().offset, end);
+        assert_eq!(
+            claude(&root.path, &path, Some(&gap), NOW + 2),
+            Some(gap.clone())
+        );
+        let record = CLAUDE.lines().nth(1).unwrap();
+        append(&path, &format!(" remainder\n{record}\n"));
+        let next = claude(&root.path, &path, Some(&gap), NOW + 3).unwrap();
+        assert!(next.value.complete && !next.value.gap);
+        assert_eq!(next.value.epoch, gap.value.epoch);
+        assert_eq!(
+            next.value.counts(),
+            claude_message(record).unwrap().unwrap().counts
+        );
+    }
+}
+
+#[test]
+fn streaming_keeps_the_captured_descriptor_and_end() {
+    let (root, path, first) = claude_file();
+    let record = CLAUDE.lines().nth(1).unwrap();
+    append(&path, &format!("{record}\n"));
+    let end = fs::metadata(&path).unwrap().len();
+    let mut changed = false;
+    let next = claude_until(&root.path, &path, Some(&first), NOW + 1, || {
+        if !changed {
+            append(&path, CLAUDE);
+            let replacement = path.with_extension("replacement");
+            fs::write(&replacement, CLAUDE).unwrap();
+            fs::rename(replacement, &path).unwrap();
+            changed = true;
+        }
+        false
+    })
+    .unwrap();
+    assert_eq!(next.cursor.unwrap().offset, end);
+    assert_eq!(
+        next.value.counts(),
+        claude_message(record).unwrap().unwrap().counts
+    );
+    assert!(next.value.complete && !next.value.gap);
+}
+
+#[test]
+#[ignore = "manual synthetic scan timing; run under /usr/bin/time -l for peak RSS"]
+fn streaming_scan_measurement() {
+    let mib: usize = std::env::var("TMT_SCAN_MIB").unwrap().parse().unwrap();
+    let mix = std::env::var("TMT_SCAN_MIX").unwrap();
+    let (root, path, first) = claude_file();
+    if mib == 0 {
+        println!("baseline: fixture and initial cursor only");
+        return;
+    }
+    let candidate = format!("{}\n", CLAUDE.lines().nth(1).unwrap());
+    let foreign = format!(
+        "{{\"type\":\"user\",\"text\":\"{}\"}}\n",
+        "x".repeat(if mix == "long" { 900_000 } else { 8_000 })
+    );
+    let line = if mix == "usage" { &candidate } else { &foreign };
+    let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
+    let mut remaining = mib * 1024 * 1024 - candidate.len();
+    while remaining >= line.len() {
+        file.write_all(line.as_bytes()).unwrap();
+        remaining -= line.len();
+    }
+    file.write_all(" ".repeat(remaining.saturating_sub(1)).as_bytes())
+        .unwrap();
+    if remaining > 0 {
+        file.write_all(b"\n").unwrap();
+    }
+    file.write_all(candidate.as_bytes()).unwrap();
+    drop(file);
+    let start = Instant::now();
+    let next = super::claude(
+        &root.path,
+        &path,
+        Some(&first),
+        NOW + 1,
+        start + std::time::Duration::from_secs(1),
+    )
+    .unwrap();
+    println!(
+        "mib={mib} mix={mix} scan_us={} gap={} complete={}",
+        start.elapsed().as_micros(),
+        next.value.gap,
+        next.value.complete
+    );
+    assert_eq!(
+        next.cursor.unwrap().offset,
+        fs::metadata(path).unwrap().len()
+    );
+    if !next.value.gap {
+        assert_eq!(
+            next.value.counts(),
+            claude_message(&candidate).unwrap().unwrap().counts
+        );
+        assert!(next.value.complete);
+    }
+}
+
+#[test]
+fn a_record_at_the_cap_counts_but_one_extra_byte_starts_a_gap() {
+    for extra in [0, 1] {
+        let (root, path, first) = claude_file();
+        let record = CLAUDE.lines().nth(1).unwrap();
+        let padding = " ".repeat(transcript::TAIL_LIMIT as usize - record.len() - 1 + extra);
+        append(&path, &format!("{record}{padding}\n"));
+        let next = claude(&root.path, &path, Some(&first), NOW + 1).unwrap();
+        assert_eq!(next.value.gap, extra == 1);
+        assert_eq!(next.value.complete, extra == 0);
+        assert_eq!(next.value.epoch == first.value.epoch, extra == 0);
+        assert_eq!(
+            next.cursor.unwrap().offset,
+            fs::metadata(path).unwrap().len()
+        );
+        assert_eq!(
+            next.value.counts(),
+            if extra == 0 {
+                claude_message(record).unwrap().unwrap().counts
+            } else {
+                Counts::default()
+            }
+        );
+    }
 }

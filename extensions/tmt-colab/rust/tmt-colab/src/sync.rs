@@ -67,6 +67,7 @@ pub enum Access<'a> {
 /// the admission implementation. None means this epoch has no reset baseline.
 pub struct CatchupContext {
     pub membership_head: statement::Head,
+    pub owner_key: [u8; 32],
     /// Exact model baseline descriptor JSON, not reconstructed signing bytes.
     pub baseline: Option<Vec<u8>>,
 }
@@ -91,10 +92,35 @@ struct Peer {
     subscribed: bool,
     queue: VecDeque<Delivery>,
     hello: bool,
-    catchup: Option<HashMap<(String, String), store::NamespaceCursor>>,
+    catchup: Option<Catchup>,
+    chains: std::collections::HashSet<String>,
+    in_flight: usize,
     incoming: Option<Incoming>,
     buffered_slot: bool,
     terminal: Option<Code>,
+}
+struct Catchup {
+    positions: HashMap<(String, String), store::NamespaceCursor>,
+    head: statement::Head,
+    owner: [u8; 32],
+    revision: u64,
+    wrap_offset: usize,
+    wraps_done: bool,
+}
+fn bootstrap_error(error: Box<dyn std::error::Error + Send + Sync>) -> Code {
+    if let Some(fault) = error.downcast_ref::<store::Fault>() {
+        return match fault {
+            store::Fault::ResyncRequired => Code::ResyncRequired,
+            store::Fault::Capacity => Code::Capacity,
+            _ => Code::Invalid,
+        };
+    }
+    if error.downcast_ref::<store::owner::OwnerFault>() == Some(&store::owner::OwnerFault::Capacity)
+    {
+        Code::Capacity
+    } else {
+        Code::Invalid
+    }
 }
 impl Peer {
     fn end(&mut self, code: Code) {
@@ -270,6 +296,8 @@ impl<A: Admission> Server<A> {
                 queue: VecDeque::new(),
                 hello: false,
                 catchup: None,
+                chains: Default::default(),
+                in_flight: 0,
                 incoming: None,
                 buffered_slot: false,
                 terminal: None,
@@ -330,7 +358,10 @@ impl<A: Admission> State<A> {
         let subscribing = matches!(&frame, Frame::Subscribe { .. });
         match frame {
             Frame::Hello {
-                device, cursors, ..
+                device,
+                membership_revision,
+                cursors,
+                ..
             } => {
                 if device != principal {
                     return Err(Code::Denied);
@@ -339,16 +370,26 @@ impl<A: Admission> State<A> {
                 if self.peers[&id].hello {
                     return Err(Code::Invalid);
                 }
-                self.start_catchup(id, &scope, &principal, &cursors)?;
+                self.start_catchup(
+                    id,
+                    &scope,
+                    &principal,
+                    &cursors,
+                    values::decimal(&membership_revision, true)?,
+                )?;
                 self.peers.get_mut(&id).ok_or(Code::Denied)?.hello = true;
             }
             Frame::Subscribe { cursors, .. } | Frame::Ack { cursors, .. } => {
                 wire::cursors(&cursors)?;
                 if subscribing && !cursors.as_slice().is_empty() {
-                    self.start_catchup(id, &scope, &principal, &cursors)?;
+                    self.start_catchup(id, &scope, &principal, &cursors, 0)?;
                 } else {
                     for c in cursors.as_slice() {
                         self.resolve(&scope, c)?;
+                    }
+                    if !subscribing {
+                        let peer = self.peers.get_mut(&id).ok_or(Code::Denied)?;
+                        peer.in_flight = peer.in_flight.checked_sub(1).ok_or(Code::Invalid)?;
                     }
                     if subscribing {
                         let peer = self.peers.get_mut(&id).ok_or(Code::Denied)?;
@@ -499,6 +540,7 @@ impl<A: Admission> State<A> {
         scope: &SyncScope,
         principal: &str,
         cursors: &tmt_colab_model::bounded::List<wire::SyncCursor, 256>,
+        revision: u64,
     ) -> Result<(), Code> {
         if self.peers[&id].catchup.is_some() {
             return Err(Code::Invalid);
@@ -521,6 +563,12 @@ impl<A: Admission> State<A> {
         if context.membership_head.revision == 0 {
             return Err(Code::Invalid);
         }
+        let membership = self
+            .store
+            .owner_read(&scope.space, &context.owner_key, |tx| {
+                tx.membership_page(revision, &context.membership_head)
+            })
+            .map_err(bootstrap_error)?;
         let baseline = match context.baseline {
             None => serde_json::Value::Null,
             Some(bytes) => {
@@ -542,13 +590,20 @@ impl<A: Admission> State<A> {
             scope,
             "catchup",
             serde_json::json!({
-                "membershipHead":{"revision":context.membership_head.revision.to_string(),"statementHash":values::encode_binary(&context.membership_head.hash)},
+                "membershipHead":{"revision":context.membership_head.revision.to_string(),"statementHash":values::encode_binary(&context.membership_head.hash),"ownerKey":values::encode_binary(&context.owner_key),"statements":membership.statements,"more":membership.more},
                 "baseline":baseline,"streams":[],"more":true
             }),
         )?;
         let peer = self.peers.get_mut(&id).ok_or(Code::Denied)?;
         peer.subscribed = false;
-        peer.catchup = Some(positions);
+        peer.catchup = Some(Catchup {
+            positions,
+            head: context.membership_head,
+            owner: context.owner_key,
+            revision: membership.revision,
+            wrap_offset: 0,
+            wraps_done: false,
+        });
         peer.push(text);
         Ok(())
     }
@@ -556,14 +611,66 @@ impl<A: Admission> State<A> {
     /// namespace is included before the empty final page; no snapshot/live gap.
     fn catchup_page(&mut self, id: u64) -> Result<(), Code> {
         let peer = self.peers.get(&id).ok_or(Code::Denied)?;
-        let Some(positions) = &peer.catchup else {
+        let Some(catchup) = &peer.catchup else {
             return Ok(());
         };
-        if !peer.queue.is_empty() || peer.buffered_slot {
+        if !peer.queue.is_empty()
+            || peer.buffered_slot
+            || (peer.hello && peer.in_flight == limits::SEND_QUEUE_FRAMES)
+        {
             return Ok(());
         }
         let scope = peer.scope.clone().ok_or(Code::Denied)?;
         let epoch = values::decimal(&scope.epoch, false)?;
+        if catchup.revision < catchup.head.revision {
+            let membership = self
+                .store
+                .owner_read(&scope.space, &catchup.owner, |tx| {
+                    tx.membership_page(catchup.revision, &catchup.head)
+                })
+                .map_err(bootstrap_error)?;
+            let text = wire::output(
+                &scope,
+                "catchup",
+                serde_json::json!({"membership":{"statements":membership.statements,"more":membership.more},"streams":[],"more":true}),
+            )?;
+            let peer = self.peers.get_mut(&id).ok_or(Code::Denied)?;
+            peer.catchup.as_mut().ok_or(Code::Invalid)?.revision = membership.revision;
+            peer.push(text);
+            return Ok(());
+        }
+        if !catchup.wraps_done {
+            let (wraps, more) = self
+                .store
+                .owner_read(&scope.space, &catchup.owner, |tx| {
+                    tx.wrap_page(
+                        &scope.page,
+                        epoch,
+                        &peer.principal,
+                        &catchup.head,
+                        catchup.wrap_offset,
+                    )
+                })
+                .map_err(bootstrap_error)?;
+            let count = wraps.len();
+            let complete = !more && self.store.namespaces(&scope.page, epoch)?.is_empty();
+            let text = wire::output(
+                &scope,
+                "catchup",
+                serde_json::json!({"wraps":wraps,"streams":[],"more":!complete}),
+            )?;
+            let peer = self.peers.get_mut(&id).ok_or(Code::Denied)?;
+            let catchup = peer.catchup.as_mut().ok_or(Code::Invalid)?;
+            catchup.wrap_offset += count;
+            catchup.wraps_done = !more;
+            if complete {
+                peer.catchup = None;
+                peer.subscribed = true;
+            }
+            peer.push(text);
+            return Ok(());
+        }
+        let positions = &catchup.positions;
         let mut next = None;
         for (stream, ns) in self.store.namespaces(&scope.page, epoch)? {
             let name = if ns == store::Namespace::Content {
@@ -603,10 +710,19 @@ impl<A: Admission> State<A> {
             }
             let (envelope, transfer) = delivery(&scope, object.cursor.hash, object.bytes)?;
             let entry = serde_json::json!({"seq":object.cursor.seq.to_string(),"envelopeHash":values::encode_binary(&object.cursor.hash),"envelope":envelope});
+            let chains = if peer.chains.contains(&stream) {
+                Vec::new()
+            } else {
+                let chain = self
+                    .store
+                    .owner_read(&scope.space, &catchup.owner, |tx| tx.author_chain(&stream))
+                    .map_err(bootstrap_error)?;
+                vec![serde_json::json!({"deviceId":stream,"chain":values::encode_binary(&chain)})]
+            };
             let text = wire::output(
                 &scope,
                 "catchup",
-                serde_json::json!({"streams":[{
+                serde_json::json!({"chains":chains,"streams":[{
                 "streamId":stream,"namespace":ns,"checkpoint":if object.checkpoint { entry.clone() } else { serde_json::Value::Null },
                 "tail":if object.checkpoint { Vec::<serde_json::Value>::new() } else { vec![entry] }
             }],"more":true}),
@@ -615,7 +731,9 @@ impl<A: Admission> State<A> {
             peer.catchup
                 .as_mut()
                 .ok_or(Code::Invalid)?
-                .insert((stream, ns), object.cursor);
+                .positions
+                .insert((stream.clone(), ns), object.cursor);
+            peer.chains.insert(stream);
             peer.push(text);
             if let Some(transfer) = transfer {
                 peer.enqueue(transfer);
@@ -845,10 +963,16 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
             if let Some(code) = peer.terminal {
                 return Err(code);
             }
+            if peer.hello && peer.in_flight == limits::SEND_QUEUE_FRAMES {
+                return Ok(false);
+            }
             let Some(mut delivery) = peer.queue.pop_front() else {
                 return Ok(false);
             };
             let (text, done) = delivery.next()?;
+            if peer.hello {
+                peer.in_flight += 1;
+            }
             if !done {
                 peer.queue.push_front(delivery);
             }

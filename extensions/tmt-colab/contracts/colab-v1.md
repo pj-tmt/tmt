@@ -603,6 +603,16 @@ remaining recipients. If sharing continues, explicit owner `link.add` creates a
 NEW link identity/seed distributed only to intended holders. Reset link MUST
 perform this removal/rotation, not just change a URL or hide an edge record.
 
+The owner-local engine commits `link.remove`, affected-page `epoch.advance`
+statements and an optional replacement `link.add`, in that order, in one owner
+transaction. The replacement ID must never have been used, and its seed must not
+reproduce the removed link's pinned keys under the old ID. Seeds are borrowed for
+model derivation and never stored in statements, projections or public replay
+outcomes. The owner caller retains/distributes a replacement seed only after
+success. A current-mode link add wraps the existing current epoch only; Reset
+creates the fresh baseline/epoch before joining its optional replacement. Shared
+joins and replacements use the same bounded history wrap lists as members.
+
 Private pages admit named members only. Link pages additionally admit
 link-certified devices at the link role. Public mode is loopback-only in v1;
 Firestore and Cloudflare MUST reject public mode and key publication. Going
@@ -991,17 +1001,17 @@ upgrade cannot establish authorship. Removed access terminates live subscription
 space, page and epoch. The backend moves bytes, not Yjs state vectors. The wire
 operations are:
 
-| Type        | Additional fields / behavior                                                                                        |
-| ----------- | ------------------------------------------------------------------------------------------------------------------- |
-| `hello`     | `device, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                   |
-| `catchup`   | `membershipHead, baseline, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail |
-| `subscribe` | `cursors`; observe only the admitted page/current epoch                                                             |
-| `append`    | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                   |
-| `receipt`   | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                              |
-| `broadcast` | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                     |
-| `ack`       | `cursors`; scoped delivery positions only                                                                           |
-| `awareness` | `device, data`; bounded ephemeral presence, never persisted or authority                                            |
-| `error`     | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                      |
+| Type        | Additional fields / behavior                                                                                                                 |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hello`     | `device, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                                            |
+| `catchup`   | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail |
+| `subscribe` | `cursors`; observe only the admitted page/current epoch                                                                                      |
+| `append`    | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                            |
+| `receipt`   | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                       |
+| `broadcast` | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                              |
+| `ack`       | `cursors`; scoped delivery positions only                                                                                                    |
+| `awareness` | `device, data`; bounded ephemeral presence, never persisted or authority                                                                     |
+| `error`     | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                               |
 
 ### Implemented stream subset (#1156, #1166)
 
@@ -1015,14 +1025,14 @@ Every client message is one UTF-8 JSON object with exactly the common fields
 Epoch is a positive canonical decimal string. Duplicate/unknown fields, nulls,
 wrong types, noncanonical values and unsupported operations reject.
 
-| Client type | Exact additional fields                       | Implemented behavior                                                                                            |
-| ----------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `hello`     | `device, cursors`                             | Device matches principal; one successful hello per connection starts server-driven catchup, then live delivery. |
-| `subscribe` | `cursors`                                     | Empty list starts live delivery; nonempty list resolves cursors and starts catchup, then live delivery.         |
-| `append`    | `streamId, seq, envelopeHash, envelope`       | Inline update or object reference; verify complete exact bytes and durably append before receipt.               |
-| `chunk`     | `objectId, envelopeHash, index, count, bytes` | Complete the connection's pending referenced append; no standalone upload or partial append.                    |
-| `ack`       | `cursors`                                     | Resolve retained scoped positions; no deletion, core acknowledgment or application authority.                   |
-| `awareness` | `device, data`                                | Device matches principal; at most 4 KiB canonical base64url bytes, ephemeral.                                   |
+| Client type | Exact additional fields                       | Implemented behavior                                                                                                       |
+| ----------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `hello`     | `device, membershipRevision, cursors`         | Device matches principal; one successful hello per connection starts server-driven catchup, then live delivery.            |
+| `subscribe` | `cursors`                                     | Empty list starts live delivery; nonempty list resolves cursors and starts catchup, then live delivery.                    |
+| `append`    | `streamId, seq, envelopeHash, envelope`       | Inline update or object reference; verify complete exact bytes and durably append before receipt.                          |
+| `chunk`     | `objectId, envelopeHash, index, count, bytes` | Complete the connection's pending referenced append; no standalone upload or partial append.                               |
+| `ack`       | `cursors`                                     | Resolve retained scoped positions and release one frame credit; no deletion, core acknowledgment or application authority. |
+| `awareness` | `device, data`                                | Device matches principal; at most 4 KiB canonical base64url bytes, ephemeral.                                              |
 
 `cursors` has at most 256 strict objects `{streamId, namespace, seq, envelopeHash}`,
 unique by stream/namespace. Sequence zero is an explicit bootstrap sentinel and
@@ -1053,20 +1063,72 @@ and reason `INVALID`. Capacity never evicts accepted receipts or payloads.
 
 ### Implemented catchup and chunk protocol
 
-Catchup is server-driven. One hello produces a first `catchup` page with
-`membershipHead, baseline, streams, more`. `membershipHead` is exactly
-`{revision, statementHash}`: positive decimal revision and canonical base64url
-hash32 of the highest locally retained verified owner statement. The Admission
-implementation supplies it through `Store::owner_head`; sync cannot manufacture
-membership authority. `baseline` is null when the epoch has no reset baseline yet,
-or canonical base64url of exact model baseline-descriptor JSON, bounded to 8 KiB.
-The descriptor's page/epoch must match and its membership revision cannot exceed
-the retained head. The caller verifies its signed-log binding. The owner engine produces and persists
-reset baselines; mounted owner catchup reads the exact descriptor through
-`Store::baseline`. Scoped encrypted object retrieval remains caller-owned.
+Owner discovery on the mounted socket uses read-only `GET /api/session` and
+`GET /api/pages`. Missing or non-owner context returns 403 JSON `{code:"DENIED"}`.
+Session returns exactly `{deviceId, publicKey, grantRevision, name}`; revision
+is decimal text. It works before Colab extension-key registration and forwards
+no credential. Pages returns exactly `{spaceId, ownerKey, revision, pages}`;
+`pages` is sorted by page ID, at most 1,000 entries, each exactly
+`{pageId, epoch, sharing, history, archived}`. Local creation/epoch records own
+existence; sharing/history/archive/delete derive from verified owner statements.
+Absent sharing/history mean private/shared. Deleted pages are excluded. Titles
+are encrypted content and never returned here. `revision:"0"` means no owner log
+has been initialized yet. State faults return 503 JSON `{code:"UNAVAILABLE"}`.
 
-The first page has empty `streams` and `more:true`. Later pages contain only
-`streams, more` in addition to common fields. Each stream entry is exactly
+Catchup is server-driven. Strict hello additionally requires decimal
+`membershipRevision` (`"0"` means no verified log). Its first page carries
+`membershipHead, baseline, streams, more`. The exact head DTO is
+`{revision, statementHash, ownerKey, statements, more}`. Statements are canonical
+base64url of exact stored statement-envelope JSON after the client's revision,
+at most 64 per page. While head/membership `more` is true, later pages carry
+`membership:{statements,more}` before stream objects or wraps. The pinned retained
+head is the target for this catchup; unknown, missing or above-head revisions
+return `RESYNC_REQUIRED`. Clients independently verify owner signatures, chain,
+root pin and target hash; a client-side fork cannot be detected from the unsigned
+revision alone. Whole statements must fit one 64 KiB frame: pages use at most
+60 KiB of encoded statement data, an individual stored envelope at most 44 KiB;
+oversized statements fail `CAPACITY`, never truncate. Chunked membership statements are deferred to #1285.
+
+After membership, pages carry `wraps` addressed to this device or its member,
+ordered by numeric epoch, kind, recipient and revision. They include retained
+epoch-advance and history-join wraps for the 64 latest retained epochs through
+the requested epoch, and are bounded by 512 entries and 60 KiB encoded bytes per
+page. An empty list means no wraps exist. Each stream-object page carries
+`chains:[{deviceId,chain}]` with exact chain transport as canonical base64url for
+its author if not already sent on the connection (at most 64 per page). Retained
+revoked-author chains can be delivered: clients must reject them using the
+verified log before applying objects. A chain never grants current authority.
+
+`baseline` is null or canonical base64url of exact model baseline-descriptor
+JSON, bounded to 8 KiB. Its scope/revision must match the admitted page/epoch and
+retained head. The caller verifies its exact signed `epoch.advance` binding.
+The owner engine produces and persists reset baselines; mounted owner catchup
+reads the exact descriptor through `Store::baseline`. Scoped encrypted object
+retrieval remains caller-owned.
+When `baseline` is non-null, the first page MUST also contain exactly
+`baselineObject: {envelopeHash, envelope}`. When `baseline` is null that field MUST
+be absent. `envelopeHash` is canonical base64url hash32 and MUST equal the signed
+descriptor's `objectEnvelopeHash`; `envelope` is the existing exact inline
+base64url envelope or `{objectId}` followed by chunk frames. Later pages MUST NOT
+repeat either baseline field. The first page still has empty streams; baseline
+retrieval does not advance any device stream or cursor.
+
+Before publishing a reset view, the browser MUST finish owner-log verification,
+match every descriptor field to the signed epoch transition, obtain the admitted
+new-epoch wrap, and verify the exact baseline envelope hash, management-member
+signature and `html/content` sequence-zero context. Its author is the pinned owner
+management member, not a device certificate; its revision equals the descriptor's
+revision. Plaintext is strict JSON with only `source` and `update` as specified in
+[current-view baseline](#current-view-baseline-and-history-modes). The dedicated
+Worker verifies the source digest, LP commitment and exact source/title projection
+from that identical update before initializing a fresh content document. Apply
+current-epoch tails only after that initialization; publish nothing on any failure.
+Old-epoch envelopes and a missing baseline for a reset epoch MUST reject. The
+browser implementation is tested with signed fixtures; native delivery of
+`baselineObject` is owned by #1248 and is not established by those fixtures.
+
+The first page has empty `streams` and `more:true`. Later pages carry
+`streams, more` and the applicable membership, wraps or chains fields. Each stream entry is exactly
 `{streamId, namespace, checkpoint, tail}`. A checkpoint is null or
 `{seq, envelopeHash, envelope}`; tail is a list of those same entries. A page
 contains at most one object: either the latest namespace checkpoint for bootstrap,
@@ -1076,8 +1138,20 @@ all log, envelope and chain/namespace bindings before applying an object; a page
 or receipt is not that verification. A stream sequences namespaces together,
 so namespace-tail sequence numbers may interleave rather than being consecutive.
 
-Pages are generated only when that peer's outbound queue is empty and its buffered
-write is complete. Store reads use a transaction, current-epoch fencing, SQL-side
+After hello, every server-to-client application frame (metadata, chunks, final
+page, receipt, broadcast, awareness and errors) consumes one frame credit. At
+most eight frames are outstanding; each valid scoped client `ack` resolves its
+cursors and releases exactly one credit. Empty/unchanged cursors are valid for
+metadata and partial chunks; they grant no object admission. An ack with no
+outstanding frame is `INVALID`, so credits cannot be banked. No frame is sent
+while credit is exhausted, even if the socket is writable. The reference and
+all chunks stay consecutive across credit releases, with no interleaved receipt
+or live frame; clients admit only the fully reconstructed object. Live frames
+awaiting credit use the existing bounded queue and overflow still resyncs.
+Pre-hello live-only subscribe remains available without the hello credit flow.
+
+Pages are generated only when that peer's outbound queue is empty, its buffered
+write is complete and frame credit is available. Store reads use a transaction, current-epoch fencing, SQL-side
 payload-length checks and a bounded inventory of at most 256 stream/namespace
 pairs per page scope. A larger inventory returns `CAPACITY`, without eviction.
 Every page rescans the inventory: appends to already visited namespaces and newly
@@ -1093,7 +1167,13 @@ and exactly `{objectId, envelopeHash, index, count, bytes}`. Envelope JSON over
 32 KiB uses chunks. Raw `bytes` are canonical base64url, nonempty and at most
 32 KiB; every nonfinal chunk is exactly 32 KiB. `index` and `count` are JSON
 integers: consecutive zero-based index, positive bounded count, index below count.
-Transfer scope, object ID, envelope hash and count cannot change. Consumers retain
+Transfer scope, object ID, envelope hash and count cannot change.
+Baseline transfers use the model's non-update envelope ceiling (16 MiB plaintext
+plus authentication tag, framed header and base64/JSON overhead), exposed by the
+browser model as `MAX_ENVELOPE_JSON`; their chunk-count ceiling is that serialized
+bound divided by 32 KiB, rounded up. This does not raise the update ceiling below.
+The same one-transfer rule, absolute two-second deadline and queue bounds apply;
+a maximum accepted size is not a delivery-time promise. Consumers retain
 only one bounded incomplete object and apply nothing until exact reassembly,
 model hash/signature and application admission succeed; abnormal close discards it.
 
@@ -1127,8 +1207,8 @@ list. Append additionally requires the current membership revision and an allowe
 namespace, and returns the registered extension signing key for model signature
 verification. Upgrade verifies the full remote binding and device chain; repeated
 Read checks do not redo signatures or reserve the SQLite writer. Catchup takes its
-head from `Store::owner_head`; the optional reset baseline remains absent until
-#1157. Workers preserve upgrade read-ahead, drive silent transfer/write deadlines,
+head from `Store::owner_head` and the exact persisted reset descriptor through
+`Store::baseline` when one exists. Workers preserve upgrade read-ahead, drive silent transfer/write deadlines,
 apply the tunnel cap/idle bound, and close retained sockets before shutdown joins.
 
 The #830 fixture used 64 KiB frames/messages, queue 8, receipt/tail capacity 64,

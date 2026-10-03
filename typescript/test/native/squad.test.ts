@@ -2200,6 +2200,42 @@ sort = ["-name"]
       );
 
       expect(await notebook(), 'no notebook was created or written').toBe('NOTEBOOK_NOT_FOUND');
+      const projection = async () =>
+        (await squad(sandbox, ['ls', '--squad', 'product'])).body.squad;
+      expect(await projection()).not.toHaveProperty('noteAnnotations');
+      const note = await runCli(sandbox, [
+        'talk',
+        '--identity',
+        'Ben',
+        '--room',
+        'squad-product',
+        '--detach',
+        '--json',
+        '--',
+        'Sol',
+        '[product · notes L5 "- Keep context short."] Review this line.',
+      ]);
+      expect(note.status).toBe(0);
+      const noteId = JSON.parse(note.stdout).requestId;
+      expect((await projection()).noteAnnotations).toEqual([
+        { requestId: noteId, line: 4, quote: '- Keep context short.' },
+      ]);
+      expect(
+        (
+          await runCli(sandbox, [
+            'answer',
+            '--identity',
+            'Sol',
+            '--request',
+            noteId,
+            '--json',
+            '--',
+            'Ben',
+            'done',
+          ])
+        ).status
+      ).toBe(0);
+      expect(await projection()).not.toHaveProperty('noteAnnotations');
       expect(existsSync(path.join(sandbox.root, 'pwned'))).toBe(false);
     });
   });

@@ -17,11 +17,14 @@ use unicode_width::UnicodeWidthChar;
 struct Block {
     prefix: String,
     indent: usize,
-    spans: Vec<(String, Style)>,
+    spans: Vec<(String, Style, usize)>,
+    source_line: usize,
 }
 
 struct Renderer<'a> {
     source: &'a str,
+    starts: Vec<usize>,
+    source_line: usize,
     look: crate::look::Look,
     blocks: Vec<Block>,
     current: Option<Block>,
@@ -56,6 +59,7 @@ impl Renderer<'_> {
             prefix,
             indent,
             spans: Vec::new(),
+            source_line: self.source_line,
         });
     }
 
@@ -71,7 +75,7 @@ impl Renderer<'_> {
             self.start(" ".repeat(indent), indent);
         }
         if let Some(block) = &mut self.current {
-            block.spans.push((text.to_owned(), style));
+            block.spans.push((text.to_owned(), style, self.source_line));
         }
     }
 
@@ -83,6 +87,7 @@ impl Renderer<'_> {
                 prefix: String::new(),
                 indent: 0,
                 spans: Vec::new(),
+                source_line: self.source_line.saturating_sub(1),
             });
         }
     }
@@ -91,11 +96,12 @@ impl Renderer<'_> {
     fn source(&mut self, range: std::ops::Range<usize>) {
         self.finish();
         let raw = self.source[range.clone()].trim_end_matches('\n');
-        for line in raw.split('\n') {
+        for (offset, line) in raw.split('\n').enumerate() {
             self.blocks.push(Block {
                 prefix: String::new(),
                 indent: 0,
-                spans: vec![(line.to_owned(), Style::new())],
+                spans: vec![(line.to_owned(), Style::new(), self.source_line + offset)],
+                source_line: self.source_line + offset,
             });
         }
         self.skip_until = range.end;
@@ -105,6 +111,10 @@ impl Renderer<'_> {
         if range.start < self.skip_until {
             return;
         }
+        self.source_line = self
+            .starts
+            .partition_point(|start| *start <= range.start)
+            .saturating_sub(1);
         match event {
             Event::Start(
                 Tag::Table(_)
@@ -174,6 +184,10 @@ impl Renderer<'_> {
             Event::End(TagEnd::Emphasis) => self.italic = self.italic.saturating_sub(1),
             Event::Start(Tag::Link { dest_url, .. }) => self.link = Some(dest_url.to_string()),
             Event::End(TagEnd::Link) => {
+                self.source_line = self
+                    .starts
+                    .partition_point(|start| *start < range.end)
+                    .saturating_sub(1);
                 if let Some(url) = self.link.take() {
                     self.push(&format!(" ({url})"), self.look.role(Role::Dim));
                 }
@@ -193,7 +207,8 @@ impl Renderer<'_> {
                 self.blocks.push(Block {
                     prefix: String::new(),
                     indent: 0,
-                    spans: vec![("───".into(), self.look.role(Role::Dim))],
+                    spans: vec![("───".into(), self.look.role(Role::Dim), self.source_line)],
+                    source_line: self.source_line,
                 });
             }
             // Inline HTML, footnote references and anything else: as written.
@@ -208,8 +223,23 @@ impl Renderer<'_> {
 
 /// Renders sanitized notes as styled lines wrapped to `width` display cells.
 pub fn render(text: &str, width: usize, look: crate::look::Look) -> Vec<Line<'static>> {
+    render_mapped(text, width, look).lines
+}
+
+/// Painted lines and their zero-based notebook source lines.
+pub(super) struct Mapped {
+    pub lines: Vec<Line<'static>>,
+    pub sources: Vec<usize>,
+}
+
+pub(super) fn render_mapped(text: &str, width: usize, look: crate::look::Look) -> Mapped {
+    let starts = std::iter::once(0)
+        .chain(text.match_indices('\n').map(|(at, _)| at + 1))
+        .collect();
     let mut renderer = Renderer {
         source: text,
+        starts,
+        source_line: 0,
         look,
         blocks: Vec::new(),
         current: None,
@@ -225,11 +255,12 @@ pub fn render(text: &str, width: usize, look: crate::look::Look) -> Vec<Line<'st
         renderer.event(event, range);
     }
     renderer.finish();
-    renderer
+    let (lines, sources) = renderer
         .blocks
         .into_iter()
         .flat_map(|block| wrap(block, width.max(1)))
-        .collect()
+        .unzip();
+    Mapped { lines, sources }
 }
 
 fn cells(text: &str) -> usize {
@@ -238,22 +269,24 @@ fn cells(text: &str) -> usize {
 
 /// Greedy word wrap over styled spans; continuation lines use the hanging
 /// indent, and a word longer than a line is split between characters.
-fn wrap(block: Block, width: usize) -> Vec<Line<'static>> {
+fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize)> {
     let mut lines = Vec::new();
     let mut line: Vec<Span<'static>> = vec![Span::raw(block.prefix.clone())];
     let mut used = cells(&block.prefix);
     let start = used;
+    let mut source_line = block.source_line;
     let indent = " ".repeat(block.indent);
-    let mut words: Vec<(String, Style)> = Vec::new();
-    for (text, style) in block.spans {
+    let mut words: Vec<(String, Style, usize)> = Vec::new();
+    for (text, style, source) in block.spans {
         for word in text.split_inclusive(' ') {
-            words.push((word.to_owned(), style));
+            words.push((word.to_owned(), style, source));
         }
     }
-    for (word, style) in words {
+    for (word, style, source) in words {
         let body = word.trim_end_matches(' ');
         if used > start && used + cells(body) > width {
-            lines.push(Line::from(std::mem::take(&mut line)));
+            lines.push((Line::from(std::mem::take(&mut line)), source_line));
+            source_line = source;
             line.push(Span::raw(indent.clone()));
             used = block.indent;
         }
@@ -265,7 +298,8 @@ fn wrap(block: Block, width: usize) -> Vec<Line<'static>> {
                     continue;
                 }
                 line.push(Span::styled(std::mem::take(&mut piece), style));
-                lines.push(Line::from(std::mem::take(&mut line)));
+                lines.push((Line::from(std::mem::take(&mut line)), source_line));
+                source_line = source;
                 line.push(Span::raw(indent.clone()));
                 used = block.indent;
             }
@@ -274,7 +308,7 @@ fn wrap(block: Block, width: usize) -> Vec<Line<'static>> {
         }
         line.push(Span::styled(piece, style));
     }
-    lines.push(Line::from(line));
+    lines.push((Line::from(line), source_line));
     lines
 }
 
@@ -282,6 +316,36 @@ fn wrap(block: Block, width: usize) -> Vec<Line<'static>> {
 mod tests {
     use super::*;
     use crate::look::Look;
+
+    #[test]
+    fn mapped_render_keeps_source_lines_through_wrapping_and_unsupported_blocks() {
+        let source = "# Title\n\n- wide words that wrap\n- next\n\n```\ncode\n```";
+        let mapped = render_mapped(source, 12, Look::default());
+        assert_eq!(mapped.lines, render(source, 12, Look::default()));
+        assert_eq!(mapped.lines.len(), mapped.sources.len());
+        assert_eq!(mapped.sources[0], 0);
+        assert_eq!(
+            mapped.sources[1], 1,
+            "separator is not the following list item"
+        );
+        assert!(mapped.sources.iter().filter(|source| **source == 2).count() > 1);
+        let code = text(&mapped.lines)
+            .iter()
+            .position(|line| line == "code")
+            .unwrap();
+        assert_eq!(mapped.sources[code], 6);
+        assert!(
+            mapped
+                .sources
+                .iter()
+                .all(|line| *line < source.split('\n').count())
+        );
+        let linked = render_mapped("[alpha\nbeta](https://example.com)", 9, Look::default());
+        assert!(
+            linked.sources.windows(2).all(|pair| pair[0] <= pair[1]),
+            "a multiline link target belongs to its closing source line"
+        );
+    }
 
     fn text(lines: &[Line]) -> Vec<String> {
         lines

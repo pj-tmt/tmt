@@ -1,4 +1,4 @@
-//! Frozen output from #1087 selected-notebook implementation f8c73805; markup remains test-scoped.
+//! Frozen output from #1087 selected-notebook implementation f8c73805; production row adoption is gated by this capture.
 //! Existing CJK fixture strings intentionally exercise terminal width.
 use super::*;
 use crate::config::{Config, Layout};

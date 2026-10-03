@@ -10,6 +10,10 @@ attachment/active-turn proof and 0.160.0 attach/queue/durable-reply proof are
 accepted; product routing and lifecycle gates are independent evidence described
 below.
 
+The [public dispatch readiness and input-safety contract](extension-api.md#dispatch-readiness-and-input-safety)
+owns the extension-facing admission/wake boundary. Native readiness and queue acceptance here
+do not grant an input-readiness lease or prove request completion.
+
 ## Default launch policy
 
 The [shared launcher policy](claude-channel-v1.md#opt-in-and-the-launch-lease)

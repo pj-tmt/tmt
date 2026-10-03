@@ -44,7 +44,7 @@ layout permission does not change component ownership, CI selection or release p
 | `contracts/`              | Core public contracts and their normative fixtures.                                                                                    |
 | `scripts/`                | Shared root shell/build/development helpers.                                                                                           |
 | `skills/`                 | Canonical bundled user-agent guidance.                                                                                                 |
-| `site/`                   | User handbook and its build; handbook text remains owned by tmt-lead. Translated pages: `site/src/i18n/<lang>/`.                       |
+| `site/`                   | User handbook and its build; handbook text remains owned by tmt-design-lead. Translated pages: `site/src/i18n/<lang>/`.                |
 | `design/`                 | Shared design tokens and CLI style guidance.                                                                                           |
 
 Homes of moved guidance:
@@ -888,15 +888,14 @@ Text measurement and painting share its recorded integer width; fractional
 spare cells are styled blanks inside hits; alignment uses the recorded width.
 A cut grid cell preserves its logical width/height, exposes at least four visible
 cells or hides whole; painting fits each visual line to the clip with end/middle
-ellipsis. Squad owns priority selection before geometry, not Taffy; production
-adoption remains later slices. Markup percentages use CSS content-box shares
-with gaps in addition. The
-existing board/list solver retains its after-gap percentage base and largest-
-remainder rounding until board adoption (#774); no percent adapter or correction
-loop joins the models. The guard permits XML parsing, borrowed JSON, shared style,
+ellipsis. Squad owns priority selection before geometry, not Taffy: optional
+tracks fit their mapped minimums whole or step aside; only non-priority overflow
+can cut. Markup and board percentages use CSS content-box shares with gaps in
+addition. CLI lists retain their after-gap percentage base and largest-remainder
+rounding; no percent adapter or correction loop joins these surface policies. The guard permits XML parsing, borrowed JSON, shared style,
 private Taffy geometry and Ratatui buffer painting, never core, adapters, CLI or
 extension behavior.
-`text` owns markup-only grapheme measurement and fitting; `paint` consumes geometry
+`text` owns markup and board grapheme measurement and fitting; `paint` consumes geometry
 preorder into a caller-owned Ratatui buffer. Both use `Cell::text_width`, never the
 rounded spare cell. Cuts ellipsize already measured lines without rewrapping;
 wide graphemes crossing clip edges leave styled blanks. Theme/Depth are injected,
@@ -905,11 +904,16 @@ the complete selected-role style: Squad's Look remains the selection policy owne
 Hits borrow scoped IDs and semantic row IDs, inherit identity, intersect visible
 buffer clips, omit zero areas and resolve in reverse paint order. No input dispatch,
 terminal lifecycle, markdown or provider acquisition lives in this leaf.
-Squad is the sole reviewed product edge, with a test-scoped adapter until the
-row-track compiler adopts it. In #774, the board moves to this grapheme fitter and
-retires its scalar `grid::fit/fit_lines` path; existing CLI lists keep that path.
-The two fitters must not coexist as production policies for the board. Existing
-board and list production paths remain unchanged; `tmt-cli-style::grid` remains the sole row sizing policy.
+Squad is the sole reviewed product edge, through a normal dependency. Its row
+compiler binds already projected display values into bounded admitted cells,
+without acquiring or formatting sources. Occurrence IDs contain tab, authored
+section slot, source squad and member UUID, followed by static line/column keys;
+member order is never identity. `App::shown_tab` supplies the retained view owner
+while another tab loads; resize/search never substitutes the requested tab.
+UUID-free display rows have no actionable IDs.
+Taffy is the board's only row sizing owner and `text` its only scalar fitter;
+`grid::fit/fit_lines` remain only for CLI lists. Squad retains styled row spans,
+selection, scrolling and actions; full markup paint/hit adoption is still #776.
 The private component has no release; its inherited version/lock entry follows
 the workspace, while product notices include only their actual dependency graph.
 
@@ -1284,6 +1288,11 @@ Inspection does not acknowledge work or renew retention. Dispatch operation IDs
 recover immutable acceptance; replay never wakes again. Clients must recover a
 receipt or current room revision after interrupted writes, not invent a new
 operation ID and resend. See [extension API usage](contracts/extension-api.md).
+Its [dispatch readiness and input-safety section](contracts/extension-api.md#dispatch-readiness-and-input-safety)
+owns the public safety limits: observations grant no input lease, core owns send-time evidence,
+enrolled uncertainty never permits paste, and legacy pane input has no universal typing gate.
+Remote consumes this process/JSON contract without importing host adapters or inferring readiness
+from pane buffers. Direct-default grants and opt-in hold remain Remote's admission policy.
 
 ### Extension hooks (v1)
 
@@ -1637,8 +1646,9 @@ only for usage numbers:
   (`~/.claude/projects`, or `$CODEX_HOME/sessions`);
 - it is opened without following a final symlink and without blocking;
 - context usage reads at most the last MiB, skipping a line cut by that window;
-- consumption reads at most one additional MiB (plus a boundary byte), from the
-  appended Claude cursor or the latest Codex tail. No polling is introduced.
+- Codex consumption reads at most one additional MiB from its latest tail;
+- Claude consumption streams from its appended cursor once per Stop hook under
+  the deadline and record bound below (plus a boundary byte). There is no polling.
 
 Unusable context usage writes nothing for that value. A start that changes the context
 (startup, clear, compact) drops usage; a resumed Claude start records the
@@ -1666,9 +1676,25 @@ not expected and may count again: exact historical-ID dedup is deliberately
 outside the bounded one-KiB contract. In-place rewrites that retain inode and
 do not shrink also violate the append-only assumption. A partial final line
 waits for its newline, with `complete=false` and `gap=false`. Cursor loss, shrink,
-replacement, a scan over one MiB, invalid main records or overflow starts a new
+replacement, scan deadline/record-limit exhaustion, invalid main records or overflow starts a new
 epoch at current EOF with `gap=true` and `complete=false`; a cut fragment is
 discarded through its next newline, and history is never recounted.
+
+Claude's incremental scan (#887) receives the hook owner's absolute `Instant`
+through `RuntimeLifecycle::turn_state`. After the existing context-tail read,
+it allocates half the remaining hook time to consumption, leaving the other
+half for state handling and the existing commit guard. There is no independent
+scan-duration or aggregate-byte constant: the two-second hook worker budget is
+the authority. An 8 KiB buffered reader stops at the captured end, reusing one
+line buffer capped at the existing one-MiB `TAIL_LIMIT` (including newline).
+Memory is independent of appended-range size; candidate JSON allocations are
+also bounded by that single-record cap. Clearly foreign unescaped lines receive
+syntax validation without constructing their JSON values; assistant candidates,
+escapes and deeply nested/ambiguous evidence use the existing full validation.
+Malformed foreign records still cause gaps. Time is checked around bounded reads
+and candidate validation; any accumulated counts are discarded on exhaustion.
+A single bounded parse or filesystem operation can cross the cooperative scan
+deadline; the hook supervisor remains the hard termination/cleanup owner.
 
 Codex's first observation baselines at the provider's cumulative totals.
 Unterminated final records wait for a newline with complete=false; an invalid
@@ -2183,6 +2209,16 @@ of non-delivery. Final bodies are immutable: identical retries are idempotent,
 conflicting second finals fail, and terminal text is never used as completion
 evidence. `talk` waits for a stored final unless detached or timed out;
 `result` reads by request, while identity-owned `x` exposes outstanding attention.
+CLI result selection also accepts a unique UUID prefix with at least eight hex
+characters, optionally prefixed by `req_`. `RequestService::get_response_by_prefix`
+resolves and reads under one transaction and clock sample; exact service reads
+used by observers and receipt-based submission remain unchanged. The narrow
+`RequestRecords::retained_request_ids` port uses the existing request-ID index
+for a half-open range with a bounded sample. It filters logical metadata expiry
+before limiting, counts the same range only on sample overflow, and returns at
+most five ordered ambiguity candidates plus the total. CLI maps short and
+ambiguous prefixes to `USAGE_ERROR`; unknown prefixes keep unavailable-result
+semantics. No schema, acknowledgment or retention-renewal policy changes.
 Reads do not acknowledge. `ackall` acknowledges one snapshot, so a later final
 becomes unread again. Acknowledgment means handled, not successful or cancelled.
 Retention is frozen per attempt; bounded lazy housekeeping must respect active
@@ -3080,10 +3116,10 @@ reached through the external command contract as `tmt squad` and, through a
 `tmt-sq` link to the same file, `tmt sq`. Its command name is fixed, never taken
 from argv[0], so both spellings share one help text, error set and completion.
 It is a workspace member for the shared lockfile and toolchain only. Its reviewed
-runtime TMT dependencies are the neutral leaves `tmt-cli-style` and `tmt-invoke`.
-Its `tmt-tui` dev dependency supplies a test-scoped binding adapter borrowing acquired `Member`
-values and reusing `ColumnSource`/`Format`, with no core/provider acquisition or sorting.
-`tmt-tui` becomes a normal dependency when production adopts it (#774/#776).
+runtime TMT dependencies are the neutral leaves `tmt-cli-style`, `tmt-invoke`
+and `tmt-tui`. The production row compiler binds projected display values; the
+test-only source adapter still borrows acquired `Member` values and reuses
+`ColumnSource`/`Format`. Neither compiler acquires core/provider data or sorts.
 No TMT crate depends on Squad; the architecture guard enforces both directions
 for Cargo dependencies and source references. Squad reaches TMT
 through `TMT_EXECUTABLE` (or `tmt` on PATH), using public `--json` commands and
@@ -3167,20 +3203,22 @@ row's `failed` list after a failed run. Readers never run providers: `ls` reads
 the cache (`--refresh-fields` runs what is due first), and the board hands each
 load's members to one fetcher thread that runs due work off the paint path and
 again at the shortest `every`; a save moves the cache directory's stamp, which
-`board::changes` watches, so the board reloads early. The board sizes it with `tmt-cli-style`'s one solver
-(`grid::solve`, `grid::span`, `grid::fit`, `grid::fit_lines`). `rows::Column`
-uses `grid::Basis` for cell or percent widths; bounds stay in cells. `rows::Rows`
-owns positional coverage: cells start at track zero, so the maximum line span
-covers a prefix, including empty cells. `Rows::solve` passes only that prefix to
-the shared solver and pads uncovered trailing positions with `None`, retaining
-span indices. Uncovered columns remain projection sources; their JSON metadata
+`board::changes` watches, so the board reloads early. `markup::Grid` compiles the board's covered tracks
+and configured spans through TUI admission and one Taffy grid computation.
+Squad resolves configured CSS clamp bases and selects priority tracks before
+sizing; growing tracks reuse `rows::NARROWEST` as their default minimum.
+The grid retains geometry's logical text widths and clips for fitting; no
+arithmetic span solver or scalar `grid::fit/fit_lines` remains in the board.
+`rows::Column` still uses `grid::Basis` for cell/percent configuration, with
+cell bounds. `rows::Rows` owns prefix coverage, including empty cells; original
+span positions survive hiding. Uncovered columns remain projection sources; their JSON metadata
 adds optional `valueOnly: true`, omitted for covered columns. `Column::display`
 ignores their sizing settings so flat text lists retain natural values. No shared
-solver or all-covered output contract changes. The solver
-resolves percentages against data width after marks/borders/gaps, rounds by
-largest remainder, clamps cell bounds (percent columns default to a four-cell minimum, capped by an explicit max), then grows. Hiding recomputes the shown set.
-`grid::fit_lines` owns escaped, exact-cell-width bounded wrapping, with a final
-end ellipsis. Column metadata preserves percent strings and adds `overflow`
+CLI solver contract changes. Lists keep after-gap percentages, largest-remainder
+rounding, cell bounds and growth; their hiding recomputes the shown set.
+`grid::fit_lines` remains the list wrapping owner. The board's immutable-view
+width/search cache retains admitted projected row cells and geometry together;
+selection-only frames change styles without rebuilding templates or sizing. Column metadata preserves percent strings and adds `overflow`
 and wrap `max_lines` only when opted in; full row values never change.
 `rows::ListSizing` chooses the text sizing policy once from shown column
 settings: without percent/overflow it keeps legacy list sizing and complete
@@ -3522,6 +3560,25 @@ every escape sequence, control character and hidden bidi/format character before
 display, since notes are agent-written. `board::markdown` is a thin
 pulldown-cmark view over that sanitized text: it styles headings, lists,
 emphasis, inline code and links, and shows every other construct as its source.
+Its mapped rendering retains each painted line's notebook source line without a
+second Markdown parser. `App` keeps one notes cursor per visible/hidden squad,
+anchored to the complete sanitized source line (nearest match for duplicates,
+clamped position after deletion), with a continuation offset for wrapped lines.
+Cursor movement and click placement reveal the painted line through `Scrolls`;
+wheel scrolling suspends following until cursor movement. Every painted
+continuation of the selected source line uses the existing selection background/reverse fallback across the pane
+width. Only visible lines are decorated; a fixed two-cell gutter holds the sent
+marker or blanks before wrapping, keeping text aligned without clipping.
+Notes annotations reuse the ordinary composer and annotation sender, addressed
+to the current lead and tagged with the source line number and a bounded quoted
+excerpt. Opening, canceling or submitting an empty composer sends nothing.
+The `[<squad> · notes L<one-based line> <JSON quote>] ` tag is the contract
+between the annotation sender and request projection; display quotes are separate.
+`requests::apply` projects only the user's open notes annotations to the current
+lead as optional `squad.noteAnnotations` (`requestId`, zero-based `line`, `quote`),
+using the existing bounded room history. The painter marks the nearest matching
+quoted source line with `✎`; answered requests disappear on the next refresh.
+No additional core read, notebook mutation or acknowledgement is introduced.
 The detail pane appends the selected member's saved-identity notebook after its
 fields. The session requests only a visible, expanded selected detail, accounting
 for effective Board previews, tab focus and the last painted viewport; temporary
@@ -4258,10 +4315,17 @@ Its writer persists exact envelopes before send and retries those frozen bytes
 across interruption. The socket and Worker share one bounded executor; referenced
 objects have one bounded assembly and an absolute deadline. Last-subscriber release
 closes socket, Worker and relay; reconnect reconstructs a fresh verified fold.
-Absent wraps, invalid registration/pins, checkpoints, own-namespace data and reset
-baselines remain visible blocking states. Catchup has a 200-update/256 KiB plaintext
-budget; the live reader retains at most 4,096 sequence hashes. #1264 owns history,
-compaction/ledger proofs and reset adoption; rotated pages remain blocked until then.
+Before a reset page is published, the parent binds its descriptor to the verified
+`epoch.advance`, verifies the management-member-signed sequence-zero baseline
+object and passes its exact update to the Worker. The Worker checks the source
+digest, commitment and exact source/title projection before initializing a fresh
+content document; tails are restricted to that epoch. Baseline objects share the
+bounded assembly owner with updates but use the model's non-update envelope cap.
+Native baseline-object delivery remains a #1248 integration gate; signed browser
+fixtures do not establish native mounted E2E. Absent wraps, invalid registration/
+pins, checkpoints and own-namespace data remain visible blocking states. Catchup has a 200-update/256 KiB plaintext
+budget; the live reader retains at most 4,096 sequence hashes. #1280 owns interleaved namespace chains and paired checkpoint loading; own grammar
+and folding remain deferred to #1110.
 The native placeholder is unchanged: #1248/#1250/#1253 own bootstrap/refresh/assets.
 
 The content-only Yjs decoder lives in a dedicated Worker. It accepts bounded
@@ -4416,8 +4480,8 @@ member is included on every page; revoked/expired devices and private-page links
 receive no wrap. Keyring seals baseline objects with the pinned management key;
 that private key never leaves Keyring. Store provides scoped baseline retrieval,
 whose remote caller still owns access/history admission. Decoder batch limits
-fail closed rather than truncating a fold. This library has no management route;
-links/Reset remain the final #1157 slice.
+fail closed rather than truncating a fold. Link transitions share that atomic engine; browser/CLI management composition
+remains #1111 and sharing/history/retention operations remain #1160.
 
 `transitions::membership` shares epoch preparation/commit with explicit advance.
 Member add, remove and role changes use one owner transaction across affected
@@ -4428,6 +4492,18 @@ and receives no earlier wraps. Removal rotates eligible pages and excludes the
 member and its devices; role reductions pin both namespaces without rotating.
 The pinned owner member cannot be removed or re-roled. Writer rechecks also fence
 the page catalog and device projections when there are no affected streams.
+
+`transitions::links` borrows owner-local seeds and derives the pinned public keys;
+seeds are never persisted in statements, projections or replay receipts. The same
+recipient planner commits link add/remove and Reset. Shared link joins use the
+bounded history wraps; current link joins wrap only the existing current epoch,
+without an automatic advance. Removal revokes the link and every certified device,
+then rotates eligible pages with owner baselines and remaining-recipient wraps.
+Reset optionally appends a new link after those advances, in the same transaction.
+The replacement must have a distinct, never-used ID and a seed that does not derive
+the removed link's pinned keys. Removal, advances, replacement and public replay
+outcome either all commit or all roll back. Browser management composition remains
+separate; the caller distributes the borrowed seed only after success.
 
 Known-device revocation commits the local tombstone, owner-signed reduction cuts
 and affected-page rotations together. Grant revision and durable revocation fence
@@ -4487,7 +4563,12 @@ The server checks exact model envelope/header/hash/signature bindings before
 calling the existing create-only Store; it never decrypts or invokes the decoder.
 An exact retry returns the same receipt without rebroadcast. Awareness is ephemeral.
 
-Each connection has at most eight outbound frames, including its blocked frame;
+After hello, each outbound application frame consumes one of eight credits;
+a scoped valid ack resolves retained cursors and returns exactly one credit.
+Empty cursors support metadata/partial chunks; unsolicited acks cannot bank
+credit. Consecutive lazy transfers may span credit releases, with no partial
+object admission. Pre-hello live-only subscriptions retain their original flow.
+Each connection also has at most eight queued deliveries, including its blocked frame;
 frames/messages are at most 64 KiB. Queue overflow closes with `RESYNC_REQUIRED`.
 A blocked write expires after one second when the caller drives the timer. If a
 close would flush stalled ciphertext, the connection drops the stream instead;
@@ -4498,8 +4579,14 @@ No cookie or unsigned frame establishes the caller's principal.
 The #1166 extension remains in this same transport owner. Store owns scoped
 transactional namespace/cursor reads and refuses unknown or pruned cursors;
 receipts survive pruning. Admission supplies the verified retained owner head
-through `Store::owner_head` and an optional scoped baseline descriptor. Baseline production and scoped persistence/retrieval belong to the owner-local epoch engine; remote admission/composition remain caller-owned. Catchup emits metadata once,
-then one checkpoint/tail object per lazy page and a final empty page. Each page
+through `Store::owner_head` and an optional scoped baseline descriptor. Baseline production and scoped persistence/retrieval belong to the owner-local epoch engine; remote admission/composition remain caller-owned. Catchup pins its retained head and pages exact membership envelopes from the
+client's verified revision before device/member wraps and stream objects. Owner
+root discovery, scoped author-chain reads and retained-epoch wrap reads stay in
+Store's existing owner snapshots; no new schema or secret export is introduced.
+Mounted read-only session/pages endpoints expose forwarded owner identity and
+local page existence with signed-log policy, never content titles. Unknown
+membership revisions resync; byte/count caps reject rather than truncate.
+Catchup then emits one checkpoint/tail object per lazy page and a final empty page. Each page
 rescans namespace positions; the final page and live subscription commit under
 the server lock so appends during paging are not missed. Inventory is bounded
 to 256 stream/namespace pairs; excess returns capacity without eviction.

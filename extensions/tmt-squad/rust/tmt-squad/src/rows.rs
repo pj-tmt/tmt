@@ -1,6 +1,6 @@
 //! How a squad's rows are laid out: one shared grid of columns, and the
 //! lines each row takes, where a cell may span several columns. The board
-//! sizes the grid with tmt-cli-style's one solver; `ls` keeps natural list
+//! compiles its shared grid through tmt-tui; `ls` keeps natural list
 //! sizing unless a shown column opts into percentage width or overflow.
 //!
 //! `[squad.<name>.rows]` is the full form; the older `[squad.<name>.columns]`
@@ -11,7 +11,9 @@ use crate::{
     source::{ColumnSource, Format, PATHS},
 };
 use serde_json::{Value, json};
-use tmt_cli_style::grid::{self, Align, Basis, Overflow, Track, Truncate};
+#[cfg(test)]
+use tmt_cli_style::grid;
+use tmt_cli_style::grid::{Align, Basis, Overflow, Track, Truncate};
 use toml_edit::{Item, TableLike};
 
 const MAX_COLUMNS: usize = 12;
@@ -22,7 +24,7 @@ const MAX_WIDTH: i64 = 200;
 /// column's name, so these cannot be bound. Retired `note` remains reserved.
 pub(crate) const OWN_FIELDS: &[&str] = &["member", "role", "state", "pending", "note"];
 /// Where a growing column starts, and the least an unsized one keeps.
-const NARROWEST: usize = 4;
+pub(super) const NARROWEST: usize = 4;
 
 /// One grid column: the field it shows by default, its header and sizing.
 #[derive(Debug, Clone, PartialEq)]
@@ -270,7 +272,8 @@ impl Rows {
             .unwrap_or(0)
     }
 
-    /// Solve only covered tracks; retain positional indices for row spans.
+    /// Legacy CLI-policy oracle for coverage tests; production boards use Taffy.
+    #[cfg(test)]
     pub fn solve(
         &self,
         natural: impl Fn(usize) -> usize,

@@ -1057,7 +1057,14 @@ For cumulative completed-request counters (#872), run
 `cargo test --locked -p tmt-adapters runtime::consumption` and
 `cargo test --locked -p tmt-cli --bin tmt output::tests`. Redacted real provider
 fixtures and source provenance live beside the runtime owner; failure and reset
-variants are assembled. `usage-hooks.e2e.test.ts` verifies admitted hooks,
+variants are assembled. Streaming scan tests also cover multi-MiB appends,
+buffer-boundary deduplication, escaped keys, captured EOF and injected deadline
+exhaustion. For manual release-mode measurements, run the ignored
+`runtime::consumption::tests::streaming_scan_measurement` test with `TMT_SCAN_MIB`
+set to `1`, `10` or `100` and `TMT_SCAN_MIX` set to `foreign`, `usage` or `long`.
+Fixture generation precedes the reported scan time; run the built test binary
+under `/usr/bin/time -l` on macOS for process peak RSS. These measurements are
+evidence, never scan-budget calibration. `usage-hooks.e2e.test.ts` verifies admitted hooks,
 unchanged context usage, public consumption, silent failures and compaction.
 
 Before native installation/process tests, build the two product fixtures
@@ -1147,6 +1154,18 @@ it also checks editable config keys through the pure settings policy. Its negati
 controls retain the original invalid context and config commands from #1014/#1015,
 plus unknown flags, subcommands and keys.
 
+Request-ID prefix selection is checked with
+`cargo test --locked -p tmt-core --lib request::service::responses`,
+`cargo test --locked -p tmt-adapters storage::requests::service_tests::response`,
+`cargo test --locked -p tmt-adapters retained_request_id_sample_and_overflow_count`,
+and `cargo test --locked -p tmt-cli --test result_prefix` from `rust/`.
+The service cases use real isolated SQLite and an injected clock for logical
+expiry, late-final horizons and unchanged attention; the storage query-plan case
+requires indexed request-ID ranges for both the sample and overflow count.
+The CLI cases compare full-ID and prefix human/JSON output and assert bounded
+ambiguity errors, unknown/short prefixes, announcements and help. They start no
+tmux server or model and use the shared isolated CLI process harness.
+
 The architecture guard is included in `cargo test`. A focused offline run is:
 
 ```bash
@@ -1172,7 +1191,11 @@ caller-owned selection, clipped identity precedence, wide edge blanks and
 recorded-width/fractional measure–paint agreement. Run the architecture test for
 dependency changes, and
 `cargo test --locked -p tmt-squad` for its in-memory source adapter and frozen
-board/list parity fixture.
+board/list parity fixture, projected and retained-view loading identities,
+coverage, priority and CSS clamp/default-min mapping. Board fitting uses the shared grapheme owner;
+CLI lists retain their scalar fitter. `text::measure` width is a capped upper
+bound, not the widest wrapped line: derive intrinsic demand from unwrapped
+escaped content; measurement and fitting share the recorded text width.
 The parity harness captures the three explicit presets and the team default at
 120×30, 80×30 and 120×30 again,
 including every cell's style/state, hits, row starts and list text/JSON. Its source
@@ -1190,8 +1213,9 @@ The internal utilities use one spelling per value kind:
   `grow-N`, `shrink-N`, `gap-N`, `gap-x-N`, `gap-y-N`, `p-N`, `px-N`, `py-N`,
   `col-span-N`, `line-clamp-N`; also `grow`, `shrink`, `w-full`, `h-full`.
 - Percentages/tracks: `w-[N%]`, `h-[N%]`, `basis-[N%]`, `grid-cols-[tracks]`.
-  Grid tracks are underscore-separated cells, percentages, integer `Nfr`, or
-  `minmax(a,b)` (no fr minimum).
+  Grid tracks are underscore-separated cells, percentages, integer `Nfr`, `auto`,
+  or `minmax(a,b)` (no fr minimum). `auto` is also admitted as the minimum in
+  `minmax(auto,N)`; it is not admitted as a minmax maximum.
 
 `N` is ASCII decimal 0..4096, in terminal cells or integer weights/counts;
 spans/clamps must be positive. Percentages are integers 0..100. Unlike Tailwind,
@@ -1207,7 +1231,8 @@ Sizes/basis default to auto, gaps/padding/grow to zero, and shrink to one.
 Text defaults to clipping; leaf `wrap="true"`/`"false"` conflicts with all
 text-flow utilities. `token` names a shared `Role`; omission preserves inheritance.
 
-Geometry consumes already selected tracks: Squad owns priority hiding (#774).
+Geometry consumes already selected tracks: Squad owns priority hiding. Optional
+tracks must fit their full mapped minimums; only non-priority overflow can cut.
 CSS percentages use the parent's content box; gaps can cause grid overflow.
 Earlier tracks retain sizes; the cut cell needs four visible cells or hides whole.
 One injected scalar measurer owns intrinsic metrics and wrapping/clamp; paint
@@ -1552,6 +1577,17 @@ including hidden squads/tabs, source section deduplication, repeated user sectio
 matches, cross-squad memberships, and partial-read failure/recovery evidence.
 User tab validation happens during Config reading, including hidden definitions. `--tab` conflicts
 with `--squad` and `--refresh-fields`; aggregate reads do not run providers.
+
+Notes cursor tests cover source-line mapping through Markdown wrapping and
+unsupported constructs, wrapped continuation paging/click placement, resize,
+content insertion/deletion, duplicate anchors and per-line annotation composer
+cancellation/empty submission. Request projection tests cover bounded escaped
+quotes, sender/current-lead checks and marker removal after an answer. A
+painted-cell regression proves markers cannot clip wrapped content; selection
+covers each wrapped continuation to the pane edge. Display-only annotation
+quotes strip list prefixes and truncate without changing durable source tags. Check the
+focused cursor and sent marker in `tmt`, `tmt-light` and `NO_COLOR`; notes keep
+the shared `Scrolls` viewport owner.
 
 For the completed-request meter, `board::rate`, `board::meter` and the view's
 backend recorder cover four-window bucket boundaries, bounded tab retention,
@@ -2906,9 +2942,8 @@ header fields, 64 KiB HTTP bodies, 2-second total acquisition and 1-second total
 response, and 16 WebSocket tunnels closed after 120 seconds without inbound
 bytes. Bounded HTTP bodies carry registration requests; page objects use the
 stream sync path. The stream sync library enforces 64 KiB frames and 8 queued frames with
-`RESYNC_REQUIRED` close for slow subscribers; serve accepts and holds an owner's
-`colab-sync-v1` upgrade for a registered owner device but does not yet hand it
-to that library. Real socket
+`RESYNC_REQUIRED` close for slow subscribers; serve drives the sync library
+over registered-owner upgrades. Real socket
 and foreground process cleanup tests run lifecycle scenarios twice, with no core calls from
 socket traffic. Owner-key temporary cleanup is publication-locked; it preserves
 foreign file names and refuses unsafe matching files.
@@ -2942,7 +2977,17 @@ known-device revocation and rollback across every authority effect. A nine-page
 join seeds signed/encrypted retained history with fresh Y.Doc identities and
 proves the 64-epoch cap, numeric ordering, 512/64 wrap lists and all-or-none
 rollback on the final page. Fresh operation IDs cannot rotate a revoked device
-again. Links/Reset and browser management requests remain subsequent work.
+again. Browser/CLI device-signed management composition is tracked by #1111;
+sharing/history/retention/archive/delete transitions are tracked by #1160.
+
+Link transition fixtures use real model-derived signing/encryption keys and
+certified device projections. They cover numeric ordering across 512-entry wrap
+lists at the 64-epoch cap, current-only joins without rotation, Reset statement
+order, old-seed/device exclusion, rollback on a late receipt failure and replay
+after reopening. Byte searches over exact committed statements, decoded payloads,
+receipts, projections, wraps and returned outcomes reject raw, base64url and hex
+seed leakage. Link seeds are borrowed owner-local inputs; tests never claim this
+library seam admits unsigned browser management requests.
 
 ### Colab owner registration verification
 
@@ -2992,7 +3037,15 @@ and supply current verified membership/device policy. Model statement/certificat
 verification remains that caller's responsibility; a successful upgrade is not
 page authority. The admission implementation supplies the verified retained owner
 head through `Store::owner_head` and the exact persisted baseline descriptor
-through `Store::baseline`; object retrieval remains caller-owned. One hello starts lazy catchup;
+through `Store::baseline`; object retrieval remains caller-owned.
+Strict hello includes the last verified `membershipRevision`; bootstrap emits
+bounded exact membership pages, author chains once per connection and
+retained device/member wraps before stream objects. After hello every outbound
+frame costs one of eight credits; a scoped valid ack returns one credit, even
+with empty cursors for metadata/partial chunks. Test full-window silence,
+missing/unsolicited acks and a twelve-chunk stored object across credit releases.
+Reference/chunks stay consecutive and live overflow still resyncs.
+One hello starts lazy catchup;
 its final page enables live delivery under the server lock. Unknown/pruned cursors
 return `RESYNC_REQUIRED`. An empty-cursor subscription remains live-only. Large
 updates use one bounded, deadline-limited inbound transfer before append verification;
@@ -3006,7 +3059,9 @@ verification. Exact wire shapes and budgets are owned by colab-v1. Owner
 registration is implemented under #1162. Run
 `(cd rust && cargo test --offline --locked -p tmt-colab --test socket)` for two
 registered owner tabs through the real mounted socket: append/broadcast, durable
-retry/catchup, strict event bodies/header/path, failed-revoke rollback, replay
+retry/catchup, read-only `/api/session` and `/api/pages` owner discovery,
+130-revision exact-byte membership paging and unknown-revision resync,
+strict event bodies/header/path, failed-revoke rollback, replay
 without writes, active/pre-hello tunnel closure, cap/idle bounds and shutdown.
 Tests inject private temporary roots and verify socket removal; they use no
 Docker or remote identities. Full two-browser application acceptance is later.
@@ -3106,9 +3161,11 @@ reload reconstruction and retry of exact accepted bytes after receipt interrupti
 The fixture paces server delivery with the existing ACK frame; native ACK-window
 backpressure is a #1248 acceptance gate. Large history against the current native
 server can block visibly until that gate lands. It covers unpruned content updates
-from sequence one, not checkpoints, own data or
-reset baselines (#1264). Production-rotated pages remain blocked until reset
-adoption. This is signed protocol-fixture evidence, not native mounted E2E:
+from sequence one, plus signed reset-baseline fixtures. The baseline suite covers
+chunked retrieval, descriptor/log binding, exact baseline struct identity, subsequent
+edits/reload and rejection of commitment/source/descriptor/old-epoch substitution
+without partial rendering. Checkpoints and own data remain unsupported (#1280);
+native rotated-page opening still needs #1248 baseline-object delivery. This is signed protocol-fixture evidence, not native mounted E2E:
 #1248/#1250 supply bootstrap/refresh and #1253 owns native assets.
 The content Worker suite proves concurrent writer convergence and reload
 reconstruction, rejects malformed/mixed roots, checks termination/cleanup and

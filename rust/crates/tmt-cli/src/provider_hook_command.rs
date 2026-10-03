@@ -135,6 +135,7 @@ fn observe_turn(
         &environment,
         remembered.state.as_ref(),
         tmt_adapters::request_runtime::wall_time_ms(),
+        deadline,
     );
     let previous = usage.as_ref().or(remembered.state.as_ref());
     let next = activity

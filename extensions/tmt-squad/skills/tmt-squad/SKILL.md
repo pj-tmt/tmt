@@ -80,7 +80,8 @@ cell).
 
 - A column's `width` is null, a cell count or a percentage string such as
   `"30%"`. Covered-track percentage widths total at most 100% and resolve against data width
-  after row marks and gaps; `min`/`max` remain cells.
+  after borders/row marks on the board (gaps are additional); lists resolve after
+  gaps. `min`/`max` remain cells.
 - A column has optional `valueOnly: true` when no row line covers its positional
   track. It remains a value source but reserves no board width; other columns
   omit this key. See Columns and row lines below.
@@ -105,6 +106,10 @@ cell).
   one section with `title: null` containing every member except the lead. With
   user sections, members that match none follow in a final `title: null`
   section.
+- `squad.noteAnnotations` is optional: open notebook-line requests from the
+  recorded user to the current lead, as `{requestId, line, quote}` with a
+  zero-based source `line` and bounded sanitized `quote`. It is absent when
+  none are observed; the shared bounded history also governs board markers.
 - Each row has `id`, `name`, `lifetime`, `presence` (`active`, `offline` or
   `unknown`), `pane`, `activity` (self-reported status, or null), `state`,
   `pending`, `fields` (the `squad.<name>.*` values except the internal
@@ -343,6 +348,22 @@ tools. The board never creates it: a saved lead without a notebook shows
 `(no notes yet)`, while a temporary lead shows the
 `NOTEBOOK_SAVED_IDENTITY_REQUIRED` failure text.
 
+Click a notebook line in the lead notes pane to focus it and place the cursor.
+Arrow keys or j/k move between displayed lines; PgUp/PgDn page, and
+Home/End or g/G select the first/last line. The cursor follows unchanged source
+text when notes refresh (nearest match for duplicates, clamped after deletion).
+The wheel scrolls independently; moving the cursor brings it back into view.
+Every displayed continuation of the selected source line uses the full-width
+selection appearance, including reverse video with `NO_COLOR`. A fixed two-cell
+gutter holds the sent marker or blanks, so notebook text stays aligned.
+
+In focused notes, the annotate binding (`a` by default) opens a composer addressed
+to the lead, quoting the line number and a bounded excerpt. Enter sends only
+nonempty text; Esc cancels. The line shows `✎` while your request to the current
+lead is open, clearing after the lead answers and the board refreshes. Notes remain
+read-only. The marker uses the nearest matching quoted excerpt after an edit;
+requests outside the bounded room-history window may not be shown.
+
 The detail pane shows the selected member's own notebook after its fields,
 using the same read-only Markdown/plain rendering as lead notes. A saved member
 without a notebook shows `(no notes yet)`; temporary members show
@@ -352,7 +373,7 @@ on selection and board refresh. The leads/all tabs remain rows only.
 Every member should keep a short **Current state** section at the top of their own notebook, with
 **Now / Next / Blocked** in a few lines, because the user reads it on the board.
 Update those lines when the working state changes; keep history below them.
-User annotations remain requests about a row.
+User annotations remain requests about a row or a notebook line.
 
 ## Annotations from the user
 
@@ -432,12 +453,12 @@ tracks. Spanned cells use the first track's fitting settings. The legacy
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `name`, `title`         | Field name and optional column heading.                                                                                                                |
 | `width`                 | Cells (1–200) or a quoted percentage (1–100%, supported since Squad alpha.8).                                                                          |
-| `min`, `max`            | Cell bounds, including for percentage widths.                                                                                                          |
-| `grow`                  | Weight (0–100) for distributing remaining space after bases and bounds; default 0 in the full rows form.                                               |
+| `min`, `max`            | Cell bounds, including percentages; growing tracks default to a four-cell minimum.                                                                                                          |
+| `grow`                  | Weight (0–100), default 0. On the board, grow with max: max wins; the weight has no effect.                                               |
 | `align`                 | `left` (default), `right` or `center`.                                                                                                                 |
 | `truncate`              | `end` (default) or `middle`.                                                                                                                           |
 | `overflow`, `max_lines` | `ellipsis` (default) or `wrap`; wrapped visual lines are bounded to 1–8, default 2, with a final end ellipsis.                                         |
-| `priority`              | 1–100; higher values hide first when minimum widths cannot fit. Without it, a track does not hide.                                                     |
+| `priority`              | 1–100; higher values hide first when minimum widths cannot fit. Without it, a track never hides through priority selection.                                                     |
 | `from`, `format`        | Bind a column to a supported public source (listed below); format as `text` (default), `tokens`, `age` or `count`. Squad-owned fields cannot be bound. |
 
 Supported `from` paths are `member`, `presence`, `cwd`, `target`,
@@ -446,13 +467,18 @@ Supported `from` paths are `member`, `presence`, `cwd`, `target`,
 `fields.<configured-provider>`. Without `from`, a format reads the column's
 squad field; `member`, `role`, `state`, `pending` and `note` cannot use either.
 
-`%` is a share of the **whole data width**, like CSS `width: …%`: after
-borders, row marks and gaps, before fixed columns are deducted. For example,
-with member/state widths 30/10, task `width = "62%"` and PR `width = "26%"`
-still share the whole data width, not what those fixed columns leave. Covered
-percentages total at most 100%; bounds and fitting can reduce the final widths.
-To split the remainder instead, use `grow`, like CSS `fr`: weights distribute
-the space left after fixed widths and other bases, respecting cell bounds.
+On the board, `%` is a share of the **whole content width** after borders and
+row marks, before fixed columns are deducted; gaps are additional, as in CSS.
+Covered percentages total at most 100%. A configured width is clamped to the
+cell bounds. Without a width, the base is `min`, defaulting to four cells for a
+growing track and natural content otherwise. `grow` without `max` shares the
+remainder as CSS `fr`; capped growing tracks reach `max` before fr tracks share
+what remains. Priority hides optional tracks whole before sizing when their
+minimums cannot fit. Non-priority overflow keeps earlier sizes; a right cut
+needs four visible cells, otherwise that cell hides whole. CLI lists retain
+their after-gap percentage base, bounds, weighted growth and scalar fitter.
+The board and `tmt sq ls` can therefore differ by a cell or two in a column
+with a percentage width.
 
 A column's own width/min/max/grow apply only if some line covers its positional
 track. Empty cells and spans count as coverage. Uncovered trailing columns

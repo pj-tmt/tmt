@@ -115,14 +115,17 @@ impl Fixture {
         .unwrap()
     }
     fn append(&mut self, object: &object::Envelope) {
+        self.append_for(object, 1, DEVICE);
+    }
+    fn append_for(&mut self, object: &object::Envelope, epoch: u64, stream: &str) {
         let h = object::Header::decode(object.header()).unwrap();
         let c = &h.context;
         let bytes = object.to_json().unwrap();
         let envelope = Envelope {
             scope: StreamScope {
                 page: PAGE,
-                epoch: 1,
-                stream: DEVICE,
+                epoch,
+                stream,
             },
             namespace: if c.namespace == "content" {
                 Namespace::Content
@@ -1167,4 +1170,765 @@ fn open_join_wrap(w: &wrap::Envelope, key: &Keyring) -> [u8; 32] {
         &key.owner_public(),
     )
     .unwrap()
+}
+
+const LINK: &str = "50000000-0000-4000-8000-000000000001";
+const REPLACEMENT: &str = "50000000-0000-4000-8000-000000000002";
+const LINK_DEVICE: &str = "60000000-0000-4000-8000-000000000001";
+const LINK_SEED: [u8; 32] = [31; 32];
+const REPLACEMENT_SEED: [u8; 32] = [32; 32];
+fn link_spec<'a>(
+    id: &'a str,
+    seed: &'a [u8; 32],
+    pages: Vec<String>,
+) -> tmt_colab::transitions::LinkSpec<'a> {
+    tmt_colab::transitions::LinkSpec {
+        id,
+        seed,
+        role: "editor",
+        pages,
+    }
+}
+fn link_change(
+    f: &mut Fixture,
+    op: u64,
+    revision: u64,
+    action: tmt_colab::transitions::LinkAction<'_>,
+) -> Result<Vec<u8>, tmt_colab::transitions::TransitionError> {
+    f.engine.link(
+        &mut f.store,
+        &f.key,
+        tmt_colab::transitions::LinkRequest {
+            operation_id: &operation(op),
+            expected_revision: revision,
+            action,
+        },
+        50,
+    )
+}
+fn revision(f: &Fixture) -> u64 {
+    f.store
+        .owner_head(&f.key.space_id, &f.key.owner_public())
+        .unwrap()
+        .unwrap()
+        .revision
+}
+fn link_policy(f: &mut Fixture, pages: &[String], current: bool) {
+    let expected = revision(f);
+    let epochs = pages
+        .iter()
+        .map(|page| {
+            f.db()
+                .query_row("SELECT epoch FROM pages WHERE page=?", [page], |r| {
+                    r.get::<_, String>(0)
+                })
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    f.store
+        .owner_transaction(
+            &f.key.space_id,
+            &f.key.owner_public(),
+            Mutation {
+                operation_id: &operation(80),
+                digest: [80; 32],
+                expected_revision: expected,
+            },
+            |tx| {
+                for (page, epoch) in pages.iter().zip(&epochs) {
+                    tx.append_statement(&f.key.sign_statement(
+                        tx.head(),
+                        "page.share",
+                        &serde_json::to_vec(&json!({"pageId":page,"epoch":epoch,"mode":"link"}))?,
+                    )?)?;
+                    if current {
+                        tx.append_statement(&f.key.sign_statement(
+                            tx.head(),
+                            "page.history",
+                            &serde_json::to_vec(&json!({"pageId":page,"mode":"current"}))?,
+                        )?)?;
+                    }
+                }
+                Ok(b"link policy".to_vec())
+            },
+        )
+        .unwrap();
+}
+fn open_link_wrap(f: &Fixture, wrapped: &wrap::Envelope, id: &str, seed: &[u8; 32]) -> [u8; 32] {
+    let keys = tmt_colab_model::link::Keys::derive(seed, &f.key.space_id, id).unwrap();
+    wrap::open(
+        wrapped,
+        &wrapped.header().unwrap(),
+        keys.recipient(),
+        &f.key.owner_public(),
+    )
+    .unwrap()
+}
+fn add_link_device(
+    f: &Fixture,
+    id: &str,
+    issuer: &statement::Envelope,
+    seed: &[u8; 32],
+    link_id: &str,
+) {
+    let keys = tmt_colab_model::link::Keys::derive(seed, &f.key.space_id, link_id).unwrap();
+    let signing = signer(33).verifying_key().to_bytes();
+    let encryption = wrap::RecipientKey::from_seed(&[34; 32])
+        .unwrap()
+        .public_key();
+    let wire: Value = serde_json::from_slice(&issuer.to_json().unwrap()).unwrap();
+    let framed = values::binary(wire["statement"].as_str().unwrap(), 1024).unwrap();
+    let rev = statement::decode(&framed).unwrap().revision;
+    let cert = certificate::Certificate {
+        space: &f.key.space_id,
+        issuer_kind: "link",
+        issuer_id: link_id,
+        device_id: id,
+        signing_key: &signing,
+        encryption_key: &encryption,
+        membership_revision: rev,
+        issued_at: 1,
+        expires_at: 100000,
+    };
+    let device = Device {
+        revoked: false,
+        chain: serde_json::to_vec(&json!({"version":1,
+        "issuerStatement":values::encode_binary(&issuer.hash().unwrap()),
+        "deviceCertificate":values::encode_binary(&certificate::input(&cert).unwrap()),
+        "issuerSignature":values::encode_binary(&keys.certify(&cert).unwrap())}))
+        .unwrap(),
+    };
+    // Registration's device-only transaction is crate-private; seed its exact certified projection.
+    f.db()
+        .execute(
+            "INSERT INTO devices VALUES (?,?)",
+            params![id, serde_json::to_vec(&device).unwrap()],
+        )
+        .unwrap();
+}
+fn link_object(
+    f: &Fixture,
+    id: &str,
+    epoch: u64,
+    tail: (u64, [u8; 32]),
+    namespace: &str,
+    secret: &[u8; 32],
+    rev: u64,
+) -> object::Envelope {
+    let update = if namespace == "content" {
+        source("link source")
+    } else {
+        vec![0, 0]
+    };
+    object::seal(
+        &object::Context {
+            space: f.key.space_id.clone(),
+            page: PAGE.into(),
+            epoch: epoch.to_string(),
+            kind: "update".into(),
+            namespace: namespace.into(),
+            author_device: id.into(),
+            membership_revision: rev.to_string(),
+            stream_seq: tail.0.to_string(),
+            prev_hash: tail.1,
+        },
+        secret,
+        &signer(33),
+        &update,
+    )
+    .unwrap()
+}
+fn link_fixture(current: bool) -> (Fixture, Vec<u8>, u64) {
+    use tmt_colab::transitions::LinkAction;
+    let mut f = Fixture::new();
+    link_policy(&mut f, &[PAGE.into()], current);
+    let rev = revision(&f);
+    let added = link_change(
+        &mut f,
+        81,
+        rev,
+        LinkAction::Add(link_spec(LINK, &LINK_SEED, vec![PAGE.into()])),
+    )
+    .unwrap();
+    let issuer = wire_statement(&added, 0);
+    add_link_device(&f, LINK_DEVICE, &issuer, &LINK_SEED, LINK);
+    let rev = revision(&f);
+    let content = link_object(&f, LINK_DEVICE, 1, (1, [0; 32]), "content", &[11; 32], rev);
+    f.append_for(&content, 1, LINK_DEVICE);
+    let own = link_object(
+        &f,
+        LINK_DEVICE,
+        1,
+        (2, content.hash().unwrap()),
+        "own",
+        &[11; 32],
+        rev,
+    );
+    f.append_for(&own, 1, LINK_DEVICE);
+    (f, added, rev)
+}
+fn assert_no_seed(f: &Fixture, returned: &[u8], seed: &[u8; 32]) {
+    let needles = [
+        seed.to_vec(),
+        values::encode_binary(seed).into_bytes(),
+        seed.iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+            .into_bytes(),
+    ];
+    let mut rows = vec![returned.to_vec()];
+    for sql in [
+        "SELECT envelope FROM membership_log",
+        "SELECT digest FROM owner_operations",
+        "SELECT outcome FROM owner_operations",
+        "SELECT record FROM recipients",
+        "SELECT envelope FROM wraps",
+    ] {
+        let db = f.db();
+        let mut query = db.prepare(sql).unwrap();
+        rows.extend(
+            query
+                .query_map([], |r| r.get::<_, Vec<u8>>(0))
+                .unwrap()
+                .map(Result::unwrap),
+        );
+    }
+    // Statements encode payload JSON; inspect decoded payloads as well as exact stored wire bytes.
+    let db = f.db();
+    let mut query = db.prepare("SELECT envelope FROM membership_log").unwrap();
+    for row in query.query_map([], |r| r.get::<_, Vec<u8>>(0)).unwrap() {
+        rows.push(
+            serde_json::to_vec(&statement_payload(
+                &statement::Envelope::from_json(&row.unwrap()).unwrap(),
+            ))
+            .unwrap(),
+        );
+    }
+    for row in rows {
+        for needle in &needles {
+            assert!(
+                !row.windows(needle.len()).any(|w| w == needle),
+                "seed leaked to durable/public bytes"
+            );
+        }
+    }
+}
+#[test]
+fn shared_link_join_wraps_576_keys_in_numeric_order_or_rolls_back() {
+    use tmt_colab::transitions::LinkAction;
+    let mut f = Fixture::new();
+    let pages = (1..=9)
+        .map(|n| format!("10000000-0000-4000-8000-{n:012}"))
+        .collect::<Vec<_>>();
+    retained_history(&mut f, &pages, 65);
+    link_policy(&mut f, &pages, false);
+    let rev = revision(&f);
+    let before = f.counts();
+    f.db().execute_batch("CREATE TRIGGER deny_link_wrap BEFORE INSERT ON wraps WHEN NEW.page='10000000-0000-4000-8000-000000000009' BEGIN SELECT RAISE(ABORT,'late wrap'); END;").unwrap();
+    assert_eq!(
+        link_change(
+            &mut f,
+            82,
+            rev,
+            LinkAction::Add(link_spec(LINK, &LINK_SEED, pages.clone()))
+        )
+        .unwrap_err()
+        .code,
+        Code::Unavailable
+    );
+    assert_eq!(f.counts(), before);
+    f.db()
+        .execute_batch("DROP TRIGGER deny_link_wrap;")
+        .unwrap();
+    let added = link_change(
+        &mut f,
+        82,
+        rev,
+        LinkAction::Add(link_spec(LINK, &LINK_SEED, pages)),
+    )
+    .unwrap();
+    let v: Value = serde_json::from_slice(&added).unwrap();
+    assert_eq!(v["wrapLists"][0].as_array().unwrap().len(), 512);
+    assert_eq!(v["wrapLists"][1].as_array().unwrap().len(), 64);
+    let mut previous = None;
+    for w in response_wraps(&added) {
+        w.verify_owner(&f.key.owner_public()).unwrap();
+        let h = w.header().unwrap();
+        let epoch = h.epoch.parse::<u64>().unwrap();
+        assert!((2..=65).contains(&epoch));
+        let order = (
+            h.page.clone(),
+            epoch,
+            h.recipient_kind.clone(),
+            h.recipient_id.clone(),
+        );
+        assert!(previous.as_ref().is_none_or(|p| p < &order));
+        previous = Some(order);
+        assert_eq!(open_link_wrap(&f, &w, LINK, &LINK_SEED), [epoch as u8; 32]);
+    }
+    assert_no_seed(&f, &added, &LINK_SEED);
+}
+#[test]
+fn current_link_join_wraps_only_existing_current_epoch_without_advance() {
+    use tmt_colab::transitions::LinkAction;
+    let mut f = Fixture::new();
+    retained_history(&mut f, &[PAGE.into()], 3);
+    link_policy(&mut f, &[PAGE.into()], true);
+    let rev = revision(&f);
+    let before = f.counts();
+    let added = link_change(
+        &mut f,
+        83,
+        rev,
+        LinkAction::Add(link_spec(LINK, &LINK_SEED, vec![PAGE.into()])),
+    )
+    .unwrap();
+    let wraps = response_wraps(&added);
+    assert_eq!(wraps.len(), 1);
+    assert_eq!(wraps[0].header().unwrap().epoch, "3");
+    assert_eq!(open_link_wrap(&f, &wraps[0], LINK, &LINK_SEED), [3; 32]);
+    let after = f.counts();
+    assert_eq!(after[1], before[1]);
+    assert_eq!(after[2], before[2]);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&added).unwrap()["statements"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        f.db()
+            .query_row(
+                "SELECT count(*) FROM wraps WHERE recipient=? AND epoch<?",
+                params![LINK, format!("{:020}", 3)],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+}
+#[test]
+fn reset_link_removes_rotates_then_adds_and_never_persists_replacement_seed() {
+    use tmt_colab::transitions::LinkAction;
+    for current in [false, true] {
+        let (mut f, old, rev) = link_fixture(current);
+        let reset = link_change(
+            &mut f,
+            84,
+            rev,
+            LinkAction::Reset {
+                link_id: LINK,
+                replacement: Some(link_spec(REPLACEMENT, &REPLACEMENT_SEED, vec![PAGE.into()])),
+            },
+        )
+        .unwrap();
+        assert_eq!(baseline_source(&f, 2), "link source");
+        let v: Value = serde_json::from_slice(&reset).unwrap();
+        assert_eq!(v["statements"].as_array().unwrap().len(), 3);
+        let statements = (0..3)
+            .map(|i| wire_statement(&reset, i))
+            .collect::<Vec<_>>();
+        // Verify the complete retained chain, not a synthetic post-reset head.
+        let db = f.db();
+        let mut query = db
+            .prepare("SELECT envelope FROM membership_log ORDER BY revision")
+            .unwrap();
+        let mut verified_head = None;
+        let mut operations = Vec::new();
+        for bytes in query.query_map([], |r| r.get::<_, Vec<u8>>(0)).unwrap() {
+            let s = statement::Envelope::from_json(&bytes.unwrap()).unwrap();
+            let verified = s
+                .verify_next(
+                    &f.key.space_id,
+                    &f.key.owner_public(),
+                    verified_head.as_ref(),
+                )
+                .unwrap();
+            operations.push(verified.header.operation.to_owned());
+            verified_head = Some(verified.head);
+        }
+        assert_eq!(
+            &operations[operations.len() - 3..],
+            &["link.remove", "epoch.advance", "link.add"]
+        );
+        let removal = statement_payload(&statements[0]);
+        assert_eq!(removal["cuts"].as_array().unwrap().len(), 2);
+        for cut in removal["cuts"].as_array().unwrap() {
+            let raw = values::binary(cut["cut"].as_str().unwrap(), 2048).unwrap();
+            let c = tmt_colab_model::stream_cut::decode(&raw).unwrap();
+            assert_eq!(c.stream_id, LINK_DEVICE);
+        }
+        let wraps = response_wraps(&reset);
+        assert!(wraps.iter().all(|w| {
+            let h = w.header().unwrap();
+            h.recipient_id != LINK && h.recipient_id != LINK_DEVICE
+        }));
+        assert!(
+            wraps
+                .iter()
+                .any(|w| w.header().unwrap().recipient_id == MEMBER)
+        );
+        let replacements = wraps
+            .iter()
+            .filter(|w| w.header().unwrap().recipient_id == REPLACEMENT)
+            .collect::<Vec<_>>();
+        assert_eq!(replacements.len(), if current { 1 } else { 2 });
+        let new = replacements
+            .iter()
+            .find(|w| w.header().unwrap().epoch == "2")
+            .unwrap();
+        let secret = open_link_wrap(&f, new, REPLACEMENT, &REPLACEMENT_SEED);
+        assert_ne!(secret, [11; 32]);
+        let old_keys =
+            tmt_colab_model::link::Keys::derive(&LINK_SEED, &f.key.space_id, REPLACEMENT).unwrap();
+        assert!(
+            wrap::open(
+                new,
+                &new.header().unwrap(),
+                old_keys.recipient(),
+                &f.key.owner_public()
+            )
+            .is_err()
+        );
+        for w in wraps {
+            w.verify_owner(&f.key.owner_public()).unwrap();
+        }
+        let record: Vec<u8> = f
+            .db()
+            .query_row(
+                "SELECT record FROM devices WHERE id=?",
+                [LINK_DEVICE],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(serde_json::from_slice::<Device>(&record).unwrap().revoked);
+        assert_no_seed(&f, &reset, &REPLACEMENT_SEED);
+        let counts = f.counts();
+        let reopened = Store::open(&f.layout).unwrap();
+        std::mem::replace(&mut f.store, reopened).close().unwrap();
+        assert_eq!(
+            link_change(
+                &mut f,
+                84,
+                rev,
+                LinkAction::Reset {
+                    link_id: LINK,
+                    replacement: Some(link_spec(REPLACEMENT, &REPLACEMENT_SEED, vec![PAGE.into()]))
+                }
+            )
+            .unwrap(),
+            reset
+        );
+        assert_eq!(f.counts(), counts);
+        assert_eq!(
+            link_change(
+                &mut f,
+                84,
+                rev,
+                LinkAction::Reset {
+                    link_id: LINK,
+                    replacement: None
+                }
+            )
+            .unwrap_err()
+            .code,
+            Code::Conflict
+        );
+        // A retained old seed can certify a new identity, but the revoked issuer cannot regain authority.
+        let fresh = "60000000-0000-4000-8000-000000000002";
+        add_link_device(&f, fresh, &wire_statement(&old, 0), &LINK_SEED, LINK);
+        let object = link_object(&f, fresh, 2, (1, [0; 32]), "content", &secret, revision(&f));
+        f.append_for(&object, 2, fresh);
+        let expected = revision(&f);
+        assert_eq!(
+            f.advance(&operation(85), expected).unwrap_err().code,
+            Code::Invalid
+        );
+    }
+}
+#[test]
+fn link_remove_and_reset_without_replacement_rotate_once_and_revoke_every_device() {
+    use tmt_colab::transitions::LinkAction;
+    for reset in [false, true] {
+        let (mut f, old, rev) = link_fixture(false);
+        add_link_device(
+            &f,
+            "60000000-0000-4000-8000-000000000003",
+            &wire_statement(&old, 0),
+            &LINK_SEED,
+            LINK,
+        );
+        let action = if reset {
+            LinkAction::Reset {
+                link_id: LINK,
+                replacement: None,
+            }
+        } else {
+            LinkAction::Remove { link_id: LINK }
+        };
+        let removed = link_change(&mut f, 86, rev, action).unwrap();
+        assert_eq!(baseline_source(&f, 2), "link source");
+        assert_eq!(
+            serde_json::from_slice::<Value>(&removed).unwrap()["statements"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        let db = f.db();
+        let mut query = db
+            .prepare("SELECT record FROM devices WHERE id LIKE '60000000-%'")
+            .unwrap();
+        for row in query.query_map([], |r| r.get::<_, Vec<u8>>(0)).unwrap() {
+            assert!(
+                serde_json::from_slice::<Device>(&row.unwrap())
+                    .unwrap()
+                    .revoked
+            );
+        }
+        let counts = f.counts();
+        let rev = revision(&f);
+        assert_eq!(
+            link_change(
+                &mut f,
+                87,
+                rev,
+                LinkAction::Add(link_spec(LINK, &REPLACEMENT_SEED, vec![PAGE.into()]))
+            )
+            .unwrap_err()
+            .code,
+            Code::Conflict
+        );
+        assert_eq!(f.counts(), counts);
+    }
+}
+#[test]
+fn reset_rejects_seed_equivalence_reused_id_and_rolls_back_late_receipt_failure() {
+    use tmt_colab::transitions::LinkAction;
+    let (mut f, _, rev) = link_fixture(false);
+    let before = f.counts();
+    assert_eq!(
+        link_change(
+            &mut f,
+            88,
+            rev,
+            LinkAction::Reset {
+                link_id: LINK,
+                replacement: Some(link_spec(REPLACEMENT, &LINK_SEED, vec![PAGE.into()]))
+            }
+        )
+        .unwrap_err()
+        .code,
+        Code::Denied
+    );
+    assert_eq!(
+        link_change(
+            &mut f,
+            88,
+            rev,
+            LinkAction::Reset {
+                link_id: LINK,
+                replacement: Some(link_spec(LINK, &REPLACEMENT_SEED, vec![PAGE.into()]))
+            }
+        )
+        .unwrap_err()
+        .code,
+        Code::Conflict
+    );
+    assert_eq!(f.counts(), before);
+    f.db().execute_batch("CREATE TRIGGER deny_reset_receipt BEFORE INSERT ON owner_operations BEGIN SELECT RAISE(ABORT,'late receipt'); END;").unwrap();
+    assert_eq!(
+        link_change(
+            &mut f,
+            88,
+            rev,
+            LinkAction::Reset {
+                link_id: LINK,
+                replacement: Some(link_spec(REPLACEMENT, &REPLACEMENT_SEED, vec![PAGE.into()]))
+            }
+        )
+        .unwrap_err()
+        .code,
+        Code::Unavailable
+    );
+    assert_eq!(f.counts(), before);
+    assert!(f.store.baseline(PAGE, 2).unwrap().is_none());
+    let record: Vec<u8> = f
+        .db()
+        .query_row(
+            "SELECT record FROM recipients WHERE kind='link' AND id=?",
+            [LINK],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(
+        !serde_json::from_slice::<Recipient>(&record)
+            .unwrap()
+            .revoked
+    );
+    let record: Vec<u8> = f
+        .db()
+        .query_row(
+            "SELECT record FROM devices WHERE id=?",
+            [LINK_DEVICE],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(!serde_json::from_slice::<Device>(&record).unwrap().revoked);
+}
+#[test]
+fn device_only_revoke_preserves_surviving_link_bearer_capability() {
+    let (mut f, old, rev) = link_fixture(false);
+    let result = f
+        .engine
+        .revoke_device(
+            &mut f.store,
+            &f.key,
+            tmt_colab::transitions::DeviceRevoke {
+                operation_id: &operation(89),
+                expected_revision: rev,
+                device_id: LINK_DEVICE,
+                grant_revision: 1,
+            },
+            50,
+        )
+        .unwrap();
+    let wraps = response_wraps(&result);
+    let w = wraps
+        .iter()
+        .find(|w| w.header().unwrap().recipient_id == LINK)
+        .unwrap();
+    let secret = open_link_wrap(&f, w, LINK, &LINK_SEED);
+    assert_ne!(secret, [11; 32]);
+    assert!(
+        !wraps
+            .iter()
+            .any(|w| w.header().unwrap().recipient_id == LINK_DEVICE)
+    );
+    let record: Vec<u8> = f
+        .db()
+        .query_row(
+            "SELECT record FROM recipients WHERE kind='link' AND id=?",
+            [LINK],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(
+        !serde_json::from_slice::<Recipient>(&record)
+            .unwrap()
+            .revoked
+    );
+    let fresh = "60000000-0000-4000-8000-000000000004";
+    add_link_device(&f, fresh, &wire_statement(&old, 0), &LINK_SEED, LINK);
+    let object = link_object(&f, fresh, 2, (1, [0; 32]), "content", &secret, revision(&f));
+    f.append_for(&object, 2, fresh);
+    let rev = revision(&f);
+    f.advance(&operation(93), rev).unwrap();
+    assert_eq!(baseline_source(&f, 3), "link sourcelink source");
+}
+
+#[test]
+fn reset_rotates_old_scope_and_joins_replacement_scope_without_extra_advances() {
+    use tmt_colab::transitions::LinkAction;
+    let mut f = Fixture::new();
+    let pages = (1..=3)
+        .map(|n| format!("10000000-0000-4000-8000-{n:012}"))
+        .collect::<Vec<_>>();
+    retained_history(&mut f, &pages, 2);
+    link_policy(&mut f, &pages, true);
+    let rev = revision(&f);
+    link_change(
+        &mut f,
+        90,
+        rev,
+        LinkAction::Add(link_spec(LINK, &LINK_SEED, pages[..2].to_vec())),
+    )
+    .unwrap();
+    let rev = revision(&f);
+    let reset = link_change(
+        &mut f,
+        91,
+        rev,
+        LinkAction::Reset {
+            link_id: LINK,
+            replacement: Some(link_spec(
+                REPLACEMENT,
+                &REPLACEMENT_SEED,
+                pages[1..].to_vec(),
+            )),
+        },
+    )
+    .unwrap();
+    let v: Value = serde_json::from_slice(&reset).unwrap();
+    assert_eq!(v["statements"].as_array().unwrap().len(), 4);
+    let first = statement_payload(&wire_statement(&reset, 1));
+    let second = statement_payload(&wire_statement(&reset, 2));
+    assert_eq!(first["pageId"], pages[0]);
+    assert_eq!(second["pageId"], pages[1]);
+    assert_eq!(first["epoch"], "3");
+    assert_eq!(second["epoch"], "3");
+    assert!(f.store.baseline(&pages[2], 3).unwrap().is_none());
+    let wraps = response_wraps(&reset);
+    let replacement = wraps
+        .iter()
+        .filter(|w| w.header().unwrap().recipient_id == REPLACEMENT)
+        .collect::<Vec<_>>();
+    assert_eq!(replacement.len(), 2);
+    for w in replacement {
+        let h = w.header().unwrap();
+        assert_eq!(h.epoch, if h.page == pages[1] { "3" } else { "2" });
+        assert_eq!(h.membership_revision, (rev + 4).to_string());
+        open_link_wrap(&f, w, REPLACEMENT, &REPLACEMENT_SEED);
+    }
+}
+#[test]
+fn link_add_rejects_private_pages_stale_head_and_invalid_role_or_pages_without_writes() {
+    use tmt_colab::transitions::LinkAction;
+    let mut f = Fixture::new();
+    let before = f.counts();
+    assert_eq!(
+        link_change(
+            &mut f,
+            92,
+            2,
+            LinkAction::Add(link_spec(LINK, &LINK_SEED, vec![PAGE.into()]))
+        )
+        .unwrap_err()
+        .code,
+        Code::Denied
+    );
+    assert_eq!(f.counts(), before);
+    link_policy(&mut f, &[PAGE.into()], false);
+    let rev = revision(&f);
+    let before = f.counts();
+    assert_eq!(
+        link_change(
+            &mut f,
+            92,
+            rev - 1,
+            LinkAction::Add(link_spec(LINK, &LINK_SEED, vec![PAGE.into()]))
+        )
+        .unwrap_err()
+        .code,
+        Code::StaleHead
+    );
+    for (role, pages) in [
+        ("owner", vec![PAGE.into()]),
+        ("editor", vec![PAGE.into(), PAGE.into()]),
+    ] {
+        let spec = tmt_colab::transitions::LinkSpec {
+            id: LINK,
+            seed: &LINK_SEED,
+            role,
+            pages,
+        };
+        assert_eq!(
+            link_change(&mut f, 92, rev, LinkAction::Add(spec))
+                .unwrap_err()
+                .code,
+            Code::Invalid
+        );
+    }
+    assert_eq!(f.counts(), before);
 }

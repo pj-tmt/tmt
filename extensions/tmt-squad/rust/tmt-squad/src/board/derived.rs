@@ -5,15 +5,23 @@ use std::collections::BTreeMap;
 
 #[derive(Default)]
 pub(super) struct Derived {
-    pub notes: Option<(usize, crate::look::Look, Vec<Line<'static>>)>,
+    pub notes: Option<NotebookLines>,
     pub replies: Option<ReplyBodies>,
     pub grid: Option<Grid>,
+}
+
+pub(super) struct NotebookLines {
+    pub width: usize,
+    pub look: crate::look::Look,
+    pub lines: Vec<Line<'static>>,
+    pub sources: Vec<usize>,
 }
 
 pub(super) struct Grid {
     pub width: usize,
     pub search: String,
-    pub widths: Vec<Option<usize>>,
+    pub layout: crate::markup::Grid,
+    pub cells: Vec<tmt_tui::binding::Node>,
 }
 
 /// Rendered bodies belong to the immutable view; headers and prompts stay fresh.

@@ -365,3 +365,47 @@ fn an_active_legacy_fence_still_matches_its_tmux_endpoint() {
     assert_eq!(active.as_deref(), Some("request-1"));
     storage.close().unwrap();
 }
+
+#[test]
+fn retained_request_id_sample_and_overflow_count_use_indexed_ranges() {
+    let directory = TestDirectory::new();
+    let mut storage = Storage::open(directory.path.join("requests.db")).unwrap();
+    for sql in [
+        super::RETAINED_REQUEST_IDS_SQL,
+        super::RETAINED_REQUEST_IDS_COUNT_SQL,
+    ] {
+        let plan = format!("EXPLAIN QUERY PLAN {sql}");
+        let connection = storage.connection().unwrap();
+        let mut statement = connection.prepare(&plan).unwrap();
+        let mut bindings = vec![
+            rusqlite::types::Value::from("req_12345678".to_owned()),
+            rusqlite::types::Value::from("req_12345679".to_owned()),
+            1000_i64.into(),
+        ];
+        if sql == super::RETAINED_REQUEST_IDS_SQL {
+            bindings.push(6_i64.into());
+        }
+        let details = statement
+            .query_map(rusqlite::params_from_iter(bindings), |row| {
+                row.get::<_, String>(3)
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert!(
+            details.iter().any(
+                |detail| detail.contains("SEARCH request_attempts USING INDEX")
+                    && detail.contains("request_id>? AND request_id<?")
+            ),
+            "{details:?}"
+        );
+        assert!(
+            !details
+                .iter()
+                .any(|detail| detail.contains("SCAN request_attempts")
+                    || detail.contains("TEMP B-TREE")),
+            "{details:?}"
+        );
+    }
+    storage.close().unwrap();
+}
