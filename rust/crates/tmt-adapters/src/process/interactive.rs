@@ -21,7 +21,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use subprocess::{Exec, Job, JobExt};
 
@@ -82,8 +82,29 @@ impl InteractiveChild {
     }
 
     /// Return the shell-compatible exit code, preserving nonzero harness exits.
-    pub fn wait(mut self, on_degraded: impl FnOnce(&io::Error)) -> Result<u32, CommandError> {
-        let result = self.wait_for_exit().or_else(|cause| {
+    pub fn wait(self, on_degraded: impl FnOnce(&io::Error)) -> Result<u32, CommandError> {
+        self.wait_observing(None, on_degraded)
+    }
+
+    /// Invocation-owned bounded observations while the original child runs.
+    /// The callback must return within its own supervised budget. Exit, signals
+    /// and cleanup retain this owner's ordering; degraded waiting stops ticks.
+    pub fn wait_with_ticks(
+        self,
+        every: Duration,
+        mut on_tick: impl FnMut(),
+        on_degraded: impl FnOnce(&io::Error),
+    ) -> Result<u32, CommandError> {
+        assert!(!every.is_zero(), "observation cadence must be positive");
+        self.wait_observing(Some((every, &mut on_tick)), on_degraded)
+    }
+
+    fn wait_observing(
+        mut self,
+        tick: Option<(Duration, &mut dyn FnMut())>,
+        on_degraded: impl FnOnce(&io::Error),
+    ) -> Result<u32, CommandError> {
+        let result = self.wait_for_exit(tick).or_else(|cause| {
             // Broken wrapper notification plumbing must not kill a user's live
             // agent mid-turn. Terminal job control still works; only forwarding
             // wrapper-directed signals is degraded during this plain wait.
@@ -105,7 +126,8 @@ impl InteractiveChild {
         }
     }
 
-    fn wait_for_exit(&mut self) -> io::Result<u32> {
+    fn wait_for_exit(&mut self, mut tick: Option<(Duration, &mut dyn FnMut())>) -> io::Result<u32> {
+        let mut next = tick.as_ref().map(|(every, _)| Instant::now() + *every);
         loop {
             // Drain before checking completion: an exit racing with the check
             // leaves a readable notification, so the following wait cannot miss it.
@@ -126,7 +148,20 @@ impl InteractiveChild {
                     }
                 }
             }
-            self.signals.wait()?;
+            if let Some((every, callback)) = tick.as_mut()
+                && next.is_some_and(|deadline| Instant::now() >= deadline)
+            {
+                let started = Instant::now();
+                callback();
+                // Skip missed deadlines instead of issuing a burst of reads.
+                next = Some(if started + *every > Instant::now() {
+                    started + *every
+                } else {
+                    Instant::now() + *every
+                });
+                continue;
+            }
+            self.signals.wait(next)?;
         }
     }
 
@@ -212,10 +247,14 @@ impl ChildSignals {
         }
     }
 
-    fn wait(&self) -> io::Result<()> {
+    fn wait(&self, deadline: Option<Instant>) -> io::Result<()> {
         loop {
             let mut events = [PollFd::new(self.reader.as_fd(), PollFlags::POLLIN)];
-            match poll(&mut events, PollTimeout::NONE) {
+            let timeout = deadline.map_or(PollTimeout::NONE, |deadline| {
+                PollTimeout::try_from(deadline.saturating_duration_since(Instant::now()))
+                    .unwrap_or(PollTimeout::MAX)
+            });
+            match poll(&mut events, timeout) {
                 Err(Errno::EINTR) => continue,
                 Err(error) => return Err(error.into()),
                 Ok(_) => {}
@@ -329,6 +368,88 @@ mod tests {
             waitpid(Pid::from_raw(i32::try_from(pid).unwrap()), None),
             Err(Errno::ECHILD)
         );
+    }
+
+    #[test]
+    fn foreground_ticks_release_only_the_owned_child_and_preserve_exit() {
+        let _invocation = INVOCATION.lock().unwrap();
+        let directory = crate::test_support::TestDirectory::new();
+        let release = directory.path.join("release");
+        let child = InteractiveChild::start(
+            OsStr::new("/bin/sh"),
+            &[
+                "-c".into(),
+                "while [ ! -f \"$1\" ]; do sleep 0.001; done; exit 37".into(),
+                "tick-fixture".into(),
+                release.clone().into_os_string(),
+            ],
+        )
+        .unwrap();
+        let pid = Pid::from_raw(i32::try_from(child.pid()).unwrap());
+        let mut ticks = 0;
+        let code = child
+            .wait_with_ticks(
+                Duration::from_millis(20),
+                || {
+                    ticks += 1;
+                    std::fs::write(&release, "released").unwrap();
+                },
+                |cause| panic!("unexpected degradation: {cause}"),
+            )
+            .unwrap();
+        assert_eq!(code, 37);
+        assert!(ticks > 0);
+        assert_eq!(waitpid(pid, None), Err(Errno::ECHILD));
+        let fast = InteractiveChild::start(OsStr::new("/bin/sh"), &["-c".into(), "exit 23".into()])
+            .unwrap();
+        assert_eq!(
+            fast.wait_with_ticks(
+                Duration::from_secs(1),
+                || panic!("tick after fast exit"),
+                |cause| panic!("{cause}")
+            )
+            .unwrap(),
+            23
+        );
+    }
+
+    #[test]
+    fn degraded_wait_stops_sampling_and_reaps_original_child() {
+        let _invocation = INVOCATION.lock().unwrap();
+        let directory = crate::test_support::TestDirectory::new();
+        let release = directory.path.join("release");
+        let child = InteractiveChild::start(
+            OsStr::new("/bin/sh"),
+            &[
+                "-c".into(),
+                "while [ ! -f \"$1\" ]; do sleep 0.001; done; exit 37".into(),
+                "degraded-tick-fixture".into(),
+                release.clone().into_os_string(),
+            ],
+        )
+        .unwrap();
+        let pid = Pid::from_raw(i32::try_from(child.pid()).unwrap());
+        child
+            .signals
+            .reader
+            .shutdown(std::net::Shutdown::Read)
+            .unwrap();
+        let mut degraded = false;
+        assert_eq!(
+            child
+                .wait_with_ticks(
+                    Duration::from_millis(20),
+                    || panic!("degraded sampling"),
+                    |_| {
+                        degraded = true;
+                        std::fs::write(&release, "released").unwrap();
+                    }
+                )
+                .unwrap(),
+            37
+        );
+        assert!(degraded);
+        assert_eq!(waitpid(pid, None), Err(Errno::ECHILD));
     }
 
     #[test]

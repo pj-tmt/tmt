@@ -158,6 +158,22 @@ fn observe_turn(
         tmt_adapters::request_runtime::wall_time_ms(),
         deadline,
     );
+    let consumption = usage
+        .as_ref()
+        .and_then(|state| lifecycle.state_consumption(state));
+    let locator = turn.transcript.as_ref().and_then(|path| {
+        lifecycle.consumption_locator(
+            serde_json::json!({"transcript_path":path})
+                .to_string()
+                .as_bytes(),
+            &environment,
+        )
+    });
+    let reading = ConsumptionReading {
+        locator,
+        consumption,
+        now_ms: tmt_adapters::request_runtime::wall_time_ms(),
+    };
     let previous = usage.as_ref().or(remembered.state.as_ref());
     let next = activity
         .filter(|_| binding.session.state == tmt_core::binding::session::RuntimeState::Running)
@@ -171,13 +187,10 @@ fn observe_turn(
             )
         })
         .or(usage);
-    let Some(next) = next else {
-        return Ok(());
-    };
     if Instant::now() >= deadline {
         return Err(());
     }
-    commit_driver_state(&paths, &stored, next, deadline).map(|_| ())
+    commit_observation(&paths, &stored, next, Some(reading), deadline).map(|_| ())
 }
 
 /// The caller a hook event came from, verified the same way for every event.
@@ -328,6 +341,7 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
             lifecycle,
             &session,
             activity.as_ref(),
+            input.as_bytes(),
             deadline,
         );
     }
@@ -429,6 +443,43 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
             Ok(true)
         })
         .map_err(|_| ())?;
+    if changed
+        && event.starting()
+        && let Ok(environment) = ProviderEnvironment::capture()
+        && tmt_adapters::drivers::Registry::builtin()
+            .find(provider)
+            .is_some_and(tmt_adapters::setup::usage_hook_installed)
+        && let Some(refreshed) = Storage::context_by_identity(
+            &paths.database,
+            &binding.identity_id,
+            tmt_adapters::request_runtime::wall_time_ms(),
+        )
+        .map_err(|_| ())?
+        && refreshed
+            .entry
+            .binding
+            .as_ref()
+            .is_some_and(|b| b.id == binding.id && b.session == next)
+        && refreshed
+            .preferences
+            .remembered
+            .as_ref()
+            .is_some_and(|r| &r.harness == &harness && &r.provider_session == event.session())
+    {
+        let locator = lifecycle.consumption_locator(input.as_bytes(), &environment);
+        storage
+            .commit_runtime_observation(tmt_adapters::storage::RuntimeObservation {
+                expected: &refreshed,
+                preferences: &refreshed.preferences,
+                remember_source: true,
+                locator: locator.as_deref(),
+                sampled: false,
+                consumption: None,
+                now_ms: 0,
+                deadline,
+            })
+            .map_err(|_| ())?;
+    }
     storage.close().map_err(|_| ())?;
     if !changed || Instant::now() >= deadline {
         return Err(());
@@ -492,6 +543,7 @@ fn observe_prompt(
     lifecycle: &dyn RuntimeLifecycle,
     session: &ProviderSessionId,
     activity: Option<&tmt_core::binding::session::activity::Event>,
+    payload: &[u8],
     deadline: Instant,
 ) -> Result<String, ()> {
     let host = lifecycle.host_evidence().map_err(|_| ())?;
@@ -561,23 +613,64 @@ fn observe_prompt(
     {
         return Err(());
     }
-    if let Some(event) = activity {
-        let previous = stored
-            .preferences
-            .remembered
-            .as_ref()
-            .and_then(|session| session.state.as_ref());
-        if let Some(next) = lifecycle.activity_state(
-            event,
-            session,
-            &process,
-            previous,
-            tmt_adapters::request_runtime::wall_time_ms(),
-        ) {
-            let changed = commit_driver_state(&paths, &stored, next, deadline)?;
-            if !changed {
-                return Err(());
-            }
+    let previous = stored
+        .preferences
+        .remembered
+        .as_ref()
+        .and_then(|r| r.state.as_ref());
+    let reading = if binding.session.launch_owner.is_some()
+        && previous
+            .and_then(|state| lifecycle.state_consumption(state))
+            .is_none()
+        && tmt_adapters::drivers::Registry::builtin()
+            .find(provider)
+            .is_some_and(tmt_adapters::setup::usage_hook_installed)
+    {
+        ProviderEnvironment::capture().ok().and_then(|environment| {
+            let locator = lifecycle.consumption_locator(payload, &environment);
+            let turn =
+                lifecycle.sampling_turn(session, locator.as_deref(), &environment, deadline)?;
+            let now = tmt_adapters::request_runtime::wall_time_ms();
+            let state = lifecycle.turn_state(&turn, &environment, previous, now, deadline);
+            let consumption = state
+                .as_ref()
+                .and_then(|state| lifecycle.state_consumption(state));
+            Some((
+                state,
+                ConsumptionReading {
+                    locator,
+                    consumption,
+                    now_ms: now,
+                },
+            ))
+        })
+    } else {
+        None
+    };
+    let observed = reading
+        .as_ref()
+        .and_then(|(state, _)| state.as_ref())
+        .or(previous);
+    let next = activity
+        .and_then(|event| {
+            lifecycle.activity_state(
+                event,
+                session,
+                &process,
+                observed,
+                tmt_adapters::request_runtime::wall_time_ms(),
+            )
+        })
+        .or_else(|| reading.as_ref().and_then(|(state, _)| state.clone()));
+    if next.is_some() || reading.is_some() {
+        if !commit_observation(
+            &paths,
+            &stored,
+            next,
+            reading.map(|(_, reading)| reading),
+            deadline,
+        )? {
+            return Err(());
         }
     }
     if context.is_empty() {
@@ -588,32 +681,38 @@ fn observe_prompt(
 
 /// Shared publication boundary: a current binding/preferences snapshot and enough
 /// time for the bounded hook-storage transaction. No work is queued after return.
-fn commit_driver_state(
+struct ConsumptionReading {
+    locator: Option<String>,
+    consumption: Option<tmt_adapters::runtime::consumption::Consumption>,
+    now_ms: u64,
+}
+
+fn commit_observation(
     paths: &ConfigPaths,
     stored: &IdentityContextSnapshot,
-    next: tmt_core::binding::session::DriverState,
+    next: Option<tmt_core::binding::session::DriverState>,
+    reading: Option<ConsumptionReading>,
     deadline: Instant,
 ) -> Result<bool, ()> {
-    let binding = stored.entry.binding.as_ref().ok_or(())?;
     if Instant::now() + Duration::from_millis(100) >= deadline {
         return Err(());
     }
+    let mut preferences = stored.preferences.clone();
+    if let Some(next) = next
+        && let Some(remembered) = preferences.remembered.as_mut()
+    {
+        remembered.state = Some(next);
+    }
     let mut storage = Storage::open_hook(&paths.database).map_err(|_| ())?;
-    let pending = storage.with_binding_transaction::<_, StorageError>(|records| {
-        if Instant::now() + Duration::from_millis(100) >= deadline {
-            return Ok(false);
-        }
-        let current = records
-            .entry_by_id(&binding.identity_id)?
-            .and_then(|entry| entry.binding);
-        let mut preferences = records.session_preferences(&binding.identity_id)?;
-        if current.as_ref() != Some(binding) || preferences != stored.preferences {
-            return Ok(false);
-        }
-        if let Some(remembered) = preferences.remembered.as_mut() {
-            remembered.state = Some(next);
-        }
-        records.set_session_preferences(&binding.identity_id, &preferences)
+    let pending = storage.commit_runtime_observation(tmt_adapters::storage::RuntimeObservation {
+        expected: stored,
+        preferences: &preferences,
+        remember_source: reading.is_some(),
+        locator: reading.as_ref().and_then(|r| r.locator.as_deref()),
+        sampled: reading.is_some(),
+        consumption: reading.as_ref().and_then(|r| r.consumption.clone()),
+        now_ms: reading.as_ref().map_or(0, |r| r.now_ms),
+        deadline,
     });
     let cleanup = storage.close();
     pending

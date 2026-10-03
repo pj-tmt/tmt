@@ -1656,6 +1656,20 @@ from a host's or driver's text.
   matching what `ProcessIncarnation` accepts.
 - **Cursor:** the bindings cursor update trigger compares the column.
 
+Schema 46 adds `consumption_sources` and `consumption_buckets`. The source row
+retains only provider-relative locator/correlation and the last normalized read;
+no transcript content or absolute provider path is stored. History retains five-second
+base buckets for two hours, with at most 1,440 closed buckets and one open bucket
+per identity. `storage::consumption_history` owns normalized delta, coverage,
+retention and the binding/preferences compare-and-set; provider parsing remains
+with the driver. The opaque cursor, normalized counter and its exact history
+change commit in the same immediate transaction. Losing sample/Stop races write
+nothing. Expired reads are filtered immediately; writes prune the active identity
+and bounded expired inactive rows. Migration does not backfill. Both tables use
+the durable change cursor. The [extension API](contracts/extension-api.md#consumption-history)
+owns public batch bounds, seed watermark and coverage semantics, with a shared
+normative fixture for Squad. It never exports the source locator or driver cursor.
+
 Schema 45 adds nullable `identity_session_preferences.channel`, the effective
 channel/plain choice for the preferred harness, recorded by an admitted fresh
 launch or an explicit channel flag on an admitted resume.
@@ -1749,9 +1763,8 @@ A turn end is not
 a session transition. The worker verifies the caller exactly as for a lifecycle
 event, and writes only when the binding's current conversation is the
 remembered one the event names. It replaces the remembered state in one
-compare-and-set transaction, and prints nothing, even on failure. This is the one
-place a driver reads its own provider's transcript (`runtime::transcript`), and
-only for usage numbers:
+compare-and-set transaction, and prints nothing, even on failure. Driver lifecycle observations and foreground sampling read only their own
+provider's transcript (`runtime::transcript`), and only for usage numbers:
 
 - the path must be a regular `.jsonl` file under the driver's own tree
   (`$CLAUDE_CONFIG_DIR/projects`, otherwise `~/.claude/projects`;
@@ -1759,8 +1772,9 @@ only for usage numbers:
 - it is opened without following a final symlink and without blocking;
 - context usage reads at most the last MiB, skipping a line cut by that window;
 - Codex consumption reads at most one additional MiB from its latest tail;
-- Claude consumption streams from its appended cursor once per Stop hook under
-  the deadline and record bound below (plus a boundary byte). There is no polling.
+- Claude consumption reads only the appended range within the latest MiB under
+  the deadline and record bound below (plus a boundary byte). A cursor outside
+  that tail rebaselines at EOF with a gap; multi-MiB catch-up is not supported.
 
 Unusable context usage writes nothing for that value. A start that changes the context
 (startup, clear, compact) drops usage; a resumed Claude start records the
@@ -1795,11 +1809,10 @@ discarded through its next newline, and history is never recounted.
 Claude's incremental scan (#887) receives the hook owner's absolute `Instant`
 through `RuntimeLifecycle::turn_state`. After the existing context-tail read,
 it allocates half the remaining hook time to consumption, leaving the other
-half for state handling and the existing commit guard. There is no independent
-scan-duration or aggregate-byte constant: the two-second hook worker budget is
-the authority. An 8 KiB buffered reader stops at the captured end, reusing one
+half for state handling and the existing commit guard. The latest-MiB tail bound takes precedence over the earlier multi-MiB
+catch-up behavior; the two-second supervisor remains the hard time authority. An 8 KiB buffered reader stops at the captured end, reusing one
 line buffer capped at the existing one-MiB `TAIL_LIMIT` (including newline).
-Memory is independent of appended-range size; candidate JSON allocations are
+The admitted appended range is at most one MiB; candidate JSON allocations are
 also bounded by that single-record cap. Clearly foreign unescaped lines receive
 syntax validation without constructing their JSON values; assistant candidates,
 escapes and deeply nested/ambiguous evidence use the existing full validation.
@@ -1825,8 +1838,31 @@ Duplicate hooks without source changes retain the counter's timestamp/sequence.
 A later complete scan clears the gap flag within its new epoch. Every start
 resets consumption; failed reads leave it absent or unchanged rather than
 inventing zero. Rate consumers baseline first/reset/gap observations and never
-differentiate context usage. All writer verification/CAS/deadline behavior stays
-with the existing hook owner; core does not parse the cursor or counters.
+differentiate context usage. Driver-owned source parsing stays separate from normalized history arithmetic.
+The existing hook owner and new foreground sampling worker share the same full
+binding/preferences CAS, preserving exactly-once publication for races and
+supported contiguous groups. No per-request dedup store is added.
+
+`run_command/run.rs` uses `InteractiveChild::wait_with_ticks` every five seconds
+while its admitted direct child runs. `consumption_sample_command` launches one
+supervised worker with a two-second deadline; it revalidates the captured identity,
+full binding, provider session, owner/runtime process incarnations, pane evidence
+and effective owned Stop hook before parsing. It closes SQLite before source
+reads, then commits against the complete captured snapshot. Sampling updates
+consumption/context evidence without inferring activity. Missing or failed source
+reads create gaps, never measured zero. The start/prompt hooks remember admitted
+relative locators; Claude can establish an empty-file baseline at prompt submission.
+Codex resolves an exact UUID-bearing rollout file within its sessions tree when
+no path is supplied, bounded to 4,096 directory entries and three nested levels;
+ambiguous matches, symlink directories or exhausted discovery are unavailable.
+The driver enforces the same descriptor trust boundary for every read.
+
+The foreground wait preserves child exit status, signal forwarding and direct-child
+cleanup. Exit is checked before a tick; overdue ticks are skipped and degraded
+waiting stops ticks. There is no listing-time provider access, detached timer or
+persistent service. Old wrappers and hook-only launches stay Stop-only until
+relaunched through this foreground owner. Sampling respects the existing
+`--no-usage`/legacy collection choice; no new Codex hook event is installed.
 
 Runtime observations retain a driver-supplied PID/start-identity pair and an
 optional provider session ID. Schema 34 additionally retains an optional launch

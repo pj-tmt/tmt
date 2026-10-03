@@ -21,6 +21,7 @@ pub enum Invocation {
     Help(Vec<String>),
     Version,
     Api,
+    ConsumptionSample,
     /// Agent-facing local stdio MCP tools bound to one saved identity.
     Mcp {
         identity: String,

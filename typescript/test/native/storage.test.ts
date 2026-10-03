@@ -109,12 +109,15 @@ function expectNativeSchema(
     { version: 43, name: 'record explicit automatic identity name provenance' },
     { version: 44, name: 'persist pane reply notice batches and one-shot worker claims' },
     { version: 45, name: 'remember runtime channel preference for exact resume' },
+    { version: 46, name: 'retain bounded consumption sources and timestamped history' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
     [
       ...reference.tables.map(({ name }) => name),
       'change_cursor',
+      'consumption_sources',
+      'consumption_buckets',
       'extension_storage_cutovers',
       'host_servers',
       'identity_hooks',

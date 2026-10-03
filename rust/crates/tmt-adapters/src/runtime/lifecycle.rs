@@ -159,6 +159,26 @@ pub trait RuntimeLifecycle {
         None
     }
 
+    /// Driver-private provider-relative locator from an already admitted hook.
+    fn consumption_locator(
+        &self,
+        _payload: &[u8],
+        _environment: &ProviderEnvironment,
+    ) -> Option<String> {
+        None
+    }
+
+    /// Resolve an exact remembered source for foreground-owned collection.
+    fn sampling_turn(
+        &self,
+        _session: &ProviderSessionId,
+        _locator: Option<&str>,
+        _environment: &ProviderEnvironment,
+        _deadline: Instant,
+    ) -> Option<TurnEnd> {
+        None
+    }
+
     fn encode_context(&self, text: &str) -> Option<String> {
         super::hook_protocol::encode_context(text)
     }

@@ -414,13 +414,13 @@ fn legacy_missing_ids_are_context_only_and_the_scanner_shares_path_safety() {
 }
 
 #[test]
-fn large_appends_stream_and_deduplicate_across_buffer_boundaries() {
+fn bounded_appends_deduplicate_across_buffer_boundaries() {
     let (root, path, first) = claude_file();
     let foreign = format!(
         "{{\"type\":\"user\",\"text\":\"{}\"}}\n",
         "x".repeat(13_000)
     );
-    for _ in 0..170 {
+    for _ in 0..60 {
         append(&path, &foreign);
     }
     let mut record: Value = serde_json::from_str(CLAUDE.lines().nth(1).unwrap()).unwrap();
@@ -621,6 +621,12 @@ fn streaming_scan_measurement() {
     );
     let offset = next.cursor.unwrap().offset;
     let end = fs::metadata(path).unwrap().len();
+    if mib > 1 {
+        assert!(next.value.gap && !next.value.complete);
+        assert_ne!(next.value.epoch, first.value.epoch);
+        assert_eq!(offset, end);
+        return;
+    }
     assert!(!next.value.gap);
     assert_eq!(next.value.epoch, first.value.epoch);
     assert!(offset <= end);
@@ -659,4 +665,37 @@ fn a_record_at_the_cap_counts_but_one_extra_byte_starts_a_gap() {
             }
         );
     }
+}
+
+#[test]
+fn backlog_outside_tail_rebaselines_at_eof_without_catchup() {
+    let (root, path, first) = claude_file();
+    append(
+        &path,
+        &format!("{}\n", " ".repeat(transcript::TAIL_LIMIT as usize)),
+    );
+    append(&path, CLAUDE);
+    let next = claude(&root.path, &path, Some(&first), NOW + 1).unwrap();
+    assert_ne!(next.value.epoch, first.value.epoch);
+    assert!(next.value.gap && !next.value.complete);
+    assert_eq!(next.value.input_tokens, 0);
+    assert_eq!(
+        next.cursor.as_ref().unwrap().offset,
+        fs::metadata(path).unwrap().len()
+    );
+}
+
+#[test]
+fn empty_source_baseline_counts_first_append_before_stop() {
+    let root = TestDirectory::new();
+    let path = root.path.join("empty.jsonl");
+    fs::write(&path, "").unwrap();
+    let first = claude(&root.path, &path, None, NOW).unwrap();
+    assert_eq!(first.value.input_tokens, 0);
+    append(&path, CLAUDE.lines().nth(1).unwrap());
+    append(&path, "\n");
+    let next = claude(&root.path, &path, Some(&first), NOW + 1).unwrap();
+    assert!(next.value.input_tokens > 0 && next.value.output_tokens > 0);
+    let stop = claude(&root.path, &path, Some(&next), NOW + 2).unwrap();
+    assert_eq!(stop, next);
 }

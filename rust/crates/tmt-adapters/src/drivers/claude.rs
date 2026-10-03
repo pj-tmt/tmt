@@ -360,6 +360,31 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         decode_turn(payload)
     }
 
+    fn consumption_locator(
+        &self,
+        payload: &[u8],
+        environment: &crate::skill_installation::ProviderEnvironment,
+    ) -> Option<String> {
+        crate::runtime::sampling::locator(
+            &config_root(environment).join("projects"),
+            &crate::runtime::sampling::payload_path(payload)?,
+        )
+    }
+
+    fn sampling_turn(
+        &self,
+        session: &ProviderSessionId,
+        locator: Option<&str>,
+        environment: &crate::skill_installation::ProviderEnvironment,
+        _deadline: std::time::Instant,
+    ) -> Option<crate::runtime::lifecycle::TurnEnd> {
+        let root = config_root(environment).join("projects");
+        if let Some(locator) = locator {
+            return crate::runtime::sampling::located(&root, locator, session);
+        }
+        None
+    }
+
     fn turn_state(
         &self,
         turn: &crate::runtime::lifecycle::TurnEnd,
@@ -374,21 +399,15 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
             .and_then(|tokens| crate::runtime::driver_state::Usage::new(tokens, None, now_ms));
         let previous_consumption =
             previous.and_then(crate::runtime::driver_state::state_consumption);
-        let consumption = (usage.is_some() || previous_consumption.is_some())
-            .then(|| {
-                // Spend only half the remaining hook budget; leave the rest
-                // for state handling and the hook owner's commit guard.
-                let start = std::time::Instant::now();
-                let scan_deadline = start + deadline.saturating_duration_since(start) / 2;
-                crate::runtime::consumption::claude(
-                    &root,
-                    path,
-                    previous_consumption.as_ref(),
-                    now_ms,
-                    scan_deadline,
-                )
-            })
-            .flatten();
+        let start = std::time::Instant::now();
+        let scan_deadline = start + deadline.saturating_duration_since(start) / 2;
+        let consumption = crate::runtime::consumption::claude(
+            &root,
+            path,
+            previous_consumption.as_ref(),
+            now_ms,
+            scan_deadline,
+        );
         crate::runtime::driver_state::after_observation(usage, consumption, previous)
     }
 

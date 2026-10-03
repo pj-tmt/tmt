@@ -1,6 +1,7 @@
 //! Versioned local process protocol. Resource owners retain admission and encoding.
 
 mod changes;
+mod consumption;
 mod dispatch;
 mod identities;
 mod identity_hooks;
@@ -45,6 +46,7 @@ const OPS: &[&str] = &[
     "skills.remove",
     "references.resolve",
     "identities.status",
+    "consumption.history",
 ];
 
 #[derive(Debug)]
@@ -107,6 +109,11 @@ pub enum DispatchIdentity {
 
 pub enum Request {
     Capabilities,
+    ConsumptionHistory {
+        identities: Vec<String>,
+        windows: Vec<u64>,
+        max_buckets: u64,
+    },
     /// Read-only: the selected data directory, without opening storage.
     StorageRoot,
     /// Read-only: the durable change cursor.
@@ -235,6 +242,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "identityHooks.ack" => Request::HookAck(identity_hooks::hook(input)?),
         "references.resolve" => references::decode(input)?,
         "identities.status" => identities::decode(input)?,
+        "consumption.history" => consumption::decode(input)?,
         "identityHooks.pending" => identity_hooks::decode_pending(input)?,
         "skills.install" => skills::decode_install(input)?,
         "skills.remove" => skills::decode_remove(input)?,
@@ -304,6 +312,11 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
         | Request::Notes(_)
         | Request::SkillsInstall { .. }
         | Request::SkillsRemove { .. } => unreachable!("handled before storage"),
+        Request::ConsumptionHistory {
+            identities,
+            windows,
+            max_buckets,
+        } => consumption::history(&mut storage, identities, windows, max_buckets),
         Request::ChangeCursor => changes::cursor(&storage),
         Request::Roster { room, prefix } => rooms::roster(&storage, room, prefix),
         Request::References { identities, rooms } => {
