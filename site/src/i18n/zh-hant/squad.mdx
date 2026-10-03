@@ -1,0 +1,473 @@
+---
+source: site/src/chapters/squad.mdx
+sourceRevision: b40cddd71fed227a9a62d6ae2d8b410c0160f81e
+title: Squad：lead、成員與一個 board
+---
+
+import { MarkLegend } from "../../chapter-scenes/MarkLegend";
+import { Cmd, Code } from "../../components/Cmd";
+import { components as Mdx } from "../../components/mdx";
+import { Callout, Caption, KeyList, Lede, More, Tag, Waiting } from "../../components/marks";
+import { Spaces, TokenTable } from "../../components/samples";
+import { BoardSketch, SplitBoardSketch } from "../../demos/board";
+import { BoardDemo, jumpAndTalk, startSquad } from "../../demos/BoardDemo";
+
+<Lede>
+  agent 超過幾個後，光是掌握每個人在做什麼，就成了一份工作。Squad 把這份工作交給其中一個 agent。
+</Lede>
+
+<KeyList>
+  <li>
+    <strong>Lead</strong> 向其他 agent 交代工作，並讓 board 保持最新。
+  </li>
+  <li>
+    <strong>成員</strong> 執行工作。
+  </li>
+  <li>
+    <strong>你</strong> 查看一個 board、與 lead 對話，只有成員在等你 <Waiting /> 時才進到它的畫面。
+  </li>
+</KeyList>
+
+<MarkLegend />
+
+<Cmd>{`
+$ tmt extension install squad
+$ tmt sq init product            # 為 squad 命名；不會詢問
+$ tmt sq lead sol                # 選用：指定 sol 為 lead
+$ tmt sq                         # 有終端機就開啟 board，其他情況列出成員
+`}</Cmd>
+
+<Waiting /> 表示在等的是 _你_。Squad 會從你執行它的窗格認出你；也可以用 `tmt sq me ben` 記錄一次。用
+`tmt mv` 移動時，它會跟著這個 identity。lead 在自己的窗格裡執行 squad
+指令時，就是以自己的身分操作。用 `tmt sq lead` 選擇 lead，與 `role` 和 `lead`
+欄位無關：變更任一欄位都不會換掉 lead，選擇新的 lead 也會保留每個成員的角色文字。
+
+<Callout title="Squad 不會啟動 agent。">
+  也不會建立 worktree 或視窗。成員如何啟動，由你與 lead 決定；squad 只提供團隊共用的 board
+  與成員名單。
+</Callout>
+
+<Mdx.h3 id="start-a-squad">建立 squad</Mdx.h3>
+
+接著透過 lead 工作。告訴它你需要什麼；它會用你們約定的方式加入成員，並讓 board 保持最新。
+
+<BoardDemo
+  steps={startSquad}
+  label="動畫示範：建立 squad、指定 sol 為 lead、從 board 請 sol 加入兩個成員，再看 board 加入成員。每一步都有說明。"
+/>
+
+<Caption>在 tmux 中示範。輸出僅供說明。</Caption>
+
+<Mdx.h3 id="the-board">Board</Mdx.h3>
+
+board 預設使用 **team**：成員列在左邊，選取成員的詳細資料與最新回覆在旁邊，lead 的筆記在下方。按 `/` 並輸入文字，就能縮小清單範圍。<Waiting /> 表示成員正在等你，這些列會排在最前面。每個按鍵都使用畫面上已有的資料；pull request 狀態這類較慢的查詢會在背景更新。成員、請求或 room 變更，或你編輯 `squad.toml` 後，board 會在大約一秒內重新載入；其他資料仍會依設定的間隔更新（`refresh`，或 `"off"`）。按 **ctrl-r** 可以立刻更新，搜尋或輸入訊息時也能用。`tmt sq ls` 會以文字列出成員，加上 `--json` 則輸出 JSON；沒有終端機時，`tmt sq` 也會顯示這份清單。`tmt sq board` 在互動式終端機開啟 board，其他情況則印出同一份清單。
+
+<BoardSketch />
+
+<Caption>示意圖：預設的 team board。在窄終端機裡，詳細資料與回覆會摺疊起來。</Caption>
+
+| 按鍵                     | 對選取列的操作                                                                                                                                                                           |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| enter · double-click · ⌫ | `jump` 到成員自己的畫面，`back` 回到原本的位置。單擊只會選取一列；點擊筆記等窗格則會切換焦點。這需要能切換窗格的 host；請看[在成員之間切換](/extensions/squad#jumping-between-members)。 |
+| L                        | `jump lead`：到目前頁籤所屬 squad 的 lead；在 **leads** 與 **all** 上，則到選取列所屬 squad 的 lead。只適用於 tmux。                                                                     |
+| t · r                    | 用 tmt 自己的 `tmt talk` 與 `tmt answer`，向成員 `talk`，或 `reply` 它正在等待的事。回答會顯示在 board 上。                                                                              |
+| a                        | `annotate`：向 lead 傳送這一列的筆記（見下文）。                                                                                                                                         |
+| o · y                    | `open` 該列的 pull request 或第一個連結；`copy` 一行狀態，例如 `auth-fix: rotate session tokens (blocked)`。透過 SSH 也能複製。                                                          |
+| / · tab · s              | 搜尋；下一個窗格；切換到任何頁籤。                                                                                                                                                       |
+| d · ctrl-r               | 摺疊或展開詳細資料與回覆（見下方「窗格」）；立刻更新。                                                                                                                                   |
+
+<Mdx.h3 id="token-rate">Token 速率</Mdx.h3>
+
+Team 版面會在摘要列右側顯示 squad 的 token 速率，例如 `1.2k tok/s 1m ▂▅▇▃`。它會加總所有成員在時間範圍內完成的請求所用的 token，因此數值在請求完成時逐次變動，不會在模型輸出時連續變動。按 **w** 可以依序切換 5s、1m（預設）、30m 與 1h；時間範圍還沒累積滿時，標籤會顯示目前涵蓋的時間。`0` 表示沒有已完成的請求，`≥` 表示部分成員的資料無法讀取；沒有任何成員回報用量時，則不顯示計量表。driver 從不回報用量的成員會列在 `?` 下。長條表示趨勢：`▁` 是零，空白表示沒有資料。
+
+在 `[board.token_rate]` 下為所有 squad 啟用或調整，或在 `[squad.<name>.board.token_rate]` 下只設定一個 squad：
+
+<Code>{`
+[board.token_rate]
+enabled = true
+window = "1m"         # 5s, 1m, 30m or 1h
+every = "5s"          # how often it samples, 5s to 10s; the 5s window needs 5s
+reduced_motion = false
+`}</Code>
+
+<Mdx.h3 id="tabs-one-per-squad">頁籤：每個 squad 一個</Mdx.h3>
+
+board 第一行是頁籤：每個 squad 各有一個，另外有兩個內建頁籤。**leads** 把所有 squad 的 lead 列在同一處；**all** 則每個 squad 一列，顯示 lead、成員數，以及需要你處理的事。在 **all** 的一列按 Enter，就會開啟該 squad 的頁籤。
+
+每個頁籤開頭都有占兩格的標記：成員在等你時顯示 `◆`，有人卡住時顯示 `✗`，否則留白。名稱後面接著數量，例如 `◆ product 2`；兩種情況都有時，也會加上卡住的數量：`◆ product 2 ✗1`。只有標記與 `✗` 數量使用提醒用的顏色，所以辨識狀態不會只靠顏色。目前頁籤的名稱與數量使用 accent 顏色，選取背景覆蓋整個頁籤；其他頁籤的名稱與數量則較淡。← 與 → 切換頁籤，**s** 會開啟包含所有頁籤的切換器，隱藏的也在其中，輸入時會縮小範圍。頁籤太多放不下時，這一行會捲動，讓目前頁籤保持可見，並在兩端標出畫面外的頁籤數（`‹ 3`、`5 ›`），顏色取自被藏住的頁籤裡最需要處理的那一個。
+
+之前開過的頁籤會立刻顯示，再於背景更新。尚未開過的頁籤會先保留原本的畫面，等新畫面準備好；如果等待稍久，摘要列會顯示 `⠋ loading`。再次切換時，原本的載入就會取消。
+
+Shift+← 與 Shift+→ 可以移動目前頁籤；把頁籤拖到另一個頁籤的位置，也會移到那裡。board 會把新的順序寫入設定，不會變更檔案中的其他內容：
+
+<Code>{`
+# ~/.config/tmux-team/squad.toml
+[tabs]
+order = ["all", "leads", "product"]
+hide  = ["quiet"]                      # still reachable with s, or tmt sq board --squad quiet
+`}</Code>
+
+<Mdx.h3 id="your-own-tabs">自己的頁籤</Mdx.h3>
+
+使用者自訂的頁籤可以跨 squad 篩選成員，包含 lead 與隱藏的 squad。它使用 squad/member/state/task 的列預設樣式。在 `squad.toml` 裡，和內建頁籤放在一起定義：
+
+<Code>{`
+[tabs]
+order = ["tab:needs-me", "leads", "all", "product"]
+pin = ["tab:needs-me"]
+
+[tabs.needs-me]
+filter = "pending or waiting_on_you"
+sort = ["squad", "name"]
+
+[tabs.needs-me.bind]
+enter = "jump"
+
+[[tabs.needs-me.section]]
+title = "Blocked"
+filter = "state = blocked"
+
+[tabs.needs-me.section.bind]
+o = "tab"
+`}</Code>
+
+在 `order`、`pin` 與 `hide` 裡寫成 `tab:needs-me`，才不會被當成 squad。頁籤名稱遵循 squad 的命名規則；`leads`、`all`、`colors`、`order`、`pin` 與 `hide` 是保留名稱。隱藏的頁籤仍能透過 **s** 開啟。
+
+篩選條件用 `=`、`!=`、`not`、`and`、`or` 與括號組合欄位；`waiting_on_you` 會比對正在等你的成員。在排序欄位前加上 `-` 可以反向排序。區段會拆分頁籤中的列：同一列可以出現在多個區段，其餘列放在沒有標題的區段後面。區段的按鍵設定優先於頁籤，頁籤又優先於全域設定。
+
+`tmt sq ls --tab needs-me` 會印出同樣的列，`--json` 則提供 board 的完整文件。成員名單或 inbox 讀取失敗時，board 與清單會註明結果不完整；即使這樣的頁籤是空的，也不代表沒有人在等你。
+
+<Mdx.h3 id="see-your-settings">查看設定</Mdx.h3>
+
+按 `,` 可以查看目前 squad 或頁籤實際使用的設定（如果改過按鍵，`?` 會顯示）。每個值都會註明來源：預設樣式、預設值、你的 `squad.toml`（頂端顯示路徑），或 tmt 自己的主題設定。這個畫面不會執行或變更任何東西；指令只顯示為文字。用方向鍵、j/k、PgUp/PgDn、Home/End 或滾輪捲動，按 Esc 關閉。它顯示的是開啟當時的設定；編輯檔案後，要重新開啟才會看到變更。
+
+`tmt sq config show` 從指令列印出同樣的內容：單獨執行顯示 board 預設值，用 `--squad product` 選一個 squad，或用 `--tab all` 選一個頁籤（也可以是 `leads` 或自訂頁籤）。一次只用其中一個旗標。`--json` 會提供完整數值與各自的來源。
+
+<Mdx.h3 id="board-views">Board 視圖</Mdx.h3>
+
+視圖安排窗格與初始的摺疊狀態，保留 squad 的狀態、列、provider、提醒、token 計量表與主題。用 `tmt sq view ls`（或直接用 `tmt sq view`）列出五種內建視圖：
+
+| 視圖   | 配置                                                                                                 |
+| ------ | ---------------------------------------------------------------------------------------------------- |
+| team   | 預設配置：列在詳細資料與回覆旁，lead 的筆記在下方占滿寬度。寬度不到 100 欄時，詳細資料與回覆會摺疊。 |
+| focus  | 列占滿 board 上方，下方是摺疊的詳細資料、回覆與筆記標題。                                            |
+| notes  | 列占 35%，旁邊 lead 的筆記占 65%；詳細資料與回覆預設摺疊在下方。                                     |
+| detail | 列在詳細資料與回覆上方，筆記摺疊；寬度不到 100 欄時，回覆也會摺疊。                                  |
+| wide   | 列、詳細資料／回覆、筆記分成三欄，比例為 40/30/30；不到 180 欄時，詳細資料與回覆會摺疊。             |
+
+<Cmd>{`
+$ tmt sq view set notes                      # 所有 board
+$ tmt sq view set wide --squad product       # 這個 squad
+$ tmt sq view rm --squad product             # 沿用原本的配置
+`}</Cmd>
+
+squad 手動設定的 `board.layout` 或 `panes` 一律優先，接著是該 squad 的 `view`、`[board] view`，最後才是工作流程版面自己的配置。`view set` 只變更 `view`，如果檔案同時被變更，就會拒絕寫入；加上 `--squad` 時，也會拒絕覆寫手動設定的版面，請先自行移除。`view rm` 只移除 `view`，自訂版面與摺疊設定都會保留。手動摺疊仍遵循原本的 session 規則。
+
+在 board 按 **l** 選擇視圖。移動選項時會即時預覽；**Tab** 在所有 board 與目前 squad 之間切換，**Enter** 儲存，**Esc** 則恢復原樣，不寫入任何內容。`default` 選項顯示將沿用的配置，並只移除你選的視圖。leads 與 all 頁籤一律只顯示列；視圖只套用到 squad 頁籤。
+
+手動設定 `board.layout` 或 `panes` 的 squad 會顯示 `custom` 選項。你可以預覽視圖，但在移除 `squad.toml` 裡的這些設定前，無法為該 squad 儲存視圖。所有 board 的選項仍能儲存，該 squad 會保留自己的自訂版面。在說明中，**l** 列在 **L**（tmux 中跳到 lead）與 **T**（主題）旁。
+
+<Mdx.h3 id="panes-rows-notes-and-replies">窗格：列、筆記與回覆</Mdx.h3>
+
+board 由窗格組成：**rows**（上面的清單）、**notes**（lead 自己的 `tmt notes`，唯讀）、**detail**（選取的列）與 **replies**（lead 與成員的最新回答）。你可以選擇顯示哪些窗格，左右並排、上下排列，或設成可切換的頁籤。
+
+筆記窗格顯示 lead 自己的筆記本，也就是 `tmt notes path --identity <lead>` 印出的檔案。squad 沒有另一份筆記本，board 也不會建立：lead 沒有筆記本時顯示 `(no notes yet)`，暫時的 lead 則無法保留筆記本。lead 會在頂端放一小段 **Current state**，用幾行 **Now**、**Next** 與 **Blocked**，讓 board 顯示 squad 正在做什麼。
+
+點擊筆記窗格中的一行，就會把游標放到那裡。筆記窗格有焦點時（點擊一行，或用 Tab 切過去），↑↓ 或 j/k 移動一行，PgUp/PgDn 移動一頁，g/G 或 Home/End 跳到第一行或最後一行。換行的長行會整行反白。lead 編輯筆記本時，游標會留在同一段文字；用滾輪捲動不會移動游標。
+
+在一行按 `a` 可以向 lead 傳送關於該行的筆記。提示會顯示行號與一小段引文；輸入訊息後按 Enter，或按 Esc 取消。lead 回答前，該行會顯示 `✎`。筆記本本身仍是唯讀。
+
+詳細資料窗格會在欄位下方顯示選取成員自己的筆記本，唯讀，使用與 lead 筆記相同的 Markdown 樣式。已儲存的成員沒有筆記本時，顯示 `(no notes yet)`；暫時成員則顯示 `(temporary identity: no notebook)`。每個成員都應在筆記本頂端保留同樣簡短的 **Current state**。leads 與 all 頁籤仍只顯示列。
+
+在分割模式中，按 **d** 會一起摺疊或展開詳細資料與回覆（只要其中一個開著，就一起摺疊）。點擊窗格標題，只會切換該窗格。頁尾顯示狀態：`d detail+replies ▾`（展開）或 `d detail+replies ▸`（摺疊）。摺疊後，窗格只剩 `▸ name` 標題，旁邊的窗格會使用空出的空間；展開時則恢復你設定的大小。Tab 會跳過摺疊的窗格。摺疊狀態依 squad 分開保留，直到 session 結束，不會變更設定；手動摺疊優先於窄畫面自動摺疊。頁籤模式不會摺疊。
+
+如果要讓窗格一開始就摺疊，在 `[squad.product.board]` 下加入 `collapsed = ["detail"]`。要用按鍵切換其他窗格，可以設定例如 `D = "toggle notes"` 或 `d = "toggle detail replies"`；窗格名稱必須是已知名稱，且不能重複。
+
+<SplitBoardSketch />
+
+<Caption>示意圖：列與筆記左右並排，正在輸入註記。</Caption>
+
+- **為一列加註記。** 按 `a` 並輸入。筆記會帶著該列的標籤傳給 lead，例如 `[product · auth-fix] keep old tokens valid for a day`。lead 回答前，該列會顯示 `✎ sent to sol`，讓你看見已提出與尚未處理的事。lead 決定如何處理：更新 board、加入自己的筆記，或轉給成員。
+- **成員的 context。** 用 `task=` 表示成員在做什麼，`pending=` 表示它在等你處理什麼；較長的 context 放在成員自己的筆記本（`tmt notes path --identity <member>`）。舊版設定的 note 會隱藏，`note=` 留空則會清除。
+- **詳細資料顯示每一欄。** 除了成員的工作與連結，詳細資料窗格也會依欄位順序列出其他所有 board 欄位的完整值。長值會換行，不會截斷；失敗的欄位顯示 `?`，沒有值則顯示 `–`。
+- **筆記就像筆記。** 筆記窗格顯示常見的 Markdown：標題、清單、粗體、斜體、行內程式碼與連結。其他內容顯示為純文字。文字會依窗格寬度換行，中文等寬字元仍能對齊，終端機跳脫碼則會移除。你不會從 board 編輯 lead 的筆記，所以它們只有一位作者。
+- **回覆保持完整。** 已取得的回覆內容使用筆記窗格的安全 Markdown 樣式，會換行，沒有行數上限。prompt 也會換行。切到回覆窗格後，用方向鍵或 j/k、PgUp/PgDn、Home/End 捲動，也可以在窗格上用滾輪。尚未載入內容的舊回覆會保留 `tmt result <id>` 提示；閱讀與捲動不會把任何項目標為已讀。
+
+<Mdx.h3 id="make-it-yours">依你的需要調整</Mdx.h3>
+
+board 上的內容都能調整。先選版面預設樣式，再從 squad 的設定檔覆寫任何部分。
+
+| 版面預設樣式 | 顯示內容                                 | 狀態                                               |
+| ------------ | ---------------------------------------- | -------------------------------------------------- |
+| team         | 列、詳細資料、回覆與 lead 的筆記（預設） | working · idle · blocked · review · testing · hold |
+| crew         | 成員在筆記旁，等待你處理的排在前面       | working · idle · blocked · review · testing · hold |
+| pr-queue     | 一份清單，最舊的排在前面                 | preparing · ready · sent · merged                  |
+| minimal      | 只顯示名稱與狀態                         | lead 寫的任何狀態                                  |
+
+**team** 把列放在選取成員的詳細資料與最新回覆旁，lead 的筆記在下方。每一列顯示成員、狀態、工作、pull request 與模型，第二行顯示它在等你處理什麼。窄終端機會自動調整：先縮小欄位，再隱藏模型，接著隱藏 pull request；不到 100 欄時，詳細資料與回覆會摺疊成標題，把空間留給列（**d** 可以一起展開詳細資料與回覆）。已經在 `[squad.<name>.board]` 下自訂 `direction`、`panes` 或 `sizes` 的 squad，會繼續使用 **crew**，直到你設定 `layout`。
+
+你可以改窗格與配置；加入自己的**區段**，每個都是有標題、篩選與排序的清單；也可以選擇**欄位**、**狀態**的顏色與順序，以及如何開啟連結。每個按鍵或點擊要做什麼，也由你設定。一個按鍵設定包含事件（例如 `o` 按鍵，或 `click`、`double-click`）與一行動作：`jump`、`jump lead`、`back`、`talk`、`reply`、`annotate lead`、`open {pr_link}`、`copy {name}: {task}`，或 `run <program> {field}…`；其中 `{field}` 會用該列的值填入。區段也可以有自己的按鍵設定。
+
+<Code>{`
+# ~/.config/tmux-team/squad.toml  (the directory keeps tmt's former name)
+[squad.product]
+layout = "crew"                        # start from a preset
+
+[bind]
+O = "open {issue_link}" # your own key: open the row's issue
+`}</Code>
+
+<More summary="完整一些的範例：分割窗格、自訂區段、欄位、狀態與更多按鍵設定">
+<Code>{`
+# ~/.config/tmux-team/squad.toml  (the directory keeps tmt's former name)
+me = "ben"                             # written by tmt sq me ben, with ben's ID beside it
+
+[squad.product]
+layout = "crew" # start from a preset, then override
+
+[squad.product.board]
+mode = "split" # split or tabs
+direction = "left-right" # or top-bottom
+panes = ["rows", "notes"] # also: detail, replies
+sizes = [60, 40]
+
+[[squad.product.section]] # optional: your own sections
+title = "Needs me"
+filter = "pending or state = blocked"
+[squad.product.section.bind]
+enter = "reply" # in this section, Enter answers
+
+[squad.product.columns]
+show = ["member", "state", "task", "pr", "updated"]
+
+[squad.product.states]
+blocked = { color = "waiting", sort = 0 }
+parked = { color = "dim" }
+
+[squad.product.notes]
+render = "markdown" # or "plain"
+
+[bind]
+O = "open {issue_link}"
+e = "run code {worktree}"
+Y = "copy - [{name}]({pr_link}) {state}"
+`}</Code>
+
+</More>
+
+<Mdx.h3 id="layout-rows-lines-and-panes">版面：列、行與窗格</Mdx.h3>
+
+board 每一層的配置方式都相同，所以一套規則就能說明全部。每一列都使用同一套欄位格線，列與列能對齊，方便比較成員。一列可以占多行，每行的儲存格又可以跨多欄。
+
+- **欄位**可以設定寬度，或用 `min`／`max` 與 `grow` 分配剩餘空間；也可以設定 `align`、在 `end` 或 `middle` 處 `truncate`（適合路徑與連結），以及 `priority`。伸展欄位從 `min` 開始（沒設定時為 4 格），不會超過 `max`；一欄達到 `max` 後，剩餘空間會給其他欄。窄畫面會先把欄位縮到 `min`。如果一列仍放不下，就逐一隱藏欄位，`priority` 最高的先隱藏，直到其他欄能完整放下；沒有 `priority` 的欄位不會被這樣隱藏。最後一欄至少保留 4 格，否則隱藏。
+- **行**：`lines` 指定一列占幾行，以及每行顯示什麼。每行列出使用的欄位，儲存格可以 `span` 多欄，所以第二行能在工作下方顯示成員在等你處理什麼。後面的行如果沒有內容，就不顯示。
+- **值從哪裡來**：欄位預設顯示成員在 squad 裡的同名欄位，除非 `from` 把它綁到成員自己的 tmt 資料：`member`、`presence`、`cwd`、`target`、`session.driver`、`session.model`、`session.usage.tokens`、`session.usage.remaining`（driver 回報 context window 時，就是 window 減去這些 token）、`meta.<key>` 或 `meta.squad.<field>`。每個 driver 的路徑都相同，所以成員從 Claude 換成 Codex，也會保留欄位。`format` 可以顯示為 `text`、`tokens`（`487k`）、`age`（`5m`）或 `count`（`12,345`）。區段、篩選與排序使用同一個值，數字會依數值排序。沒有值時顯示 `–`，這是 board 表示「這裡沒有內容」的統一標記。Squad 自己的欄位（`member`、`role`、`state`、`pending`、`note`）不能綁定來源。欄位也能依值為儲存格上色：`color = [{ at = 400000, token = "review" }, { at = 600000, token = "blocked" }]` 會選擇數值已達到的最高 `at` 所對應的主題 token。顏色只是裝飾：沒有顏色也能讀到同樣的值。
+- **百分比寬度**的方式和 CSS 相同。`width = "30%"` 是 board 扣除邊框與列標記後內部寬度的比例，不是固定寬欄位剩下的空間；欄位間距另計。設定的百分比加總最多 100%，`min` 與 `max` 仍以格數計算。要改為分配剩餘空間，請用 `grow`，它和 CSS 的 `fr` 相同。尾端沒有被任何行使用的欄位，不會占用自己的寬度；它的值仍能填到其他儲存格。隱藏欄位時，剩餘欄位的比例會重新計算。
+- **儲存格預設不換行。** 放不下的文字會用 `…` 截斷，依終端機實際繪製的寬度計算，所以中文與 emoji 能對齊。在欄位設定 `overflow = "wrap"`，就能換行，最多 `max_lines` 行（1–8，預設 2）；如果仍放不下，最後一行會用 `…` 截斷。續行會從儲存格下方開始，選取、翻頁、捲動與點擊都會依畫面上的行操作。跨欄儲存格使用第一欄的設定。舊的 `[squad.<name>.columns]` 格式也接受百分比寬度與 `overflow`。
+- **`tmt sq ls` 保留自然寬度**，除非顯示的欄位使用百分比寬度或 `overflow`：輸出到 pipe 時，不會隱藏或截斷任何欄位。只要有一欄選用這些設定，清單就會依 board 相同的規則調整，可能截斷、換行或隱藏欄位。清單在計算百分比前會先扣除間距，因此欄位寬度可能和 board 差一兩格。詳細資料窗格與 `tmt sq ls --json` 一律保留完整值。
+
+<Code>{`
+[squad.product.rows]
+columns = [
+  { name = "member", min = 10 },
+  { name = "state",  width = 9 },
+  { name = "task",   grow = 1, min = 12 },
+  { name = "pr",     width = 10, align = "right", priority = 2 },
+  { name = "ctx",    from = "session.usage.tokens", format = "tokens", align = "right" },
+]
+lines = [
+  ["member", "state", "task", "pr", "ctx"],
+  ["",       { field = "pending", span = 3 }],   # a second line under the task
+]
+`}</Code>
+
+**窗格**在上一層使用同樣的規則：分割版面可以是一排或一列窗格，各自用百分比，或用 `{ grow = n }` 分配百分比剩下的空間；分割最多可以巢狀三層。Tab 依閱讀順序切換。前面的 `mode`、`direction` 與 `sizes` 是簡單形式；兩種形式擇一使用。巢狀百分比會從父層的確切比例計算，最後才取整數格，所以兩個一半可能差一行。
+
+<Code>{`
+[squad.product.board]
+layout = { direction = "left-right", sizes = [60, 40], panes = [
+  "rows",
+  { direction = "top-bottom", sizes = [40, 60], panes = ["detail", "notes"] },
+] }
+`}</Code>
+
+按鍵設定只來自你的設定檔，不會採用 agent 寫在 board 上的內容。`run` 直接啟動程式，不經 shell：每個 `{field}` 只填入一個參數，所以列的內容不能夾帶其他指令；填入後會讓參數以 `-` 開頭的值也會被拒絕，不能夾帶選項。`open` 只開啟網頁連結。`tmt sq ls` 使用相同區段，所以文字與 JSON 視圖會和 board 一致。不符合任何區段的成員會放在沒有標題的區段後面；區段的篩選條件不會默默隱藏成員。
+
+**欄位 provider** 會把 tmt 沒有的資料填入欄位，例如 pull request 狀態。provider 會依 `run` 相同的規則，為每個成員執行你指定的程式，並把輸出第一行放到同名欄位。board 不會等它：provider 在背景執行時，顯示上一次的值，再依 `every` 間隔重跑。執行失敗時顯示淡色的 `?`，不會顯示錯誤。`tmt sq ls --refresh-fields` 會先執行到期的 provider，再列出清單。程式可以印出 `{"value": "#412 open", "color": "review"}`，為儲存格建議一個主題 token；欄位自己的 `color` 門檻會優先於這個建議。
+
+<Code>{`
+[squad.product.fields.pr_state]
+run     = ["gh", "pr", "view", "{pr_link}", "--json", "state", "-q", ".state"]
+every   = "60s"
+timeout = "5s"
+`}</Code>
+
+一般情況下，用 `preset = "github-pr"` 取代 `run`，就會自動處理：它透過 `gh` 查詢每個成員的 `pr_link`，顯示 `#412 open · approved`、`#412 draft` 或 `#412 merged`。沒有 `pr_link` 的成員會跳過；沒有 `gh`，或尚未登入時，欄位顯示 `?`。
+
+<Mdx.h3 id="state-colors-and-order">狀態顏色與順序</Mdx.h3>
+
+每個狀態的顏色與清單位置來自 `[squad.<name>.states]`；版面預設樣式已為自己的狀態填好設定。lead 自訂的狀態，可以加入樣式比對：
+
+<Code>{`
+[[squad.product.state_patterns]]
+match = "blocked*"
+color = "blocked"           # a theme token
+sort = 0                    # optional: 0-999, lower comes first
+ignore_case = true          # optional; off by default
+`}</Code>
+
+完全相符的 `states` 設定一律優先。否則依檔案順序，採用第一個符合的樣式；都不符合的狀態沒有顏色，排在已指定順序的狀態之後。`match` 是比對完整狀態的 glob：`*` 符合任意一串字元，也可以是空字串；`?` 符合一個字元。其他內容都照字面比對。樣式不會變更狀態文字。`tmt sq ls` 與 board 使用同一個順序；在 `tmt sq ls --json` 裡，列的 `colors.state` 是解析後的 token，沒有適用的 token 時則省略。
+
+<Mdx.h3 id="colors-and-themes">顏色與主題</Mdx.h3>
+
+顏色有意義，所以 board 大部分保持中性：只有需要你處理、正在工作或卡住的項目會突出顯示。每個顏色都來自具名的 **token**，與 `tmt ls`、其他指令及這個網站使用同一套；主題則決定每個 token 長什麼樣子。[設計準則 →](/design)
+
+<TokenTable />
+
+內建四種主題。**tmt** 為暗色終端機提供柔和的 truecolor 顏色。**tmt-light** 是淺色背景用的同一套配色。**terminal** 使用終端機自己的 16 色，由你的配色決定。**mono** 只用粗體與淡色。board 也有 **auto**，會選擇 **tmt** 或 **tmt-light** 來配合終端機（[方式 →](#theming-the-board)）。除了選取項目（選取的列與頁籤），主題只設定文字顏色，所以終端機的背景一律保留。不支援 truecolor 時，tmt 會從終端機的 16 色中選最接近的；設定 `NO_COLOR`，或輸出到檔案或其他程式時，完全不使用顏色，每個狀態仍會顯示文字或標記。指令列保留終端機自己的 16 色，由終端機主題決定，直到你自行設定 `base`；之後指令也會使用你的主題。
+
+<Code>{`
+{
+  "theme": {
+    "base": "tmt",
+    "waiting": "#e0a458",
+    "accent": "blue"
+  }
+}
+`}</Code>
+
+主題放在 `~/.config/tmux-team/config.json`。`base` 可以是 `tmt`、`tmt-light`、`terminal` 或 `mono`，任何 token 都能用十六進位值或顏色名稱覆寫；`tmt config show` 會指出無法使用的設定。設定 `base` 後，它會為指令列上色，也一律為 board 上色。這裡不接受 `auto`，因為它只屬於 board。
+
+<Mdx.h3 id="theming-the-board">設定 board 主題</Mdx.h3>
+
+board 沿用你為指令列設定的 `base`。還沒設定時，使用 **auto**。board 主題不會變更指令列顏色；`tmt config show` 會顯示指令列的主題與檔案。用 `tmt sq theme` 選擇 board 主題：
+
+<Cmd>{`
+$ tmt sq theme                            # 列出主題；● 標示目前使用的主題與來源
+$ tmt sq theme set auto                   # 所有 board 配合終端機
+$ tmt sq theme set tmt-light              # 所有 board
+$ tmt sq theme set mono --squad product   # 一個 squad 的 board
+$ tmt sq theme rm --squad product         # 重新沿用 board 主題；保留你的顏色微調
+`}</Cmd>
+
+也可以在 board 按 **T**：↑ 與 ↓ 即時預覽各個主題，**Tab** 切換所有 board 或目前 squad，**Enter** 儲存，**Esc** 取消。不論用哪種方式，選擇都會寫進 `squad.toml`：所有 board 使用 `[board.theme]`，單一 squad 使用 `[squad.<name>.theme]`；檔案的其他內容保持原樣。squad 自己的主題優先於 board，board 又優先於指令列。每一層也能覆寫個別 token，使用與 `config.json` 相同的設定名稱。
+
+**auto** 在每次 board 開啟時配合終端機。它讀取許多終端機會設定的 `COLORFGBG` 變數；沒有這個變數時，board 會向終端機詢問背景色。淺色背景選 **tmt-light**，暗色背景選 **tmt**；終端機沒有回答時，也用 **tmt**。詢問最多花十分之一秒，所以在這段時間按下的鍵會被丟棄。列出主題不會詢問：`tmt sq theme` 會把 `auto` 顯示為 `matches the terminal when the board opens`，或在 `COLORFGBG` 已能判斷時，顯示 `auto (tmt-light)` 或 `auto (tmt)`。直接選名稱的主題一律優先於 `auto`。
+
+`auto` 可以用在 `squad.toml` 的兩層與選擇器裡，在選擇器中會排第一個。只有 `config.json` 不接受它：在那裡設定 `"base": "auto"` 時，`tmt config show` 會印出 `error: theme.base auto only works for the board, not in config.json`，並提示 `tmt sq theme set auto`；board 則忽略該設定。
+
+列與頁籤標記的狀態顏色也使用這些 token：`blocked = { color = "blocked" }`。舊名稱 `red`、`amber`、`green`、`blue`、`cyan` 與 `magenta` 仍能使用。指令列主題有錯誤時，board 會忽略它，並在摘要列說明。
+
+<Mdx.h3 id="skills-for-your-lead">給 lead 的 skill</Mdx.h3>
+
+Squad 附帶給 lead agent 的 skill。它會教 lead 讀取 board、在每次派工與回覆後更新 board，以及找到你的設定。規則不清楚時，lead 會**詢問你**，不會用猜的。這包含使用哪些狀態、什麼算是等待你處理，以及成員如何啟動。它會把約定記在筆記裡，或提出設定變更讓你套用；不會自行編輯你的設定。
+
+`tmt extension install squad` 會提供這個 skill 給你使用的 agent，先詢問你。
+
+選用的 **playbook** 是範例 skill，說明 lead 如何在你的 host 上安排團隊。目前有一個 `tmux-squad`（一個 leads session 與一個 crew session，每個成員各有一個視窗與 worktree）。Squad 不會執行它。用 `tmt sq playbook show tmux-squad` 閱讀，再決定安裝、修改，或忽略。
+
+<Mdx.h3 id="observed-age">觀察到的經過時間</Mdx.h3>
+
+Squad 可以顯示它觀察到成員的工作、狀態，以及 lead 的筆記多久沒變。**team** 預設啟用，其他版面預設停用；可以依 squad 設定，門檻從一分鐘到 24 小時。啟用後，`tmt sq ls` 會為久未更新的列與筆記標出經過時間；board 則把該列變淡，在列末顯示時間，並在筆記窗格標題顯示筆記的時間。計時從 Squad 第一次看到內容時開始，所以它不知道之前已經多久沒變；只要內容沒變，編輯設定或關閉再開啟這個功能，都會保留計時。
+
+<Code>{`
+[squad.product.reminders]
+enabled = true
+stale_after = "30m"
+`}</Code>
+
+啟用 Squad 的擴充套件 hook（`tmt extension hooks enable squad`），並透過 `tmt setup` 安裝 provider hook 後，Squad 可以在 lead 下一輪，包括 session 開始時，加入一行簡短的參考資訊。它會指出久未更新的筆記，或久未更新、但之後有相關活動的成員列。先執行 `tmt sq ls` 或開啟 board，讓它開始觀察：尚未觀察到任何內容時，不會提醒。[Squad skill](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-squad/skills/tmt-squad/SKILL.md#optional-observed-age)列出了限制。
+
+啟用這些設定不會安裝 provider hook。board 裡的提醒設定是 <Tag kind="planned" />。
+
+<Mdx.h3 id="where-state-lives">狀態存在哪裡</Mdx.h3>
+
+Squad 把成員名單與 board 欄位存進 tmt；選用的觀察時間則放在可丟棄的本機快取。squad 是名為 `squad-<name>` 的 tmt 會議室。每個成員的狀態、工作與連結存放在它的 tmt identity。為單一工作啟動的成員，會在窗格關閉後離開 board。需要你做決定的事會送到 inbox，你可以從 board 或指令列回答。
+
+<Mdx.h3 id="jumping-between-members">在成員之間切換</Mdx.h3>
+
+<Callout title="目前只適用於 tmux。">
+  這一節需要能切換窗格的 host，目前是 tmux。Herdr 窗格（執行 `tmt driver install herdr` 後）會顯示在
+  board，也能接收訊息，但 Herdr 不能用 ID 切換到窗格，所以按 Enter
+  會像一般終端機一樣開啟該列的動作。cmux 尚未支援。board 的其他功能都相同。你可以跳過這一節。
+</Callout>
+
+一種方便的配置：lead 放在你會一直開著的位置，成員放在另一處，每份工作各有一個視窗與 worktree。你與 lead 對話、讀取 board，只有成員需要你時才進到它的畫面。從 board 按 Enter 可以切到成員畫面，即使在另一個 session 也一樣；`⌫` 會帶你回來。
+
+<Spaces />
+
+<BoardDemo
+  steps={jumpAndTalk}
+  label="動畫示範：從 board 跳到 crew session 裡的 auth-fix 並回答，再跳回 leads；接著從 board 向 docs-sweep 傳送 prompt 並讀取回覆，最後複製一行狀態。每一步都有說明。"
+/>
+
+<Caption>在 tmux 中示範。輸出僅供說明。</Caption>
+
+在 tmux 中，`prefix S` 會把 board 開成 popup，跳到成員時就關閉；`prefix B` 則把它保留為窗格。`tmt sq hotkeys install` 會列出要加入 tmux 設定的確切內容，先詢問你；`--print` 只顯示，`tmt sq hotkeys rm` 則移除。你可以選其他按鍵：在 squad.toml 裡設定 `[tmux] popup = "…"` 與 `pane = "…"`。
+
+不開啟 board 也能找到 lead：`tmt sq jump --lead` 會跳到你所在 squad 的 lead（也可以用 `--squad <name>`），`tmt sq back` 會回來。在 `[tmux]` 下加入 `lead = "J"`，再安裝一次快捷鍵，就能從任何成員的窗格用 `prefix J` 做同樣的事。
+
+| Host           | 跳過去與回來                        | Board 開啟的位置                 |
+| -------------- | ----------------------------------- | -------------------------------- |
+| tmux           | 到成員的窗格，另一個 session 也能到 | 透過快捷鍵開成 popup，或成為窗格 |
+| Herdr          | 無；Enter 會開啟該列的動作          | 任何窗格                         |
+| plain terminal | 無；Enter 會開啟該列的動作          | 全螢幕                           |
+
+<More summary="更多指令">
+<Cmd>{`
+$ tmt sq add auth-fix docs-sweep      # 已經在執行的 agent，不論如何啟動
+$ tmt sq set auth-fix state=review    # lead 用來更新 board 的操作；field= 會清除
+$ tmt sq ls                           # 成員清單；腳本可用 --json
+$ tmt talk auth-fix "…" --detach      # 指令列上的 board t
+$ tmt answer auth-fix "use postgres"  # board 的 r：回答它正在等你處理的事
+$ tmt sq annotate auth-fix "split this job"   # board 的 a
+$ tmt sq jump auth-fix                # 以及 tmt sq back
+$ tmt sq jump --lead                  # 你所在 squad 的 lead
+$ tmt sq rm auth-fix                  # 離開 squad；agent 繼續執行
+`}</Cmd>
+
+`tmt sq` 是 `tmt squad` 的簡寫。`tmt sq ls` 會列出每個 squad，除非用 `--squad <name>` 選擇一個。有多個 squad 時，會變更 squad 的指令必須指定 `--squad <name>`。
+
+</More>
+
+<Mdx.h3 id="reference-tabs-refresh-and-bindings">參考：頁籤、更新與按鍵設定</Mdx.h3>
+
+完整的設定規範在 Squad skill 裡，可以用 `tmt sq skill show` 印出，也可以[在 repository 裡閱讀](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-squad/skills/tmt-squad/SKILL.md)。下面是最常用的設定。
+
+**頁籤。** 除了 `order` 與 `hide`，`pin` 與 `colors` 也會影響頁籤列：
+
+<Code>{`
+[tabs]
+pin = ["all"]                # first, in this order, and always in view
+
+[tabs.colors]
+waiting = "waiting" # the color of a tab mark when a member waits on you
+blocked = "blocked" # and of one with a blocked member
+`}</Code>
+
+釘選頁籤在頁籤列捲動時會留在原位，其他頁籤不能移到它前面。隱藏或不存在的釘選頁籤會跳過。顏色可以是 `default` 或主題 token。`squad:<name>` 用來指定與內建頁籤同名的 squad，例如叫做 `all` 的 squad。透過名稱或切換器開啟隱藏的 squad 時，它會排在頁籤列最前面，標上 `(hidden)`。
+
+用 `tmt sq ls --tab leads` 或 `tmt sq ls --tab all`，就能以文字取得同樣的列；加上 `--json` 則提供完整的頁籤文件。隱藏的 squad 也會包含在內。`--tab` 不能和 `--squad` 或 `--refresh-fields` 合用。
+
+**更新。** board 會依間隔重新載入：預設 5 秒；在 `[board]` 下設定 `refresh`，會套用到每個 board，在 `[squad.<name>.board]` 下則只套用到一個。使用整數秒或分鐘，範圍為 `"1s"` 到 `"60m"`；`"off"` 則只在按 **ctrl-r** 或 board 自己執行動作時重新載入。
+
+**按鍵設定。** 一項設定是 `event = "action"`。事件可以是直接輸入的可列印按鍵（`o` 與 `O` 不同）、`enter`、`space`、`tab`、`backspace`、`delete`、`home`、`end`、`pageup`、`pagedown`、`f1` 到 `f12`、`ctrl-<letter>`（不能用 `ctrl-c`，它一律結束程式），或滑鼠的 `click` 與 `double-click`。`q`、`j`、`k`、`/` 與 `?` 是保留按鍵。區段的按鍵設定優先於 `[bind]`，後者又優先於 host 的預設值。**leads** 與 **all** 頁籤各自使用 `[tabs.leads.bind]` 與 `[tabs.all.bind]`。
+
+| 動作                           | 用途                                                              |
+| ------------------------------ | ----------------------------------------------------------------- |
+| `jump` · `jump lead`           | 到該列的成員，或該 squad 的 lead。                                |
+| `back`                         | 回到原本的位置。                                                  |
+| `talk` · `reply`               | 向成員傳送訊息；回答它正在等待的事。                              |
+| `annotate` · `annotate member` | 給 lead（預設）或成員的筆記。                                     |
+| `open` · `open {field}`        | 開啟該列的連結，或該欄位的連結。                                  |
+| `copy` · `copy <template>`     | 複製一行；預設是 `{name}: {task} ({state})`。                     |
+| `run <program> [args…]`        | 啟動程式；每個 `{field}` 只填入一個參數。                         |
+| `notes`                        | 展開筆記窗格並切換焦點。                                          |
+| `refresh`                      | 立刻重新載入。                                                    |
+| `theme`                        | 開啟主題選擇器。                                                  |
+| `next-pane`                    | 切到下一個窗格。                                                  |
+| `toggle <pane>...`             | 摺疊或展開一個或多個窗格：`rows`、`notes`、`detail`、`replies`。  |
+| `menu`                         | 開啟該列的動作選單；在一般終端機按 Enter 會做這個動作。           |
+| `tab`                          | 開啟該列所屬 squad 的頁籤；在 **all** 頁籤按 Enter 會做這個動作。 |
+
+在 board 按 `?`，就能查看目前生效的按鍵與動作。
