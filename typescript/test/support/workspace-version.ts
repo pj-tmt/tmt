@@ -1,4 +1,4 @@
-import { readWorkspace, type Workspace } from '../../scripts/release-please-config.mjs';
+import { readWorkspace, type Workspace } from '../../scripts/cargo-workspace.mjs';
 
 let crates: Workspace['crates'] | undefined;
 

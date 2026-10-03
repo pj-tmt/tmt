@@ -1,11 +1,11 @@
 import { beforeEach, expect, it, vi } from 'vite-plus/test';
-import type { Workspace } from '../../scripts/release-please-config.mjs';
+import type { Workspace } from '../../scripts/cargo-workspace.mjs';
 
 const { readWorkspace } = vi.hoisted(() => ({
   readWorkspace: vi.fn((): Workspace => ({ crates: [], lockNames: new Set(), files: [] })),
 }));
 
-vi.mock('../../scripts/release-please-config.mjs', () => ({ readWorkspace }));
+vi.mock('../../scripts/cargo-workspace.mjs', () => ({ readWorkspace }));
 
 function workspace(officeVersion = '0.2.0-alpha.7'): Workspace {
   return {
