@@ -1,9 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type BrowserContext, type WebSocketRoute } from '@playwright/test';
 import * as c from '@tmt/colab-client';
+import type { PageView } from '../src/transport.js';
 import * as Y from 'yjs'; // Test-only producer. Foreign update decoding stays in the app Worker.
 const v = JSON.parse(
   readFileSync(new URL('../../../contracts/vectors/authority-v1.json', import.meta.url), 'utf8'),
+);
+const ownVector = JSON.parse(
+  readFileSync(new URL('../../../contracts/vectors/own-v1.json', import.meta.url), 'utf8'),
 );
 const hex = (s: string) => Uint8Array.from(s.match(/../g) ?? [], (n) => parseInt(n, 16));
 const json = (value: unknown) => c.text(JSON.stringify(value));
@@ -11,7 +15,7 @@ const mount = '/r/abcd/x/colab/';
 async function wire(
   context: BrowserContext,
   reset?: { source: string; invalid?: 'commitment' | 'source' | 'descriptor' | 'oldEpoch' },
-  compacted?: { invalid?: 'prefix' | 'n' | 'namespace' | 'body' | 'gap' },
+  compacted?: { invalid?: 'prefix' | 'n' | 'namespace' | 'body' | 'gap' | 'ownBody' | 'ownTail' },
   statementTransfer?: 'valid' | 'hash',
 ) {
   const epoch = reset ? '2' : '1';
@@ -296,11 +300,11 @@ async function wire(
     let previous = new Uint8Array(32);
     const prefixUpdates = [
       c.binary(cp.contentUpdates[0], 256 * 1024),
-      new Uint8Array([255]),
+      new Uint8Array([0, 0]),
       Y.mergeUpdates([c.binary(cp.contentUpdates[1], 256 * 1024), firstPadding]),
-      new Uint8Array([255]),
+      new Uint8Array([0, 0]),
       secondPadding,
-      new Uint8Array([255]),
+      new Uint8Array([0, 0]),
     ];
     for (let index = 0; index < 6; index++) {
       const env = await c.Envelope.seal(
@@ -347,13 +351,20 @@ async function wire(
           ? compacted.invalid === 'body'
             ? new Uint8Array([255])
             : new Uint8Array(Y.mergeUpdates([c.binary(cp.checkpoint, 256 * 1024), padding]))
-          : new Uint8Array([255]),
+          : compacted.invalid === 'ownBody'
+            ? new Uint8Array([255])
+            : c.binary(ownVector.checkpoint, 256 * 1024),
       );
       checkpoints.push({ namespace, row: await entry(env) });
     }
     for (const [namespace, bytes] of [
       ['content', c.binary(cp.tail, 256 * 1024)],
-      ['own', new Uint8Array([255])],
+      [
+        'own',
+        compacted.invalid === 'ownTail'
+          ? new Uint8Array([255])
+          : c.binary(ownVector.tail, 256 * 1024),
+      ],
     ] as const) {
       const env = await c.Envelope.seal(
         {
@@ -375,6 +386,45 @@ async function wire(
       previous = await env.hash();
     }
   }
+  const otherDevice = '00000000-0000-4000-8000-000000000126';
+  const otherSigner = await crypto.subtle.generateKey('Ed25519', true, ['sign', 'verify']);
+  const otherCertificate = c.certificate.input({
+    space: v.space,
+    issuerKind: 'member',
+    issuerId: genesis.head.ownerMember.id,
+    deviceId: otherDevice,
+    signingKey: new Uint8Array(await crypto.subtle.exportKey('raw', otherSigner.publicKey)),
+    encryptionKey: c.wrap.Envelope.fromJson(json(v.wrap)).header().recipientKey,
+    membershipRevision: '1',
+    issuedAt: Date.now() - 1000,
+    expiresAt: Date.now() + 86400000,
+  });
+  const otherChain = {
+    version: 1,
+    issuerStatement: c.encodeBinary(genesis.head.hash),
+    deviceCertificate: c.encodeBinary(otherCertificate),
+    issuerSignature: c.encodeBinary(await c.sign(signer, otherCertificate)),
+  };
+  const otherObject = compacted
+    ? await entry(
+        await c.Envelope.seal(
+          {
+            space: v.space,
+            page: v.page,
+            epoch,
+            kind: 'update',
+            namespace: 'own',
+            authorDevice: otherDevice,
+            membershipRevision: '2',
+            streamSeq: '1',
+            prevHash: new Uint8Array(32),
+          },
+          hex(v.epochKey),
+          otherSigner.privateKey,
+          c.binary(ownVector.checkpoint, 256 * 1024),
+        ),
+      )
+    : null;
   const scope = { version: 1, space: v.space, page: v.page, epoch };
   let queue = Promise.resolve(),
     drop = false,
@@ -427,6 +477,12 @@ async function wire(
       const frame = JSON.parse(String(message));
       if (frame.type === 'ack') {
         for (const cursor of frame.cursors) {
+          if (cursor.streamId === otherDevice) {
+            expect(cursor.namespace).toBe('own');
+            expect(cursor.seq).toBe('1');
+            expect(cursor.envelopeHash).toBe(otherObject?.envelopeHash);
+            continue;
+          }
           const checkpoint = checkpoints.find(
             (x) =>
               x.namespace === cursor.namespace &&
@@ -520,28 +576,46 @@ async function wire(
             }
           }
           send(socket, 'catchup', {
-            chains: [{ deviceId: v.device, chain: c.encodeBinary(json(chain)) }],
+            chains: [
+              { deviceId: v.device, chain: c.encodeBinary(json(chain)) },
+              ...(otherObject
+                ? [{ deviceId: otherDevice, chain: c.encodeBinary(json(otherChain)) }]
+                : []),
+            ],
             wraps: [c.encodeBinary(json(epochWrap))],
             streams: [],
             more: true,
           });
           const objects = [
-            ...checkpoints.map((x) => ({ row: x.row, namespace: x.namespace, checkpoint: true })),
+            ...checkpoints.map((x) => ({
+              streamId: v.device,
+              row: x.row,
+              namespace: x.namespace,
+              checkpoint: true,
+            })),
             ...entries.slice(compacted ? (compacted.invalid === 'gap' ? 7 : 6) : 0).map((row) => ({
               row,
+              streamId: v.device,
               namespace: c.decodeHeader(
                 c.Envelope.fromJson(c.binary(row.envelope, 400 * 1024)).header(),
               ).context.namespace,
               checkpoint: false,
             })),
           ];
-          for (const { row, namespace, checkpoint } of objects) {
+          if (otherObject)
+            objects.push({
+              streamId: otherDevice,
+              row: otherObject,
+              namespace: 'own',
+              checkpoint: false,
+            });
+          for (const { streamId, row, namespace, checkpoint } of objects) {
             const bytes = c.binary(row.envelope, 400 * 1024),
               id = c.decodeHeader(c.Envelope.fromJson(bytes).header()).objectId;
             send(socket, 'catchup', {
               streams: [
                 {
-                  streamId: v.device,
+                  streamId,
                   namespace,
                   checkpoint: checkpoint
                     ? { ...row, envelope: bytes.length > 32768 ? { objectId: id } : row.envelope }
@@ -659,7 +733,7 @@ async function wire(
         },
         hex(v.epochKey),
         signer,
-        new Uint8Array([0]),
+        c.binary(ownVector.checkpoint, 256 * 1024),
       );
       const row = await entry(env);
       entries.push(row);
@@ -865,7 +939,7 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
     )
     .toBe(0);
 });
-for (const invalid of ['prefix', 'n', 'namespace', 'body', 'gap'] as const)
+for (const invalid of ['prefix', 'n', 'namespace', 'body', 'gap', 'ownBody', 'ownTail'] as const)
   test(`compacted catchup rejects ${invalid} without a partial content projection`, async ({
     page,
     context,
@@ -932,5 +1006,41 @@ test('tampered statement reference preserves the verified prefix and publishes n
   const log = await persistedLog(page);
   expect(log).toHaveLength(2);
   expect(log).not.toContain(f.statement);
+  await expect.poll(() => f.connections).toBe(0);
+});
+
+test('signed catchup publishes detached own maps for two authors while source stays content-only', async ({
+  page,
+  context,
+}) => {
+  const f = await wire(context, undefined, {});
+  await page.goto(mount);
+  const result = await page.evaluate(
+    async ({ pageId, device }) => {
+      const path = '/src/mounted.ts',
+        { mountedTransport } = await import(path);
+      const { transport } = await mountedTransport();
+      const snapshot = await transport.page(pageId);
+      try {
+        const own = structuredClone(snapshot.own);
+        const unsubscribe = snapshot.binding!.subscribe(
+          (view: PageView) => {
+            if (view.own) view.own[device].threads = {};
+          },
+          () => {},
+        );
+        const subscriptionIsDetached = Object.keys(snapshot.own![device].threads).length > 0;
+        unsubscribe();
+        return { own, subscriptionIsDetached, source: snapshot.source };
+      } finally {
+        snapshot.binding?.close();
+      }
+    },
+    { pageId: v.page, device: v.device },
+  );
+  expect(result.own![v.device]).toEqual(ownVector.expected);
+  expect(result.own!['00000000-0000-4000-8000-000000000126']).toEqual(ownVector.expectedPrefix);
+  expect(result.subscriptionIsDetached).toBe(true);
+  expect(result.source).toBe('<p>after tail</p>' + 'x'.repeat(300000));
   await expect.poll(() => f.connections).toBe(0);
 });

@@ -34,6 +34,9 @@ impl Fixture {
         Self::with_role("editor")
     }
     fn with_role(role: &str) -> Self {
+        Self::with_devices(role, false)
+    }
+    fn with_devices(role: &str, second: bool) -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let root = std::env::temp_dir().join(format!(
             "tmt-1157-{}-{}",
@@ -59,6 +62,13 @@ impl Fixture {
                 signing_key:&devsign,encryption_key:&devenc,membership_revision:"2",issued_at:1,expires_at:100000})?;
             tx.put_device(&Device {revoked:false,chain:serde_json::to_vec(&json!({"version":1,"issuerStatement":values::encode_binary(&issuer.hash()?),
                 "deviceCertificate":values::encode_binary(&cert),"issuerSignature":values::encode_binary(&signer(7).sign(&cert).to_bytes())}))?})?;
+            if second {
+                let devsign=signer(12).verifying_key().to_bytes();let devenc=wrap::RecipientKey::from_seed(&[13;32])?.public_key();
+                let cert=certificate::input(&certificate::Certificate {space:&key.space_id,issuer_kind:"member",issuer_id:MEMBER,device_id:"30000000-0000-4000-8000-000000000002",
+                    signing_key:&devsign,encryption_key:&devenc,membership_revision:"2",issued_at:1,expires_at:100000})?;
+                tx.put_device(&Device {revoked:false,chain:serde_json::to_vec(&json!({"version":1,"issuerStatement":values::encode_binary(&issuer.hash()?),
+                    "deviceCertificate":values::encode_binary(&cert),"issuerSignature":values::encode_binary(&signer(7).sign(&cert).to_bytes())}))?})?;
+            }
             tx.put_epoch_secret(PAGE,1,&[11;32])?;Ok(b"genesis".to_vec())
         }).unwrap();
         Self {
@@ -115,7 +125,8 @@ impl Fixture {
         .unwrap()
     }
     fn append(&mut self, object: &object::Envelope) {
-        self.append_for(object, 1, DEVICE);
+        let context = object::Header::decode(object.header()).unwrap().context;
+        self.append_for(object, 1, &context.author_device);
     }
     fn append_for(&mut self, object: &object::Envelope, epoch: u64, stream: &str) {
         let h = object::Header::decode(object.header()).unwrap();
@@ -2438,4 +2449,38 @@ fn scope_is_rechecked_inside_writer_after_baseline_preparation() {
         )
         .unwrap();
     assert!(!serde_json::from_slice::<Recipient>(&bytes).unwrap().revoked);
+}
+
+#[test]
+fn own_thread_limit_is_summed_across_authenticated_writers_before_rotation() {
+    let v: Value =
+        serde_json::from_str(include_str!("../../../contracts/vectors/own-v1.json")).unwrap();
+    let batch = values::binary(v["threadBatch"].as_str().unwrap(), 256 * 1024).unwrap();
+    let extra = values::binary(v["extraThread"].as_str().unwrap(), 256 * 1024).unwrap();
+    const OTHER: &str = "30000000-0000-4000-8000-000000000002";
+    for over in [false, true] {
+        let mut f = Fixture::with_devices("editor", true);
+        let first = f.object(1, [0; 32], "update", "own", &batch);
+        f.append(&first);
+        let mut context = object::Header::decode(first.header()).unwrap().context;
+        context.author_device = OTHER.into();
+        let second = object::seal(&context, &[11; 32], &signer(12), &batch).unwrap();
+        f.append(&second);
+        if over {
+            context.stream_seq = "2".into();
+            context.prev_hash = second.hash().unwrap();
+            let last = object::seal(&context, &[11; 32], &signer(12), &extra).unwrap();
+            f.append(&last);
+        }
+        let before = f.counts();
+        let result = f.advance(OP, 2);
+        if over {
+            assert_eq!(result.unwrap_err().code, Code::Capacity);
+            assert_eq!(f.counts(), before);
+            assert!(f.store.baseline(PAGE, 2).unwrap().is_none());
+        } else {
+            result.unwrap();
+            assert_eq!(baseline_source(&f, 2), "");
+        }
+    }
 }

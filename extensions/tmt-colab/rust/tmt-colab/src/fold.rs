@@ -297,12 +297,13 @@ impl Snapshot {
         {
             return Err(OwnerFault::Capacity.into());
         }
+        let mut threads = 0;
         for own in own_updates.values() {
             if own.iter().map(Vec::len).sum::<usize>() > crate::decoder::UPDATE_BYTES {
                 return Err(OwnerFault::Capacity.into());
             }
             let refs = own.iter().map(Vec::as_slice).collect::<Vec<_>>();
-            decoder.decode(
+            let decoded = decoder.decode(
                 UpdateBatch {
                     namespace: Namespace::Own,
                     baseline: &[],
@@ -311,6 +312,13 @@ impl Snapshot {
                 Role::Commenter,
                 None,
             )?;
+            threads += decoded.projection["threads"]
+                .as_object()
+                .ok_or(OwnerFault::Invalid)?
+                .len();
+            if threads > 1000 {
+                return Err(OwnerFault::Capacity.into());
+            }
         }
         let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
         let folded = decoder.decode(

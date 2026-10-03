@@ -12,7 +12,7 @@ import {
   strictVerify,
 } from '@tmt/colab-client';
 import { Admission } from './admission.js';
-import { STATE_BYTES, UPDATE_BYTES } from './fold-protocol.js';
+import { STATE_BYTES, UPDATE_BYTES, type AdmittedUpdate } from './fold-protocol.js';
 export interface Position {
   seq: string;
   envelopeHash: string;
@@ -34,7 +34,7 @@ interface Head {
   hash: Uint8Array;
 }
 /** Shared author chain; checkpoint hashes are namespace cursors, not update heads.
- * Own ciphertext is authenticated for continuity, never opened or decoded. */
+ * Authenticated plaintext carries its namespace and writer into the isolated fold. */
 export class Objects {
   #heads = new Map<string, Head>();
   #seen = new Map<string, Uint8Array>();
@@ -67,7 +67,7 @@ export class Objects {
     entry: ObjectEntry,
     kind: 'update' | 'checkpoint' = 'update',
     namespace?: Namespace,
-  ): Promise<Uint8Array | null> {
+  ): Promise<AdmittedUpdate | null> {
     exactKeys(entry, ['seq', 'envelopeHash', 'envelope']);
     generatedId(stream);
     const seq = decimal(entry.seq),
@@ -129,15 +129,11 @@ export class Objects {
       return null;
     }
     requireValue(this.#positions.has(`${stream}:${ns}`) || this.#positions.size < 256);
-    // Only content bytes ever cross the decoder boundary.
-    let plaintext: Uint8Array | null = null;
-    if (ns === 'content') {
-      requireValue(a.root !== null);
-      plaintext = await env.open(c, a.root, key);
-      if (plaintext.length > (kind === 'checkpoint' ? STATE_BYTES : UPDATE_BYTES)) {
-        plaintext.fill(0);
-        throw new Error('Checkpoint decoder capacity');
-      }
+    requireValue(a.root !== null);
+    const plaintext = await env.open(c, a.root, key);
+    if (plaintext.length > (kind === 'checkpoint' ? STATE_BYTES : UPDATE_BYTES)) {
+      plaintext.fill(0);
+      throw new Error('Checkpoint decoder capacity');
     }
     if (kind === 'checkpoint') {
       let prefix = this.#prefixes.get(stream);
@@ -159,12 +155,14 @@ export class Objects {
       envelopeHash: entry.envelopeHash,
     });
     if (ns === 'own') this.ownData = true;
-    return plaintext;
+    return { namespace: ns, writer: stream, update: plaintext };
   }
-  async streams(value: unknown): Promise<{ checkpoints: Uint8Array[]; updates: Uint8Array[] }> {
+  async streams(
+    value: unknown,
+  ): Promise<{ checkpoints: AdmittedUpdate[]; updates: AdmittedUpdate[] }> {
     requireValue(Array.isArray(value) && value.length <= 256);
-    const updates: Uint8Array[] = [],
-      checkpoints: Uint8Array[] = [];
+    const updates: AdmittedUpdate[] = [],
+      checkpoints: AdmittedUpdate[] = [];
     let count = 0;
     for (const stream of value) {
       exactKeys(stream, ['streamId', 'namespace', 'checkpoint', 'tail']);

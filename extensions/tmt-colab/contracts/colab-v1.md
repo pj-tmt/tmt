@@ -516,6 +516,25 @@ into the other writer's document. Conflicting resolution projections MUST use
 verified log revision, then stream sequence and bytewise writer ID as the stable
 tie-break order; they never authorize sends.
 
+### Implemented raw own fold (#1264)
+
+The owner-browser reader decrypts admitted own updates and checkpoints and folds
+them into one document per authenticated writer in the page's single Worker.
+The native isolated decoder and browser validate the exhaustive four map roots,
+plain JSON values, absence of materialized list/shared-type mutations and resolved
+dependencies. A present message `body` MUST be a string of at most 16 KiB UTF-8.
+The 1,000-thread page limit sums map entries across writers, including retained
+tombstone values; equal record keys in different writer documents count separately.
+Both page folds enforce this limit before returning a view.
+
+This is bounded raw-state admission. Exact thread/message/intent/reply field
+schemas, tombstone interpretation and resolution projection remain deferred.
+Raw references, signatures and operation IDs confer no authority or effect.
+No comment UI, own writer API, Send execution or arbitrary core-result read is
+implemented by this fold. The trusted binding returns detached writer-keyed raw
+maps; renderer source remains content-only and the UI states that own data is not
+displayed. The owner-browser author-policy subset remains unchanged.
+
 ### Current-view baseline and history modes
 
 Every epoch advance, including member addition under `current` history,
@@ -751,8 +770,15 @@ the existing 4 MiB Worker state budget, independently of the retained tail's
 the tail. Those unpublished steps may retain cross-writer pending dependencies;
 the final tail step MUST resolve them and validate complete content before
 publishing any view. The existing 2 MiB source projection cap remains in force.
-The owner-browser reader authenticates own envelopes for chain continuity but
-MUST NOT decrypt or fold them; it MUST visibly state that own data is not displayed.
+Both namespaces count toward the aggregate checkpoint and tail plaintext budgets.
+The Worker MUST also bound total encoded content plus all own documents, including
+pending structs/delete sets, and the serialized combined projection to 4 MiB each.
+Pending fragments MUST survive candidate cloning; final catchup validates every
+document before publication. Live content/own candidates commit only after all
+validation succeeds. Failure terminates the Worker and flags the binding; reconnect
+constructs fresh epoch documents. Own plaintext crosses the decoder boundary only
+after the same authenticated scope, writer, chain and signed-cut admission as content.
+The [raw own fold](#implemented-raw-own-fold-1264) defines its bounded projection.
 Historical revoked-device objects MUST predate revocation and remain within the
 exact signed namespace cut; checkpoint replacements require the cut's exact
 envelope hash, and catchup MUST reach every nonempty signed tail endpoint before

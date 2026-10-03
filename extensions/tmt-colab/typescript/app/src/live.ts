@@ -52,8 +52,13 @@ export class Live implements PageBinding {
         this.page.sharing,
         (value) => {
           if (this.#closed) return;
-          this.#projection = { source: value.source, title: value.title, ownData: value.ownData };
-          this.#listeners.forEach((v) => v.publish(this.#projection));
+          this.#projection = {
+            source: value.source,
+            title: value.title,
+            ownData: value.ownData,
+            own: structuredClone(value.own),
+          };
+          this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
         },
         (error) => this.#failed(error),
       ));
@@ -87,7 +92,7 @@ export class Live implements PageBinding {
     return {
       id: this.page.pageId,
       sharing: this.page.sharing,
-      ...this.#projection,
+      ...structuredClone(this.#projection),
       title: this.#projection.title || this.page.pageId,
       binding: this,
     };
@@ -96,7 +101,7 @@ export class Live implements PageBinding {
     const listener = { publish, failed };
     this.#listeners.add(listener);
     if (this.#error) failed(this.#error);
-    else publish(this.#projection);
+    else publish(structuredClone(this.#projection));
     return () => {
       this.#listeners.delete(listener);
       // A same-turn subscriber replacement retains the binding (including React's
