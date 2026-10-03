@@ -7,7 +7,7 @@
 use crate::{
     canonical::{self, Envelope},
     crypto,
-    mount::{Admitted, DeviceContext, SessionState, Sessions},
+    mount::{Admitted, DeviceContext, IdleClock, SessionState, Sessions},
     pairing::now_ms,
     state::MachineKey,
     store::{Grant, Store, uuid_v4},
@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 /// Cookie name; the value is the base64url of a 256-bit random token.
@@ -55,6 +55,7 @@ pub struct DoorSessions {
     machine_key: MachineKey,
     store: Arc<Mutex<Store>>,
     idle: Duration,
+    clock: IdleClock,
     live: Mutex<Live>,
 }
 #[derive(Default)]
@@ -100,8 +101,16 @@ impl DoorSessions {
             machine_key,
             store,
             idle,
+            clock: Arc::new(Instant::now),
             live: Mutex::default(),
         }
+    }
+    /// Integration-test seam for advancing session idle time deterministically.
+    /// Set before opening sessions. The clock must be monotonic; wall-clock
+    /// admission checks are unchanged.
+    pub fn with_clock(mut self, clock: IdleClock) -> Self {
+        self.clock = clock;
+        self
     }
     /// Admit one `session.open` control from `/append`. Every refusal is
     /// `None`, so the route answers with the generic pre-auth 404.
@@ -134,7 +143,7 @@ impl DoorSessions {
                 Session {
                     token: hash,
                     grant_revision: control.grant.revision,
-                    state: Arc::default(),
+                    state: Arc::new(SessionState::with_clock(Arc::clone(&self.clock))),
                 },
             );
         }

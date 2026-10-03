@@ -14,7 +14,7 @@ use std::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     thread::{self, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tmt_remote::{
     canonical::{self, Enrollment},
@@ -22,7 +22,7 @@ use tmt_remote::{
     crypto,
     devices::Devices,
     http::{Door, Handler},
-    mount::Mounts,
+    mount::{IdleClock, Mounts},
     pages::Pages,
     pairing::{Pairing, Timing},
     routes::Routes,
@@ -52,10 +52,10 @@ pub struct Harness {
 }
 impl Harness {
     pub fn new(timing: Timing) -> Self {
-        Self::with(timing, session::IDLE)
+        Self::with_clock(timing, session::IDLE, Arc::new(Instant::now))
     }
-    /// A serving door whose sessions end after `idle` without use.
-    pub fn with(timing: Timing, idle: Duration) -> Self {
+    /// A serving door with a shared monotonic session clock.
+    pub fn with_clock(timing: Timing, idle: Duration, clock: IdleClock) -> Self {
         // Short absolute root: Unix socket paths are limited to about 100 bytes.
         let root = PathBuf::from(format!(
             "/tmp/tmt-1039-pair-{}-{}",
@@ -81,15 +81,18 @@ impl Harness {
             Arc::clone(&store),
             timing,
         ));
-        let sessions = Arc::new(DoorSessions::new(
-            machine.id.clone(),
-            window_id.clone(),
-            origin.clone(),
-            format!("{}/x/", machine.route_prefix),
-            machine_key,
-            Arc::clone(&store),
-            idle,
-        ));
+        let sessions = Arc::new(
+            DoorSessions::new(
+                machine.id.clone(),
+                window_id.clone(),
+                origin.clone(),
+                format!("{}/x/", machine.route_prefix),
+                machine_key,
+                Arc::clone(&store),
+                idle,
+            )
+            .with_clock(clock),
+        );
         let devices = Arc::new(Devices::new(
             Arc::clone(&store),
             Some(Arc::clone(&sessions)),

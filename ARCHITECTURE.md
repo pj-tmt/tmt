@@ -4038,7 +4038,11 @@ bytes. It answers a machine-signed response and, for a `browser` device, sets
 the `tmt_door` cookie (256-bit token, `Path=/r/<prefix>/x/`, HttpOnly, SameSite=Strict)
 whose SHA-256 is all serve keeps. Sessions live in serve memory, one per device:
 a newer session, revocation, 12 hours without use or stop ends one, and
-reopening is another signed `session.open`. Every refusal is the generic 404.
+reopening is another signed `session.open`. `DoorSessions` supplies one monotonic
+idle clock to each `mount::SessionState`; session creation, mounted requests,
+tunnel activity and idle checks share it. Production uses `Instant::now`, while
+the socket-test harness can freeze and advance it without changing wall-clock
+signature/grant admission or production bounds. Every refusal is the generic 404.
 `/r/` routes refuse any cookie, so a cookie alone never reaches an operation or
 pairing. `devices::Devices` lists grants and revokes one by disabling it and
 advancing its revision before acknowledging, then ends the device's session.
