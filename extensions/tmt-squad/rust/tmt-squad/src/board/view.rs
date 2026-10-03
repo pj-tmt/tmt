@@ -173,9 +173,10 @@ fn help_lines(app: &App) -> Vec<String> {
         }
     }
     let bindings = app.bindings();
+    let key_width = bindings.keys().map(String::len).max().unwrap_or(0) + 2;
     for event in ["l", "L", "T"] {
         if let Some(action) = bindings.get(event) {
-            lines.push(format!("{event:<11} {}", action.text));
+            lines.push(format!("{event:<key_width$}{}", action.text));
         }
     }
     for (event, action) in bindings {
@@ -184,10 +185,12 @@ fn help_lines(app: &App) -> Vec<String> {
         }
         if event == "d" && action.verb == crate::action::Verb::Toggle {
             if let Some(label) = toggle_label(app, &action) {
-                lines.push(format!("d    {label}    fold or unfold (▾ open, ▸ folded)"));
+                lines.push(format!(
+                    "{event:<key_width$}{label}    fold or unfold (▾ open, ▸ folded)"
+                ));
             }
         } else {
-            lines.push(format!("{event:<11} {}", action.text));
+            lines.push(format!("{event:<key_width$}{}", action.text));
         }
     }
     lines
@@ -799,7 +802,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     frame.render_widget(Paragraph::new(summary_line(app)), summary);
     render_meter(frame, app, summary);
     render_body(frame, app, body);
-    let footer_line = if let Some(input) = &app.input {
+    let mut footer_line = if let Some(input) = &app.input {
         Line::from(format!("{} › {}▏", input.prompt, input.text))
     } else if app.searching {
         Line::from(format!("/{}▏", app.search))
@@ -813,6 +816,11 @@ pub fn render(frame: &mut Frame, app: &App) {
             look.role(Role::Muted),
         ))
     };
+    if app.settings.is_some() {
+        for span in &mut footer_line.spans {
+            span.style = look.role(Role::Dim);
+        }
+    }
     frame.render_widget(Paragraph::new(footer_line), footer);
     if app.help {
         let lines = help_lines(app);
@@ -2286,7 +2294,7 @@ columns = [{ name = "member", width = "30%" },
         app.help = true;
         let help = draw(&app, 60, 29);
         assert!(
-            help.iter().any(|line| line == "y           copy"),
+            help.iter().any(|line| line == "y             copy"),
             "{help:#?}"
         );
         assert!(
@@ -2318,16 +2326,17 @@ columns = [{ name = "member", width = "30%" },
         let mut app = board(json!([]));
         app.view.as_mut().unwrap().bindings = crate::action::preset(true, &[]);
         let help = help_lines(&app);
+        assert!(help.iter().any(|line| line == "double-click  jump"));
         let at = help
             .iter()
-            .position(|line| line == "l           view")
+            .position(|line| line == "l             view")
             .unwrap();
         assert_eq!(
             &help[at..at + 3],
             [
-                "l           view",
-                "L           jump lead",
-                "T           theme"
+                "l             view",
+                "L             jump lead",
+                "T             theme"
             ]
         );
     }
@@ -2356,7 +2365,7 @@ columns = [{ name = "member", width = "30%" },
         app.help = true;
         let screen = draw(&app, 160, 40);
         assert!(
-            screen.iter().any(|line| line == "ctrl-r      refresh"),
+            screen.iter().any(|line| line == "ctrl-r        refresh"),
             "{screen:?}"
         );
         assert!(
@@ -4892,7 +4901,7 @@ columns = [{ name = "member", width = "30%" },
                 let full = hints(&app, usize::MAX);
                 assert!(full.contains(&hint), "{full}");
                 assert!(help_lines(&app).contains(&format!(
-                    "d    {label} {state}    fold or unfold (▾ open, ▸ folded)"
+                    "d             {label} {state}    fold or unfold (▾ open, ▸ folded)"
                 )));
                 for width in 0..160 {
                     let shown = hints(&app, width);

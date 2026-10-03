@@ -5,10 +5,15 @@ use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind},
     layout::Rect,
-    text::Line,
+    text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
 };
-use tmt_cli_style::{Role, table::escape};
+use tmt_cli_style::{
+    Role,
+    grid::{self, Align, Truncate},
+    table::escape,
+};
+use unicode_width::UnicodeWidthStr;
 
 pub(super) struct Overlay {
     pub settings: BoardSettings,
@@ -48,15 +53,25 @@ impl Overlay {
     }
 }
 
+fn setting_name(key: &str) -> (&str, &str) {
+    key.split_once('.').unwrap_or(match key {
+        "layout" => ("layout", "preset"),
+        "rows" => ("rows", "grid"),
+        "state_patterns" => ("states", "patterns"),
+        _ => ("programs", key),
+    })
+}
+
 pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rect) {
-    let area = body;
-    frame.render_widget(Clear, area);
+    frame.render_widget(Clear, body);
     let block = Block::new()
         .borders(Borders::ALL)
         .border_style(look.role(Role::Dim))
         .title(" settings · read-only ");
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let mut inner = block.inner(body);
+    frame.render_widget(block, body);
+    inner.x += u16::from(inner.width > 0);
+    inner.width = inner.width.saturating_sub(2);
     let footer = Rect {
         y: inner.y + inner.height.saturating_sub(1),
         height: u16::from(inner.height > 0),
@@ -66,42 +81,94 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
         height: inner.height.saturating_sub(1),
         ..inner
     };
+    let settings = &overlay.settings;
     let width = usize::from(content.width);
-    let mut lines = Vec::new();
-    let mut add = |text: String, role| {
-        lines.extend(
-            super::notes::wrap(&escape(&text), width)
+    let key_width = settings
+        .entries
+        .iter()
+        .map(|entry| setting_name(&entry.key).1.width())
+        .max()
+        .unwrap_or(0)
+        .min(width / 4);
+    let source_width = (width / 3).min(42);
+    let value_width = width.saturating_sub(key_width + source_width + 4).max(1);
+    let fit = |text: &str, width| grid::fit(text, width, Align::Left, Truncate::Middle);
+    let path = std::env::var("HOME")
+        .ok()
+        .and_then(|home| {
+            settings
+                .path
+                .strip_prefix(&format!("{home}/"))
+                .map(|path| format!("~/{path}"))
+        })
+        .unwrap_or_else(|| settings.path.clone());
+    let context = settings.context.as_deref().unwrap_or("board defaults");
+    let heading = format!("{context} {} · {path}", settings.host);
+    let mut lines = vec![Line::styled(fit(&heading, width), look.role(Role::Dim))];
+    let cell = |text: &str, width, role| Span::styled(fit(text, width), look.role(role));
+    for notice in &settings.notices {
+        lines.push(Line::styled(fit(notice, width), look.role(Role::Waiting)));
+    }
+    let mut groups = Vec::new();
+    for entry in &settings.entries {
+        let group = setting_name(&entry.key).0;
+        if !groups.contains(&group) {
+            groups.push(group);
+        }
+    }
+    for group in groups {
+        lines.push(Line::styled(group.to_owned(), look.role(Role::Dim)));
+        for entry in settings
+            .entries
+            .iter()
+            .filter(|entry| setting_name(&entry.key).0 == group)
+        {
+            let name = setting_name(&entry.key).1;
+            let (value, role) = match &entry.value {
+                serde_json::Value::Null => ("unset".into(), Role::Dim),
+                serde_json::Value::Array(items) if items.is_empty() => ("none".into(), Role::Dim),
+                value => (crate::settings::display(value), Role::Text),
+            };
+            for (index, value) in super::notes::wrap(&escape(&value), value_width)
                 .into_iter()
-                .map(|line| Line::styled(line, look.role(role))),
-        );
-    };
-    add(
-        format!(
-            "{} · {}",
-            overlay
-                .settings
-                .context
-                .as_deref()
-                .unwrap_or("board defaults"),
-            overlay.settings.host
-        ),
-        Role::Accent,
-    );
-    add(overlay.settings.path.clone(), Role::Muted);
-    for notice in &overlay.settings.notices {
-        add(notice.clone(), Role::Waiting);
+                .enumerate()
+            {
+                lines.push(Line::from(vec![
+                    cell(if index == 0 { name } else { "" }, key_width, Role::Accent),
+                    Span::raw("  "),
+                    cell(&value, value_width, role),
+                    Span::raw("  "),
+                    cell(
+                        if index == 0 { &entry.source } else { "" },
+                        source_width,
+                        Role::Dim,
+                    ),
+                ]));
+            }
+        }
     }
-    for entry in &overlay.settings.entries {
-        add(entry.key.clone(), Role::Accent);
-        add(
-            format!("  {}", crate::settings::display(&entry.value)),
-            Role::Text,
+    let count = lines.len();
+    let (offset, shown) =
+        overlay
+            .scrolls
+            .show(frame, Pane::Rows, content, lines, look.role(Role::Dim));
+    if shown < usize::from(content.height) {
+        let indicator = Rect {
+            y: content.y + shown as u16,
+            height: 1,
+            ..content
+        };
+        frame.render_widget(Clear, indicator);
+        frame.render_widget(
+            Paragraph::new(format!(
+                "{}–{} of {count}",
+                offset + 1,
+                (offset + shown).min(count)
+            ))
+            .style(look.role(Role::Dim)),
+            indicator,
         );
-        add(format!("  from {}", entry.source), Role::Muted);
     }
-    overlay
-        .scrolls
-        .show(frame, Pane::Rows, content, lines, look.role(Role::Dim));
     frame.render_widget(
         Paragraph::new(super::view::fit(
             "↑↓ scroll · PgUp/PgDn page · Esc close",
@@ -125,6 +192,8 @@ mod tests {
             entries: Vec::new(),
             notices: Vec::new(),
         };
+        shown.push("board.mode", serde_json::Value::Null, "preset:team");
+        shown.push("board.collapsed", serde_json::json!([]), "preset:team");
         // CJK fixture data exercises wide terminal cells.
         for index in 0..20 {
             shown.push(
@@ -140,6 +209,10 @@ mod tests {
             terminal
                 .draw(|frame| render(frame, &overlay, look, frame.area()))
                 .unwrap();
+            let buffer = terminal.backend().buffer();
+            let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+            assert!(text.contains("unset") && text.contains("none"));
+            assert_eq!(buffer[(1, 1)].symbol(), " ", "content has inset padding");
             assert!(!overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
             overlay.key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
             terminal
