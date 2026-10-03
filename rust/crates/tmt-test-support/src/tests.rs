@@ -115,5 +115,20 @@ fn an_independent_held_writer_still_refuses_exec_without_retry() {
         .unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::ExecutableFileBusy);
     drop(writer);
-    assert!(Command::new(&path).status().unwrap().success());
+    // A child forked concurrently by another test can still hold an inherited copy of the
+    // closed descriptor until its own exec: the transient case-2 race, bounded like
+    // `write_executable`. Only that error is tolerated.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let status = loop {
+        match Command::new(&path).status() {
+            Err(error)
+                if error.kind() == io::ErrorKind::ExecutableFileBusy
+                    && Instant::now() < deadline =>
+            {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            result => break result.unwrap(),
+        }
+    };
+    assert!(status.success());
 }
