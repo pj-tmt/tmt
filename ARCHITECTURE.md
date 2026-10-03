@@ -4726,8 +4726,13 @@ Remote/core behavior dependency or public native command is added.
 The trusted parent owns routing, source display and render lifecycle; only captured
 HTML enters an opaque `allow-scripts` iframe. Its default browser canvas is opaque
 white with a light color scheme, independent of the surrounding chrome theme;
-author HTML can supply its own styling. The renderer prepends the contract CSP,
-uses `no-referrer`, binds fresh render IDs to exact source digests and tears down the
+author HTML can supply its own styling. The renderer is the same-mount build-owned
+`renderer.html` document, with its
+own deny-network response CSP and `sandbox allow-scripts`, including direct opens.
+Trusted chrome permits only self-hosted scripts/styles. A one-shot window-parent-bound
+message delivers bounded source and metadata; document replacement retains that
+response policy. Bootstrap/source loads are distinguished from later navigation.
+It uses `no-referrer`, binds fresh render IDs to exact source digests and tears down the
 frame on subsequent load/navigation or route cleanup. Its handshake grants no
 effectful capability. Page self-navigation can still leak a request before teardown;
 this is not complete exfiltration prevention. Shared
@@ -4798,8 +4803,10 @@ supplied input fails compilation. `app_inventory` shares route/type, HTML-entry
 and 128-file/16-MiB admission between build and runtime. Disk loads retain directory-
 anchored no-follow opens. HTTP resolves exact in-memory keys, never disk paths.
 Owner context suffices before Colab registration; other asset requests are denied.
-Vite uses relative URLs beneath the remote mount. The response CSP belongs to
-colab-v1. Embedded builds survive relocation without a checkout, Node, pnpm or
+Vite uses relative URLs beneath the remote mount. The app and exact renderer route
+have separate response policies owned by colab-v1; only the renderer admits inline
+author scripts/styles. Its required build entry belongs to both embedded and disk
+inventories. Embedded builds survive relocation without a checkout, Node, pnpm or
 sibling assets; adopting new embedded output requires rebuilding the binary.
 There is no installer payload or data-root change. Shared packaging/notices and
 release activation remain infra-owned under #1418. It accepts a `colab-sync-v1`

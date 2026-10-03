@@ -29,9 +29,9 @@ test.beforeEach(() => {
   referrers.length = 0;
 });
 
-async function mount(page: Page, source: string, probeAdmission = false) {
+async function mount(page: Page, source: string) {
   return page.evaluate(
-    async ({ source, probeAdmission }) => {
+    async ({ source }) => {
       const path = '/src/renderer.ts';
       const { mountRenderer } = await import(path);
       const host = document.createElement('div');
@@ -46,31 +46,13 @@ async function mount(page: Page, source: string, probeAdmission = false) {
       });
       // Test-owned handles never exist in the production entry point.
       Object.assign(window, { probe: { handle, controller } });
-      const admission: (string | undefined)[] = [];
-      if (probeAdmission) {
-        // Run in the same task as insertion, before the genuine frame load/reply.
-        const frame = host.querySelector('iframe')!;
-        const reply = (source: Window, renderId: string) => {
-          window.dispatchEvent(
-            new MessageEvent('message', {
-              source,
-              data: { type: 'colab.render.bound', renderId },
-            }),
-          );
-          admission.push(host.dataset.state);
-        };
-        reply(window, handle.snapshot.renderId);
-        reply(frame.contentWindow!, 'stale-id');
-        reply(frame.contentWindow!, handle.snapshot.renderId);
-      }
-      return { ...handle.snapshot, admission } as {
+      return { ...handle.snapshot } as {
         renderId: string;
         sourceDigest: string;
         source: string;
-        admission: (string | undefined)[];
       };
     },
-    { source, probeAdmission },
+    { source },
   );
 }
 
@@ -88,6 +70,8 @@ test('space home opens a local page, scripts run, source stays in trusted chrome
   await expect(frame.getByRole('button', { name: 'Try the page: 1' })).toBeVisible();
   await expect(page.locator('iframe')).toHaveAttribute('sandbox', 'allow-scripts');
   await expect(page.locator('iframe')).toHaveAttribute('referrerpolicy', 'no-referrer');
+  await expect(page.locator('iframe')).not.toHaveAttribute('srcdoc');
+  await expect(page.locator('iframe')).toHaveAttribute('src', /\/renderer\.html$/);
   await page.screenshot({ path: '/tmp/1187-page-view.png', fullPage: true });
   await page.getByRole('button', { name: 'Source', exact: true }).click();
   await expect(page.getByRole('textbox')).toHaveAttribute('readonly', '');
@@ -145,7 +129,10 @@ test('opaque frame cannot read app storage, cookies, native keys or bridge; no n
       parent: denied(() => parent.document.title),
       key: denied(() => parent.appKey),
       bridge: denied(() => parent.bridge()),
-      popup: window.open('${origin}/popup') === null,
+      popup: (() => {
+        try { return window.open('${origin}/popup') === null; }
+        catch (error) { return error instanceof DOMException && ['SecurityError', 'InvalidAccessError'].includes(error.name); }
+      })(),
       top: denied(() => top.location.href = '${origin}/top'),
     };
     const image = new Image(); image.src = '${origin}/image'; document.body.append(image);
@@ -197,9 +184,53 @@ test('handshake binds window source and renderId; captured digest and cleanup su
   page,
 }) => {
   await page.goto('/');
-  const source = '<p>First</p>';
-  const captured = await mount(page, source, true);
-  expect(captured.admission).toEqual([undefined, undefined, 'ready']);
+  // Delay the real document so the wrong-window positive-shape reply is tested
+  // before the renderer can acknowledge. Use real postMessage delivery on all engines.
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/renderer.html', async (route) => {
+    await gate;
+    await route.continue();
+  });
+  const source =
+    '<p>First</p><script>parent.postMessage({type:"colab.render.bound",renderId:"stale-id"},"*")</script>';
+  const captured = await mount(page, source);
+  await page.evaluate(() => {
+    const admission: (string | undefined)[] = [];
+    Object.assign(window, { admission });
+    window.addEventListener('message', (event) => {
+      if (event.data?.type === 'colab.render.bound')
+        admission.push(document.getElementById('probe')!.dataset.state);
+    });
+  });
+  try {
+    await page.evaluate(async (renderId) => {
+      const sibling = document.createElement('iframe');
+      const received = new Promise<void>((resolve) => {
+        const listener = (event: MessageEvent) => {
+          if (event.source !== sibling.contentWindow) return;
+          window.removeEventListener('message', listener);
+          resolve();
+        };
+        window.addEventListener('message', listener);
+      });
+      sibling.srcdoc = `<script>parent.postMessage({type:'colab.render.bound',renderId:${JSON.stringify(renderId)}},'*')</script>`;
+      document.body.append(sibling);
+      await received;
+      sibling.remove();
+    }, captured.renderId);
+    await expect(page.locator('#probe')).not.toHaveAttribute('data-state');
+  } finally {
+    release();
+  }
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { admission: (string | undefined)[] }).admission,
+    ),
+  ).toEqual([undefined, undefined, 'ready']);
   await expect(page.frameLocator('#probe iframe').getByText('First')).toBeVisible();
   const digest = await page.evaluate(
     async (source) =>
@@ -223,4 +254,94 @@ test('handshake binds window source and renderId; captured digest and cleanup su
   expect(replacement.sourceDigest).not.toBe(captured.sourceDigest);
   await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
   await expect(page.frameLocator('#probe iframe').getByText('Replacement')).toBeVisible();
+});
+
+test('a source document replacement tears down the renderer', async ({ page }) => {
+  await page.goto('/');
+  await mount(
+    page,
+    `<button onclick="document.open();document.write('<p>Replacement</p>');document.close()">Replace document</button>`,
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  await page
+    .frameLocator('#probe iframe')
+    .getByRole('button', { name: 'Replace document' })
+    .click();
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'navigation');
+  await expect(page.locator('#probe iframe')).toHaveCount(0);
+});
+
+test('renderer bootstrap ignores sibling and later messages; only the parent initializes it', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const target = document.createElement('iframe');
+    target.id = 'target';
+    target.setAttribute('sandbox', 'allow-scripts');
+    target.src = '/renderer.html';
+    const loaded = new Promise<void>((resolve) => {
+      target.onload = () => resolve();
+    });
+    document.body.append(target);
+    await loaded;
+    const sibling = document.createElement('iframe');
+    sibling.id = 'sibling';
+    sibling.srcdoc = '<!doctype html><p>Sibling</p>';
+    const siblingLoaded = new Promise<void>((resolve) => {
+      sibling.onload = () => resolve();
+    });
+    document.body.append(sibling);
+    await siblingLoaded;
+  });
+  const sibling = page.frames().find((frame) => frame.url() === 'about:srcdoc')!;
+  await sibling.evaluate(() => {
+    const digest = 'a'.repeat(64);
+    const target = parent.document.querySelector<HTMLIFrameElement>('#target')!;
+    target.contentWindow!.postMessage(
+      {
+        type: 'colab.render.bind',
+        renderId: `00000000-0000-4000-8000-000000000001:${digest}`,
+        sourceDigest: digest,
+        source: '<p>Wrong sender</p>',
+      },
+      '*',
+      [new MessageChannel().port2],
+    );
+  });
+  // A same-target message from the parent is ordered after the sibling message.
+  await page.evaluate(() => {
+    const digest = 'a'.repeat(64);
+    const target = document.querySelector<HTMLIFrameElement>('#target')!;
+    target.contentWindow!.postMessage(
+      {
+        type: 'colab.render.bind',
+        renderId: `00000000-0000-4000-8000-000000000001:${digest}`,
+        sourceDigest: digest,
+        source: '<p>Parent source</p>',
+      },
+      '*',
+      [new MessageChannel().port2],
+    );
+  });
+  await expect(page.frameLocator('#target').getByText('Parent source')).toBeVisible();
+  await page.evaluate(() => {
+    const digest = 'b'.repeat(64);
+    const target = document.querySelector<HTMLIFrameElement>('#target')!;
+    target.contentWindow!.postMessage(
+      {
+        type: 'colab.render.bind',
+        renderId: `00000000-0000-4000-8000-000000000002:${digest}`,
+        sourceDigest: digest,
+        source: '<p>Later source</p>',
+      },
+      '*',
+      [new MessageChannel().port2],
+    );
+  });
+  // A task in the child after message delivery proves later input had no effect.
+  const target = page.frames().find((frame) => frame.url().endsWith('/renderer.html'))!;
+  await target.evaluate(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+  await expect(page.frameLocator('#target').getByText('Parent source')).toBeVisible();
+  await expect(page.frameLocator('#target').getByText('Later source')).toHaveCount(0);
 });

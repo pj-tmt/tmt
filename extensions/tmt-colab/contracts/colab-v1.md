@@ -482,8 +482,8 @@ Colab state is created. A missing, unsafe or incomplete checkout default MUST
 still start the service with the owner build-hint placeholder.
 
 When supplied, build-time `TMT_COLAB_APP_DIR` MUST name an absolute complete Vite
-output directory. The build script validates `index.html`, optional
-`renderer.html`, required `THIRD-PARTY-NOTICES.txt` and flat `assets/` files with
+output directory. The build script requires `index.html`, `renderer.html` and
+`THIRD-PARTY-NOTICES.txt`, and validates them with flat `assets/` files using
 the same names, media types, entry references and 128-file/16-MiB bounds as runtime
 admission. Directories and files MUST be real, and files nonempty and regular.
 Invalid supplied input MUST fail compilation. The generated embedded table uses
@@ -496,8 +496,8 @@ activation and its archive/install proofs remain owned by infra's #1418.
 
 Disk loading MUST admit only nonempty regular files through no-follow directory-
 anchored opens. Both disk and embedded inventories MUST have at most 128 files
-and 16 MiB total. The inventory contains
-`index.html`, optional `renderer.html` and `THIRD-PARTY-NOTICES.txt`, and flat generated `assets/` files;
+and 16 MiB total. The inventory requires
+`index.html` and `renderer.html`, and admits optional `THIRD-PARTY-NOTICES.txt`, and flat generated `assets/` files;
 unknown output, symlinks and missing HTML entry references reject the inventory.
 JavaScript and CSS are required. Supported asset suffixes are `html`, `js`, `css`,
 `woff2`, `woff`, `ttf`, `otf`, `png`, `jpg`, `jpeg`, `svg`, `webp`, `ico` and `txt`.
@@ -521,15 +521,20 @@ third-party requests. The current app declares installed/system font fallbacks;
 no external font service is used. The app response CSP is exactly:
 
 ```text
-default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'
+default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'
 ```
 
-Inline script/style permissions preserve the existing opaque srcdoc renderer's
-inherited policy. Its own stricter renderer CSP and unconditional sandbox remain
-required; parent permission does not grant renderer network or app-storage access.
-This `unsafe-inline` allowance also loosens the trusted app policy; #1334 tracks
-moving the renderer into its own document so that policy can drop the allowance
-before relayed or cloud access.
+The exact owner-only `/renderer.html` route uses its own response policy instead
+of the app policy, whether served from the embedded table or `--app-dir`:
+
+```text
+default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; font-src 'none'; media-src 'none'; worker-src 'none'; manifest-src 'none'; sandbox allow-scripts
+```
+
+The response `sandbox allow-scripts` MUST also make a directly opened renderer
+opaque; it MUST NOT depend only on the embedding iframe attribute. A missing
+renderer makes the app inventory incomplete, following the default/explicit
+startup behavior above. Renderer bytes remain build-owned, not author content.
 App/static responses retain `Cache-Control: no-store`, `Referrer-Policy:
 no-referrer` and `X-Content-Type-Options: nosniff`. Non-app responses retain the
 existing restrictive placeholder/API policy.
@@ -1120,7 +1125,9 @@ space; there is no separate relay.
 
 ## Renderer and live anchors
 
-HTML runs in an opaque-origin iframe behind trusted prepended strict CSP.
+HTML runs in an opaque-origin iframe whose `src` is the same-mount
+`renderer.html` document, behind the separate response CSP defined above.
+It MUST NOT use `srcdoc` or inherit inline permissions from trusted chrome.
 Scripts run on every page: the frame uses `sandbox="allow-scripts"`, without
 same-origin, top navigation, popups, forms or modals. There is no static mode.
 The renderer MUST deny app storage,
@@ -1147,6 +1154,19 @@ each renderId to SHA256 of the exact captured source UTF-8 bytes; a Yjs state
 vector is only sync metadata and MUST NOT identify the rendered bytes alone.
 Interactive JavaScript state is lost on each replacement. Paused preview and
 Send retain the captured source/quote/final bytes.
+
+After the bootstrap document loads, the parent sends exactly one source-init
+message containing `type:"colab.render.bind"`, `renderId`, `sourceDigest` and
+`source`, plus one MessagePort. The renderer accepts only these exact fields,
+valid UUIDv4/digest metadata and source at most 2 MiB UTF-8, from
+`event.source === window.parent`; origin is not an admission predicate for this
+opaque channel. Direct top-level opening cannot initialize source. Invalid or
+non-parent messages do not initialize it; after one valid init all later init
+messages are ignored. No source enters a URL or request body. The bootstrap
+replaces its own document using `document.open/write/close`, retaining the
+response policy and prepending a trusted acknowledgement before author source.
+Bootstrap load and initial source-document load are the only permitted loads;
+further document loads/navigation tear down the frame.
 
 The initial window handshake carries renderId and transfers a MessagePort;
 accept its reply only with `event.source === frame.contentWindow` and matching

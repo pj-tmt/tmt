@@ -58,6 +58,9 @@ pub fn validate(files: &[(&str, &[u8])]) -> Result<(), &'static str> {
     if !inventory.contains_key("/index.html") {
         return Err("App index is missing.");
     }
+    if !inventory.contains_key("/renderer.html") {
+        return Err("App renderer is missing.");
+    }
     for route in ["/index.html", "/renderer.html"] {
         if let Some(bytes) = inventory.get(route) {
             let html = std::str::from_utf8(bytes).map_err(|_| "App HTML must be UTF-8.")?;

@@ -19,7 +19,11 @@ and CSP contract is owned by
 
 Trusted chrome uses the shared design tokens. Page HTML runs in an opaque frame
 under the [renderer contract](../../contracts/colab-v1.md#renderer-and-live-anchors).
-Only source and render metadata enter that frame. A frame can navigate itself and
+The frame loads the same-mount build-owned `renderer.html` with its own response
+CSP and accepts bounded source/render metadata once from its parent. Its policy
+also sandboxes direct opening. Trusted mounted chrome disallows inline scripts
+and styles; the loopback Vite dev parent has the documented hot-reload exception.
+A frame can navigate itself and
 leak a request before teardown; the app does not promise complete exfiltration
 prevention.
 

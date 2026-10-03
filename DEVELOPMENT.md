@@ -3690,7 +3690,11 @@ isolated executable-fixture writer into a temporary install tree with no assets.
 The default scenario asserts the checkout is absent before starting. Remove the
 build-time source directory after compilation to prove both source dependencies
 are gone. These debug layout proofs complement infra's real archive/install gates.
-It also exercises the opaque sample renderer under the served app CSP, and proves
+It asserts distinct app/renderer CSP headers, blocks an injected parent inline
+handler with a same-button listener positive control, and proves directly opening
+the renderer denies origin storage/cookies without an iframe sandbox attribute.
+It also exercises author scripts in the opaque sample renderer under its own
+response CSP, and proves
 cross-origin requests are blocked with a same-browser capture-server positive
 control. The adapter supplies owner context and a fixed core storage-root response; it does not mock
 static assets or add product API routes. The mounted shell reaches its existing
@@ -3754,7 +3758,14 @@ frozen JSON without Python. The public RFC 8032 seed and exact Unicode/control
 characters are intentional fixture data. No browser/SQLite version migration,
 new dependency or lockfile resolution is required by this foundation.
 
-The dev server binds loopback and serves in-process sample pages. The paired mount
+The dev server binds loopback and serves in-process sample pages. Its exact
+`/renderer.html` route and its mounted protocol-fixture path serve the same
+build-owned renderer with the native-owned response CSP, including
+`sandbox allow-scripts`. The development parent has an explicit policy exception:
+Vite/React hot reload injects inline scripts and styles, so this loopback-only
+parent carries no production app CSP. Dev chrome therefore does not prove parent
+inline blocking; the real-socket built-app scenario above does. No production
+build or mounted response inherits this exception. The paired mount
 client path is tested with Vite plus signed protocol fixtures: first-use key
 persistence/non-extractability, registration failure, root pin mismatch, strict
 owner-log/author-chain admission and missing-wrap blocking. The live fixture
@@ -3794,8 +3805,10 @@ the separate real-socket scenario verifies native assets.
 The content Worker suite proves concurrent writer convergence and reload
 reconstruction, rejects malformed/mixed roots, checks termination/cleanup and
 proves prepared edits cannot leak through committed projections.
-The unchanged renderer suite proves opaque origin isolation, CSP request blocking,
-source-digest/window binding and teardown, including the permitted self-navigation
+The renderer suite proves opaque origin isolation, CSP request blocking,
+one-shot parent-source admission, ignored sibling/later messages,
+source-digest/window binding and navigation/document-replacement teardown, including
+the permitted self-navigation
 request before teardown. These app fixtures do not establish real mounted
 co-editing or replace the primitive library's three-engine conformance gate below. Code quality runs
 filtered frozen install, check, unit tests and build; renderer tests run locally.

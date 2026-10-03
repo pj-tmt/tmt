@@ -16,6 +16,11 @@ impl Build {
         ));
         fs::create_dir_all(root.join("assets")).unwrap();
         fs::write(root.join("index.html"), br#"<link href="./assets/app.css"><script type="module" src="./assets/app.js"></script>"#).unwrap();
+        fs::write(
+            root.join("renderer.html"),
+            b"<!doctype html><title>Renderer</title>",
+        )
+        .unwrap();
         fs::write(root.join("assets/app.js"), b"export {};").unwrap();
         fs::write(root.join("assets/app.css"), b"body{color:red}").unwrap();
         Self(root)
@@ -79,6 +84,8 @@ fn symlinks_directories_empty_files_and_unknown_outputs_refuse() {
         "empty",
         "map",
         "missing-entry",
+        "missing-renderer",
+        "renderer-link",
     ] {
         let build = Build::new();
         match unsafe_output {
@@ -104,6 +111,13 @@ fn symlinks_directories_empty_files_and_unknown_outputs_refuse() {
             }
             "map" => {
                 fs::write(build.0.join("assets/app.js.map"), b"source").unwrap();
+            }
+            "missing-renderer" => {
+                fs::remove_file(build.0.join("renderer.html")).unwrap();
+            }
+            "renderer-link" => {
+                fs::remove_file(build.0.join("renderer.html")).unwrap();
+                symlink(build.0.join("index.html"), build.0.join("renderer.html")).unwrap();
             }
             "missing-entry" => {
                 fs::write(
@@ -148,6 +162,8 @@ fn explicit_embedded_checkout_and_hint_have_one_selection_order() {
         .unwrap();
     assert_eq!(app.find("/assets/embedded.js").unwrap().1, b"embedded");
     assert_eq!(app.find("/renderer.html").unwrap().1, b"renderer");
+    // An embedded inventory missing the required renderer fails closed.
+    assert!(App::selected_from(None, &embedded[..3], &build.0).is_err());
     let override_app = App::selected_from(Some(&build.0), embedded, &missing)
         .unwrap()
         .unwrap();
@@ -187,6 +203,7 @@ fn embedded_and_disk_admission_validate_renderer_entries_and_duplicates() {
         ("/index.html", b"x"),
         ("/assets/a.js", b"x"),
         ("/assets/a.css", b"x"),
+        ("/renderer.html", b"renderer"),
         ("/assets/a.js", b"duplicate"),
     ];
     assert!(App::from_embedded(files).is_err());

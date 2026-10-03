@@ -15,9 +15,11 @@ pub const DEFAULT_DIRECTORY: &str =
     concat!(env!("CARGO_MANIFEST_DIR"), "/../../typescript/app/dist");
 pub const BUILD_HINT: &str =
     "build the app: corepack pnpm --dir typescript --filter @tmt/colab-app build";
-/// srcdoc inherits this policy; its stricter renderer CSP denies network,
-/// while the unconditional opaque sandbox denies app storage.
-pub const POLICY: &str = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'";
+/// Trusted chrome admits only build-owned scripts and styles.
+pub const POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'";
+
+/// The renderer is opaque even when opened directly rather than in an iframe.
+pub const RENDERER_POLICY: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; font-src 'none'; media-src 'none'; worker-src 'none'; manifest-src 'none'; sandbox allow-scripts";
 
 #[derive(Debug)]
 pub struct AssetFault(String);
