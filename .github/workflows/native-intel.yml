@@ -48,13 +48,13 @@ jobs:
           save-if: false
       - name: Build the native Intel runtime
         working-directory: rust
-        run: CARGO_BUILD_JOBS=2 cargo build --locked --release --target "$TARGET" -p tmt-cli
+        run: cargo build --locked --release --target "$TARGET" -p tmt-cli
       - name: Warm the macOS toolchain lookup
         if: runner.os == 'macOS'
         uses: ./.github/actions/warm-xcrun
       - name: Prove the native Intel runtime
         run: |
-          version=$(CARGO_BUILD_JOBS=2 cargo metadata --manifest-path rust/Cargo.toml --locked --no-deps --format-version 1 | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).packages.find(p => p.name === "tmt-cli").version')
+          version=$(cargo metadata --manifest-path rust/Cargo.toml --locked --no-deps --format-version 1 | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).packages.find(p => p.name === "tmt-cli").version')
           node typescript/scripts/verify-native-runtime.mjs \
             --executable "$GITHUB_WORKSPACE/rust/target/$TARGET/release/tmt" \
             --target "$TARGET" --version "$version" --skill skills/tmux-team/SKILL.md
