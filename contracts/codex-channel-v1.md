@@ -81,7 +81,8 @@ the root entry. Arbitrary trusted ancestors do not confer trust. Ordinary Git
 checkouts use their repository root. Linked worktrees and separate git
 directories produce no prediction unless an exact cwd entry already resolves
 trust. Unreadable, malformed, oversized or symlinked config and unsupported
-launch arguments produce no prediction.
+launch arguments or unavailable launch cwd produce no prediction. Failure to
+read the launch cwd does not fail preflight or change channel selection.
 Trusted local evidence suppresses the note. Otherwise known local evidence may
 produce it, including an explicit untrusted entry. System, managed/MDM, cloud,
 profile and command-line configuration may override this local evidence: the

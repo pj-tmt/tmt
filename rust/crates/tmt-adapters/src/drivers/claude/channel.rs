@@ -245,7 +245,7 @@ impl RuntimeChannel for ClaudeChannel {
     fn preflight(
         &self,
         command: &RuntimeCommand,
-        _: &Path,
+        _: Option<&Path>,
         directory: &Path,
         deadline: Instant,
     ) -> Result<Option<String>, ChannelError> {

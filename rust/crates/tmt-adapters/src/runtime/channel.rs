@@ -482,10 +482,11 @@ pub trait RuntimeChannel {
     /// `Ok(None)` has nothing to say.
     /// The command and launch cwd are provider-neutral input; the driver owns
     /// interpreting flags that change its effective working directory.
+    /// Unavailable cwd evidence is `None` and must not make preflight unavailable.
     fn preflight(
         &self,
         command: &RuntimeCommand,
-        working_directory: &Path,
+        working_directory: Option<&Path>,
         directory: &Path,
         deadline: Instant,
     ) -> Result<Option<String>, ChannelError>;
@@ -655,7 +656,7 @@ mod tests {
         fn preflight(
             &self,
             _: &crate::runtime::RuntimeCommand,
-            _: &Path,
+            _: Option<&Path>,
             _: &Path,
             _: Instant,
         ) -> Result<Option<String>, ChannelError> {

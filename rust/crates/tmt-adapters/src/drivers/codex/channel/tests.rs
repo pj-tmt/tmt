@@ -50,13 +50,25 @@ fn trust_note_is_local_read_only_and_uses_codex_cd_semantics() {
         check_provider(
             &VersionOnly(version),
             &command,
-            &fixture.path,
+            Some(&fixture.path),
             &fixture.path.join("channel"),
             Instant::now() + std::time::Duration::from_secs(5),
             Some(&environment),
         )
     };
     let before = fs::read(&path).unwrap();
+    assert_eq!(
+        check_provider(
+            &VersionOnly("codex-cli 0.160.0"),
+            &command,
+            None,
+            &fixture.path.join("channel"),
+            Instant::now() + std::time::Duration::from_secs(5),
+            Some(&environment)
+        ),
+        Ok(None)
+    );
+    assert_eq!(fs::read(&path).unwrap(), before);
     for version in [
         "codex-cli 0.159.2",
         "codex-cli 0.159.3",

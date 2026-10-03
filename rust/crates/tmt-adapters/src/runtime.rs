@@ -590,7 +590,7 @@ mod tests {
         fn preflight(
             &self,
             _: &crate::runtime::RuntimeCommand,
-            _: &std::path::Path,
+            _: Option<&std::path::Path>,
             _: &std::path::Path,
             _: std::time::Instant,
         ) -> Result<Option<String>, channel::ChannelError> {
@@ -626,7 +626,7 @@ mod tests {
         fn preflight(
             &self,
             _: &crate::runtime::RuntimeCommand,
-            _: &std::path::Path,
+            _: Option<&std::path::Path>,
             _: &std::path::Path,
             _: std::time::Instant,
         ) -> Result<Option<String>, channel::ChannelError> {
@@ -662,7 +662,7 @@ mod tests {
         fn preflight(
             &self,
             _: &crate::runtime::RuntimeCommand,
-            _: &std::path::Path,
+            _: Option<&std::path::Path>,
             _: &std::path::Path,
             _: std::time::Instant,
         ) -> Result<Option<String>, channel::ChannelError> {

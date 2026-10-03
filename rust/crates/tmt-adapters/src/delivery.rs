@@ -769,7 +769,7 @@ mod tests {
         fn preflight(
             &self,
             _: &crate::runtime::RuntimeCommand,
-            _: &Path,
+            _: Option<&Path>,
             _: &Path,
             _: Instant,
         ) -> Result<Option<String>, crate::runtime::channel::ChannelError> {
@@ -841,7 +841,7 @@ mod tests {
         fn preflight(
             &self,
             _: &crate::runtime::RuntimeCommand,
-            _: &Path,
+            _: Option<&Path>,
             _: &Path,
             _: Instant,
         ) -> Result<Option<String>, crate::runtime::channel::ChannelError> {

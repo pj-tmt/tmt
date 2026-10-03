@@ -52,7 +52,7 @@ impl RuntimeChannel for CodexChannel {
     fn preflight(
         &self,
         command: &crate::runtime::RuntimeCommand,
-        working_directory: &Path,
+        working_directory: Option<&Path>,
         directory: &Path,
         deadline: Instant,
     ) -> Result<Option<String>, ChannelError> {
@@ -108,7 +108,7 @@ impl RuntimeChannel for CodexChannel {
 fn check_provider(
     runner: &impl CommandRunner,
     command: &crate::runtime::RuntimeCommand,
-    working_directory: &Path,
+    working_directory: Option<&Path>,
     directory: &Path,
     deadline: Instant,
     environment: Option<&crate::skill_installation::ProviderEnvironment>,
@@ -127,7 +127,10 @@ fn check_provider(
         .map_err(|_| ChannelError::ProviderUnavailable)?;
     version_advisory(&output.stdout)?;
     Ok(environment
-        .and_then(|environment| trust_advisory(command, working_directory, environment))
+        .zip(working_directory)
+        .and_then(|(environment, working_directory)| {
+            trust_advisory(command, working_directory, environment)
+        })
         .map(str::to_owned))
 }
 

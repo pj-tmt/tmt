@@ -309,13 +309,15 @@ impl RuntimeChannel for Advertised {
     fn preflight(
         &self,
         command: &tmt_adapters::runtime::RuntimeCommand,
-        working_directory: &std::path::Path,
+        working_directory: Option<&std::path::Path>,
         _: &std::path::Path,
         _: Instant,
     ) -> Result<Option<String>, ChannelError> {
         assert_eq!(command.executable, "agent");
         assert_eq!(command.args, [std::ffi::OsString::from("--fixture")]);
-        assert_eq!(working_directory, std::env::current_dir().unwrap());
+        if let Some(cwd) = working_directory {
+            assert_eq!(cwd, std::path::Path::new("/launch"));
+        }
         self.probes.set(self.probes.get() + 1);
         match self.outcome {
             0 => Ok(None),
@@ -371,6 +373,7 @@ fn default_policy_follows_only_the_advertised_driver_default() {
                 executable: "agent".into(),
                 args: vec!["--fixture".into()],
             },
+            Some(std::path::Path::new("/launch")),
             PathBuf::from("/fixture"),
         )
     };
@@ -405,6 +408,7 @@ fn unavailable_and_advisory_preflight_fall_back_only_under_default() {
                 executable: "agent".into(),
                 args: vec!["--fixture".into()],
             },
+            Some(std::path::Path::new("/launch")),
             "/fixture".into(),
         )
         .unwrap();
@@ -417,6 +421,7 @@ fn unavailable_and_advisory_preflight_fall_back_only_under_default() {
                 executable: "agent".into(),
                 args: vec!["--fixture".into()],
             },
+            Some(std::path::Path::new("/launch")),
             "/fixture".into(),
         )
         .err()
@@ -430,6 +435,7 @@ fn unavailable_and_advisory_preflight_fall_back_only_under_default() {
             executable: "agent".into(),
             args: vec!["--fixture".into()],
         },
+        Some(std::path::Path::new("/launch")),
         "/fixture".into(),
     )
     .err()
@@ -442,6 +448,7 @@ fn unavailable_and_advisory_preflight_fall_back_only_under_default() {
             executable: "agent".into(),
             args: vec!["--fixture".into()],
         },
+        Some(std::path::Path::new("/launch")),
         "/fixture".into(),
     )
     .unwrap();
@@ -450,6 +457,25 @@ fn unavailable_and_advisory_preflight_fall_back_only_under_default() {
         paste_notice("worker\nname", "build\nunknown\rhere"),
         "worker name uses paste delivery: build unknown here"
     );
+}
+
+#[test]
+fn unavailable_cwd_does_not_change_channel_selection() {
+    let port = Advertised {
+        default: Cell::new(true),
+        probes: Cell::new(0),
+        outcome: 0,
+    };
+    let command = RuntimeCommand {
+        executable: "agent".into(),
+        args: vec!["--fixture".into()],
+    };
+    for mode in [ChannelMode::Default, ChannelMode::Required] {
+        let prepared = prepare(Some(&port), mode, &command, None, "/fixture".into()).unwrap();
+        assert!(prepared.channel.is_some());
+        assert!(prepared.notice.is_none());
+    }
+    assert_eq!(port.probes.get(), 2);
 }
 
 #[test]
@@ -467,6 +493,7 @@ fn informational_advisory_does_not_gate_an_available_driver() {
                 executable: "agent".into(),
                 args: vec!["--fixture".into()],
             },
+            Some(std::path::Path::new("/launch")),
             "/fixture".into(),
         )
         .unwrap();

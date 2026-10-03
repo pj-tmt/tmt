@@ -2542,7 +2542,8 @@ ownership map.
   pane-enrollment evidence permit it. Failed-start provider cleanup retains
   evidence when unconfirmed; the launcher never recovers it to obtain fallback.
 - `tmt_adapters::runtime::channel` defines the port. Preflight receives the
-  selected `RuntimeCommand` and launch cwd as provider-neutral facts;
+  selected `RuntimeCommand` and optional launch cwd as provider-neutral facts;
+  unavailable cwd evidence skips cwd-dependent advice without changing selection;
   interpreting provider flags belongs to the adapter. `RuntimeChannel` verifies
   the provider (`preflight`) and enrolls one launch (`enroll`) into a lease,
   `ChannelEnrollment`: the foreground command the launcher spawns verbatim, the

@@ -7,7 +7,7 @@
 use crate::{invocation::ChannelMode, output::Failure, run_command::storage_failure};
 use std::{
     ffi::OsString,
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 use tmt_adapters::{
@@ -44,10 +44,12 @@ pub(super) fn preflight<'a>(
     command: &RuntimeCommand,
     paths: &ConfigPaths,
 ) -> Result<Prepared<'a>, Failure> {
+    let working_directory = std::env::current_dir().ok();
     prepare(
         claim.and_then(|harness| registry.channel(harness)),
         mode,
         command,
+        working_directory.as_deref(),
         paths.channel_directory(),
     )
 }
@@ -56,6 +58,7 @@ fn prepare<'a>(
     channel: Option<&'a dyn RuntimeChannel>,
     mode: ChannelMode,
     command: &RuntimeCommand,
+    working_directory: Option<&Path>,
     directory: PathBuf,
 ) -> Result<Prepared<'a>, Failure> {
     let mut prepared = Prepared {
@@ -77,18 +80,10 @@ fn prepare<'a>(
                 1,
             )
         })?;
-        let working_directory = std::env::current_dir().map_err(|error| {
-            Failure::new(
-                "CHANNEL_UNAVAILABLE",
-                "Could not read the launch directory.",
-                1,
-            )
-            .caused_by(error)
-        })?;
         let advisory = channel
             .preflight(
                 command,
-                &working_directory,
+                working_directory,
                 &prepared.directory,
                 Instant::now() + Duration::from_secs(5),
             )

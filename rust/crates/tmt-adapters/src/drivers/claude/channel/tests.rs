@@ -1310,7 +1310,7 @@ fn preflight_accepts_the_range_and_advises_only_about_untested_builds() {
             executable: scratch.0.join("absent").into(),
             args: Vec::new(),
         },
-        &scratch.0,
+        Some(&scratch.0),
         &scratch.0,
         Instant::now() + Duration::from_secs(5),
     );
@@ -1327,7 +1327,7 @@ fn preflight_refuses_a_directory_whose_socket_path_cannot_fit() {
                 executable: "claude".into(),
                 args: Vec::new()
             },
-            Path::new("/launch"),
+            Some(Path::new("/launch")),
             &long,
             deadline
         ),
@@ -1339,7 +1339,7 @@ fn preflight_refuses_a_directory_whose_socket_path_cannot_fit() {
                 executable: "claude".into(),
                 args: Vec::new()
             },
-            Path::new("/launch"),
+            Some(Path::new("/launch")),
             Path::new("relative"),
             deadline
         ),
