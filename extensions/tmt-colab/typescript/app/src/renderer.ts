@@ -2,8 +2,6 @@ import { text } from './strings.js';
 
 /** Exact HTML source byte limit, owned by colab-v1 Resource bounds. */
 export const MAX_RENDER_SOURCE_BYTES = 2 * 1024 * 1024;
-export const RENDER_CSP =
-  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; font-src 'none'; media-src 'none'; worker-src 'none'; manifest-src 'none'";
 export type RenderState = 'ready' | 'navigation' | 'failed';
 export interface RenderSnapshot {
   readonly renderId: string;
@@ -83,18 +81,17 @@ export async function mountRenderer(
   options.signal.addEventListener('abort', destroy, { once: true });
   frame.onload = () => {
     if (stopped) return;
-    if (++loads !== 1) {
+    if (++loads > 2) {
       stop('navigation');
       return;
     }
-    frame.contentWindow?.postMessage(
-      { type: 'colab.render.bind', renderId: snapshot.renderId },
-      '*',
-      [channel.port2],
-    );
+    // The bootstrap load receives source once; document.write completes the second load.
+    if (loads !== 1) return;
+    frame.contentWindow?.postMessage({ type: 'colab.render.bind', ...snapshot }, '*', [
+      channel.port2,
+    ]);
   };
-  const bootstrap = `<script>addEventListener('message',e=>{if(e.source!==parent||e.data?.type!=='colab.render.bind'||e.data.renderId!==${JSON.stringify(snapshot.renderId)}||e.ports.length!==1)return;parent.postMessage({type:'colab.render.bound',renderId:${JSON.stringify(snapshot.renderId)}},'*')},{once:true})</script>`;
-  frame.srcdoc = `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${RENDER_CSP}">${bootstrap}</head><body>${snapshot.source}</body></html>`;
+  frame.src = new URL('./renderer.html', document.baseURI).href;
   host.replaceChildren(frame);
   return { snapshot, destroy };
 }

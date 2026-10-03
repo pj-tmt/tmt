@@ -155,12 +155,39 @@ for (let run = 1; run <= 2; run++) {
       const response = await page.goto(server.origin + mount);
       expect(response!.status()).toBe(200);
       expect(await response!.body()).toEqual(await readFile(app + '/index.html'));
-      expect(response!.headers()['content-security-policy']).toContain("font-src 'self'");
+      const appPolicy = response!.headers()['content-security-policy'];
+      expect(appPolicy).toContain("script-src 'self'; style-src 'self'");
+      expect(appPolicy).not.toContain('unsafe-inline');
+      const renderer = await context.request.get(server.origin + mount + 'renderer.html');
+      expect(renderer.status()).toBe(200);
+      expect(await renderer.body()).toEqual(await readFile(app + '/renderer.html'));
+      expect(renderer.headers()['content-security-policy']).toContain('sandbox allow-scripts');
+      expect(renderer.headers()['content-security-policy']).toContain("connect-src 'none'");
+      const anonymousRenderer = await fetch(server.origin + mount + 'renderer.html');
+      expect(anonymousRenderer.status).toBe(403);
       // The test door does not serve Remote's SDK. Its visible blocking state
       // proves the actual compiled mounted entry ran, rather than a preview.
       await expect(page.getByRole('alert')).toContainText('Could not open this paired space');
       await expect(page.getByRole('button', { name: 'Reload' })).toBeVisible();
       if (run === 1) await page.screenshot({ path: '/tmp/tmt-1253-mounted.png', fullPage: true });
+      // An inline handler injected into trusted chrome must not execute, while
+      // a normal addEventListener is a valid positive control on the same button.
+      const injected = await page.evaluate(async () => {
+        const button = document.createElement('button');
+        button.setAttribute('onclick', "document.body.dataset.inlineExecuted = 'yes'");
+        button.addEventListener('click', () => {
+          button.dataset.control = 'yes';
+        });
+        document.body.append(button);
+        button.click();
+        const result = {
+          inline: document.body.dataset.inlineExecuted,
+          control: button.dataset.control,
+        };
+        button.remove();
+        return result;
+      });
+      expect(injected).toEqual({ inline: undefined, control: 'yes' });
       const style = await page.evaluate(() => getComputedStyle(document.body).fontSize);
       expect(style).toBe('14px');
       expect(requests.some((url) => url.startsWith(server.origin + mount + 'assets/'))).toBe(true);
@@ -192,6 +219,25 @@ for (let run = 1; run <= 2; run++) {
       const privatePage = await fetch(server.origin + mount);
       expect(await privatePage.text()).toContain('This colab space is private');
 
+      // CSP sandbox also protects a top-level renderer, without an iframe attribute.
+      await page.goto(server.origin + mount + 'renderer.html');
+      const isolation = await page.evaluate(() => {
+        const denied = (read: () => unknown) => {
+          try {
+            read();
+            return false;
+          } catch {
+            return true;
+          }
+        };
+        return {
+          storage: denied(() => localStorage.getItem('secret')),
+          cookie: denied(() => document.cookie),
+          indexedDB: denied(() => indexedDB.open('keys')),
+        };
+      });
+      expect(isolation).toEqual({ storage: true, cookie: true, indexedDB: true });
+
       // The same served build at the test door's root selects its sample adapter,
       // exercising the opaque renderer beneath the production response CSP.
       await page.goto(server.origin + '/');
@@ -200,6 +246,9 @@ for (let run = 1; run <= 2; run++) {
       await expect(frame.getByRole('button', { name: 'Try the page: 0' })).toBeVisible();
       await frame.getByRole('button', { name: 'Try the page: 0' }).click();
       await expect(frame.getByRole('button', { name: 'Try the page: 1' })).toBeVisible();
+      expect(
+        await frame.getByRole('heading').evaluate((heading) => getComputedStyle(heading).fontSize),
+      ).toBe('34px');
       await expect(page.locator('iframe')).toHaveAttribute('sandbox', 'allow-scripts');
       if (run === 1) await page.screenshot({ path: '/tmp/tmt-1253-renderer.png', fullPage: true });
       expect(requests.every((url) => new URL(url).origin === server.origin)).toBe(true);

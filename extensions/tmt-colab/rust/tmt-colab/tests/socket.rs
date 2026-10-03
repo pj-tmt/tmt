@@ -1583,11 +1583,14 @@ fn mounted_owner_rejects_corrupt_oversized_membership_log() {
 
 #[test]
 fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution() {
-    use tmt_colab::assets::{App, POLICY};
+    use tmt_colab::assets::{App, POLICY, RENDERER_POLICY};
     let directory = PathBuf::from(format!("/tmp/tmt-1253-build-{}", std::process::id()));
     fs::create_dir_all(directory.join("assets")).unwrap();
-    let files: [(&str, &str, &[u8]); 6] = [
+    assert!(!POLICY.contains("unsafe-inline"));
+    assert!(RENDERER_POLICY.ends_with("sandbox allow-scripts"));
+    let files: [(&str, &str, &[u8]); 7] = [
         ("index.html", "text/html; charset=utf-8", br#"<link href="./assets/app.css"><script type="module" src="./assets/app.js"></script>"#),
+        ("renderer.html", "text/html; charset=utf-8", b"<!doctype html><title>Renderer</title>"),
         ("assets/app.js", "text/javascript; charset=utf-8", b"export {};"),
         ("assets/app.css", "text/css; charset=utf-8", b"body{color:red}"),
         ("assets/font.woff2", "font/woff2", b"wOF2\0\xfffont-test-bytes"),
@@ -1621,7 +1624,12 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
         assert!(head.starts_with("HTTP/1.1 200"));
         assert!(head.contains(&format!("Content-Type: {content_type}\r\n")));
         assert!(head.contains(&format!("Content-Length: {}\r\n", bytes.len())));
-        assert!(head.contains(&format!("Content-Security-Policy: {POLICY}\r\n")));
+        let policy = if name == "renderer.html" {
+            RENDERER_POLICY
+        } else {
+            POLICY
+        };
+        assert!(head.contains(&format!("Content-Security-Policy: {policy}\r\n")));
         assert_eq!(&reply[end..], bytes);
         if path != "/" {
             assert!(

@@ -447,11 +447,17 @@ fn serve(
         && request.owner.is_some()
         && let Some((kind, bytes)) = browser.app.as_ref().and_then(|app| app.find(&request.path))
     {
-        let _ = response_with_policy(&mut socket, 200, bytes, kind, assets::POLICY);
+        let policy = if request.path == "/renderer.html" {
+            assets::RENDERER_POLICY
+        } else {
+            assets::POLICY
+        };
+        let _ = response_with_policy(&mut socket, 200, bytes, kind, policy);
         return;
     }
     if request.path.starts_with("/assets/")
         || request.path == "/index.html"
+        || request.path == "/renderer.html"
         || request.path == "/THIRD-PARTY-NOTICES.txt"
     {
         let (status, bytes): (_, &[u8]) = if request.owner.is_none() {

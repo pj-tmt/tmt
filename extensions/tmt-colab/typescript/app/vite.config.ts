@@ -1,5 +1,6 @@
 import { lintConfig } from '../../../../typescript/scripts/lint-config.mjs';
 import { defineConfig } from 'vite-plus';
+import { readFileSync } from 'node:fs';
 import react from '@vitejs/plugin-react';
 import { designTokens } from '../../../../design/tokens/tokens-plugin.ts';
 
@@ -13,6 +14,29 @@ export default defineConfig({
     sortPackageJson: false,
   },
   base: './',
-  plugins: [react(), designTokens()],
+  plugins: [
+    react(),
+    designTokens(),
+    {
+      name: 'colab-renderer-policy',
+      configureServer(server) {
+        // Use the native policy owner, avoiding a second dev-only policy copy.
+        const source = readFileSync(
+          new URL('../../rust/tmt-colab/src/assets.rs', import.meta.url),
+          'utf8',
+        );
+        const policy = source.match(/pub const RENDERER_POLICY: &str = "([^"]+)";/)?.[1];
+        if (!policy) throw new Error('Missing native renderer policy');
+        server.middlewares.use((request, response, next) => {
+          if (request.url?.split('?')[0] === '/renderer.html') {
+            response.setHeader('Content-Security-Policy', policy);
+            response.setHeader('Referrer-Policy', 'no-referrer');
+            response.setHeader('X-Content-Type-Options', 'nosniff');
+          }
+          next();
+        });
+      },
+    },
+  ],
   build: { license: { fileName: 'THIRD-PARTY-NOTICES.txt' } },
 });
