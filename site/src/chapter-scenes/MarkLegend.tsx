@@ -24,16 +24,13 @@ export function MarkLegend() {
       <p className="mb-3 text-[15px] leading-normal text-muted">{marks.intro}</p>
       <ul
         aria-label={marks.label}
-        className="m-0 grid list-none grid-cols-2 gap-px overflow-hidden border border-term-edge bg-term-edge p-0 shadow-[6px_6px_0_var(--c-accent)] sm:grid-cols-4"
+        className="m-0 grid list-none grid-cols-2 gap-px overflow-hidden border-2 border-term-edge bg-term-edge p-0 shadow-[6px_6px_0_var(--c-accent)] sm:grid-cols-4"
       >
         {marks.items.map((item) => (
-          <li
-            key={item.mark}
-            className="grid min-w-0 content-start gap-1 bg-term p-3.5 text-t-text"
-          >
+          <li key={item.mark} className="grid min-w-0 content-start gap-1 bg-term p-4 text-t-text">
             <span
               aria-hidden="true"
-              className={`font-mono text-[36px] leading-none [font-variant-emoji:text] ${TONE[item.mark] ?? ""}`}
+              className={`font-mono text-[42px] leading-none [font-variant-emoji:text] ${TONE[item.mark] ?? ""}`}
             >
               {item.mark}
               {TEXT_PRESENTATION}

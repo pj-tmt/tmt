@@ -35,7 +35,7 @@ export function Band({
   children: ReactNode;
 }) {
   return (
-    <section id={id} className="border-t border-rule py-14">
+    <section id={id} className="tour-band border-t-2 border-text py-12 sm:py-16">
       <div className="font-mono text-xs leading-none font-semibold tracking-[0.06em] text-accent before:text-dim before:content-['##_']">
         {eyebrow}
       </div>
@@ -66,15 +66,19 @@ export function Showcase() {
             title={section.title}
             status={shown ? status : undefined}
           >
-            <p className="mb-6 max-w-[62ch] text-[17px] leading-normal sm:text-[18px]">
-              <Inline text={section.text} />
-            </p>
-            {scene()}
-            <p className="mt-4 mb-0 font-mono text-sm">
-              <LocalLink to={path} className="text-accent">
-                {showcase.chapter}
-              </LocalLink>
-            </p>
+            <div className="mt-8 grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-12">
+              <div>
+                <p className="mb-6 max-w-[62ch] text-[17px] leading-normal sm:text-[18px]">
+                  <Inline text={section.text} />
+                </p>
+                <p className="mt-4 mb-0 font-mono text-sm">
+                  <LocalLink to={path} className="text-accent">
+                    {showcase.chapter}
+                  </LocalLink>
+                </p>
+              </div>
+              <div className="min-w-0">{scene()}</div>
+            </div>
           </Band>
         );
       })}
@@ -88,7 +92,7 @@ export function Showcase() {
 export function BandHead({ name }: { name: "start" | "install" }) {
   const section = useStrings().home.showcase.sections[name];
   return (
-    <div className="mt-0 border-t border-rule pt-14">
+    <div className="band-head mt-0 border-t-2 border-text pt-12 sm:pt-16">
       <div className="font-mono text-xs leading-none font-semibold tracking-[0.06em] text-accent before:text-dim before:content-['##_']">
         {section.eyebrow}
       </div>

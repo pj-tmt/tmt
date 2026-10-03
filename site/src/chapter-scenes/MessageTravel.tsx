@@ -41,7 +41,7 @@ export function MessageTravel() {
       <div
         role="img"
         aria-label={travel.label}
-        className="relative overflow-hidden border border-term-edge shadow-[6px_6px_0_var(--c-accent)]"
+        className="relative overflow-hidden border-2 border-term-edge shadow-[6px_6px_0_var(--c-accent)]"
       >
         <div aria-hidden="true" className="grid grid-cols-1 gap-px bg-term-edge md:grid-cols-3">
           <Pane name={travel.lead} tag="claude" tone="text-t-review" rows={leadRows} step={index} />
@@ -70,17 +70,19 @@ export function MessageTravel() {
           req_9ba4
         </span>
       </div>
-      <ol className="m-0 mt-3.5 grid list-none grid-cols-1 gap-3 p-0 md:grid-cols-3">
+      <ol className="m-0 mt-5 grid list-none grid-cols-1 gap-4 p-0 md:grid-cols-3">
         {travel.steps.map((step, k) => {
           const on = k === 0 ? index === 0 : k === 1 ? index === 1 || index === 2 : index === 3;
           return (
             <li
               key={step.title}
-              className={`border-t-2 pt-2 text-[13.5px] leading-snug transition-colors motion-reduce:transition-none ${
-                on ? "border-waiting text-text" : "border-rule text-muted"
+              className={`border-2 bg-sheet p-3 text-[13.5px] leading-snug transition-colors motion-reduce:transition-none ${
+                on
+                  ? "border-waiting text-text shadow-[4px_4px_0_var(--c-waiting)]"
+                  : "border-rule text-muted"
               }`}
             >
-              <b className="block font-mono text-accent">{step.title}</b>
+              <b className="mb-1 block font-mono text-accent">{step.title}</b>
               {step.text}
             </li>
           );

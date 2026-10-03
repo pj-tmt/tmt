@@ -10,6 +10,12 @@ export function Cmd({ children }: { children: string }) {
     .map((line) => stripComment(line.slice(2)).trimEnd());
   return (
     <div className="group relative my-4 w-full border-2 border-text bg-sheet text-text shadow-[5px_5px_0_var(--c-text)]">
+      <div
+        aria-hidden="true"
+        className="border-b border-rule bg-accent-soft px-4 py-2 font-mono text-[11px] font-semibold text-muted"
+      >
+        $_ terminal
+      </div>
       <pre className="term-scroll m-0 px-4 py-3.5 font-mono text-[13px] leading-[1.65] sm:text-sm">
         {lines.map((line, index) => (
           <div key={index}>{renderLine(line)}</div>
@@ -59,7 +65,7 @@ function CopyButton({ text, plural }: { text: string; plural: boolean }) {
       type="button"
       onClick={copy}
       aria-label={plural ? "Copy commands" : "Copy command"}
-      className={`absolute top-1.5 right-1.5 cursor-pointer border bg-sheet px-2 py-1 font-mono text-[11px] leading-none opacity-100 transition-opacity sm:opacity-60 sm:group-hover:opacity-100 ${
+      className={`absolute top-1.5 right-2 cursor-pointer border bg-sheet px-2 py-1 font-mono text-[11px] leading-none shadow-[3px_3px_0_var(--c-text)] ${
         copied ? "border-working text-working" : "border-rule text-muted hover:text-text"
       }`}
     >

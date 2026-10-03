@@ -36,11 +36,11 @@ export function Journey() {
       onPointerLeave={() => setHeld(false)}
       onFocus={() => setHeld(true)}
       onBlur={() => setHeld(false)}
-      className="grid grid-cols-1 gap-x-6 gap-y-3.5 md:grid-cols-[210px_minmax(0,1fr)]"
+      className="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-[240px_minmax(0,1fr)]"
     >
       <ol
         aria-label={journey.stepsLabel}
-        className="relative m-0 grid list-none grid-cols-2 content-start gap-1.5 p-0 md:row-span-3 md:grid-cols-1"
+        className="relative m-0 grid list-none grid-cols-2 content-start gap-3 p-0 md:row-span-3 md:grid-cols-1"
       >
         {steps.map((item, k) => (
           <li key={item.id}>
@@ -48,13 +48,15 @@ export function Journey() {
               type="button"
               aria-pressed={k === index}
               onClick={() => choose(k)}
-              className={`grid w-full cursor-pointer gap-0.5 border-0 px-3 py-2.5 text-left font-body text-[13px] leading-snug ${
-                k === index ? "bg-sheet text-text" : "bg-transparent text-muted hover:text-text"
+              className={`grid w-full cursor-pointer gap-1 border-2 px-3 py-3 text-left font-body text-[13px] leading-snug ${
+                k === index
+                  ? "border-text bg-accent-soft text-text shadow-[3px_3px_0_var(--c-text)]"
+                  : "border-rule bg-sheet text-muted hover:border-accent hover:text-text"
               }`}
             >
               <b className="font-mono text-sm text-text">
-                <span aria-hidden="true" className="inline-block w-[1ch] text-accent">
-                  {k === index ? "›" : ""}
+                <span aria-hidden="true" className="mr-2 inline-block text-accent">
+                  {String(k + 1).padStart(2, "0")}
                 </span>{" "}
                 {journey.steps[k].title}
               </b>
@@ -63,7 +65,7 @@ export function Journey() {
           </li>
         ))}
       </ol>
-      <div className="flex min-h-[360px] items-center overflow-hidden border border-rule bg-paper p-4.5 [background-image:radial-gradient(circle_at_1px_1px,var(--c-rule)_1px,transparent_0)] [background-size:18px_18px]">
+      <div className="flex min-h-[360px] items-center overflow-hidden border-2 border-text bg-sheet p-5 shadow-[5px_5px_0_var(--c-text)] [background-image:radial-gradient(circle_at_1px_1px,var(--c-rule)_1px,transparent_0)] [background-size:18px_18px]">
         <div
           key={step.id}
           className="w-full animate-[grow_0.45s_ease-out] motion-reduce:animate-none"
@@ -79,7 +81,7 @@ export function Journey() {
           return (
             <div
               key={name}
-              className={`flex justify-between gap-2.5 border px-3 py-1.5 font-mono text-xs font-semibold transition-colors motion-reduce:transition-none ${
+              className={`flex justify-between gap-2.5 border-2 px-3 py-2 font-mono text-xs font-semibold transition-colors motion-reduce:transition-none ${
                 base
                   ? "border-accent bg-accent text-paper"
                   : on

@@ -60,7 +60,7 @@ function Toc({ current }: { current: Page }) {
   return (
     <aside
       aria-label={ui.onThisPage}
-      className="sticky top-9 hidden max-h-[calc(100vh-36px)] self-start overflow-auto pt-10 font-mono text-[12.5px] leading-[1.45] xl:block"
+      className="chapter-toc sticky top-14 hidden max-h-[calc(100vh-72px)] self-start overflow-auto font-mono text-[12.5px] leading-[1.45] xl:block"
     >
       <div className="mb-2.5 text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">
         {ui.onThisPage}
@@ -168,11 +168,11 @@ export function Layout() {
       <StatusBar current={current} />
       {current.path === "/" ? (
         // Home is one wide, edge-to-edge tour: no contents column, no pager.
-        <main className="mx-auto max-w-[1180px] min-w-0 px-4 pb-16">
+        <main className="home-page min-w-0 pb-16">
           <Outlet />
         </main>
       ) : (
-        <div className="mx-auto grid max-w-[900px] grid-cols-1 px-4 pb-16 xl:max-w-[1120px] xl:grid-cols-[minmax(0,860px)_200px] xl:gap-12">
+        <div className="chapter-page mx-auto grid grid-cols-1 pb-16 xl:grid-cols-[minmax(0,1fr)_220px] xl:gap-12">
           <main className="min-w-0">
             <Outlet />
             <Pager current={current} />
@@ -191,7 +191,7 @@ export function Chapter() {
   const note = fallback && <NotTranslated />;
   if (current.path === "/")
     return (
-      <section className="pt-14 pb-2">
+      <section className="pb-2">
         {note}
         <div lang={fallback ? "en" : undefined}>
           <Content />
@@ -199,17 +199,19 @@ export function Chapter() {
       </section>
     );
   return (
-    <section className="pt-10">
-      <div className="flex items-center gap-2.5 font-mono text-xs leading-none text-muted before:w-7 before:border-t before:border-rule after:flex-1 after:border-t after:border-rule">
-        <span className="text-text">{current.index}</span>
-        <span>{current.crumb}</span>
-        {current.status && <Tag kind={current.status.kind}>{current.status.label}</Tag>}
-      </div>
-      <h2 className="mt-4.5 mb-3.5 font-mono text-[clamp(26px,3.6vw,40px)] leading-[1.08] font-bold tracking-[-0.02em] text-balance">
-        {title}
-      </h2>
+    <section className="pt-8">
+      <header className="chapter-heading">
+        <div className="flex items-center gap-2.5 font-mono text-xs leading-none text-muted before:w-7 before:border-t before:border-rule after:flex-1 after:border-t after:border-rule">
+          <span className="text-text">{current.index}</span>
+          <span>{current.crumb}</span>
+          {current.status && <Tag kind={current.status.kind}>{current.status.label}</Tag>}
+        </div>
+        <h2 className="mt-4.5 mb-3.5 font-mono text-[clamp(26px,3.6vw,40px)] leading-[1.08] font-bold tracking-[-0.02em] text-balance">
+          {title}
+        </h2>
+      </header>
       {note}
-      <div lang={fallback ? "en" : undefined}>
+      <div className="chapter-body" lang={fallback ? "en" : undefined}>
         <Content />
       </div>
     </section>

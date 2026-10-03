@@ -139,3 +139,70 @@ th code {
     transform: scale(0.985);
   }
 }
+
+/* V1 keeps full-width visual bands, with a bounded measure for chapter prose. */
+.home-page {
+  --page-gutter: clamp(20px, 6vw, 96px);
+  padding-inline: var(--page-gutter);
+}
+.hero-band,
+.tour-band,
+.band-head {
+  margin-inline: calc(-1 * var(--page-gutter));
+  padding-inline: var(--page-gutter);
+}
+.hero-band {
+  padding-block: clamp(32px, 5vw, 72px) 40px;
+  background: var(--c-sheet);
+}
+#tour-working,
+#tour-colab {
+  background: var(--c-sheet);
+}
+.chapter-page {
+  max-width: 1320px;
+  padding-inline: clamp(20px, 4vw, 56px);
+}
+.chapter-heading {
+  margin-bottom: 32px;
+  border-bottom: 2px solid var(--c-text);
+  padding: 20px;
+  background: var(--c-accent-soft);
+}
+.chapter-heading h2 {
+  max-width: 28ch;
+}
+.chapter-toc {
+  margin-top: 32px;
+  border: 2px solid var(--c-text);
+  padding: 16px 12px;
+  background: var(--c-sheet);
+  box-shadow: 5px 5px 0 var(--c-text);
+}
+.chapter-body > p,
+.chapter-body > ul,
+.chapter-body > ol,
+.chapter-body > dl,
+.chapter-body > blockquote {
+  max-width: 66ch;
+}
+.chapter-body > h3 {
+  margin-top: 48px;
+  border-top: 1px solid var(--c-rule);
+  padding-top: 18px;
+  font: 700 22px/1.25 var(--f-mono);
+}
+.chapter-body > h3 code {
+  font-size: 1em;
+}
+.chapter-body > h4 {
+  font: 600 18px/1.35 var(--f-display);
+}
+@media (max-width: 639px) {
+  .chapter-heading {
+    padding: 16px;
+  }
+  .chapter-body > h3 {
+    font-size: 20px;
+  }
+}
