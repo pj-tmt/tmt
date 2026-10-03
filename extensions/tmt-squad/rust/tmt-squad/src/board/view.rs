@@ -1338,6 +1338,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         frame.render_widget(Paragraph::new(message), area);
         return;
     };
+    let Some(tab) = app.shown_tab() else { return };
     let rows = &view.rows;
     let mut derived = view.derived.borrow_mut();
     let available = usize::from(area.width).saturating_sub(2);
@@ -1395,14 +1396,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
             }
             None => layout,
         };
-        let cells = match crate::markup::row_values(
-            rows,
-            app.current
-                .as_deref()
-                .or_else(|| view.document["squad"]["name"].as_str())
-                .unwrap_or("board"),
-            app.rows(),
-        ) {
+        let cells = match crate::markup::row_values(rows, tab, app.rows()) {
             Ok(cells) => cells,
             Err(error) => {
                 frame.render_widget(Paragraph::new(format!("Row values: {error}")), area);
@@ -1664,6 +1658,45 @@ mod tests {
             row[key] = value.clone();
         }
         row
+    }
+
+    #[test]
+    fn admitted_ids_belong_to_the_shown_view_during_load_resize_and_search() {
+        use crate::board::app::tests::snapshot;
+        let sections = json!([{"title":null,"rows":[{"id":"member-a","name":"worker","fields":{"task":"work"}}]}]);
+        let mut app = App::new(Some("product".into()));
+        assert_eq!(app.shown_tab(), None);
+        draw(&app, 120, 30);
+        assert!(app.view.is_none());
+        app.apply(snapshot("product", sections.clone()));
+        let id = |app: &App| {
+            let view = app.view.as_ref().unwrap();
+            let derived = view.derived.borrow();
+            derived.grid.as_ref().unwrap().cells[0].id.clone().unwrap()
+        };
+        draw(&app, 120, 30);
+        let a = id(&app);
+        assert_eq!(&a[..3], &["tab:product", "section-0", "squad:product"]);
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)),
+            Effect::Load("infra".into())
+        );
+        assert!(app.loading());
+        app.search = "worker".into();
+        for width in [80, 120] {
+            draw(&app, width, 30);
+            assert_eq!(id(&app), a);
+        }
+        app.apply(snapshot("infra", sections));
+        draw(&app, 80, 30);
+        let b = id(&app);
+        assert_eq!(&b[..3], &["tab:infra", "section-0", "squad:infra"]);
+        assert_ne!(a, b);
+        assert!(!app.loading());
+        app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        draw(&app, 120, 30);
+        assert_eq!(id(&app), a);
+        assert!(!app.loading(), "cached switch restores the view's identity");
     }
 
     #[test]

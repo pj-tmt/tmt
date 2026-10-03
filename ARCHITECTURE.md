@@ -908,7 +908,9 @@ Squad is the sole reviewed product edge, through a normal dependency. Its row
 compiler binds already projected display values into bounded admitted cells,
 without acquiring or formatting sources. Occurrence IDs contain tab, authored
 section slot, source squad and member UUID, followed by static line/column keys;
-member order is never identity. UUID-free display rows have no actionable IDs.
+member order is never identity. `App::shown_tab` supplies the retained view owner
+while another tab loads; resize/search never substitutes the requested tab.
+UUID-free display rows have no actionable IDs.
 Taffy is the board's only row sizing owner and `text` its only scalar fitter;
 `grid::fit/fit_lines` remain only for CLI lists. Squad retains styled row spans,
 selection, scrolling and actions; full markup paint/hit adoption is still #776.

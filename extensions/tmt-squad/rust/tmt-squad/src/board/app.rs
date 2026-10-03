@@ -397,6 +397,11 @@ impl App {
         self.clamp();
     }
 
+    /// Tab owning the retained view, even while another tab loads.
+    pub(super) fn shown_tab(&self) -> Option<&str> {
+        self.shown.as_deref()
+    }
+
     /// The view on screen belongs to another squad while a switch loads.
     pub fn loading(&self) -> bool {
         self.view.is_some() && self.shown != self.current

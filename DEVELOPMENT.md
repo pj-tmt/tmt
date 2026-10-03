@@ -1172,8 +1172,8 @@ caller-owned selection, clipped identity precedence, wide edge blanks and
 recorded-width/fractional measure–paint agreement. Run the architecture test for
 dependency changes, and
 `cargo test --locked -p tmt-squad` for its in-memory source adapter and frozen
-board/list parity fixture, projected row identities, coverage, priority and
-CSS clamp/default-min mapping. Board fitting uses the shared grapheme owner;
+board/list parity fixture, projected and retained-view loading identities,
+coverage, priority and CSS clamp/default-min mapping. Board fitting uses the shared grapheme owner;
 CLI lists retain their scalar fitter. `text::measure` width is a capped upper
 bound, not the widest wrapped line: derive intrinsic demand from unwrapped
 escaped content; measurement and fitting share the recorded text width.
