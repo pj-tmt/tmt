@@ -3,6 +3,7 @@ mod epoch;
 mod links;
 mod membership;
 mod request;
+mod sharing;
 use crate::{
     Result,
     decoder::{Config as DecoderConfig, Decoder},
@@ -182,9 +183,9 @@ impl Engine {
             |tx, prepared| {
                 prepared.recheck(tx)?;
                 context.check_scope(&[request.page.into()])?;
-                let (statement, wraps) =
+                let (statements, wraps) =
                     prepared.commit(tx, key, &prepared.snapshot.authority, now)?;
-                membership::outcome(&[statement], wraps)
+                membership::outcome(&statements, wraps)
             },
         )
     }

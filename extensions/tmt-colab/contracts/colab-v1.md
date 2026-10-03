@@ -322,8 +322,9 @@ The replay digest purpose-separates normalized action, scope and transport bytes
 an exact replay returns the original outcome and signed head, and conflicting
 bytes/scope return `CONFLICT`. A fresh scope mismatch returns `STALE_HEAD`.
 With neither transport nor scope, existing root-local digests remain unchanged.
-The runner prerequisite implements member/link/device/epoch dispatch; its reserved
-page-policy actions return `UNAVAILABLE` until the #1160 policy slice lands.
+The runner implements member/link/device/epoch and page-policy actions. Public
+publication requires trusted loopback composition; request bytes cannot assert
+the backend's identity.
 This API is not transport admission. The caller serializes through sync first,
 then Registration; no request-carried field grants signing authority.
 
@@ -650,7 +651,9 @@ recent epochs (the current epoch plus 63 earlier, the same bound as public
 UI says that history before that point is not shared. One join is delivered as
 one or more wrap lists of at most 512 entries each, all committed in the same
 owner transition (one local SQLite, Firestore or DO storage transaction), so a
-join either receives every bounded wrap or none. Acceptance includes a page at
+join either receives every bounded wrap or none. Store admission evaluates
+history at the wrap's join revision; a current-history join rejects earlier
+epochs, while existing holders keep their previously admitted history. Acceptance includes a page at
 the epoch cap and a multi-page join that needs several wrap lists.
 
 Existing anchors remap through quote/context at the epoch reset and detach on
@@ -702,8 +705,10 @@ joins and replacements use the same bounded history wrap lists as members.
 Private pages admit named members only. Link pages additionally admit
 link-certified devices at the link role. Public mode is loopback-only in v1;
 Firestore and Cloudflare MUST reject public mode and key publication. Going
-public first advances the epoch with a baseline, then publishes only the new
-epoch key in an owner-signed statement. This discloses current live source and
+public first advances the epoch with a baseline, then publishes the new current
+epoch key in an owner-signed statement, with bounded earlier keys under shared
+history. Every later public-page rotation publishes its new key in that same
+owner transaction. This discloses current live source and
 everything protected by that key thereafter: own streams, comments, intents,
 agent-reply copies and attachments. Earlier epochs are published too unless the
 page history mode is `current`: trusted confirmation MUST state plainly that
@@ -719,7 +724,10 @@ link with `link.remove`. Private recipients are the implicit root owner, named
 members, their certified devices and bridges only; neither link principals nor
 link-certified devices receive a private-epoch wrap. Link-device edge admission
 ends and all their subscriptions terminate in the same transition. Links are
-revoked, not merely hidden by an index/edge projection. Re-enabling link sharing
+revoked, not merely hidden by an index/edge projection. Removing a link that
+covers several pages revokes it globally and rotates every other writable page
+it covers in the same transition. Trusted UI MUST warn about that scope before
+narrowing a page. Re-enabling link sharing
 requires an explicit owner action creating a NEW link identity; selecting link
 mode never reactivates a removed identity or its old bearer seed.
 
@@ -1486,7 +1494,12 @@ Spark compaction and expiry share the daily per-page delete budget; exhaustion
 backs off and keeps data longer, never loses live data. DO alarms delete page
 storage and R2 objects; R2 lifecycle cleans orphan staging only. Archive hides
 and freezes; delete ceases access and removes ciphertext. Neither promises
-secure erasure or recalls offline copies.
+secure erasure or recalls offline copies. The local owner engine signs retention
+changes without scheduling expiry. Archive allows reads/catchup but denies writes;
+delete denies reads, writes, catchup and queued delivery and removes the page's
+ciphertext, checkpoints, baselines, wraps and epoch secrets in the owner
+transaction. Signed policy, operation receipts and the reserved page ID remain;
+exact replay returns the saved outcome without restoring deleted data.
 
 The planned CLI surface is `serve`, `spaces`, `ls [--archived]`, `show [--json]`,
 `create <file|->`, `cat`, `edit (--file|--patch)`, `snapshot`, `restore`, `comment`,

@@ -1133,6 +1133,18 @@ fn retained_device_and_member_wraps_are_scoped_paged_and_ordered() {
             &serde_json::to_vec(&json!({"pageId":PAGE,"mode":"shared"})).unwrap(),
         )
         .unwrap();
+    let genesis: Vec<u8> = server
+        .oracle()
+        .query_row(
+            "SELECT envelope FROM membership_log WHERE revision=?",
+            [format!("{:020}", 1)],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let mut expected_statements = vec![
+        values::encode_binary(&genesis),
+        values::encode_binary(&change.to_json().unwrap()),
+    ];
     let mut expected = Vec::new();
     store
         .owner_transaction(
@@ -1147,6 +1159,19 @@ fn retained_device_and_member_wraps_are_scoped_paged_and_ordered() {
                 tx.append_statement(&change)?;
                 for epoch in 1..=65 {
                     tx.put_epoch_secret(PAGE, epoch, &[epoch as u8; 32])?;
+                    if epoch > 1 {
+                        let revision = tx.head().unwrap().revision + 1;
+                        // This transport fixture admits signed policy, without materializing baselines.
+                        let descriptor = json!({"pageId":PAGE,"epoch":epoch.to_string(),
+                            "sourceDigest":values::encode_binary(&[1;32]),"baselineCommitment":values::encode_binary(&[2;32]),
+                            "title":"","objectEnvelopeHash":values::encode_binary(&[3;32]),"membershipRevision":revision.to_string()});
+                        let advanced = key.sign_statement(tx.head(), "epoch.advance",
+                            &serde_json::to_vec(&json!({"pageId":PAGE,"epoch":epoch.to_string(),"cuts":[],
+                                "baseline":descriptor,"wraps":[]}))?)?;
+                        tx.append_statement(&advanced)?;
+                        tx.advance_epoch(PAGE, epoch - 1)?;
+                        expected_statements.push(values::encode_binary(&advanced.to_json()?));
+                    }
                     for (kind, id) in [
                         ("device", DEVICE),
                         ("device", OTHER),
@@ -1161,7 +1186,7 @@ fn retained_device_and_member_wraps_are_scoped_paged_and_ordered() {
                                 recipient_id: id.into(),
                                 recipient_key: member.encryption_key,
                                 signer_key: key.owner_public(),
-                                membership_revision: "2".into(),
+                                membership_revision: tx.head().unwrap().revision.to_string(),
                             },
                             &[epoch as u8; 32],
                         )?;
@@ -1175,10 +1200,6 @@ fn retained_device_and_member_wraps_are_scoped_paged_and_ordered() {
             },
         )
         .unwrap();
-    server
-        .oracle()
-        .execute("UPDATE pages SET epoch='65' WHERE page=?", [PAGE])
-        .unwrap();
     let mut peer = server.peer(DEVICE);
     let mut hello = server.frame(
         "hello",
@@ -1187,6 +1208,10 @@ fn retained_device_and_member_wraps_are_scoped_paged_and_ordered() {
     hello["epoch"] = "65".into();
     send(&mut peer, hello);
     let first = receive(&mut peer);
+    let mut statements = first["membershipHead"]["statements"]
+        .as_array()
+        .unwrap()
+        .clone();
     let ack = |peer: &mut WebSocket<UnixStream>| {
         let mut frame = server.frame("ack", json!({"cursors":[]}));
         frame["epoch"] = "65".into();
@@ -1198,6 +1223,11 @@ fn retained_device_and_member_wraps_are_scoped_paged_and_ordered() {
     loop {
         let page = receive(&mut peer);
         assert!(page["streams"].as_array().unwrap().is_empty());
+        if let Some(membership) = page.get("membership") {
+            statements.extend(membership["statements"].as_array().unwrap().clone());
+            ack(&mut peer);
+            continue;
+        }
         let wraps = page["wraps"].as_array().unwrap();
         assert!(wraps.len() <= 512);
         assert!(page.to_string().len() <= 65536);
@@ -1210,6 +1240,13 @@ fn retained_device_and_member_wraps_are_scoped_paged_and_ordered() {
     }
     assert!(count > 1);
     assert_eq!(actual, expected);
+    assert_eq!(
+        statements,
+        expected_statements
+            .into_iter()
+            .map(Value::String)
+            .collect::<Vec<_>>()
+    );
     let root = values::binary(first["membershipHead"]["ownerKey"].as_str().unwrap(), 32).unwrap();
     assert_eq!(
         crypto::space_id(root.as_slice().try_into().unwrap()).unwrap(),
@@ -1485,9 +1522,9 @@ fn large_membership_statement_bootstraps_with_exact_chunks_and_frame_credit() {
 }
 
 #[test]
-fn membership_transfer_refuses_sql_oversize_before_loading_bytes() {
+fn mounted_owner_rejects_corrupt_oversized_membership_log() {
     let server = Running::start(Tunnels::PRODUCT);
-    // Keep genesis intact so registered-owner admission remains a positive control.
+    // Owner admission verifies page policy before transport reads the corrupted log.
     let layout = Layout::open(&server.root).unwrap();
     let key = Keyring::read(&layout).unwrap();
     let mut store = Store::open(&layout).unwrap();
@@ -1532,7 +1569,7 @@ fn membership_transfer_refuses_sql_oversize_before_loading_bytes() {
             json!({"device":DEVICE,"membershipRevision":"0","cursors":[]}),
         ),
     );
-    assert_eq!(receive(&mut peer)["code"], "CAPACITY");
+    assert_eq!(receive(&mut peer)["code"], "DENIED");
     let size: i64 = server
         .oracle()
         .query_row(

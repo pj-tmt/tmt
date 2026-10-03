@@ -3345,7 +3345,12 @@ head after subsequent writes and reopening. Existing membership/link/epoch cases
 continue through their thin `Engine::apply` wrappers, including late-write rollback
 and moving-snapshot retries. `OwnerRequest.scope = None` preserves root-local
 composition; a browser management caller must admit its live signature/session
-and supply its transport digest and scope. No management route is added here.
+and supply its transport digest and scope. Page-policy cases cover all narrowing
+pairs, global multi-page link revocation, public key publication after subsequent
+rotations, current/shared joins at the 64-epoch cap, earlier-wrap rejection,
+finite/forever retention and late-write rollback of sharing/deletion. Deletion
+checks durable ciphertext removal, tombstones and exact replay after reopening.
+No management route is added here.
 
 ### Colab owner registration verification
 
@@ -3353,6 +3358,9 @@ Run `(cd rust && cargo test --offline --locked -p tmt-colab --test registration)
 for real SQLite/keyring persistence, strict certificate admission, exact retry,
 one-year certificate validity/renewal, transaction rollback, revision-ordered
 revocation and the mounted HTTP endpoint exercised twice with socket cleanup.
+Archive/delete verification uses real OwnerAdmission and duplex WebSockets:
+archived reads and queued delivery continue, archived appends fail, and deletion
+denies reads/writes/catchup and drops queued ciphertext before socket disclosure.
 The independent management-key/remote-certificate oracle is
 `python3 extensions/tmt-colab/contracts/vectors/authority-reference.py` (requires
 the same Python cryptography tooling as the model foundation). Rust consumes
@@ -3413,6 +3421,8 @@ updates use one bounded, deadline-limited inbound transfer before append verific
 large broadcasts/catchup objects stream chunks lazily. Tests cover more pages/chunks
 than queue slots, concurrent appends during catchup, paired namespace checkpoints,
 exact reassembly/replay, partial-byte isolation and transfer failure/cleanup.
+Sync fixtures inject admission to prove SQL-side statement-size refusal before
+parsing; mounted owner admission separately rejects corrupt policy logs.
 Shared sequence tests verify signed checkpoint heads and every subsequent hash
 across interleaved content/own tails. An unpaired checkpoint leaves full history
 available and bootstrap uses the previous pair, or the complete update chain.
@@ -3428,7 +3438,7 @@ registered owner tabs through the real mounted socket: append/broadcast, durable
 retry/catchup, read-only `/api/session` and `/api/pages` owner discovery,
 130-revision exact-byte membership paging and unknown-revision resync,
 large signed statements through exact chunks across the eight-frame credit window,
-resumed first-page references and SQL-side statement-size refusal,
+resumed first-page references and corrupt-log denial during owner admission,
 inline/chunked baseline-first ordering before statements for fresh/resumed clients,
 strict event bodies/header/path, failed-revoke rollback, replay
 without writes, active/pre-hello tunnel closure, cap/idle bounds and shutdown.
