@@ -167,16 +167,12 @@ fn help_lines(app: &App) -> Vec<String> {
         lines.push("coverage   no data hides; measured zero is 0; ≥ means a reporting member/interval is missing".into());
         {
             for id in &app.excluded_counters {
-                let name = app
-                    .view
-                    .as_ref()
-                    .and_then(|view| view.document["sections"].as_array())
-                    .into_iter()
-                    .flatten()
-                    .flat_map(|section| section["rows"].as_array().into_iter().flatten())
-                    .find(|row| row["id"].as_str() == Some(id.as_str()))
-                    .and_then(|row| row["name"].as_str())
-                    .unwrap_or(id);
+                let name = rate
+                    .input
+                    .names
+                    .get(id)
+                    .map(String::as_str)
+                    .unwrap_or("unknown member");
                 lines.push(format!(
                     "excluded   {name}: no usage counters at last board refresh"
                 ));
