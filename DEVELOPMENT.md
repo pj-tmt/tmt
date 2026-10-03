@@ -1449,7 +1449,7 @@ above, since the host harness also asks every runtime operation:
 
 ```bash
 (cd rust && cargo test --locked -p tmt-driver-protocol)
-(cd rust && cargo test --locked -p tmt-cli --test herdr_driver)
+(cd rust && cargo test --locked -p tmt-driver-herdr --test herdr_driver)
 (cd rust && cargo test --locked -p tmt-adapters --lib host::external)
 ```
 
