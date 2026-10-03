@@ -135,40 +135,37 @@ impl Action {
     pub fn description(&self) -> String {
         let target = self.args.first().and_then(Template::literal);
         match self.verb {
-            Verb::Jump if target == Some("lead") => "jump to the squad lead".into(),
-            Verb::Jump => "jump to the selected member".into(),
-            Verb::Back => "return to the previous pane".into(),
-            Verb::Open => "open the selected member's link".into(),
-            Verb::Copy => "copy text from the selected member".into(),
-            Verb::Notes => "focus the squad lead's notebook".into(),
-            Verb::Refresh => "reload the board".into(),
-            Verb::TokenWindow => "cycle the token-rate time window".into(),
-            Verb::Theme => "choose the board's theme".into(),
-            Verb::Settings => "open the board settings".into(),
-            Verb::View => "choose the pane arrangement".into(),
-            Verb::Run => "run the configured program for the selected member".into(),
-            Verb::NextPane => "focus the next pane".into(),
-            Verb::Toggle => format!(
-                "fold or unfold the {} {}",
-                self.args
-                    .iter()
-                    .filter_map(Template::literal)
-                    .collect::<Vec<_>>()
-                    .join(" and "),
-                if self.args.len() == 1 {
-                    "pane"
-                } else {
-                    "panes"
-                },
-            ),
-            Verb::Menu => "show actions for the selected row".into(),
-            Verb::Tab => "open the selected squad".into(),
-            Verb::Talk => "write a message to the selected member".into(),
-            Verb::Reply => "answer a request from the selected member".into(),
-            Verb::Annotate if target == Some("member") => {
-                "write an annotation for the selected member".into()
+            Verb::Jump if target == Some("lead") => "go to the lead's pane".into(),
+            Verb::Jump => "go to the member's pane".into(),
+            Verb::Back => "go back to the previous pane".into(),
+            Verb::Open => "open the member's link".into(),
+            Verb::Copy => "copy from the selected row".into(),
+            Verb::Notes => "show the lead's notes".into(),
+            Verb::Refresh => "refresh the board now".into(),
+            Verb::TokenWindow => "switch the token time window".into(),
+            Verb::Theme => "pick a theme".into(),
+            Verb::Settings => "show settings".into(),
+            Verb::View => "pick a pane layout".into(),
+            Verb::Run => "run your program for this member".into(),
+            Verb::NextPane => "move to the next pane".into(),
+            Verb::Toggle => {
+                let panes: Vec<_> = self.args.iter().filter_map(Template::literal).collect();
+                let names = match panes.split_last() {
+                    Some((last, [])) => (*last).to_owned(),
+                    Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+                    None => String::new(),
+                };
+                format!(
+                    "fold or unfold the {names} {}",
+                    if panes.len() == 1 { "pane" } else { "panes" },
+                )
             }
-            Verb::Annotate => "write an annotation for the squad lead".into(),
+            Verb::Menu => "show actions for this row".into(),
+            Verb::Tab => "open the selected squad".into(),
+            Verb::Talk => "send the member a message".into(),
+            Verb::Reply => "answer the member's request".into(),
+            Verb::Annotate if target == Some("member") => "send the member a note".into(),
+            Verb::Annotate => "send the lead a note".into(),
         }
     }
 
@@ -404,22 +401,20 @@ mod tests {
             }
         }
         for (configured, description) in [
-            ("jump", "jump to the selected member"),
-            ("jump lead", "jump to the squad lead"),
-            (
-                "annotate member",
-                "write an annotation for the selected member",
-            ),
-            ("annotate lead", "write an annotation for the squad lead"),
+            ("jump", "go to the member's pane"),
+            ("jump lead", "go to the lead's pane"),
+            ("annotate member", "send the member a note"),
+            ("annotate lead", "send the lead a note"),
             ("toggle notes", "fold or unfold the notes pane"),
             (
                 "toggle detail replies",
                 "fold or unfold the detail and replies panes",
             ),
             (
-                "run editor {cwd}",
-                "run the configured program for the selected member",
+                "toggle rows notes detail replies",
+                "fold or unfold the rows, notes, detail and replies panes",
             ),
+            ("run editor {cwd}", "run your program for this member"),
         ] {
             let action = Action::parse(configured).unwrap();
             assert_eq!(action.description(), description);
