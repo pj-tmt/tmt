@@ -1323,7 +1323,9 @@ recover authority by retrying. New operations fence the expected owner revision.
 The owner-only `POST /.tmt/colab/management` route takes exactly
 `space, page, expectedRevision, operationId, operation, payload`; revision is canonical
 positive decimal text and payload is canonical base64url of the same typed JSON.
-It is authorized solely by the owned private Unix socket, not forwarded headers;
+It is authorized solely by the owned private Unix socket. Any `tmt-device-context`
+or `tmt-device-event` header, including an empty or malformed value, is DENIED
+with 403 before payload parsing; forwarded headers never grant root authority.
 Remote refuses browser forwarding into `/.tmt/`. Its digest is
 SHA256(LP(`tmt-colab-local-management-transport-v1`, exactBodyBytes)). The root-local
 caller supplies no fabricated browser device. Offline CLI composition can call the

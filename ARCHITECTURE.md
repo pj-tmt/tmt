@@ -4519,7 +4519,8 @@ reserved `POST /.tmt/colab/management` through the sync lock before Registration
 matching upgrade/event admission. Registration supplies the live registered sender
 key and delegates admitted requests to its private engine. Browser request scope is
 checked atomically by the engine; the boundary does not race a separate assignment
-read against mutation. The private socket supplies root authority for local IPC;
+read against mutation. The private socket supplies root authority for local IPC only without forwarded
+device-context or event headers; their presence is denied before payload parsing.
 Remote refuses forwarding the reserved subtree from browser mounts.
 
 The engine remains the sole transition/signing/receipt owner. Management passes an

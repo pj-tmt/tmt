@@ -1557,7 +1557,11 @@ fn management_owner_admission_exact_replay_local_ipc_and_epoch_close_twice() {
         // The reserved socket route is root-authorized even without a Remote device.
         let local_added = server.event(ipc, "", &local);
         management_response(&server, &local_added, "3");
-        assert_eq!(server.event(ipc, &non_owner_header, &local), local_added);
+        assert!(
+            server
+                .event(ipc, &non_owner_header, &local)
+                .ends_with("DENIED")
+        );
         assert_eq!(
             server.event(path, &header, &body),
             response,
@@ -1854,4 +1858,50 @@ fn management_reserved_policy_requests_are_unavailable_without_partial_statement
             .unwrap(),
         1
     );
+}
+
+#[test]
+fn management_root_ipc_rejects_forwarded_headers_before_parsing_without_effects() {
+    let server = Running::start(Tunnels::PRODUCT);
+    server
+        .oracle()
+        .execute(
+            "INSERT INTO epoch_secrets(page,epoch,secret) VALUES (?, '00000000000000000001', ?)",
+            rusqlite::params![PAGE, [8u8; 32].as_slice()],
+        )
+        .unwrap();
+    let path = tmt_colab::management::LOCAL_PATH;
+    let body = local_management(
+        &server,
+        "40000000-0000-4000-8000-000000000007",
+        1,
+        "member.add",
+        management_member("60000000-0000-4000-8000-000000000001", 20),
+    );
+    for header in [
+        format!("{}\r\n", owner(DEVICE)),
+        "tmt-device-context: not json\r\n".into(),
+        "tmt-device-context: \r\n".into(),
+        "tmt-device-event: 1\r\n".into(),
+        "tmt-device-event: forged\r\n".into(),
+        "tmt-device-event: \r\n".into(),
+        format!("{}\r\ntmt-device-event: 1\r\n", owner(DEVICE)),
+    ] {
+        for body in [body.as_str(), "not json"] {
+            let response = server.event(path, &header, body);
+            assert!(
+                response.starts_with("HTTP/1.1 403") && response.ends_with("DENIED"),
+                "{response}"
+            );
+        }
+    }
+    for table in ["membership_log", "owner_operations", "recipients"] {
+        let count: i64 = server
+            .oracle()
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1, "forwarded local request changed {table}");
+    }
+    // The same frozen request remains usable by a root-local caller without headers.
+    management_response(&server, &server.event(path, "", &body), "2");
 }
