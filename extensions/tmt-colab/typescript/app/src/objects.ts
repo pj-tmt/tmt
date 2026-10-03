@@ -37,6 +37,7 @@ interface Head {
  * Authenticated plaintext carries its namespace and writer into the isolated fold. */
 export class Objects {
   #heads = new Map<string, Head>();
+  #ownSigningKeys = new Map<string, Uint8Array>();
   #seen = new Map<string, Uint8Array>();
   #positions = new Map<
     string,
@@ -48,6 +49,11 @@ export class Objects {
   head(stream: string) {
     const h = this.#heads.get(stream);
     return { seq: h?.seq ?? 0n, hash: h?.hash.slice() ?? new Uint8Array(32) };
+  }
+  /** Display verification only: this key came from a cut-admitted, authenticated
+   * own envelope. It does not grant current publication or Remote authority. */
+  ownSigningKey(writer: string): Uint8Array | undefined {
+    return this.#ownSigningKeys.get(writer)?.slice();
   }
   cursors() {
     return [...this.#positions]
@@ -154,7 +160,10 @@ export class Objects {
       seq: entry.seq,
       envelopeHash: entry.envelopeHash,
     });
-    if (ns === 'own') this.ownData = true;
+    if (ns === 'own') {
+      this.ownData = true;
+      this.#ownSigningKeys.set(stream, key.slice());
+    }
     return { namespace: ns, writer: stream, update: plaintext };
   }
   async streams(

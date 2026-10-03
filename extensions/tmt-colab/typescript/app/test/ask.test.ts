@@ -10,8 +10,8 @@ import {
   text,
 } from '@tmt/colab-client';
 import { FrozenAsk, REQUEST_BYTES, escapedPreview } from '../src/ask-intent.js';
-import { AskAttempt, storeAskDraft } from '../src/ask-attempt.js';
-import { destination, id, RemoteDouble, selection } from './ask-fixtures.js';
+import { storeAskDraft } from '../src/ask-record-store.js';
+import { destination, id, selection } from './ask-fixtures.js';
 
 const records = new Map<string, unknown>();
 vi.mock('../src/storage.js', () => ({
@@ -112,9 +112,9 @@ it('rejects credentials, invalid Unicode, noncanonical scope/list and over-limit
     }),
   ).toThrow();
   expect(() => FrozenAsk.capture(selection(), { ...destination(), grantRevision: '01' })).toThrow();
-  const base = preview().finalBytes().length;
+  const base = preview().deliveredBytes().length;
   const exact = { ...selection(), comment: selection().comment + 'x'.repeat(REQUEST_BYTES - base) };
-  expect(FrozenAsk.capture(exact, destination()).finalBytes()).toHaveLength(REQUEST_BYTES);
+  expect(FrozenAsk.capture(exact, destination()).deliveredBytes()).toHaveLength(REQUEST_BYTES);
   expect(() =>
     FrozenAsk.capture({ ...exact, comment: exact.comment + 'x' }, destination()),
   ).toThrow();
@@ -129,69 +129,6 @@ it('rejects expired/future intents and extractable keys before signing or adopti
     'verify',
   ])) as CryptoKeyPair;
   await expect(preview().signed(extractable.privateKey)).rejects.toThrow();
-});
-it('cannot send without a Remote port; reads and construction never dispatch', async () => {
-  const adopt = vi.fn(async () => 'created' as const),
-    remote = new RemoteDouble();
-  const frozen = preview(),
-    unavailable = new AskAttempt(frozen, await key(), adopt);
-  await expect(unavailable.send()).rejects.toThrow('unavailable');
-  expect(adopt).not.toHaveBeenCalled();
-  await remote.listAgents();
-  await remote.operation(frozen.view.operationId);
-  await remote.check();
-  await remote.result('req_' + id(8));
-  expect(remote.sends).toHaveLength(0);
-});
-it('persists before send and coalesces double clicks without altering the reviewed message', async () => {
-  const remote = new RemoteDouble(),
-    frozen = preview();
-  let release!: () => void;
-  const barrier = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const adopt = vi.fn(async () => {
-    await barrier;
-    return 'created' as const;
-  });
-  const attempt = new AskAttempt(frozen, await key(), adopt, remote);
-  const one = attempt.send(),
-    two = attempt.send();
-  expect(one).toBe(two);
-  expect(remote.sends).toHaveLength(0);
-  release();
-  expect((await one).state).toBe('accepted');
-  expect(remote.sends).toEqual([
-    { operationId: frozen.view.operationId, agentId: id(6), message: frozen.view.message },
-  ]);
-  await attempt.send();
-  expect(remote.sends).toHaveLength(1);
-  expect(adopt).toHaveBeenCalledOnce();
-});
-it('storage failure and expiry during storage have no send effect', async () => {
-  const remote = new RemoteDouble();
-  const failed = new AskAttempt(
-    preview(),
-    await key(),
-    async () => {
-      throw new Error('disk full');
-    },
-    remote,
-  );
-  expect((await failed.send()).state).toBe('failed');
-  const frozen = preview();
-  const expired = new AskAttempt(
-    frozen,
-    await key(),
-    async () => {
-      vi.spyOn(Date, 'now').mockReturnValue(frozen.expiresAt);
-      return 'created';
-    },
-    remote,
-  );
-  expect((await expired.send()).state).toBe('failed');
-  vi.restoreAllMocks();
-  expect(remote.sends).toHaveLength(0);
 });
 it('persists only signed metadata, never the plaintext quote, comment or encoded final bytes', async () => {
   records.clear();
@@ -213,33 +150,14 @@ it('persists only signed metadata, never the plaintext quote, comment or encoded
   ])
     expect(stored).not.toContain(JSON.stringify(plaintext));
 });
-it('a persisted draft only permits uncertainty on reopen, never a second send; conflicts preserve metadata', async () => {
+it('reservation conflicts preserve immutable metadata', async () => {
   records.clear();
-  const remote = new RemoteDouble(),
-    frozen = preview(),
-    signer = await key();
-  expect((await new AskAttempt(frozen, signer, storeAskDraft, remote).send()).state).toBe(
-    'accepted',
-  );
-  expect((await new AskAttempt(frozen, signer, storeAskDraft, remote).send()).state).toBe(
-    'uncertain',
-  );
-  expect(remote.sends).toHaveLength(1);
-  const signed = await frozen.signed(signer),
-    stored = structuredClone([...records.values()]);
+  const signed = await preview().signed(await key());
+  expect(await storeAskDraft(signed)).toBe('created');
+  expect(await storeAskDraft(signed)).toBe('existing');
+  const stored = structuredClone([...records.values()]);
   await expect(storeAskDraft({ ...signed, input: encodeBinary(text('changed')) })).rejects.toThrow(
     'INTENT_CONFLICT',
   );
   expect([...records.values()]).toEqual(stored);
-});
-it('lost or miscorrelated responses remain uncertain and never retry; hold is not acceptance', async () => {
-  for (const mode of ['throw', 'wrong_id', 'held'] as const) {
-    const remote = new RemoteDouble();
-    remote.mode = mode;
-    const attempt = new AskAttempt(preview(), await key(), async () => 'created', remote);
-    expect((await attempt.send()).state).toBe(mode === 'held' ? 'held' : 'uncertain');
-    await attempt.send();
-    expect(remote.sends).toHaveLength(1);
-    expect(remote.reads).toHaveLength(0);
-  }
 });

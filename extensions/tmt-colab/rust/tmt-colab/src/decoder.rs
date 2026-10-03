@@ -479,6 +479,12 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
             {
                 return Err(DecodeFault::InvalidOutput);
             }
+            for root in ["intents", "messages", "replies"] {
+                for (key, value) in roots[root].as_object().ok_or(DecodeFault::InvalidOutput)? {
+                    crate::ask::validate_record(root, key, value)
+                        .map_err(|_| DecodeFault::InvalidOutput)?;
+                }
+            }
             for message in messages.values() {
                 if message
                     .get("body")

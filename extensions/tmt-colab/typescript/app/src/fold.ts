@@ -84,13 +84,15 @@ export class Fold {
     )
       return Promise.reject(new Error('Decoder baseline capacity'));
     const writers = new Set(this.#writers);
-    for (const writer of command.type === 'checkpoint'
-      ? command.writer === undefined
-        ? []
-        : [command.writer]
-      : command.type === 'apply' || command.type === 'check'
-        ? (command.own ?? []).map((v) => v.writer)
-        : []) {
+    for (const writer of command.type === 'prepare-own'
+      ? [command.writer]
+      : command.type === 'checkpoint'
+        ? command.writer === undefined
+          ? []
+          : [command.writer]
+        : command.type === 'apply' || command.type === 'check'
+          ? (command.own ?? []).map((v) => v.writer)
+          : []) {
       generatedId(writer);
       writers.add(writer);
     }
@@ -102,7 +104,8 @@ export class Fold {
         resolve,
         reject,
         writers,
-        commit: command.type !== 'check' && command.type !== 'prepare',
+        commit:
+          command.type !== 'check' && command.type !== 'prepare' && command.type !== 'prepare-own',
       };
       this.#timer = setTimeout(() => this.close(), 2000);
       try {

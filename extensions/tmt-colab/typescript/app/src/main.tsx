@@ -6,8 +6,7 @@ import { previewTransport } from './local-pages.js';
 import 'virtual:tokens.css';
 import './style.css';
 
-import { mountedTransport } from './mounted.js';
-import { text } from './strings.js';
+import { MountedApp } from './mounted-app.js';
 
 const root = createRoot(document.getElementById('root')!);
 async function start() {
@@ -20,24 +19,9 @@ async function start() {
     return;
   }
   root.render(
-    <main className="notice" role="status">
-      <h1>{text.registering}</h1>
-    </main>,
+    <StrictMode>
+      <MountedApp />
+    </StrictMode>,
   );
-  try {
-    const { space, transport } = await mountedTransport();
-    root.render(
-      <StrictMode>
-        <RouterProvider router={createAppRouter(transport, space)} />
-      </StrictMode>,
-    );
-  } catch {
-    root.render(
-      <main className="notice" role="alert">
-        <h1>{text.registrationFailed}</h1>
-        <button onClick={() => location.reload()}>{text.reload}</button>
-      </main>,
-    );
-  }
 }
 void start();

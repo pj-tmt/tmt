@@ -109,7 +109,7 @@ async function wire(
   await context.route('**/sdk/remote-v1.js*', (route) =>
     route.fulfill({
       contentType: 'text/javascript',
-      body: `export async function reopenSession(){await window.fixtureKeys;} export async function certifyKey(purpose,bytes){return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'}}`,
+      body: `export async function reopenSession(){sessionStorage.setItem('test:reopens',String(Number(sessionStorage.getItem('test:reopens')??0)+1));await window.fixtureKeys;} export async function certifyKey(purpose,bytes){return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'}}`,
     }),
   );
   await context.route(`**${mount}api/session`, (route) =>
@@ -467,7 +467,12 @@ async function wire(
         });
     }
   }
+  let accepting = true;
   await context.routeWebSocket(`**${mount}sync`, (socket) => {
+    if (!accepting) {
+      socket.close({ code: 1011 });
+      return;
+    }
     let pending: { frame: Record<string, unknown>; parts: Uint8Array[] } | null = null;
     outgoing.set(socket, { frames: [], waiting: false });
     socket.onClose(() => {
@@ -717,6 +722,13 @@ async function wire(
     get hellos() {
       return hellos;
     },
+    stopSync() {
+      accepting = false;
+      for (const peer of peers) peer.close({ code: 1011 });
+    },
+    resumeSync() {
+      accepting = true;
+    },
     resync() {
       for (const peer of peers) send(peer, 'error', { code: 'RESYNC_REQUIRED' });
     },
@@ -759,28 +771,232 @@ async function wire(
   };
 }
 
-test('two same-device tabs edit one durable stream, chunk, reload and retry exact accepted bytes', async ({
+async function recoverySdk(context: BrowserContext) {
+  await context.route('**/sdk/remote-v1.js*', (route) =>
+    route.fulfill({
+      contentType: 'text/javascript',
+      body: `export async function reopenSession(){
+      sessionStorage.setItem('test:reopens',String(Number(sessionStorage.getItem('test:reopens')??0)+1));
+      const response=await fetch('/test-recovery-open',{method:'POST'});
+      if(!response.ok) throw new Error('No paired key or reopen unavailable');
+      await window.fixtureKeys;
+    }
+    export async function certifyKey(purpose,bytes){return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'}}`,
+    }),
+  );
+}
+const privateGuidance = `<!doctype html><html lang="en"><h1>TMT Colab</h1>
+<p id="colab-recovery-status">Opening your paired browser…</p>
+<p id="colab-guidance" hidden>This colab space is private. Open it from a browser paired with tmt remote pair, or use a share link.</p>
+<script type="module" src="./assets/recovery.js"></script></html>`;
+
+test('paired guidance reopens once, reloads into the owner app and clears its recovery marker', async ({
+  page,
+  context,
+}) => {
+  await wire(context);
+  await recoverySdk(context);
+  let owner = false,
+    opens = 0;
+  await context.route('**/test-recovery-open', (route) => {
+    opens++;
+    owner = true;
+    return route.fulfill({ json: {} });
+  });
+  await context.route(`**${mount}`, (route) =>
+    owner ? route.continue() : route.fulfill({ contentType: 'text/html', body: privateGuidance }),
+  );
+  await page.goto(mount);
+  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' }),
+  ).toBeVisible();
+  expect(opens).toBe(2); // Guidance recovery, then normal authenticated registration.
+  expect(
+    await page.evaluate((path) => sessionStorage.getItem(`colab-recovery:${path}`), mount),
+  ).toBeNull();
+});
+
+for (const mode of ['unpaired', 'failed', 'cookie-lost'] as const) {
+  test(`private guidance ${mode} stays visible without an automatic reopen loop`, async ({
+    page,
+    context,
+  }) => {
+    await wire(context);
+    await recoverySdk(context);
+    let opens = 0;
+    await context.route('**/test-recovery-open', (route) => {
+      opens++;
+      return route.fulfill({ status: mode === 'cookie-lost' ? 200 : 503, json: {} });
+    });
+    await context.route(`**${mount}`, (route) =>
+      route.fulfill({ contentType: 'text/html', body: privateGuidance }),
+    );
+    await page.goto(mount);
+    await expect(page.locator('#colab-guidance')).toBeVisible();
+    expect(opens).toBe(1);
+    expect(
+      await page.evaluate((path) => sessionStorage.getItem(`colab-recovery:${path}`), mount),
+    ).toBe('attempted');
+    await page.reload();
+    await expect(page.locator('#colab-guidance')).toBeVisible();
+    expect(opens).toBe(1);
+  });
+}
+
+test('a disconnected active tab explicitly reconnects and reloads without background session reopen', async ({
+  page,
+  context,
+}) => {
+  const f = await wire(context);
+  await recoverySdk(context);
+  let opens = 0;
+  await context.route('**/test-recovery-open', (route) => {
+    opens++;
+    f.resumeSync();
+    return route.fulfill({ json: {} });
+  });
+  await page.goto(mount);
+  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
+  await expect(heading).toBeVisible();
+  f.stopSync();
+  await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toBeVisible();
+  expect(opens).toBe(1);
+  await page.screenshot({
+    path: '/private/tmp/colab-1110-design/colab-reconnect.png',
+    fullPage: true,
+  });
+  await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
+  await expect(heading).toBeVisible();
+  expect(opens).toBe(3); // Explicit recovery plus normal registration after reload.
+  await expect.poll(() => f.connections).toBe(1);
+  await page.getByRole('link', { name: 'Space home' }).click();
+  await expect.poll(() => f.connections).toBe(0);
+});
+
+test('Ask publishes owner own envelopes through production Connection before Remote dispatch', async ({
+  page,
+  context,
+}) => {
+  const f = await wire(context),
+    agentId = '00000000-0000-4000-8000-000000000006',
+    requestId = 'req_00000000-0000-4000-8000-000000000007',
+    reply = 'Wire reply <script>inert</script>';
+  let sends = 0;
+  let deliveredMessage: string | null = null;
+  let operationId: string | null = null;
+  // Only Remote and the signed sync server are doubles: registration, controller,
+  // Worker preparation, Writer, Connection, receipts and projection are production.
+  await context.route('**/sdk/remote-v1.js*', (route) =>
+    route.fulfill({
+      contentType: 'text/javascript',
+      body: `export async function reopenSession(){await window.fixtureKeys;return {sessionId:'fixture-session',serverTimeMs:Date.now(),grantRevision:'1',expiresAtMs:null}}
+export async function certifyKey(purpose,bytes){return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'}}
+export function operations(){return {
+listAgents:async()=>[{id:'${agentId}',name:'Wire agent',presence:'active'}],
+send:async(input)=>(await fetch('/test-wire-send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)})).json(),
+operation:async(operationId)=>({state:'accepted',operationId,requestId:'${requestId}'}),
+result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.stringify(reply)}})
+}}`,
+    }),
+  );
+  await context.route('**/sdk/mount', (route) =>
+    route.fulfill({
+      json: {
+        machineId: '00000000-0000-4000-8000-000000000005',
+        windowId: 'fixture',
+        address: 'fixture',
+        extension: 'colab',
+        mount,
+      },
+    }),
+  );
+  await context.route('**/test-wire-send', async (route) => {
+    const input = route.request().postDataJSON();
+    await f.settled();
+    const own = new Y.Doc();
+    try {
+      for (const row of f.entries.slice(1)) {
+        const envelope = c.Envelope.fromJson(c.binary(row.envelope, 400 * 1024)),
+          header = c.decodeHeader(envelope.header()).context;
+        expect(header.namespace).toBe('own');
+        expect(header.authorDevice).toBe(v.device);
+        Y.applyUpdate(own, await envelope.open(header, hex(v.epochKey), hex(v.public)));
+      }
+      const intent = own.getMap('intents').get(input.operationId) as {
+        signed: { signature: string; input: string; finalBytes: string };
+      };
+      expect(intent).toBeDefined();
+      expect(
+        await c.strictVerify(
+          hex(v.public),
+          c.binary(intent.signed.signature, 64, 64),
+          c.binary(intent.signed.input, 16 * 1024),
+        ),
+      ).toBe(true);
+      expect(c.decodeText(c.binary(intent.signed.finalBytes, 64 * 1024))).toBe(input.message);
+      expect([...own.getMap('messages').values()]).toContainEqual(
+        expect.objectContaining({ operationId: input.operationId, state: 'dispatching' }),
+      );
+      expect(input.agentId).toBe(agentId);
+      expect(deliveredMessage).toBe(`[remote: Fixture]\n${input.message}`);
+      operationId = input.operationId;
+      sends++;
+      await route.fulfill({ json: { state: 'accepted', operationId, requestId } });
+    } finally {
+      own.destroy();
+    }
+  });
+  await page.goto(mount);
+  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
+  await expect(heading).toBeVisible();
+  await heading.evaluate((node) => {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    getSelection()!.removeAllRanges();
+    getSelection()!.addRange(range);
+  });
+  await page.getByTestId('ask-action').click();
+  await page.getByTestId('ask-agent-option').getByRole('radio').check();
+  await page.getByRole('button', { name: 'Ask agent — preview', exact: true }).click();
+  deliveredMessage = await page.getByTestId('ask-preview-text').textContent();
+  await page.getByTestId('ask-send').click();
+  await expect(page.getByTestId('ask-reply')).toHaveText(reply);
+  expect(sends).toBe(1);
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
+  await expect(page.getByTestId('ask-state')).toHaveAttribute('data-state', 'accepted');
+  await expect(page.getByTestId('ask-reply-attribution')).toContainText('Reply from Wire agent');
+  await expect(page.getByTestId('ask-panel').locator('script')).toHaveCount(0);
+  await expect(heading).toHaveText('Live fixture');
+  await f.settled();
+  expect(f.entries.map((row) => row.seq)).toEqual(['1', '2', '3', '4', '5']);
+  await page.reload();
+  await expect(page.getByTestId('ask-reply')).toHaveText(reply);
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
+  await expect(heading).toHaveText('Live fixture');
+  await f.settled();
+  expect(sends).toBe(1);
+  expect(f.entries).toHaveLength(5);
+  await page.getByRole('link', { name: 'Space home' }).click();
+  await expect.poll(() => f.connections).toBe(0);
+});
+
+test('same-device tabs explicitly take over one durable stream without reopen ping-pong', async ({
   page,
   context,
 }) => {
   const f = await wire(context),
     other = await context.newPage();
-  for (const tab of [page, other]) {
-    await tab.goto(mount);
-    await tab.getByRole('link', { name: new RegExp(v.page) }).click();
-    await expect(tab.getByRole('heading', { name: 'Live fixture', exact: true })).toBeVisible();
-    await tab.getByRole('button', { name: 'Source', exact: true }).click();
-  }
-  expect(
-    await page.evaluate(
-      async () =>
-        (await navigator.locks.query()).held?.filter((lock) => lock.name?.startsWith('writer:'))
-          .length,
-    ),
-  ).toBe(1);
+  const reopens = (tab: typeof page) =>
+    tab.evaluate(() => Number(sessionStorage.getItem('test:reopens') ?? 0));
+  await page.goto(mount);
+  await page.getByRole('link', { name: new RegExp(v.page) }).click();
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' }),
   ).toBeVisible();
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
   await page.screenshot({ path: '/tmp/1252-live-light.png', fullPage: true });
   await page.getByRole('button', { name: 'Change color theme' }).click();
   await expect(page.locator('iframe')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
@@ -789,15 +1005,30 @@ test('two same-device tabs edit one durable stream, chunk, reload and retry exac
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: '/tmp/1252-live-mobile.png', fullPage: true });
   await page.setViewportSize({ width: 1280, height: 720 });
-  await page.getByRole('button', { name: 'Change color theme' }).click();
   await page.getByRole('textbox').fill('<h1>First</h1>');
   await page.getByRole('button', { name: 'Save source' }).click();
-  await expect(other.getByRole('textbox')).toHaveValue('<h1>First</h1>');
+  await expect(page.frameLocator('iframe').getByRole('heading', { name: 'First' })).toBeVisible();
+  await other.goto(mount);
+  await other.getByRole('link', { name: new RegExp(v.page) }).click();
+  await expect(page.getByTestId('colab-inactive')).toContainText('Colab is open in another tab.');
+  await expect(page.locator('iframe')).toHaveCount(0);
   await expect(other.frameLocator('iframe').getByRole('heading', { name: 'First' })).toBeVisible();
+  await expect.poll(() => f.connections).toBe(1);
+  expect(await reopens(page)).toBe(1);
+  expect(await reopens(other)).toBe(1);
+  await page
+    .getByRole('button', { name: 'Use here' })
+    .evaluate((button: HTMLButtonElement) => button.click());
+  expect(await reopens(page)).toBe(1);
+  await page.screenshot({
+    path: '/private/tmp/colab-1110-design/colab-inactive.png',
+    fullPage: true,
+  });
+  await other.getByRole('button', { name: 'Source', exact: true }).click();
   const large = '<h1>Large</h1>' + 'x'.repeat(50_000);
   await other.getByRole('textbox').fill(large);
   await other.getByRole('button', { name: 'Save source' }).click();
-  await expect(page.getByRole('textbox')).toHaveValue(large);
+  await expect(other.frameLocator('iframe').getByRole('heading', { name: 'Large' })).toBeVisible();
   expect(f.chunked).toBe(1);
   f.dropNext();
   await other.getByRole('textbox').fill('<h1>Recovered</h1>');
@@ -808,43 +1039,59 @@ test('two same-device tabs edit one durable stream, chunk, reload and retry exac
   await expect(other.getByRole('textbox')).toHaveValue('<h1>Recovered</h1>');
   await other.getByRole('textbox').fill('<h1>After reload</h1>');
   await other.getByRole('button', { name: 'Save source' }).click();
-  await expect(page.getByRole('textbox')).toHaveValue('<h1>After reload</h1>');
-  await expect(other.getByRole('button', { name: 'Save source' })).toBeDisabled();
+  await expect(
+    other.frameLocator('iframe').getByRole('heading', { name: 'After reload' }),
+  ).toBeVisible();
   await f.settled();
   expect(f.retries).toBe(1);
   expect(f.entries.map((row) => row.seq)).toEqual(['1', '2', '3', '4', '5']);
   const before = f.hellos;
   f.resync();
-  await expect.poll(() => f.hellos).toBe(before + 2);
+  await expect.poll(() => f.hellos).toBe(before + 1);
   await expect(
     other.frameLocator('iframe').getByRole('heading', { name: 'After reload' }),
   ).toBeVisible();
+  expect(await reopens(other)).toBe(2);
+  expect(await reopens(page)).toBe(1);
   await f.ownUpdate();
-  for (const tab of [page, other]) {
-    await expect(tab.getByRole('status')).toContainText('Comments and activity are not displayed');
-    await expect(tab.locator('iframe')).toHaveCount(1);
-    await expect(tab.getByRole('textbox')).toHaveJSProperty('readOnly', false);
-  }
+  await expect(other.getByRole('status')).toContainText('Comments and activity are not displayed');
+  await page.getByRole('button', { name: 'Use here' }).click();
+  await expect(other.getByTestId('colab-inactive')).toBeVisible();
+  await expect(other.locator('iframe')).toHaveCount(0);
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'After reload' }),
+  ).toBeVisible();
+  expect(await reopens(page)).toBe(2);
+  expect(await reopens(other)).toBe(2);
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
   await page.getByRole('textbox').fill('<h1>Across own</h1>');
   await page.getByRole('button', { name: 'Save source' }).click();
-  await expect(other.getByRole('textbox')).toHaveValue('<h1>Across own</h1>');
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Across own' }),
+  ).toBeVisible();
   expect(f.entries.at(-1)!.seq).toBe('7');
-  await Promise.all(
-    [page, other].map((tab) => tab.getByRole('link', { name: 'Space home' }).click()),
-  );
+  await other.getByRole('button', { name: 'Use here' }).click();
+  await expect(page.getByTestId('colab-inactive')).toBeVisible();
+  await expect(
+    other.frameLocator('iframe').getByRole('heading', { name: 'Across own' }),
+  ).toBeVisible();
+  expect(await reopens(other)).toBe(3);
+  expect(await reopens(page)).toBe(2);
+  await other.getByRole('link', { name: 'Space home' }).click();
   await expect.poll(() => f.connections).toBe(0);
-  await expect
-    .poll(() =>
-      page.evaluate(
-        async () =>
-          (await navigator.locks.query()).held?.filter((lock) => lock.name?.startsWith('writer:'))
-            .length,
-      ),
-    )
-    .toBe(0);
+  expect(
+    await page.evaluate(
+      async () =>
+        (await navigator.locks.query()).held?.filter((lock) => lock.name?.startsWith('writer:'))
+          .length,
+    ),
+  ).toBe(0);
+  await other.close();
+  await expect(page.getByTestId('colab-inactive')).toBeVisible();
+  expect(await reopens(page)).toBe(2);
 });
 
-test('chunked epoch baseline opens identical source in two tabs, survives edits and reload', async ({
+test('chunked epoch baseline survives explicit tab takeover, edits and reload', async ({
   page,
   context,
 }) => {
@@ -860,14 +1107,23 @@ test('chunked epoch baseline opens identical source in two tabs, survives edits 
     await tab.getByRole('button', { name: 'Source', exact: true }).click();
     await expect(tab.getByRole('textbox')).toHaveValue(source);
   }
+  await expect(page.getByTestId('colab-inactive')).toBeVisible();
   const next = source.replace('Reset baseline', 'New epoch edit');
-  await page.getByRole('textbox').fill(next);
-  await page.getByRole('button', { name: 'Save source' }).click();
-  await expect(other.getByRole('textbox')).toHaveValue(next);
+  await other.getByRole('textbox').fill(next);
+  await other.getByRole('button', { name: 'Save source' }).click();
+  await expect(
+    other.frameLocator('iframe').getByRole('heading', { name: 'New epoch edit' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Use here' }).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'New epoch edit' }),
+  ).toBeVisible();
+  await expect(other.getByTestId('colab-inactive')).toBeVisible();
   await other.reload();
   await expect(
     other.frameLocator('iframe').getByRole('heading', { name: 'New epoch edit' }),
   ).toBeVisible();
+  await expect(page.getByTestId('colab-inactive')).toBeVisible();
 });
 for (const invalid of ['commitment', 'source', 'descriptor', 'oldEpoch'] as const)
   test(`signed reset rejects ${invalid} without partial renderer publication`, async ({
@@ -1022,7 +1278,11 @@ test('signed catchup publishes detached own maps for two authors while source st
     async ({ pageId, device }) => {
       const path = '/src/mounted.ts',
         { mountedTransport } = await import(path);
-      const { transport } = await mountedTransport();
+      // This isolated read-admission probe supplies test-owned activation.
+      const { transport, close } = await mountedTransport({
+        active: true,
+        run: <T>(action: () => Promise<T>) => action(),
+      });
       const snapshot = await transport.page(pageId);
       try {
         const own = structuredClone(snapshot.own);
@@ -1037,6 +1297,7 @@ test('signed catchup publishes detached own maps for two authors while source st
         return { own, subscriptionIsDetached, source: snapshot.source };
       } finally {
         snapshot.binding?.close();
+        close();
       }
     },
     { pageId: v.page, device: v.device },
@@ -1114,12 +1375,9 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   const html = await download('page.html');
   expect(html).toEqual(Buffer.from(source, 'utf8'));
   await expect(panel.getByRole('status')).toContainText('One file requested');
-  const other = await context.newPage();
-  await other.goto(mount);
-  await other.getByRole('link', { name: new RegExp(v.page) }).click();
-  await other.getByRole('button', { name: 'Source', exact: true }).click();
-  await other.getByRole('textbox').fill('<h1>New live page</h1>');
-  await other.getByRole('button', { name: 'Save source' }).click();
+  // A committed edit after preparation must not replace the frozen download.
+  await page.getByRole('textbox').fill('<h1>New live page</h1>');
+  await page.getByRole('button', { name: 'Save source' }).click();
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'New live page' }),
   ).toBeVisible();
@@ -1162,7 +1420,6 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   await download('page.html');
   await page.getByRole('link', { name: 'Space home' }).click();
   await expect.poll(urlCount).toBe(0);
-  await other.close();
   await expect.poll(() => f.connections).toBe(0);
 });
 

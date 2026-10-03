@@ -1591,10 +1591,11 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
     fs::create_dir_all(directory.join("assets")).unwrap();
     assert!(!POLICY.contains("unsafe-inline"));
     assert!(RENDERER_POLICY.ends_with("sandbox allow-scripts"));
-    let files: [(&str, &str, &[u8]); 7] = [
+    let files: [(&str, &str, &[u8]); 8] = [
         ("index.html", "text/html; charset=utf-8", br#"<link href="./assets/app.css"><script type="module" src="./assets/app.js"></script>"#),
         ("renderer.html", "text/html; charset=utf-8", b"<!doctype html><title>Renderer</title>"),
         ("assets/app.js", "text/javascript; charset=utf-8", b"export {};"),
+        ("assets/recovery.js", "text/javascript; charset=utf-8", b"export const recovery = true;"),
         ("assets/app.css", "text/css; charset=utf-8", b"body{color:red}"),
         ("assets/font.woff2", "font/woff2", b"wOF2\0\xfffont-test-bytes"),
         ("assets/font.woff", "font/woff", b"wOFF\0\xfffont-test-bytes"),
@@ -1634,7 +1635,12 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
         };
         assert!(head.contains(&format!("Content-Security-Policy: {policy}\r\n")));
         assert_eq!(&reply[end..], bytes);
-        if path != "/" {
+        if path == "/assets/recovery.js" {
+            let public = server.request(&Running::get(&path, ""));
+            assert!(public.starts_with("HTTP/1.1 200"));
+            assert!(public.ends_with(std::str::from_utf8(bytes).unwrap()));
+            assert!(public.contains(&format!("Content-Security-Policy: {POLICY}\r\n")));
+        } else if path != "/" {
             assert!(
                 server
                     .request(&Running::get(&path, ""))
@@ -1642,11 +1648,12 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
             );
         }
     }
-    assert!(
-        server
-            .request(&Running::get("/", ""))
-            .contains("This colab space is private")
-    );
+    let guidance = server.request(&Running::get("/", ""));
+    assert!(guidance.contains("This colab space is private"));
+    assert!(guidance.contains("id=\"colab-guidance\" hidden"));
+    assert!(guidance.contains("<script type=\"module\" src=\"./assets/recovery.js\"></script>"));
+    assert!(guidance.contains(&format!("Content-Security-Policy: {POLICY}\r\n")));
+    assert!(!guidance.contains("unsafe-inline"));
     for path in [
         "/../index.html",
         "/assets/../index.html",

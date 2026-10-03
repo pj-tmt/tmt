@@ -135,6 +135,16 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: FoldCommand }
         throw new Error('Decoder input capacity');
       for (const item of command.updates) Y.applyUpdate(candidate, item);
       for (const item of command.own ?? []) Y.applyUpdate(writerDoc(item.writer), item.update);
+    } else if (command.type === 'prepare-own') {
+      const doc = writerDoc(command.writer),
+        map = doc.getMap(command.root);
+      const previous = map.get(command.key);
+      if (previous !== undefined && JSON.stringify(previous) !== JSON.stringify(command.value))
+        throw new Error('Own record is immutable');
+      const vector = Y.encodeStateVector(doc);
+      if (previous === undefined) map.set(command.key, command.value);
+      update = new Uint8Array(Y.encodeStateAsUpdate(doc, vector));
+      if (update.length > UPDATE_BYTES) throw new Error('Own record exceeds update capacity');
     } else if (command.type === 'prepare') {
       validateProjection({ source: command.source, title: '' });
       if (command.base !== undefined && command.base !== committed.getText('html').toString())

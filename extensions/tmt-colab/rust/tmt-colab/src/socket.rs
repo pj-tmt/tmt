@@ -544,6 +544,14 @@ fn serve(
         live.fetch_sub(1, Ordering::AcqRel);
         return;
     }
+    if request.method == "GET" && request.path == "/assets/recovery.js" {
+        if let Some((kind, bytes)) = browser.app.as_ref().and_then(|app| app.find(&request.path)) {
+            let _ = response_with_policy(&mut socket, 200, bytes, kind, assets::POLICY);
+        } else {
+            let _ = response(&mut socket, 404, b"NOT FOUND", false);
+        }
+        return;
+    }
     if request.method == "GET"
         && request.owner.is_some()
         && let Some((kind, bytes)) = browser.app.as_ref().and_then(|app| app.find(&request.path))
@@ -582,10 +590,31 @@ fn serve(
         ),
         None => "This colab space is private. Open it from a browser paired with tmt remote pair, or use a share link.".into(),
     };
-    let page = format!(
-        "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><title>TMT Colab</title><h1>TMT Colab</h1><p>{text}</p></html>"
-    );
-    let _ = response(&mut socket, 200, page.as_bytes(), true);
+    let recovery = request.owner.is_none()
+        && browser
+            .app
+            .as_ref()
+            .is_some_and(|app| app.find("/assets/recovery.js").is_some());
+    let page = if recovery {
+        format!(
+            "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><title>TMT Colab</title><h1>TMT Colab</h1><p id=\"colab-recovery-status\">Opening your paired browser…</p><p id=\"colab-guidance\" hidden>{text}</p><script type=\"module\" src=\"./assets/recovery.js\"></script></html>"
+        )
+    } else {
+        format!(
+            "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><title>TMT Colab</title><h1>TMT Colab</h1><p>{text}</p></html>"
+        )
+    };
+    if recovery {
+        let _ = response_with_policy(
+            &mut socket,
+            200,
+            page.as_bytes(),
+            "text/html; charset=utf-8",
+            assets::POLICY,
+        );
+    } else {
+        let _ = response(&mut socket, 200, page.as_bytes(), true);
+    }
 }
 type ActiveTunnels = Arc<Mutex<Vec<(String, Arc<UnixStream>)>>>;
 struct TunnelGuard<'a> {

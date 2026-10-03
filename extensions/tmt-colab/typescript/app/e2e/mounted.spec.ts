@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type BrowserContext } from '@playwright/test';
 import * as c from '@tmt/colab-client';
 
 const mount = '/r/abcd/x/colab/';
@@ -6,7 +6,7 @@ const device = '00000000-0000-4000-8000-000000000100';
 const member = '00000000-0000-4000-8000-000000000101';
 const pageId = '00000000-0000-4000-8000-000000000102';
 const json = (v: unknown) => c.text(JSON.stringify(v));
-async function fixture(page: Page, tamper = false, empty = false) {
+async function fixture(page: Page | BrowserContext, tamper = false, empty = false) {
   const owner = (await crypto.subtle.generateKey('Ed25519', false, [
     'sign',
     'verify',
@@ -53,7 +53,7 @@ async function fixture(page: Page, tamper = false, empty = false) {
     route.fulfill({
       contentType: 'text/javascript',
       body: `
-    export async function reopenSession() {}
+    export async function reopenSession() {sessionStorage.setItem('test:reopens',String(Number(sessionStorage.getItem('test:reopens')??0)+1));}
     export async function certifyKey(purpose, bytes) {
       return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),
         issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'};
@@ -203,6 +203,56 @@ test('a successful HTTP registration with a forged certificate remains blocked',
       return record(`pin:${location.origin}/r/abcd/x/colab/`);
     }),
   ).toBeUndefined();
+});
+
+test('a newer Use here cancels queued takeover and ignores an old registration completing after inactivity', async ({
+  page,
+  context,
+}) => {
+  await fixture(context);
+  let started!: () => void, release!: () => void;
+  const registered = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let requests = 0;
+  await context.route(`**${mount}api/devices/register`, async (route) => {
+    if (++requests === 1) {
+      started();
+      await gate;
+    }
+    await route.fallback();
+  });
+  const other = await context.newPage();
+  const reopens = (tab: Page) =>
+    tab.evaluate(() => Number(sessionStorage.getItem('test:reopens') ?? 0));
+  try {
+    await page.goto(mount);
+    await registered;
+    await other.goto(mount);
+    await expect(page.getByTestId('colab-inactive')).toBeVisible();
+    expect(await reopens(page)).toBe(1);
+    expect(await reopens(other)).toBe(0);
+    await page.getByRole('button', { name: 'Use here' }).click();
+    await expect(other.getByTestId('colab-inactive')).toBeVisible();
+    release();
+    await expect(page.getByRole('heading', { name: 'Colab', exact: true })).toBeVisible();
+    await expect(other.getByTestId('colab-inactive')).toBeVisible();
+    expect(await reopens(page)).toBe(2);
+    expect(await reopens(other)).toBe(0);
+    expect(requests).toBe(2);
+    await other.getByRole('button', { name: 'Use here' }).click();
+    await expect(page.getByTestId('colab-inactive')).toBeVisible();
+    await expect(other.getByRole('heading', { name: 'Colab', exact: true })).toBeVisible();
+    expect(await reopens(page)).toBe(2);
+    expect(await reopens(other)).toBe(1);
+    expect(requests).toBe(3);
+  } finally {
+    release();
+    await other.close();
+  }
 });
 
 test('empty owner space names the product page-create command', async ({ page }) => {

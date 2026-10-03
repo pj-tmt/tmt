@@ -4,10 +4,18 @@ export const SOURCE_BYTES = 2 * 1024 * 1024;
 export const UPDATE_BYTES = 256 * 1024;
 export const BASELINE_UPDATE_BYTES = SOURCE_BYTES + UPDATE_BYTES + 1024;
 export const STATE_BYTES = 4 * 1024 * 1024;
+export type OwnRoot = 'threads' | 'intents' | 'messages' | 'replies';
 export type FoldCommand =
   | { type: 'apply' | 'check'; updates: Uint8Array[]; own?: OwnUpdate[] }
   | { type: 'checkpoint'; update: Uint8Array; writer?: string }
   | { type: 'prepare'; source: string; base?: string }
+  | {
+      type: 'prepare-own';
+      writer: string;
+      root: OwnRoot;
+      key: string;
+      value: JsonValue;
+    }
   | {
       type: 'baseline';
       update: Uint8Array;

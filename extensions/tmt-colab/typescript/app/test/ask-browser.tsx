@@ -1,18 +1,15 @@
 /** Browser-test entry only; never imported by production routing or builds. */
 import { createRoot, type Root } from 'react-dom/client';
 import { binary, strictVerify } from '@tmt/colab-client';
-import { AskAttempt, type StoredAskDraft } from '../src/ask-attempt.js';
-import { FrozenAsk } from '../src/ask-intent.js';
+import type { StoredAskDraft } from '../src/ask-record-store.js';
 import { AskPreview } from '../src/ask-preview.js';
-import type { Delivery } from '../src/ask-remote.js';
-import { deviceKeys } from '../src/keyring.js';
 import { record } from '../src/storage.js';
 import { destination, id, RemoteDouble, selection } from './ask-fixtures.js';
+import { fixtureAttempt } from './ask-browser-attempt.js';
 let root: Root | undefined;
-let active: { attempt: AskAttempt; remote: RemoteDouble; issuedAt: number; edit(): void };
+let active: Awaited<ReturnType<typeof fixtureAttempt>> & { issuedAt: number; edit(): void };
 export async function mount(
   options: {
-    delivery?: Delivery;
     hold?: boolean;
     unavailable?: boolean;
     mode?: RemoteDouble['mode'];
@@ -27,23 +24,12 @@ export async function mount(
   host.id = 'ask-fixture';
   document.body.append(host);
   const input = selection(),
-    target = destination(),
-    remote = new RemoteDouble();
-  target.delivery = options.delivery;
-  target.mode = options.hold ? 'hold' : 'direct';
-  remote.mode = options.mode ?? 'accepted';
+    target = destination();
+  target.mode = options.hold ? 'hold' : null;
   const issuedAt = options.issuedAt ?? Date.now();
-  const frozen = FrozenAsk.capture(input, target, { issuedAt, operationId: options.operationId });
-  const keys = await deviceKeys(id(4));
-  const attempt = new AskAttempt(
-    frozen,
-    keys.sign,
-    undefined,
-    options.unavailable ? undefined : remote,
-  );
+  const fixture = await fixtureAttempt(input, target, { ...options, issuedAt });
   active = {
-    attempt,
-    remote,
+    ...fixture,
     issuedAt,
     edit() {
       input.quote = 'changed live source';
@@ -51,28 +37,21 @@ export async function mount(
     },
   };
   root = createRoot(host);
-  root.render(
-    <AskPreview
-      attempt={attempt}
-      close={() => {
-        root?.unmount();
-      }}
-    />,
-  );
+  root.render(<AskPreview attempt={fixture.attempt} close={() => root?.unmount()} />);
 }
 export function editLive() {
   active.edit();
 }
 export async function proof() {
-  const { attempt, remote, issuedAt } = active,
+  const { attempt, remote, issuedAt, keys } = active,
     preview = attempt.preview;
   const draft = await record<StoredAskDraft>(`ask:${id(4)}:${preview.view.operationId}`);
-  const keys = await deviceKeys(id(4));
   return {
     sends: remote.sends,
     reads: remote.reads,
     state: attempt.state.state,
     message: preview.view.message,
+    deliveredMessage: preview.view.deliveredMessage,
     operationId: preview.view.operationId,
     issuedAt,
     draft,

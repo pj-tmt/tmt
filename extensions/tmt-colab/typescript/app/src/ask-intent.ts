@@ -15,7 +15,6 @@ import {
   time,
   type Bytes,
 } from '@tmt/colab-client';
-import type { Delivery } from './ask-remote.js';
 
 export const REQUEST_BYTES = 1024 * 1024;
 const HOUR = 60 * 60 * 1000;
@@ -34,17 +33,17 @@ export interface AdmittedSelection {
   url: string;
 }
 /** Caller-verified machine/grant snapshot; this primitive creates no authority.
- * grantId is an explicit reference, not inferred from a Remote clientId. */
+ * Revision and session expiry reference the verified Remote grant; unavailable policy stays null. */
 export interface AskDestination {
   machine: string;
   machineName: string;
   online: 'online' | 'offline' | 'unknown';
   agent: string;
   agentName: string;
-  delivery?: Delivery;
-  grantId: string;
+  grantExpiresAt: number | null;
+  deviceName: string;
   grantRevision: string;
-  mode: 'direct' | 'hold';
+  mode: 'direct' | 'hold' | null;
 }
 export interface SignedAsk {
   readonly operationId: string;
@@ -57,7 +56,9 @@ export interface SignedAsk {
 /** No capability crosses into the renderer. Strings are immutable; byte getters
  * return copies. Signing never rereads live source or a mutable selection. */
 export class FrozenAsk {
-  readonly view: Readonly<AskDestination & { message: string; operationId: string }>;
+  readonly view: Readonly<
+    AskDestination & { message: string; deliveredMessage: string; operationId: string }
+  >;
   readonly expiresAt: number;
   #scope: Readonly<AdmittedSelection>;
   #ids: Bytes;
@@ -77,7 +78,6 @@ export class FrozenAsk {
       selection.thread,
       selection.senderDevice,
       destination.machine,
-      destination.grantId,
       operationId,
     ])
       generatedId(id);
@@ -87,12 +87,9 @@ export class FrozenAsk {
     requireValue(Number.isSafeInteger(validityMs) && validityMs > 0 && validityMs <= 24 * HOUR);
     this.expiresAt = issuedAt + validityMs;
     time(this.expiresAt);
-    requireValue(['direct', 'hold'].includes(destination.mode));
+    requireValue(destination.mode === null || ['direct', 'hold'].includes(destination.mode));
+    if (destination.grantExpiresAt !== null) time(destination.grantExpiresAt);
     requireValue(['online', 'offline', 'unknown'].includes(destination.online));
-    requireValue(
-      destination.delivery === undefined ||
-        ['channel', 'paste', 'not_ready', 'not_running'].includes(destination.delivery),
-    );
     for (const value of [
       selection.quote,
       selection.comment,
@@ -100,8 +97,12 @@ export class FrozenAsk {
       selection.url,
       destination.agentName,
       destination.machineName,
+      destination.deviceName,
     ])
       text(value);
+    requireValue(
+      text(destination.agentName).length <= 128 && text(destination.deviceName).length <= 128,
+    );
     const url = new URL(selection.url);
     requireValue(['http:', 'https:'].includes(url.protocol) && !url.username && !url.password);
     url.hash = '';
@@ -116,7 +117,9 @@ export class FrozenAsk {
       messageIds: Object.freeze([...selection.messageIds]),
     });
     this.#issuedAt = issuedAt;
-    this.view = Object.freeze({ ...destination, operationId, message });
+    const deliveredMessage = `[remote: ${destination.deviceName}]\n${message}`;
+    requireValue(text(deliveredMessage).length <= inputLimit);
+    this.view = Object.freeze({ ...destination, operationId, message, deliveredMessage });
     Object.freeze(this);
   }
   static capture(
@@ -138,6 +141,9 @@ export class FrozenAsk {
       options.inputLimit ?? REQUEST_BYTES,
     );
   }
+  deliveredBytes(): Bytes {
+    return text(this.view.deliveredMessage);
+  }
   finalBytes(): Bytes {
     return copy(this.#final);
   }
@@ -158,8 +164,8 @@ export class FrozenAsk {
       text(d.operationId),
       await digest(this.#final),
       text(s.senderDevice),
-      text(d.grantId),
       text(d.grantRevision),
+      text(d.grantExpiresAt === null ? 'none' : String(d.grantExpiresAt)),
       text(String(this.#issuedAt)),
       text(String(this.expiresAt)),
     );

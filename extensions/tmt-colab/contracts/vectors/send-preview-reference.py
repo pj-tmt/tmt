@@ -36,7 +36,7 @@ def vector():
     issued, validity = 1791004000000, 3600000
     fields = ["tmt-colab-send-v1", "1", "a" * 32, uid(1), uid(2),
               (1).to_bytes(4, "big") + lp(uid(3)), uid(5), uid(6), uid(9),
-              final_digest, uid(4), uid(7), "1", str(issued), str(issued + validity)]
+              final_digest, uid(4), "1", "none", str(issued), str(issued + validity)]
     canonical = b"".join(lp(value) for value in fields)
     seed = bytes.fromhex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
     key = Ed25519PrivateKey.from_private_bytes(seed)

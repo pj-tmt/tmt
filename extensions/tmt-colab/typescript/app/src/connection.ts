@@ -263,7 +263,7 @@ export class Connection {
         h.context.page === a.page &&
         h.context.epoch === a.epoch &&
         h.context.kind === 'update' &&
-        h.context.namespace === 'content' &&
+        (h.context.namespace === 'content' || h.context.namespace === 'own') &&
         h.context.authorDevice === a.registration.deviceId &&
         h.context.streamSeq === entry.seq &&
         equal(await env.hash(), binary(entry.envelopeHash, 32, 32)),
