@@ -2757,6 +2757,10 @@ describe('Squad cron management', () => {
       expect(announcements()).toMatchObject([
         { recipient: worker, actor: user, kind: 'announcement' },
       ]);
+      const activeText = await runCli(sandbox, ['squad', 'cron', 'show', 'product', 'c1']);
+      expect(activeText.status).toBe(0);
+      expect(activeText.stdout).toContain('schedule');
+      expect(activeText.stdout).not.toMatch(/^\s+pause\s/m);
       const root = parseWholeStdout(
         await runCli(sandbox, ['api'], {
           stdin: JSON.stringify({ version: 1, operation: 'storage.root', input: {} }),
@@ -2780,6 +2784,10 @@ describe('Squad cron management', () => {
       expect(announcements()).toHaveLength(1);
       const paused = await squad(sandbox, ['cron', 'pause', 'product', 'c1', '--identity', 'Sol']);
       expect(paused.body.job).toMatchObject({ state: 'paused', pause: { by: lead }, revision: 2 });
+      const pausedText = await runCli(sandbox, ['squad', 'cron', 'show', 'product', 'c1']);
+      expect(pausedText.status).toBe(0);
+      expect(pausedText.stdout).toMatch(/^\s+pause\s/m);
+      expect(pausedText.stdout).toContain(lead);
       expect((await squad(sandbox, ['cron', 'resume', 'product', 'c1'])).body.job.state).toBe('on');
       expect((await squad(sandbox, ['cron', 'reassign', 'product', 'c1', 'reviewer'])).status).toBe(
         0

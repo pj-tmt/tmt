@@ -274,6 +274,7 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
         ];
         let values: Vec<_> = fields
             .iter()
+            .filter(|key| **key != "pause" || !job[*key].is_null())
             .map(|key| {
                 (
                     if *key == "scheduleText" {
@@ -282,7 +283,7 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
                         (*key).to_owned()
                     },
                     if job[key].is_null() {
-                        "—".into()
+                        "–".into()
                     } else if job[key].is_string() {
                         text(&job[key])
                     } else {
