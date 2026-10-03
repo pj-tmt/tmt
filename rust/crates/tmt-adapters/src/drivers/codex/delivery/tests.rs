@@ -1,6 +1,6 @@
 use super::super::record::{Process, Ready};
 use super::*;
-use crate::test_support::TestDirectory;
+use crate::test_support::{TestChild, TestDirectory};
 use tmt_core::binding::session::ObservedSessionKey;
 fn fixture() -> (Record, BindingSessionState) {
     let owner = ProcessIncarnation::new(10, "owner").unwrap();
@@ -109,13 +109,6 @@ fn fixture_record() -> (Record, BindingSessionState) {
     fixture()
 }
 
-struct Child(std::process::Child);
-impl Drop for Child {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
 fn observed(pid: u64) -> ProcessIncarnation {
     match observe_runtime_process(
         &UnixCommandRunner,
@@ -161,128 +154,198 @@ fn entry(record: &Record, current: BindingSessionState) -> BindingEntry {
         }),
     }
 }
+fn real_socket_send(
+    reply: u8,
+    startup: Option<std::sync::mpsc::Receiver<()>>,
+    wait_for_ready: bool,
+    waiting: Option<std::sync::mpsc::Sender<()>>,
+    release_after_send: &[std::sync::mpsc::Sender<()>],
+) -> Sent {
+    use nix::poll::{PollFd, PollFlags, poll};
+    use serde_json::{Value, json};
+    use std::{
+        net::TcpListener,
+        os::{fd::AsFd, unix::fs::PermissionsExt},
+    };
+    use tungstenite::Message;
+    let fixture = TestDirectory::new();
+    let store = Store::open(&fixture.path).unwrap();
+    let mut child = TestChild::new(
+        std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .unwrap(),
+    );
+    let owner = observed(u64::from(std::process::id()));
+    let foreground = observed(u64::from(child.child.id()));
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let mut record = Record::new("11111111-1111-4111-8111-111111111111", &owner).unwrap();
+    let attribution_entry = entry(&record, BindingSessionState::default());
+    let binding = attribution_entry.binding.as_ref().unwrap();
+    record.attribution = Some(
+        super::super::record::Attribution::new(
+            &binding.identity_id,
+            &binding.server,
+            &binding.pane_id,
+            binding.pane_pid,
+        )
+        .unwrap(),
+    );
+    store.create(&record, |_| RuntimeLiveness::Alive).unwrap();
+    let thread = "22222222-2222-4222-8222-222222222222";
+    record = store
+        .ready(
+            &record,
+            Ready {
+                server: Process::of(&owner),
+                port,
+                thread: thread.into(),
+            },
+        )
+        .unwrap();
+    record = store.foreground(&record, &foreground).unwrap();
+    let generation = store.generation_directory(&record).unwrap();
+    std::fs::create_dir(&generation).unwrap();
+    std::fs::set_permissions(&generation, std::fs::Permissions::from_mode(0o700)).unwrap();
+    crate::private_file::replace(&generation.join("capability"), b"owned-token").unwrap();
+    let current = BindingSessionState {
+        state: RuntimeState::Running,
+        key: Some(ObservedSessionKey {
+            incarnation: foreground,
+            provider_session: Some(ProviderSessionId::new(thread).unwrap()),
+        }),
+        launch_owner: Some(owner),
+        ..Default::default()
+    };
+    let entry = entry(&record, current);
+    let (started, ready) = std::sync::mpsc::channel();
+    let endpoint = std::thread::spawn(move || {
+        if let Some(startup) = startup {
+            startup.recv().unwrap();
+        }
+        started.send(()).unwrap();
+        // A pre-connect sender failure must fail this fixture, not leave a
+        // peer blocked in accept while the test waits to join it.
+        let mut events = [PollFd::new(listener.as_fd(), PollFlags::POLLIN)];
+        assert_eq!(poll(&mut events, 3000_u16).unwrap(), 1);
+        let (stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let mut socket = match tungstenite::accept(stream) {
+            Ok(socket) => socket,
+            Err(_) if !wait_for_ready => return listener,
+            Err(error) => panic!("ready peer handshake failed: {error}"),
+        };
+        let first = socket.read();
+        if !wait_for_ready {
+            // The deliberately unready control has already closed its sole
+            // connection. It must not have reached application input.
+            assert!(first.is_err());
+            return listener;
+        }
+        let init: Value = serde_json::from_str(first.unwrap().to_text().unwrap()).unwrap();
+        socket
+            .send(Message::Text(
+                json!({"id":init["id"],"result":{"userAgent":"tmt/0.159.3 (owned fixture)"}})
+                    .to_string()
+                    .into(),
+            ))
+            .unwrap();
+        let _: Value = serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
+        let queue: Value = serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
+        assert_eq!(queue["method"], "thread/queue/add");
+        assert_eq!(queue["params"]["threadId"], thread);
+        if reply != 3 {
+            let response = match reply {
+                0 => {
+                    json!({"id":queue["id"],"result":{"queuedSubmission":{"id":"accepted","clientUserMessageId":queue["params"]["clientUserMessageId"],"input":queue["params"]["input"]}}})
+                }
+                1 => {
+                    json!({"id":queue["id"],"error":{"code":-32603,"message":"internal after enqueue"}})
+                }
+                _ => {
+                    json!({"id":queue["id"],"error":{"code":-32600,"message":format!("session {thread} is archived. Run `codex unarchive {thread}` to unarchive it first.")}})
+                }
+            };
+            socket
+                .send(Message::Text(response.to_string().into()))
+                .unwrap();
+            assert!(socket.read().is_err());
+        }
+        drop(socket);
+        listener
+    });
+    if let Some(waiting) = waiting {
+        waiting.send(()).unwrap();
+    }
+    if wait_for_ready {
+        // Binding a listener and writing Ready do not prove this peer has
+        // run. Keep fixture startup outside send's absolute I/O deadline.
+        ready.recv().unwrap();
+    }
+    let paste = std::cell::Cell::new(0);
+    let outcome = tmt_core::driver::routing::send_preferred(
+        || send(Some(&fixture.path), &entry, "tiny"),
+        || {
+            paste.set(paste.get() + 1);
+            ActionResult::Completed(DeliveryAcceptance::Submitted)
+        },
+    );
+    assert_eq!(paste.get(), 0);
+    for release in release_after_send {
+        release.send(()).unwrap();
+    }
+    let listener = endpoint.join().unwrap();
+    listener.set_nonblocking(true).unwrap();
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    assert!(store.read(&record.binding_id).unwrap() == Some(record));
+    child.child.kill().expect("stop owned foreground fixture");
+    child.child.wait().expect("reap owned foreground fixture");
+    outcome
+}
+
 #[test]
 fn real_socket_send_outcomes_are_one_shot_and_zero_fallback() {
-    use serde_json::{Value, json};
-    use std::{net::TcpListener, os::unix::fs::PermissionsExt};
-    use tungstenite::Message;
     for reply in 0..4 {
-        let fixture = TestDirectory::new();
-        let store = Store::open(&fixture.path).unwrap();
-        let child = Child(
-            std::process::Command::new("/bin/sleep")
-                .arg("30")
-                .spawn()
-                .unwrap(),
-        );
-        let owner = observed(u64::from(std::process::id()));
-        let foreground = observed(u64::from(child.0.id()));
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let mut record = Record::new("11111111-1111-4111-8111-111111111111", &owner).unwrap();
-        let attribution_entry = entry(&record, BindingSessionState::default());
-        let binding = attribution_entry.binding.as_ref().unwrap();
-        record.attribution = Some(
-            super::super::record::Attribution::new(
-                &binding.identity_id,
-                &binding.server,
-                &binding.pane_id,
-                binding.pane_pid,
-            )
-            .unwrap(),
-        );
-        store.create(&record, |_| RuntimeLiveness::Alive).unwrap();
-        let thread = "22222222-2222-4222-8222-222222222222";
-        record = store
-            .ready(
-                &record,
-                Ready {
-                    server: Process::of(&owner),
-                    port,
-                    thread: thread.into(),
-                },
-            )
-            .unwrap();
-        record = store.foreground(&record, &foreground).unwrap();
-        let generation = store.generation_directory(&record).unwrap();
-        std::fs::create_dir(&generation).unwrap();
-        std::fs::set_permissions(&generation, std::fs::Permissions::from_mode(0o700)).unwrap();
-        crate::private_file::replace(&generation.join("capability"), b"owned-token").unwrap();
-        let current = BindingSessionState {
-            state: RuntimeState::Running,
-            key: Some(ObservedSessionKey {
-                incarnation: foreground,
-                provider_session: Some(ProviderSessionId::new(thread).unwrap()),
-            }),
-            launch_owner: Some(owner),
-            ..Default::default()
-        };
-        let entry = entry(&record, current);
-        let endpoint = std::thread::spawn(move || {
-            let (stream, _) = listener.accept().unwrap();
-            stream
-                .set_read_timeout(Some(Duration::from_secs(3)))
-                .unwrap();
-            stream
-                .set_write_timeout(Some(Duration::from_secs(3)))
-                .unwrap();
-            let mut socket = tungstenite::accept(stream).unwrap();
-            let init: Value =
-                serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
-            socket
-                .send(Message::Text(
-                    json!({"id":init["id"],"result":{"userAgent":"tmt/0.159.3 (owned fixture)"}})
-                        .to_string()
-                        .into(),
-                ))
-                .unwrap();
-            let _: Value = serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
-            let queue: Value =
-                serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
-            assert_eq!(queue["method"], "thread/queue/add");
-            assert_eq!(queue["params"]["threadId"], thread);
-            if reply != 3 {
-                let response = match reply {
-                    0 => {
-                        json!({"id":queue["id"],"result":{"queuedSubmission":{"id":"accepted","clientUserMessageId":queue["params"]["clientUserMessageId"],"input":queue["params"]["input"]}}})
-                    }
-                    1 => {
-                        json!({"id":queue["id"],"error":{"code":-32603,"message":"internal after enqueue"}})
-                    }
-                    _ => {
-                        json!({"id":queue["id"],"error":{"code":-32600,"message":format!("session {thread} is archived. Run `codex unarchive {thread}` to unarchive it first.")}})
-                    }
-                };
-                socket
-                    .send(Message::Text(response.to_string().into()))
-                    .unwrap();
-                assert!(socket.read().is_err());
-            }
-            drop(socket);
-            listener
-        });
-        let paste = std::cell::Cell::new(0);
-        let outcome = tmt_core::driver::routing::send_preferred(
-            || send(Some(&fixture.path), &entry, "tiny"),
-            || {
-                paste.set(paste.get() + 1);
-                ActionResult::Completed(DeliveryAcceptance::Submitted)
-            },
-        );
-        assert_eq!(paste.get(), 0);
+        let outcome = real_socket_send(reply, None, true, None, &[]);
         match reply {
             0 => assert_eq!(outcome, ActionResult::Completed(DeliveryAcceptance::Queued)),
             2 => assert_eq!(outcome, denied(ChannelFault::Refused)),
             _ => assert_eq!(outcome, uncertain()),
         }
-        let listener = endpoint.join().unwrap();
-        listener.set_nonblocking(true).unwrap();
-        assert_eq!(
-            listener.accept().unwrap_err().kind(),
-            std::io::ErrorKind::WouldBlock
-        );
-        assert!(store.read(&record.binding_id).unwrap() == Some(record));
     }
+}
+
+#[test]
+fn peer_readiness_keeps_induced_startup_delay_outside_the_send_deadline() {
+    use std::sync::mpsc;
+    let (release_ready, held_ready) = mpsc::channel();
+    let (release_unready, held_unready) = mpsc::channel();
+    let (waiting, waits) = mpsc::channel();
+    let synchronized =
+        std::thread::spawn(move || real_socket_send(0, Some(held_ready), true, Some(waiting), &[]));
+    // The synchronized fixture has finished setup and is waiting for its peer.
+    // Hold both peers until the old unsynchronized ordering exhausts its real
+    // production deadline; this induces startup delay without a sleep or retry.
+    waits.recv().unwrap();
+    let unready = real_socket_send(
+        0,
+        Some(held_unready),
+        false,
+        None,
+        &[release_unready, release_ready],
+    );
+    let ready = synchronized.join().unwrap();
+    assert_eq!(unready, denied(ChannelFault::NotReady));
+    assert_eq!(ready, ActionResult::Completed(DeliveryAcceptance::Queued));
 }
 
 #[test]
