@@ -1,0 +1,83 @@
+---
+source: site/src/chapters/drivers.mdx
+sourceRevision: 58ca656bb374eede2d12b69d3b2abb68d71d016c
+title: driver
+---
+
+import { Cmd } from "../../components/Cmd";
+import { components as Mdx } from "../../components/mdx";
+import { Soon, Tag } from "../../components/marks";
+
+driver は、特定の種類のプログラムについて tmt が把握する情報です。_host_ driver は agent の実行場所と、そこに入力する方法を把握します。_runtime_ driver は、1 つの agent プログラムの起動、再開、会話の報告方法を把握します。
+
+**多くの場合、必要な driver は組み込まれています。インストールは不要です**。tmt は起動したプログラムを認識し、対応する driver を自動で使います。
+
+<Cmd>{`
+$ tmt run reviewer claude        # このペインを reviewer と命名して Claude Code を起動
+$ tmt run builder codex          # Codex でも同じ
+$ tmt setup                      # 任意：確認後、検出したすべての agent を接続
+`}</Cmd>
+
+設定しなくても、すべての agent は動作します。tmt はペインを通じてやり取りします。`tmt setup` は、agent 自身からしか得られない情報を追加します。どの会話がどの名前に属するかを把握し、`tmt resume` でその会話を再開できるようにします。また、起動時に「自分は誰で、何が待っているか」という短い概要を渡します。`tmt setup` は変更する設定を正確に表示し、先に確認します。`tmt setup claude` または `tmt setup codex` では 1 つの agent を設定でき、`--remove` で元に戻せます。
+
+| Driver      | 種類    | 設定なしで使える機能                                                     | `tmt setup` 後に使える機能                                                 |
+| ----------- | ------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| tmux        | host    | すべて                                                                   | 追加の設定は不要                                                           |
+| Claude Code | runtime | talk、reply、`tmt run`                                                   | 特定の会話の再開、セッション開始時のコンテキスト、running/ended の状態     |
+| Codex       | runtime | talk、reply、`tmt run`。共有サーバーでは代わりに `--identity` を求めます | 特定の会話の再開、共有サーバーでの正確なスレッド照合、running/ended の状態 |
+
+<Mdx.h3 id="the-built-in-drivers">組み込みの driver</Mdx.h3>
+
+- [tmux](/drivers/tmux)：host driver です。agent の実行場所と、そこに入力する方法を把握します。
+- [Claude Code](/drivers/claude-code)：runtime driver です。特定の会話の再開、セッション開始時のコンテキスト、任意のメッセージチャネルを使えます。
+- [Codex](/drivers/codex)：runtime driver です。複数のペインが 1 つの Codex サーバーを共有する場合も安全に動作します。
+
+<Mdx.h3 id="herdr-ships-with-tmt-approve-once">Herdr：tmt に同梱、初回に承認</Mdx.h3>
+
+Herdr host driver は tmt に同梱されていますが、承認するまで実行されません。`tmt driver install herdr` は実行する内容を表示し、先に確認します。
+
+<Cmd>{`
+$ tmt driver install herdr   # 実行する内容を表示してから確認
+$ tmt driver ls              # herdr：ok、changed、missing
+`}</Cmd>
+
+tmt を更新しても、新しい driver が追加の権限を求めない限り、承認は引き継がれます。追加の権限を求める場合、`tmt driver ls` は理由とともに changed と表示します。`tmt driver install herdr` で再び承認できます。承認するまで、Herdr ペインで実行したコマンドは 1 日に 1 回ヒントを表示し、Herdr の binding は削除されずに待機します。
+
+<Mdx.h3 id="usage-counters">使用量カウンター</Mdx.h3>
+
+使用量の記録は任意です。`tmt setup --usage`（または `tmt setup claude --usage`、`tmt setup codex --usage`）は、ターン終了時に実行される hook も追加し、agent の使用量を記録します。
+
+- **コンテキストのサイズ**は `resume.usage` に記録されます。`tokens` は次のリクエストで再送する量、`windowTokens` はプロバイダーが示すコンテキストウィンドウです（Codex は示しますが、Claude Code は示しません）。
+- **消費量**は `resume.consumption` に記録されます。完了したリクエストのトークン数です。`inputTokens` はキャッシュ済みの入力を含み、`outputTokens` は推論を含む出力です。合計は入力と出力の和です。
+
+どちらも `tmt ls --json` と `tmt identity show --json` に表示されます。[Squad](/extensions/squad) の列にコンテキストのサイズを表示することもできます。保存するのはトークン数だけで、会話は保存しません。この hook によって、ターン終了時に `session.activity` を idle に戻すこともできます。hook がなければ、tmt は応答がないことから idle を推測しません。`tmt setup --no-usage` はこの hook だけを削除します。
+
+数値は費用ではなく、トークン数として読みます。進行中のストリーミングではなく、完了したリクエストを示し、1 ターン遅れることもあります。各カウンターは最初の読み取りから始まり、それ以前の履歴は数えません。カウンターがない場合は取得不能を意味し、ゼロではありません。使用ペースを計算するツールは、最初の読み取り、`epoch` の変更、`gap` が true の場合、またはカウンターが減った場合に、新しい基準値から計算する必要があります。
+
+<Mdx.h3 id="more-drivers">
+  {
+    <>
+      その他の driver <Tag kind="planned" />
+    </>
+  }
+</Mdx.h3>
+
+その他の driver は、それぞれ独自のバージョンを持つパッケージとなり、extension と同じようにインストール、更新できる予定です。誰でも公開できます。driver は、tmt の driver プロトコルに応答する `tmt-driver-<name>` という名前のプログラムです。組み込みの driver も同じインターフェースを使います。インストールした driver が組み込みの driver を引き継ぐこともできる予定です。たとえば、機能を追加した Claude Code driver です。その場合も、`tmt driver ls` でどの driver がどのプログラムを担当するかを確認できます。
+
+<Cmd>{`
+$ tmt driver install ./tmt-driver-screen  # 実行する内容を表示してから確認
+$ tmt driver ls                          # 承認済み host driver：ok、changed、missing
+$ tmt driver rm screen
+`}</Cmd>
+
+最初に予定されているものは次のとおりです。
+
+<Soon
+  items={[
+    ["Pi", "runtime"],
+    ["Cursor Agent", "runtime"],
+    ["agy", "runtime"],
+  ]}
+/>
+
+driver を作る場合は、[driver の作成](/develop/drivers)を参照してください。
