@@ -1,3 +1,4 @@
+mod support;
 use nix::{
     errno::Errno,
     sys::signal::{Signal, kill},
@@ -499,15 +500,14 @@ fn management_confirmation_and_input_denials_have_no_state_effects() {
         failure(&pilot, &args, "COLAB_INPUT_INVALID");
     }
     assert_eq!(fs::read(&db).unwrap(), before);
-    // Valid confirmed request reaches the reserved policy action on this base.
-    let allowed = failure(
-        &pilot,
-        &["share", "mode", PAGE, "link", "--yes", "--json"],
-        "COLAB_UNAVAILABLE",
-    );
+    let allowed = pilot.call(&["share", "mode", PAGE, "link", "--yes", "--json"]);
     assert!(allowed["operationId"].as_str().is_some());
     assert_eq!(allowed["expectedRevision"], "2");
-    assert_eq!(fs::read(db).unwrap(), before);
+    assert_eq!(allowed["membershipHead"]["revision"], "3");
+    assert_eq!(
+        pilot.call(&["show", PAGE, "--json"])["page"]["sharing"],
+        "link"
+    );
 }
 #[test]
 fn management_link_cli_uses_serving_and_offline_service_with_durable_replay() {
@@ -515,32 +515,35 @@ fn management_link_cli_uses_serving_and_offline_service_with_durable_replay() {
     for serving in [false, true] {
         let mut pilot = Pilot::new(None);
         seed_page(&pilot);
-        // The existing service only admits links when verified audience policy allows them.
+        // Seed audience policy through the real engine with the shared test decoder budget.
         {
             use tmt_colab::{
                 keyring::{Keyring, Layout},
-                store::{Store, owner::Mutation},
+                store::Store,
+                transitions::{Engine, OwnerAction, OwnerRequest, Publication, ShareMode},
             };
             let layout = Layout::open(&pilot.root.join("selected")).unwrap();
             let key = Keyring::read(&layout).unwrap();
             let mut store = Store::open(&layout).unwrap();
-            store
-                .owner_transaction(
-                    &key.space_id,
-                    &key.owner_public(),
-                    Mutation {
+            let mut engine =
+                Engine::with_decoder_config(support::decoder_config(PathBuf::from(BINARY)))
+                    .unwrap();
+            engine
+                .apply(
+                    &mut store,
+                    &key,
+                    OwnerRequest {
                         operation_id: "40000000-0000-4000-8000-000000000009",
-                        digest: [9; 32],
                         expected_revision: 2,
+                        action: OwnerAction::Share {
+                            page: PAGE,
+                            mode: ShareMode::Link,
+                            publication: Publication::Loopback,
+                        },
+                        transport_digest: None,
+                        scope: None,
                     },
-                    |tx| {
-                        tx.append_statement(&key.sign_statement(
-                            tx.head(),
-                            "page.share",
-                            &serde_json::to_vec(&json!({"pageId":PAGE,"mode":"link","epoch":"1"}))?,
-                        )?)?;
-                        Ok(b"link mode fixture".to_vec())
-                    },
+                    1,
                 )
                 .unwrap();
             store.close().unwrap();
@@ -652,6 +655,29 @@ fn management_link_cli_uses_serving_and_offline_service_with_durable_replay() {
                 .iter()
                 .all(|r| r["revoked"] == true)
         );
+        if serving {
+            pilot.start();
+        }
+        let before = fs::read(&db).unwrap();
+        failure(
+            &pilot,
+            &["share", "mode", PAGE, "public", "--json"],
+            "COLAB_CONFIRMATION_REQUIRED",
+        );
+        assert_eq!(fs::read(&db).unwrap(), before);
+        pilot.call(&["share", "mode", PAGE, "public", "--yes", "--json"]);
+        assert_eq!(
+            pilot.call(&["show", PAGE, "--json"])["page"]["sharing"],
+            "public"
+        );
+        // Narrowing needs no widening confirmation, and encrypted content remains inspectable.
+        pilot.call(&["share", "mode", PAGE, "private", "--json"]);
+        let shown = pilot.call(&["show", PAGE, "--json"]);
+        assert_eq!(shown["page"]["sharing"], "private");
+        assert_eq!(shown["page"]["title"], "Encrypted π\u{1b}[31m");
+        if serving {
+            pilot.stop();
+        }
     }
 }
 

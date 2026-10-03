@@ -3548,9 +3548,10 @@ state-preserving inspection, unsafe/old-schema refusal, help/JSON/human output,
 no-effect confirmation/input denials, foreground/offline viewer-link changes, frozen
 retry after reopen, conflict/stale heads, reset/removal revocation, seed-file custody and interrupted IPC
 without an offline fallback. No real user state, browser or Docker is involved.
-The policy stack must land before final share-mode behavior acceptance; this IPC
-base reports its explicit UNAVAILABLE result. Removed commands are rejected
-without changing state.
+Sharing cases cover confirmed link/public modes and unconfirmed narrowing, both
+offline and serving. Fixture engine setup uses the shared injected decoder
+configuration; subprocess cases exercise the production executable. Removed
+commands are rejected without changing state.
 
 ### Colab stream sync verification
 

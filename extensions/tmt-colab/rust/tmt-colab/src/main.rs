@@ -60,37 +60,38 @@ fn grammar() -> Command {
         outputs: OutputModes::HumanAndJson,
         details: "This creates an unencrypted copy of the page. Anyone with these files can read it.\nCreates page.html and manifest.json in a new UUID subdirectory of --dir (default: current directory). The parent must exist; aliases resolve to a canonical path. Created entries cannot be symlinks; parent traversal and overwrite are refused. Discussions are not included. Archived or deleted pages cannot be exported yet.",
     };
-    cli_grammar::extend(tmt_cli_style::command(&ROOT)
-        .bin_name("tmt colab")
-        .version(env!("CARGO_PKG_VERSION"))
-        .arg(tmt_cli_style::version_arg(ArgAction::Version))
-        .subcommand_required(true)
-        .subcommand(
-            tmt_cli_style::command(&SERVE).arg(
-                Arg::new("app-dir")
-                    .long("app-dir")
-                    .value_name("DIRECTORY")
-                    .value_parser(clap::value_parser!(std::path::PathBuf))
-                    .help(
-                        "Override embedded or checkout app bytes with an absolute build directory",
+    cli_grammar::extend(
+        tmt_cli_style::command(&ROOT)
+            .bin_name("tmt colab")
+            .version(env!("CARGO_PKG_VERSION"))
+            .arg(tmt_cli_style::version_arg(ArgAction::Version))
+            .subcommand_required(true)
+            .subcommand(
+                tmt_cli_style::command(&SERVE).arg(
+                    Arg::new("app-dir")
+                        .long("app-dir")
+                        .value_name("DIRECTORY")
+                        .value_parser(clap::value_parser!(std::path::PathBuf))
+                        .help(
+                            "Override embedded or checkout app bytes with an absolute build directory",
+                        ),
+                ),
+            )
+            .subcommand(tmt_cli_style::command(&SPACES))
+            .subcommand(
+                tmt_cli_style::command(&EXPORT)
+                    .arg(Arg::new("page").required(true).value_parser(|value: &str| {
+                        tmt_colab_model::values::generated_id(value)
+                            .map(|_| value.to_owned())
+                            .map_err(|error| error.to_string())
+                    }))
+                    .arg(
+                        Arg::new("dir")
+                            .long("dir")
+                            .value_name("destination")
+                            .value_parser(clap::value_parser!(std::path::PathBuf)),
                     ),
             ),
-        )
-        .subcommand(tmt_cli_style::command(&SPACES))
-        .subcommand(
-            tmt_cli_style::command(&EXPORT)
-                .arg(Arg::new("page").required(true).value_parser(|value: &str| {
-                    tmt_colab_model::values::generated_id(value)
-                        .map(|_| value.to_owned())
-                        .map_err(|error| error.to_string())
-                }))
-                .arg(
-                    Arg::new("dir")
-                        .long("dir")
-                        .value_name("destination")
-                        .value_parser(clap::value_parser!(std::path::PathBuf)),
-                ),
-        )
     )
 }
 fn run(matches: &clap::ArgMatches) -> Result<()> {
@@ -298,8 +299,16 @@ fn error_code(error: &(dyn std::error::Error + Send + Sync + 'static)) -> &'stat
                 .downcast_ref::<cli_management::Failure>()
                 .map(|e| e.code)
         })
-        .or_else(|| error.downcast_ref::<tmt_colab::export::Fault>().map(|e| e.code()))
-        .or_else(|| error.downcast_ref::<tmt_colab::assets::AssetFault>().map(|_| "COLAB_APP_UNAVAILABLE"))
+        .or_else(|| {
+            error
+                .downcast_ref::<tmt_colab::export::Fault>()
+                .map(|e| e.code())
+        })
+        .or_else(|| {
+            error
+                .downcast_ref::<tmt_colab::assets::AssetFault>()
+                .map(|_| "COLAB_APP_UNAVAILABLE")
+        })
         .unwrap_or_else(|| {
             if matches!(
                 error.downcast_ref::<tmt_colab::store::Fault>(),
@@ -329,10 +338,7 @@ fn main() -> ExitCode {
     let matches = match command.try_get_matches() {
         Ok(m) => m,
         Err(e) => {
-            let help = matches!(
-                e.kind(),
-                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
-            );
+            let help = matches!(e.kind(), clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion);
             if json_output && !help {
                 let _ = writeln!(
                     tmt_cli_style::stream::stdout(true),
@@ -358,9 +364,14 @@ fn main() -> ExitCode {
                 .subcommand()
                 .is_some_and(|(_, m)| m.get_flag("json"))
             {
-                let mut value = cli_failure.map(|e| e.correlation.clone()).unwrap_or_else(|| json!({}));
+                let mut value = cli_failure
+                    .map(|e| e.correlation.clone())
+                    .unwrap_or_else(|| json!({}));
                 value["error"] = json!({"code":code,"message":error.to_string()});
-                if let Some(path) = error.downcast_ref::<tmt_colab::export::Fault>().and_then(|fault| fault.partial_directory()) {
+                if let Some(path) = error
+                    .downcast_ref::<tmt_colab::export::Fault>()
+                    .and_then(|fault| fault.partial_directory())
+                {
                     value["error"]["partialDirectory"] = json!(path);
                 }
                 let _ = writeln!(tmt_cli_style::stream::stdout(true), "{}", value);
