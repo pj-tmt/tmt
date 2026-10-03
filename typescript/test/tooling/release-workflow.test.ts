@@ -28,6 +28,7 @@ describe('release-cut shadow workflow boundaries', () => {
   });
   it('prepares locked Cargo inputs before offline attribution without publication permissions', () => {
     for (const [file, name, command] of [
+      ['.github/workflows/ci.yml', 'unit-tests', 'pnpm test:run'],
       ['.github/workflows/release-cut.yml', 'shadow', 'node typescript/scripts/release-cut.mjs'],
       [
         '.github/workflows/project-release.yml',

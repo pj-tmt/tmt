@@ -1,4 +1,14 @@
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -169,17 +179,68 @@ describe('explicit private delivery status', () => {
 it.each([false, true])(
   'cleans the immutable cut checkout (offline cache unavailable: %s)',
   (missingCache) => {
-    const directory = mkdtempSync(join(tmpdir(), 'tmt-cut-entry-'));
+    const directory = realpathSync(mkdtempSync(join(tmpdir(), 'tmt-cut-entry-')));
     try {
-      const cut = spawnSync('git', ['rev-parse', 'origin/main'], { cwd: root, encoding: 'utf8' });
-      expect(cut.status).toBe(0);
+      const checkout = join(directory, 'checkout');
+      mkdirSync(join(checkout, 'rust/src'), { recursive: true });
+      mkdirSync(join(checkout, '.github'));
+      // Use the actual entry point and imports in a small independent checkout.
+      cpSync(join(root, 'typescript/scripts'), join(checkout, 'typescript/scripts'), {
+        recursive: true,
+      });
+      symlinkSync(
+        join(root, 'typescript/node_modules'),
+        join(checkout, 'typescript/node_modules'),
+        'dir'
+      );
+      cpSync(join(root, 'rust/rust-toolchain.toml'), join(checkout, 'rust/rust-toolchain.toml'));
+      writeFileSync(
+        join(checkout, '.github/components.json'),
+        JSON.stringify({
+          components: { cli: { package: 'tmt-cli', release: true, owns: ['rust/**'] } },
+        })
+      );
+      writeFileSync(
+        join(checkout, 'rust/Cargo.toml'),
+        '[package]\nname = "tmt-cli"\nversion = "0.1.0"\nedition = "2024"\n[dependencies]\nlibc = "0.2"\n'
+      );
+      writeFileSync(join(checkout, 'rust/src/lib.rs'), 'pub fn fixture() {}\n');
+      const locked = spawnSync('cargo', ['generate-lockfile', '--offline'], {
+        cwd: join(checkout, 'rust'),
+        encoding: 'utf8',
+        timeout: 30_000,
+      });
+      expect(locked.status, locked.stderr).toBe(0);
+      const git = (args: string[]) => {
+        const result = spawnSync('git', args, { cwd: checkout, encoding: 'utf8', timeout: 10_000 });
+        expect(result.status, result.stderr).toBe(0);
+        return result.stdout.trim();
+      };
+      git(['init', '--quiet']);
+      git(['add', 'rust', '.github/components.json']);
+      git([
+        '-c',
+        'user.name=TMT Test',
+        '-c',
+        'user.email=test@example.invalid',
+        '-c',
+        'commit.gpgsign=false',
+        'commit',
+        '--quiet',
+        '-m',
+        'fixture\n\nCo-authored-by: Codex <codex@openai.com>',
+      ]);
+      const cut = git(['rev-parse', 'HEAD']);
+      git(['update-ref', 'refs/remotes/origin/main', cut]);
+      // Reading the running checkout instead of the captured commit would fail.
+      writeFileSync(join(checkout, 'rust/Cargo.toml'), 'invalid current checkout manifest\n');
       const snapshot = join(directory, 'metadata.json');
       writeFileSync(
         snapshot,
         JSON.stringify({
           schema: 1,
           repository: 'pj-tmt/tmt',
-          cut: cut.stdout.trim(),
+          cut,
           draftVisibility: 'trusted',
           releases: [],
           runs: [],
@@ -191,7 +252,7 @@ it.each([false, true])(
       // otherwise emits unrelated diagnostics inside the strict command runner.
       const selectedGit =
         process.platform === 'darwin'
-          ? spawnSync('xcrun', ['--find', 'git'], { encoding: 'utf8' })
+          ? spawnSync('xcrun', ['--find', 'git'], { encoding: 'utf8', timeout: 30_000 })
           : undefined;
       if (selectedGit) expect(selectedGit.status).toBe(0);
       const env = {
@@ -204,15 +265,15 @@ it.each([false, true])(
       if (missingCache) Object.assign(env, { CARGO_HOME: join(directory, 'empty-cargo-home') });
       const result = spawnSync(
         process.execPath,
-        [join(root, 'typescript/scripts/release-cut.mjs'), snapshot],
-        { cwd: root, env, encoding: 'utf8', timeout: 60_000, maxBuffer: 2 * 1024 * 1024 }
+        [join(checkout, 'typescript/scripts/release-cut.mjs'), snapshot],
+        { cwd: checkout, env, encoding: 'utf8', timeout: 60_000, maxBuffer: 2 * 1024 * 1024 }
       );
       if (missingCache) {
         expect(result.status).toBe(1);
         expect(result.stderr).toContain('offline');
       } else {
         expect(result.status, result.stderr).toBe(0);
-        expect(JSON.parse(result.stdout).cut).toBe(cut.stdout.trim());
+        expect(JSON.parse(result.stdout).cut).toBe(cut);
       }
       expect(readdirSync(temporary)).toEqual([]);
     } finally {

@@ -4253,7 +4253,9 @@ than CI `selectedBy`. Dev-only edges do not attribute release work. The shared
 with `cargo metadata --format-version 1 --offline --locked`; it has no Git logic.
 The cut caller exports its captured ref before reading; the Project sweep reads
 its trusted main checkout. Workflow callers prepare the locked Cargo cache with
-`cargo fetch --locked` before offline acquisition. Fixture callers without a Cargo
+`cargo fetch --locked` from `rust/` before offline acquisition and the full tooling
+test suite. Exported-cut cleanup tests create their own temporary Git repository,
+without requiring shared checkout history. Fixture callers without a Cargo
 checkout may omit the workspace argument; production callers always supply it. Style and invoke require CLI and Squad release evidence; TUI
 requires only Squad evidence. Existing historical Office tags remain evidence even while Office
 publication is parked. Components without a native publication policy stay

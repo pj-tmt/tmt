@@ -480,7 +480,7 @@ describe('plan-release-builds.mjs', () => {
       const directory = mkdtempSync(path.join(os.tmpdir(), 'plan-components-'));
       try {
         const map = JSON.parse(readFileSync(componentMap, 'utf8')) as {
-          components: Record<string, { release?: boolean }>;
+          components: Record<string, { release?: boolean; releaseStatus?: string }>;
         };
         const drafts = [[draft(`tmt-${product}-v0.1.0-alpha.5`, '1', [BUNDLE_ASSET])]];
         // The committed map parks this product, so its draft is left alone.
@@ -489,12 +489,14 @@ describe('plan-release-builds.mjs', () => {
         expect(result.output).toBe('matrix={"include":[]}\nany=false\n');
         expect(result.summary).toContain(`**Left alone** (${product} is not released`);
         // A map that releases it plans the run.
-        map.components[product === 'colab' ? 'tmt-colab' : product].release = true;
+        const component = map.components[product === 'colab' ? 'tmt-colab' : product];
+        component.release = true;
+        delete component.releaseStatus;
         const released = path.join(directory, 'components.json');
         writeFileSync(released, JSON.stringify(map));
-        expect(run(['--product', product, '--components', released], drafts).output).toContain(
-          'any=true'
-        );
+        const activated = run(['--product', product, '--components', released], drafts);
+        expect(activated.status).toBe(0);
+        expect(activated.output).toContain('any=true');
       } finally {
         rmSync(directory, { recursive: true, force: true });
       }
