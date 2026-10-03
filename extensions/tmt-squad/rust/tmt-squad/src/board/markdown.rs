@@ -352,6 +352,9 @@ fn wrap(block: Block, width: usize) -> (Vec<(Line<'static>, usize)>, Vec<LinkHit
     for (word, style, source, link) in words {
         let body = word.trim_end_matches(' ');
         if used > start && used + cells(body) > width {
+            if let Some(space) = line.last_mut().filter(|span| span.content == " ") {
+                space.style = space.style.remove_modifier(Modifier::UNDERLINED);
+            }
             lines.push((Line::from(std::mem::take(&mut line)), source_line));
             source_line = source;
             line.push(Span::raw(indent.clone()));
@@ -387,10 +390,13 @@ fn wrap(block: Block, width: usize) -> (Vec<(Line<'static>, usize)>, Vec<LinkHit
         }
         line.push(Span::styled(piece, style));
         if word.ends_with(' ') && used < width {
-            line.push(Span::styled(
-                " ",
-                style.remove_modifier(Modifier::UNDERLINED),
-            ));
+            line.push(Span::styled(" ", style));
+            if let Some(hit) = hits
+                .last_mut()
+                .filter(|h| Some(h.link) == link && h.line == lines.len())
+            {
+                hit.end += 1;
+            }
             used += 1;
         }
     }
@@ -444,16 +450,11 @@ mod tests {
         assert_eq!(mapped.links.len(), 1);
         assert_eq!(mapped.links[0].target, "tmt:jump/auth-fix");
         assert!(!text(&mapped.lines).join(" ").contains("tmt:jump"));
-        assert!(
-            mapped
-                .lines
-                .iter()
-                .flat_map(|line| &line.spans)
-                .all(
-                    |span| !span.style.add_modifier.contains(Modifier::UNDERLINED)
-                        || !span.content.ends_with(' ')
-                )
-        );
+        let underlined = |span: &Span| span.style.add_modifier.contains(Modifier::UNDERLINED);
+        let first = &mapped.lines[0];
+        assert_eq!(first.spans[2].content, " ");
+        assert!(underlined(&first.spans[2]), "inner space joins the label");
+        assert!(!underlined(first.spans.last().unwrap()));
         assert!(mapped.hits.iter().any(|hit| hit.line > 0));
         for hit in &mapped.hits {
             assert!(hit.start >= 2 && hit.end <= 10 && hit.start < hit.end);
@@ -464,8 +465,7 @@ mod tests {
                 .lines
                 .iter()
                 .flat_map(|line| &line.spans)
-                .any(|span| span.content.contains("界")
-                    && span.style.add_modifier.contains(Modifier::UNDERLINED))
+                .any(|span| span.content.contains("界") && underlined(span))
         );
         let plain = render_mapped("[evil](javascript:x)", 80, Look::default());
         assert!(plain.hits.is_empty());
@@ -474,7 +474,7 @@ mod tests {
                 .lines
                 .iter()
                 .flat_map(|line| &line.spans)
-                .all(|span| !span.style.add_modifier.contains(Modifier::UNDERLINED))
+                .all(|span| !underlined(span))
         );
     }
 
