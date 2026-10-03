@@ -12,6 +12,9 @@ inputs:
   pnpm-version:
     description: pnpm version activated through Corepack.
     default: 10.33.0
+  architecture:
+    description: Node.js architecture; empty uses the runner architecture.
+    default: ''
 runs:
   using: composite
   steps:
@@ -19,6 +22,7 @@ runs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ inputs.node-version }}
+        architecture: ${{ inputs.architecture }}
     - name: Activate pinned pnpm
       shell: bash
       env:

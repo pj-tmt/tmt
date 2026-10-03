@@ -17,6 +17,14 @@ export function smokeRelease(input: {
   repository: string;
   /** An empty directory the isolated home, state and prefix are made under. */
   root: string;
+  /** The actual target expected before and after installation/upgrade. */
+  target?: string;
+  /** Architecture inspection only; orchestration fixtures supply their own byte oracle. */
+  inspectArchitecture?: (
+    executable: string,
+    target: string,
+    options: { cwd: string; env: Record<string, string> }
+  ) => void;
   /** The one network read: the text at a URL. */
   fetch?: (url: string) => Promise<string>;
   /** Unauthenticated bounded public asset download. */

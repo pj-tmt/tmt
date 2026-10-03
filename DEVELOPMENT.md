@@ -1880,6 +1880,28 @@ The six native smoke environments required on full-scope PRs are:
 - Linux glibc x64 and Linux glibc arm64;
 - Linux musl x64 and Linux musl arm64.
 
+Both macOS targets build on `macos-15` arm64 runners. The x64 row cross-compiles
+`x86_64-apple-darwin`, selects an x64 Node, and runs the complete verification
+process tree through `scripts/run-native-verification.sh` under
+`arch -x86_64`, including shell installers and upgrade children. The shared
+runtime proof checks `lipo -archs` against the exact single architecture; installer,
+bootstrap, upgrade and public smoke proofs also inspect installed executables.
+An arm64 or universal executable cannot satisfy the Intel row. Cross-compilation
+alone supplies no runtime evidence.
+
+`Native Intel verification` (`.github/workflows/native-intel.yml`) supplements
+Rosetta every Monday and on manual dispatch, on `macos-15-intel`. It requires
+real Intel runner hardware, builds and proves the locked x64 CLI, then installs
+the latest published CLI alpha through the public installer and runs
+`tmt upgrade --channel alpha --json`. That native public smoke exercises installer
+architecture detection that Rosetta cannot establish. It uses disposable
+HOME/state/prefixes and token-free public acquisition. Its only PR trigger is
+an edit to its own workflow file; it is advisory, not a branch-protection check.
+The infra lead triages failed scheduled runs. Record classified public acquisition
+rate limits as infrastructure failures, retaining the failed conclusion and evidence;
+the weekly summary names the class, reset time and that the upgrade remains unproven.
+Dispatch only this non-publishing workflow for this proof, never the release pipeline.
+
 CI builds four raw targets once (the two macOS targets and two static Linux musl
 targets) and reuses the matching static musl executable for both Linux smoke
 environments. Preserve the `Packed install (<environment>)` check names and
@@ -1896,6 +1918,23 @@ skip the separate macOS build and install jobs, whose `skipped` results the
 aggregate requires explicitly only on that event. PRs still run both macOS
 architectures, and native release workflows still build and verify macOS before
 publication. The queue tests each cumulative group head (HEADGREEN).
+
+For Intel workflow/tooling edits, run the focused structural, process-wrapper,
+architecture and public-install fixtures before the full retained tooling suite:
+
+```sh
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/intel-verification.test.ts test/tooling/native-runtime-proof.test.ts test/tooling/verify-public-install.test.ts test/tooling/public-install-retry.test.ts test/tooling/xcrun-warmup.test.ts test/tooling/release-workflow.test.ts test/tooling/ci-scope.test.ts)
+(cd typescript && corepack pnpm check:tooling)
+sh -n scripts/run-native-verification.sh
+shellcheck scripts/run-native-verification.sh
+actionlint .github/workflows/ci.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-upgrade.yml .github/workflows/native-release-smoke.yml .github/workflows/native-release-smoke-retry.yml .github/workflows/native-intel.yml
+```
+
+Capture job and step durations from REST for the reviewed PR head and compare
+with the preceding native Intel runs; identify runner queue time separately.
+Production release timings come from the next authorized pipeline release, not
+an agent dispatch. Preserve required job names, merge-group macOS skip admission,
+cache ownership and the `warm-xcrun` gate.
 
 The same distinction applies to release artifacts: raw PR executables prove
 source-runtime behavior only. They do not prove archive inventory, notices,
@@ -1944,12 +1983,21 @@ product, run ID and exact SHA in its issue. With `prepare` off, the run plans th
 product's draft releases that carry neither a verified bundle nor a recorded failure,
 oldest first, and builds, verifies and attaches each one at its own commit
 (`target_commitish`), one at a time. `.github/workflows/native-release-bundle.yml` is the
-pipeline it calls once per draft. The pipeline builds on native macOS arm64/x64 and Linux
-arm64/x64 hosts using the existing pinned tools and `build-native-artifact.sh`. A shared
-matrix keeps build and final verification hosts aligned; dispatches outside main are
+pipeline it calls once per draft. The pipeline builds both macOS targets on
+arm64 and Linux targets on matching
+arm64/x64 hosts using the existing pinned tools and `build-native-artifact.sh`.
+The shared matrix keeps build and final verification hosts aligned; x64 macOS
+archive/bootstrap, upgrade and public-install verification use an x64 Node and
+run their complete process trees under `arch -x86_64`, following the
+[runtime acceptance policy](#runtime-smoke-matrix); dispatches outside main are
 skipped. Cached packaging tools are keyed by OS, architecture and exact tool versions;
 they are developer tools only. Rust dependency caches are per product and target and are
 written by main only.
+
+Intel candidate verification fails closed when its release checkout lacks the
+Rosetta tooling, with an explicit owner rerun remedy. Ordinary proofs retain
+candidate tooling; only an owner-authorized `native-release` `rerun=<tag>` uses
+current tooling against the recorded release data.
 
 The draft release carries the state of its own build. A draft with
 `release-publication.json` has a complete bundle: the archives, the final manifest and, for
@@ -2066,7 +2114,7 @@ Fixture-only verification (no dispatch or Docker):
 ```bash
 (cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/plan-release-builds.test.ts test/tooling/publication-gates-script.test.ts test/tooling/release-upgrade.test.ts test/tooling/release-workflow.test.ts)
 (cd typescript && corepack pnpm check:tooling)
-actionlint .github/workflows/native-release.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-upgrade.yml
+actionlint .github/workflows/native-release.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-upgrade.yml .github/workflows/native-release-smoke.yml .github/workflows/native-intel.yml
 ```
 
 Publication is authorized by the owner. The owner chose a trunk-based alpha channel, and that
@@ -2150,7 +2198,10 @@ One Linux job waits until the last selected reset plus one second, bounded at 60
 each selected target then repeats the public install on its matching host with `--retry`,
 which allows one acquisition attempt without another rate-limit retry. Source and retry
 install jobs share `.github/actions/public-install-smoke`: it owns the tag data
-checkout, Node setup and verifier invocation, including any host architecture wrapper.
+checkout, target-specific Node setup, macOS toolchain warm-up and complete verifier
+process wrapper. Both Intel rows use `macos-15` with x64 Node and `arch -x86_64`,
+including their installers and upgrade children; installed bytes still require
+exact x86_64 inspection under the runtime acceptance policy above.
 For Herdr, that shared action also installs archive-verification dependencies.
 Only its `current public CLI` classified acquisition failure is retryable; standalone
 archive HTTP failures and mixed failures retain their original failure conclusions.
@@ -2362,7 +2413,8 @@ binaries. The verifier bounds inputs (64 MiB compressed, 128 MiB expanded),
 requires exactly the four runtime files, and removes its private staging after
 success or failure. It runs the extracted executable with no Node/Rust/tmux on
 PATH and verifies native SQLite persistence through public commands. macOS
-requires system `otool`, which it finds once through `xcrun` under a 10 s bound;
+requires system `otool` and `lipo`, resolved through `xcrun` under a 10 s bound
+before direct inspection in the isolated environment;
 the first `xcrun` call on a fresh hosted runner can exceed that, so every workflow
 job that runs the verifier on macOS first runs `.github/actions/warm-xcrun`
 (bounded retry, logs the duration). A new macOS verifier job must do the same, and
@@ -2373,8 +2425,10 @@ linkage checks.
 musl build and verifier. Set `TARGET_TRIPLE` from the selected generator target,
 give the image a task-owned name, then run it with `--rm --init --network none`
 and `--archive artifacts/<manifest archive name> --target <target>`. Remove that
-owned image after verification. Emulated execution and cross-compilation alone
-do not satisfy native target acceptance. This optional image is not the tmux
+owned image after verification. Cross-compilation alone does not satisfy runtime
+acceptance. macOS x64 follows
+[the Rosetta plus periodic Intel policy](#runtime-smoke-matrix); Linux acceptance
+still requires a matching native host. This optional image is not the tmux
 E2E harness or a publication workflow.
 
 Negative archive tests use real tar fixtures and causal guard assertions.

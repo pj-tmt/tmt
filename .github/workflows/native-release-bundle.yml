@@ -89,7 +89,7 @@ jobs:
           - target: aarch64-apple-darwin
             runner: macos-15
           - target: x86_64-apple-darwin
-            runner: macos-15-intel
+            runner: macos-15
           - target: aarch64-unknown-linux-musl
             runner: ubuntu-24.04-arm
           - target: x86_64-unknown-linux-musl
@@ -246,8 +246,17 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || github.sha }}
+      - name: Require candidate Rosetta tooling
+        if: matrix.target == 'x86_64-apple-darwin'
+        run: |
+          if [ ! -x scripts/run-native-verification.sh ]; then
+            echo '::error::candidate predates #547 Rosetta tooling; the owner reruns with native-release rerun=<tag>'
+            exit 1
+          fi
       - name: Set up Node.js and pnpm
         uses: ./.github/actions/setup-tooling
+        with:
+          architecture: ${{ matrix.target == 'x86_64-apple-darwin' && 'x64' || '' }}
       - name: Install verification dependencies
         working-directory: typescript
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -258,11 +267,13 @@ jobs:
       - name: Warm the macOS toolchain lookup
         if: runner.os == 'macOS'
         uses: ./.github/actions/warm-xcrun
-      - name: Execute final archive and bootstrap on matching native host
+      - name: Execute final archive and bootstrap with the matching target process
         env:
           PRODUCT: ${{ inputs.product }}
           TARGET: ${{ matrix.target }}
         run: |
+          scripts/run-native-verification.sh "$TARGET" <<'VERIFY'
+          started=$SECONDS
           node typescript/scripts/release-policy.mjs --product "$PRODUCT" | cmp - target/distrib/release-publication.json
           if [ "$PRODUCT" = cli ]; then
             node typescript/scripts/verify-native-artifact.mjs \
@@ -299,6 +310,8 @@ jobs:
               --license LICENSE \
               --notices "target/distrib/$TARGET-notices.txt"
           fi
+          echo "Verified $TARGET in $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
+          VERIFY
 
   attach:
     name: Attach the verified ${{ inputs.product }} bundle to ${{ inputs.tag }}

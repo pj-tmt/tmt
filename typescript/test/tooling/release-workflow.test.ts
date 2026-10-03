@@ -560,8 +560,8 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
       prove.indexOf('- name: Keep the log')
     );
     expect(acceptance).toContain('if [ "$CURRENT_TOOLING" = true ]; then');
-    expect(acceptance).toContain('source_args=(--source-root "$GITHUB_WORKSPACE/release-source")');
-    expect(acceptance).toContain('--directory "$RUNNER_TEMP/upgrade" "${source_args[@]}"');
+    expect(acceptance).toContain('set -- --source-root "$GITHUB_WORKSPACE/release-source"');
+    expect(acceptance).toContain('--directory "$RUNNER_TEMP/upgrade" "$@"');
   });
 });
 
@@ -831,7 +831,7 @@ describe('held release rerun workflow boundary', () => {
       'ref: ${{ inputs.current-tooling && github.sha || needs.fetch.outputs.sha }}'
     );
     expect(prove).toContain('path: release-source');
-    expect(prove).toContain('source_args=(--source-root "$GITHUB_WORKSPACE/release-source")');
+    expect(prove).toContain('set -- --source-root "$GITHUB_WORKSPACE/release-source"');
     expect(prove).toContain('skill="$GITHUB_WORKSPACE/release-source/skills/tmux-team/SKILL.md"');
     expect(prove).not.toMatch(/GH_TOKEN|github\.token|secrets\./);
   });

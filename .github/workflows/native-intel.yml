@@ -1,0 +1,106 @@
+name: Native Intel verification
+
+# Advisory native coverage for the Intel behavior that Rosetta cannot establish.
+# This workflow builds/installs only in disposable runner state and never publishes.
+on:
+  schedule:
+    - cron: '43 4 * * 1'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/native-intel.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-intel-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  native-intel:
+    name: Native Intel runtime and public installation
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    env:
+      TARGET: x86_64-apple-darwin
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+          architecture: x64
+      - name: Require real Intel hardware
+        run: |
+          test "$RUNNER_ARCH" = X64
+          test "$(uname -m)" = x86_64
+          node -e 'if (process.arch !== "x64") process.exit(1)'
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.97.0 --profile minimal --target "$TARGET"
+      - name: Restore Rust dependencies without writing the PR cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: runtime-${{ env.TARGET }}
+          save-if: false
+      - name: Build the native Intel runtime
+        working-directory: rust
+        run: cargo build --locked --release --target "$TARGET" -p tmt-cli
+      - name: Warm the macOS toolchain lookup
+        if: runner.os == 'macOS'
+        uses: ./.github/actions/warm-xcrun
+      - name: Prove the native Intel runtime
+        run: |
+          version=$(cargo metadata --manifest-path rust/Cargo.toml --locked --no-deps --format-version 1 | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).packages.find(p => p.name === "tmt-cli").version')
+          node typescript/scripts/verify-native-runtime.mjs \
+            --executable "$GITHUB_WORKSPACE/rust/target/$TARGET/release/tmt" \
+            --target "$TARGET" --version "$version" --skill skills/tmux-team/SKILL.md
+      - name: Resolve the latest published CLI alpha
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          TAG="$tag" node --input-type=module -e 'import { isAlphaVersion, versionOfTag } from "./typescript/scripts/release-versions.mjs"; if (!isAlphaVersion(versionOfTag(process.env.TAG, "cli"))) throw new Error("Latest must be a CLI alpha")'
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Read the published skills as data
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ steps.latest.outputs.tag }}
+          path: release-source
+      - name: Prove public installer detection and tmt upgrade on real Intel
+        env:
+          RELEASE_TAG: ${{ steps.latest.outputs.tag }}
+        run: |
+          node typescript/scripts/verify-public-install.mjs --product cli --tag "$RELEASE_TAG" \
+            --source release-source --target "$TARGET" --result-file "$RUNNER_TEMP/native-intel-smoke.json"
+      - name: Summarize native Intel public infrastructure
+        if: failure()
+        run: |
+          node --input-type=module <<'SUMMARY'
+          import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+          const result = `${process.env.RUNNER_TEMP}/native-intel-smoke.json`;
+          if (existsSync(result)) {
+            const { failed } = JSON.parse(readFileSync(result, 'utf8'));
+            const limited = failed.find(({ check, infrastructure }) =>
+              check === 'tmt upgrade' && infrastructure === 'github-api-rate-limit');
+            if (limited) {
+              const epoch = /\(UTC epoch (\d+)\)/.exec(limited.reason)?.[1];
+              const reset = epoch ? new Date(Number(epoch) * 1000).toISOString() : 'unavailable';
+              appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+                `\n### Native Intel public infrastructure\n\nClass: github-api-rate-limit.\n\nReset/earliest retry: ${reset}.\n\nThe upgrade is unproven this week; the job remains failed.\n`);
+            }
+          }
+          SUMMARY
+      - name: Keep the public installation conclusion
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-intel-public-install
+          path: ${{ runner.temp }}/native-intel-smoke.json
+          if-no-files-found: ignore
+          retention-days: 7

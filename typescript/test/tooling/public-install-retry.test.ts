@@ -223,6 +223,11 @@ describe('deferred anonymous public-install retry', () => {
     );
     expect(rows).toHaveLength(Object.keys(RETRY_TARGETS).length);
     expect(Object.fromEntries(rows)).toEqual(RETRY_TARGETS);
+    expect(RETRY_TARGETS['x86_64-apple-darwin']).toBe('macos-15');
+    const intel = plan(hosts().map((host) => ({ ...host, failed: [limit()] }))).matrix.include.find(
+      ({ target }) => target === 'x86_64-apple-darwin'
+    );
+    expect(intel?.runner).toBe('macos-15');
   });
 
   it('comments with both runs before closing the recovered infrastructure issue', () => {
@@ -434,6 +439,7 @@ describe('independent smoke-retry workflow', () => {
         );
         const script = host.split('      run: |\n')[1].replace(/^        /gm, '');
         const result = spawnSync('/bin/bash', ['-e', '-o', 'pipefail', '-c', script], {
+          cwd: new URL('../../../', import.meta.url),
           env: {
             PATH: `${root}:/usr/bin:/bin`,
             RECORD_FILE: record,
@@ -442,6 +448,7 @@ describe('independent smoke-retry workflow', () => {
             TARGET: TARGETS[0],
             RETRY: retryMode,
             RUNNER_TEMP: root,
+            GITHUB_STEP_SUMMARY: path.join(root, 'summary'),
           },
           encoding: 'utf8',
           timeout: 10_000,
@@ -450,7 +457,7 @@ describe('independent smoke-retry workflow', () => {
           expect(result.status).toBe(1);
           expect(existsSync(record)).toBe(false);
         } else {
-          expect(result.status).toBe(0);
+          expect(result.status, result.stderr).toBe(0);
           expect(readFileSync(record, 'utf8').trim().split('\n')).toEqual([
             'typescript/scripts/verify-public-install.mjs',
             '--product',
@@ -512,7 +519,7 @@ describe('independent smoke-retry workflow', () => {
     expect(host).toContain('ref: ${{ inputs.tag }}\n        path: release-source');
     expect(host).toContain('persist-credentials: false');
     expect(host).toContain('node-version: 22.23.2');
-    expect(host).toContain('true) retry_args=(--retry)');
+    expect(host).toContain('true) set -- --retry');
     expect(host).toContain("default: 'false'");
     expect(host).toContain('node typescript/scripts/verify-public-install.mjs');
     expect(retry).not.toMatch(

@@ -719,7 +719,17 @@ that output, sharing their verification steps with Linux through YAML anchors.
 The native aggregate requires a valid classification and exact `skipped` macOS
 results when false; full-scope PRs require success. Missing, failed or unexpected
 results never pass. All selected Linux rows remain required. Release builds and
-archive verification retain macOS before publication. Advisory Office browser
+archive verification retain macOS before publication. Both macOS targets build
+on arm64; Intel verification selects an x64 Node and uses
+`scripts/run-native-verification.sh` to apply `arch -x86_64` to the whole verifier
+process tree, including installer and upgrade children. The shared runtime
+proof owns exact Mach-O architecture inspection reused by archive, installed
+bootstrap, upgrade and public smoke checks. Node's architecture alone cannot
+establish executable identity. The advisory weekly/manual native Intel workflow
+retains native runtime and public installer/upgrade evidence; its PR self-test
+is scoped only to its own workflow path. DEVELOPMENT owns the
+[acceptance policy and commands](DEVELOPMENT.md#runtime-smoke-matrix). Advisory
+Office browser
 checks remain separate; the repository owner controls merge-queue rulesets.
 
 The advisory Office browser workflow has a separate ownership-based PR flag,
@@ -4053,8 +4063,9 @@ and reconciles one anonymous re-proof with the original host conclusions. It sha
 the smoke owner's diagnostic parser and `release-publish.mjs`'s issue lifecycle;
 it owns neither acquisition classification nor publication.
 The source and retry host jobs use `.github/actions/public-install-smoke` for tag data
-checkout, Node setup and verifier execution. Host architecture wrappers belong to this
-shared entry; tooling tests require the source target/runner matrix to match the retry planner.
+checkout, target-specific Node setup, macOS toolchain warm-up and complete verifier
+process wrapper. Both Intel legs use the same x64 Node and Rosetta boundary on
+arm64; tooling tests require the source target/runner matrix to match the retry planner.
 
 Docker E2E `harness.ts` retains scenario imports; `harness/fixture.ts` owns
 fixture resources and process registries.
@@ -4100,7 +4111,9 @@ the static Linux musl binaries are reused for both Linux environments. The
 historical `Packed install (<environment>)` check names and
 `Native package matrix` final blocking aggregator remain for CI
 compatibility, but their step descriptions must identify them as native runtime
-smoke checks, not npm-package checks. Smoke runs outside the checkout with
+smoke checks, not npm-package checks. macOS x64 runs under Rosetta with
+supplementary weekly native Intel public installation and upgrade coverage.
+Smoke runs outside the checkout with
 isolated HOME/state, no Node/Rust on the product PATH, exact embedded skill
 checks, managed skill installation and SQLite reopen/persistence.
 
@@ -4354,8 +4367,11 @@ Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill
 bootstrap proof. Archives, their product-specific manifest/checksums and notices,
 plus the CLI bootstrap where applicable, are verified before any public
 publication. Raw PR executables do not prove cargo-dist archive correctness.
-The runtime/linkage proof is shared through `typescript/scripts/native-runtime-proof.mjs`
-and `typescript/scripts/verify-native-runtime.mjs`; do not reintroduce a second archive
+The runtime/linkage proof, including exact macOS executable architecture, is
+shared through `typescript/scripts/native-runtime-proof.mjs` and
+`typescript/scripts/verify-native-runtime.mjs`. Installer, bootstrap, extension
+upgrade and public smoke reuse that architecture guard before executing newly
+installed bytes and after CLI upgrade; do not reintroduce a second archive
 builder or proof implementation.
 
 ## Maintenance contract

@@ -201,7 +201,11 @@ does not authorize publication or replace artifact acceptance.
   product-neutral offline note without version numbers: user guidance belongs to the
   handbook, and the onboarding test runs the note's PATH block in Bash and Zsh.
 - Release targets are macOS x64/arm64 (build deployment target 11.0) and Linux
-  x64/arm64 with a static musl runtime. A deployment target is not testing on every
+  x64/arm64 with a static musl runtime. macOS x64 follows DEVELOPMENT's
+  [runtime acceptance policy](../../../DEVELOPMENT.md#runtime-smoke-matrix):
+  cross-build on arm64, complete Rosetta verifier process trees with exact
+  installed-byte architecture checks, plus weekly native Intel public
+  installation and upgrade coverage. A deployment target is not testing on every
   macOS version; cite the release's verification evidence for tested hosts.
 - The manifest's SHA-256 checksums detect corruption, not a compromised download
   origin. Locally generated checksums are not signatures, and no local test artifact
@@ -268,8 +272,9 @@ gates, the markers and the procedures; this section owns who may publish what.
   consume the report owner's infrastructure outcome and explicitly dispatch the smoke-retry
   workflow (completion events from token-dispatched native runs are suppressed). Its planner
   verifies the main source run, attempt and matching tag/target evidence through REST.
-  Keep both host jobs on the shared `public-install-smoke` action, including architecture
-  wrappers, and pin source/retry target and runner parity in fixtures.
+  Keep both host jobs on the shared `public-install-smoke` action, including target-specific
+  Node, macOS warm-up and complete process wrappers; both Intel rows use macos-15
+  with x64 Node and Rosetta. Pin source/retry target and runner parity in fixtures.
   Keep its 60-minute reset bound and one acquisition attempt. Complete original and retry evidence is required before the issue owner
   comments with both runs and closes an infrastructure issue. Neither a failed original
   job nor a failed retry becomes green, and real failure issues stay open. Keep the

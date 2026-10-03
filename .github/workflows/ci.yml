@@ -595,7 +595,10 @@ jobs:
         working-directory: rust
         env:
           MACOSX_DEPLOYMENT_TARGET: '11.0'
-        run: cargo build --locked --release --target '${{ matrix.target }}' -p tmt-cli -p tmt-driver-herdr --bins
+        run: |
+          started=$SECONDS
+          cargo build --locked --release --target '${{ matrix.target }}' -p tmt-cli -p tmt-driver-herdr --bins
+          echo "Built native runtime in $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Record the Cargo-owned version
         working-directory: rust
         run: |
@@ -620,7 +623,7 @@ jobs:
       matrix:
         include:
           - target: x86_64-apple-darwin
-            runner: macos-15-intel
+            runner: macos-15
           - target: aarch64-apple-darwin
             runner: macos-15
     runs-on: ${{ matrix.runner }}
@@ -664,6 +667,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22.23.2
+          architecture: ${{ matrix.target == 'x86_64-apple-darwin' && 'x64' || '' }}
       - name: Download the matching native executable
         uses: actions/download-artifact@v4
         with:
@@ -679,14 +683,18 @@ jobs:
       - name: Warm the macOS toolchain lookup
         if: runner.os == 'macOS'
         uses: ./.github/actions/warm-xcrun
-      - name: Verify native runtime on matching host
+      - name: Verify native runtime with the matching target process
         if: ${{ !matrix.container }}
         run: |
+          scripts/run-native-verification.sh '${{ matrix.target }}' <<'VERIFY'
+          started=$SECONDS
           node typescript/scripts/verify-native-runtime.mjs \
             --executable "$GITHUB_WORKSPACE/runtime/tmt" \
             --target '${{ matrix.target }}' \
             --version "$(cat runtime/version.txt)" \
             --skill skills/tmux-team/SKILL.md
+          echo "Verified native runtime in $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
+          VERIFY
       - name: Build the verification-only Alpine environment
         if: ${{ matrix.container }}
         run: docker build -f typescript/test/native/runtime.Dockerfile -t tmt-runtime-proof .
@@ -710,7 +718,7 @@ jobs:
       matrix:
         include:
           - label: macOS x64
-            runner: macos-15-intel
+            runner: macos-15
             target: x86_64-apple-darwin
             container: false
           - label: macOS arm64
