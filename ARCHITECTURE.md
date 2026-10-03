@@ -4019,12 +4019,36 @@ Synthetic shell installers invoke the same writer. Scenario callers retain their
 bytes and explicit executable or deliberately non-executable modes.
 
 `typescript/test/support/cli-process.ts` owns each native sandbox's active child runs.
+The test-only `runtime-caller-fixture` native example owns reparenting before CLI spawn:
+only a PID-1-adopted supervisor starts the selected executable, removing the
+agent runtime from its ancestry without a product guard override. The direct
+setup child leads the launcher group and exits after starting the supervisor,
+whose inherited descriptors keep the harness's pipes open. The supervisor
+starts a second group whose bootstrap reports its PID and waits for the harness
+to acknowledge ownership before executing the selected CLI in place. The CLI
+therefore leads its own group, preserving hooks' local deadline contract. The
+harness stops and verifies both groups, including readiness arriving during
+cleanup. Closing the acknowledgement connection cancels an unstarted bootstrap.
+The harness owns a private per-run Unix socket directory under `/tmp`, keeping
+nested sandboxes below macOS's socket path bound. Socket records convey ownership,
+errors and the supervisor's observed CLI exit. The bootstrap consumes the exact
+acknowledgement, then maps that connection to stdin; input survives setup exit
+without carrying protocol bytes into the CLI. No-input uses `/dev/null`.
+Inherited stdout/stderr preserve CLI bytes. Rust-owned sockets close on exec,
+except the input clone mapped to fd 0; Rust's exec retains PATH lookup and errno
+behavior without an interpreter startup. Setup close and socket drain are
+independent events. The harness waits for both, and closes connections, server
+and private directory before resolving cleanup, including cancellation before spawn.
+Reparenting and spawn are inside the
+existing execution deadline; an unknown adopter fails visibly. Native caller
+isolation tests retain real shared-host guard positive controls. This boundary
+does not alter product code or Docker's intentional runtime ancestry.
 It also owns `TMUX_TMPDIR` under the sandbox, so ancestor discovery cannot reach
 the host's default tmux server after caller variables are cleared. Native process
 fixtures do not start default-socket servers; real tmux scenarios belong to Docker.
-Descriptor clones share that lifetime. Direct-child exit starts same-group
+Descriptor clones share that lifetime. The selected CLI's completion starts owned-group
 cleanup even when descendants retain output pipes. Success requires direct
-close and confirmed group absence. A SIGKILL or initial group-probe permission
+close and confirmed absence of both groups. A SIGKILL or initial group-probe permission
 error is tolerated only after direct-child close and a subsequent ESRCH group
 probe; live or unknown
 groups still fail within the cleanup bound. An unconfirmed group is never
