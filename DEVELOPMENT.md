@@ -652,12 +652,12 @@ A chapter opens with one such scene from `site/src/chapter-scenes/` (the working
 chapter's mark legend, the sketches on the in-progress colab and planned meet pages); its words are in `site/src/lang/strings.ts` like the home page's.
 `index.html` also asks Google Fonts for the token mono family's glyphs of the marks (`●○◌◆✗✓↻▸`), because the
 latin subset has none; the family lacks `○✗✓↻`, which fall back to the system monospace font.
-Every page exists in English at its path and under `/ja/` and `/zh-hant/`. A translation is
+Every page exists in English at its path and under `/ja/`, `/zh-hant/` and `/zh-hans/`. A translation is
 `site/src/i18n/<lang>/<chapter file>.mdx`, named like the English chapter in `site/src/chapters/` and
 exporting its front matter as `frontmatter` (`title` is the page title). A page without a file shows the
 English page with a "not yet translated" note. The language dropdown in the status bar (and in the `[tmt]`
 menu on a narrow screen) keeps the page, remembers the choice in the browser and sets `<html lang>`
-(`zh-hant` is `zh-Hant`). Published `/zh/` routes redirect to `/zh-hant/`, preserving the
+(`zh-hant` is `zh-Hant`, `zh-hans` is `zh-Hans`). Published `/zh/` routes redirect to `/zh-hant/`, preserving the
 page, query and anchor; the earlier browser preference `zh` also selects `zh-hant`.
 `scripts/spa-routes.mjs` writes each language's route files with their `<html lang>`
 and `hreflang` alternates; `SITE_ORIGIN` makes the alternates fully qualified, and
@@ -683,7 +683,7 @@ SITE_BASE=./ VITE_SITE_HISTORY=hash pnpm exec vp build   # a preview at an unkno
 ### Translations
 
 English is the source. A translation of `site/src/chapters/<page>.mdx` is
-`site/src/i18n/<lang>/<page>.mdx` (`ja`, `zh-hant`) and starts with front matter:
+`site/src/i18n/<lang>/<page>.mdx` (`ja`, `zh-hant`, `zh-hans`) and starts with front matter:
 
 ```yaml
 ---
@@ -728,7 +728,9 @@ id (`<h3 id="install">安裝</h3>`), because links, the home page and the on-thi
 list use it and `slug()` drops non-Latin text. Chinese (`zh-hant`) is Traditional Chinese
 with Taiwan usage; it also keeps `agent`, `driver`, `harness`, `board`, `colab` and
 `meet`, and uses 窗格 for pane, 終端機 for terminal, 擴充套件 for extension, 卡住 for blocked and
-恢復 for resume.
+恢復 for resume. Simplified Chinese (`zh-hans`) is translated directly from English
+with Mainland usage: 文件, 设置, 程序, 服务器 and 默认. It retains the same
+command names and identifiers.
 
 `.github/workflows/site.yml` checks and builds the site on pull requests and
 `main`. Every push to `main` that changes `site/**`, `design/tokens/**` or the

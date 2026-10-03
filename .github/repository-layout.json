@@ -25,7 +25,8 @@
   ],
   "languageExceptions": {
     "site/src/i18n/zh-hant": "zh-Hant",
-    "site/src/i18n/ja": "ja"
+    "site/src/i18n/ja": "ja",
+    "site/src/i18n/zh-hans": "zh-Hans"
   },
   "temporary": {}
 }
