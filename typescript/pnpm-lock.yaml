@@ -24,9 +24,6 @@ importers:
       better-sqlite3:
         specifier: ^13.0.3
         version: 13.0.3
-      oxlint:
-        specifier: ^1.34.0
-        version: 1.35.0(oxlint-tsgolint@7.0.2003)
       tar:
         specifier: 7.5.22
         version: 7.5.22
@@ -70,9 +67,6 @@ importers:
       '@vitejs/plugin-react':
         specifier: 6.1.1
         version: 6.1.1(@voidzero-dev/vite-plus-core@1.0.0(@types/node@25.0.3)(typescript@5.9.3))
-      oxlint:
-        specifier: 1.35.0
-        version: 1.35.0(oxlint-tsgolint@7.0.2003)
       typescript:
         specifier: ^5.3.0
         version: 5.9.3
@@ -88,9 +82,6 @@ importers:
       '@types/node':
         specifier: ^25.0.3
         version: 25.0.3
-      oxlint:
-        specifier: ^1.34.0
-        version: 1.35.0(oxlint-tsgolint@7.0.2003)
       playwright:
         specifier: 1.63.0
         version: 1.63.0
@@ -149,9 +140,6 @@ importers:
       jsdom:
         specifier: ^26.1.0
         version: 26.1.0
-      oxlint:
-        specifier: ^1.34.0
-        version: 1.35.0(oxlint-tsgolint@7.0.2003)
       typescript:
         specifier: ^5.3.0
         version: 5.9.3
@@ -174,9 +162,6 @@ importers:
       '@types/node':
         specifier: ^25.0.3
         version: 25.0.3
-      oxlint:
-        specifier: ^1.34.0
-        version: 1.35.0(oxlint-tsgolint@7.0.2003)
       typescript:
         specifier: ^5.3.0
         version: 5.9.3
@@ -195,9 +180,6 @@ importers:
       '@types/node':
         specifier: ^25.0.3
         version: 25.0.3
-      oxlint:
-        specifier: ^1.34.0
-        version: 1.35.0(oxlint-tsgolint@7.0.2003)
       typescript:
         specifier: ^5.3.0
         version: 5.9.3
@@ -216,9 +198,6 @@ importers:
       '@types/node':
         specifier: ^25.0.3
         version: 25.0.3
-      oxlint:
-        specifier: ^1.34.0
-        version: 1.35.0(oxlint-tsgolint@7.0.2003)
       typescript:
         specifier: ^5.3.0
         version: 5.9.3
@@ -859,53 +838,9 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@oxlint/darwin-arm64@1.35.0':
-    resolution: {integrity: sha512-ieiYVHkNZPo77Hgrxav595wGS4rRNKuDNrljf+4xhwpJsddrxMpM64IQUf2IvR3MhK4FxdGzhhB6OVmGVHY5/w==}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@oxlint/darwin-x64@1.35.0':
-    resolution: {integrity: sha512-1jNHu3j66X5jKySvgtE+jGtjx4ye+xioAucVTi2IuROZO6keK2YG74pnD+9FT+DpWZAtWRZGoW0r0x6aN9sEEg==}
-    cpu: [x64]
-    os: [darwin]
-
-  '@oxlint/linux-arm64-gnu@1.35.0':
-    resolution: {integrity: sha512-T1lc0UaYbTxZyqVpLfC7eipbauNG8pBpkaZEW4JGz8Y68rxTH7d9s+CF0zxUxNr5RCtcmT669RLVjQT7VrKVLg==}
-    cpu: [arm64]
-    os: [linux]
-    libc: [glibc]
-
-  '@oxlint/linux-arm64-musl@1.35.0':
-    resolution: {integrity: sha512-7Wv5Pke9kwWKFycUziSHsmi3EM0389TLzraB0KE/MArrKxx30ycwfJ5PYoMj9ERoW+Ybs0txdaOF/xJy/XyYkg==}
-    cpu: [arm64]
-    os: [linux]
-    libc: [musl]
-
-  '@oxlint/linux-x64-gnu@1.35.0':
-    resolution: {integrity: sha512-HDMPOzyVVy+rQl3H7UOq8oGHt7m1yaiWCanlhAu4jciK8dvXeO9OG/OQd74lD/h05IcJh93pCLEJ3wWOG8hTiQ==}
-    cpu: [x64]
-    os: [linux]
-    libc: [glibc]
-
-  '@oxlint/linux-x64-musl@1.35.0':
-    resolution: {integrity: sha512-kAPBBsUOM3HQQ6n3nnZauvFR9EoXqCSoj4O3OSXXarzsRTiItNrHabVUwxeswZEc+xMzQNR0FHEWg/d4QAAWLw==}
-    cpu: [x64]
-    os: [linux]
-    libc: [musl]
-
   '@oxlint/plugins@1.79.0':
     resolution: {integrity: sha512-S0uyoxakDINJ4DPgqxGlEEvrdSMeQb7Z2lKVjxoY2gwsbZbfg2Xr8Klfeo5ZeraHmmdBCELFUHkSe6KEmBpMvg==}
     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
-
-  '@oxlint/win32-arm64@1.35.0':
-    resolution: {integrity: sha512-qrpBkkOASS0WT8ra9xmBRXOEliN6D/MV9JhI/68lFHrtLhfFuRwg4AjzjxrCWrQCnQ0WkvAVpJzu73F4ICLYZw==}
-    cpu: [arm64]
-    os: [win32]
-
-  '@oxlint/win32-x64@1.35.0':
-    resolution: {integrity: sha512-yPFcj6umrhusnG/kMS5wh96vblsqZ0kArQJS+7kEOSJDrH+DsFWaDCsSRF8U6gmSmZJ26KVMU3C3TMpqDN4M1g==}
-    cpu: [x64]
-    os: [win32]
 
   '@pixi/colord@2.9.6':
     resolution: {integrity: sha512-nezytU2pw587fQstUu1AsJZDVEynjskwOL+kibwcdxsMBFqPsFFNA7xl0ii/gXuDi6M0xj3mfRJj8pBSc2jCfA==}
@@ -2209,16 +2144,6 @@ packages:
     resolution: {integrity: sha512-VnK4zlqgmgq/7ZcjzCk/WpN8kKFsYGcB85Io9qT3wL4K8Un3RKmJkp793crNETieMusPMKOA4a+Mw2wbteI6TQ==}
     hasBin: true
 
-  oxlint@1.35.0:
-    resolution: {integrity: sha512-QDX1aUgaiqznkGfTM2qHwva2wtKqhVoqPSVXrnPz+yLUhlNadikD3QRuRtppHl7WGuy3wG6nKAuR8lash3aWSg==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    hasBin: true
-    peerDependencies:
-      oxlint-tsgolint: '>=0.10.0'
-    peerDependenciesMeta:
-      oxlint-tsgolint:
-        optional: true
-
   oxlint@1.85.0:
     resolution: {integrity: sha512-bc26s97nuvPj1ViyPsqmKecVkUWFMEdtayO8MaQ6oiLfs1pj94cQlZZhrh4BPNlr9HQosjhIlwgZKsfcwmcNgg==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -3382,31 +3307,7 @@ snapshots:
   '@oxlint/binding-win32-x64-msvc@1.85.0':
     optional: true
 
-  '@oxlint/darwin-arm64@1.35.0':
-    optional: true
-
-  '@oxlint/darwin-x64@1.35.0':
-    optional: true
-
-  '@oxlint/linux-arm64-gnu@1.35.0':
-    optional: true
-
-  '@oxlint/linux-arm64-musl@1.35.0':
-    optional: true
-
-  '@oxlint/linux-x64-gnu@1.35.0':
-    optional: true
-
-  '@oxlint/linux-x64-musl@1.35.0':
-    optional: true
-
   '@oxlint/plugins@1.79.0': {}
-
-  '@oxlint/win32-arm64@1.35.0':
-    optional: true
-
-  '@oxlint/win32-x64@1.35.0':
-    optional: true
 
   '@pixi/colord@2.9.6': {}
 
@@ -4734,18 +4635,6 @@ snapshots:
       '@oxlint-tsgolint/linux-x64': 7.0.2003
       '@oxlint-tsgolint/win32-arm64': 7.0.2003
       '@oxlint-tsgolint/win32-x64': 7.0.2003
-
-  oxlint@1.35.0(oxlint-tsgolint@7.0.2003):
-    optionalDependencies:
-      '@oxlint/darwin-arm64': 1.35.0
-      '@oxlint/darwin-x64': 1.35.0
-      '@oxlint/linux-arm64-gnu': 1.35.0
-      '@oxlint/linux-arm64-musl': 1.35.0
-      '@oxlint/linux-x64-gnu': 1.35.0
-      '@oxlint/linux-x64-musl': 1.35.0
-      '@oxlint/win32-arm64': 1.35.0
-      '@oxlint/win32-x64': 1.35.0
-      oxlint-tsgolint: 7.0.2003
 
   oxlint@1.85.0(oxlint-tsgolint@7.0.2003)(vite-plus@1.0.0(@opentelemetry/api@1.9.1)(@types/node@25.0.3)(@vitest/ui@5.0.1(vitest@5.0.1))(jsdom@26.1.0)(typescript@5.9.3)):
     optionalDependencies:
