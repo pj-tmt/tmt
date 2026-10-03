@@ -91,12 +91,13 @@ source; Rust CLI theme tests check its built-in palette against the same file.
 The `typescript` pnpm workspace has one lockfile, retained Node tooling and tests,
 the `@tmt/office` SPA, the `@tmt/office-service` trusted pairing service,
 the private `@tmt/browser-addon` demo shell and `@tmt/remote-client` device SDK,
-and the private `@tmt/colab-client` WebCrypto primitive library.
+the private `@tmt/colab-client` WebCrypto primitive library, and
+`@tmt/colab-app` local page preview.
 The two Office packages live under `extensions/tmt-office/typescript` as
 parent-relative members of that same workspace and lockfile. They resolve only
 their declared dependencies, never root-hoisted tooling packages; Office browser
 specs reach the tooling-owned SQLite oracle through `typescript/test/support`.
-Vite+ owns workspace test and Office/addon Vite build, dev and preview entry points.
+Vite+ owns workspace test and Office/addon/Colab Vite build, dev and preview entry points.
 It supplies one Vitest runner and aliased Vite core. Each suite keeps its separate
 configuration; the override also supplies that core to the existing plugins. Site and release
 tooling remain outside this workspace lockfile. Compiler, lint and formatter
@@ -4122,7 +4123,8 @@ device context, certificates and silent session reopening.
 ## Colab extension proposal
 
 **Status: persistence, foreground socket executable, isolated decoder and model foundation implemented;
-the stream sync library is available without socket wiring; owner-browser registration is implemented; browser and backend work remains proposed.** The local-build-only pilot lives under
+the stream sync library is available without socket wiring; owner-browser registration is implemented;
+the browser page preview runs on a local adapter; backend work remains proposed.** The local-build-only pilot lives under
 `extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
 owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
 bridge policy and acceptance gates. The #828 design owns product/UI choices;
@@ -4133,15 +4135,24 @@ Current executable dependencies are `tmt-invoke`, `tmt-cli-style`, the pure
 `tmt-colab-model` space-ID derivation and reviewed workspace pins. The model owns
 canonical bytes/codecs/crypto without I/O or core access. The
 executable owns CLI composition, foreground door, SQLite/files and keyring;
-the embedded app and bridge remain proposed. Core access is only through the absolute invoking
+native app embedding and the bridge remain proposed. Core access is only through the absolute invoking
 `$TMT_EXECUTABLE api` and documented JSON commands via the invoke leaf; no
 `tmt-core`, `tmt-adapters`, Office or Remote behavior dependencies, core SQLite
 or pane scraping. Shared crypto extraction requires actual consumers and review.
 
 The extension-relative `typescript/colab-client` is a private pnpm member for
 client primitives; log verification, Yjs state and SyncBinding are planned additions.
-`typescript/app` (trusted React/Vite chrome and renderer) and backend packages
-remain separate proposals joining the workspace/lockfile when implemented. Shared
+`typescript/app` is the private React/Vite/TanStack app member, using the same
+workspace pins and shared design tokens as Office without importing Office behavior.
+Its read-only `PageTransport` supplies detached home/page snapshots through an
+in-process sample adapter. The trusted parent owns routing, source display and
+render lifecycle; only captured HTML enters an opaque `allow-scripts` iframe.
+The renderer prepends the contract CSP, uses `no-referrer`, binds fresh render IDs
+to exact source digests and tears down the frame on subsequent load/navigation or
+route cleanup. Its handshake grants no effectful capability. Page self-navigation
+can still leak a request before teardown; this is not complete exfiltration prevention.
+The app has no sign-in UI, sync-wire binding, persistence or live editing. A future
+Remote adapter belongs behind the same app port; backend packages remain proposed. Shared
 workspace/component edits follow the two-lead rule; architecture guards and
 full runtime CI-scope coverage include the persistence library. Runtime
 consumers require their own adoption review. The private component
@@ -4173,8 +4184,7 @@ Its typed statement/certificate/cut ports mirror the model; fixed-suite HPKE
 opening keeps native recipient keys opaque. The caller supplies the pinned URL
 root and highest retained head, live issuer/recipient bindings and epoch policy.
 Its test-only three-engine harness fails closed on incomplete engines/corpora and
-checks ciphertext both ways through a developer-only Rust example. No app or
-transport is implemented. Pairing/send/baseline builders remain later L1 work. Frozen vectors are contract-owned;
+checks ciphertext both ways through a developer-only Rust example. The primitive library does not implement app transport. Pairing/send/baseline builders remain later L1 work. Frozen vectors are contract-owned;
 Rust tests read them without Python. Regeneration uses an independent Python
 cryptography oracle; the retained #829 corpus tests all 148 strict policy rows.
 

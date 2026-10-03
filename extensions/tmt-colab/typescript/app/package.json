@@ -1,0 +1,30 @@
+{
+  "name": "@tmt/colab-app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev --host 127.0.0.1",
+    "build": "tsc --noEmit && vp build",
+    "check": "tsc --noEmit && oxlint --deny-warnings --react-plugin src test e2e *.ts && prettier --check .",
+    "test": "vp test run --config vitest.config.ts",
+    "test:browser": "vp exec playwright test"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "1.170.33",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "^25.0.3",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "oxlint": "1.35.0",
+    "prettier": "^3.7.4",
+    "typescript": "^5.3.0",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0",
+    "vite-plus": "1.0.0"
+  }
+}
