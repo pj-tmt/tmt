@@ -4055,24 +4055,16 @@ contention, crash cleanup, retention, acknowledgment and late-final behavior.
 Tooling tests prove release-script policy and bounded command wrappers; they do
 not count as native runtime or release-archive proof.
 The public-install smoke keeps short issue reasons and separate bounded command
-diagnostics in its run log and result artifact; the packed runner owns stream capture
-and retains structured failed-command streams for classification. The smoke owner alone
-recognizes native acquisition JSON rate-limit causes and applies bounded reset-time retries
-to the failed step; status codes, unrelated diagnostics and validation failures are not retry
-signals. A separate bounded read retry recognizes only an older-alpha latest-installer
-lag after publication. Tooling tests pin the consumed Rust diagnostic text and timing
-representation. Exhaustion remains a failed job with typed infrastructure evidence.
-That evidence also retains the exact classified diagnostic and parsed reset epoch for
-`public-install-retry.mjs`. This tooling owner admits complete, product/tag-qualified
-four-host artifacts, validates dispatched inputs against same-repository main source
-run/job evidence through REST, plans affected targets only, waits outside the publication run,
-and reconciles one anonymous re-proof with the original host conclusions. It shares
-the smoke owner's diagnostic parser and `release-publish.mjs`'s issue lifecycle;
-it owns neither acquisition classification nor publication.
-The source and retry host jobs use `.github/actions/public-install-smoke` for tag data
-checkout, target-specific Node setup, macOS toolchain warm-up and complete verifier
-process wrapper. Both Intel legs use the same x64 Node and Rosetta boundary on
-arm64; tooling tests require the source target/runner matrix to match the retry planner.
+diagnostics in its run log and result artifact; the packed runner owns stream capture.
+`.github/actions/public-install-smoke` owns tag data checkout, Node setup,
+architecture wrappers and verifier execution. It supplies the workflow's read-only
+`GITHUB_TOKEN` through env only. The verifier passes it only to bootstrap/native
+acquisition processes, redacts diagnostics and checks isolated installed state for
+credential persistence. The existing native HTTPS client owns API-only authorization
+and its bounded retry; public asset downloads receive no token. All failed acquisitions,
+including exhausted rate limits, report ordinary failures. The only smoke retry is the
+bounded older-alpha latest-installer lag read. A PR-only four-host workflow reuses the
+shared action against an existing published CLI without publication or issue writes.
 
 Docker E2E `harness.ts` retains scenario imports; `harness/fixture.ts` owns
 fixture resources and process registries.
@@ -4261,8 +4253,7 @@ writes converge on the next run. The full sweep is authoritative on every run,
 so built-in close/merge status changes are repaired without manual replay; it
 does not claim atomic exclusion of concurrent external writers. The native
 bundle dispatches only after successful publication read-back and completed
-smoke, accepting success or the reporter's existing classified infrastructure
-failure. Smoke failures remain failures. A dedicated job holds only
+smoke, requiring success. Authenticated acquisition errors remain failed smoke checks. A dedicated job holds only
 `actions: write`; the daily sweep recovers missed dispatches, other publications
 and genuine smoke failures. All updater runs serialize project-wide. Caps fail
 visibly before mutation on incomplete discovery, never silently truncate.
@@ -4348,7 +4339,7 @@ A separate advisory job consumes those outputs with only `contents: read` and
 `issues: write` permission. It holds no App token or Environment secrets: all of
 its own REST uses `github.token` for published releases, PR/head ancestry and the
 single fixed-title `Release stalled` issue, plus open post-publication reporter issues for
-current published manifest tags. Rate-limit infrastructure and real check failures produce
+current published manifest tags. Historical rate-limit infrastructure and current check failures produce
 distinct advisory findings; neither permits publication replay. Later publication
 supersedes the snapshot; missing or malformed draft evidence cannot declare healthy. Stable occurrence
 markers in comments suppress retry duplicates; healthy complete discovery closes
@@ -4408,18 +4399,13 @@ driver path approval against a checksum-verified standalone public archive. Driv
 upgrade proof similarly uses previous/candidate driver archives under the current
 published CLI, preserving executable bytes and checking consent and durable approval.
 Named driver acquisition and the compatibility gate remain separate work. Its real failures
-are reported on the same issue by a separate job, while exhausted classified rate limits
-use a distinct infrastructure issue. Both fail the smoke job. CLI, Office, Squad and Herdr driver runs
-are eligible for one deferred affected-target re-proof through
-`native-release-smoke-retry.yml`. A separate smoke job with `actions: write` explicitly
-dispatches it only for the report owner's infrastructure outcome; this avoids suppressed
-`workflow_run` events for automatically dispatched native runs. The retry planner admits
-only REST-verified main source run/attempt and matching tag/host conclusions.
-Its Linux reset wait (at most 60 minutes) holds only a source-run/attempt/product/tag retry group,
-never `release-<product>`. Install legs retain read-only credentials and token-free
-acquisition; a separate issues writer comments with both runs and closes only a fully
-recovered infrastructure issue. Real, repeated, incomplete or distant-reset failures
-remain visible, and neither original failures nor retry failures are made green.
+are reported on the same issue by a separate job, including exhausted authenticated
+rate limits. Install legs retain read-only contents access and authenticate native
+API acquisition with the workflow token; the separate issue writer does not execute
+the installed product. There is no deferred smoke-retry workflow. Historical anonymous
+rate-limit issues remain visible to the monitor; no current failure is downgraded or
+made green. The Project dispatch retains successful-smoke gating and removes the obsolete
+infrastructure-only exception; release evidence still follows publication.
 CLI, Office, Squad and Herdr driver runs
 share the four-target cargo-dist build and
 archive verifier, while keeping product-qualified bundles, independent versions and separate

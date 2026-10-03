@@ -10,7 +10,6 @@ import {
   renderVerifySummary,
   reportFailure,
   readSmokeFailures,
-  smokeFailureOutcome,
   verifyPublication,
   type CheckResult,
   type Outcome,
@@ -459,7 +458,7 @@ describe('the failure issue', () => {
     expect(renderFailureIssue({ tag: TAG, results }).body).not.toContain('Run:');
   });
 
-  it('reports only rate limits as infrastructure; mixed failures retain the broken-release conclusion', () => {
+  it('reports rate limits as failed post-publication checks', () => {
     const limited = {
       check: 'tmt upgrade',
       ok: false,
@@ -467,17 +466,15 @@ describe('the failure issue', () => {
       infrastructure: 'github-api-rate-limit' as const,
     };
     const infrastructure = renderFailureIssue({ tag: TAG, results: [limited] });
-    expect(infrastructure.title).toBe(
-      `Release ${TAG} public install blocked by GitHub API rate limit`
-    );
-    expect(infrastructure.body).toContain('not evidence of a broken release');
-    expect(infrastructure.body).toContain('do not rerun publication');
+    expect(infrastructure.title).toBe(`Release ${TAG} failed its post-publication checks`);
+    expect(infrastructure.body).toContain('these checks of the published release failed');
+    expect(infrastructure.body).not.toContain('unauthenticated');
     expect(renderFailureIssue({ tag: TAG, results: [limited, ...results] }).title).toBe(
       `Release ${TAG} failed its post-publication checks`
     );
   });
 
-  it('requires every host artifact before reporting an infrastructure-only conclusion', () => {
+  it('requires every host artifact and ignores retired infrastructure metadata', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'smoke-reports-'));
     const save = (target: string, failed: object[]) => {
       const dir = path.join(root, `smoke-failures-${target}`);
@@ -496,7 +493,7 @@ describe('the failure issue', () => {
         renderFailureIssue({ tag: TAG, results: readSmokeFailures(root, { expectedResults: 4 }) });
       expect(render().title).toContain('failed its post-publication checks');
       for (const target of ['two', 'three', 'four']) save(target, []);
-      expect(render().title).toContain('blocked by GitHub API rate limit');
+      expect(render().title).toContain('failed its post-publication checks');
       save('two', [{ check: 'install', reason: 'archive corrupt' }]);
       expect(render().title).toContain('failed its post-publication checks');
       save('two', [{ check: 'install', reason: 'bad', infrastructure: 'unknown' }]);
@@ -540,27 +537,5 @@ describe('the failure issue', () => {
     expect(text).toContain('### Published release `v5.0.0-alpha.9`');
     expect(text).toContain('- passed `published`');
     expect(text).toContain('- FAILED `immutable`: v5.0.0-alpha.9 is not immutable');
-  });
-});
-
-describe('smoke failure outcome for downstream reconciliation', () => {
-  it('classifies only a nonempty exclusively rate-limited failure set as infrastructure', () => {
-    const rate: CheckResult = {
-      check: 'install',
-      ok: false,
-      reason: 'rate limited',
-      infrastructure: 'github-api-rate-limit',
-    };
-    expect(smokeFailureOutcome([rate])).toBe('infrastructure');
-    expect(smokeFailureOutcome([{ check: 'other host', ok: true, reason: '' }, rate])).toBe(
-      'infrastructure'
-    );
-    expect(smokeFailureOutcome([])).toBe('failure');
-    expect(
-      smokeFailureOutcome([rate, { check: 'install', ok: false, reason: 'broken release' }])
-    ).toBe('failure');
-    expect(smokeFailureOutcome([{ check: 'evidence', ok: false, reason: 'missing host' }])).toBe(
-      'failure'
-    );
   });
 });

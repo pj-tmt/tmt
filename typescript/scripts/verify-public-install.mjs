@@ -37,8 +37,6 @@ import {
   nativeHostTarget,
 } from './native-runtime-proof.mjs';
 
-const ATTEMPTS = 2;
-const MAX_WAIT_MS = 5 * 60_000;
 const COMPONENTS = fileURLToPath(new URL('../../.github/components.json', import.meta.url));
 
 export const installerUrl = (repository) =>
@@ -80,64 +78,6 @@ async function fetchBytes(url, maximum) {
   }
 }
 
-/** Only the native acquisition diagnostic is retryable; HTTP status alone is not evidence. */
-export function parseRateLimitDiagnostic(diagnostic) {
-  if (
-    typeof diagnostic !== 'string' ||
-    diagnostic.length > 1000 ||
-    !/^GitHub API rate limit: reset\/earliest retry time [^\n]+; the (?:required wait exceeds the remaining deadline|single retry was exhausted)\. Retry later or optionally set GITHUB_TOKEN\.$/.test(
-      diagnostic
-    )
-  )
-    return null;
-  const epoch = diagnostic.match(/\(UTC epoch (\d+)\)/)?.[1];
-  const resetAtMs = epoch === undefined ? NaN : Number(epoch) * 1000;
-  return { diagnostic, resetAtMs: Number.isSafeInteger(resetAtMs) ? resetAtMs : null };
-}
-
-function rateLimitDiagnostic(error) {
-  const result = error.cause;
-  if (!result || result.status !== 1 || result.stderr !== '') return null;
-  try {
-    const { error: failure } = JSON.parse(result.stdout);
-    if (!['NATIVE_UPGRADE_FAILED', 'EXTENSION_INSTALL_FAILED'].includes(failure?.code)) return null;
-    return parseRateLimitDiagnostic(failure.cause);
-  } catch {
-    return null;
-  }
-}
-
-/** Retry only the failed acquisition, at most once and with at most five minutes of waiting. */
-async function withAttempts(label, step, { wait = sleep, now = Date.now, retry = false } = {}) {
-  const attempts = retry ? 1 : ATTEMPTS;
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try {
-      return await step();
-    } catch (error) {
-      const diagnostic = rateLimitDiagnostic(error);
-      if (!diagnostic) throw error;
-      const waitMs = Math.max(1000, diagnostic.resetAtMs - now() + 1000);
-      const reason =
-        attempt === attempts
-          ? `attempt bound exceeded (${attempts} attempts)`
-          : diagnostic.resetAtMs === null
-            ? 'reset time unavailable'
-            : waitMs > MAX_WAIT_MS
-              ? `wait bound exceeded (${MAX_WAIT_MS / 1000} seconds)`
-              : '';
-      if (reason) {
-        const failure = new Error(
-          `Public install infrastructure: ${label}: ${reason}; ${diagnostic.diagnostic}`
-        );
-        failure.infrastructure = 'github-api-rate-limit';
-        failure.rateLimit = diagnostic;
-        throw failure;
-      }
-      await wait(waitMs);
-    }
-  }
-}
-
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 /** `file` with its symlinks resolved, or as given when it does not exist. */
@@ -173,7 +113,7 @@ function skillsOf(directory) {
  * Installs and checks `tag` of `product` from the public release, under `root`, and returns the
  * results, one per check, stopping at the first that fails (the later ones depend on it).
  * `source` is a checkout of the tag, `fetch` the one network read of this script, `wait` the pause
- * between attempts and `systemPath` the directories after the prefix on the isolated PATH.
+ * for latest-installer lag and `systemPath` the directories after the prefix on the isolated PATH.
  */
 export async function smokeRelease({
   product,
@@ -186,8 +126,7 @@ export async function smokeRelease({
   fetch: read = fetchText,
   download = fetchBytes,
   wait = sleep,
-  now = Date.now,
-  retry = false,
+  githubToken,
   systemPath = ['/usr/bin', '/bin', '/usr/sbin', '/sbin'],
 }) {
   const version = versionOfTag(tag, product);
@@ -205,30 +144,70 @@ export async function smokeRelease({
     LANG: 'C',
     CI: 'true',
   };
-  const tmt = (args, { timeoutMs = 120_000 } = {}) =>
-    runPackedCommand(binary, args, { cwd: root, env, timeoutMs });
+  // Only acquisition processes receive the read-only credential; assets and inspection stay public.
+  const acquisitionEnv = githubToken ? { ...env, GITHUB_TOKEN: githubToken } : env;
+  const redact = (text) =>
+    githubToken ? String(text).replaceAll(githubToken, '[REDACTED]') : String(text);
+  const tmt = (args, { timeoutMs = 120_000, acquire = false } = {}) => {
+    let stdout;
+    try {
+      stdout = runPackedCommand(binary, args, {
+        cwd: root,
+        env: acquire ? acquisitionEnv : env,
+        timeoutMs,
+      });
+    } catch (error) {
+      // Inspect full streams before the packed runner's bounded diagnostic can split a credential.
+      if (
+        githubToken &&
+        [error.cause?.stdout, error.cause?.stderr].some((stream) => stream?.includes(githubToken))
+      )
+        throw new Error('Acquisition credential appeared in command output: [REDACTED]');
+      throw error;
+    }
+    if (githubToken && stdout.includes(githubToken))
+      throw new Error('Acquisition credential appeared in command output');
+    return stdout;
+  };
   const inspect = (executable) => inspectArchitecture(executable, target, { cwd: root, env });
   const results = [];
   const check = async (name, step) => {
     try {
-      results.push({ check: name, ok: true, reason: oneLine((await step()) ?? '') });
+      results.push({ check: name, ok: true, reason: oneLine(redact((await step()) ?? '')) });
       return true;
     } catch (error) {
-      const reason = oneLine(error.message, 500);
+      const reason = oneLine(redact(error.message), 500);
       // Keep the packed runner's bounded command/streams instead of losing them in the short reason.
-      const detail = String(error.message)
+      const detail = redact(error.message)
         .replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, (character) => (character === '\n' ? '\n' : ' '))
         .slice(0, 6000);
       results.push({
         check: name,
         ok: false,
         reason,
-        ...(error.infrastructure ? { infrastructure: error.infrastructure } : {}),
-        ...(error.rateLimit ? { rateLimit: error.rateLimit } : {}),
         ...(detail === reason ? {} : { detail }),
       });
       return false;
     }
+  };
+  const finish = () => {
+    if (githubToken) {
+      // Follow neither directory links nor paths outside this invocation's temporary installation.
+      const containsCredential = (directory) =>
+        readdirSync(directory, { withFileTypes: true }).some((entry) => {
+          const file = path.join(directory, entry.name);
+          return entry.isDirectory()
+            ? containsCredential(file)
+            : entry.isFile() && readFileSync(file).includes(githubToken);
+        });
+      if (containsCredential(root))
+        results.push({
+          check: 'credential isolation',
+          ok: false,
+          reason: 'Acquisition credential persisted in installed state',
+        });
+    }
+    return results;
   };
   const isCli = product === 'cli';
 
@@ -248,21 +227,23 @@ export async function smokeRelease({
     }
     return `embeds ${/^\s*version='([^']+)'$/m.exec(installer)[1]}`;
   });
-  if (!fetched) return results;
+  if (!fetched) return finish();
 
   const installed = await check('install', async () => {
     const result = spawnSync('sh', ['-s', '--', '--prefix', prefix, '--no-setup'], {
       input: installer,
-      env,
+      env: acquisitionEnv,
       cwd: root,
       encoding: 'utf8',
       timeout: 300_000,
     });
     if (result.error) throw result.error;
+    if (githubToken && `${result.stdout}${result.stderr}`.includes(githubToken))
+      throw new Error('Acquisition credential appeared in installer output');
     if (result.status !== 0)
-      throw new Error(`the installer exited ${result.status}: ${oneLine(result.stderr)}`);
+      throw new Error(`the installer exited ${result.status}: ${oneLine(redact(result.stderr))}`);
   });
-  if (!installed) return results;
+  if (!installed) return finish();
 
   const cliVersion = /^\s*version='([^']+)'$/m.exec(installer)[1];
   const selected = await check('PATH selects the installed tmt', async () => {
@@ -271,7 +252,7 @@ export async function smokeRelease({
       throw new Error(`PATH selects ${found ?? 'no tmt'}, not ${binary}`);
     }
   });
-  if (!selected) return results;
+  if (!selected) return finish();
   if (
     !(await check('installed version', async () => {
       inspect(binary);
@@ -280,7 +261,7 @@ export async function smokeRelease({
       return actual;
     }))
   )
-    return results;
+    return finish();
 
   if (isCli) {
     if (
@@ -299,13 +280,9 @@ export async function smokeRelease({
         return names(actual);
       }))
     )
-      return results;
+      return finish();
     await check('tmt upgrade', async () => {
-      const stdout = await withAttempts(
-        'tmt upgrade',
-        () => tmt(['upgrade', '--channel', 'alpha', '--json']),
-        { wait, now, retry }
-      );
+      const stdout = tmt(['upgrade', '--channel', 'alpha', '--json'], { acquire: true });
       const report = JSON.parse(stdout);
       inspect(binary);
       if (resolved(report.executable) !== resolved(binary)) {
@@ -319,19 +296,14 @@ export async function smokeRelease({
       }
       throw new Error(`it reports ${report.version} (changed: ${report.changed}), not ${version}`);
     });
-    return results;
+    return finish();
   }
 
   if (product === 'driver-herdr') {
-    // Retain #1204's bounded retry only for the native diagnostic. Asset HTTP errors fail directly.
     if (
       !(await check('current public CLI', async () => {
         const report = JSON.parse(
-          await withAttempts(
-            'tmt upgrade',
-            () => tmt(['upgrade', '--channel', 'alpha', '--json']),
-            { wait, now, retry }
-          )
+          tmt(['upgrade', '--channel', 'alpha', '--json'], { acquire: true })
         );
         inspect(binary);
         if (
@@ -345,7 +317,7 @@ export async function smokeRelease({
         return report.version;
       }))
     )
-      return results;
+      return finish();
     await check('driver public archive and approval', async () => {
       // #1084 owns named driver acquisition. Exercise today's supported path approval surface.
       const { selectNativeArtifact, withNativeArtifact } =
@@ -384,30 +356,25 @@ export async function smokeRelease({
       });
       return version;
     });
-    return results;
+    return finish();
   }
 
   const extensionPrefix = path.join(root, 'extension prefix');
   const extensionInstalled = await check(`${product} install`, async () => {
     const report = JSON.parse(
-      await withAttempts(
-        `${product} install`,
-        () =>
-          tmt(
-            [
-              'extension',
-              'install',
-              product,
-              '--yes',
-              '--json',
-              '--channel',
-              'alpha',
-              '--prefix',
-              extensionPrefix,
-            ],
-            { timeoutMs: 300_000 }
-          ),
-        { wait, now, retry }
+      tmt(
+        [
+          'extension',
+          'install',
+          product,
+          '--yes',
+          '--json',
+          '--channel',
+          'alpha',
+          '--prefix',
+          extensionPrefix,
+        ],
+        { timeoutMs: 300_000, acquire: true }
       )
     );
     if (report.version !== version)
@@ -415,7 +382,7 @@ export async function smokeRelease({
     inspect(path.join(extensionPrefix, 'bin', `tmt-${product}`));
     return report.version;
   });
-  if (!extensionInstalled) return results;
+  if (!extensionInstalled) return finish();
   await check(`${product} list`, async () => {
     const { extensions } = JSON.parse(
       tmt(['extension', 'list', '--json', '--prefix', extensionPrefix])
@@ -428,7 +395,7 @@ export async function smokeRelease({
     }
     return listed.version;
   });
-  return results;
+  return finish();
 }
 
 /** Markdown for the run summary. */
@@ -450,7 +417,6 @@ async function main(argv, environment) {
       source: { type: 'string' },
       target: { type: 'string', default: nativeHostTarget() },
       'result-file': { type: 'string', default: '' },
-      retry: { type: 'boolean', default: false },
     },
   });
   for (const name of ['product', 'tag', 'source']) {
@@ -476,7 +442,7 @@ async function main(argv, environment) {
       source: path.resolve(values.source),
       repository,
       root,
-      retry: values.retry,
+      githubToken: environment.GITHUB_TOKEN,
       target: values.target,
     });
   } finally {
@@ -502,7 +468,10 @@ async function main(argv, environment) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main(process.argv.slice(2), process.env).catch((error) => {
-    process.stderr.write(`${error.message}\n`);
+    const message = process.env.GITHUB_TOKEN
+      ? String(error.message).replaceAll(process.env.GITHUB_TOKEN, '[REDACTED]')
+      : error.message;
+    process.stderr.write(`${message}\n`);
     process.exitCode = 1;
   });
 }

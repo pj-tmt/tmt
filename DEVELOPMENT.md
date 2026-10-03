@@ -1903,11 +1903,10 @@ real Intel runner hardware, builds and proves the locked x64 CLI, then installs
 the latest published CLI alpha through the public installer and runs
 `tmt upgrade --channel alpha --json`. That native public smoke exercises installer
 architecture detection that Rosetta cannot establish. It uses disposable
-HOME/state/prefixes and token-free public acquisition. Its only PR trigger is
+HOME/state/prefixes and the workflow's read-only token for native API acquisition. Its only PR trigger is
 an edit to its own workflow file; it is advisory, not a branch-protection check.
-The infra lead triages failed scheduled runs. Record classified public acquisition
-rate limits as infrastructure failures, retaining the failed conclusion and evidence;
-the weekly summary names the class, reset time and that the upgrade remains unproven.
+The infra lead triages failed scheduled runs. Public acquisition errors, including
+exhausted rate limits, retain the failed conclusion and evidence.
 Dispatch only this non-publishing workflow for this proof, never the release pipeline.
 
 CI builds four raw targets once (the two macOS targets and two static Linux musl
@@ -1931,11 +1930,11 @@ For Intel workflow/tooling edits, run the focused structural, process-wrapper,
 architecture and public-install fixtures before the full retained tooling suite:
 
 ```sh
-(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/intel-verification.test.ts test/tooling/native-runtime-proof.test.ts test/tooling/verify-public-install.test.ts test/tooling/public-install-retry.test.ts test/tooling/xcrun-warmup.test.ts test/tooling/release-workflow.test.ts test/tooling/ci-scope.test.ts)
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/intel-verification.test.ts test/tooling/native-runtime-proof.test.ts test/tooling/verify-public-install.test.ts test/tooling/xcrun-warmup.test.ts test/tooling/release-workflow.test.ts test/tooling/ci-scope.test.ts)
 (cd typescript && corepack pnpm check:tooling)
 sh -n scripts/run-native-verification.sh
 shellcheck scripts/run-native-verification.sh
-actionlint .github/workflows/ci.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-upgrade.yml .github/workflows/native-release-smoke.yml .github/workflows/native-release-smoke-retry.yml .github/workflows/native-intel.yml
+actionlint .github/workflows/ci.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-upgrade.yml .github/workflows/native-release-smoke.yml .github/workflows/public-install-smoke-pr.yml .github/workflows/native-intel.yml
 ```
 
 Capture job and step durations from REST for the reviewed PR head and compare
@@ -2213,7 +2212,7 @@ version. A `smoke` job then installs the published release as a user does
 the newest published CLI/extension release or an exact published driver tag: CLI and
 extension acquisition uses current public entry points, while a driver uses its versioned
 archive URLs. A failed run reports on the issue like any other). On the four hosts of the upgrade proof, in an isolated home, state directory
-and prefix and with no token, a CLI alpha goes through the public
+and prefix, a CLI alpha goes through the public
 `releases/latest/download/install.sh`: the installer names the tag's version, the installed `tmt`
 is the one PATH selects and reports that version, the installed shared skills are the tag's
 `skills/*` (same names, same `SKILL.md`), and `tmt upgrade --channel alpha --json` reads the live
@@ -2224,81 +2223,42 @@ CLI link may appear. A Herdr driver alpha downloads its exact tag’s
 `dist-manifest.json` and matching standalone archive through public versioned URLs,
 checks the bounded manifest, digest and inventory, then uses the current public CLI’s
 supported `driver install <extracted-path> --yes --json` and `driver ls` surfaces
-to verify capabilities and durable approval. Its CLI metadata check reuses the
-classified retry below; bare asset HTTP failures do not retry. Named released-driver
-acquisition belongs to #1084. The tag is
-checked out only so its skills can be read; none of its code runs. All smoke acquisition stays
-unauthenticated. Only a native JSON failure with the classified `GitHub API rate limit:
-reset/earliest retry time ...` cause may retry its failed acquisition step: at most two
-attempts, waiting until the diagnostic's UTC epoch plus one second, with a five-minute
-wait limit. Missing timing, a reset beyond the limit or a repeated limit fails clearly with
-`github-api-rate-limit` infrastructure data. Any other failure (including a bare 403/429,
-mixed diagnostics or a real error after retry) fails immediately. Separately, the CLI
-latest-installer read may retry only when it embeds an older alpha than the just-published
-tag (three reads, two 20-second waits); unchanged lag still fails, while a newer or
-malformed version and download errors fail immediately. A tooling contract test pins the
-Rust diagnostic format, UTC epoch representation and reasons consumed by smoke.
-The smoke job has a 25-minute bound. Infrastructure-only failures open a separate
-`Release <tag> public install blocked by GitHub API rate limit` issue; they do not claim a
-broken release. Mixed or real failures retain the post-publication failure issue. Both
-conclusions fail the job and retain artifacts from all four hosts. Missing or malformed
-host evidence cannot establish an infrastructure-only failure; nothing is silently accepted.
-The host artifacts are qualified by product, tag and target and retain the classified
-diagnostic and its parsed UTC reset epoch. The smoke report's shared `smokeFailureOutcome`
-output schedules only an infrastructure-only failure through a dedicated `actions: write`
-dispatch job. It explicitly POSTs `native-release-smoke-retry.yml` on main with the source
-run ID/attempt, product, tag and affected targets: `workflow_dispatch` is exempt from
-`GITHUB_TOKEN` event suppression, while completion-triggered `workflow_run` is unreliable
-for automatically dispatched native runs. Reusable callers propagate this capability;
-install and issue-report jobs do not request it.
-`public-install-retry.mjs` requires four distinct matching-host results per tag, validates
-the exact diagnostic through the smoke owner's parser, and selects only the classified
-failed acquisition targets. Unclassified hosts are never retried. Missing timing,
-inconsistent evidence or a reset more than 60 minutes away keeps the original failure.
-The retry planner verifies the source through REST: the current attempt of a same-repository
-main `workflow_dispatch` run of `native-release.yml` or standalone `native-release-smoke.yml`,
-with four matching concluded target jobs and product/tag-qualified artifact conclusions.
-Requested targets must each be classified and reset-eligible; only those targets are retried,
-while unrequested host failures retain their original conclusions. Dispatch inputs cannot
-fabricate a recovered host, select healthy targets or recursively retry a retry run.
-Host artifacts record their run attempt; artifacts from an earlier attempt cannot
-prove the current one. A partial manual rerun without four current-attempt results
-retains the issue and does not schedule recovery.
+to verify capabilities and durable approval. Named released-driver acquisition belongs to #1084.
+The tag is checked out only so its skills can be read; none of its code runs.
+The shared `.github/actions/public-install-smoke` action supplies the workflow's
+`contents: read` `GITHUB_TOKEN` only through the verifier's process environment.
+The verifier forwards it to the shell bootstrap and native acquisition commands,
+never argv, inspection commands or asset fetches. The native HTTPS client sends it
+only to `api.github.com`, rebuilding authorization per redirect hop; public bootstrap
+and archive downloads remain unauthenticated. Native bounded HTTPS retries are unchanged.
 
-One Linux job waits until the last selected reset plus one second, bounded at 60 minutes;
-each selected target then repeats the public install on its matching host with `--retry`,
-which allows one acquisition attempt without another rate-limit retry. Source and retry
-install jobs share `.github/actions/public-install-smoke`: it owns the tag data
-checkout, target-specific Node setup, macOS toolchain warm-up and complete verifier
-process wrapper. Both Intel rows use `macos-15` with x64 Node and `arch -x86_64`,
-including their installers and upgrade children; installed bytes still require
-exact x86_64 inspection under the runtime acceptance policy above.
-For Herdr, that shared action also installs archive-verification dependencies.
-Only its `current public CLI` classified acquisition failure is retryable; standalone
-archive HTTP failures and mixed failures retain their original failure conclusions.
-Fixtures require the source matrix's target/runner pairs to equal the retry planner's `TARGETS`.
-The source dispatch finishes promptly; the long wait runs solely in the independent workflow, whose
-source-run/attempt/product/tag `public-install-retry-...` group never holds `release-<product>`
-and cannot block the next release. Only the planner has `actions: read` to verify the source
-run/jobs and download its artifacts;
-install legs have `contents: read`, no token on the acquisition path, and tag checkouts
-read solely as data. A separate `issues: write` reporter reconciles retry evidence with
-all original hosts. Full recovery comments on and closes the infrastructure issue,
-naming both runs; repeated classified failures, real failures and missing retry evidence
-retain failure reporting. Real post-publication issues are never closed by this retry.
-Recovery also leaves an infrastructure issue open when its latest reporter-owned
-failure names a different run. Shared hosted-runner quota can be exhausted again
-after the reset; that result stays failed.
-Original failed jobs remain failed, and a failed retry also fails its run. A newer release
-appearing during the wait can still fail the existing latest-installer/version checks;
-the retry does not relax them or rerun publication.
+Acquisition errors, including exhausted GitHub rate limits, are failed smoke checks
+reported on the post-publication failure issue. There is no smoke-level rate-limit
+retry or deferred retry workflow. The verifier redacts the credential before writing
+bounded reasons, diagnostics, summaries or result artifacts and checks its isolated
+home, state, temporary files and installation prefix for persisted credentials.
+The CLI latest-installer read still retries only an older alpha than the just-published
+tag (three reads, two 20-second waits); unchanged lag fails, while a newer or malformed
+version and download errors fail immediately. Install jobs have a 25-minute bound and
+read-only contents permissions; a separate issue writer reports failures with all four
+host artifacts. Historical anonymous rate-limit issues remain visible to the release
+stall monitor; they are not automatically closed by this change.
 
-Fixture-only checks for smoke and deferred reset recovery (no live install or dispatch):
+`.github/workflows/public-install-smoke-pr.yml` provides a pull-request-only dry proof:
+it resolves an existing published CLI and uses the same authenticated action on all
+four matching hosts. It is filtered to the smoke action, verifier, its own workflow
+and native installer/HTTPS acquisition inputs. It builds no binaries and uses no Docker;
+it has no dispatch or publication entry point and keeps only read-only permissions.
+The post-publication Project dispatch requires successful smoke; the obsolete
+infrastructure-only exception is removed. Publication remains the source of Released
+evidence, with the daily sweep as a safety net.
+
+Fixture-only checks (no live install, dispatch or Docker):
 
 ```bash
-(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/verify-public-install.test.ts test/tooling/public-install-retry.test.ts test/tooling/release-publish.test.ts test/tooling/release-workflow.test.ts)
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/verify-public-install.test.ts test/tooling/release-publish.test.ts test/tooling/release-workflow.test.ts test/tooling/release-stall.test.ts test/tooling/xcrun-warmup.test.ts test/tooling/intel-verification.test.ts test/tooling/repository-layout.test.ts)
 (cd typescript && corepack pnpm check:tooling)
-actionlint .github/workflows/native-release-smoke.yml .github/workflows/native-release-smoke-retry.yml .github/workflows/native-release-bundle.yml
+actionlint .github/workflows/native-release-smoke.yml .github/workflows/public-install-smoke-pr.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release.yml .github/workflows/native-intel.yml
 ```
 
 A failed leg keeps its failed checks as data, and a final job
@@ -2547,7 +2507,7 @@ with the reset/earliest-retry time when available and an optional `GITHUB_TOKEN`
 hint. This adds at most one retry request without expanding discovery bounds.
 A provided token is sent only to `api.github.com`, rebuilt per redirect hop;
 missing/empty tokens keep acquisition unauthenticated. Post-publication smoke
-remains token-free. The fixed-version shell bootstrap makes no API discovery
+uses the workflow's read-only token for native API acquisition. The fixed-version shell bootstrap makes no API discovery
 requests and does not send tokens to its asset downloads.
 
 Deterministic local HTTPS rate-limit fixtures run with
@@ -2986,8 +2946,8 @@ Ambiguous discovery or mutation errors leave a visible summary warning; resolve
 multiple matching issues before retrying. Dry runs only summarize and do not
 edit issues. If the App token is unavailable, dry reads cannot observe drafts,
 as described in the safety gate above. For current published manifest tags, the monitor also
-reads open reporter issues and distinguishes public-smoke rate-limit infrastructure
-from real post-publication check failures. It recommends retrying smoke after reset for the former, never publication.
+reads open reporter issues and distinguishes historical anonymous public-smoke rate-limit
+infrastructure from current post-publication check failures. It recommends retrying smoke after reset for the former, never publication.
 Old release issues and pull requests are ignored; unavailable issue discovery cannot
 declare healthy. The detector never edits release PRs, tags, drafts or publication state. Fixtures verify both thresholds, component
 isolation, real pinned planning, occurrence lifecycle and nonblocking failure.
@@ -3989,8 +3949,8 @@ Missing credentials or incomplete permissions fail visibly before writes.
 
 The daily cron remains 04:23 UTC. After publication read-back succeeds and all
 smoke jobs conclude, `native-release-bundle.yml` explicitly dispatches a full
-sweep with `GITHUB_TOKEN`. It accepts successful smoke or a complete failure set
-classified by the existing reporter as GitHub API rate-limit infrastructure.
+sweep with `GITHUB_TOKEN`. It requires successful smoke; authenticated acquisition
+errors fail the smoke and leave reconciliation to the daily sweep.
 Missing/mixed failure evidence and actual release failures do not qualify for
 this immediate dispatch; the scheduled sweep still reconciles repository state.
 No failed smoke job is made successful. The calling native workflow grants

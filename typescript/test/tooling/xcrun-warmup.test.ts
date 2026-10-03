@@ -2,7 +2,6 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
-import { TARGETS as RETRY_TARGETS } from '../../scripts/public-install-retry.mjs';
 
 const repository = fileURLToPath(new URL('../../../', import.meta.url));
 const read = (relative: string) => readFileSync(path.join(repository, relative), 'utf8');
@@ -36,12 +35,7 @@ function runsOnMacOs(workflow: string, job: string): boolean {
     const start = workflow.indexOf(`&${alias}\n`);
     return workflow.slice(start, workflow.indexOf('runs-on:', start));
   });
-  return (
-    [job, ...anchored].some((text) => /(?:runner|runs-on): macos-/.test(text)) ||
-    (job.includes('matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}') &&
-      job.includes('uses: ./.github/actions/public-install-smoke') &&
-      Object.values(RETRY_TARGETS).some((runner) => runner.startsWith('macos-')))
-  );
+  return [job, ...anchored].some((text) => /(?:runner|runs-on): macos-/.test(text));
 }
 
 /** Shared step anchors must be inspected at their definition, not skipped. */
@@ -80,7 +74,7 @@ describe('macOS toolchain warm-up before the native runtime proof', () => {
     '.github/workflows/ci.yml',
     '.github/workflows/native-release-bundle.yml',
     '.github/workflows/native-release-smoke.yml',
-    '.github/workflows/native-release-smoke-retry.yml',
+    '.github/workflows/public-install-smoke-pr.yml',
     '.github/workflows/native-intel.yml',
   ])('warms xcrun before every macOS verifier in %s', (workflow) => {
     const text = read(workflow);
@@ -126,10 +120,6 @@ describe('macOS toolchain warm-up before the native runtime proof', () => {
     expect(() =>
       steps(text, macos.replace('*packed-native-install-steps', '*missing-steps'))
     ).toThrow('Missing shared steps anchor');
-    const retryWorkflow = read('.github/workflows/native-release-smoke-retry.yml');
-    const retry = jobs(retryWorkflow).get('retry') as string;
-    expect(runsOnMacOs(retryWorkflow, retry)).toBe(true);
-    expect(steps(retryWorkflow, retry).some((step) => step.includes(warmUp))).toBe(true);
   });
 
   it('warms through the bounded retry and only on macOS', () => {
