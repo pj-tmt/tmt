@@ -30,19 +30,7 @@ fn fixture_command(root: &std::path::Path) -> RuntimeCommand {
     let script = format!(
         "#!/bin/sh\nexport TMT_TEST_CODEX_SUPERVISOR=1\nexec '{executable}' --exact drivers::codex::supervisor::tests::fake_server --nocapture\n"
     );
-    let mut writer = Command::new("/bin/sh")
-        .args(["-c", "cat > \"$1\" && chmod 700 \"$1\"", "sh"])
-        .arg(&path)
-        .stdin(Stdio::piped())
-        .spawn()
-        .unwrap();
-    writer
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(script.as_bytes())
-        .unwrap();
-    assert!(writer.wait().unwrap().success());
+    tmt_test_support::write_executable(&path, script.as_bytes(), 0o700).unwrap();
     RuntimeCommand {
         executable: path.into_os_string(),
         args: vec![

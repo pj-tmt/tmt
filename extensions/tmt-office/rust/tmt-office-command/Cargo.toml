@@ -21,6 +21,7 @@ semver.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
+tmt-test-support.workspace = true
 png.workspace = true
 tar.workspace = true
 flate2.workspace = true

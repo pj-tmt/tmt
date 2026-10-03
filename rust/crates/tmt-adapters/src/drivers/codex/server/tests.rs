@@ -1,6 +1,5 @@
 use super::*;
 use crate::test_support::TestDirectory;
-use std::process::{Command, Stdio};
 
 fn command(root: &Path, ready: bool) -> RuntimeCommand {
     let path = root.join("fake-codex");
@@ -9,24 +8,12 @@ fn command(root: &Path, ready: bool) -> RuntimeCommand {
     } else {
         ""
     };
-    // Follow Squad's write_executable pattern: only the short-lived shell
-    // opens the executable for writing, so parallel test forks cannot inherit
-    // its write descriptor and cause ETXTBSY on the production single-shot exec.
-    let mut writer = Command::new("/bin/sh")
-        .args(["-c", "cat > \"$1\" && chmod 700 \"$1\"", "sh"])
-        .arg(&path)
-        .stdin(Stdio::piped())
-        .spawn()
-        .unwrap();
-    writer
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(
-            format!("#!/bin/sh\npwd -P > cwd-proof\n{banner}exec /bin/sleep 30\n").as_bytes(),
-        )
-        .unwrap();
-    assert!(writer.wait().unwrap().success());
+    tmt_test_support::write_executable(
+        &path,
+        format!("#!/bin/sh\npwd -P > cwd-proof\n{banner}exec /bin/sleep 30\n").as_bytes(),
+        0o700,
+    )
+    .unwrap();
     RuntimeCommand {
         executable: path.into_os_string(),
         args: Vec::new(),
