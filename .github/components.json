@@ -117,6 +117,7 @@
       "bootstrapSha": "6ed7f3f9f0070076d4ca78e9fcc2f4de4457fbbd"
     },
     "tmt-release-tool": {
+      "releaseStatus": "never",
       "owns": ["rust/crates/tmt-release-tool"],
       "release": false
     }

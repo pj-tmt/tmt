@@ -1,12 +1,8 @@
 #!/usr/bin/env node
-// Plans which draft releases of one product the release run has to work on, oldest first:
-// every draft that has no verified bundle and no recorded failure (it is built and verified),
-// and every complete draft that carries no hold (it waits for its gates and its publication).
-// The run plans from these durable markers on the draft itself, so a run that was replaced
-// while it waited for its concurrency group, or one that stopped before it published, loses
-// nothing: the run that follows plans the same drafts.
+// Classifies durable draft markers for build and publication decisions. Native release passes
+// its exact allocated tag; owner retry, hold and rerun each select one existing draft.
 //   gh api --paginate --slurp repos/OWNER/REPO/releases \
-//     | node plan-release-builds.mjs --product cli [--retry TAG | --hold TAG | --rerun TAG] [--components FILE]
+//     | node plan-release-builds.mjs --product cli [--tag TAG | --retry TAG | --hold TAG | --rerun TAG] [--components FILE]
 import { appendFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -220,7 +216,7 @@ function main(argv, stdin) {
   });
   if (!values.product) {
     throw new Error(
-      'Usage: plan-release-builds.mjs --product <product> [--retry <tag> | --hold <tag> | --rerun <tag>]'
+      'Usage: plan-release-builds.mjs --product <product> [--tag <tag> | --retry <tag> | --hold <tag> | --rerun <tag>]'
     );
   }
   const releases = releasesFrom(JSON.parse(stdin));

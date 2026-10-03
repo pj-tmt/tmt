@@ -392,8 +392,7 @@ Release attribution and Cargo-resolved version fixtures use the shared metadata
 owner. After changing component eligibility or Rust production dependencies, run
 the cut, component-scope and workflow tests below. Keep CI scope separate from
 release attribution; normal/build workspace dependencies follow the product
-binary without a second hand-maintained consumer list. There is no generated
-release configuration or isolated release-please installation.
+binary through Cargo-resolved metadata.
 
 For the separate Office Auth/Firestore environment, follow
 [`extensions/tmt-office/typescript/services/office/README.md`](extensions/tmt-office/typescript/services/office/README.md). It uses Docker-contained
