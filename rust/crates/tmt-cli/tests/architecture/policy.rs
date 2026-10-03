@@ -84,6 +84,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "serde",
             "ureq",
             "semver",
+            // Read-only provider-local Codex folder-trust evidence.
+            "toml_edit",
             "tar",
             "flate2",
             "tmt-core",

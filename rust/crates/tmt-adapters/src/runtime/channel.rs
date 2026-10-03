@@ -6,7 +6,7 @@
 
 use super::RuntimeCommand;
 use std::{
-    ffi::{OsStr, OsString},
+    ffi::OsString,
     fmt,
     io::{self, BufRead, Write},
     path::{Path, PathBuf},
@@ -491,9 +491,13 @@ pub trait RuntimeChannel {
     /// outcome is `Err`; the driver owns qualification, and the launcher chooses
     /// plain fallback or a strict error;
     /// `Ok(None)` has nothing to say.
+    /// The command and launch cwd are provider-neutral input; the driver owns
+    /// interpreting flags that change its effective working directory.
+    /// Unavailable cwd evidence is `None` and must not make preflight unavailable.
     fn preflight(
         &self,
-        executable: &OsStr,
+        command: &RuntimeCommand,
+        working_directory: Option<&Path>,
         directory: &Path,
         deadline: Instant,
     ) -> Result<Option<String>, ChannelError>;
@@ -662,7 +666,8 @@ mod tests {
     impl RuntimeChannel for Planner {
         fn preflight(
             &self,
-            _: &OsStr,
+            _: &crate::runtime::RuntimeCommand,
+            _: Option<&Path>,
             _: &Path,
             _: Instant,
         ) -> Result<Option<String>, ChannelError> {

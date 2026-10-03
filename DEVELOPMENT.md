@@ -1087,6 +1087,15 @@ isolated shell stand-ins and check observable process/file cleanup; cwd probes
 compare relative and absolute `-C`. They do not start Codex or a model and do not
 replace the final live foreground continuity gate.
 
+Read-only Codex folder-trust advice (#781) is checked with
+`cargo test --locked -p tmt-adapters drivers::codex::trust` and
+`cargo test --locked -p tmt-adapters drivers::codex::channel`. Temporary local
+config fixtures verify cwd/root precedence, alternate `CODEX_HOME`, unknown
+inputs and unchanged config/credentials. The injected version runner permits
+only `--version`; these tests never start Codex or a model. Shared informational
+preflight behavior is checked with
+`cargo test --locked -p tmt-cli run_command::channel`.
+
 For fresh Codex bootstrap (#1198), run focused model-free checks:
 `CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters drivers::codex::supervisor`,
 `CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters drivers::codex::channel_hooks`,

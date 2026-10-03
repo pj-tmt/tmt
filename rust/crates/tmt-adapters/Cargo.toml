@@ -19,6 +19,7 @@ base64.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 sha2.workspace = true
 semver.workspace = true
+toml_edit.workspace = true
 tar.workspace = true
 flate2.workspace = true
 
