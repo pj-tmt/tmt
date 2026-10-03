@@ -98,6 +98,16 @@ pub fn start_hook_installed(provider: &DriverDefinition) -> bool {
         .is_some_and(|text| document::has_owned_hook(provider, &text, "SessionStart"))
 }
 
+/// Effective owned Stop installation is the existing collection consent evidence.
+/// Legacy lifecycle-only and explicit opt-outs do not enable foreground sampling.
+pub fn usage_hook_installed(provider: &DriverDefinition) -> bool {
+    provider_settings(provider)
+        .and_then(|path| read_settings(&path))
+        .ok()
+        .flatten()
+        .is_some_and(|text| document::has_owned_hook(provider, &text, document::USAGE))
+}
+
 pub fn plan(
     provider: &DriverDefinition,
     path: PathBuf,

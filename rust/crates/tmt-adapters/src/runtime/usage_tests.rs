@@ -135,7 +135,6 @@ fn unreadable_transcripts_write_nothing() {
             malformed(&edited(driver.line, |value| {
                 value["type"] = json!("something-new")
             })),
-            vec![String::new()],
             // A final line larger than the whole read window.
             vec![
                 driver.line.into(),
@@ -336,4 +335,16 @@ fn claude_custom_config_root_admits_only_its_own_transcripts() {
             );
         }
     }
+}
+
+#[test]
+fn empty_claude_source_baselines_without_inventing_context_usage() {
+    let driver = drivers().into_iter().next().unwrap();
+    let home = TestDirectory::new();
+    let state = turn(&driver, &home.path, &[String::new()], None).unwrap();
+    assert_eq!(driver.lifecycle.state_usage(&state), None);
+    let consumption = driver.lifecycle.state_consumption(&state).unwrap();
+    assert_eq!(consumption.input_tokens, 0);
+    assert_eq!(consumption.output_tokens, 0);
+    assert!(consumption.complete && !consumption.gap);
 }

@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vite-plus/test';
 import { withE2EFixture, type E2EFixture } from './harness.js';
@@ -211,3 +213,232 @@ describe(
     }
   }
 );
+
+// #1492: the real foreground owner samples model-free providers while Stop is
+// deliberately held. SQLite is only an independent readiness/cleanup oracle;
+// feature assertions use the ordinary public ls and bounded API projection.
+for (const provider of providers) {
+  it(`samples ${provider.name} before Stop and seeds closed history without recounting`, async () => {
+    await withE2EFixture(async (fixture) => {
+      const home = path.join(fixture.root, 'sampling-home');
+      const tree = path.join(home, provider.tree);
+      fs.mkdirSync(tree, { recursive: true });
+      const transcript = path.join(
+        tree,
+        provider.name === 'codex' ? `rollout-2026-10-04-${session}.jsonl` : `${session}.jsonl`
+      );
+      fs.writeFileSync(transcript, provider.line);
+      const settings = path.join(
+        home,
+        provider.name === 'claude' ? '.claude/settings.json' : '.codex/hooks.json'
+      );
+      fs.writeFileSync(
+        settings,
+        JSON.stringify({
+          hooks: {
+            Stop: [
+              {
+                hooks: [
+                  {
+                    type: 'command',
+                    command: `'${fixture.executables.cli.executable}' __hook ${provider.name}`,
+                    timeout: 3,
+                  },
+                ],
+              },
+            ],
+          },
+        })
+      );
+      const fake = path.join(fixture.wrapperDir, provider.name);
+      writeExecutable(fake, `#!/bin/sh\nexec ${quote(provider.runtime)} "$@"\n`, 0o700);
+      const appendReady = path.join(fixture.root, 'append-ready');
+      const stopReady = path.join(fixture.root, 'stop-ready');
+      const report = path.join(fixture.root, 'sample-report.json');
+      const scenario = path.join(fixture.root, 'sample-scenario.json');
+      const hook = (event: string) => ({
+        args: ['__hook', provider.name],
+        input: {
+          hook_event_name: event,
+          session_id: session,
+          turn_id: other,
+          source: 'startup',
+          model: 'model-a',
+          transcript_path: transcript,
+        },
+      });
+      fs.writeFileSync(
+        scenario,
+        JSON.stringify([
+          hook('SessionStart'),
+          hook('UserPromptSubmit'),
+          { checkpoint: appendReady, args: ['whoami', '--json'] },
+          { ...hook('Stop'), checkpoint: stopReady },
+          { args: ['ls', '--json'] },
+          hook('Stop'),
+          { args: ['ls', '--json'] },
+        ])
+      );
+      const pane = fixture.createShellPane('sampling').pane;
+      const status = path.join(fixture.root, 'sampling.status');
+      const command = [
+        'env',
+        `HOME=${home}`,
+        `TMUX_TEAM_HOME=${fixture.globalDir}`,
+        fixture.executables.cli.executable,
+        ...fixture.executables.cli.args,
+        'run',
+        '--no-channel',
+        '--save',
+        'Sample Reader',
+        fake,
+        fixture.executables.cli.executable,
+        scenario,
+        report,
+      ]
+        .map(quote)
+        .join(' ');
+      fixture.tmux([
+        'send-keys',
+        '-t',
+        pane,
+        '-l',
+        `${command}; printf '%s' "$?" > ${quote(status)}`,
+      ]);
+      fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+      await fixture.waitFor(
+        () => fs.existsSync(appendReady),
+        10000,
+        'prompt baseline before append'
+      );
+      const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+        readonly: true,
+      });
+      try {
+        expect(fs.existsSync(report)).toBe(false);
+        fs.appendFileSync(transcript, provider.appended);
+        const latest = () =>
+          database
+            .prepare(
+              'SELECT s.identity_id,s.sampled_at_ms,s.latest FROM consumption_sources s JOIN identities i ON i.id=s.identity_id WHERE i.name=?'
+            )
+            .get('Sample Reader') as
+            | { identity_id: string; sampled_at_ms: number; latest: string }
+            | undefined;
+        await fixture.waitFor(
+          () => {
+            const row = latest();
+            if (!row?.latest) return false;
+            return (
+              JSON.parse(row.latest).consumption.outputTokens === provider.updated.outputTokens
+            );
+          },
+          8500,
+          'foreground counter advanced before Stop'
+        );
+        const observed = latest()!;
+        const listed = await fixture.runJsonCli<{
+          identities: Array<{
+            name: string;
+            resume?: { consumption: Record<string, unknown> };
+            session: { activity: { state: string } };
+          }>;
+        }>(['ls']);
+        expect(listed.code).toBe(0);
+        const live = listed.json!.identities.find((row) => row.name === 'Sample Reader')!;
+        expect(live.resume?.consumption).toMatchObject(provider.updated);
+        expect(live.session.activity.state).toBe('working');
+        expect(fs.existsSync(report), 'Stop has not run').toBe(false);
+        fs.writeFileSync(appendReady, 'continue');
+        await fixture.waitFor(() => fs.existsSync(stopReady), 2000, 'held Stop checkpoint');
+        await fixture.waitFor(
+          () => {
+            const through = Math.floor(Date.now() / 5000) * 5000;
+            const coverage = database
+              .prepare(
+                'SELECT SUM(covered_ms) AS covered FROM consumption_buckets WHERE identity_id=? AND from_ms<?'
+              )
+              .get(observed.identity_id, through) as { covered: number | null };
+            return (
+              through > Math.floor(observed.sampled_at_ms / 5000) * 5000 &&
+              (coverage.covered ?? 0) > 0
+            );
+          },
+          7000,
+          'sample bucket closed with confirmed coverage'
+        );
+        const request = {
+          version: 1,
+          operation: 'consumption.history',
+          input: { identityIds: [observed.identity_id], windowsMs: [60000], maxBuckets: 120 },
+        };
+        const history = JSON.parse(
+          execFileSync(
+            fixture.executables.cli.executable,
+            [...fixture.executables.cli.args, 'api'],
+            {
+              input: JSON.stringify(request),
+              encoding: 'utf8',
+              timeout: 5000,
+              env: { PATH: process.env.PATH, HOME: home, TMUX_TEAM_HOME: fixture.globalDir },
+            }
+          )
+        );
+        const seeded = history.identities[0];
+        expect(seeded.latest.consumption).toMatchObject(provider.updated);
+        expect(seeded.lastSampleAtMs).toBeLessThan(history.throughMs);
+        const buckets = seeded.windows[0].buckets as Array<{
+          inputTokens: number;
+          outputTokens: number;
+          coveredMs: number;
+        }>;
+        expect(buckets.reduce((sum, row) => sum + row.inputTokens, 0)).toBe(
+          provider.updated.inputTokens - provider.consumption.inputTokens
+        );
+        expect(buckets.reduce((sum, row) => sum + row.outputTokens, 0)).toBe(
+          provider.updated.outputTokens - provider.consumption.outputTokens
+        );
+        expect(buckets.reduce((sum, row) => sum + row.coveredMs, 0)).toBeGreaterThan(0);
+        fs.writeFileSync(stopReady, 'continue');
+        await fixture.waitFor(
+          () => fs.existsSync(status),
+          5000,
+          'original child exited and wrapper reaped'
+        );
+        expect(fs.readFileSync(status, 'utf8')).toBe('0');
+        const results = JSON.parse(fs.readFileSync(report, 'utf8')) as Array<{
+          code: number;
+          stdout: string;
+          stderr: string;
+        }>;
+        expect(results.every((row) => row.code === 0 && row.stderr === '')).toBe(true);
+        expect(results[3].stdout).toBe('');
+        expect(results[5].stdout).toBe('');
+        const first = JSON.parse(results[4].stdout).identities.find(
+          (row: { name: string }) => row.name === 'Sample Reader'
+        ).resume.consumption;
+        const repeated = JSON.parse(results[6].stdout).identities.find(
+          (row: { name: string }) => row.name === 'Sample Reader'
+        ).resume.consumption;
+        expect(first).toEqual(live.resume?.consumption);
+        expect(repeated).toEqual(first);
+        expect(
+          database
+            .prepare('SELECT runtime_state FROM bindings WHERE identity_id=?')
+            .get(observed.identity_id)
+        ).toEqual({ runtime_state: 'ended' });
+        const totals = database
+          .prepare(
+            'SELECT SUM(input_tokens) AS input,SUM(output_tokens) AS output FROM consumption_buckets WHERE identity_id=?'
+          )
+          .get(observed.identity_id);
+        expect(totals).toEqual({
+          input: provider.updated.inputTokens - provider.consumption.inputTokens,
+          output: provider.updated.outputTokens - provider.consumption.outputTokens,
+        });
+      } finally {
+        database.close();
+      }
+    });
+  }, 45000);
+}

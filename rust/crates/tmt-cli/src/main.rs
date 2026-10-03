@@ -39,6 +39,7 @@ mod notes_command;
 mod office_facade;
 mod output;
 use tmt_adapters::pane_badge;
+mod consumption_sample_command;
 mod parser;
 mod profile_command;
 mod provider_hook_command;
@@ -247,6 +248,7 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         } => {
             return setup_command::execute(provider, status, remove, usage, yes, parsed.mode);
         }
+        Invocation::ConsumptionSample => return consumption_sample_command::execute(),
         Invocation::ProviderHook {
             provider,
             worker,

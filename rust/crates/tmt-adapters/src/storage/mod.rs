@@ -1,4 +1,5 @@
 mod bindings;
+mod consumption_history;
 mod context;
 mod dispatch;
 mod errors;
@@ -27,6 +28,7 @@ use std::{
 };
 
 pub use bindings::PurgedSession;
+pub use consumption_history::{BUCKET_MS, ConsumptionLatest, HISTORY_MS, RuntimeObservation};
 pub use context::{ContextRequests, IdentityContextSnapshot};
 pub use dispatch::DispatchError;
 pub use errors::{StorageError, StorageErrorCode, classify};

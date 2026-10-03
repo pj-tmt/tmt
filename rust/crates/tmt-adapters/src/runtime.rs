@@ -20,6 +20,7 @@ pub mod hook_protocol;
 pub mod lifecycle;
 #[cfg(test)]
 mod prompt_tests;
+pub mod sampling;
 pub mod transcript;
 #[cfg(test)]
 mod usage_tests;

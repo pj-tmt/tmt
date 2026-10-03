@@ -1136,15 +1136,25 @@ For cumulative completed-request counters (#872), run
 `cargo test --locked -p tmt-adapters runtime::consumption` and
 `cargo test --locked -p tmt-cli --bin tmt output::tests`. Redacted real provider
 fixtures and source provenance live beside the runtime owner; failure and reset
-variants are assembled. Streaming scan tests also cover multi-MiB appends,
-buffer-boundary deduplication, escaped keys, captured EOF and injected deadline
-exhaustion. For manual release-mode measurements, run the ignored
-`runtime::consumption::tests::streaming_scan_measurement` test with `TMT_SCAN_MIB`
-set to `1`, `10` or `100` and `TMT_SCAN_MIX` set to `foreign`, `usage` or `long`.
-Fixture generation precedes the reported scan time; run the built test binary
-under `/usr/bin/time -l` on macOS for process peak RSS. These measurements are
-evidence, never scan-budget calibration. `usage-hooks.e2e.test.ts` verifies admitted hooks,
-unchanged context usage, public consumption, silent failures and compaction.
+variants are assembled. Consumption tests cover bounded-tail appends, EOF gap rebaselining beyond
+one MiB, buffer-boundary deduplication, escaped keys, captured EOF and injected
+deadline exhaustion. History/API tests consume the normative shared vector at
+`contracts/consumption-history-v1.json`: the included closed counter is the live
+baseline even when `ls` is newer. Run `cargo test --locked -p tmt-adapters consumption`,
+`cargo test --locked -p tmt-adapters runtime::sampling` and
+`cargo test --locked -p tmt-adapters process::interactive` for history reduction,
+source admission and foreground tick/exit/degraded cleanup. Public history reads
+must not renew retention or touch provider files. Verify schema 46 against the
+independent native storage fixture and change-cursor triggers.
+
+`usage-hooks.e2e.test.ts` verifies admitted hooks, unchanged context usage,
+public consumption, silent failures and compaction. Foreground sampling scenarios
+must hold a deterministic mock turn open, observe advancing public counters/history
+before Stop, prove no sample/Stop double count, and assert cleanup plus the original
+nonzero child status. Run affected lifecycle Docker scenarios twice through the
+infra heavy slot. Use isolated HOME/provider roots; never sample a real account.
+Old wrappers and hook-only launches remain Stop-only until relaunched; `--no-usage`
+and legacy collection opt-out must suppress foreground collection as well.
 
 Before native installation/process tests, build the two product fixtures
 independently, after workspace checks:

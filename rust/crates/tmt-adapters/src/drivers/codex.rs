@@ -458,6 +458,31 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         decode_turn(payload)
     }
 
+    fn consumption_locator(
+        &self,
+        payload: &[u8],
+        environment: &crate::skill_installation::ProviderEnvironment,
+    ) -> Option<String> {
+        crate::runtime::sampling::locator(
+            &codex_home(environment).join("sessions"),
+            &crate::runtime::sampling::payload_path(payload)?,
+        )
+    }
+
+    fn sampling_turn(
+        &self,
+        session: &ProviderSessionId,
+        locator: Option<&str>,
+        environment: &crate::skill_installation::ProviderEnvironment,
+        deadline: std::time::Instant,
+    ) -> Option<crate::runtime::lifecycle::TurnEnd> {
+        let root = codex_home(environment).join("sessions");
+        if let Some(locator) = locator {
+            return crate::runtime::sampling::located(&root, locator, session);
+        }
+        crate::runtime::sampling::codex_turn(&root, session, deadline)
+    }
+
     fn turn_state(
         &self,
         turn: &crate::runtime::lifecycle::TurnEnd,

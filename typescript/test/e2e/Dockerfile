@@ -10,6 +10,7 @@ COPY extensions/tmt-squad/ ../extensions/tmt-squad/
 COPY extensions/tmt-remote/rust/ ../extensions/tmt-remote/rust/
 COPY extensions/tmt-colab/rust/ ../extensions/tmt-colab/rust/
 COPY extensions/tmt-colab/contracts/ ../extensions/tmt-colab/contracts/
+COPY contracts/ ../contracts/
 ARG TMT_NATIVE_PROFILE=dev
 # Every cargo command below reads this; `pnpm test:e2e` forwards a host value.
 ARG CARGO_BUILD_JOBS=default
