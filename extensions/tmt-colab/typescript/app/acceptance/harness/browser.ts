@@ -2,7 +2,7 @@ import { chromium, expect, type BrowserContext, type Page } from '@playwright/te
 import fs from 'node:fs';
 import path from 'node:path';
 import type { OwnedProcess } from './process.js';
-import type { L5World } from './world.js';
+import type { AcceptanceWorld } from './world.js';
 
 export interface Door {
   /** `http://127.0.0.1:<port>/r/<prefix>`, the machine's route prefix. */
@@ -15,7 +15,7 @@ export interface Door {
 }
 
 /** Real tmt-remote door with real tmt-colab mounted on its owner-only socket. */
-export async function startDoor(world: L5World): Promise<Door> {
+export async function startDoor(world: AcceptanceWorld): Promise<Door> {
   const remote = world.spawn(`remote-serve-${Date.now()}`, world.binaries.remote, [
     'serve',
     '--json',
@@ -48,7 +48,7 @@ export interface PairedBrowser {
  * four words and the owner confirms. Each device owns its own profile, so two
  * viewers have separate keys, IndexedDB and door cookies.
  */
-export async function pairBrowser(world: L5World, name: string): Promise<PairedBrowser> {
+export async function pairBrowser(world: AcceptanceWorld, name: string): Promise<PairedBrowser> {
   const profile = path.join(world.root, `profile-${name}`);
   fs.mkdirSync(profile, { mode: 0o700 });
   const pair = world.spawn(`pair-${name}`, world.binaries.remote, ['pair', '--json']);

@@ -28,7 +28,7 @@ export interface Binaries {
 
 /** Built binaries only; a missing one fails with the build command, never a skip. */
 export function resolveBinaries(env = process.env): Binaries {
-  const directory = env.TMT_L5_BIN_DIR ?? path.join(repository, 'rust/target/debug');
+  const directory = env.TMT_ACCEPTANCE_BIN_DIR ?? path.join(repository, 'rust/target/debug');
   const binaries = {
     tmt: path.join(directory, 'tmt'),
     remote: path.join(directory, 'tmt-remote'),
@@ -37,7 +37,7 @@ export function resolveBinaries(env = process.env): Binaries {
   for (const file of Object.values(binaries)) {
     if (!path.isAbsolute(file) || !fs.existsSync(file))
       throw new Error(
-        `Missing ${file}. Build with: cd rust && cargo build --locked -p tmt-cli -p tmt-remote -p tmt-colab --bins (or set TMT_L5_BIN_DIR to an absolute directory).`,
+        `Missing ${file}. Build with: cd rust && cargo build --locked -p tmt-cli -p tmt-remote -p tmt-colab --bins (or set TMT_ACCEPTANCE_BIN_DIR to an absolute directory).`,
       );
   }
   return binaries;
@@ -60,19 +60,19 @@ export interface Agent {
 }
 
 /**
- * One isolated Colab L5 world: a short root under /tmp (Unix socket paths are
+ * One isolated Colab acceptance world: a short root under /tmp (Unix socket paths are
  * limited to about 100 bytes), private HOME/XDG roots, a private tmux server
  * reached only through a `-L` wrapper, and the real tmt, tmt-remote and
  * tmt-colab binaries. Every child lives in its own process group and dispose()
  * proves each of them, the tmux server and the sockets are gone.
  */
-export class L5World {
-  readonly root = fs.mkdtempSync(path.join(fs.realpathSync('/tmp'), 'tmt-l5-'));
+export class AcceptanceWorld {
+  readonly root = fs.mkdtempSync(path.join(fs.realpathSync('/tmp'), 'tmt-acc-'));
   readonly home = path.join(this.root, 'home');
   readonly dataRoot = path.join(this.root, 'state');
   readonly workspace = path.join(this.root, 'workspace');
   readonly barrierDirectory = path.join(this.root, 'barrier');
-  readonly tmuxName = `l5-${path.basename(this.root).slice(-6)}`;
+  readonly tmuxName = `acc-${path.basename(this.root).slice(-6)}`;
   readonly binaries: Binaries;
   private readonly wrapperDirectory = path.join(this.root, 'wrap');
   private readonly processes = new Set<OwnedProcess>();
@@ -114,8 +114,8 @@ export class L5World {
       TMUX_TEAM_HOME: this.dataRoot,
       TMUX_TMPDIR: this.root,
       TMT_EXECUTABLE: path.join(this.root, 'core'),
-      TMT_L5_REAL_TMT: this.binaries.tmt,
-      TMT_L5_BARRIER_DIR: this.barrierDirectory,
+      TMT_ACCEPTANCE_REAL_TMT: this.binaries.tmt,
+      TMT_ACCEPTANCE_BARRIER_DIR: this.barrierDirectory,
       ...(pane === undefined
         ? {}
         : {
@@ -130,7 +130,7 @@ export class L5World {
     const pathDirs = (process.env.PATH ?? '').split(path.delimiter);
     this.tmuxPath =
       pathDirs.map((dir) => path.join(dir, 'tmux')).find((file) => fs.existsSync(file)) ?? '';
-    if (!this.tmuxPath) throw new Error('tmux is required for the L5 acceptance');
+    if (!this.tmuxPath) throw new Error('tmux is required for the acceptance');
     fs.writeFileSync(
       path.join(this.wrapperDirectory, 'tmux'),
       `#!/bin/sh\nexec ${quote(this.tmuxPath)} -f /dev/null -L ${quote(this.tmuxName)} "$@"\n`,
@@ -146,7 +146,7 @@ export class L5World {
       'new-session',
       '-d',
       '-s',
-      'l5',
+      'acceptance',
       '-x',
       '160',
       '-y',
@@ -158,10 +158,16 @@ export class L5World {
     this.socketPath = this.tmux(['display-message', '-p', '#{socket_path}']).trim();
     this.serverPid = Number(this.tmux(['display-message', '-p', '#{pid}']).trim());
     // TMUX carries the session number without the `$` prefix of #{session_id}.
-    this.sessionId = this.tmux(['display-message', '-p', '-t', 'l5', '#{session_id}'])
+    this.sessionId = this.tmux(['display-message', '-p', '-t', 'acceptance', '#{session_id}'])
       .trim()
       .replace(/^\$/, '');
-    this.hostPane = this.tmux(['display-message', '-p', '-t', 'l5:0.0', '#{pane_id}']).trim();
+    this.hostPane = this.tmux([
+      'display-message',
+      '-p',
+      '-t',
+      'acceptance:0.0',
+      '#{pane_id}',
+    ]).trim();
     if (!this.socketPath || !this.serverPid || !this.hostPane)
       throw new Error('Could not identify the private tmux server');
   }
@@ -228,7 +234,7 @@ export class L5World {
       '-F',
       '#{pane_id}',
       '-t',
-      'l5:',
+      'acceptance:',
       '-n',
       name,
       '-c',
@@ -348,8 +354,9 @@ export class L5World {
     }
     for (const survivor of this.survivors()) leaks.push(`process remains: ${survivor}`);
     for (const socket of this.sockets()) leaks.push(`socket remains: ${socket}`);
-    // TMT_L5_KEEP=1 keeps the root (logs, stderr, counters) for diagnosis.
-    if (process.env.TMT_L5_KEEP !== '1') fs.rmSync(this.root, { recursive: true, force: true });
+    // TMT_ACCEPTANCE_KEEP=1 keeps the root (logs, stderr, counters) for diagnosis.
+    if (process.env.TMT_ACCEPTANCE_KEEP !== '1')
+      fs.rmSync(this.root, { recursive: true, force: true });
     return leaks;
   }
 

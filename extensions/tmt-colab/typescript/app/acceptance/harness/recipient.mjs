@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Deterministic recipient agent for the Colab L5 acceptance, run in a tmux pane.
+// Deterministic recipient agent for the Colab acceptance, run in a tmux pane.
 // For each queued-request wake it pulls the real request with `tmt x show`,
 // appends one `received` row to a durable JSONL counter BEFORE doing anything
 // else, then answers through the real `tmt reply`. The scenario counts work
@@ -63,7 +63,7 @@ async function answer(source, requestId, identityId, receipt, message, extra = {
     while (!fs.existsSync(`${gateDirectory}/${requestId}.release`))
       await new Promise((resolve) => setTimeout(resolve, 20));
   }
-  const body = `l5-reply:${digest.slice(0, 16)}`;
+  const body = `ask-reply:${digest.slice(0, 16)}`;
   const reply = await run(['reply', requestId, '--receipt', receipt, '--stdin', '--json'], body);
   log({
     event: reply.code === 0 ? 'replied' : 'failure',

@@ -6,10 +6,10 @@
   "scripts": {
     "dev": "vp dev --host 127.0.0.1",
     "build": "tsc --noEmit && vp build",
-    "check": "tsc --noEmit && vp lint --config vite.config.ts --deny-warnings --react-plugin src test e2e l5 *.ts && vp fmt --config vite.config.ts --check .",
+    "check": "tsc --noEmit && vp lint --config vite.config.ts --deny-warnings --react-plugin src test e2e acceptance *.ts && vp fmt --config vite.config.ts --check .",
     "test": "vp test run --config vitest.config.ts",
     "test:browser": "vp exec playwright test",
-    "test:l5": "vp exec playwright test --config playwright.l5.config.ts"
+    "test:acceptance": "vp exec playwright test --config playwright.acceptance.config.ts"
   },
   "dependencies": {
     "@tanstack/react-router": "1.170.33",

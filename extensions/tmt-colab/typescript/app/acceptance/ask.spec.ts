@@ -1,6 +1,6 @@
 import { test } from '@playwright/test';
 
-// #1110 Ask agent L5 acceptance. Every case below needs code that has not
+// #1110 Ask agent acceptance. Every case below needs code that has not
 // landed on colab/1110-ask yet, so it is declared fixme with its dependency;
 // a case is enabled by writing its body, never by a passing stand-in. The
 // shared world, door, pairing, recipient counter and barriers are in harness/.

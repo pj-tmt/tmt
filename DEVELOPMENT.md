@@ -3664,17 +3664,17 @@ an already subscribed tab, a chunked update renders, a browser edit invalidates 
 old CLI token, and offline writing works after serve stops. Teardown verifies the
 serve process and socket disappear and removes only its generated state.
 
-### Colab Ask agent L5 acceptance (#1110)
+### Colab Ask agent acceptance (#1110)
 
-`extensions/tmt-colab/typescript/app/l5/` holds the real-binary acceptance for Ask
+`extensions/tmt-colab/typescript/app/acceptance/` holds the real-binary acceptance for Ask
 agent. It needs no Docker: build `tmt`, `tmt-remote` and `tmt-colab` (and the app
-for Ask cases), point `TMT_L5_BIN_DIR` at the directory holding them (default
+for Ask cases), point `TMT_ACCEPTANCE_BIN_DIR` at the directory holding them (default
 `rust/target/debug`), then run from `typescript/`:
 
 ```bash
 (cd rust && CARGO_BUILD_JOBS=2 cargo build --locked -p tmt-cli -p tmt-remote -p tmt-colab --bins)
 corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build
-corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match test:l5
+corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match test:acceptance
 ```
 
 Each scenario gets one world under a short `/tmp` root: private HOME/XDG roots, a
@@ -3689,7 +3689,7 @@ group, closes the browsers, kills the tmux server and fails the test if any proc
 naming the root or tmux socket, or any other socket, remains, including after a
 failed scenario. `harness.spec.ts` proves the harness and the sensitivity of that
 check; `ask.spec.ts` lists the Ask cases. A case that needs code that has not landed
-is `test.fixme` with its dependency, never a passing stand-in. Set `TMT_L5_KEEP=1` to
+is `test.fixme` with its dependency, never a passing stand-in. Set `TMT_ACCEPTANCE_KEEP=1` to
 keep a world's root for diagnosis. Run the suite twice for lifecycle acceptance.
 
 ### Colab native export verification

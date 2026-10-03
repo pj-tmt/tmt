@@ -7,10 +7,10 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const realCore = process.env.TMT_L5_REAL_TMT;
-const directory = process.env.TMT_L5_BARRIER_DIR;
+const realCore = process.env.TMT_ACCEPTANCE_REAL_TMT;
+const directory = process.env.TMT_ACCEPTANCE_BARRIER_DIR;
 if (!realCore || !directory) {
-  console.error('core-barrier needs TMT_L5_REAL_TMT and TMT_L5_BARRIER_DIR');
+  console.error('core-barrier needs TMT_ACCEPTANCE_REAL_TMT and TMT_ACCEPTANCE_BARRIER_DIR');
   process.exit(2);
 }
 const argv = process.argv.slice(2);

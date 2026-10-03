@@ -9,8 +9,8 @@ import { withWorld } from './harness/with-world.js';
 test('harness: two paired browsers, a counted recipient and a clean teardown', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world);
-    const recipient = await world.startAgent('l5-recipient');
-    const asker = await world.startAgent('l5-asker');
+    const recipient = await world.startAgent('ask-recipient');
+    const asker = await world.startAgent('ask-asker');
     const first = await pairBrowser(world, 'viewer-one');
     const second = await pairBrowser(world, 'viewer-two');
     expect(first.profile).not.toBe(second.profile);
@@ -35,8 +35,8 @@ test('harness: two paired browsers, a counted recipient and a clean teardown', a
 // root must be reported, so a green cleanup cannot come from a blind check.
 test('harness: the leak report detects a process the world did not stop', async () => {
   const { spawn } = await import('node:child_process');
-  const { L5World } = await import('./harness/world.js');
-  const world = new L5World();
+  const { AcceptanceWorld } = await import('./harness/world.js');
+  const world = new AcceptanceWorld();
   await world.start();
   const stray = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1e6)', world.root], {
     detached: true,
