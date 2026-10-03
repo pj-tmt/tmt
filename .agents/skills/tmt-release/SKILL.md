@@ -123,6 +123,9 @@ before archive, installer, upgrade, bootstrap or publication work. It owns the
 procedures referenced below; DEVELOPMENT owns ordinary native checks.
 
 - For Rust archives, follow the guide's native Rust release archive procedure.
+  Generate the offline clarification config before calling cargo-about directly,
+  as documented there; keep its vendored-license checksum and version checks,
+  `--fail` and the archive verifier's placeholder rejection intact.
   Keep cargo-dist's manifest as the artifact metadata owner; independently verify
   bounded extraction, notices, linkage, skill installation and persisted state.
   Raw PR runtime checks do not establish release archive correctness. Do not enable a

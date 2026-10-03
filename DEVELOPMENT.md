@@ -2276,6 +2276,27 @@ Install the pinned developer tools into a chosen tool directory (not needed by
 end users): cargo-dist 0.32.0 with `cargo install --locked`, and cargo-about
 0.9.2 with `cargo install --locked --features cli`. Put their binaries on PATH.
 Fetch the locked workspace dependencies before the offline notice step.
+The builder resolves the taffy-only clarification in `rust/about.toml` to the vendored
+`rust/licenses/taffy-0.7.7/LICENSE.md`. That exact upstream file comes from the
+crate's packaged Git revision; the config records its URL and SHA-256. The builder
+fails before generation if its bytes or the locked taffy version change. Review
+and update the clarification when upgrading taffy. It does not modify Cargo's
+registry or fetch license text over the network: registry `clarify.git` sources
+cannot work offline in cargo-about 0.9.2.
+
+To verify notices without building an archive, run from the repository root:
+
+```sh
+scripts/build-native-artifact.sh --notices-only aarch64-apple-darwin squad
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts \
+  test/tooling/native-artifact-stdout.test.ts \
+  test/tooling/native-artifact-policy.test.ts)
+```
+
+The notice-only check does not establish archive/runtime correctness; a final
+archive still needs the complete verifier below. Direct cargo-about invocation
+uses the generated config, not the unresolved source `rust/about.toml`.
+
 Build targets sequentially in one checkout, or use separate worktrees: the
 generator's distribution directory and generated notice input are per-checkout.
 

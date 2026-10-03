@@ -4085,6 +4085,15 @@ the component existed. No Herdr package or cutoff is added to release-please.
 CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 
+The artifact builder resolves the taffy-only offline clarification before
+cargo-about runs. `rust/about.toml` owns the clarification's
+upstream provenance and checksum; `rust/licenses/taffy-0.7.7/LICENSE.md` preserves
+the exact upstream text missing from that crate's registry archive. The builder
+checks the locked version and vendored bytes, then writes a config with an absolute
+local file path. It never alters registry contents or fetches license text.
+Cargo-about retains target filtering and `--offline --locked --fail`; the final
+artifact verifier still rejects placeholder attribution.
+
 `project-release.mjs` owns release-to-Project delivery evidence, separately from
 publication. Each daily or explicit main-only dispatch performs a full sweep of
 existing closed issue items in pj-tmt organization project 1. The short-lived

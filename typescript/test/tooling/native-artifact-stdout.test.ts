@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import os from 'node:os';
 import path from 'node:path';
@@ -16,71 +24,88 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-describe('native artifact stdout', () => {
-  it.each(['cli', 'office', 'driver-herdr'])(
-    'reserves stdout and selects the %s notice manifest',
-    (product) => {
-      const root = mkdtempSync(path.join(os.tmpdir(), 'tmt-native-stdout-'));
-      roots.push(root);
-      const bin = path.join(root, 'bin');
-      mkdirSync(bin);
-      mkdirSync(path.join(root, 'scripts'));
-      mkdirSync(path.join(root, 'rust'));
-      mkdirSync(path.join(root, 'typescript'));
-      const manifest =
-        product === 'office'
-          ? '../extensions/tmt-office/rust/tmt-office/Cargo.toml'
-          : product === 'driver-herdr'
-            ? 'crates/tmt-driver-herdr/Cargo.toml'
-            : 'crates/tmt-cli/Cargo.toml';
-      const manifestPath = path.resolve(root, 'rust', manifest);
-      mkdirSync(path.dirname(manifestPath), { recursive: true });
-      writeFileSync(manifestPath, '# Selected package fixture\n');
-      const script = path.join(root, 'scripts/build-native-artifact.sh');
-      writeExecutable(
-        script,
-        readFileSync(path.resolve('../scripts/build-native-artifact.sh')),
-        statSync(path.resolve('../scripts/build-native-artifact.sh')).mode & 0o777
-      );
-      tool(
-        bin,
-        'corepack',
-        `mkdir -p ../target/office-spa
+function artifactFixture(product: string) {
+  const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'tmt-native-stdout-&|"\\-')));
+  roots.push(root);
+  const bin = path.join(root, 'bin');
+  mkdirSync(bin);
+  mkdirSync(path.join(root, 'scripts'));
+  mkdirSync(path.join(root, 'rust'));
+  mkdirSync(path.join(root, 'typescript'));
+  mkdirSync(path.join(root, 'rust/licenses/taffy-0.7.7'), { recursive: true });
+  for (const file of [
+    'rust/about.toml',
+    'rust/Cargo.lock',
+    'rust/licenses/taffy-0.7.7/LICENSE.md',
+  ]) {
+    writeFileSync(path.join(root, file), readFileSync(path.resolve('..', file)));
+  }
+  const manifest =
+    product === 'cli'
+      ? 'crates/tmt-cli/Cargo.toml'
+      : product === 'driver-herdr'
+        ? 'crates/tmt-driver-herdr/Cargo.toml'
+        : `../extensions/tmt-${product}/rust/tmt-${product}/Cargo.toml`;
+  const manifestPath = path.resolve(root, 'rust', manifest);
+  mkdirSync(path.dirname(manifestPath), { recursive: true });
+  writeFileSync(manifestPath, '# Selected package fixture\n');
+  const script = path.join(root, 'scripts/build-native-artifact.sh');
+  writeExecutable(
+    script,
+    readFileSync(path.resolve('../scripts/build-native-artifact.sh')),
+    statSync(path.resolve('../scripts/build-native-artifact.sh')).mode & 0o777
+  );
+  tool(
+    bin,
+    'corepack',
+    `mkdir -p ../target/office-spa
 printf 'SPA license notice\\n' > ../target/office-spa/THIRD-PARTY-NOTICES.txt
 printf 'vite diagnostics\\n'`
-      );
-      tool(bin, 'rustup', `printf '1.97.0-aarch64-apple-darwin (default)\\n'`);
-      tool(
-        bin,
-        'cargo-about',
-        `if [ "\${1:-}" = --version ]; then printf 'cargo-about 0.9.2\\n'; else
+  );
+  tool(bin, 'rustup', `printf '1.97.0-aarch64-apple-darwin (default)\\n'`);
+  tool(
+    bin,
+    'cargo-about',
+    `if [ "\${1:-}" = --version ]; then printf 'cargo-about 0.9.2\\n'; else
 test "$2" = --manifest-path
 if [ '${product}' = cli ] && [ "$3" = crates/tmt-driver-herdr/Cargo.toml ]; then :; else test "$3" = '${manifest}'; fi
 test -f "$3"
+test "$4" = --config
+test "$5" = target/native-notices/about.toml
+test -f "$5"
+case "$*" in *'--locked --offline --fail'*) ;; *) exit 1 ;; esac
 for argument do output=$argument; done
 printf 'Rust license notice\\n' > "$output"
 printf 'notice diagnostics\\n'
 fi`
-      );
-      const driverManifest = path.join(root, 'rust/crates/tmt-driver-herdr/Cargo.toml');
-      mkdirSync(path.dirname(driverManifest), { recursive: true });
-      writeFileSync(driverManifest, '# Companion package fixture\n');
-      tool(
-        bin,
-        'cargo',
-        `if [ "$1" = pkgid ]; then printf 'path+file:///fixture#tmt-${product}@0.1.0-alpha.2\\n'; else
+  );
+  const driverManifest = path.join(root, 'rust/crates/tmt-driver-herdr/Cargo.toml');
+  mkdirSync(path.dirname(driverManifest), { recursive: true });
+  writeFileSync(driverManifest, '# Companion package fixture\n');
+  tool(
+    bin,
+    'cargo',
+    `if [ "$1" = pkgid ]; then printf 'path+file:///fixture#tmt-${product}@0.1.0-alpha.2\\n'; else
 test "$1 $2 $3 $4 $5 $6" = 'build --locked -p tmt-driver-herdr --bin tmt-driver-herdr'
 mkdir -p target/aarch64-apple-darwin/dist
 printf 'driver package bytes\\n' > target/aarch64-apple-darwin/dist/tmt-driver-herdr
 chmod +x target/aarch64-apple-darwin/dist/tmt-driver-herdr
 printf 'companion build diagnostics\\n'
 fi`
-      );
-      tool(
-        bin,
-        'dist',
-        `if [ "\${1:-}" = build ]; then printf '{"artifacts":{}}\\n'; else printf 'dist diagnostics\\n'; fi`
-      );
+  );
+  tool(
+    bin,
+    'dist',
+    `if [ "\${1:-}" = build ]; then printf '{"artifacts":{}}\\n'; else printf 'dist diagnostics\\n'; fi`
+  );
+  return { root, bin, script };
+}
+
+describe('native artifact stdout', () => {
+  it.each(['cli', 'office', 'squad', 'driver-herdr'])(
+    'reserves stdout and selects the %s notice manifest',
+    (product) => {
+      const { root, bin, script } = artifactFixture(product);
       const result = spawnSync(script, ['aarch64-apple-darwin', product], {
         encoding: 'utf8',
         env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
@@ -102,6 +127,72 @@ fi`
       ).toBe(
         `Rust license notice\n${product === 'office' ? 'SPA license notice\n' : product === 'cli' ? 'Rust license notice\n' : ''}`
       );
+      const config = readFileSync(path.join(root, 'rust/target/native-notices/about.toml'), 'utf8');
+      expect(config).toBe(
+        readFileSync(path.join(root, 'rust/about.toml'), 'utf8').replace(
+          '"__TMT_TAFFY_LICENSE__"',
+          JSON.stringify(path.join(root, 'rust/licenses/taffy-0.7.7/LICENSE.md'))
+        )
+      );
+    }
+  );
+  it.each(['cli', 'office', 'squad', 'driver-herdr'])(
+    'generates %s notices without building the companion or invoking cargo-dist',
+    (product) => {
+      const { bin, script } = artifactFixture(product);
+      tool(bin, 'dist', 'exit 97');
+      tool(bin, 'cargo', 'exit 96');
+      const noticeOnly = spawnSync(script, ['--notices-only', 'aarch64-apple-darwin', product], {
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+      });
+      expect(noticeOnly.status, noticeOnly.stderr).toBe(0);
+      expect(noticeOnly.stdout).toBe('');
+      expect(noticeOnly.stderr).not.toContain('companion build diagnostics');
+    }
+  );
+  it.each(['cli', 'office', 'squad', 'driver-herdr'])(
+    'rejects a corrupted license before generating %s notices',
+    (product) => {
+      const { root, bin, script } = artifactFixture(product);
+      tool(
+        bin,
+        'cargo-about',
+        `if [ "\${1:-}" = --version ]; then printf 'cargo-about 0.9.2\\n'; else exit 98; fi`
+      );
+      const license = path.join(root, 'rust/licenses/taffy-0.7.7/LICENSE.md');
+      writeFileSync(license, 'corrupted license');
+      const corrupted = spawnSync(script, ['--notices-only', 'aarch64-apple-darwin', product], {
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+      });
+      expect(corrupted.status).toBe(1);
+      expect(corrupted.stderr).toContain('Vendored taffy license checksum mismatch');
+    }
+  );
+  it.each(['cli', 'office', 'squad', 'driver-herdr'])(
+    'rejects taffy version drift before generating %s notices',
+    (product) => {
+      const { root, bin, script } = artifactFixture(product);
+      tool(
+        bin,
+        'cargo-about',
+        `if [ "\${1:-}" = --version ]; then printf 'cargo-about 0.9.2\\n'; else exit 98; fi`
+      );
+      const lock = path.join(root, 'rust/Cargo.lock');
+      writeFileSync(
+        lock,
+        readFileSync(lock, 'utf8').replace(
+          'name = "taffy"\nversion = "0.7.7"',
+          'name = "taffy"\nversion = "0.7.8"'
+        )
+      );
+      const upgraded = spawnSync(script, ['--notices-only', 'aarch64-apple-darwin', product], {
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+      });
+      expect(upgraded.status).toBe(1);
+      expect(upgraded.stderr).toContain('Review taffy notice on version changes');
     }
   );
 });
