@@ -4170,6 +4170,13 @@ for archive and public-install verifier sensitivity. Embedded tiny app bytes and
 argument-selected defects belong to this executable, with scenario assertions in
 tooling tests. Its `signal-hook` dev-dependency owns fixture SIGTERM cleanup; the
 library's production dependency boundary and publication helper are unchanged.
+Its `recording-cli-fixture` example is the native driver for synthetic
+extension-upgrade archives on every platform. The scenario owns absolute
+delegate/log configuration in its synthetic `NATIVE-INSTALL.md`; the example
+records the first two argv values and execs the selected CLI without changing
+process or environment ownership. Executable publication and exact macOS
+architecture admission retain their existing owners. This example adds no
+library API, crate or dependency edge.
 Owner-local test modules retain readiness, scenario assertions and case-3 retries.
 
 The CLI's `tests/support` module owns the isolated environment and

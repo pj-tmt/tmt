@@ -182,6 +182,10 @@ does not authorize publication or replace artifact acceptance.
 - Every CLI, extension or driver release also passes the guide's upgrade from the last
   published release using the product-specific proof in DEVELOPMENT, not only a
   fresh install. Old CLI/extension receipts must stay readable.
+  Synthetic extension-upgrade tests use the private native recording driver on
+  every platform. Follow DEVELOPMENT's [fixture build contract](../../../DEVELOPMENT.md#native-process-and-shared-tests)
+  before running them; preserve exact architecture admission and public-command
+  assertions rather than substituting a shell executable.
   The pre-publication CLI proof requires installation, migration and real-archive
   acceptance of the release's own adapter on all four hosts. Follow the guide's
   distinction between injected acquisition, skipped differential skill coverage for identical text,

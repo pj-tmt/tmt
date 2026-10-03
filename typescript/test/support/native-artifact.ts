@@ -26,6 +26,8 @@ export type ArtifactFixture = {
 
 export type ArtifactSources = {
   readonly root: string;
+  /** Override the synthetic installation note, for archive-local fixture configuration. */
+  readonly installationNote?: string;
   readonly cli?: {
     readonly executable: string;
     /**
@@ -80,7 +82,10 @@ export async function createArtifact(
   const executable = path.join(root, executableName);
   writeExecutable(executable, Buffer.concat([readFileSync(source), executableSuffix]));
   writeFileSync(path.join(root, 'LICENSE'), 'MIT\n');
-  writeFileSync(path.join(root, 'NATIVE-INSTALL.md'), 'Native local installation fixture.\n');
+  writeFileSync(
+    path.join(root, 'NATIVE-INSTALL.md'),
+    sources.installationNote ?? 'Native local installation fixture.\n'
+  );
   writeFileSync(path.join(root, 'THIRD-PARTY-NOTICES.txt'), 'Synthetic test notice fixture.\n');
   // A companion (the CLI's Herdr driver) comes from the same build as the
   // executable, as in a release archive.
