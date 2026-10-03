@@ -95,7 +95,10 @@ async function reminderFixture(sandbox: Sandbox) {
   writeFileSync(notebook, 'Current plan');
   const cacheFile = () => {
     const directory = path.join(sandbox.root, 'cache', 'tmt-squad', 'staleness');
-    return path.join(directory, readdirSync(directory).find((name) => name.endsWith('.json'))!);
+    return path.join(
+      directory,
+      readdirSync(directory).find((name) => name.endsWith('.json'))!
+    );
   };
   const age = () => {
     const cache = JSON.parse(readFileSync(cacheFile(), 'utf8'));

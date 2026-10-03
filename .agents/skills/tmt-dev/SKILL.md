@@ -63,6 +63,10 @@ and never substitute obsolete TypeScript coverage percentages for native
 verification. A raw-binary platform smoke does not replace the release archive,
 bootstrap or upgrade gates. Keep their shared runtime proof in one owner.
 
+Formatter migrations preserve DEVELOPMENT's per-owner options and separate
+code/docs selections, with mechanical output isolated from configuration changes.
+Keep exact regeneration and semantic equivalence evidence in the PR.
+
 For installed-agent guidance changes, follow DEVELOPMENT's installed guidance
 source ownership: edit the single canonical skill, verify native provider links
 and local drift detection, and review semantic changes and provider invocation
