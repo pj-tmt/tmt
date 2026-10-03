@@ -101,6 +101,7 @@ fn board(sections: Value) -> App {
             squad: Some("product".into()),
             view: Ok(View {
                 token_rate: None,
+                home_rate: Default::default(),
                 home: None,
             derived: Default::default(),
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": sections}),
@@ -283,15 +284,8 @@ fn uncovered_source_columns_do_not_squeeze_the_drawn_grid() {
     }
 }
 
-/// Explicit crew keeps its original columns and rendering byte for byte.
+/// Legacy four-column fixture; real preset defaults are covered by frozen parity.
 fn preset_board() -> App {
-    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let path =
-        std::env::temp_dir().join(format!("squad-golden-{}-{serial}.toml", std::process::id()));
-    std::fs::write(&path, "[squad.product]\nlayout = \"crew\"\n").unwrap();
-    let config = crate::config::Config::read(path.clone()).unwrap();
-    std::fs::remove_file(&path).unwrap();
     let mut app = board(json!([
         {"title": "Needs me", "rows": [
             row("auth-fix", "blocked", "rotate session tokens without logging everyone out", json!({
@@ -304,7 +298,7 @@ fn preset_board() -> App {
             row("perf", "", "", json!({"fields": {}, "annotation": {"to": "sol", "text": "check the cache hit rate"}})),
         ]}
     ]));
-    app.view.as_mut().unwrap().rows = config.rows("product").unwrap();
+    app.view.as_mut().unwrap().rows = Rows::preset();
     app
 }
 
@@ -329,7 +323,7 @@ fn factory_views_render_crew_team_and_custom_rows_at_each_width() {
                 view.board = config.board("product").unwrap();
                 view.rows = config.rows("product").unwrap();
                 view.notes = Notes::Text("# Notebook\nLead notebook sentinel".into());
-                for width in [80, 120, 200] {
+                for width in [80, 100, 120, 160, 200] {
                     app.set_body_width(width);
                     let screen = draw(&app, width, 42);
                     assert!(
@@ -387,8 +381,11 @@ fn default_team_is_readable_at_80_120_and_200_columns() {
             widths[..3].iter().all(Option::is_some),
             "essential columns at {width}"
         );
-        assert!(widths[3].is_some(), "PR remains visible at {width}");
-        assert_eq!(widths[4].is_some(), width == 200, "model steps aside first");
+        assert_eq!(widths.len(), 8);
+        assert!(widths[4].is_none_or(|width| width <= 14), "model cap");
+        for (earlier, later) in [(3, 7), (7, 6), (6, 5), (5, 4)] {
+            assert!(widths[earlier].is_none() || widths[later].is_some());
+        }
         assert!(
             screen.iter().any(|line| line.contains("TASK")),
             "task title at {width}"
@@ -408,10 +405,9 @@ fn default_team_is_readable_at_80_120_and_200_columns() {
     assert!(widths[3..].iter().all(Option::is_none));
 }
 
-/// Golden: every preset's board as drawn before the rows moved onto the
-/// shared grid solver. The layout engine must keep these byte for byte.
+/// Golden: the legacy four-column grid before adoption of the shared solver.
 #[test]
-fn preset_columns_draw_exactly_as_before_at_every_width() {
+fn legacy_four_column_grid_draws_exactly_as_before_at_every_width() {
     let app = preset_board();
     let golden: [(u16, [&str; 7]); 4] = [
         (
@@ -773,6 +769,7 @@ fn paned(board: crate::config::Board, notes: Notes) -> App {
             squad: Some("product".into()),
             view: Ok(View {
                 token_rate: None,
+                home_rate: Default::default(),
                 home: None,
             derived: Default::default(),
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": [
@@ -3570,41 +3567,3 @@ fn help_lines(app: &App) -> Vec<String> {
         .map(|entry| format!("{}  {}", entry.keys, entry.description))
         .collect()
 }
-
-#[test]
-fn observed_usage_keeps_shorter_windows_and_model_ahead_of_pr() {
-    let path =
-        std::env::temp_dir().join(format!("squad-usage-grid-{}.toml", std::process::id()));
-    let _ = std::fs::remove_file(&path);
-    let config = crate::config::Config::read(path).unwrap();
-    let mut app = preset_board();
-    let view = app.view.as_mut().unwrap();
-    let public = config.rows("product").unwrap();
-    view.rows = public
-        .clone()
-        .with_usage(crate::config::TokenWindow::DEFAULTS);
-    view.board.panes = vec![Pane::Rows];
-    assert_eq!(
-        view.rows.lines[1], public.lines[1],
-        "pending token is retained"
-    );
-    for width in [160, 120, 100, 80] {
-        app.set_body_width(width);
-        draw(&app, width, 30);
-        let derived = app.view.as_ref().unwrap().derived.borrow();
-        let columns = &derived.grid.as_ref().unwrap().layout.columns;
-        assert!(columns[..3].iter().all(Option::is_some));
-        assert!(columns[4].is_some(), "current model at {width}");
-        for (earlier, later) in [(3, 7), (7, 6), (6, 5), (5, 4)] {
-            assert!(
-                columns[earlier].is_none() || columns[later].is_some(),
-                "step-aside order at {width}: {columns:?}"
-            );
-        }
-        if width == 100 {
-            assert!(columns[3].is_none(), "PR gives room to usage");
-            assert!(columns[5].is_some(), "short window remains visible");
-        }
-    }
-}
-

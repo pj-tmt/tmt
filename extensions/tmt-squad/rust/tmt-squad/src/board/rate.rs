@@ -33,12 +33,19 @@ impl Input {
 
     /// A meter-only read uses exactly the already observed membership.
     pub fn listed(&self, listed: &Value) -> Self {
-        let rows: BTreeMap<_, _> = listed["identities"]
+        self.joined(&Self::resumes(listed))
+    }
+
+    pub fn resumes(listed: &Value) -> BTreeMap<String, Value> {
+        listed["identities"]
             .as_array()
             .into_iter()
             .flatten()
-            .filter_map(|row| Some((row["id"].as_str()?, row["resume"].clone())))
-            .collect();
+            .filter_map(|row| Some((row["id"].as_str()?.to_owned(), row["resume"].clone())))
+            .collect()
+    }
+
+    pub fn joined(&self, rows: &BTreeMap<String, Value>) -> Self {
         Self {
             room: self.room.clone(),
             names: self.names.clone(),
@@ -232,7 +239,7 @@ impl Rate {
     /// Monotonic receipt time; model attribution is deliberately best effort.
     pub fn sample(&mut self, input: &Input, now: u64) {
         self.last_success = Some(now);
-        self.members.retain(|id, _| input.resumes.contains_key(id));
+        self.retain(input);
         for (id, resume) in &input.resumes {
             let state = self.members.entry(id.clone()).or_default();
             state.model = nonempty(&resume["model"]);
@@ -286,6 +293,10 @@ impl Rate {
             state.interval(self.sampled, now, evidence, gap, tokens, self.slots);
         }
         self.sampled = Some(now);
+    }
+
+    pub fn retain(&mut self, input: &Input) {
+        self.members.retain(|id, _| input.resumes.contains_key(id));
     }
 
     /// Failed reads and tab suspension cannot bridge unobserved intervals.
