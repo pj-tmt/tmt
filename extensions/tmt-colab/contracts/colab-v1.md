@@ -1174,8 +1174,9 @@ the requested epoch, and are bounded by 512 entries and 60 KiB encoded bytes per
 page. An empty list means no wraps exist. Each stream-object page carries
 `chains:[{deviceId,chain}]` with exact chain transport as canonical base64url for
 its author if not already sent on the connection (at most 64 per page). Retained
-revoked-author chains can be delivered: clients must reject them using the
-verified log before applying objects. A chain never grants current authority.
+revoked-author chains can be delivered: clients MUST enforce the verified log's
+[signed-cut restrictions](#decoder-isolation-compaction-and-limits) on historical
+objects before applying them. A chain never grants current authority.
 
 `baseline` is null or canonical base64url of exact model baseline-descriptor
 JSON, bounded to 8 KiB. Its scope/revision must match the admitted page/epoch and
