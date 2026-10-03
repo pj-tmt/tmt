@@ -73,12 +73,46 @@ impl CoreClient {
         lines: Option<u64>,
         stop: &AtomicBool,
     ) -> Result<Value, RemoteError> {
+        // UUID authority stays at admission; the public check command takes a name.
+        // Identity inventory excludes retired rows and both reads share one budget.
+        let deadline = Instant::now() + crate::limits::CORE_CALL;
+        let directory = self.call_until(
+            &["identity", "list", "--json"],
+            &[],
+            stop,
+            deadline,
+            OUTPUT_LIMIT,
+        )?;
+        let rows = directory["identities"]
+            .as_array()
+            .ok_or_else(|| failure("Core identity list returned invalid JSON."))?;
+        let mut matching = rows.iter().filter(|row| row["id"] == agent);
+        let row = matching
+            .next()
+            .filter(|_| matching.next().is_none())
+            .ok_or_else(|| failure("Check agent is absent or ambiguous."))?;
+        let name = row["name"]
+            .as_str()
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| failure("Check agent has no current name."))?;
+        let canonical = row["canonicalName"]
+            .as_str()
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| failure("Check agent has no canonical name."))?;
+        if rows
+            .iter()
+            .filter(|row| row["canonicalName"] == canonical)
+            .count()
+            != 1
+        {
+            return Err(failure("Check agent name is ambiguous."));
+        }
         let count = lines.map(|value| value.to_string());
-        let mut argv = vec!["check", agent, "--json"];
+        let mut argv = vec!["check", name, "--json"];
         if let Some(count) = count.as_deref() {
             argv.extend(["--lines", count]);
         }
-        self.call(&argv, &[], stop, crate::limits::CORE_CALL, OUTPUT_LIMIT)
+        self.call_until(&argv, &[], stop, deadline, OUTPUT_LIMIT)
     }
     pub(crate) fn api(&self, input: &[u8], stop: &AtomicBool) -> Result<Value, RemoteError> {
         self.call(
@@ -97,13 +131,23 @@ impl CoreClient {
         timeout: Duration,
         limit: usize,
     ) -> Result<Value, RemoteError> {
+        self.call_until(argv, input, stop, Instant::now() + timeout, limit)
+    }
+    fn call_until(
+        &self,
+        argv: &[&str],
+        input: &[u8],
+        stop: &AtomicBool,
+        deadline: Instant,
+        limit: usize,
+    ) -> Result<Value, RemoteError> {
         let args: Vec<OsString> = argv.iter().map(OsString::from).collect();
         let output = tmt_invoke::invoke(
             Request {
                 program: &self.executable,
                 args: &args,
                 input,
-                deadline: Instant::now() + timeout,
+                deadline,
                 max_stream_bytes: limit,
                 launch: Default::default(),
             },

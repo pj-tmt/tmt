@@ -3333,13 +3333,13 @@ capacity, and prove waits wake on authority events/shutdown, including notificat
 Native operation tests use signed requests, private real storage and deterministic
 public-process fixtures to verify dispatch/hold/recovery boundaries; the SIGKILL probe
 checks invocation lease inheritance and release. These are not real-core acceptance.
-The separate E feature's `remote-operations` and `remote-recovery` scenarios provide
+The `remote-operations` and `remote-recovery` scenarios provide
 #1055's six-bullet integrated acceptance and one permitted/refused read scenario through
 E2EFixture. Run them with
 `CARGO_BUILD_JOBS=2 corepack pnpm test:e2e` in the booked isolated Docker heavy slot,
-with lifecycle acceptance twice. E's transparent wrapper executes the selected actual
+with lifecycle acceptance twice. The transparent wrapper executes the selected actual
 core without fake output; its test-only grant seeding happens solely in Remote storage
-while serve and owned children are stopped. E and Docker evidence remain pending.
+while serve and owned children are stopped.
 The [channel contract](contracts/remote-channel-v1.md) is
 proposed; [the separately owned browser shell](#browser-add-on-shell)
 uses only a stub. No official remote installer/release exists.
