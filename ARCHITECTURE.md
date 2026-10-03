@@ -4372,8 +4372,8 @@ object and passes its exact update to the Worker. The Worker checks the source
 digest, commitment and exact source/title projection before initializing a fresh
 content document; tails are restricted to that epoch. Baseline objects share the
 bounded assembly owner with updates but use the model's non-update envelope cap.
-Native baseline-object delivery remains a #1248 integration gate; signed browser
-fixtures do not establish native mounted E2E. Absent wraps, invalid registration/
+Native bootstrap delivers the exact scoped baseline object; signed browser
+fixtures do not establish native mounted browser E2E. Absent wraps, invalid registration/
 pins, checkpoints and own-namespace data remain visible blocking states. Catchup has a 200-update/256 KiB plaintext
 budget; the live reader retains at most 4,096 sequence hashes. #1280 owns interleaved namespace chains and paired checkpoint loading; own grammar
 and folding remain deferred to #1110.
@@ -4494,9 +4494,12 @@ Its statement-signing and wrap-sealing methods call the model without exporting
 the root key. The caller owns request and transition authorization.
 
 `store::Store` owns real SQLite ciphertext, durable create-only stream receipts,
-conflict freezing and epoch fencing. Namespace checkpoints prune only their
-covered prefix and superseded unpinned checkpoint payloads in the same
-transaction; receipts and concurrent tails survive. New checkpoint prefixes
+conflict freezing and epoch fencing. Checkpoint publication prunes a shared
+stream prefix only when every namespace with updates there has a committed
+checkpoint at the same sequence/hash head. Unpaired checkpoints retain the full
+prefix and the prior pair. Pair completion atomically prunes both namespaces and
+superseded unpinned checkpoints; receipts, pinned cuts and the full concurrent
+tail survive. New checkpoint prefixes
 advance monotonically; exact retries never republish pruned bytes. The
 `pin_checkpoint` seam preserves authority-cut ciphertext for the later verified
 owner-log caller.
@@ -4653,7 +4656,13 @@ Store's existing owner snapshots; no new schema or secret export is introduced.
 Mounted read-only session/pages endpoints expose forwarded owner identity and
 local page existence with signed-log policy, never content titles. Unknown
 membership revisions resync; byte/count caps reject rather than truncate.
-Catchup then emits one checkpoint/tail object per lazy page and a final empty page. Each page
+A non-null first-page baseline descriptor includes its exact encrypted
+`baselineObject`, inline or through the same consecutive lazy chunk transfer.
+Store checks descriptor/object lengths before copying; transport binds the stored
+descriptor, envelope hash, scope, kind and revision. No baseline replaces stream
+position. Catchup selects the latest paired checkpoint prefix, emits checkpoints
+before tails, and merges both namespace tails in each stream's shared sequence
+order. It emits one checkpoint/tail object per lazy page and a final empty page. Each page
 rescans namespace positions; the final page and live subscription commit under
 the server lock so appends during paging are not missed. Inventory is bounded
 to 256 stream/namespace pairs; excess returns capacity without eviction.
@@ -4672,7 +4681,8 @@ without writer reservation or repeated signatures; Append additionally fences th
 membership revision and namespace and supplies the registered signing key. The
 pinned management member represents the owner across local pages. Catchup uses
 `Store::owner_head` and the exact persisted baseline descriptor through
-`Store::baseline`, after live admission. Socket workers own
+`Store::baseline`, after live admission. Sync delivers the
+matching scoped stored baseline object. Socket workers own
 readiness, idle timers, retained handles and revocation/shutdown cleanup.
 
 ### Isolated Colab decoder

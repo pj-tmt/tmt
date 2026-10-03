@@ -441,6 +441,7 @@ fn empty_catchup_has_metadata_then_atomic_live_subscription() {
     assert_eq!(first["type"], "catchup");
     assert_eq!(first["membershipHead"]["revision"], "1");
     assert_eq!(first["baseline"], Value::Null);
+    assert!(first.get("baselineObject").is_none());
     assert_eq!(first["more"], true);
     assert_eq!(peer.1.poll(), Progress::Advanced);
     let last = receive(&mut peer);
@@ -761,6 +762,39 @@ fn unknown_pruned_and_wrong_namespace_cursors_resync_and_zero_bootstraps_checkpo
             bytes: &bytes,
         })
         .unwrap();
+    let own_checkpoint = object::seal(
+        &object::Context {
+            space: f.space.clone(),
+            page: PAGE.into(),
+            epoch: "1".into(),
+            kind: "checkpoint".into(),
+            namespace: "own".into(),
+            author_device: ALICE.into(),
+            membership_revision: "1".into(),
+            stream_seq: "2".into(),
+            prev_hash: head,
+        },
+        &[9; 32],
+        &f.alice,
+        b"own checkpoint",
+    )
+    .unwrap();
+    let own_bytes = own_checkpoint.to_json().unwrap();
+    Store::open(&Layout::open(&f.root).unwrap())
+        .unwrap()
+        .checkpoint(&tmt_colab::store::Envelope {
+            scope: StreamScope {
+                page: PAGE,
+                epoch: 1,
+                stream: ALICE,
+            },
+            namespace: tmt_colab::store::Namespace::Own,
+            seq: 2,
+            hash: own_checkpoint.hash().unwrap(),
+            previous: head,
+            bytes: &own_bytes,
+        })
+        .unwrap();
     for (seq, hash, ns) in [
         (1, hash, "content"),
         (2, head, "content"),
@@ -778,7 +812,7 @@ fn unknown_pruned_and_wrong_namespace_cursors_resync_and_zero_bootstraps_checkpo
         error(&mut b, "RESYNC_REQUIRED");
     }
     let mut b = f.peer(BOB);
-    let cursor = json!({"streamId":ALICE,"namespace":"own","seq":"2","envelopeHash":values::encode_binary(&head)});
+    let cursor = json!({"streamId":ALICE,"namespace":"own","seq":"2","envelopeHash":values::encode_binary(&own_checkpoint.hash().unwrap())});
     send(&mut b, f.frame("subscribe", json!({"cursors":[cursor]})));
     receive(&mut b);
     assert_eq!(receive(&mut b)["wraps"], json!([]));
@@ -895,8 +929,7 @@ fn chunk_deadline_drop_revocation_and_signature_failure_never_persist_partial_by
 #[test]
 fn bootstrap_baseline_descriptor_is_exact_scoped_and_first_page_only() {
     let f = Fixture::new();
-    let bytes = serde_json::to_vec(&json!({"pageId":PAGE,"epoch":"1","sourceDigest":values::encode_binary(&[1;32]),
-        "baselineCommitment":values::encode_binary(&[2;32]),"title":"Example","objectEnvelopeHash":values::encode_binary(&[3;32]),"membershipRevision":"1"})).unwrap();
+    let (bytes, envelope) = baseline(&f, 20);
     f.server
         .update_admission(|p| p.baseline = Some(bytes.clone()))
         .unwrap();
@@ -913,8 +946,22 @@ fn bootstrap_baseline_descriptor_is_exact_scoped_and_first_page_only() {
         values::binary(result["baseline"].as_str().unwrap(), 8192).unwrap(),
         bytes
     );
+    assert_eq!(
+        values::binary(
+            result["baselineObject"]["envelope"].as_str().unwrap(),
+            65536
+        )
+        .unwrap(),
+        envelope
+    );
+    assert_eq!(
+        result["baselineObject"]["envelopeHash"],
+        serde_json::from_slice::<Value>(&bytes).unwrap()["objectEnvelopeHash"]
+    );
     assert_eq!(b.1.poll(), Progress::Advanced);
-    assert!(receive(&mut b).get("baseline").is_none());
+    let next = receive(&mut b);
+    assert!(next.get("baseline").is_none());
+    assert!(next.get("baselineObject").is_none());
     let mut wrong: Value = serde_json::from_slice(&bytes).unwrap();
     wrong["epoch"] = json!("2");
     f.server
@@ -1092,4 +1139,388 @@ fn unsolicited_ack_has_no_bankable_credit_and_hello_revision_is_strict() {
         receive(&mut peer)["membershipHead"]["statements"],
         json!([])
     );
+}
+
+// Signed, encrypted baseline bytes stored in the existing SQLite schema. The
+// transition tests independently verify descriptor creation from real CRDT state.
+fn baseline(f: &Fixture, size: usize) -> (Vec<u8>, Vec<u8>) {
+    let context = object::Context {
+        space: f.space.clone(),
+        page: PAGE.into(),
+        epoch: "1".into(),
+        kind: "html".into(),
+        namespace: "content".into(),
+        author_device: ALICE.into(),
+        membership_revision: "1".into(),
+        stream_seq: "0".into(),
+        prev_hash: [0; 32],
+    };
+    let envelope = object::seal(&context, &[9; 32], &f.alice, &vec![7; size]).unwrap();
+    let bytes=serde_json::to_vec(&json!({"pageId":PAGE,"epoch":"1","sourceDigest":values::encode_binary(&[1;32]),
+        "baselineCommitment":values::encode_binary(&[2;32]),"title":"Example","objectEnvelopeHash":values::encode_binary(&envelope.hash().unwrap()),"membershipRevision":"1"})).unwrap();
+    let envelope = envelope.to_json().unwrap();
+    let db = rusqlite::Connection::open(Layout::open(&f.root).unwrap().directory.join("space.db"))
+        .unwrap();
+    db.execute(
+        "INSERT INTO epoch_secrets VALUES (?,?,?)",
+        rusqlite::params![PAGE, "00000000000000000001", [9u8; 32].as_slice()],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO baselines VALUES (?,?,?,?)",
+        rusqlite::params![PAGE, "00000000000000000001", bytes, envelope],
+    )
+    .unwrap();
+    (bytes, envelope)
+}
+
+#[test]
+fn chunked_baseline_stays_consecutive_across_the_eight_frame_window() {
+    let f = Fixture::new();
+    let (descriptor, bytes) = baseline(&f, 270 * 1024);
+    f.server
+        .update_admission(|p| p.baseline = Some(descriptor.clone()))
+        .unwrap();
+    let mut b = f.peer(BOB);
+    send(
+        &mut b,
+        f.frame(
+            "hello",
+            json!({"membershipRevision":"0","device":BOB,"cursors":[]}),
+        ),
+    );
+    let first = receive(&mut b);
+    assert!(first["baselineObject"]["envelope"]["objectId"].is_string());
+    assert_eq!(
+        values::binary(first["baseline"].as_str().unwrap(), 8192).unwrap(),
+        descriptor
+    );
+    ack(&mut b, &first);
+    assert!(bytes.len().div_ceil(tmt_colab::limits::CHUNK_BYTES) > 8);
+    assemble(&mut b, &bytes, true);
+    let final_page = receive(&mut b);
+    assert_eq!(final_page["wraps"], json!([]));
+    assert_eq!(final_page["more"], false);
+}
+
+#[test]
+fn baseline_missing_mismatched_and_oversized_storage_never_discloses_an_object() {
+    for mutation in [
+        "missing",
+        "descriptor",
+        "hash",
+        "page",
+        "revision",
+        "kind",
+        "size",
+        "descriptor-size",
+    ] {
+        let f = Fixture::new();
+        let (descriptor, _) = baseline(&f, 4);
+        f.server
+            .update_admission(|p| p.baseline = Some(descriptor.clone()))
+            .unwrap();
+        let db =
+            rusqlite::Connection::open(Layout::open(&f.root).unwrap().directory.join("space.db"))
+                .unwrap();
+        let expected = match mutation {
+            "missing" => {
+                db.execute("DELETE FROM baselines", []).unwrap();
+                "RESYNC_REQUIRED"
+            }
+            "descriptor" => {
+                db.execute(
+                    "UPDATE baselines SET descriptor=?",
+                    [b"different".as_slice()],
+                )
+                .unwrap();
+                "RESYNC_REQUIRED"
+            }
+            "hash" | "page" | "revision" | "kind" => {
+                let mut context = object::Context {
+                    space: f.space.clone(),
+                    page: PAGE.into(),
+                    epoch: "1".into(),
+                    kind: "html".into(),
+                    namespace: "content".into(),
+                    author_device: ALICE.into(),
+                    membership_revision: "1".into(),
+                    stream_seq: "0".into(),
+                    prev_hash: [0; 32],
+                };
+                match mutation {
+                    "page" => context.page = BOB.into(),
+                    "revision" => context.membership_revision = "2".into(),
+                    "kind" => {
+                        context.kind = "update".into();
+                        context.stream_seq = "1".into();
+                    }
+                    _ => {}
+                }
+                let other = object::seal(&context, &[9; 32], &f.alice, b"different").unwrap();
+                // Match the new hash for scope/kind/revision negatives so those
+                // checks are exercised independently of envelope-hash rejection.
+                if mutation != "hash" {
+                    let mut changed: Value = serde_json::from_slice(&descriptor).unwrap();
+                    changed["objectEnvelopeHash"] =
+                        json!(values::encode_binary(&other.hash().unwrap()));
+                    let changed = serde_json::to_vec(&changed).unwrap();
+                    db.execute("UPDATE baselines SET descriptor=?", [&changed])
+                        .unwrap();
+                    f.server
+                        .update_admission(|p| p.baseline = Some(changed))
+                        .unwrap();
+                }
+                let other = other.to_json().unwrap();
+                db.execute("UPDATE baselines SET envelope=?", [other])
+                    .unwrap();
+                "INVALID"
+            }
+            "descriptor-size" => {
+                db.execute(
+                    "UPDATE baselines SET descriptor=zeroblob(?)",
+                    [(tmt_colab_model::payload::MAX_BYTES + 1) as i64],
+                )
+                .unwrap();
+                "CAPACITY"
+            }
+            "size" => {
+                db.execute(
+                    "UPDATE baselines SET envelope=zeroblob(?)",
+                    [(tmt_colab::limits::OBJECT_BYTES + 1) as i64],
+                )
+                .unwrap();
+                "CAPACITY"
+            }
+            _ => unreachable!(),
+        };
+        let mut b = f.peer(BOB);
+        send(
+            &mut b,
+            f.frame(
+                "hello",
+                json!({"membershipRevision":"0","device":BOB,"cursors":[]}),
+            ),
+        );
+        error(&mut b, expected);
+    }
+}
+
+#[test]
+fn paired_checkpoints_then_both_namespace_tails_preserve_the_shared_signed_chain() {
+    for paired in [false, true] {
+        let f = Fixture::new();
+        let mut store = Store::open(&Layout::open(&f.root).unwrap()).unwrap();
+        let scope = StreamScope {
+            page: PAGE,
+            epoch: 1,
+            stream: ALICE,
+        };
+        let mut previous = [0; 32];
+        let mut expected = Vec::new();
+        let mut head = [0; 32];
+        for seq in 1..=6 {
+            let ns = if seq % 2 == 1 { "content" } else { "own" };
+            let (_, hash, bytes) = f.append(ALICE, seq, previous, ns, 4);
+            store
+                .append(&tmt_colab::store::Envelope {
+                    scope,
+                    namespace: if ns == "content" {
+                        tmt_colab::store::Namespace::Content
+                    } else {
+                        tmt_colab::store::Namespace::Own
+                    },
+                    seq,
+                    hash,
+                    previous,
+                    bytes: &bytes,
+                })
+                .unwrap();
+            expected.push(bytes);
+            previous = hash;
+            if seq == 2 {
+                head = hash;
+            }
+        }
+        let mut checkpoints = Vec::new();
+        for ns in if paired {
+            vec!["content", "own"]
+        } else {
+            vec!["content"]
+        } {
+            let checkpoint = object::seal(
+                &object::Context {
+                    space: f.space.clone(),
+                    page: PAGE.into(),
+                    epoch: "1".into(),
+                    kind: "checkpoint".into(),
+                    namespace: ns.into(),
+                    author_device: ALICE.into(),
+                    membership_revision: "1".into(),
+                    stream_seq: "2".into(),
+                    prev_hash: head,
+                },
+                &[9; 32],
+                &f.alice,
+                b"rawmergedupdate-v1",
+            )
+            .unwrap();
+            let bytes = checkpoint.to_json().unwrap();
+            store
+                .checkpoint(&tmt_colab::store::Envelope {
+                    scope,
+                    namespace: if ns == "content" {
+                        tmt_colab::store::Namespace::Content
+                    } else {
+                        tmt_colab::store::Namespace::Own
+                    },
+                    seq: 2,
+                    hash: checkpoint.hash().unwrap(),
+                    previous: head,
+                    bytes: &bytes,
+                })
+                .unwrap();
+            checkpoints.push(bytes);
+        }
+        assert_eq!(store.payload(scope, 1).unwrap().is_none(), paired);
+        assert_eq!(store.payload(scope, 2).unwrap().is_none(), paired);
+        drop(store);
+        let mut b = f.peer(BOB);
+        send(
+            &mut b,
+            f.frame(
+                "hello",
+                json!({"membershipRevision":"0","device":BOB,"cursors":[]}),
+            ),
+        );
+        let first = receive(&mut b);
+        ack(&mut b, &first);
+        let wraps = receive(&mut b);
+        ack(&mut b, &wraps);
+        let mut seq = if paired { 3 } else { 1 };
+        let mut chain = if paired { head } else { [0; 32] };
+        let mut seen_checkpoints = 0;
+        loop {
+            let frame = receive(&mut b);
+            ack(&mut b, &frame);
+            if frame["more"] == false {
+                break;
+            }
+            let stream = &frame["streams"][0];
+            let cp = !stream["checkpoint"].is_null();
+            let entry = if cp {
+                &stream["checkpoint"]
+            } else {
+                &stream["tail"][0]
+            };
+            let bytes = values::binary(entry["envelope"].as_str().unwrap(), 65536).unwrap();
+            let envelope = object::Envelope::from_json(&bytes).unwrap();
+            crypto::verify_signature(
+                f.alice.verifying_key().as_bytes(),
+                &envelope.signature_input().unwrap(),
+                envelope.signature(),
+            )
+            .unwrap();
+            let header = object::Header::decode(envelope.header()).unwrap();
+            assert_eq!(
+                header.context.namespace,
+                stream["namespace"].as_str().unwrap()
+            );
+            assert_eq!(
+                entry["envelopeHash"],
+                values::encode_binary(&envelope.hash().unwrap())
+            );
+            if cp {
+                assert!(paired && seq == 3);
+                assert_eq!(bytes, checkpoints[seen_checkpoints]);
+                assert_eq!(header.context.prev_hash, head);
+                assert_eq!(header.context.stream_seq, "2");
+                seen_checkpoints += 1;
+            } else {
+                assert_eq!(seen_checkpoints, if paired { 2 } else { 0 });
+                assert_eq!(bytes, expected[(seq - 1) as usize]);
+                assert_eq!(header.context.stream_seq, seq.to_string());
+                assert_eq!(header.context.prev_hash, chain);
+                chain = envelope.hash().unwrap();
+                seq += 1;
+            }
+        }
+        assert_eq!(seq, 7);
+        assert_eq!(chain, previous);
+    }
+}
+
+#[test]
+fn inline_baseline_reserves_first_page_bytes_without_truncating_membership() {
+    let f = Fixture::new();
+    let (descriptor, envelope) = baseline(&f, 21 * 1024);
+    assert!(envelope.len() <= tmt_colab::limits::CHUNK_BYTES);
+    f.server
+        .update_admission(|p| p.baseline = Some(descriptor))
+        .unwrap();
+    let mut store = Store::open(&Layout::open(&f.root).unwrap()).unwrap();
+    store
+        .owner_transaction(
+            &f.space,
+            f.alice.verifying_key().as_bytes(),
+            tmt_colab::store::owner::Mutation {
+                operation_id: BOB,
+                digest: [8; 32],
+                expected_revision: 1,
+            },
+            |tx| {
+                for _ in 0..70 {
+                    let next = tmt_colab_model::statement::sign(
+                        &f.space,
+                        tx.head(),
+                        "page.history",
+                        &serde_json::to_vec(&json!({"pageId":PAGE,"mode":"shared"})).unwrap(),
+                        &f.alice,
+                    )?;
+                    tx.append_statement(&next)?;
+                }
+                Ok(Vec::new())
+            },
+        )
+        .unwrap();
+    let db = rusqlite::Connection::open(Layout::open(&f.root).unwrap().directory.join("space.db"))
+        .unwrap();
+    let expected = db
+        .prepare("SELECT envelope FROM membership_log ORDER BY revision")
+        .unwrap()
+        .query_map([], |r| r.get::<_, Vec<u8>>(0))
+        .unwrap()
+        .map(|r| values::encode_binary(&r.unwrap()))
+        .collect::<Vec<_>>();
+    let mut b = f.peer(BOB);
+    send(
+        &mut b,
+        f.frame(
+            "hello",
+            json!({"membershipRevision":"0","device":BOB,"cursors":[]}),
+        ),
+    );
+    let first = receive(&mut b);
+    ack(&mut b, &first);
+    assert!(first.to_string().len() <= tmt_colab::limits::WS_FRAME_BYTES);
+    assert_eq!(
+        values::binary(first["baselineObject"]["envelope"].as_str().unwrap(), 65536).unwrap(),
+        envelope
+    );
+    let mut received = first["membershipHead"]["statements"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert!(!received.is_empty() && received.len() < 64);
+    let mut more = first["membershipHead"]["more"].as_bool().unwrap();
+    while more {
+        let page = receive(&mut b);
+        ack(&mut b, &page);
+        assert!(page.to_string().len() <= tmt_colab::limits::WS_FRAME_BYTES);
+        assert!(page.get("baselineObject").is_none());
+        received.extend(page["membership"]["statements"].as_array().unwrap().clone());
+        more = page["membership"]["more"].as_bool().unwrap();
+    }
+    assert_eq!(received, json!(expected).as_array().unwrap().clone());
+    assert_eq!(receive(&mut b)["more"], false);
 }

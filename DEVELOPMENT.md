@@ -3062,7 +3062,10 @@ and supply current verified membership/device policy. Model statement/certificat
 verification remains that caller's responsibility; a successful upgrade is not
 page authority. The admission implementation supplies the verified retained owner
 head through `Store::owner_head` and the exact persisted baseline descriptor
-through `Store::baseline`; object retrieval remains caller-owned.
+through `Store::baseline`.
+A non-null first-page descriptor includes `baselineObject`
+from the matching Store record; tests cover inline and twelve-chunk delivery,
+exact hashes/bytes, missing records, descriptor/scope mismatches and length caps.
 Strict hello includes the last verified `membershipRevision`; bootstrap emits
 bounded exact membership pages, author chains once per connection and
 retained device/member wraps before stream objects. After hello every outbound
@@ -3075,10 +3078,15 @@ its final page enables live delivery under the server lock. Unknown/pruned curso
 return `RESYNC_REQUIRED`. An empty-cursor subscription remains live-only. Large
 updates use one bounded, deadline-limited inbound transfer before append verification;
 large broadcasts/catchup objects stream chunks lazily. Tests cover more pages/chunks
-than queue slots, concurrent appends during catchup, namespace checkpoints,
+than queue slots, concurrent appends during catchup, paired namespace checkpoints,
 exact reassembly/replay, partial-byte isolation and transfer failure/cleanup.
+Shared sequence tests verify signed checkpoint heads and every subsequent hash
+across interleaved content/own tails. An unpaired checkpoint leaves full history
+available and bootstrap uses the previous pair, or the complete update chain.
 Run the Store read cases with `cargo test --offline --locked -p tmt-colab --test
-state`. The caller drives acquisition and blocked-write deadlines even without
+state`. Store cases prove same-head pairing, unpaired/mismatched-head retention,
+failed partner rollback, pinned checkpoint retention and durable receipts after
+paired pruning and reopen. The caller drives acquisition and blocked-write deadlines even without
 socket input; `Connection::poll_at` accepts a monotonic instant for deterministic
 verification. Exact wire shapes and budgets are owned by colab-v1. Owner
 registration is implemented under #1162. Run
@@ -3207,15 +3215,15 @@ persistence/non-extractability, registration failure, root pin mismatch, strict
 owner-log/author-chain admission and missing-wrap blocking. The live fixture
 exercises two same-device tabs, a single durable writer, large chunked updates,
 reload reconstruction and retry of exact accepted bytes after receipt interruption.
-The fixture paces server delivery with the existing ACK frame; native ACK-window
-backpressure is a #1248 acceptance gate. Large history against the current native
-server can block visibly until that gate lands. It covers unpruned content updates
+The fixture paces server delivery with the existing ACK frame; native delivery
+uses the eight-frame ACK window described in the sync section. It covers unpruned content updates
 from sequence one, plus signed reset-baseline fixtures. The baseline suite covers
 chunked retrieval, descriptor/log binding, exact baseline struct identity, subsequent
 edits/reload and rejection of commitment/source/descriptor/old-epoch substitution
 without partial rendering. Checkpoints and own data remain unsupported (#1280);
-native rotated-page opening still needs #1248 baseline-object delivery. This is signed protocol-fixture evidence, not native mounted E2E:
-#1248/#1250 supply bootstrap/refresh and #1253 owns native assets.
+native bootstrap supplies the matching stored baseline object. This is signed
+protocol-fixture evidence, not native mounted browser E2E: #1250 owns refresh and
+#1253 owns native assets.
 The content Worker suite proves concurrent writer convergence and reload
 reconstruction, rejects malformed/mixed roots, checks termination/cleanup and
 proves prepared edits cannot leak through committed projections.

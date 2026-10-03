@@ -710,10 +710,18 @@ others' updates. A checkpoint covers seq 1..n and embeds the authenticated updat
 hash at n, preserving namespace-specific updates and dependencies without
 advancing the update chain. A namespace checkpoint covers that namespace's
 subset within the shared sequence prefix; the signed descriptor binds the
-prefix head. Commit the checkpoint before deleting only covered updates of its namespace.
-Retain the update hash/receipt ledger needed to verify interleaved namespaces
-and exact retries after payload prune; never delete another namespace's payload
-solely because its sequence falls in the prefix.
+prefix head. Namespace-specific plaintext remains raw merged Yjs update-v1.
+
+Store may prune payloads through shared head `n` only when every namespace with
+updates in that prefix has a committed checkpoint at exactly `n`, each binding
+the same update hash in its signed previous-hash field. An unpaired checkpoint
+is retained without pruning and is not selected for bootstrap. Completing the
+pair atomically prunes both covered prefixes and superseded unpinned checkpoints.
+Retain the existing update hash/receipt ledger, pinned checkpoints and the full
+tail from `n+1` in both namespaces for chain verification and exact retries.
+Never delete another namespace's payload solely because its sequence falls in
+the prefix. A failed partner publication leaves the prior pair and updates
+intact; this rule needs no new ledger or checkpoint schema.
 Crash before deletion retains replay-safe redundant data; concurrent tail
 updates survive. A gone device's stream remains as signed data within quotas.
 There is no cross-writer compaction checkpoint in v1; the epoch baseline above
@@ -1051,7 +1059,7 @@ operations are:
 
 | Type        | Additional fields / behavior                                                                                                                 |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hello`     | `device, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                                            |
+| `hello`     | `device, membershipRevision, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                        |
 | `catchup`   | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail |
 | `subscribe` | `cursors`; observe only the admitted page/current epoch                                                                                      |
 | `append`    | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                            |
@@ -1088,7 +1096,7 @@ requires zero32 hash; an omitted namespace also bootstraps. A nonzero cursor mus
 match an exact retained update or checkpoint in that namespace. Unknown, wrong-
 namespace, hash-substituted and pruned cursors return `RESYNC_REQUIRED`; a retained
 receipt alone is insufficient after its payload is pruned. A client restarts with
-zero/omitted cursors to receive the latest namespace checkpoint and retained tail.
+zero/omitted cursors to receive the latest paired prefix checkpoint and retained tail.
 If compaction invalidates a cursor during catchup, catchup stops with
 `RESYNC_REQUIRED` instead of silently skipping data. Store preserves the durable
 receipt ledger, so pruning never permits accepting a sequence again.
@@ -1134,7 +1142,8 @@ head is the target for this catchup; unknown, missing or above-head revisions
 return `RESYNC_REQUIRED`. Clients independently verify owner signatures, chain,
 root pin and target hash; a client-side fork cannot be detected from the unsigned
 revision alone. Whole statements must fit one 64 KiB frame: pages use at most
-60 KiB of encoded statement data, an individual stored envelope at most 44 KiB;
+60 KiB of encoded statement data (less on the first page to reserve its baseline
+fields), an individual stored envelope at most 44 KiB;
 oversized statements fail `CAPACITY`, never truncate. Chunked membership statements are deferred to #1285.
 
 After membership, pages carry `wraps` addressed to this device or its member,
@@ -1151,15 +1160,18 @@ verified log before applying objects. A chain never grants current authority.
 JSON, bounded to 8 KiB. Its scope/revision must match the admitted page/epoch and
 retained head. The caller verifies its exact signed `epoch.advance` binding.
 The owner engine produces and persists reset baselines; mounted owner catchup
-reads the exact descriptor through `Store::baseline`. Scoped encrypted object
-retrieval remains caller-owned.
+reads the exact descriptor through `Store::baseline`. Native sync delivers the
+matching scoped stored encrypted object after caller admission.
 When `baseline` is non-null, the first page MUST also contain exactly
 `baselineObject: {envelopeHash, envelope}`. When `baseline` is null that field MUST
 be absent. `envelopeHash` is canonical base64url hash32 and MUST equal the signed
 descriptor's `objectEnvelopeHash`; `envelope` is the existing exact inline
-base64url envelope or `{objectId}` followed by chunk frames. Later pages MUST NOT
+base64url envelope or `{objectId}` followed immediately by consecutive chunk frames. Later pages MUST NOT
 repeat either baseline field. The first page still has empty streams; baseline
-retrieval does not advance any device stream or cursor.
+retrieval does not advance any device stream or cursor. Missing stored objects or
+descriptor mismatches resync; malformed or hash/scope/kind/revision mismatches
+reject, never substitute old-epoch source. The same frame credit and
+complete-object admission rules apply.
 
 Before publishing a reset view, the browser MUST finish owner-log verification,
 match every descriptor field to the signed epoch transition, obtain the admitted
@@ -1172,15 +1184,18 @@ Worker verifies the source digest, LP commitment and exact source/title projecti
 from that identical update before initializing a fresh content document. Apply
 current-epoch tails only after that initialization; publish nothing on any failure.
 Old-epoch envelopes and a missing baseline for a reset epoch MUST reject. The
-browser implementation is tested with signed fixtures; native delivery of
-`baselineObject` is owned by #1248 and is not established by those fixtures.
+browser implementation is tested with signed fixtures; those fixtures do not
+establish native mounted browser E2E.
 
 The first page has empty `streams` and `more:true`. Later pages carry
 `streams, more` and the applicable membership, wraps or chains fields. Each stream entry is exactly
 `{streamId, namespace, checkpoint, tail}`. A checkpoint is null or
 `{seq, envelopeHash, envelope}`; tail is a list of those same entries. A page
-contains at most one object: either the latest namespace checkpoint for bootstrap,
-or the next update after the resolved cursor/checkpoint. The final page has
+contains at most one object: either the latest paired prefix checkpoint for
+bootstrap, or the next update after the resolved cursor/checkpoint. All bootstrap
+checkpoints precede tails. Each stream's tail merges both `content` and `own`
+namespaces in shared sequence order; updates from either namespace are required
+to verify the signed previous-hash chain. The final page has
 empty streams and `more:false`. Clients do not re-request pages. Clients verify
 all log, envelope and chain/namespace bindings before applying an object; a page
 or receipt is not that verification. A stream sequences namespaces together,
