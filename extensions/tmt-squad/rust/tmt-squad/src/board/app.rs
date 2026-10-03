@@ -1303,6 +1303,7 @@ impl App {
                     self.token_window = self.token_window.next(meter.settings.windows);
                     self.window_changed = true;
                     meter.select(self.token_window, Instant::now());
+                    self.notice = Some(format!("Token window: {}", self.token_window.label()));
                 }
                 return Effect::None;
             }

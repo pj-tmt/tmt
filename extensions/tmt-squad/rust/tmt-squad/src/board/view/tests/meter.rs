@@ -69,6 +69,72 @@ fn with_meter(now: Instant, reduced: bool) -> App {
 }
 
 #[test]
+fn empty_and_zero_windows_are_visible_and_w_reports_narrow_selection() {
+    use crate::config::{TokenRate, TokenWindow};
+    for windows in [
+        TokenWindow::DEFAULTS,
+        ["2m", "10m", "2h"].map(|value| TokenWindow::parse(value).unwrap()),
+    ] {
+        for width in [160, 100, 80] {
+            let now = Instant::now();
+            let settings = TokenRate {
+                enabled: true,
+                reduced_motion: true,
+                windows,
+                window: windows[0],
+                ..Default::default()
+            };
+            let mut missing = input(100);
+            missing
+                .resumes
+                .values_mut()
+                .for_each(|resume| *resume = Value::Null);
+            let mut app = preset_board();
+            app.token_window = windows[0];
+            app.meter = Some(Meter::new(settings, &missing, now));
+            let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
+            let summary = |terminal: &Terminal<TestBackend>| {
+                (0..width)
+                    .map(|x| terminal.backend().buffer()[(x, 1)].symbol())
+                    .collect::<String>()
+            };
+            for window in windows {
+                terminal.draw(|frame| render(frame, &app)).unwrap();
+                let text = summary(&terminal);
+                assert!(
+                    text.ends_with(&format!("(no consumption data) {}", window.label())),
+                    "{text}"
+                );
+                app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+            }
+            assert_eq!(app.token_window, windows[0]);
+            let start = now - Duration::from_millis(windows[0].milliseconds());
+            let mut zero = Meter::new(settings, &input(100), start);
+            for seconds in (5..=windows[0].milliseconds() / 1000).step_by(5) {
+                zero.sample(Ok(&input(100)), start + Duration::from_secs(seconds));
+            }
+            app.meter = Some(zero);
+            for window in windows {
+                terminal.draw(|frame| render(frame, &app)).unwrap();
+                let text = summary(&terminal);
+                assert!(
+                    text.contains(&format!("0 tok {}", window.label())),
+                    "{text}"
+                );
+                assert!(!text.contains("no consumption data"));
+                app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+            }
+            app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+            let narrow = draw(&app, 30, 24).join("\n");
+            assert!(
+                narrow.contains(&format!("Token window: {}", windows[1].label())),
+                "{narrow}"
+            );
+        }
+    }
+}
+
+#[test]
 fn excluded_help_uses_roster_names_for_members_absent_from_displayed_rows() {
     let mut app = preset_board();
     let mut roster = input(0);
@@ -106,6 +172,7 @@ fn sample_and_animation_emit_only_meter_cells_in_normal_render() {
             })
             .unwrap();
             redraw(&mut terminal, &app);
+            let initial_area = meter_region(&app, Rect::new(0, 1, width, 1)).unwrap().0;
             let sample = now + Duration::from_secs(10);
             app.meter.as_mut().unwrap().sample(Ok(&input(200)), sample);
             redraw(&mut terminal, &app);
@@ -119,7 +186,7 @@ fn sample_and_animation_emit_only_meter_cells_in_normal_render() {
                     .backend()
                     .emitted
                     .iter()
-                    .all(|(x, y)| area.contains(Position::new(*x, *y)))
+                    .all(|(x, y)| initial_area.union(area).contains(Position::new(*x, *y)))
             );
             let mut total = terminal.backend().emitted.len();
             for elapsed in [250, 500, 600] {

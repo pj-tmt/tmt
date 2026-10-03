@@ -189,7 +189,7 @@ pub(super) fn model(app: &App) -> KeyHelp {
                 ("trend", "eight bucket-aligned observed-token slices"),
                 (
                     "coverage",
-                    "no data hides the meter; measured zero is 0; – is unreported; ~ is incomplete window/coverage",
+                    "no consumption data is explicit; measured zero is 0; – is unreported; ~ is incomplete window/coverage",
                 ),
             ],
         );

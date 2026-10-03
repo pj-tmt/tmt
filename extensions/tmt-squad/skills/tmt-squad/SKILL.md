@@ -580,6 +580,10 @@ window switches show the exact value immediately. Eight bucket-aligned bars show
 observed totals by slice: blank is no evidence, ▁ is measured zero and ▂–█ scale
 nonzero values. Narrow boards drop the trend, shorten the unit, then hide the
 summary meter before cutting lead/attention text. The window label remains.
+An enabled meter with no reporting members says `(no consumption data)`; reported
+counters without a covered reading say `(no covered consumption)`. Both show the
+selected window. Measured zero stays numeric. Selecting a window also posts its
+label in the board notice, including when the summary meter cannot fit.
 
 ## Columns and row lines
 
