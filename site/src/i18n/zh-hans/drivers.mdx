@@ -14,11 +14,11 @@ driver 是 tmt 对某一类程序的了解。_host_ driver 了解 agent 在哪�
 
 <Cmd>{`
 $ tmt run reviewer claude        # 将当前窗格命名为 "reviewer"，并在其中启动 Claude Code
-$ tmt run builder codex          # 对 Codex 执行相同操作
+$ tmt run builder codex          # 同样启动 Codex
 $ tmt setup                      # 可选：经你确认后，连接找到的所有 agent
 `}</Cmd>
 
-不运行 setup，所有 agent 仍然可用：tmt 通过窗格与它们通信。`tmt setup` 补充的是只有 agent 自身才能告诉 tmt 的信息。它让 tmt 知道哪个会话属于哪个名称，从而让 `tmt resume` 重新打开正确的会话，并在启动时提供简短的“你是谁、有哪些待办”摘要。`tmt setup` 会准确列出将修改的设置，并先征求同意；`tmt setup claude` 或 `tmt setup codex` 对单个 agent 执行相同操作，`--remove` 则撤销这些设置。
+不运行 setup，所有 agent 仍然可用：tmt 通过窗格与它们通信。`tmt setup` 补充的是只有 agent 自身才能告诉 tmt 的信息。它让 tmt 知道哪个会话属于哪个名称，从而让 `tmt resume` 重新打开正确的会话，并在启动时提供简短的“你是谁、有哪些待办”摘要。`tmt setup` 会准确列出将修改的设置，并先征求同意；`tmt setup claude` 或 `tmt setup codex` 为单个 agent 做同样的设置，`--remove` 则撤销这些设置。
 
 | Driver      | 类型    | 无需 setup 即可使用                                           | 运行 `tmt setup` 后                                           |
 | ----------- | ------- | ------------------------------------------------------------- | ------------------------------------------------------------- |

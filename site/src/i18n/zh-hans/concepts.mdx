@@ -13,11 +13,11 @@ import { Badge, States } from "../../components/samples";
   <dt>identity</dt>
   <dd>
     一个持久的名称，例如 <code>reviewer</code>。名称全局通用，不按文件夹划分。保存的名称（
-    <code>-s</code>）在窗格关闭后仍然保留；临时名称则随窗格一起注销。
+    <code>-s</code>）在窗格关闭后仍然保留；临时名称则随窗格一起消失。
   </dd>
   <dt>binding</dt>
   <dd>
-    identity 当前所在的位置，例如一个 tmux 窗格。如果两个 agent 都可能是调用者，tmt 会拒绝猜测。
+    identity 当前所在的位置，例如一个 tmux 窗格。如果两个 agent 都可能是调用者，tmt 不会去猜。
   </dd>
   <dt>driver</dt>
   <dd>
