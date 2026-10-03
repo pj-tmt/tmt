@@ -237,13 +237,24 @@ impl Rows {
 
     /// Board-only observation columns; public ls grids and custom grids stay intact.
     pub fn with_usage(mut self, windows: [crate::config::TokenWindow; 3]) -> Self {
+        if let Some(link) = self
+            .columns
+            .iter_mut()
+            .find(|c| matches!(c.field.as_str(), "pr" | "pr_link"))
+        {
+            link.priority = Some(6);
+        }
+        if let Some(model) = self.columns.iter_mut().find(|c| c.field == "model") {
+            model.priority = Some(2);
+        }
         if !self.columns.iter().any(|c| c.field == "model") {
             let mut model = Column::sized("model", "MODEL", Some(Basis::Cells(10)));
             model.from = ColumnSource::parse("session.model", field_name, |_| false);
-            model.priority = Some(3);
+            model.priority = Some(2);
             self.lines[0].push(Cell {
                 field: Some("model".into()),
                 span: 1,
+                token: None,
             });
             self.columns.push(model);
         }
@@ -252,10 +263,11 @@ impl Rows {
             let mut column = Column::sized(&field, &window.label(), Some(Basis::Cells(7)));
             column.min = Some(5);
             column.align = Align::Right;
-            column.priority = Some((5 - i) as u16);
+            column.priority = Some((3 + i) as u16);
             self.lines[0].push(Cell {
                 field: Some(field),
                 span: 1,
+                token: None,
             });
             self.columns.push(column);
         }

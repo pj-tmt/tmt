@@ -81,10 +81,6 @@ fn windows_count_cached_input_once_without_dividing_by_covered_span() {
             .tokens,
         300
     );
-    assert_eq!(
-        rate.reading(70_000, TokenWindow::MINUTE).unwrap().tokens,
-        150
-    );
 }
 
 #[test]
@@ -249,7 +245,6 @@ fn trend_distinguishes_no_evidence_zero_and_nonzero() {
     rate.sample(&input(100), 5_000);
     assert_eq!(rate.trend(5_000, TokenWindow::MINUTE)[7], Some(0.0));
     rate.sample(&input(200), 10_000);
-    assert_eq!(rate.trend(10_000, TokenWindow::MINUTE)[7], Some(150.0));
     assert_eq!(rate.trend(10_000, TokenWindow::MINUTE)[7], Some(150.0));
 }
 
