@@ -545,7 +545,7 @@ impl App {
                             let value = reading
                                 .and_then(|r| {
                                     crate::source::render_value(
-                                        &serde_json::json!(r.tokens as f64),
+                                        &serde_json::json!(r.tokens.to_string()),
                                         column.format,
                                         0,
                                     )
