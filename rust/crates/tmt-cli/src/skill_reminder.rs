@@ -54,7 +54,8 @@ pub fn eligible_for_drift(parsed: &Parsed) -> bool {
                 | Invocation::Mcp { .. }
                 | Invocation::Help(_)
                 | Invocation::Version
-                | Invocation::Completion(_)
+                | Invocation::Completion { .. }
+                | Invocation::CompletionScript(_)
                 | Invocation::Complete(_)
                 | Invocation::Init
                 | Invocation::Run { .. }
@@ -91,7 +92,8 @@ pub fn eligible_for_driver_hint(parsed: &Parsed) -> bool {
                 | Invocation::Mcp { .. }
                 | Invocation::Help(_)
                 | Invocation::Version
-                | Invocation::Completion(_)
+                | Invocation::Completion { .. }
+                | Invocation::CompletionScript(_)
                 | Invocation::Complete(_)
                 | Invocation::Driver(_)
                 | Invocation::ProviderHook { .. }
@@ -316,7 +318,12 @@ mod tests {
         for invocation in [
             Invocation::Help(Vec::new()),
             Invocation::Version,
-            Invocation::Completion(None),
+            Invocation::Completion {
+                shell: None,
+                install: false,
+                yes: false,
+            },
+            Invocation::CompletionScript("bash".into()),
             Invocation::Init,
             Invocation::Run {
                 name: "runner".into(),

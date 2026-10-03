@@ -1990,6 +1990,24 @@ creation or presence reconciliation, and returns active identities in saved-firs
 canonical order with optional literal-prefix and remembered-session filters.
 Unavailable discovery is not evidence that an identity does not exist; binding
 and launch still perform their normal authoritative checks.
+Public `completion` guides and checks startup-file configuration; its `installed`
+JSON field is textual evidence, never a claim about parent-shell functions.
+`completion_command` owns mode selection, presentation and explicit install
+consent. `config::ConfigPaths::shell_startup` resolves bash, zsh (`ZDOTDIR`) and
+fish (`XDG_CONFIG_HOME`) paths; `completion_install` owns bounded regular-file
+inspection and a single consented append. It preserves existing/legacy lines,
+warns about duplicates and ambiguous evidence, and refuses automatic append
+until zsh initialization is recognized. Appending locks the rc inode through
+`file_lock`, rechecks the inspected bytes and preserves existing content; it
+creates no backup or separate state file. A changed file refuses; an I/O error
+can leave a partial append and explicitly asks for inspection before retry.
+Symlinked startup files can be inspected but automatic append refuses them.
+The hidden `__completion-script <shell>` and retained undocumented nonterminal
+`completion <shell>` route use the same grammar generator and exact bytes.
+Bare completion and JSON always inspect; `--install` never selects generation.
+Noninteractive mutation requires `--yes`; the exact file and line are shown
+before mutation (stderr for a JSON install, which retains one stdout document).
+
 The CLI's hidden completion query resolves the unfinished operand through the
 same public Clap grammar and emits only a context tag, candidate names or command
 offset. Shell adapters retain generated static completion and delegate `run` arguments

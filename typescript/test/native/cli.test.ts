@@ -347,7 +347,7 @@ describe('native grammar process contract', () => {
         ['--json', '--help'],
         ['--version', '--json'],
         ['--json', '--version'],
-        ['completion', 'bash', '--json'],
+        ['__completion-script', 'bash', '--json'],
         ['learn', '--json'],
       ]) {
         const result = await runCli(sandbox, args);

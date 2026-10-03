@@ -1210,6 +1210,14 @@ After an intended change, regenerate with `INSTA_UPDATE=always cargo test -p
 <crate>`, delete any leftover `*.snap.new` files, and review the snapshot diff as
 part of the change. CI never updates snapshots.
 
+Completion setup (#1470) has isolated adapter and real-CLI tests:
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-adapters completion_install` and
+`CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli --test completion_install`.
+They check preserved rc bytes, consent refusal, idempotence, shell detection,
+legacy warnings, TTY selection and byte equality of both script routes. The
+PTY fixture owns its terminal and HOME; never test installation against a real
+shell startup file. Run the CLI style and architecture guards with these checks.
+
 The CLI style guards ([enforcement](design/cli-style.md#enforcement)) run in
 `cargo test`. When a migrated command leaves its list, run them directly from
 `rust/`: `cargo test --locked -p tmt-cli --bin tmt cli_style`, `cargo test

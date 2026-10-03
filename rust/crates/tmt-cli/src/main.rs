@@ -8,6 +8,7 @@ mod channel_command;
 mod channel_server_command;
 mod check_command;
 mod completion;
+mod completion_command;
 mod config_command;
 mod consent;
 mod context_command;
@@ -158,10 +159,15 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             write_exact(|stdout| writeln!(stdout, "{}", env!("CARGO_PKG_VERSION")))?
         }
         Invocation::Complete(words) => write_exact(|stdout| completion::query(&words, stdout))?,
-        Invocation::Completion(shell) => {
-            write_exact(|stdout| {
-                grammar::completion::generate(shell.as_deref().unwrap_or(""), stdout)
-            })?;
+        Invocation::Completion {
+            shell,
+            install,
+            yes,
+        } => {
+            return completion_command::execute(shell.as_deref(), install, yes, parsed.mode);
+        }
+        Invocation::CompletionScript(shell) => {
+            write_exact(|stdout| grammar::completion::generate(&shell, stdout))?;
         }
         Invocation::Config(request) => {
             return config_command::execute(request, parsed.mode);
