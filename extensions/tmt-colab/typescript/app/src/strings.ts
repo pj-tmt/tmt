@@ -9,7 +9,10 @@ export const text = {
   pinMismatch:
     'This address does not match the pinned space. Return to the original space address.',
   noWraps: 'This device has no verified page key yet. The page remains blocked.',
-  livePending: 'The page key is verified. Live page loading is not available yet.',
+  save: 'Save source',
+  saving: 'Saving…',
+  editFailed:
+    'The edit was not saved. Reopen the page to review the latest source before trying again.',
   reload: 'Reload',
   pages: 'Pages',
   home: 'Space home',

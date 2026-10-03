@@ -11,12 +11,13 @@ test('Worker folds concurrent independent writers, reload reconstruction and Uni
       b = new Fold(),
       reloaded = new Fold();
     try {
-      const one = await a.run({ type: 'edit', source: '<p>😀 café</p>' });
+      const one = await a.run({ type: 'prepare', source: '<p>😀 café</p>' });
+      await a.run({ type: 'apply', updates: [one.update] });
       await b.run({ type: 'apply', updates: [one.update] });
-      const two = await a.run({ type: 'edit', source: '<p>😀 café A</p>' });
-      const three = await b.run({ type: 'edit', source: '<p>😀 café B</p>' });
-      const mergedA = await a.run({ type: 'apply', updates: [three.update] });
-      const mergedB = await b.run({ type: 'apply', updates: [two.update] });
+      const two = await a.run({ type: 'prepare', source: '<p>😀 café A</p>' });
+      const three = await b.run({ type: 'prepare', source: '<p>😀 café B</p>' });
+      const mergedA = await a.run({ type: 'apply', updates: [two.update, three.update] });
+      const mergedB = await b.run({ type: 'apply', updates: [two.update, three.update] });
       const restored = await reloaded.run({
         type: 'apply',
         updates: [one.update, two.update, three.update],
@@ -53,7 +54,7 @@ test('decoder rejects malformed data and cannot be reused after rejection', asyn
     let errors = 0;
     try {
       await fold.run({ type: 'apply', updates: [new Uint8Array([255])] }).catch(() => errors++);
-      await fold.run({ type: 'edit', source: 'must not apply' }).catch(() => errors++);
+      await fold.run({ type: 'prepare', source: 'must not apply' }).catch(() => errors++);
       return errors;
     } finally {
       fold.close();
@@ -104,7 +105,8 @@ test('Worker rejects unknown, mixed and rich-text roots before publishing any pr
     for (const update of invalidUpdates()) {
       const fold = new Fold();
       try {
-        await fold.run({ type: 'edit', source: 'previous valid source' });
+        const previous = await fold.run({ type: 'prepare', source: 'previous valid source' });
+        await fold.run({ type: 'apply', updates: [previous.update] });
         await fold.run({ type: 'apply', updates: [update] }).catch(() => rejected++);
       } finally {
         fold.close();
@@ -113,4 +115,26 @@ test('Worker rejects unknown, mixed and rich-text roots before publishing any pr
     return rejected;
   });
   expect(errors).toBe(4);
+});
+
+test('prepared edits never leak through a later committed projection', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const path = '/src/fold.ts';
+    const { Fold } = await import(path);
+    const a = new Fold(),
+      b = new Fold();
+    try {
+      const seed = await a.run({ type: 'prepare', source: 'initial' });
+      await a.run({ type: 'apply', updates: [seed.update] });
+      await b.run({ type: 'apply', updates: [seed.update] });
+      await a.run({ type: 'prepare', source: 'unsaved draft' });
+      const remote = await b.run({ type: 'prepare', source: 'initial saved' });
+      return (await a.run({ type: 'apply', updates: [remote.update] })).source;
+    } finally {
+      a.close();
+      b.close();
+    }
+  });
+  expect(result).toBe('initial saved');
 });

@@ -44,15 +44,17 @@ self.onmessage = (event: MessageEvent<{ id: number; command: FoldCommand }>) => 
     const state = Y.encodeStateAsUpdate(committed);
     Y.applyUpdate(candidate, state);
     let update = new Uint8Array();
-    if (command.type === 'apply') {
+    if (command.type === 'apply' || command.type === 'check') {
       if (
         command.updates.length > 200 ||
         command.updates.reduce((n, item) => n + item.length, 0) > UPDATE_BYTES
       )
         throw new Error('Decoder input capacity');
       for (const item of command.updates) Y.applyUpdate(candidate, item);
-    } else if (command.type === 'edit') {
+    } else if (command.type === 'prepare') {
       validateProjection({ source: command.source, title: '' });
+      if (command.base !== undefined && command.base !== committed.getText('html').toString())
+        throw new Error('Source changed before preparing the edit');
       const html = candidate.getText('html'),
         old = html.toString(),
         next = command.source;
@@ -79,8 +81,12 @@ self.onmessage = (event: MessageEvent<{ id: number; command: FoldCommand }>) => 
     const projection = project(candidate);
     if (Y.encodeStateAsUpdate(candidate).length > STATE_BYTES)
       throw new Error('Decoder state capacity');
-    committed.destroy();
-    committed = candidate;
+    // Prepared local bytes have no durable receipt yet. Keep their projection out
+    // of committed state so later foreign updates cannot publish an unsaved draft.
+    if (command.type === 'apply') {
+      committed.destroy();
+      committed = candidate;
+    } else candidate.destroy();
     self.postMessage({ id, ...projection, update });
   } catch {
     candidate.destroy();

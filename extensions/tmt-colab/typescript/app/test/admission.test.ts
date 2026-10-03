@@ -93,6 +93,9 @@ it('accepts a valid owner author chain and rejects a forged chain with the same 
     const a = admission();
     await new Catchup(a, 'private').admit(first());
     await a.chains([{ deviceId: v.page, chain: transport(v.chain) }]);
+    expect(a.author(v.page, '1')).toEqual(root);
+    expect(() => a.author(v.device, '1')).toThrow('Fresh membership');
+    expect(() => a.author(v.page, '2')).toThrow('Fresh membership');
     const bad = { ...v.chain, issuerSignature: c.encodeBinary(new Uint8Array(64)) };
     await expect(a.chains([{ deviceId: v.page, chain: transport(bad) }])).rejects.toThrow();
   } finally {

@@ -1,3 +1,4 @@
+import type { Projection } from './fold-protocol.js';
 export interface PageSummary {
   readonly id: string;
   readonly title: string;
@@ -5,6 +6,12 @@ export interface PageSummary {
 }
 export interface PageSnapshot extends PageSummary {
   readonly source: string;
+  readonly binding?: PageBinding;
+}
+export interface PageBinding {
+  subscribe(publish: (value: Projection) => void, failed: (error: Error) => void): () => void;
+  edit(source: string, base: string): Promise<void>;
+  close(): void;
 }
 export interface SpaceHome {
   readonly title: string;

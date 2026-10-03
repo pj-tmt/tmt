@@ -41,7 +41,7 @@ export class Fold {
   run(command: FoldCommand): Promise<FoldResult> {
     if (this.#closed || this.#pending) return Promise.reject(new Error('Decoder unavailable'));
     if (
-      command.type === 'apply' &&
+      (command.type === 'apply' || command.type === 'check') &&
       (command.updates.length > 200 ||
         command.updates.reduce((n, v) => n + v.length, 0) > UPDATE_BYTES)
     )

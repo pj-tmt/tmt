@@ -148,6 +148,7 @@ test('verified metadata with no wraps keeps the page blocked and opens no render
   await page.routeWebSocket(`**${mount}sync`, (socket) => {
     socket.onMessage((message) => {
       const hello = JSON.parse(String(message));
+      if (hello.type === 'ack') return;
       expect(hello).toEqual({
         version: 1,
         type: 'hello',
