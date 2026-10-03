@@ -192,7 +192,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
     let cliGroup: number | undefined;
     const groups = new Set(child.pid === undefined ? [] : [child.pid]);
     const acknowledgement = child.stdio[4]! as Duplex;
-    const input = child.stdio[5] as Duplex | null;
+    const input = (child.stdio.at(5) as Duplex | null | undefined) ?? null;
     acknowledgement.on('error', () => undefined);
     const controlStream = child.stdio[3]! as Readable;
     controlStream.setEncoding('utf8');
