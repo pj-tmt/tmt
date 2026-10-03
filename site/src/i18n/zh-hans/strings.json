@@ -1,7 +1,7 @@
 {
   "$source": {
     "source": "site/src/lang/strings.ts",
-    "sourceRevision": "03b536e0b424ea20f22f9ffa99dea681217e09e3"
+    "sourceRevision": "69dbf4e8cb3b0ee9e608d84b7eac3a1e121167d8"
   },
   "ui": {
     "notTranslated": "此页尚未翻译，暂时显示英文。",
@@ -38,7 +38,15 @@
       "request": "请求",
       "receipt": "receipt",
       "reply": "reply",
-      "tied": "receipt 将回复与原请求对应起来"
+      "tied": "receipt 将回复与原请求对应起来",
+      "result": "结果",
+      "spatial": "3D 消息往来",
+      "flat": "静态消息往来",
+      "steps": "消息往来步骤",
+      "play": "播放",
+      "pause": "暂停",
+      "local": "TMT / 本地消息往来",
+      "note": "示意输出 · Claude Code + Codex · tmux 或 Herdr"
     },
     "concepts": {
       "items": [
