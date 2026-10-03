@@ -595,7 +595,10 @@ Disabling stops observation; after re-enabling, surviving fingerprint matches
 keep their first-observed time. Disabled observation does no cache work and
 never creates a notebook. The board dims a stale row and shows its age at the
 row's end, and puts the notes' age on the notes pane title; the leads and all
-tabs show no ages.
+tabs currently show no ages. The retained home model prepares blocked ages only
+where this observation policy is enabled (Team by default; other layouts off);
+disabled or unavailable observation provides no age. Request ages use the real
+inbox timestamp, and pending-only rows have no age. Home painting is unchanged.
 
 The row's age changes only when its raw task/state changes; links, notes and
 provider refreshes do not renew it. `activityAfterUpdate` records relevant

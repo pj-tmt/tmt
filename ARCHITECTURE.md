@@ -3547,7 +3547,18 @@ squads, not members: their `tab` action opens the squad's tab, and member
 bindings don't apply there. `jump lead` (`L` in the tmux preset) resolves a
 lead name in `App::lead`: the document's `squad.lead` on a squad tab, the
 selected row on the leads tab, the row's `lead` field on the all tab; it then
-takes the ordinary jump request, so the popup closes and `back` returns. Moving a tab (Shift+←/→, or a drag on the tab
+takes the ordinary jump request, so the popup closes and `back` returns.
+
+`board::home` retains a board-only summary, shared-filter attention sections and
+compact squad-line model on the aggregate `View`; other views carry no home data.
+It reuses `tab_view` acquisition and the user-tab section pipeline. Its optional
+observed ages come from the existing per-squad observer around that same roster
+read, respecting the reminders policy without extra core commands. Request ages
+use shared-inbox timestamps; pending-only rows have no age. The source aggregate
+document and `ls --tab all` JSON/text remain unchanged. The retained model does
+not yet change board painting or actions.
+
+Moving a tab (Shift+←/→, or a drag on the tab
 line) saves `[tabs] order` through `Config::write`, the same compare-and-set,
 format-preserving replacement that records `me`. A tab line that doesn't
 fit scrolls: `tab_window` keeps the current tab in view, starting as near the

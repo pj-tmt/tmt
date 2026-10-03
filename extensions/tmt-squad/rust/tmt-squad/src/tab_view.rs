@@ -133,6 +133,22 @@ pub fn load(
     };
     let all = squads.iter().collect::<Vec<_>>();
     let acquired = roster_documents(core, config, &all, me, listed.as_ref());
+    document(config, &settings, tabs, key, &acquired)
+}
+
+/// Shapes acquired rows without reading core again. Board-only compositions
+/// keep the public aggregate document on this same path.
+pub(crate) fn document(
+    config: &Config,
+    settings: &crate::config::Tabs,
+    tabs: &[String],
+    key: &str,
+    acquired: &Acquired,
+) -> Result<Document, SquadError> {
+    let user = settings
+        .user
+        .iter()
+        .find(|tab| Some(tab.name.as_str()) == tabs::user_name(key));
     let documents = &acquired.documents;
     let attention = acquired.attention(config, tabs);
     let (mut document, rows) = match key {
@@ -141,7 +157,7 @@ pub fn load(
         _ => {
             let rows = rows(key);
             (
-                user_document(user.expect("validated user tab"), tabs, &acquired),
+                user_document(user.expect("validated user tab"), tabs, acquired),
                 rows,
             )
         }
@@ -149,7 +165,7 @@ pub fn load(
     document["tab"] = json!(tabs::label(key));
     if !acquired.failures.is_empty() {
         document["partial"] = json!(true);
-        document["failures"] = json!(acquired.failures);
+        document["failures"] = json!(&acquired.failures);
     }
     let grid = rows.value();
     document["columns"] = grid["columns"].clone();
@@ -223,6 +239,28 @@ pub(crate) fn roster_documents(
     me: Option<&crate::me::Me>,
     listed: Option<&Value>,
 ) -> Acquired {
+    roster_documents_with(core, config, squads, me, listed, false)
+}
+
+/// Home observes raw member content through the existing staleness owner,
+/// without adding notes, room history, presence or provider commands.
+pub(crate) fn home_sources(
+    core: &Core,
+    config: &Config,
+    squads: &[&Squad],
+    me: Option<&crate::me::Me>,
+) -> Acquired {
+    roster_documents_with(core, config, squads, me, None, true)
+}
+
+fn roster_documents_with(
+    core: &Core,
+    config: &Config,
+    squads: &[&Squad],
+    me: Option<&crate::me::Me>,
+    listed: Option<&Value>,
+    observe: bool,
+) -> Acquired {
     let mut acquired = Acquired {
         documents: BTreeMap::new(),
         rows: BTreeMap::new(),
@@ -255,12 +293,28 @@ pub(crate) fn roster_documents(
             let states = config.states(&squad.name, layout)?;
             let sections = config.sections(&squad.name)?;
             let rows = config.rows(&squad.name)?;
+            // Lock before the same roster read; concurrent observers cannot
+            // publish an older member snapshot over a newer one.
+            let observer = observe
+                .then(|| {
+                    Ok::<_, SquadError>(crate::staleness::Observer::begin(
+                        config.path(),
+                        squad,
+                        config.reminders(&squad.name)?,
+                    ))
+                })
+                .transpose()?;
             let mut members = squad.roster_with(core, rows.reads_metadata())?;
             if let Some(listed) = listed {
                 crate::squad::join_presence(&mut members, listed);
             }
             let providers = config.providers(&squad.name)?;
             let cached = crate::provider::Cache::load(&squad.name);
+            // Record raw task/state before provider and column projection.
+            // Missing optional evidence does not invent notes or activity age.
+            let ages = observer.map(|observer| {
+                observer.record(&members, &providers, &cached, None, None, status::now_ms())
+            });
             crate::provider::apply(&providers, &mut members, &cached);
             status::prepare(&rows, &states, &mut members);
             let mut document =
@@ -274,6 +328,11 @@ pub(crate) fn roster_documents(
             if let Some((me, inbox)) = &waiting {
                 requests::apply_waiting(&mut document, &squad.name, me, inbox);
                 requests::apply_waiting(&mut flat, &squad.name, me, inbox);
+            }
+            // Ages decorate only the board's retained member projection;
+            // source documents (and public all JSON/text) remain unchanged.
+            if let Some(ages) = ages {
+                ages.apply(&mut flat);
             }
             let projected = project_rows(&squad.name, &flat, &members, &states);
             Ok::<_, SquadError>((document, projected))

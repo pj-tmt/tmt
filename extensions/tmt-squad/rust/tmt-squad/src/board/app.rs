@@ -29,6 +29,8 @@ pub struct View {
     pub token_rate: Option<RateView>,
     /// The `status --json` document, so the board and `status` never differ.
     pub document: Value,
+    /// Retained home composition; only the aggregate board view owns it.
+    pub home: Option<Value>,
     pub(super) derived: RefCell<super::derived::Derived>,
     pub rows: crate::rows::Rows,
     pub board: Board,
@@ -414,6 +416,11 @@ impl App {
     /// Swaps in a loaded squad in one step. A result for a squad the user
     /// already left is kept for switching back, never shown.
     pub fn apply(&mut self, snapshot: Snapshot) {
+        debug_assert!(
+            !snapshot.view.as_ref().is_ok_and(|view| view.home.is_some())
+                || snapshot.squad.as_deref() == Some(super::ALL),
+            "home data belongs to the aggregate snapshot"
+        );
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
         self.pinned = snapshot.pinned;
@@ -1645,6 +1652,7 @@ pub(crate) mod tests {
     fn view(sections: Value) -> View {
         View {
             token_rate: None,
+            home: None,
             derived: Default::default(),
             document: json!({"squad": {"name": "product"}, "sections": sections}),
             rows: crate::rows::Rows::preset(),
@@ -1667,6 +1675,21 @@ pub(crate) mod tests {
             me: None,
             replies: Vec::new(),
         }
+    }
+
+    #[test]
+    fn late_home_snapshot_is_retained_under_its_own_key() {
+        let mut app = App::new(Some("product".into()));
+        let mut home = snapshot(super::super::ALL, json!([]));
+        home.tabs.push(super::super::ALL.into());
+        home.view.as_mut().unwrap().home = Some(json!({"summary": {"members": 7}}));
+        app.apply(home);
+        assert_eq!(app.current.as_deref(), Some("product"));
+        assert!(app.view.is_none());
+        assert_eq!(
+            app.cache[super::super::ALL].home.as_ref().unwrap()["summary"]["members"],
+            7
+        );
     }
 
     pub(crate) fn snapshot(squad: &str, sections: Value) -> Snapshot {
