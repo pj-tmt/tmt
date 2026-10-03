@@ -13,6 +13,7 @@ import { writeExecutable } from './executable-fixture.mjs';
 import {
   object,
   text,
+  fingerprintWords,
   RemoteDevice,
   requestEnvelope,
   verifyResponse,
@@ -411,13 +412,17 @@ child.once('close', (code, signal) => {
       const submitted = this.post('pair', enrollment.body);
       const candidate = owner.event((event) => event.event === 'candidate');
       const response = await (async () => {
-        await Promise.race([
+        const proposed = await Promise.race([
           candidate,
           submitted.then((reply) => {
             if (reply.status !== 200) throw new Error(`Pairing refused: ${reply.status}`);
             return candidate;
           }),
         ]);
+        assert.equal(proposed.kind, 'cli');
+        assert.equal(proposed.origin, device.origin);
+        assert.equal(proposed.name, device.name);
+        assert.deepEqual(proposed.words, fingerprintWords(device.publicBytes));
         owner.child.stdin.end('confirm\n');
         return submitted;
       })();

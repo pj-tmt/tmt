@@ -146,6 +146,24 @@ function responseKey(code: Buffer, enrollment: Buffer): Buffer {
 function serverProof(key: Buffer, receipt: Buffer): Buffer {
   return hmac(key, fields(['tmt-device-pair-response-v1', receipt]));
 }
+export function fingerprintWords(key: Buffer): string[] {
+  assert.equal(key.length, 32);
+  const bytes = fs.readFileSync(
+    new URL(
+      '../../../extensions/tmt-remote/rust/tmt-remote/assets/bip39-english.txt',
+      import.meta.url
+    )
+  );
+  assert.equal(
+    sha256(bytes).toString('hex'),
+    '2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda'
+  );
+  const words = bytes.toString('utf8').trimEnd().split('\n');
+  assert.equal(words.length, 2048);
+  const digest = sha256(fields(['tmt-local-key-fingerprint-v1', key]));
+  const bits = [...digest].map((byte) => byte.toString(2).padStart(8, '0')).join('');
+  return Array.from({ length: 4 }, (_, i) => words[parseInt(bits.slice(i * 11, i * 11 + 11), 2)]);
+}
 export class RemoteDevice {
   readonly name = 'E2E owner device';
   readonly origin = 'cli';
@@ -314,6 +332,16 @@ export function assertRemoteDeviceVectors(): void {
     };
     assert.equal(enrollmentBytes(input).toString('hex'), vector.hex);
   }
+  assert.equal(
+    fields([
+      'tmt-device-pair-possession-v1',
+      Buffer.from(vectors.possession.input.enrollment, 'hex'),
+      Buffer.from(vectors.possession.input.mac, 'hex'),
+    ]).toString('hex'),
+    vectors.possession.hex
+  );
+  for (const vector of vectors.fingerprints)
+    assert.deepEqual(fingerprintWords(Buffer.from(vector.publicKey, 'hex')), vector.words);
   for (const vector of signatures.cases) {
     const bytes = Buffer.from(vector.message, 'hex');
     const signature = sign(null, bytes, key);
