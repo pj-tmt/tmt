@@ -118,7 +118,8 @@ function waitReady(child) {
       if (stderr.length > 4096) finish(new Error('Colab diagnostics exceed their bound'));
     });
     child.once('error', (error) => finish(error));
-    child.once('exit', (code, signal) =>
+    // 'close' follows the stdio streams' end, so a fast startup failure's stderr is complete.
+    child.once('close', (code, signal) =>
       finish(new Error(`Colab exited before readiness: ${code}/${signal}: ${stderr}`))
     );
   });

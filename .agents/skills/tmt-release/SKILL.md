@@ -215,6 +215,15 @@ It remains parked: a published supporting CLI alpha and actual-archive acceptanc
 precede separately authorized activation. Follow [Colab packaging verification](../../../DEVELOPMENT.md#colab-packaging-wiring-parked)
 for fixture-only proof versus real archive/public-install evidence; do not treat
 a tiny embedded-app fixture as delivery of the Colab product.
+For proof/fixture changes, run `colab-runtime-proof.test.ts` and the complete
+`verify-public-install.test.ts` through the tooling Vitest config, with the native
+CLI/Herdr prerequisites and built `tmt-test-support` `colab-runtime-fixture` example.
+Use absolute `TMT_TEST_COLAB_FIXTURE` for a separate Cargo target. Startup errors
+wait for child `close` and drained stdio under the existing deadline/stream limits;
+the regression holds the immediate native diagnostic until `exit` and checks
+classification and state cleanup. Accepted HTTP fixture sockets use blocking I/O
+with read/write timeouts, including on Darwin, which inherits the listener's
+nonblocking flag. The native-accept/header barrier covers premature peer close/EPIPE.
 
 - Every product archive (CLI, Office, Squad) carries its executable, `LICENSE`,
   `NATIVE-INSTALL.md` and `THIRD-PARTY-NOTICES.txt`. The installer enforces this

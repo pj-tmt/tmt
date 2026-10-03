@@ -36,6 +36,7 @@ fn main() -> io::Result<()> {
         "CORRUPT_ASSET",
         "STARTUP_FAILURE",
         "LEAK_SOCKET",
+        "REQUEST_BARRIER",
     ]
     .contains(&variant.as_str())
     {
@@ -63,7 +64,11 @@ fn main() -> io::Result<()> {
     let stop = Arc::new(AtomicBool::new(false));
     signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&stop))?;
     if variant == "STARTUP_FAILURE" {
-        return Err(io::Error::other("COLAB_APP_UNAVAILABLE"));
+        // Exit immediately after the diagnostic, without a readiness record.
+        let mut stderr = io::stderr().lock();
+        writeln!(stderr, "COLAB_APP_UNAVAILABLE")?;
+        stderr.flush()?;
+        std::process::exit(1);
     }
     println!(
         "{{\"socket\":\"{}\",\"state\":\"mounted\"}}",
@@ -80,8 +85,14 @@ fn main() -> io::Result<()> {
             }
             Err(error) => return Err(error),
         };
+        // Darwin inherits the listener's nonblocking flag on accepted sockets.
+        // This synchronous reader must wait for headers under its existing timeout.
+        client.set_nonblocking(false)?;
         client.set_read_timeout(Some(Duration::from_secs(3)))?;
         client.set_write_timeout(Some(Duration::from_secs(3)))?;
+        if variant == "REQUEST_BARRIER" {
+            eprintln!("COLAB_FIXTURE_REQUEST_ACCEPTED");
+        }
         let mut request = Vec::new();
         let mut bytes = [0; 1024];
         while !request.windows(4).any(|chunk| chunk == b"\r\n\r\n") && request.len() < 8192 {
