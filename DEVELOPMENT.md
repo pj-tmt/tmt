@@ -1369,6 +1369,13 @@ TMT_TEST_STORAGE_PROBE='{"executable":"/absolute/checkout/rust/target/debug/exam
   pnpm test:native
 ```
 
+Native process and archive fixtures need both the CLI and Herdr executable. When
+narrowing Cargo package selection, build them together with
+`cargo build --locked -p tmt-cli -p tmt-driver-herdr --bins`. CI release fixtures
+build both packages; the shared raw-runtime artifact carries both executables,
+and tooling restores executable mode after download. Drivers are independent
+release components, outside the `tmt extension` inventory.
+
 Squad context fixtures separate successful core-invocation evidence from deadline
 termination. Cold/fresh reads and a promptly returning stale-context sentinel
 assert the cache-only gate independently. Timeout scenarios establish a gated

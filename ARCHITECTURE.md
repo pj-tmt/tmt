@@ -2807,6 +2807,9 @@ owns a thin `tmt-driver-herdr` binary calling `tmt_driver_herdr::serve_call`.
 The CLI archive still carries that package's executable as a companion until
 #1084; its artifact build stages the driver package's binary for cargo-dist.
 There is only one binary target and no `tmt-cli -> tmt-driver-herdr` dependency.
+CI process fixture builds select both packages, and raw-runtime artifacts carry
+both executables for tooling acquisition and archive tests. A driver release
+component remains outside the extension command's inventory.
 Its executable conformance tests belong to the driver package. It answers `caller`,
 `server`, `resolve-target`, `snapshot`, `publish`, `clear`, `capture`, `input`
 and `prompt` through Herdr's documented CLI (floor 0.9.1) and `ps`. Its children get an allowlisted

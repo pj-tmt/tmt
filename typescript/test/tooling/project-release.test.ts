@@ -324,7 +324,8 @@ describe('full repository-state release sweep', () => {
 
   it('waits for the driver publication and attributes a driver-only commit without a CLI release', () =>
     history(({ directory, git, commit }) => {
-      const driverRoot = map.components.find((component) => component.name === 'driver-herdr')!.owns[0];
+      const driverRoot = map.components.find((component) => component.name === 'driver-herdr')!
+        .owns[0];
       const sha = commit([`${driverRoot}/src/main.rs`]);
       git(['tag', 'v5.0.0-alpha.1']);
       git(['tag', 'tmt-driver-herdr-v0.1.0-alpha.1']);
