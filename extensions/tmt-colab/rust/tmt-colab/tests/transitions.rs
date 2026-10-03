@@ -2439,3 +2439,615 @@ fn scope_is_rechecked_inside_writer_after_baseline_preparation() {
         .unwrap();
     assert!(!serde_json::from_slice::<Recipient>(&bytes).unwrap().revoked);
 }
+
+use tmt_colab::transitions::{Applied, HistoryMode, Publication, ShareMode};
+fn policy(
+    f: &mut Fixture,
+    op: u64,
+    expected: u64,
+    action: OwnerAction<'_>,
+) -> Result<Applied, tmt_colab::transitions::TransitionError> {
+    let page = match &action {
+        OwnerAction::Share { page, .. }
+        | OwnerAction::History { page, .. }
+        | OwnerAction::Retention { page, .. }
+        | OwnerAction::Archive { page }
+        | OwnerAction::Delete { page } => *page,
+        _ => panic!("page action required"),
+    };
+    f.engine.apply(
+        &mut f.store,
+        &f.key,
+        OwnerRequest {
+            operation_id: &operation(op),
+            expected_revision: expected,
+            action,
+            transport_digest: Some([116; 32]),
+            scope: Some(request_scope(vec![page.into()])),
+        },
+        50,
+    )
+}
+fn share(page: &str, mode: ShareMode) -> OwnerAction<'_> {
+    OwnerAction::Share {
+        page,
+        mode,
+        publication: Publication::Loopback,
+    }
+}
+fn wire_operations(outcome: &[u8]) -> Vec<String> {
+    let wire: Value = serde_json::from_slice(outcome).unwrap();
+    wire["statements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| {
+            let bytes = values::binary(v["statement"].as_str().unwrap(), 1024).unwrap();
+            statement::decode(&bytes).unwrap().operation.to_owned()
+        })
+        .collect()
+}
+fn page_epoch(f: &Fixture, page: &str) -> u64 {
+    f.db()
+        .query_row("SELECT epoch FROM pages WHERE page=?", [page], |r| {
+            r.get::<_, String>(0)
+        })
+        .unwrap()
+        .parse()
+        .unwrap()
+}
+fn page_secret(f: &Fixture, page: &str, epoch: u64) -> [u8; 32] {
+    f.db()
+        .query_row(
+            "SELECT secret FROM epoch_secrets WHERE page=? AND epoch=?",
+            params![page, format!("{epoch:020}")],
+            |r| r.get::<_, Vec<u8>>(0),
+        )
+        .unwrap()
+        .try_into()
+        .unwrap()
+}
+#[test]
+fn page_publication_is_loopback_only_rotates_and_tracks_later_rotations() {
+    let mut f = Fixture::new();
+    let update = f.object(1, [0; 32], "update", "content", &source("public source"));
+    f.append(&update);
+    let before = f.counts();
+    assert_eq!(
+        f.engine
+            .apply(
+                &mut f.store,
+                &f.key,
+                OwnerRequest {
+                    operation_id: &operation(120),
+                    expected_revision: 2,
+                    action: share(PAGE, ShareMode::Public),
+                    transport_digest: Some([116; 32]),
+                    scope: Some(request_scope(vec![
+                        "10000000-0000-4000-8000-000000000002".into()
+                    ])),
+                },
+                50
+            )
+            .unwrap_err()
+            .code,
+        Code::StaleHead
+    );
+    assert_eq!(f.counts(), before);
+    assert_eq!(
+        policy(
+            &mut f,
+            120,
+            2,
+            OwnerAction::Share {
+                page: PAGE,
+                mode: ShareMode::Public,
+                publication: Publication::Cloud
+            }
+        )
+        .unwrap_err()
+        .code,
+        Code::Denied
+    );
+    assert_eq!(f.counts(), before);
+    let published = policy(&mut f, 120, 2, share(PAGE, ShareMode::Public)).unwrap();
+    assert_eq!(
+        wire_operations(&published.outcome),
+        ["epoch.advance", "page.share"]
+    );
+    assert_eq!(page_epoch(&f, PAGE), 2);
+    assert_eq!(baseline_source(&f, 2), "public source");
+    let payload = statement_payload(&wire_statement(&published.outcome, 1));
+    assert_eq!(payload["publishedKeys"].as_array().unwrap().len(), 2);
+    let key = values::binary(payload["publishedKeys"][1]["key"].as_str().unwrap(), 32).unwrap();
+    assert_eq!(key, page_secret(&f, PAGE, 2));
+    let rev = revision(&f);
+    let advanced = f.advance(&operation(121), rev).unwrap();
+    assert_eq!(wire_operations(&advanced), ["epoch.advance", "page.share"]);
+    let current = statement_payload(&wire_statement(&advanced, 1));
+    assert_eq!(current["epoch"], "3");
+    assert_eq!(
+        values::binary(current["publishedKeys"][2]["key"].as_str().unwrap(), 32).unwrap(),
+        page_secret(&f, PAGE, 3)
+    );
+    let counts = f.counts();
+    let reopened = Store::open(&f.layout).unwrap();
+    std::mem::replace(&mut f.store, reopened).close().unwrap();
+    let replay = policy(&mut f, 120, 2, share(PAGE, ShareMode::Public)).unwrap();
+    assert!(replay.replayed);
+    assert_eq!(replay.head, published.head);
+    assert_eq!(replay.outcome, published.outcome);
+    assert_eq!(f.counts(), counts);
+    assert_eq!(
+        policy(
+            &mut f,
+            120,
+            2,
+            OwnerAction::Share {
+                page: PAGE,
+                mode: ShareMode::Public,
+                publication: Publication::Cloud
+            }
+        )
+        .unwrap_err()
+        .code,
+        Code::Conflict
+    );
+    assert_eq!(
+        policy(&mut f, 120, 2, share(PAGE, ShareMode::Link))
+            .unwrap_err()
+            .code,
+        Code::Conflict
+    );
+}
+#[test]
+fn every_narrowing_pair_revokes_links_devices_and_rotates_without_leaking_new_keys() {
+    for (old, new) in [
+        (ShareMode::Link, ShareMode::Private),
+        (ShareMode::Public, ShareMode::Link),
+        (ShareMode::Public, ShareMode::Private),
+    ] {
+        let (mut f, _, _) = link_fixture(false);
+        if old == ShareMode::Public {
+            let rev = revision(&f);
+            policy(&mut f, 122, rev, share(PAGE, old)).unwrap();
+        }
+        let epoch = page_epoch(&f, PAGE);
+        let rev = revision(&f);
+        let narrowed = policy(&mut f, 123, rev, share(PAGE, new)).unwrap();
+        assert_eq!(
+            wire_operations(&narrowed.outcome),
+            ["link.remove", "epoch.advance", "page.share"]
+        );
+        assert_eq!(page_epoch(&f, PAGE), epoch + 1);
+        assert_eq!(baseline_source(&f, epoch + 1), "link source");
+        let removal = statement_payload(&wire_statement(&narrowed.outcome, 0));
+        assert_eq!(removal["linkId"], LINK);
+        if old == ShareMode::Link {
+            assert_eq!(removal["cuts"].as_array().unwrap().len(), 2);
+        }
+        let payload = statement_payload(&wire_statement(&narrowed.outcome, 2));
+        assert_eq!(
+            payload["mode"],
+            match new {
+                ShareMode::Private => "private",
+                ShareMode::Link => "link",
+                ShareMode::Public => "public",
+            }
+        );
+        assert_eq!(payload["publishedKeys"], json!([]));
+        let record: Vec<u8> = f
+            .db()
+            .query_row(
+                "SELECT record FROM devices WHERE id=?",
+                [LINK_DEVICE],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(serde_json::from_slice::<Device>(&record).unwrap().revoked);
+        let recipient: Vec<u8> = f
+            .db()
+            .query_row(
+                "SELECT record FROM recipients WHERE kind='link' AND id=?",
+                [LINK],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            serde_json::from_slice::<Recipient>(&recipient)
+                .unwrap()
+                .revoked
+        );
+        let wraps = response_wraps(&narrowed.outcome);
+        assert!(!wraps.is_empty());
+        assert!(
+            wraps
+                .iter()
+                .all(|w| ![LINK, LINK_DEVICE].contains(&w.header().unwrap().recipient_id.as_str()))
+        );
+        let now = revision(&f);
+        assert_eq!(
+            link_change(
+                &mut f,
+                124,
+                now,
+                tmt_colab::transitions::LinkAction::Add(link_spec(
+                    LINK,
+                    &LINK_SEED,
+                    vec![PAGE.into()]
+                ))
+            )
+            .unwrap_err()
+            .code,
+            Code::Conflict
+        );
+        let counts = f.counts();
+        assert_eq!(
+            policy(&mut f, 123, rev, share(PAGE, new)).unwrap().outcome,
+            narrowed.outcome
+        );
+        assert_eq!(f.counts(), counts);
+    }
+}
+#[test]
+fn narrowing_revokes_a_multi_page_link_globally_and_republishes_other_public_pages() {
+    const OTHER_PAGE: &str = "10000000-0000-4000-8000-000000000002";
+    let mut f = Fixture::new();
+    f.store.create_page(OTHER_PAGE).unwrap();
+    f.store
+        .owner_transaction(
+            &f.key.space_id,
+            &f.key.owner_public(),
+            Mutation {
+                operation_id: &operation(125),
+                digest: [125; 32],
+                expected_revision: 2,
+            },
+            |tx| {
+                tx.put_epoch_secret(OTHER_PAGE, 1, &[12; 32])?;
+                tx.append_statement(&f.key.sign_statement(
+                    tx.head(),
+                    "page.history",
+                    &serde_json::to_vec(&json!({"pageId":OTHER_PAGE,"mode":"shared"}))?,
+                )?)?;
+                Ok(vec![])
+            },
+        )
+        .unwrap();
+    let rev = revision(&f);
+    policy(&mut f, 126, rev, share(PAGE, ShareMode::Link)).unwrap();
+    let rev = revision(&f);
+    policy(&mut f, 127, rev, share(OTHER_PAGE, ShareMode::Link)).unwrap();
+    let rev = revision(&f);
+    let added = link_change(
+        &mut f,
+        128,
+        rev,
+        tmt_colab::transitions::LinkAction::Add(link_spec(
+            LINK,
+            &LINK_SEED,
+            vec![PAGE.into(), OTHER_PAGE.into()],
+        )),
+    )
+    .unwrap();
+    add_link_device(
+        &f,
+        LINK_DEVICE,
+        &wire_statement(&added, 0),
+        &LINK_SEED,
+        LINK,
+    );
+    let rev = revision(&f);
+    policy(&mut f, 129, rev, share(OTHER_PAGE, ShareMode::Public)).unwrap();
+    let rev = revision(&f);
+    let narrowed = policy(&mut f, 130, rev, share(PAGE, ShareMode::Private)).unwrap();
+    assert_eq!(
+        wire_operations(&narrowed.outcome),
+        [
+            "link.remove",
+            "epoch.advance",
+            "epoch.advance",
+            "page.share",
+            "page.share"
+        ]
+    );
+    assert_eq!(page_epoch(&f, PAGE), 2);
+    assert_eq!(page_epoch(&f, OTHER_PAGE), 3);
+    let other = statement_payload(&wire_statement(&narrowed.outcome, 3));
+    assert_eq!(other["pageId"], OTHER_PAGE);
+    assert_eq!(other["epoch"], "3");
+    assert_eq!(
+        values::binary(other["publishedKeys"][2]["key"].as_str().unwrap(), 32).unwrap(),
+        page_secret(&f, OTHER_PAGE, 3)
+    );
+    assert!(
+        response_wraps(&narrowed.outcome)
+            .iter()
+            .all(|w| ![LINK, LINK_DEVICE].contains(&w.header().unwrap().recipient_id.as_str()))
+    );
+    // Consecutive public rotations must account for each publication in descriptor revisions.
+    let rev = revision(&f);
+    policy(&mut f, 148, rev, share(PAGE, ShareMode::Public)).unwrap();
+    let recipient = joiner(vec![PAGE.into(), OTHER_PAGE.into()]);
+    let rev = revision(&f);
+    change(&mut f, 149, rev, MemberAction::Add(recipient.clone())).unwrap();
+    let rev = revision(&f);
+    let removed = change(
+        &mut f,
+        131,
+        rev,
+        MemberAction::Remove {
+            member_id: recipient.id,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        wire_operations(&removed),
+        [
+            "member.remove",
+            "epoch.advance",
+            "page.share",
+            "epoch.advance",
+            "page.share"
+        ]
+    );
+}
+#[test]
+fn page_history_changes_future_joins_caps_public_history_and_rejects_earlier_current_wraps() {
+    for current in [false, true] {
+        let mut f = Fixture::new();
+        retained_history(&mut f, &[PAGE.into()], 65);
+        let rev = revision(&f);
+        let changed = policy(
+            &mut f,
+            132,
+            rev,
+            OwnerAction::History {
+                page: PAGE,
+                mode: if current {
+                    HistoryMode::Current
+                } else {
+                    HistoryMode::Shared
+                },
+            },
+        )
+        .unwrap();
+        assert_eq!(wire_operations(&changed.outcome), ["page.history"]);
+        assert_eq!(page_epoch(&f, PAGE), 65);
+        let rev = revision(&f);
+        let added = change(
+            &mut f,
+            133,
+            rev,
+            MemberAction::Add(joiner(vec![PAGE.into()])),
+        )
+        .unwrap();
+        let wraps = response_wraps(&added);
+        let joined = wraps
+            .iter()
+            .filter(|w| w.header().unwrap().recipient_id == joiner(vec![]).id)
+            .collect::<Vec<_>>();
+        assert_eq!(joined.len(), if current { 1 } else { 64 });
+        let epoch = page_epoch(&f, PAGE);
+        let join_revision = revision(&f);
+        if current {
+            assert_eq!(epoch, 66);
+            let forbidden = f
+                .key
+                .seal_wrap(
+                    &wrap::Header {
+                        space: f.key.space_id.clone(),
+                        page: PAGE.into(),
+                        epoch: "65".into(),
+                        recipient_kind: "member".into(),
+                        recipient_id: joiner(vec![]).id,
+                        recipient_key: joiner(vec![]).encryption_key,
+                        signer_key: f.key.owner_public(),
+                        membership_revision: join_revision.to_string(),
+                    },
+                    &[65; 32],
+                )
+                .unwrap();
+            let before = f.counts();
+            let result = f.store.owner_transaction(
+                &f.key.space_id,
+                &f.key.owner_public(),
+                Mutation {
+                    operation_id: &operation(134),
+                    digest: [134; 32],
+                    expected_revision: join_revision,
+                },
+                |tx| {
+                    tx.append_statement(&f.key.sign_statement(
+                        tx.head(),
+                        "retention.set",
+                        &serde_json::to_vec(&json!({"pageId":PAGE,"days":30}))?,
+                    )?)?;
+                    tx.put_wrap(&forbidden)?;
+                    Ok(vec![])
+                },
+            );
+            assert!(result.is_err());
+            assert_eq!(f.counts(), before);
+        } else {
+            assert_eq!(epoch, 65);
+            assert_eq!(joined[0].header().unwrap().epoch, "2");
+        }
+        let rev = revision(&f);
+        let public = policy(&mut f, 135, rev, share(PAGE, ShareMode::Public)).unwrap();
+        let last = wire_operations(&public.outcome).len() - 1;
+        let payload = statement_payload(&wire_statement(&public.outcome, last));
+        let keys = payload["publishedKeys"].as_array().unwrap();
+        assert_eq!(keys.len(), if current { 1 } else { 64 });
+        assert_eq!(
+            keys.last().unwrap()["epoch"],
+            page_epoch(&f, PAGE).to_string()
+        );
+        if !current {
+            assert_eq!(keys[0]["epoch"], "3");
+        }
+    }
+}
+#[test]
+fn sharing_and_deletion_failures_roll_back_every_effect_and_allow_exact_retry() {
+    for table in ["baselines", "wraps", "owner_operations"] {
+        let (mut f, _, rev) = link_fixture(false);
+        let before = f.counts();
+        f.db().execute_batch(&format!("CREATE TRIGGER policy_failure BEFORE INSERT ON {table} BEGIN SELECT RAISE(ABORT,'injected'); END;")).unwrap();
+        assert_eq!(
+            policy(&mut f, 136, rev, share(PAGE, ShareMode::Private))
+                .unwrap_err()
+                .code,
+            Code::Unavailable
+        );
+        assert_eq!(f.counts(), before);
+        assert_eq!(page_epoch(&f, PAGE), 1);
+        let record: Vec<u8> = f
+            .db()
+            .query_row(
+                "SELECT record FROM devices WHERE id=?",
+                [LINK_DEVICE],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(!serde_json::from_slice::<Device>(&record).unwrap().revoked);
+        f.db().execute_batch("DROP TRIGGER policy_failure").unwrap();
+        policy(&mut f, 136, rev, share(PAGE, ShareMode::Private)).unwrap();
+    }
+    let mut f = Fixture::new();
+    let update = f.object(
+        1,
+        [0; 32],
+        "update",
+        "content",
+        &source("retained until delete"),
+    );
+    f.append(&update);
+    let rev = revision(&f);
+    let advanced = f.advance(&operation(137), rev).unwrap();
+    assert!(!response_wraps(&advanced).is_empty());
+    let rev = revision(&f);
+    let before = f.counts();
+    f.db().execute_batch("CREATE TRIGGER delete_failure BEFORE INSERT ON owner_operations BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
+    assert_eq!(
+        policy(&mut f, 138, rev, OwnerAction::Delete { page: PAGE })
+            .unwrap_err()
+            .code,
+        Code::Unavailable
+    );
+    assert_eq!(f.counts(), before);
+    let retained: Vec<u8> = f
+        .db()
+        .query_row(
+            "SELECT payload FROM receipts WHERE page=? AND stream=?",
+            params![PAGE, DEVICE],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(retained, update.to_json().unwrap());
+    f.db().execute_batch("DROP TRIGGER delete_failure").unwrap();
+    let deleted = policy(&mut f, 138, rev, OwnerAction::Delete { page: PAGE }).unwrap();
+    for table in [
+        "receipts",
+        "checkpoints",
+        "streams",
+        "baselines",
+        "wraps",
+        "epoch_secrets",
+    ] {
+        let rows: i64 = f
+            .db()
+            .query_row(
+                &format!("SELECT count(*) FROM {table} WHERE page=?"),
+                [PAGE],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(rows, 0, "{table}");
+    }
+    assert!(f.store.create_page(PAGE).is_err());
+    let counts = f.counts();
+    let reopened = Store::open(&f.layout).unwrap();
+    std::mem::replace(&mut f.store, reopened).close().unwrap();
+    let replay = policy(&mut f, 138, rev, OwnerAction::Delete { page: PAGE }).unwrap();
+    assert!(replay.replayed);
+    assert_eq!(replay.head, deleted.head);
+    assert_eq!(replay.outcome, deleted.outcome);
+    assert_eq!(f.counts(), counts);
+    let rev = revision(&f);
+    assert_eq!(
+        policy(&mut f, 139, rev, share(PAGE, ShareMode::Link))
+            .unwrap_err()
+            .code,
+        Code::Denied
+    );
+    assert_eq!(f.counts(), counts);
+}
+#[test]
+fn retention_and_archive_are_signed_replayable_policies_without_rotation() {
+    let mut f = Fixture::new();
+    for (op, days) in [(140, Some(7)), (141, None)] {
+        let rev = revision(&f);
+        let applied = policy(&mut f, op, rev, OwnerAction::Retention { page: PAGE, days }).unwrap();
+        assert_eq!(wire_operations(&applied.outcome), ["retention.set"]);
+        assert_eq!(page_epoch(&f, PAGE), 1);
+        assert_eq!(
+            statement_payload(&wire_statement(&applied.outcome, 0))["days"],
+            json!(days)
+        );
+        assert_eq!(
+            policy(&mut f, op, rev, OwnerAction::Retention { page: PAGE, days })
+                .unwrap()
+                .outcome,
+            applied.outcome
+        );
+    }
+    let counts = f.counts();
+    let rev = revision(&f);
+    assert_eq!(
+        policy(
+            &mut f,
+            142,
+            rev,
+            OwnerAction::Retention {
+                page: PAGE,
+                days: Some(0)
+            }
+        )
+        .unwrap_err()
+        .code,
+        Code::Invalid
+    );
+    assert_eq!(f.counts(), counts);
+    let rev = revision(&f);
+    let archived = policy(&mut f, 143, rev, OwnerAction::Archive { page: PAGE }).unwrap();
+    assert_eq!(wire_operations(&archived.outcome), ["page.archive"]);
+    let counts = f.counts();
+    let now = revision(&f);
+    assert_eq!(
+        policy(&mut f, 144, now, share(PAGE, ShareMode::Public))
+            .unwrap_err()
+            .code,
+        Code::Denied
+    );
+    assert!(f.advance(&operation(145), now).is_err());
+    assert_eq!(f.counts(), counts);
+    assert_eq!(
+        policy(&mut f, 143, rev, OwnerAction::Archive { page: PAGE })
+            .unwrap()
+            .outcome,
+        archived.outcome
+    );
+    policy(
+        &mut f,
+        146,
+        now,
+        OwnerAction::Retention {
+            page: PAGE,
+            days: None,
+        },
+    )
+    .unwrap();
+    let now = revision(&f);
+    policy(&mut f, 147, now, OwnerAction::Delete { page: PAGE }).unwrap();
+}

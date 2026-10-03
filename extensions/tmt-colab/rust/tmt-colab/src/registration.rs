@@ -473,6 +473,16 @@ impl crate::sync::Admission for OwnerAdmission {
         store: &Store,
     ) -> std::result::Result<crate::sync::CatchupContext, crate::sync::Code> {
         let service = self.0.lock().map_err(|_| crate::sync::Code::Denied)?;
+        service
+            .store
+            .owner_read(&scope.space, &service.keyring.owner_public(), |tx| {
+                let head = tx.head().ok_or(crate::sync::Code::Denied)?;
+                if tx.page_policy_at(&scope.page, head.revision)?.deleted {
+                    return Err(crate::sync::Code::Denied.into());
+                }
+                Ok(())
+            })
+            .map_err(|_| crate::sync::Code::Denied)?;
         Ok(crate::sync::CatchupContext {
             membership_head: store
                 .owner_head(&scope.space, &service.keyring.owner_public())
@@ -537,6 +547,12 @@ impl crate::sync::Admission for OwnerAdmission {
                 }
                 if now < cert.issued_at || now >= cert.expires_at {
                     return Err(SyncCode::Expired.into());
+                }
+                let policy = tx.page_policy_at(&scope.page, head.revision)?;
+                if policy.deleted
+                    || (policy.archived && matches!(access, crate::sync::Access::Append(_)))
+                {
+                    return Err(SyncCode::Denied.into());
                 }
                 if tx.page_epoch(&scope.page)?.as_deref() != Some(scope.epoch.as_str()) {
                     return Err(SyncCode::StaleEpoch.into());

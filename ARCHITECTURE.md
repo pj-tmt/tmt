@@ -4723,7 +4723,7 @@ receive no wrap. Keyring seals baseline objects with the pinned management key;
 that private key never leaves Keyring. Store provides scoped baseline retrieval,
 whose remote caller still owns access/history admission. Decoder batch limits
 fail closed rather than truncating a fold. Link transitions share that atomic engine; browser/CLI management composition
-remains #1111 and sharing/history/retention operations remain #1160.
+remains #1111.
 
 `transitions::Engine::apply` is the root-local dispatcher for caller-admitted
 `OwnerRequest` values. The request owner normalizes member/link/device/epoch
@@ -4736,8 +4736,17 @@ replay status, even after later mutations. Scoped reductions check the target's
 stored page assignment during planning and again inside the writer transaction;
 revoked projections and operation receipts remain available for exact retries.
 The caller owns admission and lock composition: sync before Registration.
-The stable DTO reserves page-policy actions for the following #1160 slice;
-this prerequisite returns `UNAVAILABLE` for them without signing or mutation.
+`transitions::sharing` implements share/history/retention/archive/delete with that
+runner. Public publication is limited to trusted loopback composition; the shared
+epoch commit republishes public keys after every rotation. Narrowing globally
+revokes links covering the page and rotates every other writable page they cover
+in the same transaction. Page policy is reduced from the signed log by `fold`;
+Store reuses that reducer to fence forward wraps at their join revision and
+OwnerAdmission reads it for archive/delete checks. Archive preserves reads and
+blocks appends; delete also denies catchup/delivery and removes page ciphertext,
+baselines, wraps and secrets atomically. The page row, signed log and operation
+receipts remain as permanent tombstones, so replay cannot revive a deleted ID.
+Retention signs a policy only; local data has no automatic expiry.
 
 `transitions::membership` shares epoch preparation/commit with explicit advance.
 Member add, remove and role changes use one owner transaction across affected

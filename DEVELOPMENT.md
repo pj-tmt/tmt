@@ -3220,7 +3220,12 @@ head after subsequent writes and reopening. Existing membership/link/epoch cases
 continue through their thin `Engine::apply` wrappers, including late-write rollback
 and moving-snapshot retries. `OwnerRequest.scope = None` preserves root-local
 composition; a browser management caller must admit its live signature/session
-and supply its transport digest and scope. No management route is added here.
+and supply its transport digest and scope. Page-policy cases cover all narrowing
+pairs, global multi-page link revocation, public key publication after subsequent
+rotations, current/shared joins at the 64-epoch cap, earlier-wrap rejection,
+finite/forever retention and late-write rollback of sharing/deletion. Deletion
+checks durable ciphertext removal, tombstones and exact replay after reopening.
+No management route is added here.
 
 ### Colab owner registration verification
 
@@ -3228,6 +3233,9 @@ Run `(cd rust && cargo test --offline --locked -p tmt-colab --test registration)
 for real SQLite/keyring persistence, strict certificate admission, exact retry,
 one-year certificate validity/renewal, transaction rollback, revision-ordered
 revocation and the mounted HTTP endpoint exercised twice with socket cleanup.
+Archive/delete verification uses real OwnerAdmission and duplex WebSockets:
+archived reads and queued delivery continue, archived appends fail, and deletion
+denies reads/writes/catchup and drops queued ciphertext before socket disclosure.
 The independent management-key/remote-certificate oracle is
 `python3 extensions/tmt-colab/contracts/vectors/authority-reference.py` (requires
 the same Python cryptography tooling as the model foundation). Rust consumes

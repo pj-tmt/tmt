@@ -405,6 +405,17 @@ impl OwnerTransaction<'_> {
         if h.space != self.space || self.head.as_ref().is_none_or(|v| revision > v.revision) {
             return Err(OwnerFault::Invalid.into());
         }
+        // Forward joins carry their join revision, not a caller-selected policy.
+        // Historical wraps remain valid for recipients who already held them.
+        let policy = self.page_policy_at(&h.page, revision)?;
+        let epoch = values::decimal(&h.epoch, false)?;
+        if policy.deleted
+            || epoch > policy.epoch
+            || epoch < policy.epoch.saturating_sub(63).max(1)
+            || (policy.history_current && epoch != policy.epoch)
+        {
+            return Err(OwnerFault::Invalid.into());
+        }
         if let Some(old) = self.wrap(&h)? {
             return if old == *envelope {
                 Ok(())
