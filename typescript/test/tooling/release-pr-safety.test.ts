@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import { parseComponentMap } from '../../scripts/ci-scope.mjs';
+import { queuedReleaseNotesCover } from '../../scripts/release-please-queue.mjs';
 import { loadReleasePleaseCommitRules } from '../../scripts/release-please-commits.mjs';
 import {
   checkReleaseNotes,
@@ -273,6 +274,73 @@ describe('pinned release-please coverage API', () => {
 });
 
 describe('release notes coverage', () => {
+  it('skips a covered queued PR, refreshes a missing late fix, and skips again after regeneration', () =>
+    fixture(async ({ reader, git, commit, base, directory }) => {
+      const late = commit(
+        'fix(core): merged while release is queued',
+        'rust/crates/tmt-core/src/lib.rs'
+      );
+      let body = notes(base);
+      const queued = {
+        number: 100,
+        headRefOid: 'a'.repeat(40),
+        headRefName: 'release-please--branches--main--components--tmt-cli',
+        baseRefName: 'main',
+        isDraft: false,
+        headRepository: { nameWithOwner: repository },
+        mergeQueueEntry: { id: 'entry' } as { id: string } | null,
+        autoMergeRequest: null,
+      };
+      const execute = (command: string, args: string[]) => {
+        if (command === 'git') return reader.git(args);
+        if (args[1] === 'graphql')
+          return JSON.stringify({
+            data: {
+              repository: {
+                pullRequests: {
+                  nodes: [queued],
+                  pageInfo: { hasNextPage: false, endCursor: null },
+                },
+              },
+            },
+          });
+        if (args[1] === `repos/${repository}/pulls/100`)
+          return JSON.stringify({
+            ...pr(body),
+            number: 100,
+            state: 'open',
+            head: {
+              ref: queued.headRefName,
+              sha: queued.headRefOid,
+              repo: { full_name: repository },
+            },
+            base: { ref: 'main', repo: { full_name: repository } },
+          });
+        if (args[1].startsWith(`repos/${repository}/releases?`))
+          return JSON.stringify(reader.list('releases'));
+        throw new Error('unexpected queue acquisition');
+      };
+      git(['update-ref', 'refs/remotes/origin/main', late]);
+      const options = { repository, token: 'workflow-fixture', cwd: directory };
+      // The push-event checkout can lag the main ref fetched by a serialized workflow.
+      git(['checkout', '--quiet', '--detach', base]);
+      expect(await checkReleaseNotes({ pr: pr(body), base, components, reader })).not.toBeNull();
+      expect(await queuedReleaseNotesCover(options, execute)).toBe(false);
+      body += notes(late).split('\n').at(-2);
+      expect(await queuedReleaseNotesCover(options, execute)).toBe(true);
+      git(['checkout', '--quiet', '--detach', late]);
+      const prose = commit('docs: no newly releasable content');
+      git(['update-ref', 'refs/remotes/origin/main', prose]);
+      expect(await queuedReleaseNotesCover(options, execute)).toBe(true);
+      body = notes(late, 'v5.0.0-alpha.33');
+      expect(await queuedReleaseNotesCover(options, execute)).toBe(false);
+      body = notes(base) + notes('f'.repeat(40)).split('\n').at(-2);
+      expect(await queuedReleaseNotesCover(options, execute)).toBe(false);
+      queued.mergeQueueEntry = null;
+      body = '';
+      expect(await queuedReleaseNotesCover(options, execute)).toBe(false);
+    }));
+
   it('rejects an unlinked late fix and passes when the refreshed notes cover the range', () =>
     fixture(async ({ reader, commit, base }) => {
       const late = commit(

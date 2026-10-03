@@ -3769,8 +3769,12 @@ Environment and the App credentials are secrets of that Environment, restricted 
 Until they exist every push is a dry run that opens, merges, creates and starts nothing.
 `typescript/scripts/release-please-queue.mjs` owns paginated release-PR discovery and
 single-active auto-merge selection under the workflow's existing concurrency group.
-The workflow-token pre-check skips `release-pr` while an open release PR is queued,
-preserving the candidate and continuing `github-release`. Complete discovery precedes
+The pre-check completes discovery and skips `release-pr` only when the queued
+candidates' head-matched REST notes pass `checkReleaseNotes` against fetched
+`origin/main`, preserving the candidate and continuing `github-release`. Proven invalid or incomplete
+notes instead permit immediate regeneration; acquisition and metadata failures
+remain visible. Full checkout history and tags support the
+shared safety owner; the queue owner has no second coverage policy. Complete discovery precedes
 auto-merge enabling; an existing enabled or queued release blocks another. Otherwise
 the oldest eligible same-repository main release PR is enabled with its observed head
 SHA as a fence. Multiple already-active releases fail with reconciliation guidance.

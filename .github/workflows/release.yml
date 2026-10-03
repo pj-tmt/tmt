@@ -52,6 +52,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
       # The mode script learns whether the secrets exist, never their values, and refuses a
       # live run anywhere but `main`.
       - name: Decide whether this run changes anything

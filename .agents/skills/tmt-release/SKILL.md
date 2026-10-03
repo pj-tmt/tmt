@@ -51,7 +51,10 @@ authorizes manual tagging, release editing or publication.
 The release workflow enables one same-repository main release PR at a time. Keep the
 queue pre-check's default `skip`/`run` interface and its live-only `enable` command in
 the single queue owner; complete paginated discovery and head-pinned enabling must fail
-visibly on uncertainty. Do not enable another component while a release PR is enabled
+visibly on uncertainty. Skip a queued release PR only when `checkReleaseNotes` accepts
+its notes against main HEAD; keep coverage in that safety owner. Invalid compare anchors, out-of-range links or missing COVERAGE links run release-pr
+immediately to refresh the notes; acquisition errors fail visibly. Fetch full history and tags with Code quality's
+checkout pattern. Do not enable another component while a release PR is enabled
 or queued. Existing workflow concurrency serializes this policy, not external enqueues.
 
 Keep `always-update` for conflict recovery and the pinned update wrapper's unchanged
@@ -60,7 +63,7 @@ refresh: the merge queue runs required checks against current main's merged resu
 Changed release content still needs fresh checks; no queue priority jump is used.
 [DEVELOPMENT's queue section](../../../DEVELOPMENT.md#queued-release-pull-requests)
 owns request bounds, failure and recovery details. Tooling tests must cover pagination,
-single-active selection, unchanged generated files and original conflict/update behavior.
+single-active selection, queued covered/stale notes against main HEAD, unchanged generated files and original conflict/update behavior.
 
 ## Release stall monitoring
 

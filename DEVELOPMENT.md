@@ -2473,9 +2473,17 @@ actionlint .github/workflows/ci.yml
 Before `release-pr`, `Release` runs `typescript/scripts/release-please-queue.mjs`.
 Workflow-token GraphQL discovery follows up to 20 cursor pages of 100 open PRs, ordered
 by creation time, and considers only same-repository heads starting with
-`release-please--branches--main--` targeting `main`. A proven `mergeQueueEntry` skips
-`release-pr` with a summary notice; `github-release` still runs. Otherwise complete
-discovery is required before permitting generation. Malformed responses, repeated
+`release-please--branches--main--` targeting `main`. Complete discovery is required
+before deciding. A queued PR skips `release-pr` only when the shared
+`checkReleaseNotes` gate accepts its current notes against fetched `origin/main`, even when the push-event
+checkout lags that main HEAD.
+The release job uses the same `fetch-depth: 0` checkout as Code quality, including tags.
+Invalid compare anchors, out-of-range links or missing COVERAGE links run
+`release-pr` in this invocation so release-please refreshes the stale candidate; changed content gets a new head and the existing auto-merge step
+can re-enqueue it. Covered queued notes retain their head and a summary notice;
+`github-release` runs in either case. REST notes must match the discovered PR head.
+Acquisition failures, malformed PR metadata and incomplete history fail the run
+visibly rather than silently skipping. Malformed responses, repeated
 cursors, duplicate PRs, API errors and exhausted discovery fail visibly.
 
 The same script's live-only `enable` command finishes discovery before choosing one
@@ -2498,8 +2506,8 @@ Both commands use the release App token in live runs (the pre-check uses the wor
 token in dry runs), never an agent's token. The existing workflow concurrency group
 serializes automatic enabling; external/manual enabling and enqueues are not atomic
 with discovery. A PR queued between the pre-check and a branch update can still fail
-once and recover on the next main push. No PR is dequeued automatically. Required
-checks and publication authorization are unchanged.
+once and recover on the next main push. The pre-check does not dequeue a PR; a
+release-please content update can remove its stale head from the queue. Required checks and publication authorization are unchanged.
 
 ## Project tracking
 

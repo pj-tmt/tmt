@@ -167,6 +167,9 @@ async function listedReleaseCommits({ component, components, reader, anchor, bas
   return new Set(releaseNoteLinks(body).map(({ sha }) => sha));
 }
 
+/** Proven invalid or incomplete notes require regeneration, rather than an unsafe queue skip. */
+export class ReleaseNotesRefreshRequiredError extends Error {}
+
 /** Anchor, linked membership and coverage; release-please owns which commits are listed. */
 export async function checkReleaseNotes({ pr, base, components, reader, releases }) {
   const component = componentOf(pr, components);
@@ -176,7 +179,8 @@ export async function checkReleaseNotes({ pr, base, components, reader, releases
   const [published] = publishedReleases(releases ?? releasesOf(reader), component.name);
   if (!published) throw new Error(`No published ${component.name} anchor.`);
   const headers = [...pr.body.matchAll(/^## \[[^\]\r\n]+\]\((https:\/\/github\.com\/[^\s)]+)\)/gm)];
-  if (headers.length !== 1) throw new Error('Missing or ambiguous release compare header.');
+  if (headers.length !== 1)
+    throw new ReleaseNotesRefreshRequiredError('Missing or ambiguous release compare header.');
   const url = new URL(headers[0][1]);
   const prefix = `/${reader.repository}/compare/`;
   const tags = url.pathname.startsWith(prefix)
@@ -188,7 +192,9 @@ export async function checkReleaseNotes({ pr, base, components, reader, releases
     !tags[1] ||
     decodeURIComponent(tags[0]) !== published.tag_name
   ) {
-    throw new Error(`Release compare base must equal published tag ${published.tag_name}.`);
+    throw new ReleaseNotesRefreshRequiredError(
+      `Release compare base must equal published tag ${published.tag_name}.`
+    );
   }
   const anchor = reader.git(['rev-parse', '--verify', `refs/tags/${published.tag_name}^{commit}`]);
   if (!SHA.test(anchor)) throw new Error('Missing published tag commit.');
@@ -200,7 +206,7 @@ export async function checkReleaseNotes({ pr, base, components, reader, releases
   const links = releaseNoteLinks(pr.body);
   for (const { repository, sha } of links) {
     if (repository !== reader.repository || !SHA.test(sha) || !allowed.has(sha)) {
-      throw new Error(
+      throw new ReleaseNotesRefreshRequiredError(
         `Release note commit ${sha} is outside (${published.tag_name}, candidate base].`
       );
     }
@@ -209,7 +215,7 @@ export async function checkReleaseNotes({ pr, base, components, reader, releases
   const linked = new Set(links.map(({ sha }) => sha));
   const missing = [...listed].filter((sha) => !linked.has(sha));
   if (missing.length)
-    throw new Error(
+    throw new ReleaseNotesRefreshRequiredError(
       `Release notes COVERAGE missing commit(s): ${missing.join(', ')}. Regenerate the release PR with release-please.`
     );
   return { tag: published.tag_name, linkedCommits: links.length };
