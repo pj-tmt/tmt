@@ -14,6 +14,7 @@ export interface LiveSession {
   remote: RemoteClient | null;
 }
 export interface LiveSessionOwner {
+  recover?(): Promise<boolean>;
   reconnect(previous: Registration): Promise<LiveSession>;
 }
 
@@ -265,6 +266,12 @@ export class Live implements PageBinding {
       };
     });
     return prepareExport(view);
+  }
+  async reconnect(): Promise<boolean> {
+    if (!this.sessionOwner?.recover || this.#closed) return false;
+    // Stop the page's socket, Ask and observer before any new Remote session.
+    this.close();
+    return this.sessionOwner.recover();
   }
   async edit(source: string, base: string) {
     if (this.#closed || this.#error) throw new Error('Page editing unavailable');

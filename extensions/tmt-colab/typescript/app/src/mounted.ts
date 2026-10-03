@@ -5,6 +5,7 @@ import { register, remoteSdk } from './registration.js';
 import { Live, type LiveSession, type LiveSessionOwner } from './live.js';
 import { requireValue } from '@tmt/colab-client';
 import { verifyRegistration } from './registration.js';
+import { clearRecovery, recoverSession } from './session-recovery.js';
 import { text } from './strings.js';
 import { InactiveTabError, type TabOwnership } from './active-tab.js';
 
@@ -47,7 +48,20 @@ export async function mountedTransport(
     return { registration, remote };
   }
   current = await attach(registration);
+  clearRecovery(mount);
   const owner: LiveSessionOwner = {
+    recover: () =>
+      owned(() =>
+        recoverSession({
+          mount,
+          storage: sessionStorage,
+          reopen: () => pairedSdk.reopenSession(),
+          reload: () => {
+            if (!ownership.active || lifetime.signal.aborted) throw new InactiveTabError();
+            location.reload();
+          },
+        }),
+      ),
     reconnect(previous) {
       if (lifetime.signal.aborted || !ownership.active)
         return Promise.reject(new InactiveTabError());

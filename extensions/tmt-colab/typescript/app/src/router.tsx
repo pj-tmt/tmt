@@ -188,6 +188,17 @@ function Page() {
       setSaving(false);
     }
   }
+  const [reconnecting, setReconnecting] = useState(false);
+  const [reconnectFailed, setReconnectFailed] = useState(false);
+  async function reconnect() {
+    if (reconnecting) return;
+    setReconnecting(true);
+    try {
+      if (!(await snapshot.binding?.reconnect?.())) setReconnectFailed(true);
+    } catch {
+      setReconnectFailed(true);
+    }
+  }
   const [selection, setSelection] = useState('');
   const [state, setState] = useState<RenderState | 'loading'>('loading');
   const host = useRef<HTMLDivElement>(null);
@@ -270,6 +281,18 @@ function Page() {
               <h2>{text.blocked}</h2>
               <p>{liveError ?? (state === 'navigation' ? text.navigation : text.failed)}</p>
               <p>{text.limit}</p>
+              {liveError === 'Sync disconnected' && snapshot.binding?.reconnect && (
+                <button
+                  disabled={reconnecting}
+                  data-testid="colab-reconnect"
+                  onClick={(event) => {
+                    if (event.isTrusted) void reconnect();
+                  }}
+                >
+                  {text.reconnect}
+                </button>
+              )}
+              {reconnectFailed && <p>{text.reconnectFailed}</p>}
             </div>
           )}
         </div>

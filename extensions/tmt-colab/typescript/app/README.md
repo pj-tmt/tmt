@@ -61,6 +61,17 @@ invalidates its preview actions; the new controller observes unresolved original
 IDs after catchup. Normal context, agent-list, send and result calls never reopen
 the session.
 
+If Remote loses its in-memory sessions and door cookies, private guidance loads
+one public, standalone `assets/recovery.js` build entry. It reuses the tab claim
+and Web Lock before the served SDK checks its paired key and reopens. Successful
+recovery reloads; absent keys or failed reopening show plain pairing guidance.
+A mount-scoped session-storage marker prevents a recovery reload loop and clears
+only after authenticated boot succeeds. An active page blocked by a sync
+disconnect offers Reconnect through the same helper, closing its Live, Ask and
+observer first. Recovery never dispatches or retries an Ask. The app `build`
+script emits both the main app and the standalone recovery entry; other app
+assets remain owner-gated.
+
 Browser tests may set `COLAB_APP_TEST_PORT` to isolate their loopback Vite server;
 the default remains 4179. The deterministic Page/Remote doubles live only in
 `test/ask-page-browser.tsx` and `test/ask-browser-attempt.ts` and never enter the

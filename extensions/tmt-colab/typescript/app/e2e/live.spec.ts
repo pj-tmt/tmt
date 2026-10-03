@@ -467,7 +467,12 @@ async function wire(
         });
     }
   }
+  let accepting = true;
   await context.routeWebSocket(`**${mount}sync`, (socket) => {
+    if (!accepting) {
+      socket.close({ code: 1011 });
+      return;
+    }
     let pending: { frame: Record<string, unknown>; parts: Uint8Array[] } | null = null;
     outgoing.set(socket, { frames: [], waiting: false });
     socket.onClose(() => {
@@ -717,6 +722,13 @@ async function wire(
     get hellos() {
       return hellos;
     },
+    stopSync() {
+      accepting = false;
+      for (const peer of peers) peer.close({ code: 1011 });
+    },
+    resumeSync() {
+      accepting = true;
+    },
     resync() {
       for (const peer of peers) send(peer, 'error', { code: 'RESYNC_REQUIRED' });
     },
@@ -758,6 +770,110 @@ async function wire(
     },
   };
 }
+
+async function recoverySdk(context: BrowserContext) {
+  await context.route('**/sdk/remote-v1.js*', (route) =>
+    route.fulfill({
+      contentType: 'text/javascript',
+      body: `export async function reopenSession(){
+      sessionStorage.setItem('test:reopens',String(Number(sessionStorage.getItem('test:reopens')??0)+1));
+      const response=await fetch('/test-recovery-open',{method:'POST'});
+      if(!response.ok) throw new Error('No paired key or reopen unavailable');
+      await window.fixtureKeys;
+    }
+    export async function certifyKey(purpose,bytes){return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'}}`,
+    }),
+  );
+}
+const privateGuidance = `<!doctype html><html lang="en"><h1>TMT Colab</h1>
+<p id="colab-recovery-status">Opening your paired browser…</p>
+<p id="colab-guidance" hidden>This colab space is private. Open it from a browser paired with tmt remote pair, or use a share link.</p>
+<script type="module" src="./assets/recovery.js"></script></html>`;
+
+test('paired guidance reopens once, reloads into the owner app and clears its recovery marker', async ({
+  page,
+  context,
+}) => {
+  await wire(context);
+  await recoverySdk(context);
+  let owner = false,
+    opens = 0;
+  await context.route('**/test-recovery-open', (route) => {
+    opens++;
+    owner = true;
+    return route.fulfill({ json: {} });
+  });
+  await context.route(`**${mount}`, (route) =>
+    owner ? route.continue() : route.fulfill({ contentType: 'text/html', body: privateGuidance }),
+  );
+  await page.goto(mount);
+  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' }),
+  ).toBeVisible();
+  expect(opens).toBe(2); // Guidance recovery, then normal authenticated registration.
+  expect(
+    await page.evaluate((path) => sessionStorage.getItem(`colab-recovery:${path}`), mount),
+  ).toBeNull();
+});
+
+for (const mode of ['unpaired', 'failed', 'cookie-lost'] as const) {
+  test(`private guidance ${mode} stays visible without an automatic reopen loop`, async ({
+    page,
+    context,
+  }) => {
+    await wire(context);
+    await recoverySdk(context);
+    let opens = 0;
+    await context.route('**/test-recovery-open', (route) => {
+      opens++;
+      return route.fulfill({ status: mode === 'cookie-lost' ? 200 : 503, json: {} });
+    });
+    await context.route(`**${mount}`, (route) =>
+      route.fulfill({ contentType: 'text/html', body: privateGuidance }),
+    );
+    await page.goto(mount);
+    await expect(page.locator('#colab-guidance')).toBeVisible();
+    expect(opens).toBe(1);
+    expect(
+      await page.evaluate((path) => sessionStorage.getItem(`colab-recovery:${path}`), mount),
+    ).toBe('attempted');
+    await page.reload();
+    await expect(page.locator('#colab-guidance')).toBeVisible();
+    expect(opens).toBe(1);
+  });
+}
+
+test('a disconnected active tab explicitly reconnects and reloads without background session reopen', async ({
+  page,
+  context,
+}) => {
+  const f = await wire(context);
+  await recoverySdk(context);
+  let opens = 0;
+  await context.route('**/test-recovery-open', (route) => {
+    opens++;
+    f.resumeSync();
+    return route.fulfill({ json: {} });
+  });
+  await page.goto(mount);
+  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
+  await expect(heading).toBeVisible();
+  f.stopSync();
+  await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toBeVisible();
+  expect(opens).toBe(1);
+  await page.screenshot({
+    path: '/private/tmp/colab-1110-design/colab-reconnect.png',
+    fullPage: true,
+  });
+  await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
+  await expect(heading).toBeVisible();
+  expect(opens).toBe(3); // Explicit recovery plus normal registration after reload.
+  await expect.poll(() => f.connections).toBe(1);
+  await page.getByRole('link', { name: 'Space home' }).click();
+  await expect.poll(() => f.connections).toBe(0);
+});
 
 test('Ask publishes owner own envelopes through production Connection before Remote dispatch', async ({
   page,

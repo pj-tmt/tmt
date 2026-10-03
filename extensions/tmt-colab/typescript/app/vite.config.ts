@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import react from '@vitejs/plugin-react';
 import { designTokens } from '../../../../design/tokens/tokens-plugin.ts';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   lint: lintConfig,
   fmt: {
     singleQuote: true,
@@ -30,6 +30,12 @@ export default defineConfig({
         server.middlewares.use((request, response, next) => {
           const path = request.url?.split('?')[0] ?? '';
           if (
+            path === '/assets/recovery.js' ||
+            /^\/r\/[a-z0-9]+\/x\/colab\/assets\/recovery\.js$/.test(path)
+          ) {
+            request.url = '/src/guidance.ts';
+          }
+          if (
             path === '/renderer.html' ||
             /^\/r\/[a-z0-9]+\/x\/colab\/renderer\.html$/.test(path)
           ) {
@@ -45,5 +51,15 @@ export default defineConfig({
       },
     },
   ],
-  build: { license: { fileName: 'THIRD-PARTY-NOTICES.txt' } },
-});
+  build:
+    mode === 'recovery'
+      ? {
+          emptyOutDir: false,
+          lib: {
+            entry: new URL('./src/guidance.ts', import.meta.url).pathname,
+            formats: ['es'],
+            fileName: () => 'assets/recovery.js',
+          },
+        }
+      : { license: { fileName: 'THIRD-PARTY-NOTICES.txt' } },
+}));

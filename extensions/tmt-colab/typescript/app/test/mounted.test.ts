@@ -157,3 +157,52 @@ it('inactive ownership closes all page signals and fences every Remote method, c
   expect(setup.sdk.certifyKey).toHaveBeenCalledOnce();
   expect(setup.register).toHaveBeenCalledOnce();
 });
+
+it('a takeover during explicit recovery prevents the old tab from reloading or reopening again', async () => {
+  const items = new Map<string, string>();
+  const reload = vi.fn();
+  vi.stubGlobal('sessionStorage', {
+    getItem: (key: string) => items.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      items.set(key, value);
+    },
+    removeItem: (key: string) => {
+      items.delete(key);
+    },
+  });
+  vi.stubGlobal('location', { reload });
+  let active = true;
+  const ownership: TabOwnership = {
+    get active() {
+      return active;
+    },
+    async run(action) {
+      if (!active) throw new InactiveTabError();
+      return action();
+    },
+  };
+  setup.register.mockReset().mockResolvedValue(setup.first);
+  setup.remote.mockReset().mockResolvedValue(null);
+  let release!: () => void;
+  setup.sdk.reopenSession.mockReset().mockImplementation(
+    () =>
+      new Promise<object>((resolve) => {
+        release = () => resolve({});
+      }),
+  );
+  try {
+    const mounted = await mountedTransport(ownership);
+    await mounted.transport.page('page');
+    const recovering = setup.owner!.recover!();
+    expect(setup.sdk.reopenSession).toHaveBeenCalledOnce();
+    active = false;
+    mounted.close();
+    release();
+    expect(await recovering).toBe(false);
+    expect(reload).not.toHaveBeenCalled();
+    await expect(setup.owner!.recover!()).rejects.toBeInstanceOf(InactiveTabError);
+    expect(setup.sdk.reopenSession).toHaveBeenCalledOnce();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

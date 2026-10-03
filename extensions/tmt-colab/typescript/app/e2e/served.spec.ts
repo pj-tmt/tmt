@@ -214,10 +214,41 @@ for (let run = 1; run <= 2; run++) {
         );
       }
       expect(requests.every((url) => new URL(url).origin === server.origin)).toBe(true);
-      const anonymous = await fetch(server.origin + mount + 'assets/' + files[0]);
+      const anonymous = await fetch(
+        server.origin + mount + 'assets/' + files.find((name) => name !== 'recovery.js'),
+      );
       expect(anonymous.status).toBe(403);
+      const publicRecovery = await fetch(server.origin + mount + 'assets/recovery.js');
+      expect(publicRecovery.status).toBe(200);
+      expect(Buffer.from(await publicRecovery.arrayBuffer())).toEqual(
+        await readFile(app + '/assets/recovery.js'),
+      );
       const privatePage = await fetch(server.origin + mount);
       expect(await privatePage.text()).toContain('This colab space is private');
+
+      // The compiled public entry really executes under native private-guidance
+      // CSP. This door has no SDK/key: failure reveals guidance, and reload
+      // retains the marker instead of repeatedly loading the SDK/reopening.
+      await context.clearCookies();
+      await page.goto(server.origin + mount);
+      await expect(page.locator('#colab-guidance')).toBeVisible();
+      const recoverySdkRequests = requests.filter(
+        (url) => new URL(url).pathname === '/sdk/remote-v1.js',
+      ).length;
+      await page.reload();
+      await expect(page.locator('#colab-guidance')).toBeVisible();
+      expect(requests.filter((url) => new URL(url).pathname === '/sdk/remote-v1.js')).toHaveLength(
+        recoverySdkRequests,
+      );
+      expect(
+        await page.evaluate((path) => sessionStorage.getItem(`colab-recovery:${path}`), mount),
+      ).toBe('attempted');
+      if (run === 1)
+        await page.screenshot({
+          path: '/private/tmp/colab-1110-design/colab-guidance.png',
+          fullPage: true,
+        });
+      await context.addCookies([{ name: 'owner', value: '1', url: server.origin }]);
 
       // CSP sandbox also protects a top-level renderer, without an iframe attribute.
       await page.goto(server.origin + mount + 'renderer.html');
