@@ -1,0 +1,126 @@
+name: Release version injection shadow
+
+# Native PR checks, no secrets, tags, drafts, dispatch or publishing. This remains after the spike.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/release-version-injection.yml'
+      - 'typescript/scripts/release-version-injection.*'
+      - 'typescript/test/tooling/release-version-injection.test.ts'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/release-version-injection.yml'
+      - 'typescript/scripts/release-version-injection.*'
+      - 'typescript/test/tooling/release-version-injection.test.ts'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-version-injection-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  injection:
+    name: ${{ matrix.product }} injection (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        product: [cli, squad]
+        target:
+          [
+            aarch64-apple-darwin,
+            x86_64-apple-darwin,
+            aarch64-unknown-linux-musl,
+            x86_64-unknown-linux-musl,
+          ]
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-15
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Select one isolated Cargo target directory
+        run: printf 'CARGO_TARGET_DIR=%s/injection-target\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/setup-tooling
+      - name: Install version-verification dependencies
+        working-directory: typescript
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Install native build dependencies
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/apt-install
+        with:
+          packages: musl-tools
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.97.0 --profile minimal --target '${{ matrix.target }}'
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: release-injection-${{ matrix.product }}-${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Cache packaging tools
+        id: tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.tmt-packaging
+          key: native-tools-${{ runner.os }}-${{ runner.arch }}-rust1.97-dist0.32.0-about0.9.2
+      - name: Build pinned packaging tools
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: |
+          cargo +1.97.0 install cargo-dist --version 0.32.0 --locked --root "$HOME/.tmt-packaging"
+          cargo +1.97.0 install cargo-about --version 0.9.2 --features cli --locked --root "$HOME/.tmt-packaging"
+      - name: Inject fixture version, prove offline lock and build native archive
+        env:
+          PRODUCT: ${{ matrix.product }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.tmt-packaging/bin:$PATH"
+          export RUSTUP_TOOLCHAIN=1.97.0
+          cargo fetch --manifest-path rust/Cargo.toml --locked
+          export CARGO_NET_OFFLINE=true
+          if [ "$PRODUCT" = cli ]; then tag=v5.0.0-alpha.999; binary=tmt;
+          else tag=tmt-squad-v0.1.0-alpha.999; binary=tmt-squad; fi
+          snapshot="$RUNNER_TEMP/injection-state.json"
+          node typescript/scripts/release-version-injection.mjs prepare "$PWD" "$snapshot" "$PRODUCT" "$tag"
+          if cargo metadata --offline --locked --manifest-path rust/Cargo.toml --format-version 1 > "$RUNNER_TEMP/stale-lock.json" 2> "$RUNNER_TEMP/stale-lock.log"; then
+            echo 'Injected version incorrectly accepted a stale lockfile.' >&2
+            exit 1
+          fi
+          grep -Eq 'cannot update the lock file.*because --locked was passed|lock file.*needs to be updated' "$RUNNER_TEMP/stale-lock.log"
+          cargo update --offline --workspace --manifest-path rust/Cargo.toml
+          node typescript/scripts/release-version-injection.mjs verify "$PWD" "$snapshot" > "$RUNNER_TEMP/version-gate.json"
+          TMT_NATIVE_REAL_CARGO=$(command -v cargo)
+          export TMT_NATIVE_REAL_CARGO
+          export CARGO="$PWD/scripts/native-cargo.sh"
+          dist plan --tag "$tag" --target "$TARGET" --output-format=json --no-local-paths > "$RUNNER_TEMP/plan.json"
+          scripts/build-native-artifact.sh "$TARGET" "$PRODUCT" > "$RUNNER_TEMP/build.json"
+          mkdir "$RUNNER_TEMP/extracted"
+          tar -xzf "target/distrib/tmt-$PRODUCT-$TARGET.tar.gz" -C "$RUNNER_TEMP/extracted"
+          executable="$RUNNER_TEMP/extracted/tmt-$PRODUCT-$TARGET/$binary"
+          node typescript/scripts/release-version-injection.mjs artifact "$PWD" "$snapshot" "$RUNNER_TEMP/plan.json" "$RUNNER_TEMP/build.json" "$executable" | tee -a "$GITHUB_STEP_SUMMARY"
+          node typescript/scripts/release-version-injection.mjs verify "$PWD" "$snapshot" > "$RUNNER_TEMP/version-gate-after-build.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-injection-${{ matrix.product }}-${{ matrix.target }}
+          path: |
+            ${{ runner.temp }}/version-gate*.json
+            ${{ runner.temp }}/plan.json
+            ${{ runner.temp }}/build.json
+            ${{ runner.temp }}/stale-lock.log
+          if-no-files-found: warn
+          retention-days: 7

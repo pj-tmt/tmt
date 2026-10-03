@@ -14,6 +14,30 @@ const run = read('.github/workflows/native-release.yml');
 const bundle = read('.github/workflows/native-release-bundle.yml');
 const smokeWorkflow = read('.github/workflows/native-release-smoke.yml');
 
+describe('release-cut shadow workflow boundaries', () => {
+  it('isolates draft-visible GET acquisition from the read-only planner without release secrets', () => {
+    const shadow = read('.github/workflows/release-cut.yml');
+    expect(job(shadow, 'metadata')).toContain('contents: write');
+    expect(job(shadow, 'metadata')).toContain('DRAFT_VISIBILITY: trusted');
+    expect(job(shadow, 'shadow')).toContain('contents: read');
+    expect(job(shadow, 'shadow')).not.toContain('GH_TOKEN');
+    expect(shadow).not.toMatch(
+      /secrets\.|workflow_dispatch|release-please|native-release\.yml|actions: write/
+    );
+    expect(run).toContain("run-name: 'Native release: ${{ inputs.product }}'");
+  });
+  it('keeps native injection on pinned PR heads and all four hosts, with no publishing privileges', () => {
+    const injection = read('.github/workflows/release-version-injection.yml');
+    expect(injection).toContain('github.event.pull_request.head.sha || github.sha');
+    expect(injection).toContain('product: [cli, squad]');
+    for (const host of ['macos-15', 'macos-15-intel', 'ubuntu-24.04-arm', 'ubuntu-24.04'])
+      expect(injection).toContain(`runner: ${host}`);
+    expect(injection).toContain('cargo update --offline --workspace');
+    expect(injection).toContain('release-version-injection.mjs artifact');
+    expect(injection).not.toMatch(/contents: write|actions: write|secrets\.|workflow_dispatch/);
+  });
+});
+
 /** Jobs as raw text, keyed by name; a workflow lists them at two spaces under `jobs:`. */
 function jobs(workflow: string): Map<string, string> {
   const body = workflow.slice(workflow.indexOf('\njobs:\n') + 1);

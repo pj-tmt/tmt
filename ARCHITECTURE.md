@@ -4167,6 +4167,50 @@ local file path. It never alters registry contents or fetches license text.
 Cargo-about retains target filtering and `--offline --locked --fail`; the final
 artifact verifier still rejects placeholder attribution.
 
+### Release-cut shadow
+
+The [#1399 migration](https://github.com/pj-tmt/tmt/issues/1399) is in shadow mode.
+The existing release-please path still creates release PRs and native drafts;
+`release-cut.yml` performs no publication or queue mutations. Its trusted-main
+metadata job uses bounded REST GETs to obtain complete releases (including drafts)
+and active native runs. Draft visibility requires contents-write permission;
+only sanitized metadata crosses to the read-only planner, never credentials.
+`native-release.yml` names each run with its product so queued/running work is
+attributable. Older or unknown active run identities block the shadow plan.
+
+`release-cut.mjs` owns the proposed cut computation. It captures one main SHA X,
+reads the component map at X through `parseComponentMap`/`ownerOf`, and attributes
+paths by ownership, exclusions, selected globs and declared `releaseConsumers`.
+There is no generated release-config path expansion. Direct pinned conventional
+parser/renderer dependencies produce notes from first-parent commits in
+(previous product tag, X]; their linked SHA set must equal the releasable set.
+The last published product tag supplies the next alpha number. Stable/core-version
+changes and a first release without an approved initial version are reported as
+requiring the owner; missing history or draft/run evidence cannot mean an empty
+range or an idle component. A draft blocks that component. Breaking notes remain
+explicitly owner-required.
+
+`release-version-injection.mjs` owns the shadow checkout version contract. It
+discovers Cargo inheritance, edits only the selected version declaration, and
+verifies full offline locked resolution against the tag. All tracked source
+hashes, the exact manifest edit and semantic lock entries are checked; only local
+package versions and their implied qualified dependency references may change.
+The dist plan, build manifest and extracted binary must agree with the tag. The
+four-host PR workflow builds fixture versions without committing, tagging,
+dispatching or publishing. Independently versioned private Herdr stays unchanged.
+
+Historical comparison fixtures carry the public release bodies and source-map
+snapshots for CLI alpha.44→45/45→46 and Squad alpha.12→13. Their cuts are those
+historical release PRs' merge parents, only in the fixtures; the production planner
+uses ordinary tag/main ancestry. Those comparisons and one main-push shadow run
+gate the later switch, rather than new old-path publications. Live cut creation,
+production injection, fixed main development versions and old-path removal remain
+future migration phases. Procedures belong to
+[DEVELOPMENT](DEVELOPMENT.md#release-cut-shadow-verification); authorization belongs
+to the [release skill](.agents/skills/tmt-release/SKILL.md).
+
+### Release-to-Project tracking
+
 `project-release.mjs` owns release-to-Project delivery evidence, separately from
 publication. Each daily or explicit main-only dispatch performs a full sweep of
 existing closed issue items in pj-tmt organization project 1. The short-lived

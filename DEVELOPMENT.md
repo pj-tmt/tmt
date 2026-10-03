@@ -1940,6 +1940,58 @@ The same distinction applies to release artifacts: raw PR executables prove
 source-runtime behavior only. They do not prove archive inventory, notices,
 checksums or bootstrap behavior. Linkage is checked in both raw and archive proof.
 
+## Release-cut shadow verification
+
+The [architecture contract](ARCHITECTURE.md#release-cut-shadow) owns the current
+shadow model and the proposed migration. Release-please remains active until the
+separate switch PR; this procedure creates no release or publishing dispatch.
+
+On main pushes and the daily schedule, `release-cut.yml` captures draft/native-run
+metadata and posts each component's cut, next tag, notes, SHA membership and skip
+reason in its run summary. Download `release-cut-metadata` and
+`release-cut-shadow-plan` for a reviewable input/output pair. Treat unavailable
+draft visibility, pagination, tag history or native-run product identity as a
+blocked plan. Do not reinterpret an unavailable snapshot as no work in flight.
+
+The persistent `release-version-injection.yml` PR check runs CLI and Squad on all
+four matching native hosts. It fetches dependencies before setting offline mode,
+captures the source/version contract, demonstrates that full locked metadata
+rejects the stale lock, updates the lock offline, verifies the exact version edit,
+and checks dist plan/build plus the extracted binary. `--no-deps` metadata is for
+inheritance discovery only; it cannot establish the stale-lock gate. A failure in
+the version/source/lock gate is a failure, not permission to broaden its allowed
+diff. Review `release-injection-<product>-<target>` artifacts and job summaries.
+No release secrets or publication privileges enter these PR jobs.
+
+Run targeted fixture checks, then the tooling quality and affected workflow checks:
+
+```bash
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/release-cut.test.ts test/tooling/release-version-injection.test.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/repository-layout.test.ts)
+(cd typescript && corepack pnpm check:tooling)
+actionlint .github/workflows/release-cut.yml .github/workflows/release-version-injection.yml .github/workflows/native-release.yml
+```
+
+`test/fixtures/release-cut-history.json` is immutable comparison input from the
+published release REST records and Git objects, with repository, endpoints, PRs,
+tag SHAs, parent cuts, component maps and complete first-parent commit ranges.
+The tests compare rendered notes and linked SHAs at CLI alpha.44→45 and 45→46,
+and Squad alpha.12→13. Regeneration must verify the public tag equals the recorded
+release PR's merge commit and use its parent only for this historical fixture.
+This is not a production release ancestry helper. Explain any ownership change
+against the direct component map instead of adding generated-config exclusions.
+The switch additionally requires one successful shadow run on a main push; live
+old-path publications can add evidence but do not gate it. Herdr's independent
+private version boundary is a fixture until the switch enables it for release-cut.
+
+For an authorized local native spike, follow the existing heavy-build/disk rules
+and use one target directory. Invoke `release-version-injection.mjs prepare
+<checkout> <snapshot-outside-checkout> <product> <tag>`, run the full stale-lock
+probe and offline workspace lock update, then `verify <checkout> <snapshot>`.
+After the existing native build, `artifact <checkout> <snapshot> <plan.json>
+<build.json> <extracted-binary>` checks the tag/version agreement; run `verify`
+again after packaging. The checkout must start clean and stay at its captured
+SHA. Never commit the injected versions or replace an existing release/tag.
+
 ## Native release verification
 
 For archive, installer, upgrade, bootstrap or publication work, read this entire

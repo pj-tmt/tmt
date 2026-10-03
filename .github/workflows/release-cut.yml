@@ -1,0 +1,76 @@
+name: Release cut shadow
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '23 4 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-cut-shadow
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    name: Read release state (no writes)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      # GitHub requires push permission to reveal drafts. This job performs REST GETs only.
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Capture complete draft and active native-run metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CUT_SHA: ${{ github.sha }}
+          DRAFT_VISIBILITY: trusted
+        run: node typescript/scripts/release-cut-read.mjs "$RUNNER_TEMP/release-cut-metadata.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-cut-metadata
+          path: ${{ runner.temp }}/release-cut-metadata.json
+          if-no-files-found: error
+          retention-days: 7
+
+  shadow:
+    name: Plan release cuts (shadow only)
+    needs: metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tooling
+      - name: Install direct commit parsing/rendering dependencies
+        working-directory: typescript
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-cut-metadata
+          path: ${{ runner.temp }}
+      - name: Report immutable cuts, versions, note SHAs and skip reasons
+        run: node typescript/scripts/release-cut.mjs "$RUNNER_TEMP/release-cut-metadata.json" > "$RUNNER_TEMP/release-cut-plan.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-cut-shadow-plan
+          path: ${{ runner.temp }}/release-cut-plan.json
+          if-no-files-found: error
+          retention-days: 7
