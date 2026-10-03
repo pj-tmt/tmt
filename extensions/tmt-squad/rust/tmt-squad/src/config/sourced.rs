@@ -76,13 +76,7 @@ impl Config {
                     .any(|key| self.source_item(&["squad", squad, "board", key]).is_some())
             {
                 format!("squad.{squad}.board (simple split over {preset})")
-            } else if name == "panes"
-                && self
-                    .source_item(&["squad", squad, "board", "layout"])
-                    .is_some()
-            {
-                format!("squad.{squad}.board.layout")
-            } else if matches!(name, "direction" | "sizes")
+            } else if matches!(name, "panes" | "direction" | "sizes")
                 && self
                     .source_item(&["squad", squad, "board", "layout"])
                     .is_some()

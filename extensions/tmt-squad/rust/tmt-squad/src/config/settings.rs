@@ -118,33 +118,32 @@ impl Config {
                 direction,
                 children,
             } = &board.split
-        {
-            if children.iter().all(|(size, child)| {
+            && children.iter().all(|(size, child)| {
                 matches!(size, Size::Percent(_)) && matches!(child, Split::Pane(_))
-            }) {
-                out.push(
-                    "board.direction",
-                    json!(if *direction == Direction::LeftRight {
-                        "left-right"
-                    } else {
-                        "top-bottom"
-                    }),
-                    &sources["direction"],
-                );
-                out.push(
-                    "board.sizes",
-                    json!(
-                        children
-                            .iter()
-                            .map(|(size, _)| match size {
-                                Size::Percent(n) => *n,
-                                _ => unreachable!(),
-                            })
-                            .collect::<Vec<_>>()
-                    ),
-                    &sources["sizes"],
-                );
-            }
+            })
+        {
+            out.push(
+                "board.direction",
+                json!(if *direction == Direction::LeftRight {
+                    "left-right"
+                } else {
+                    "top-bottom"
+                }),
+                &sources["direction"],
+            );
+            out.push(
+                "board.sizes",
+                json!(
+                    children
+                        .iter()
+                        .map(|(size, _)| match size {
+                            Size::Percent(n) => *n,
+                            _ => unreachable!(),
+                        })
+                        .collect::<Vec<_>>()
+                ),
+                &sources["sizes"],
+            );
         }
         let (refresh, source) = self.refresh_setting(key)?;
         out.push(
