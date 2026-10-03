@@ -600,9 +600,9 @@ link/device/page policy and epoch under the sync owner. Revocation, narrowing or
 rotation discards pending delivery and closes access; a surviving link seed
 can still certify a fresh device after individual device revocation. Exclusion
 requires link removal/narrowing plus rotation, never merely deleting a ticket.
-Previously written bytes, keys and plaintext cannot be recalled. The remaining
-mounted lifecycle/blocked-transfer acceptance matrix is tracked by #1371;
-reader UI and full L6 acceptance are not supplied by this native seam.
+Previously written bytes, keys and plaintext cannot be recalled. Mounted native
+lifecycle tests and deterministic duplex blocked-transfer tests exercise these
+fences; browser reader UI remains a separate integration.
 
 ## Page state, roles and epochs
 

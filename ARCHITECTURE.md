@@ -5285,8 +5285,10 @@ Admission rechecks policy and expiry even before hello, rejects every publicatio
 operation, and chooses only link wraps or no wraps for public readers. Archived
 owner pages also deny publication while preserving reads. The same
 sync lock fences owner transitions and pending reader delivery. Readers add no
-Remote pairing, management, agent grant, migration or dependency. Mounted reader
-UI and the remaining #1371 lifecycle acceptance remain separate work.
+Remote pairing, management, agent grant, migration or dependency. Real mounted
+reader tests cover narrowing, Reset/removal, rotation, archive/delete, revocation
+and expiry; the generic duplex transport seam proves blocked delivery is discarded.
+Browser reader UI remains separate work.
 
 ### Stream sync transport
 

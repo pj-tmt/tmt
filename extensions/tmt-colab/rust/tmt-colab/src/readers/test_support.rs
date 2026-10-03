@@ -87,30 +87,36 @@ impl Fixture {
         }
     }
     pub(crate) fn apply(&mut self, action: OwnerAction<'_>) {
+        self.try_apply(action).unwrap();
+    }
+    pub(crate) fn try_apply(
+        &mut self,
+        action: OwnerAction<'_>,
+    ) -> std::result::Result<crate::transitions::Applied, crate::transitions::TransitionError> {
         let revision = self
             .store
             .owner_head(&self.key.space_id, &self.key.owner_public())
             .unwrap()
             .unwrap()
             .revision;
+        let mut result = None;
         self.server
             .update_admission(|_| {
-                self.engine
-                    .apply(
-                        &mut self.store,
-                        &self.key,
-                        OwnerRequest {
-                            operation_id: &uuid().unwrap(),
-                            expected_revision: revision,
-                            action,
-                            transport_digest: None,
-                            scope: None,
-                        },
-                        1000,
-                    )
-                    .unwrap();
+                result = Some(self.engine.apply(
+                    &mut self.store,
+                    &self.key,
+                    OwnerRequest {
+                        operation_id: &uuid().unwrap(),
+                        expected_revision: revision,
+                        action,
+                        transport_digest: None,
+                        scope: None,
+                    },
+                    1000,
+                ));
             })
             .unwrap();
+        result.unwrap()
     }
     pub(crate) fn share(&mut self, mode: ShareMode) {
         self.apply(OwnerAction::Share {
@@ -126,7 +132,11 @@ impl Fixture {
             pages: vec![PAGE.into()],
             seed: &SEED,
         })));
-        let keys = tmt_colab_model::link::Keys::derive(&SEED, &self.key.space_id, LINK).unwrap();
+        self.chain = self.certify_link(LINK, &SEED, DEVICE);
+    }
+    /// Used immediately after Add/Reset, whose last statement is link.add.
+    pub(crate) fn certify_link(&self, id: &str, seed: &[u8; 32], device: &str) -> Vec<u8> {
+        let keys = tmt_colab_model::link::Keys::derive(seed, &self.key.space_id, id).unwrap();
         let head = self
             .store
             .owner_head(&self.key.space_id, &self.key.owner_public())
@@ -145,8 +155,8 @@ impl Fixture {
         let cert = certificate::input(&certificate::Certificate {
             space: &self.key.space_id,
             issuer_kind: "link",
-            issuer_id: LINK,
-            device_id: DEVICE,
+            issuer_id: id,
+            device_id: device,
             signing_key: &sign.verifying_key().to_bytes(),
             encryption_key: &enc,
             membership_revision: &head.revision.to_string(),
@@ -154,7 +164,7 @@ impl Fixture {
             expires_at: 2_000_000,
         })
         .unwrap();
-        self.chain=serde_json::to_vec(&json!({"version":1,"issuerStatement":values::encode_binary(&issuer.hash().unwrap()),"deviceCertificate":values::encode_binary(&cert),"issuerSignature":values::encode_binary(&keys.certify(&certificate::decode(&cert).unwrap()).unwrap())})).unwrap();
+        serde_json::to_vec(&json!({"version":1,"issuerStatement":values::encode_binary(&issuer.hash().unwrap()),"deviceCertificate":values::encode_binary(&cert),"issuerSignature":values::encode_binary(&keys.certify(&certificate::decode(&cert).unwrap()).unwrap())})).unwrap()
     }
     pub(crate) fn request(
         &self,

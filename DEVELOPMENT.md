@@ -3814,23 +3814,35 @@ dependencies or lockfile resolutions.
 ### Colab reader verification
 
 Run `CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-colab --lib readers::tests`
-and the focused `--lib mounted_link_reader` / `--test socket mounted_public_readers`
-filters from `rust/`. The unit fixtures reuse real private SQLite/keyring state
-and the built `tmt-colab` decoder sibling of the test executable. Build the
-executable first for a standalone library-only run; the complete package test
-builds it. Mounted tests use short isolated `/tmp` roots and unconditional socket
-shutdown/join/removal. No real Remote identity or Docker is involved.
+and the focused `--lib mounted_` / `--test socket mounted_public_readers` filters
+from `rust/`. Owner archive publication has the `--test socket archived_owner_pages`
+filter. Fixtures use real private SQLite/keyring state and the built `tmt-colab`
+decoder sibling of the test executable. Build the executable first for a
+standalone library-only run; the complete package test builds it. Mounted tests
+use short isolated `/tmp` roots and unconditional socket shutdown/join/removal.
+No real Remote identity or Docker is involved.
 
-The native seam exercises possession/scope/replay/expiry denial, session caps,
-restart rejection and caller-admitted wrap selection with a nonempty exact-byte
-owner oracle. Real mounted public catchup and publication denials run twice.
-Mounted owner archive coverage preserves catchup and denies awareness/uploads.
-Mounted link→private and individual-revocation cases prove subscription closure,
-no further application delivery and old-chain denial twice; a retained seed can
-certify a fresh device only when the link survives. Other narrowing, Reset,
-rotation and lifecycle/blocked-transfer proofs remain #1371 acceptance work;
-these tests do not claim browser reader UI or complete L6 acceptance. Exact
-request/session carrier rules belong to
+Mounted HTTP challenges, possession exchange, upgrades and subscriptions exercise
+all three narrowing pairs, Reset/removal, rotation, individual device revocation,
+archive/delete, session/certificate expiry and pre-hello cutoff twice. Cutoff
+accepts only close/reset/EOF, never a timeout or more application data. Failed
+narrowing retains reader authority; a successful retry cuts it off. Retained old
+seeds cannot revive removed links or obtain private-epoch wraps; surviving links
+can reauthenticate after ordinary rotation or certify a fresh device after
+individual revocation. Public keys resolve from signed publication statements;
+link wraps are decrypted against the durable current key. The nonempty owner
+oracle preserves exact wrap bytes. Reader publication denials cover both
+namespaces, referenced uploads/chunks and awareness; archived owner pages retain
+reads and deny publication too.
+
+Blocked-delivery tests issue capabilities through mounted HTTP, then consume
+them under the same sync lock and connect via the existing generic Read/Write
+transport seam on real duplex sockets. Explicit bounded turns and a byte gate
+prove that queued frames and chunk continuations are never flushed after
+narrowing, revocation or expiry; this proof does not depend on kernel buffer
+sizes. One verified chunk may be delivered before cutoff, and previously written
+bytes/keys/plaintext cannot be recalled. These native proofs do not supply browser
+reader UI. Exact request/session carrier rules belong to
 [colab-v1](extensions/tmt-colab/contracts/colab-v1.md#mounted-read-only-reader-sessions-1310).
 The owner discovery endpoints stay owner-only. Readers receive no writes,
 management or agent authority. Decoder production-deadline failures under machine
