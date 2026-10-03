@@ -2028,6 +2028,10 @@ describe('required CI gate', () => {
           `${scope} native process fixtures must build ${product} in debug`
         ).toBe(true);
       }
+      expect(
+        debugBuilds.some((args) => /(?:^|\s)--example\s+runtime-caller-fixture(?=\s|$)/.test(args)),
+        `${scope} native process fixtures must build the shared ancestry launcher`
+      ).toBe(true);
     }
     // The producer verifies the feature build; native tests consume exactly those bytes.
     expect(job('native-office-build')).toContain('sha256sum tmt-office > tmt-office.sha256');

@@ -1427,6 +1427,8 @@ release components, outside the `tmt extension` inventory.
 Shared extension archive scenarios also require the debug Squad, Remote and Colab
 executables. Both full and Squad-scoped process CI run those scenarios and build
 Squad followed by `cargo build --locked -p tmt-remote -p tmt-colab --bins`.
+Both scopes also build the shared `runtime-caller-fixture` ancestry launcher;
+full scope builds it beside the storage probe, while Squad scope builds it explicitly.
 Keep these fixture builds in the process job itself; another job's workspace build
 or a warm local target does not supply its executables.
 
