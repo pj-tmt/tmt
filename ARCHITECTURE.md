@@ -1296,12 +1296,17 @@ zero; usable intervals shorter than 10 s hide the summary. Member cells show
 status document, using the accepted meter receipts for model and three token
 fields. Repeated section rows read one UUID history. Changed values invalidate
 only the existing row grid/cell cache; retained views keep their owning values
-while another squad loads. The default named-squad grid adds usage columns through
-`Rows::with_usage`; custom grids stay unchanged. One-shot `ls` has no window
-history and its JSON and grids remain unchanged. Observation policy changes
+while another squad loads. TEAM and crew preset TOML declare the default model and usage columns, including
+all cell placement and priorities. `ColumnSource` recognizes board-only
+`usage.w1`–`usage.w3`; App resolves them by window index. Config labels untitled
+usage columns from `tok`, while explicit custom titles remain intact. Custom grids
+opt in by declaring those sources. One-shot `ls` has no window history; JSON keeps
+the descriptors without values and its schema remains unchanged, while text skips
+columns whose source is board-only. Observation policy changes
 start fresh history rather than inventing earlier coverage.
 The default usage grid hides PR before the longest-to-shortest windows, then
-model, using existing grid priorities without changing PR sizing.
+model, using declared grid priorities without changing PR sizing. Model width
+follows content up to 14 cells.
 
 `board::meter` owns cubic counting digits (600 ms, 250 ms frame spacing and an
 exact final frame), smooth retargeting and immediate window switches/reduced
