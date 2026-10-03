@@ -78,7 +78,8 @@ squad or none), so read `.squads[]` unless you pass `--squad`. `columns` and
 the fields each line of a row shows (`{field, span}`, field null for an empty
 cell).
 
-- A cell has optional `token`, its semantic theme role. Team publishes
+- A cell has optional `token`, its semantic theme role, which overrides
+  threshold/provider colors for that cell. Team publishes
   `lines[1][2].token = "waiting"` for its pending second line; unstyled cells
   omit the key. This is decoration metadata, not a changed row value.
 - A column's `width` is null, a cell count or a percentage string such as
