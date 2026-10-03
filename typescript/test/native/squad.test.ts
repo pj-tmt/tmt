@@ -495,14 +495,18 @@ o = "run touch ${marker}"
         'task',
         'pr',
         'model',
+        'tok_1',
+        'tok_2',
+        'tok_3',
       ]);
       expect(listed.body.columns[4].from).toBe('session.model');
       expect(listed.body.lines[1]).toEqual([
         { field: null, span: 1 },
         { field: null, span: 1 },
-        { field: 'pending', span: 3, token: 'waiting' },
+        { field: 'pending', span: 6, token: 'waiting' },
       ]);
       const rows = listed.body.sections[0].rows;
+      expect(rows[0].fields).not.toHaveProperty('tok_1');
       expect(rows.map((row: { name: string }) => row.name)).toEqual(['unlinked', 'linked']);
       expect(rows[0]).toMatchObject({
         state: 'working',

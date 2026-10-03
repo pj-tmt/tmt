@@ -646,11 +646,6 @@ fn squad_view(
     } else {
         Notes::NotShown
     };
-    let rows = if settings.enabled && !config.has_custom_rows(&squad.name)? {
-        rows.with_usage(settings.windows)
-    } else {
-        rows
-    };
     let view = View {
         home: None,
         token_rate,

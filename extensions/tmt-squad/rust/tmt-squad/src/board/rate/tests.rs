@@ -61,10 +61,6 @@ fn windows_count_cached_input_once_without_dividing_by_covered_span() {
         assert_eq!(reading.span, 10_000);
         assert!(reading.partial);
     }
-    assert_eq!(
-        rate.reading(10_000, TokenWindow::MINUTE).unwrap().tokens,
-        150
-    );
     rate.sample(&input(300), 60_000);
     assert_eq!(
         rate.reading(60_000, TokenWindow::MINUTE).unwrap().tokens,

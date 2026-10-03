@@ -534,18 +534,35 @@ impl App {
             self.usage_document = None;
             return;
         };
-        let session_model = view.rows.columns.iter().any(|c| {
-            c.field == "model" && c.from.as_ref().is_some_and(|s| s.path == "session.model")
-        });
         let mut document = view.document.clone();
         for section in document["sections"].as_array_mut().into_iter().flatten() {
             for row in section["rows"].as_array_mut().into_iter().flatten() {
                 if let Some(id) = row["id"].as_str().map(str::to_owned) {
-                    for (i, value) in meter.member_fields(&id, now).into_iter().enumerate() {
-                        row["fields"][format!("tok_{}", i + 1)] = value.into();
-                    }
-                    if session_model {
-                        row["fields"]["model"] = meter.model(&id).unwrap_or("—").into();
+                    for column in &view.rows.columns {
+                        let Some(source) = &column.from else { continue };
+                        if let Some(index) = source.window() {
+                            let reading = meter.member(&id, index, now);
+                            let value = reading
+                                .and_then(|r| {
+                                    crate::source::render_value(
+                                        &serde_json::json!(r.tokens as f64),
+                                        column.format,
+                                        0,
+                                    )
+                                    .map(|value| {
+                                        format!("{}{value}", if r.partial { "~" } else { "" })
+                                    })
+                                })
+                                .unwrap_or_else(|| "—".into());
+                            row["fields"][&column.field] = value.into();
+                            if let Some(token) =
+                                reading.and_then(|r| column.threshold(r.tokens as f64))
+                            {
+                                row["colors"][&column.field] = token.into();
+                            }
+                        } else if source.path == "session.model" {
+                            row["fields"][&column.field] = meter.model(&id).unwrap_or("—").into();
+                        }
                     }
                 }
             }
@@ -4105,8 +4122,12 @@ mod token_window_tests {
         ]}]);
         let mut app = App::new(Some("product".into()));
         app.apply(super::tests::snapshot("product", rows));
-        app.view.as_mut().unwrap().rows =
-            crate::rows::Rows::preset().with_usage(TokenWindow::DEFAULTS);
+        app.view.as_mut().unwrap().rows = crate::config::Config::read(
+            std::env::temp_dir().join(format!("usage-projection-{}.toml", std::process::id())),
+        )
+        .unwrap()
+        .rows("product")
+        .unwrap();
         let public = app.view.as_ref().unwrap().document.clone();
         let mut first = super::super::rate::tests::input(100);
         first.resumes.get_mut("a").unwrap()["model"] = serde_json::json!("old");

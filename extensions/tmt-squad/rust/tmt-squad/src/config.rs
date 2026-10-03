@@ -299,10 +299,13 @@ columns = [
     { name = "member", width = "22%", min = 12, max = 24 },
     { name = "state", width = "14%", min = 9, max = 10 },
     { name = "task", grow = 1, min = 18 },
-    { name = "pr", width = "24%", min = 12, max = 28, priority = 2 },
-    { name = "model", from = "session.model", width = "16%", min = 18, max = 18, priority = 3 },
+    { name = "pr", width = "24%", min = 12, max = 28, priority = 6 },
+    { name = "model", from = "session.model", max = 14, priority = 2 },
+    { name = "tok_1", from = "usage.w1", format = "tokens", width = 7, min = 5, align = "right", priority = 3 },
+    { name = "tok_2", from = "usage.w2", format = "tokens", width = 7, min = 5, align = "right", priority = 4 },
+    { name = "tok_3", from = "usage.w3", format = "tokens", width = 7, min = 5, align = "right", priority = 5 },
 ]
-lines = [["member", "state", "task", "pr", "model"], ["", "", { field = "pending", span = 3, token = "waiting" }]]
+lines = [["member", "state", "task", "pr", "model", "tok_1", "tok_2", "tok_3"], ["", "", { field = "pending", span = 6, token = "waiting" }]]
 [team.fields.pr]
 preset = "github-pr"
 every = "60s"
@@ -310,6 +313,26 @@ every = "60s"
 enabled = true
 stale_after = "30m"
 "#;
+
+const CREW: &str = r#"
+[crew.rows]
+columns = [
+    { name = "member", width = 14 },
+    { name = "state", width = 10 },
+    { name = "task", grow = 1 },
+    { name = "pr_link", title = "PR", width = 12, priority = 6 },
+    { name = "model", from = "session.model", max = 14, priority = 2 },
+    { name = "tok_1", from = "usage.w1", format = "tokens", width = 7, min = 5, align = "right", priority = 3 },
+    { name = "tok_2", from = "usage.w2", format = "tokens", width = 7, min = 5, align = "right", priority = 4 },
+    { name = "tok_3", from = "usage.w3", format = "tokens", width = 7, min = 5, align = "right", priority = 5 },
+]
+lines = [["member", "state", "task", "pr_link", "model", "tok_1", "tok_2", "tok_3"]]
+"#;
+
+fn crew() -> &'static DocumentMut {
+    static PRESET: std::sync::OnceLock<DocumentMut> = std::sync::OnceLock::new();
+    PRESET.get_or_init(|| CREW.parse().expect("the crew preset is valid TOML"))
+}
 
 fn team() -> &'static DocumentMut {
     static PRESET: std::sync::OnceLock<DocumentMut> = std::sync::OnceLock::new();
@@ -1096,20 +1119,25 @@ impl Config {
             .transpose()
     }
 
-    /// Team's defaults enter the ordinary row/provider/reminder readers.
+    /// Team and crew defaults enter the ordinary row/provider/reminder readers.
     /// Whole row grids are replaced; provider fields and reminder keys override
     /// their matching defaults. No other layout's settings are changed.
     fn preset_settings(&self, squad: &str) -> Result<Option<Table>, SquadError> {
         let own = self.squad_table(squad)?;
-        if self.layout(squad)? != Layout::Team {
+        let preset = match self.layout(squad)? {
+            Layout::Team => team()["team"].as_table(),
+            Layout::Crew => crew()["crew"].as_table(),
+            _ => None,
+        };
+        let Some(preset) = preset else {
             return Ok(own.map(|table| {
                 table
                     .iter()
                     .map(|(key, value)| (key, value.clone()))
                     .collect()
             }));
-        }
-        let mut settings = team()["team"].as_table().expect("team table").clone();
+        };
+        let mut settings = preset.clone();
         // Board::preset owns the pane layout, not this settings projection.
         settings.remove("board");
         if let Some(own) = own {
@@ -1120,7 +1148,10 @@ impl Config {
                 if matches!(key, "fields" | "reminders")
                     && let Some(overrides) = item.as_table_like()
                 {
-                    let defaults = settings[key].as_table_mut().expect("preset table");
+                    let Some(defaults) = settings.get_mut(key).and_then(Item::as_table_mut) else {
+                        settings.insert(key, item.clone());
+                        continue;
+                    };
                     for (name, value) in overrides.iter() {
                         defaults.insert(name, value.clone());
                     }
@@ -1387,21 +1418,16 @@ impl Config {
         )
     }
 
-    pub fn has_custom_rows(&self, squad: &str) -> Result<bool, SquadError> {
-        Ok(self
-            .squad_table(squad)?
-            .is_some_and(|t| t.get("rows").is_some() || t.get("columns").is_some()))
-    }
-
     pub fn rows(&self, squad: &str) -> Result<crate::rows::Rows, SquadError> {
         self.rows_setting(squad).map(|resolved| resolved.0)
     }
     fn read_rows(&self, squad: &str) -> Result<crate::rows::Rows, SquadError> {
-        crate::rows::read(
+        crate::rows::read_with_windows(
             self.preset_settings(squad)?
                 .as_ref()
                 .map(|table| table as &dyn TableLike),
             squad,
+            self.token_windows(squad)?.0,
         )
     }
 
@@ -3089,7 +3115,9 @@ sort = ["state", "-name"]
                 .iter()
                 .map(|c| c.field.as_str())
                 .collect::<Vec<_>>(),
-            ["member", "state", "task", "pr", "model"]
+            [
+                "member", "state", "task", "pr", "model", "tok_1", "tok_2", "tok_3"
+            ]
         );
         let columns = config.rows("product").unwrap().columns;
         assert_eq!(
@@ -3226,10 +3254,14 @@ sort = ["state", "-name"]
         };
         let default = read("");
         assert_eq!(default.layout("x").unwrap(), Layout::Team);
-        let previous_rows = read("[squad.x]\nlayout = \"crew\"\n").rows("x").unwrap();
+        let previous_rows = crate::rows::Rows::preset();
         for layout in ["crew", "pr-queue", "minimal"] {
             let config = read(&format!("[squad.x]\nlayout = \"{layout}\"\n"));
-            assert_eq!(config.rows("x").unwrap(), previous_rows);
+            if layout == "crew" {
+                assert_eq!(config.rows("x").unwrap().columns.len(), 8);
+            } else {
+                assert_eq!(config.rows("x").unwrap(), previous_rows);
+            }
             assert!(config.providers("x").unwrap().is_empty());
             assert_eq!(config.reminders("x").unwrap(), Reminders::default());
         }
@@ -3259,7 +3291,9 @@ sort = ["state", "-name"]
         let rows = config.rows("x").unwrap();
         assert_eq!(
             rows.fields(),
-            ["member", "state", "task", "pr", "model", "pending"]
+            [
+                "member", "state", "task", "pr", "model", "tok_1", "tok_2", "tok_3", "pending"
+            ]
         );
         assert_eq!(rows.columns[4].from.as_ref().unwrap().path, "session.model");
         assert!(
@@ -3267,7 +3301,7 @@ sort = ["state", "-name"]
             "model uses the existing presence projection"
         );
         assert_eq!(rows.lines[1][2].field.as_deref(), Some("pending"));
-        assert_eq!(rows.lines[1][2].span, 3);
+        assert_eq!(rows.lines[1][2].span, 6);
         assert_eq!(rows.lines[1][2].token, Some(tmt_cli_style::Role::Waiting));
         assert_eq!(config.providers("x").unwrap()[0].name, "pr");
         assert_eq!(
@@ -3940,7 +3974,7 @@ filter = "not pending"
         }
         fs::write(
             &path,
-            "[board]\ntok='5m/60m/24h'\n[squad.p.board]\ntok='1m/5m/60m'\n",
+            "[board]\ntok='5m/60m/24h'\n[squad.p.board]\ntok='1m/5m/60m'\n[squad.p.rows]\ncolumns=[{name='observed',from='usage.w1',title='OBSERVED'}]\nlines=[['observed']]\n",
         )
         .unwrap();
         let config = Config::read(path.clone()).unwrap();
@@ -3951,10 +3985,18 @@ filter = "not pending"
         );
         assert_eq!(source, "board.tok");
         assert_eq!(
+            config.rows("other").unwrap().columns[5..]
+                .iter()
+                .map(|column| column.title.as_str())
+                .collect::<Vec<_>>(),
+            ["5m", "60m", "24h"]
+        );
+        assert_eq!(
             config.token_windows("p").unwrap(),
             (TokenWindow::DEFAULTS, "squad.p.board.tok".into())
         );
         assert_eq!(config.token_rate("other").unwrap().window, windows[0]);
+        assert_eq!(config.rows("p").unwrap().columns[0].title, "OBSERVED");
         fs::remove_file(path).unwrap();
     }
 }
