@@ -546,7 +546,7 @@ describe('component map', () => {
           file &&
           !file.endsWith('.md') &&
           !(file in mentions) &&
-          !translatedDevExtensionMentions.has(file),
+          !translatedDevExtensionMentions.has(file)
       );
     expect(candidates.length).toBeGreaterThan(20);
     const readers: string[] = [];
