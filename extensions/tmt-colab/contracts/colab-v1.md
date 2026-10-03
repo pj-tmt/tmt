@@ -473,25 +473,36 @@ subtree beneath browser mounts. There is no browser revocation route.
 
 ### Implemented mounted browser assets (#1253)
 
-The local-build foreground executable loads the app's Vite output at startup.
-Its default path is the compile-time crate directory plus
-`../../typescript/app/dist`, canonicalized at startup. Optional
-`serve --app-dir <absolute directory>` replaces that selection. An invalid
-explicit directory MUST fail with `COLAB_APP_UNAVAILABLE` before Colab state is
-created. A missing, unsafe or incomplete default MUST still start the service,
-with an owner placeholder carrying the one-line instruction
-`build the app: corepack pnpm --dir typescript --filter @tmt/colab-app build`.
-The binary remains excluded from release; there is no installer or data-root copy.
+The foreground executable selects optional `serve --app-dir <absolute directory>`
+first, then its embedded build, then the compile-time crate directory plus
+`../../typescript/app/dist`, canonicalized at startup. An invalid explicit
+selection or embedded inventory MUST fail with `COLAB_APP_UNAVAILABLE` before
+Colab state is created. A missing, unsafe or incomplete checkout default MUST
+still start the service with the owner build-hint placeholder.
 
-The immutable startup inventory MUST admit only nonempty regular files through
-no-follow directory-anchored opens, at most 128 files and 16 MiB total. It contains
-`index.html`, optional `THIRD-PARTY-NOTICES.txt` and flat generated `assets/` files;
+When supplied, build-time `TMT_COLAB_APP_DIR` MUST name an absolute complete Vite
+output directory. The build script validates `index.html`, optional
+`renderer.html`, required `THIRD-PARTY-NOTICES.txt` and flat `assets/` files with
+the same names, media types, entry references and 128-file/16-MiB bounds as runtime
+admission. Directories and files MUST be real, and files nonempty and regular.
+Invalid supplied input MUST fail compilation. The generated embedded table uses
+snapshots in Cargo's output directory; source mutation after generation cannot
+change those bytes. Absent input generates no embedded assets and preserves local
+checkout fallback. Startup passes embedded bytes through the same inventory
+validation. Moving a binary with embedded assets requires no app directory, checkout, Node
+or pnpm at runtime. There is no sibling app directory or data-root copy. Native release
+activation and its archive/install proofs remain owned by infra's #1418.
+
+Disk loading MUST admit only nonempty regular files through no-follow directory-
+anchored opens. Both disk and embedded inventories MUST have at most 128 files
+and 16 MiB total. The inventory contains
+`index.html`, optional `renderer.html` and `THIRD-PARTY-NOTICES.txt`, and flat generated `assets/` files;
 unknown output, symlinks and missing HTML entry references reject the inventory.
 JavaScript and CSS are required. Supported asset suffixes are `html`, `js`, `css`,
 `woff2`, `woff`, `ttf`, `otf`, `png`, `jpg`, `jpeg`, `svg`, `webp`, `ico` and `txt`.
 Fonts use their `font/<suffix>` media type; JS/CSS/HTML/notices use UTF-8 text
 media types. Assets MUST be exact startup bytes, including after files change or
-are removed; adopting a rebuilt app requires restarting serve.
+are removed; adopting a rebuilt disk app requires restarting serve; adopting a rebuilt embedded app requires rebuilding the binary.
 
 After existing API/event/upgrade dispatch, owner-context GET `/` and `/index.html`
 MUST return the built HTML; GET of an inventory key MUST return its bytes and

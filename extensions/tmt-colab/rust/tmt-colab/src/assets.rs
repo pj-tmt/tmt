@@ -1,5 +1,5 @@
-//! Immutable local-build app bytes. Request paths never reach the filesystem.
-use crate::{Result, limits};
+//! Immutable embedded or local-build app bytes. Requests never reach the filesystem.
+use crate::{Result, app_inventory, limits};
 use nix::{
     fcntl::{OFlag, open, openat},
     sys::stat::Mode,
@@ -32,6 +32,10 @@ impl std::fmt::Display for AssetFault {
 }
 impl std::error::Error for AssetFault {}
 
+mod embedded {
+    include!(concat!(env!("OUT_DIR"), "/colab_assets.rs"));
+}
+
 struct Asset {
     content_type: &'static str,
     bytes: Vec<u8>,
@@ -40,20 +44,44 @@ pub struct App {
     files: BTreeMap<String, Asset>,
 }
 impl App {
-    /// An explicit selection must be valid. A missing/incomplete default keeps
-    /// the foreground service available with owner-only build instructions.
+    /// Explicit builds fail closed; embedded bytes precede local checkout output.
     pub fn selected(explicit: Option<&Path>) -> Result<Option<Self>> {
-        Self::selected_or_default(explicit, Path::new(DEFAULT_DIRECTORY))
+        Self::selected_from(explicit, embedded::ASSETS, Path::new(DEFAULT_DIRECTORY))
     }
-    fn selected_or_default(explicit: Option<&Path>, default: &Path) -> Result<Option<Self>> {
-        let directory = explicit.unwrap_or(default);
-        match Self::load(directory) {
-            Ok(app) => Ok(Some(app)),
-            Err(error) if explicit.is_some() => {
-                Err(AssetFault(format!("{}: {error}", directory.display())).into())
-            }
-            Err(_) => Ok(None),
+    fn selected_from(
+        explicit: Option<&Path>,
+        embedded: &[(&str, &[u8])],
+        default: &Path,
+    ) -> Result<Option<Self>> {
+        if let Some(directory) = explicit {
+            return Self::load(directory)
+                .map(Some)
+                .map_err(|error| AssetFault(format!("{}: {error}", directory.display())).into());
         }
+        if !embedded.is_empty() {
+            return Self::from_embedded(embedded)
+                .map(Some)
+                .map_err(|error| AssetFault(format!("embedded inventory: {error}")).into());
+        }
+        Ok(Self::load(default).ok())
+    }
+    fn from_embedded(files: &[(&str, &[u8])]) -> Result<Self> {
+        app_inventory::validate(files)?;
+        Ok(Self {
+            files: files
+                .iter()
+                .map(|&(route, bytes)| {
+                    (
+                        route.to_owned(),
+                        Asset {
+                            content_type: app_inventory::content_type(route)
+                                .expect("validated route"),
+                            bytes: bytes.to_vec(),
+                        },
+                    )
+                })
+                .collect(),
+        })
     }
     pub fn load(directory: &Path) -> Result<Self> {
         if !directory.is_absolute() || !fs::symlink_metadata(directory)?.is_dir() {
@@ -78,9 +106,6 @@ impl App {
                 continue;
             }
             let name = name.to_str().ok_or("App filename must be UTF-8.")?;
-            if !matches!(name, "index.html" | "THIRD-PARTY-NOTICES.txt") {
-                return Err("Unexpected app build output.".into());
-            }
             app.insert(&root, name, format!("/{name}"), &mut total)?;
         }
         // Names come from enumeration; all opens stay anchored to the admitted
@@ -88,34 +113,14 @@ impl App {
         for entry in fs::read_dir(directory.join("assets"))? {
             let name = entry?.file_name();
             let name = name.to_str().ok_or("App filename must be UTF-8.")?;
-            if name.starts_with('.')
-                || name.len() > 128
-                || !name
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
-            {
-                return Err("Unsafe app asset filename.".into());
-            }
             app.insert(&assets, name, format!("/assets/{name}"), &mut total)?;
         }
-        let (_, index) = app.find("/").ok_or("App index is missing.")?;
-        let index = std::str::from_utf8(index)?;
-        // Vite emits relative, quoted entry references. Check them so a partially
-        // copied build cannot silently publish an index whose entry is missing.
-        for reference in index.split("\"./assets/").skip(1) {
-            let name = reference
-                .split('"')
-                .next()
-                .ok_or("Invalid app entry reference.")?;
-            if app.find(&format!("/assets/{name}")).is_none() {
-                return Err("App entry asset is missing.".into());
-            }
-        }
-        for kind in ["text/javascript; charset=utf-8", "text/css; charset=utf-8"] {
-            if !app.files.values().any(|asset| asset.content_type == kind) {
-                return Err("App build requires JavaScript and CSS.".into());
-            }
-        }
+        app_inventory::validate(
+            &app.files
+                .iter()
+                .map(|(route, asset)| (route.as_str(), asset.bytes.as_slice()))
+                .collect::<Vec<_>>(),
+        )?;
         Ok(app)
     }
     fn insert(
@@ -128,7 +133,8 @@ impl App {
         if self.files.len() >= limits::APP_FILES {
             return Err("App has too many assets.".into());
         }
-        let content_type = content_type(name).ok_or("Unsupported app asset type.")?;
+        let content_type =
+            app_inventory::content_type(&route).ok_or("Unsupported app asset type.")?;
         let file = File::from(openat(
             directory,
             name,
@@ -162,25 +168,6 @@ impl App {
             .map(|asset| (asset.content_type, asset.bytes.as_slice()))
     }
 }
-fn content_type(name: &str) -> Option<&'static str> {
-    Some(match name.rsplit('.').next()? {
-        "html" => "text/html; charset=utf-8",
-        "js" => "text/javascript; charset=utf-8",
-        "css" => "text/css; charset=utf-8",
-        "woff2" => "font/woff2",
-        "woff" => "font/woff",
-        "ttf" => "font/ttf",
-        "otf" => "font/otf",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "svg" => "image/svg+xml",
-        "webp" => "image/webp",
-        "ico" => "image/x-icon",
-        "txt" => "text/plain; charset=utf-8",
-        _ => return None,
-    })
-}
-
 #[cfg(test)]
 #[path = "assets_tests.rs"]
 mod tests;

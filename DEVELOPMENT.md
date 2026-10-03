@@ -3199,15 +3199,28 @@ data root for manual tests. Browsers reach colab through `tmt remote serve` at
 `/r/<prefix>/x/colab/`; remote owns Host and Origin admission and forwards the
 paired owner's device context.
 
-By default, `serve` loads `extensions/tmt-colab/typescript/app/dist` relative to
-its compile-time crate directory, canonicalized at startup. This is a local-build
-binary: moving the checkout requires rebuilding it or passing
-`serve --app-dir /absolute/path/to/dist`. The override is optional; an invalid
-explicit directory fails with `COLAB_APP_UNAVAILABLE` before creating Colab state.
-A missing, unsafe or incomplete default instead starts the socket and shows owners
-`build the app: corepack pnpm --dir typescript --filter @tmt/colab-app build`.
-Build and restart serve to adopt new assets. Files are snapshotted in memory, with
-128-file/16-MiB total bounds, no symlinks and no request-time filesystem access.
+`tmt-colab --version` reports `colab <Cargo package version>` without core or state access.
+`serve --app-dir /absolute/path/to/dist` overrides embedded assets. Otherwise
+serve uses its embedded build, then `extensions/tmt-colab/typescript/app/dist`
+relative to the compile-time crate directory, then the owner build hint. Invalid
+explicit/embedded input fails with `COLAB_APP_UNAVAILABLE` before creating state;
+a missing, unsafe or incomplete checkout default retains the hint.
+
+To embed a complete build, from the repository root:
+
+```sh
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-match build
+CARGO_BUILD_JOBS=2 TMT_COLAB_APP_DIR="$PWD/extensions/tmt-colab/typescript/app/dist" cargo build --offline --locked --manifest-path rust/Cargo.toml -p tmt-colab
+```
+
+`TMT_COLAB_APP_DIR` must be absolute and contain `index.html`, dependency notices,
+optional `renderer.html` and flat assets. Invalid supplied builds fail compilation.
+Without the variable, local builds retain checkout lookup and the build hint.
+Build and runtime share 128-file/16-MiB inventory validation; the build snapshots
+admitted bytes into Cargo's output directory. Disk loading rejects symlinks and
+requests never access files. Embedded binaries need no app directory at runtime;
+rebuild the binary to adopt new embedded assets. Restart serve to adopt disk builds.
+Shared release wiring and archive/install verification are infra-owned (#1418).
 Asset access needs remote's owner context, not prior Colab registration. Anonymous
 root requests retain private-space guidance; other asset requests are denied.
 App resources use same-origin relative URLs. The current font stacks fall back to
@@ -3506,7 +3519,15 @@ Build `tmt-colab` before `test:browser` so the real-socket asset scenario can st
 absolute test binary built from this checkout. The scenario runs twice with a
 temporary data root and a test HTTP-to-Unix-socket adapter, comparing actual built HTML/JS/CSS bytes, MIME
 types, nested mount loading, default/override selection, owner asset denial and
-process/socket cleanup. It also exercises the opaque sample renderer under the served app CSP, and proves
+process/socket cleanup. For an embedded relocation run, set
+`COLAB_SERVE_EMBEDDED=1` and `COLAB_SERVE_APP_DIR` to a separate expected-byte copy,
+select the embedded binary with `COLAB_SERVE_EXECUTABLE`, and make the checkout's
+`dist` unavailable. Each scenario publishes a copied binary through the existing
+isolated executable-fixture writer into a temporary install tree with no assets.
+The default scenario asserts the checkout is absent before starting. Remove the
+build-time source directory after compilation to prove both source dependencies
+are gone. These debug layout proofs complement infra's real archive/install gates.
+It also exercises the opaque sample renderer under the served app CSP, and proves
 cross-origin requests are blocked with a same-browser capture-server positive
 control. The adapter supplies owner context and a fixed core storage-root response; it does not mock
 static assets or add product API routes. The mounted shell reaches its existing

@@ -4685,18 +4685,22 @@ trusts `tmt-device-context` because only the owner can reach the socket. It
 keeps the relocated door's bounds (16 request workers, 8 KiB/32 header fields,
 64 KiB bodies, acquisition/response deadlines, drained replies) and answers the
 private guidance page to non-owner root requests. `assets::App` owns the bounded
-immutable app inventory: main selects the compile-time checkout-relative Vite output
-or an explicit absolute `serve --app-dir`, canonicalizes and loads it before creating
-state. A missing or incomplete default keeps serve available with owner-only build
-instructions; invalid explicit output returns `COLAB_APP_UNAVAILABLE`. Directory-
-anchored no-follow opens admit only nonempty regular generated files, at most 128
-files and 16 MiB in total. HTTP requests resolve exact in-memory keys, never paths
-on disk. Owner context is sufficient to load the app before Colab device registration;
-other asset requests are denied. Vite uses relative asset URLs beneath the remote
-mount. The app response CSP is owned by colab-v1, including the inline permissions
-needed by the opaque renderer's inherited policy. Files remain outside the binary
-and data root; a rebuild is adopted on restart. There is no installer or release
-change. It accepts a `colab-sync-v1`
+immutable app inventory: main selects an explicit absolute `serve --app-dir`, then
+embedded bytes, then compile-time checkout-relative Vite output before creating
+state. Invalid explicit or embedded inventories return `COLAB_APP_UNAVAILABLE`;
+missing/incomplete checkout output keeps the owner-only build hint. The build
+script optionally reads `TMT_COLAB_APP_DIR`, validates the complete generated build
+including notices, and snapshots bytes into Cargo's output directory before
+emitting its sorted embedded table. Absent input generates an empty table; invalid
+supplied input fails compilation. `app_inventory` shares route/type, HTML-entry
+and 128-file/16-MiB admission between build and runtime. Disk loads retain directory-
+anchored no-follow opens. HTTP resolves exact in-memory keys, never disk paths.
+Owner context suffices before Colab registration; other asset requests are denied.
+Vite uses relative URLs beneath the remote mount. The response CSP belongs to
+colab-v1. Embedded builds survive relocation without a checkout, Node, pnpm or
+sibling assets; adopting new embedded output requires rebuilding the binary.
+There is no installer payload or data-root change. Shared packaging/notices and
+release activation remain infra-owned under #1418. It accepts a `colab-sync-v1`
 WebSocket upgrade only with an active registered owner context, version 13 and a well-formed
 16-byte key, computing the accept value with the workspace `tungstenite`
 handshake, then drives the shared sync server (16 tunnels at most, closed after
