@@ -612,6 +612,15 @@ tunnel with no bytes in either direction for the idle bound is closed, and an up
 is refused with HTTP 503 and `Retry-After` before it reaches the extension. An extension keeps one
 WebSocket per page and reconnects after an idle close or a refusal.
 
+On a mounted WebSocket upgrade, the door forwards the client's `Sec-WebSocket-Protocol` value
+unchanged, including every offered subprotocol in its original order, and returns the extension's
+selected `Sec-WebSocket-Protocol` value in its `101` response unchanged. These values may carry
+extension-issued bearer tokens; the door never logs, audits or persists them. On every mounted
+request, including upgrades, client-supplied `tmt-device-context`, `tmt-device-event` and `tmt-mount`
+headers are stripped. Only the door sets these headers: `tmt-mount` identifies the actual mount,
+`tmt-device-context` is added only for an authenticated owner-device session, and `tmt-device-event`
+is reserved for the local callback above.
+
 **Relay.** Remote carries opaque, namespaced logs for extensions and never decrypts or interprets
 their payloads. A namespace is `<extension>:<path>` (for example `colab:<space>/<page>/<stream>`).
 Operations are append with create-only per-stream sequence (an exact retry returns the original
