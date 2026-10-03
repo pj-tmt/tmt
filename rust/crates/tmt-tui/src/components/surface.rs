@@ -588,6 +588,32 @@ fn render_inner(
         scene.spec.has(ModalSlot::Footer),
         scene.spec.has(ModalSlot::Status),
     );
+    let slot_lines = |slot| {
+        modal_node
+            .children
+            .iter()
+            .skip(1)
+            .zip(&scene.spec.slots)
+            .find(|(_, kind)| **kind == slot)
+            .map_or(0, |(node, _)| {
+                node.text.as_deref().map_or(1, |value| {
+                    text::measure(
+                        value,
+                        node.style.text_flow,
+                        geometry::Space::Cells(areas.content.width),
+                    )[1]
+                    .max(1)
+                })
+            })
+    };
+    let footer_lines = slot_lines(ModalSlot::Footer);
+    let status_lines = slot_lines(ModalSlot::Status);
+    areas = scene.spec.modal.areas_with_lines(
+        body.intersection(buffer.area),
+        [demand_width, demand_height],
+        footer_lines,
+        status_lines,
+    );
     if scene.spec.has(ModalSlot::Query) {
         areas.content.y = areas
             .content
@@ -618,16 +644,16 @@ fn render_inner(
     }
     let demand_height = rows
         .saturating_add(
-            3 + usize::from(scene.spec.has(ModalSlot::Footer))
-                + usize::from(scene.spec.has(ModalSlot::Status))
+            3 + usize::from(footer_lines)
+                + usize::from(status_lines)
                 + usize::from(scene.spec.has(ModalSlot::Query)),
         )
         .min(usize::from(u16::MAX)) as u16;
-    let mut areas = scene.spec.modal.areas(
+    let mut areas = scene.spec.modal.areas_with_lines(
         body.intersection(buffer.area),
         [demand_width, demand_height],
-        scene.spec.has(ModalSlot::Footer),
-        scene.spec.has(ModalSlot::Status),
+        footer_lines,
+        status_lines,
     );
     let query = if scene.spec.has(ModalSlot::Query) {
         let query = Rect {

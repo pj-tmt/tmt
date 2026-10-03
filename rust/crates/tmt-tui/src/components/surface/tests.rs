@@ -115,6 +115,67 @@ fn opaque_reference_box_preserves_outside_base_and_anchors_footer_and_status() {
 }
 
 #[test]
+fn wrapped_fixed_slots_reserve_lines_before_scroll_and_remeasure_on_resize() {
+    let markup = MARKUP
+        .replace("slot=\"status\"", "slot=\"status\" wrap=\"true\"")
+        .replace("slot=\"footer\"", "slot=\"footer\" wrap=\"true\"");
+    let status = "Saved layout crew; local settings can override them.";
+    let footer = "Up Down scroll; Escape closes this reference.";
+    let scene = compile(
+        "wrapped.xml",
+        &crate::parse("wrapped.xml", &markup).unwrap(),
+        &schema(),
+        &NoSources,
+    )
+    .unwrap()
+    .materialize(
+        "wrapped.xml",
+        &json!({"help": model().value(), "footer": footer, "status": status}),
+        &NoSources,
+    )
+    .unwrap();
+    let mut scroll = ScrollState::default();
+    for width in [24, 80, 24] {
+        let (buffer, map) = draw(&scene, &mut scroll, width, 18);
+        assert_eq!(
+            map.areas.status.height,
+            text::lines(status, map.areas.status.width, crate::style::TextFlow::Wrap).len() as u16
+        );
+        assert_eq!(
+            map.areas.footer.height,
+            text::lines(footer, map.areas.footer.width, crate::style::TextFlow::Wrap).len() as u16
+        );
+        assert!(map.areas.content.bottom() <= map.areas.status.y);
+        let fixed = |area: Rect| {
+            (area.y..area.bottom())
+                .map(|y| line(&buffer, area, y).trim().to_owned())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        assert_eq!(fixed(map.areas.status), status);
+        assert_eq!(fixed(map.areas.footer), footer);
+        scroll.step(Step::Bottom);
+        let (scrolled, next) = draw(&scene, &mut scroll, width, 18);
+        assert_eq!(next.areas.footer, map.areas.footer);
+        assert_eq!(
+            line(&scrolled, next.areas.footer, next.areas.footer.y),
+            line(&buffer, map.areas.footer, map.areas.footer.y)
+        );
+    }
+    for height in 0..6 {
+        let (_, map) = draw(&scene, &mut scroll, 3, height);
+        for area in [
+            map.areas.content,
+            map.areas.status,
+            map.areas.footer,
+            map.areas.position,
+        ] {
+            assert!(area.height == 0 || area.intersection(map.areas.outer) == area);
+        }
+    }
+}
+
+#[test]
 fn every_section_uses_the_global_display_cell_key_width() {
     let mut scroll = ScrollState::default();
     let (buffer, map) = draw(&scene(&model()), &mut scroll, 120, 18);
