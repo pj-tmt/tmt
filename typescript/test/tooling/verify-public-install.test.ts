@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { colabFixtureBinary } from '../support/colab-runtime-fixture.js';
+import { verifyColabApp } from '../../scripts/colab-runtime-proof.mjs';
 import {
   installerUrl,
   renderSmokeSummary,
@@ -167,6 +168,7 @@ function run(
     download?: (url: string, maximum: number) => Promise<Uint8Array>;
     target?: string;
     architectures?: string[];
+    colabVariant?: string;
   } = {}
 ) {
   const root = path.join(base, `run-${(counter += 1)}`);
@@ -206,6 +208,8 @@ function run(
         });
       },
       githubToken: options.githubToken,
+      verifyColab: (input) =>
+        verifyColabApp({ ...input, args: ['--fixture-variant', options.colabVariant ?? 'valid'] }),
       ...(options.download ? { download: options.download } : {}),
       ...(options.systemPath ? { systemPath: options.systemPath } : {}),
       fetch: async (url: string) => {
@@ -638,10 +642,10 @@ describe('public Colab embedded app smoke', () => {
     ['STARTUP_FAILURE', false],
     ['LEAK_SOCKET', false],
   ])('checks an installed native %s fixture after install/list', async (variant, ok) => {
-    const binary = colabFixtureBinary(base, variant);
+    const binary = colabFixtureBinary(base);
     const attempt = run(
       { extension: { product: 'colab', binary, installs: '0.1.0-alpha.1' } },
-      { product: 'colab', tag: 'tmt-colab-v0.1.0-alpha.1' }
+      { product: 'colab', tag: 'tmt-colab-v0.1.0-alpha.1', colabVariant: variant }
     );
     const results = await attempt.results;
     expect(results.slice(0, -1).every((result) => result.ok)).toBe(true);

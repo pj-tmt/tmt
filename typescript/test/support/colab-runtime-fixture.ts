@@ -1,31 +1,23 @@
-import { spawnSync } from 'node:child_process';
+import { accessSync, constants, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
+import { writeExecutable } from './executable-fixture.mjs';
 
-/** Compile a test-only native server with known embedded bytes and one optional defect. */
-export function colabFixtureBinary(root: string, variant = 'valid'): string {
+/** Publish the explicitly built native fixture; never compile or use a host fallback in tests. */
+export function colabFixtureBinary(root: string): string {
+  const source =
+    process.env.TMT_TEST_COLAB_FIXTURE ??
+    fileURLToPath(
+      new URL('../../../rust/target/debug/examples/colab-runtime-fixture', import.meta.url)
+    );
+  assert(path.isAbsolute(source), 'TMT_TEST_COLAB_FIXTURE must be absolute');
   assert(
-    ['valid', 'PLACEHOLDER', 'CORRUPT_ASSET', 'STARTUP_FAILURE', 'LEAK_SOCKET'].includes(variant)
+    statSync(source).isFile(),
+    'Build the tmt-test-support colab-runtime-fixture example first'
   );
-  const executable = path.join(root, `colab-${variant}`);
-  const source = fileURLToPath(new URL('../fixtures/colab-runtime.c', import.meta.url));
-  const result = spawnSync(
-    'cc',
-    [
-      '-std=c11',
-      '-Wall',
-      '-Wextra',
-      '-Werror',
-      ...(process.platform === 'linux' ? ['-static'] : []),
-      ...(variant === 'valid' ? [] : [`-D${variant}`]),
-      source,
-      '-o',
-      executable,
-    ],
-    { encoding: 'utf8', timeout: 15_000 }
-  );
-  assert.ifError(result.error);
-  assert.equal(result.status, 0, result.stderr);
+  accessSync(source, constants.X_OK);
+  const executable = path.join(root, 'colab-fixture');
+  writeExecutable(executable, readFileSync(source), 0o700);
   return executable;
 }

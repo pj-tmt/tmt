@@ -147,7 +147,14 @@ async function cleanupChild(child) {
 }
 
 /** One installed-app proof shared by archive verification and public-install smoke. */
-export async function verifyColabApp({ executable, version, expectedApp, notices, tmtExecutable }) {
+export async function verifyColabApp({
+  executable,
+  args = [],
+  version,
+  expectedApp,
+  notices,
+  tmtExecutable,
+}) {
   assert.equal(typeof notices, 'string', 'Colab proof requires combined archive notices');
   assert(notices.length > 0, 'Colab combined notices are empty');
   const expected = expectedApp ? expectedFiles(expectedApp) : null;
@@ -163,8 +170,7 @@ export async function verifyColabApp({ executable, version, expectedApp, notices
     for (const directory of [runtime, home, state, cwd, emptyPath])
       fs.mkdirSync(directory, { mode: 0o700 });
     const binary = path.join(runtime, 'tmt-colab');
-    fs.copyFileSync(executable, binary);
-    fs.chmodSync(binary, 0o700);
+    writeExecutable(binary, fs.readFileSync(executable), 0o700);
     if (!tmtExecutable) {
       // Archive proof injects only storage-root discovery; public smoke uses its real installed CLI.
       tmtExecutable = path.join(root, 'core-storage-fixture');
@@ -183,12 +189,12 @@ export async function verifyColabApp({ executable, version, expectedApp, notices
       TMT_EXECUTABLE: tmtExecutable,
     };
     assert.equal(
-      runPackedCommand(binary, ['--version'], { cwd, env }),
+      runPackedCommand(binary, [...args, '--version'], { cwd, env }),
       `colab ${version}\n`,
       'Colab version mismatch'
     );
     const socket = path.join(state, 'colab', 'door.sock');
-    child = spawn(binary, ['serve', '--json'], {
+    child = spawn(binary, [...args, 'serve', '--json'], {
       cwd,
       env,
       detached: true,

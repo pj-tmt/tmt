@@ -4016,6 +4016,7 @@ their owners. Office real-companion stress cases use `office-*` filenames and th
 component map's stress `selectedBy` glob; retained-release setup uses the private
 installer, while public acquisition refusal stays in the native lifecycle suite.
 The `rust/crates/tmt-test-support` library owns fixture-executable publication for
+`rust/crates/tmt-test-support` owns fixture-executable publication for
 [DEVELOPMENT's ETXTBSY case 2](DEVELOPMENT.md#rust-checks), not general test utilities.
 Its one `write_executable` helper sends exact bytes and the caller's permission
 mode to a short-lived shell through `tmt-invoke`'s bounded execution and
@@ -4030,6 +4031,11 @@ publication metadata. Its only production dependency is the neutral `tmt-invoke`
 Its developer-only `release-version` example owns the release TOML tool described
 [below](#release-cut-shadow), with exact untargeted `serde_json`/`toml_edit` dev edges;
 these dependencies cannot enter the library or become production/build edges.
+Its separate `colab-runtime-fixture` example is the reviewed native stand-in
+for archive and public-install verifier sensitivity. Embedded tiny app bytes and
+argument-selected defects belong to this executable, with scenario assertions in
+tooling tests. Its `signal-hook` dev-dependency owns fixture SIGTERM cleanup; the
+library's production dependency boundary and publication helper are unchanged.
 Owner-local test modules retain readiness, scenario assertions and case-3 retries.
 
 The CLI's `tests/support` module owns the isolated environment and
@@ -4225,7 +4231,7 @@ registration in a published supporting CLI alpha, and actual-archive acceptance.
 The shared `colab-runtime-proof.mjs` verifies relocated socket serving, exact
 independent app bytes for archives, representative app delivery for public smoke,
 combined notices and child/socket cleanup with no frontend runtime tooling.
-Its native tiny-app fixture proves guard sensitivity while embedding is pending;
+Its Rust example with a tiny embedded app proves guard sensitivity while embedding is pending;
 it does not establish release-artifact acceptance. Expected Vite files are moved
 away from the checkout fallback before the final archive executes.
 

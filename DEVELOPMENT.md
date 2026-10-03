@@ -1423,6 +1423,9 @@ narrowing Cargo package selection, build them together with
 build both packages; the shared raw-runtime artifact carries both executables,
 and tooling restores executable mode after download. Drivers are independent
 release components, outside the `tmt extension` inventory.
+Tooling's Colab verifier also needs `cargo build --locked -p tmt-test-support
+--example colab-runtime-fixture`. The same native-runtime job builds and transfers
+that example under `examples/`; it is test infrastructure, never a product archive.
 
 Shared extension archive scenarios also require the debug Squad, Remote and Colab
 executables. Both full and Squad-scoped process CI run those scenarios and build
@@ -2856,6 +2859,7 @@ fail in Colab's build script.
 Run fixture checks without Docker or a release build:
 
 ```sh
+(cd rust && cargo build --locked -p tmt-test-support --example colab-runtime-fixture)
 (cd typescript && corepack pnpm@10.33.0 exec vp test run --config vitest.config.ts test/tooling/colab-runtime-proof.test.ts test/tooling/native-artifact-stdout.test.ts test/tooling/native-cargo.test.ts test/tooling/native-release-policy.test.ts test/tooling/plan-release-builds.test.ts test/tooling/verify-public-install.test.ts test/tooling/release-workflow.test.ts)
 (cd typescript && corepack pnpm@10.33.0 check:tooling)
 sh -n scripts/build-native-artifact.sh
@@ -2863,7 +2867,10 @@ sh -n scripts/native-cargo.sh
 actionlint .github/workflows/native-release.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-smoke.yml .github/workflows/native-release-upgrade.yml
 ```
 
-The fixture requires a host C compiler (`cc`; static linking on Linux). Positive
+The Rust example is selected from `rust/target/debug/examples/colab-runtime-fixture`
+or an explicit absolute `TMT_TEST_COLAB_FIXTURE` when using a separate Cargo target.
+Tests publish that built binary through the executable fixture owner and select
+defects by `--fixture-variant`; they never compile during execution. Positive
 and mutated binaries exercise exact embedded bytes, placeholder/startup rejection,
 combined-notice omissions and graceful process/socket cleanup. This is proof of
 the verifier, not Colab's app/crypto/browser acceptance.

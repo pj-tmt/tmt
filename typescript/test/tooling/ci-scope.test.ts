@@ -1742,12 +1742,19 @@ describe('required CI gate', () => {
       "cargo build --locked --release --target '${{ matrix.target }}' -p tmt-cli -p tmt-driver-herdr --bins"
     );
     expect(runtime).toContain('rust/target/${{ matrix.target }}/release/tmt-driver-herdr');
+    expect(runtime).toContain(
+      "cargo build --locked --release --target '${{ matrix.target }}' -p tmt-test-support --example colab-runtime-fixture"
+    );
+    expect(runtime).toContain(
+      'rust/target/${{ matrix.target }}/release/examples/colab-runtime-fixture'
+    );
     const tooling = workflow.split('\n  unit-tests:\n')[1].split('\n  docker-e2e-shard-1:\n')[0];
     expect(tooling).toContain('name: runtime-x86_64-unknown-linux-musl');
     expect(tooling).toContain('path: rust/target/debug');
     expect(tooling).toContain(
       'chmod +x ../rust/target/debug/tmt ../rust/target/debug/tmt-driver-herdr'
     );
+    expect(tooling).toContain('../rust/target/debug/examples/colab-runtime-fixture');
     expect(native).toContain('rust/target/release/tmt');
     expect(native).toContain('cargo test --locked');
     expect(native).toContain('cargo clippy --locked --workspace --all-targets -- -D warnings');

@@ -130,6 +130,7 @@ export async function smokeRelease({
   wait = sleep,
   githubToken,
   systemPath = ['/usr/bin', '/bin', '/usr/sbin', '/sbin'],
+  verifyColab = verifyColabApp,
 }) {
   const version = versionOfTag(tag, product);
   const [home, state, tmp, prefix] = ['home', 'state', 'tmp', 'prefix'].map((name) => {
@@ -400,7 +401,7 @@ export async function smokeRelease({
   if (listed && product === 'colab') {
     await check('colab embedded app', async () => {
       const executable = realpathSync(path.join(extensionPrefix, 'bin', 'tmt-colab'));
-      await verifyColabApp({
+      await verifyColab({
         executable,
         tmtExecutable: binary,
         version,

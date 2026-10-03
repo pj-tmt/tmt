@@ -11,7 +11,6 @@ const { nativeHostTarget, verifyNativeRuntime } = await import(
 );
 let root: string;
 let app: string;
-const variants = ['valid', 'PLACEHOLDER', 'CORRUPT_ASSET', 'STARTUP_FAILURE', 'LEAK_SOCKET'];
 const notices = 'Rust attribution\nTiny app attribution\n';
 beforeAll(() => {
   root = mkdtempSync('/tmp/colab-verifier-fixture-');
@@ -24,15 +23,14 @@ beforeAll(() => {
   writeFileSync(path.join(app, 'assets/app.js'), "console.log('embedded fixture');\n");
   writeFileSync(path.join(app, 'assets/app.css'), 'body { color: blue; }\n');
   writeFileSync(path.join(app, 'THIRD-PARTY-NOTICES.txt'), 'Tiny app attribution\n');
-  for (const variant of variants) {
-    colabFixtureBinary(root, variant);
-  }
+  colabFixtureBinary(root);
 }, 30_000);
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 const proof = (variant = 'valid', combined = notices) =>
   verifyColabApp({
-    executable: path.join(root, `colab-${variant}`),
+    executable: path.join(root, 'colab-fixture'),
+    args: ['--fixture-variant', variant],
     expectedApp: app,
     notices: combined,
     version: '0.1.0-alpha.1',
@@ -41,7 +39,7 @@ const proof = (variant = 'valid', combined = notices) =>
 describe('relocated native Colab app proof', () => {
   it('runs a native fixture with exact embedded HTML, assets and notices through the shared archive proof', async () => {
     await verifyNativeRuntime({
-      executable: path.join(root, 'colab-valid'),
+      executable: path.join(root, 'colab-fixture'),
       target: nativeHostTarget(),
       version: '0.1.0-alpha.1',
       product: 'colab',
@@ -52,7 +50,7 @@ describe('relocated native Colab app proof', () => {
     // No source app path is passed to the child; the independent input only belongs to the verifier.
     expect(readFileSync(path.join(app, 'assets/app.js'), 'utf8')).toContain('embedded fixture');
     await verifyColabApp({
-      executable: path.join(root, 'colab-valid'),
+      executable: path.join(root, 'colab-fixture'),
       notices,
       version: '0.1.0-alpha.1',
     });
