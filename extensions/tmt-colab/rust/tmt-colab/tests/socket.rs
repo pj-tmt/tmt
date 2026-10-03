@@ -2393,3 +2393,94 @@ fn management_root_ipc_rejects_forwarded_headers_before_parsing_without_effects(
     // The same frozen request remains usable by a root-local caller without headers.
     management_response(&server, &server.event(path, "", &body), "2");
 }
+
+#[test]
+fn root_local_page_write_broadcasts_chain_chunks_and_replays_without_fanout() {
+    use tmt_colab::{decoder::Decoder, page};
+    let server = Running::start(Tunnels::PRODUCT);
+    let layout = Layout::existing(&server.root).unwrap().unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    // The fixture supplies an existing page key; the CLI must not initialize it.
+    server
+        .oracle()
+        .execute(
+            "INSERT INTO epoch_secrets VALUES (?,?,?)",
+            rusqlite::params![PAGE, format!("{:020}", 1), [8u8; 32].as_slice()],
+        )
+        .unwrap();
+    let (socket, head) = server.tunnel();
+    assert!(head.starts_with("HTTP/1.1 101"));
+    let mut peer = WebSocket::from_raw_socket(socket, Role::Client, None);
+    hello(&server, &mut peer, DEVICE);
+    let store = Store::read(&layout).unwrap();
+    let mut decoder = Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    let source = "source 🐈\r\n".repeat(6000);
+    let prepared = page::prepare(&store, &key, PAGE, &source, None, &mut decoder, now()).unwrap();
+    let base = page::prepare(&store, &key, PAGE, "stale", None, &mut decoder, now()).unwrap();
+    store.close().unwrap();
+    let body = serde_json::to_string(&prepared).unwrap();
+    assert!(body.len() > limits::HTTP_BODY_BYTES);
+    assert!(body.len() < limits::http_body_bytes(page::ipc::PATH));
+    let before = fs::read(layout.directory.join("space.db")).unwrap();
+    for header in [
+        format!("{}\r\n", owner(DEVICE)),
+        "tmt-device-event: 1\r\n".into(),
+    ] {
+        let denied = server.event(page::ipc::PATH, &header, &body);
+        assert!(denied.contains("COLAB_DENIED"));
+        assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), before);
+    }
+    let receipt = page::ipc::write(&layout, &prepared).unwrap();
+    let broadcast = receive(&mut peer);
+    assert_eq!(broadcast["type"], "broadcast");
+    assert_eq!(broadcast["streamId"], receipt.stream_id);
+    assert_eq!(broadcast["chains"][0]["chain"], prepared.chain);
+    assert!(broadcast["envelope"].is_object());
+    let mut assembled = Vec::new();
+    loop {
+        let chunk = receive(&mut peer);
+        assert_eq!(chunk["type"], "chunk");
+        assembled
+            .extend(values::binary(chunk["bytes"].as_str().unwrap(), limits::CHUNK_BYTES).unwrap());
+        if chunk["index"].as_u64().unwrap() + 1 == chunk["count"].as_u64().unwrap() {
+            break;
+        }
+    }
+    assert_eq!(
+        assembled,
+        values::binary(&prepared.envelope, limits::UPDATE_BYTES).unwrap()
+    );
+    let before = fs::read(layout.directory.join("space.db")).unwrap();
+    let replay = page::ipc::write(&layout, &prepared).unwrap();
+    assert_eq!(
+        serde_json::to_value(replay).unwrap(),
+        serde_json::to_value(&receipt).unwrap()
+    );
+    assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), before);
+    peer.send(Message::Ping(vec![1].into())).unwrap();
+    assert!(
+        matches!(peer.read().unwrap(), Message::Pong(_)),
+        "replay broadcast again"
+    );
+    let stale = page::ipc::write(&layout, &base).err().unwrap();
+    assert_eq!(
+        stale
+            .downcast_ref::<page::ipc::WriteError>()
+            .unwrap()
+            .code(),
+        "COLAB_STALE_BASE"
+    );
+    assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), before);
+    let store = Store::read(&layout).unwrap();
+    assert_eq!(
+        page::read(&store, &key, PAGE, &mut decoder).unwrap().source,
+        source
+    );
+    // A failed local request never switches writers; removing the socket rejects.
+    drop(peer);
+    drop(server);
+    assert!(page::ipc::write(&layout, &prepared).is_err());
+}

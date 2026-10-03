@@ -238,6 +238,28 @@ impl OwnerTransaction<'_> {
             .query_row("SELECT epoch FROM pages WHERE page=?", [page], |r| r.get(0))
             .optional()?)
     }
+    pub(crate) fn append_content(
+        &mut self,
+        envelope: &super::Envelope<'_>,
+    ) -> Result<super::Accepted> {
+        Ok(super::append_in(self.tx, envelope)?.ok_or(super::Fault::Conflict)?)
+    }
+    pub(crate) fn save_operation(
+        &mut self,
+        id: &str,
+        digest: &[u8; 32],
+        outcome: &[u8],
+    ) -> Result<()> {
+        values::generated_id(id)?;
+        if outcome.len() > MAX_OUTCOME_BYTES {
+            return Err(OwnerFault::Capacity.into());
+        }
+        self.tx.execute(
+            "INSERT INTO owner_operations VALUES (?,?,?)",
+            params![id, digest.as_slice(), outcome],
+        )?;
+        Ok(())
+    }
     pub fn head(&self) -> Option<&statement::Head> {
         self.head.as_ref()
     }

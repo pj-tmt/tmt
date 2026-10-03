@@ -204,6 +204,14 @@ impl Registration {
         self.engine
             .apply(&mut self.store, &self.keyring, request, now)
     }
+    /// Root-local ciphertext write; caller holds the sync mutex before this service.
+    pub(crate) fn page_write(
+        &mut self,
+        prepared: &crate::page::Prepared,
+        now: u64,
+    ) -> crate::Result<crate::page::Committed> {
+        crate::page::commit(&mut self.store, &self.keyring, prepared, now)
+    }
     pub(crate) fn management_device(
         &mut self,
         context: Option<&str>,

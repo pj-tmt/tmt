@@ -1675,6 +1675,79 @@ CLI failures add `COLAB_INPUT_INVALID`, `COLAB_CONFIRMATION_REQUIRED`,
 keep their codes. Success exits 0. Neither acknowledgments nor unsigned output
 create browser authority; browser refresh still uses verified catchup.
 
+## Root-local page source CLI (#1438)
+
+`tmt colab page read <page> [--json]` captures existing state through the
+owner-authenticated fold and isolated decoder. Raw stdout is exact admitted UTF-8
+source, without an added newline; stderr carries the verified head, epoch and
+page revision. JSON is `{spaceId,pageId,source,title,epoch,membershipHead,
+revision,memoryLimit}`. `membershipHead` is `{revision,statementHash}` with decimal
+revision and lowercase hex hash. Reads never initialize or migrate state.
+Archive/delete reads retain the fold's current inactive-page restriction.
+
+`tmt colab page write <page> --file <path|-> [--expected-revision <token>] [--json]`
+retains the title and prepares a minimal text delta in the isolated child against
+admitted Yjs structs. It does not recreate the shared document, execute HTML,
+advance membership or restore discussion/authority state. Source is bounded to
+2 MiB, updates to 256 KiB, and composed decoder input/output to 4 MiB; existing
+fold/count/deadline/cleanup limits still apply. Stdin has a five-second EOF deadline.
+Invalid UTF-8, capacity and inactive-page writes reject without mutation.
+
+The opaque `revision` is `v1:` plus lowercase hex SHA-256 of framed domain
+`tmt-colab-page-revision-v1`, space, page, decimal membership revision, head hash,
+decimal epoch and serialized ordered namespace-cut payloads. It fences content
+appends as well as membership/epoch/checkpoint changes; it is not the membership
+revision alone. With an expected token, a mismatch returns `COLAB_STALE_BASE`.
+Without one, the write captures its base when it starts. Commit rechecks that
+same base in a writer transaction, never silently rebasing a replacement.
+All failures exit 1. JSON errors use the extension's `{error:{code,message}}` shape.
+
+Keyring derives a root-local device using independent labels
+`tmt-colab-cli-device-id-v1`, `tmt-colab-cli-signing-seed-v1` and
+`tmt-colab-cli-encryption-seed-v1`, under the existing management HKDF framing.
+The ID uses the first 16 bytes with UUIDv4 version/variant bits. The revision-1
+management member certifies its keys for 365 days. Existing keys/certificates
+must match. An expired, verified non-revoked chain is renewed for the same derived
+device; replacement commits atomically with the append and receipt. Revoked devices
+fail closed, including receipt replay; a frozen expired request must be prepared again.
+This device is not a Remote registration and grants no browser session or agent
+operation authority. Private material stays in Keyring.
+
+After preparation releases the read snapshot, the caller tries the serve lifecycle
+lock. Holding it selects the offline existing-state writer; a held lock selects the
+running serve through the existing owned 0600 Unix socket. One device transaction
+checks the pinned chain,
+base/head/epoch/positions, then commits the device chain, signed encrypted content
+append and exact operation receipt together. Existing create-only append/quota/
+conflict semantics are reused. Exact frozen retries return the original receipt,
+without re-signing or overwriting later content. Changed bytes conflict. JSON
+success is `{spaceId,pageId,epoch,membershipHead,revision,streamId,seq,envelopeHash,
+sourceSha256,memoryLimit}`; hashes use lowercase hex except the model envelope hash,
+which is canonical base64url.
+
+Serving writes use POST `/.tmt/colab/local/page-write`. Its strict prepared DTO is
+`{version,operationId,spaceId,pageId,epoch,membershipHead,baseRevision,sourceSha256,
+memoryLimit,chain,envelope}`; version is 1, operationId is a frozen UUIDv4, and
+chain/envelope are canonical base64url. The request contains no plaintext source,
+private key or epoch key. Forwarded device-context or event headers are DENIED;
+wrong methods/upgrades and unknown/duplicate fields reject. The reserved router
+shares management's local-header denial. One body-cap rule gives this route
+512 KiB and retains 64 KiB for other HTTP routes. Acquisition, frame, queue and
+response bounds remain in force; the client bounds its response and absolute read
+deadline. An IPC failure or uncertain response never falls back to an offline
+writer, changes the operation identity or automatically resends.
+
+Serving locks sync before Registration and prepares bounded transport before the
+transaction. A new committed append queues a `broadcast` with the normal scoped
+position/envelope fields and `chains:[{deviceId,chain}]`; the chain identifies the
+local author and is repeated to permit certificate renewal. The browser admits
+chains on its serialized executor before envelope authentication and Worker
+application. Larger envelopes use the existing reference and lazy chunk transfer,
+with the chain retained on the completed broadcast. Exact replay returns the
+original receipt without another broadcast. Slow or revoked peers use existing
+resync/admission failure behavior; queue failure does not undo a durable receipt.
+The service never receives or decodes plaintext source.
+
 ## Plaintext page export (#1309)
 
 Export v1 emits exactly `page.html` and `manifest.json`. Native captures one

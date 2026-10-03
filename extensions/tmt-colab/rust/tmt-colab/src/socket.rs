@@ -306,10 +306,36 @@ fn serve(
         let _ = response(&mut socket, status, text.as_bytes(), false);
         return;
     }
+    if request.path == crate::page::ipc::PATH {
+        let result = (|| -> Result<Vec<u8>> {
+            if local_denied(&request) {
+                return Err(crate::page::Fault::Denied.into());
+            }
+            if request.method != "POST" || request.upgrade {
+                return Err(crate::page::Fault::Invalid.into());
+            }
+            let prepared =
+                serde_json::from_slice(&request.body).map_err(|_| crate::page::Fault::Invalid)?;
+            let receipt = sync
+                .ok_or(crate::page::Fault::Unavailable)?
+                .page_write(&prepared, registration::now_ms()?)?;
+            Ok(serde_json::to_vec(&receipt)?)
+        })();
+        match result {
+            Ok(bytes) => {
+                let _ = response_as(&mut socket, 200, &bytes, "application/json");
+            }
+            Err(error) => {
+                let failure = crate::page::ipc::WriteError::from_error(error.as_ref());
+                if let Ok(bytes) = serde_json::to_vec(&failure) {
+                    let _ = response_as(&mut socket, failure.status(), &bytes, "application/json");
+                }
+            }
+        }
+        return;
+    }
     if request.path == management::PATH || request.path == management::LOCAL_PATH {
-        let result = if request.path == management::LOCAL_PATH
-            && (request.context.is_some() || request.event.is_some())
-        {
+        let result = if request.path == management::LOCAL_PATH && local_denied(&request) {
             Err(management::Code::Denied)
         } else if request.method != "POST" || request.upgrade {
             Err(management::Code::Invalid)
@@ -601,6 +627,10 @@ fn apply_event(
 }
 /// Sync first, then Registration, matching upgrade/event and per-turn admission.
 /// The callback commits owner effects before pending subscriptions are rechecked.
+/// Reserved local routes derive authority from the socket, never forwarded headers.
+fn local_denied(request: &Request) -> bool {
+    request.context.is_some() || request.event.is_some()
+}
 fn apply_management(
     request: &Request,
     space: &str,
@@ -882,7 +912,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
                     return Err(400);
                 }
                 size = value.parse::<usize>().map_err(|_| 413u16)?;
-                if size > limits::HTTP_BODY_BYTES {
+                if size > limits::http_body_bytes(&request.path) {
                     return Err(413);
                 }
             }
@@ -918,6 +948,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             | "/api/pages"
             | management::PATH
             | management::LOCAL_PATH
+            | crate::page::ipc::PATH
     ) {
         request.owner = request.context.as_deref().map(owner_name).transpose()?;
     }

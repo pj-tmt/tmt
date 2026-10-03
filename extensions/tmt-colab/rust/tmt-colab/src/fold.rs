@@ -112,6 +112,8 @@ pub(crate) struct Snapshot {
 pub(crate) struct View {
     pub source: String,
     pub title: String,
+    pub update: Vec<u8>,
+    pub memory_limit: crate::decoder::MemoryLimit,
 }
 impl Snapshot {
     pub fn capture(store: &Store, key: &Keyring, page: &str) -> Result<Self> {
@@ -166,6 +168,15 @@ impl Snapshot {
         })
     }
     pub fn materialize(&self, key: &Keyring, page: &str, decoder: &mut Decoder) -> Result<View> {
+        self.materialize_edit(key, page, decoder, None)
+    }
+    pub fn materialize_edit(
+        &self,
+        key: &Keyring,
+        page: &str,
+        decoder: &mut Decoder,
+        source: Option<&str>,
+    ) -> Result<View> {
         let mut baseline = Vec::new();
         if let Some(saved) = &self.baseline {
             let d = payload::decode_baseline(&saved.descriptor)?;
@@ -381,16 +392,19 @@ impl Snapshot {
             }
         }
         let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
-        let folded = decoder.decode(
-            UpdateBatch {
-                namespace: Namespace::Content,
-                baseline: &baseline,
-                updates: &refs,
-            },
-            Role::Editor,
-            None,
-        )?;
+        let batch = UpdateBatch {
+            namespace: Namespace::Content,
+            baseline: &baseline,
+            updates: &refs,
+        };
+        let folded = if let Some(source) = source {
+            decoder.prepare(batch, source, None)?
+        } else {
+            decoder.decode(batch, Role::Editor, None)?
+        };
         Ok(View {
+            update: folded.merged,
+            memory_limit: folded.memory_limit,
             source: folded.projection["html"]
                 .as_str()
                 .ok_or(OwnerFault::Invalid)?

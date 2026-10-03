@@ -294,6 +294,43 @@ impl Keyring {
     ) -> tmt_colab_model::Result<tmt_colab_model::object::Envelope> {
         tmt_colab_model::object::seal(context, secret, &self.management_signer()?, plaintext)
     }
+    pub(crate) fn local_writer(&self) -> tmt_colab_model::Result<(String, [u8; 32], [u8; 32])> {
+        let mut id = self.management_seed(b"tmt-colab-cli-device-id-v1")?;
+        id[6] = (id[6] & 15) | 64;
+        id[8] = (id[8] & 63) | 128;
+        let h = hex(&id[..16]);
+        let name = format!(
+            "{}-{}-{}-{}-{}",
+            &h[..8],
+            &h[8..12],
+            &h[12..16],
+            &h[16..20],
+            &h[20..]
+        );
+        id.fill(0);
+        let mut seed = self.management_seed(b"tmt-colab-cli-encryption-seed-v1")?;
+        let enc = tmt_colab_model::wrap::RecipientKey::from_seed(&seed);
+        seed.fill(0);
+        Ok((
+            name,
+            self.local_signer()?.verifying_key().to_bytes(),
+            enc?.public_key(),
+        ))
+    }
+    fn local_signer(&self) -> tmt_colab_model::Result<SigningKey> {
+        let mut seed = self.management_seed(b"tmt-colab-cli-signing-seed-v1")?;
+        let key = SigningKey::from_bytes(&seed);
+        seed.fill(0);
+        Ok(key)
+    }
+    pub(crate) fn seal_content(
+        &self,
+        context: &tmt_colab_model::object::Context,
+        secret: &[u8; 32],
+        update: &[u8],
+    ) -> tmt_colab_model::Result<tmt_colab_model::object::Envelope> {
+        tmt_colab_model::object::seal(context, secret, &self.local_signer()?, update)
+    }
     pub fn owner_public(&self) -> [u8; 32] {
         self.owner.verifying_key().to_bytes()
     }

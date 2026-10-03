@@ -5012,7 +5012,7 @@ successful durable change; the reserved socket route supplies that composition.
 
 ### Foreground composition and owner registration
 
-`main` owns `serve`, read-only `spaces` and plaintext `export`, style/JSON output, signals and one
+`main` owns `serve`, read-only `spaces`, page source read/write and plaintext `export`, style/JSON output, signals and one
 foreground service lock. `core` makes one fixed `storage.root` public API call
 through the absolute invoking `TMT_EXECUTABLE` and `tmt-invoke`, with deadline,
 stream caps and cancellation; missing/invalid roots fail before state creation.
@@ -5083,6 +5083,30 @@ The CLI captures mutation IDs, revisions and selections once, checks explicit
 confirmation for widening, and chooses private IPC or the existing
 lifecycle-locked offline service. An uncertain IPC reply never selects a second
 writer. API/runner/signing ownership and management DTOs are unchanged.
+
+### Root-local page source access
+
+`page` composes the existing authenticated Snapshot and isolated Decoder for
+source reads and minimal admitted-struct edits. Only the decoder child generates
+Yjs deltas; the parent signs with a purpose-separated Keyring device certified by
+the revision-1 management member. This local device is not a Remote registration;
+revocation fails closed, while a verified expired chain renews atomically for the
+same device. The opaque page token fences head, epoch and all
+namespace positions, since content appends do not advance the membership log.
+
+Preparation releases its read snapshot before choosing the writer. Offline writes
+hold the serve lifecycle lock and use `Store::write_existing`, which creates no
+state and migrates nothing. A held lock selects `page::ipc` on the existing owned
+socket; uncertain IPC never resends or falls back. The reserved router shares
+management's forwarded-header denial and a single route-owned body-cap rule.
+The existing device transaction owns chain, create-only content append and exact
+receipt with a transactional base recheck; Store's append helper is shared with
+opaque sync. Serving composition locks sync before Registration and prepares
+bounded inline/chunk transport before commit, then broadcasts only a new append.
+The broadcast carries the local author chain; the browser verifies it on its
+serialized executor before envelope admission and Worker decoding. Neither sync
+nor Registration decodes plaintext. CLI JSON/errors, token/key derivation and
+transport bounds are owned by colab-v1.
 
 ### Native plaintext export
 
