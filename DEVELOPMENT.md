@@ -240,6 +240,15 @@ override so those Markdown files are checked separately. The single target lists
 live in `typescript/scripts/format-workspace.mjs`; both write and check modes expand
 parent-relative globs to absolute paths there and fail if any pattern matches nothing.
 Keep these script names and separate selections when changing formatting.
+Workspace lint commands use exact Vite+ 1.0.0 (bundled Oxlint 1.85.0), explicitly
+selecting each package's existing Vite/Vitest config. Their `lint` blocks load
+`typescript/scripts/lint-config.mjs`; keep file arguments and plugin flags with the package
+scripts. Tooling warnings remain visible without failing the command; extension
+checks retain `--deny-warnings`, and Office/Colab apps retain `--react-plugin`.
+The shared config individually disables three new React diagnostic classes pending
+[owner disposition](https://github.com/pj-tmt/tmt/issues/1405); the other new defaults
+remain enabled. Existing `tsc` checks and Functions' emitting compiler remain separate.
+Type-aware checking is a [separate decision](https://github.com/pj-tmt/tmt/issues/1404).
 Root tooling, native, stress, Docker and extension suites run through exact
 Vite+ 1.0.0 with bundled Vitest 5.0.1. Their separate configurations retain their
 own test discovery and are selected explicitly with `--config`. Use
@@ -3172,9 +3181,10 @@ are public test data. This foundation does not satisfy the complete L1 gates.
 
 The private local page app has its own package and Chromium isolation suite.
 Its test/build/dev entry points use workspace-pinned Vite+; `vitest.config.ts`
-keeps app unit discovery separate. TypeScript and Oxlint retain their existing
-check responsibilities; the existing `check` script selects the Vite configuration's
-`fmt` block, preserving the app's single quotes, all trailing commas and 100-column
+keeps app unit discovery separate. TypeScript retains its existing check responsibility;
+bundled Oxlint retains the app's lint selection, React plugin and deny-warning policy.
+The existing `check` script selects the Vite configuration's `lint` and
+`fmt` blocks, preserving the app's single quotes, all trailing commas and 100-column
 width with import and package-key sorting disabled:
 
 ```sh

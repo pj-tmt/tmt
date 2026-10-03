@@ -105,7 +105,10 @@ tooling remain outside this workspace lockfile. Vite+ also supplies the bundled
 Oxfmt formatter. Each package explicitly selects its existing Vite/Vitest config's
 `fmt` block; `typescript/scripts/format-workspace.mjs` owns the separate tooling
 code and docs selections and expands them to absolute paths before invoking Vite+.
-Compiler and lint commands retain their existing owners.
+Vite+ supplies bundled Oxlint for workspace lint commands. Each package explicitly
+selects its existing Vite/Vitest config's `lint` block, loading the shared
+`typescript/scripts/lint-config.mjs` rule configuration while retaining its file arguments,
+React plugin selection and warning policy. Compiler commands retain their existing owners.
 Rust, root shell launchers, shared contracts and canonical skills remain outside
 that boundary. `contracts/` holds core contracts only; Office contracts, vectors
 and the Office skill sources live under `extensions/tmt-office/`; the proposed

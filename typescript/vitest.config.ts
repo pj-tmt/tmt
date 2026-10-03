@@ -1,6 +1,8 @@
+import { lintConfig } from './scripts/lint-config.mjs';
 import { defineConfig } from 'vite-plus';
 
 export default defineConfig({
+  lint: lintConfig,
   fmt: {
     semi: true,
     singleQuote: true,
