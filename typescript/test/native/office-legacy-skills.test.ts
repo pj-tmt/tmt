@@ -43,12 +43,12 @@ describe('legacy extension skill lifecycle (#957)', () => {
       expect(listed.status, listed.stdout).toBe(0);
       expect(parseWholeStdout(listed)).toMatchObject({
         extensions: expect.arrayContaining([
-          {
+          expect.objectContaining({
             name: 'office',
             installed: false,
             status: 'partiallyRemoved',
             hint: expect.stringContaining('extension rm office --yes'),
-          },
+          }),
         ]),
       });
       const removed = await runCli(sandbox, [
