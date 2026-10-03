@@ -2,7 +2,7 @@
 use crate::{
     admission, audit, budgets, canonical, crypto,
     error::RemoteError,
-    store::{Grant, Store, database, uuid_v4},
+    store::{GRANT_COLUMNS, Grant, Store, database, grant_row, uuid_v4},
     wire::SignedMessage,
 };
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
@@ -137,15 +137,21 @@ fn prune(tx: &Transaction<'_>, client: &str, now: u64) -> Result<(), RemoteError
     // Expired ownership remains a bounded ID fence; expiry never authorizes re-adoption.
     Ok(())
 }
-fn authority(store: &Store, grant: &Grant, now: u64) -> Result<(), RemoteError> {
-    if !store
-        .grant(&grant.client_id)?
-        .is_some_and(|current| current.revision == grant.revision && current.live_at(now))
-    {
+fn authority(tx: &Transaction<'_>, grant: &Grant, now: u64) -> Result<(), RemoteError> {
+    let current = tx
+        .query_row(
+            &format!("SELECT {GRANT_COLUMNS} FROM grants WHERE client_id=?1"),
+            [&grant.client_id],
+            grant_row,
+        )
+        .optional()
+        .map_err(database)?;
+    if !current.is_some_and(|current| current.revision == grant.revision && current.live_at(now)) {
         return Err(RemoteError::new("REMOTE_CLOSED", "Device authority ended."));
     }
     Ok(())
 }
+
 pub fn intent(message: &SignedMessage) -> Result<[u8; 32], RemoteError> {
     Ok(Sha256::digest(
         canonical::framed(&[message.envelope().operation.as_bytes(), &message.payload])
@@ -204,11 +210,18 @@ fn read_owned(tx: &Transaction<'_>, id: &str) -> Result<Option<Stored>, RemoteEr
     }).optional().map_err(database)
 }
 impl Store {
-    pub fn charge_call(&mut self, client: &str, now: u64) -> Result<(), RemoteError> {
-        let tx = self
-            .connection
+    fn begin(&mut self) -> Result<Transaction<'_>, RemoteError> {
+        self.connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(database)?;
+            .map_err(database)
+    }
+    fn authorized(&mut self, grant: &Grant, now: u64) -> Result<Transaction<'_>, RemoteError> {
+        let tx = self.begin()?;
+        authority(&tx, grant, now)?;
+        Ok(tx)
+    }
+    pub fn charge_call(&mut self, client: &str, now: u64) -> Result<(), RemoteError> {
+        let tx = self.begin()?;
         budgets::charge(&tx, client, budgets::Budget::Call, now)?;
         tx.commit().map_err(database)
     }
@@ -216,10 +229,7 @@ impl Store {
         if !canonical::is_core_id(recipient) {
             return Err(database("invalid approval recipient"));
         }
-        let tx = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(database)?;
+        let tx = self.begin()?;
         budgets::charge(&tx, recipient, budgets::Budget::Approval, now)?;
         tx.commit().map_err(database)
     }
@@ -232,7 +242,6 @@ impl Store {
         metadata: &[u8],
         now: u64,
     ) -> Result<Owned, RemoteError> {
-        authority(self, grant, now)?;
         let input = message.envelope();
         let digest = intent(message)?;
         if input.client_id != grant.client_id
@@ -243,10 +252,7 @@ impl Store {
         {
             return Err(database("invalid adoption"));
         }
-        let tx = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(database)?;
+        let tx = self.authorized(grant, now)?;
         if let Some(Stored {
             client,
             operation,
@@ -342,8 +348,7 @@ impl Store {
         })
     }
     pub fn owned(&mut self, grant: &Grant, id: &str, now: u64) -> Result<Owned, RemoteError> {
-        authority(self, grant, now)?;
-        let tx = self.connection.transaction().map_err(database)?;
+        let tx = self.authorized(grant, now)?;
         let Some(Stored {
             client,
             owned,
@@ -365,18 +370,13 @@ impl Store {
         limit: usize,
         now: u64,
     ) -> Result<Value, RemoteError> {
-        authority(self, grant, now)?;
         if !(1..=50).contains(&limit) {
             return Err(RemoteError::new(
                 "REMOTE_INPUT_INVALID",
                 "Invalid subscribe limit.",
             ));
         }
-        let tx = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(database)?;
-        stream(&tx, &grant.client_id)?;
+        let tx = self.authorized(grant, now)?;
         prune(&tx, &grant.client_id, now)?;
         let stream = stream(&tx, &grant.client_id)?;
         let start = token.map_or(Ok(stream.floor), |token| {
@@ -414,11 +414,7 @@ impl Store {
         )
     }
     pub fn ack(&mut self, grant: &Grant, token: &str, now: u64) -> Result<Value, RemoteError> {
-        authority(self, grant, now)?;
-        let tx = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(database)?;
+        let tx = self.authorized(grant, now)?;
         let stream = stream(&tx, &grant.client_id)?;
         let position = position(&tx, &grant.client_id, &stream, token, now)?;
         if position > stream.observed {
@@ -442,12 +438,8 @@ impl Store {
         code: &str,
         now: u64,
     ) -> Result<(), RemoteError> {
-        authority(self, grant, now)?;
         let digest = intent(message)?;
-        let tx = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(database)?;
+        let tx = self.authorized(grant, now)?;
         audit::append(&tx, event(grant, message, &digest, now, "refused", code))?;
         tx.commit().map_err(database)
     }

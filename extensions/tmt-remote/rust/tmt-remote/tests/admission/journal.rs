@@ -7,7 +7,7 @@ use tmt_remote::{
     journal::{DAY, RECOVERY},
     pairing::now_ms,
     state::Layout,
-    store::{Store, uuid_v4},
+    store::{DEFAULT_SCOPES, Store, uuid_v4},
     transport::{LoopbackTransport, Transport},
 };
 
@@ -33,6 +33,21 @@ fn control(
     }
     .unwrap();
     owner.verify_reply(&serde_json::from_slice(&response).unwrap(), &wire)
+}
+fn subscribe(
+    owner: &OwnerDoor,
+    session: &str,
+    sequence: usize,
+    cursor: Value,
+    limit: usize,
+) -> Value {
+    control(
+        owner,
+        session,
+        sequence,
+        "subscribe",
+        json!({"cursor":cursor,"limit":limit,"waitMs":0}),
+    )
 }
 fn adopt_wire(
     owner: &OwnerDoor,
@@ -72,13 +87,7 @@ fn signed_catchup_retry_checkpoint_and_compaction_keep_separate_ownership() {
         adopt_wire(&owner, &retry, None).unwrap().receipt,
         owned.receipt
     );
-    let page = control(
-        &owner,
-        &session,
-        4,
-        "subscribe",
-        json!({"cursor":beginning["nextCursor"],"limit":1,"waitMs":0}),
-    );
+    let page = subscribe(&owner, &session, 4, beginning["nextCursor"].clone(), 1);
     let entries = page["entries"].as_array().unwrap();
     assert_eq!(entries.len(), 1);
     assert_eq!(
@@ -93,13 +102,7 @@ fn signed_catchup_retry_checkpoint_and_compaction_keep_separate_ownership() {
             cursor
         );
     }
-    let empty = control(
-        &owner,
-        &session,
-        7,
-        "subscribe",
-        json!({"cursor":cursor,"limit":50,"waitMs":0}),
-    );
+    let empty = subscribe(&owner, &session, 7, cursor.clone(), 50);
     assert_eq!(empty["entries"], json!([]));
     assert_eq!(empty["nextCursor"], cursor);
     assert_eq!(
@@ -142,13 +145,7 @@ fn exact_changed_intent_and_another_client_refuse_without_an_entry() {
         adopt_wire(&owner, &collision, None).unwrap_err().code,
         "REMOTE_INTENT_CONFLICT"
     );
-    let page = control(
-        &owner,
-        &other_session,
-        2,
-        "subscribe",
-        json!({"cursor":null,"limit":50,"waitMs":0}),
-    );
+    let page = subscribe(&owner, &other_session, 2, Value::Null, 50);
     assert_eq!(page["entries"], json!([]));
 }
 #[test]
@@ -169,13 +166,7 @@ fn strict_controls_cross_machine_cursors_and_expiry_refuse() {
         );
     }
     let (wire, owned) = adopted(&owner, &session, 4, "capabilities", None);
-    let page = control(
-        &owner,
-        &session,
-        5,
-        "subscribe",
-        json!({"cursor":null,"limit":50,"waitMs":0}),
-    );
+    let page = subscribe(&owner, &session, 5, Value::Null, 50);
     let cursor = page["nextCursor"].as_str().unwrap();
     let other = OwnerDoor::new();
     let other_session = other.open();
@@ -250,13 +241,7 @@ fn persisted_calls_approvals_and_rollback_do_not_reset_budgets() {
 }
 #[test]
 fn held_adoption_refuses_at_outstanding_capacity() {
-    let owner = OwnerDoor::with_policy(
-        tmt_remote::store::DEFAULT_SCOPES
-            .iter()
-            .map(|scope| (*scope).into())
-            .collect(),
-        "hold",
-    );
+    let owner = OwnerDoor::with_policy(DEFAULT_SCOPES.map(str::to_owned).into(), "hold");
     let session = owner.open();
     for sequence in 1..=16 {
         assert_eq!(
@@ -307,4 +292,15 @@ fn authenticated_rate_refusal_is_signed_and_does_not_deadlock() {
             }
         );
     }
+}
+
+#[test]
+fn another_store_can_revoke_after_signed_admission_before_adoption() {
+    let owner = OwnerDoor::new();
+    let session = owner.open();
+    let wire = owner.wire(&session, "1", "capabilities", b"{}");
+    let permit = owner.admit(&wire).ok().unwrap();
+    let mut other = Store::open(&owner._serving).unwrap();
+    other.revoke(&owner.grant.client_id).unwrap();
+    assert_eq!(permit.adopt(None).unwrap_err().code, "REMOTE_CLOSED");
 }

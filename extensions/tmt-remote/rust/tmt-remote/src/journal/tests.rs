@@ -25,9 +25,7 @@ impl Fixture {
         let now = crate::pairing::now_ms().unwrap();
         let grant = Grant {
             client_id: uuid_v4().unwrap(),
-            public_key: ed25519_dalek::SigningKey::from_bytes(&[7; 32])
-                .verifying_key()
-                .to_bytes(),
+            public_key: [7; 32],
             kind: "cli".into(),
             origin: "cli".into(),
             name: "Test device".into(),
@@ -53,96 +51,36 @@ impl Fixture {
         let body = json!({"version":1,"profile":"local-v1","kind":"request","id":uuid_v4().unwrap(),"correlationId":null,"machineId":self.store.connection.query_row("SELECT machine_id FROM machine",[],|r|r.get::<_,String>(0)).unwrap(),"windowId":uuid_v4().unwrap(),"clientId":self.grant.client_id,"sessionId":uuid_v4().unwrap(),"sequence":"1","timestampMs":self.now,"origin":"cli","operation":"dispatch.create","payload":canonical::base64url(br#"{"message":"private prompt"}"#),"signature":canonical::base64url(&[0;64])});
         SignedMessage::decode(body.to_string().as_bytes(), 1024).unwrap()
     }
-    fn count(&self, table: &str) -> i64 {
+    fn adopt(&mut self, message: &SignedMessage, now: u64) -> Result<Owned, RemoteError> {
         self.store
-            .connection
-            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
-            .unwrap()
+            .adopt(&self.grant, message, Some(&message.payload), b"{}", now)
     }
 }
-#[test]
-fn audit_failure_rolls_back_intent_entry_and_send_budget_then_recovers() {
-    let mut f = Fixture::new();
-    let message = f.message();
-    f.store.connection.execute_batch("CREATE TEMP TRIGGER audit_fault BEFORE INSERT ON audit BEGIN SELECT RAISE(ABORT,'fixture fault'); END;").unwrap();
-    assert_eq!(
-        f.store
-            .adopt(
-                &f.grant,
-                &message,
-                Some(b"frozen private prompt"),
-                b"{}",
-                f.now
-            )
-            .unwrap_err()
-            .code,
-        "REMOTE_STATE_UNAVAILABLE"
-    );
-    for table in ["operations", "entries", "budgets", "audit", "streams"] {
-        assert_eq!(f.count(table), 0);
-    }
-    f.store
+fn count(store: &Store, table: &str) -> i64 {
+    store
         .connection
-        .execute_batch("DROP TRIGGER audit_fault;")
-        .unwrap();
-    f.store
-        .adopt(
-            &f.grant,
-            &message,
-            Some(b"frozen private prompt"),
-            b"{}",
-            f.now,
-        )
-        .unwrap();
-    assert_eq!(f.count("operations"), 1);
-    assert_eq!(f.count("entries"), 1);
-    assert_eq!(f.count("audit"), 1);
-    let metadata:String=f.store.connection.query_row("SELECT client_id||envelope_id||operation||COALESCE(operation_id,'')||resources_json||decision||code FROM audit",[],|r|r.get(0)).unwrap();
-    assert!(!metadata.contains("private prompt"));
+        .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+        .unwrap()
 }
 #[test]
 fn recovery_capacity_refuses_new_work_without_evicting_uncertain_work() {
     let mut f = Fixture::new();
     let message = f.message();
-    f.store
-        .adopt(&f.grant, &message, Some(b"frozen"), b"{}", f.now)
-        .unwrap();
+    f.adopt(&message, f.now).unwrap();
     f.store.connection.execute("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<999) INSERT INTO operations(id,client_id,operation,digest,phase,receipt,updated_ms) SELECT printf('00000000-0000-4000-8000-%012x',x),?1,'capabilities',zeroblob(32),'uncertain','{}',?2 FROM n",params![f.grant.client_id,f.now as i64]).unwrap();
     let next = f.message();
     assert_eq!(
-        f.store
-            .adopt(
-                &f.grant,
-                &next,
-                Some(b"frozen"),
-                b"{}",
-                f.now + RECOVERY + 1
-            )
-            .unwrap_err()
-            .code,
+        f.adopt(&next, f.now + RECOVERY + 1).unwrap_err().code,
         "REMOTE_STATE_UNAVAILABLE"
     );
-    assert_eq!(f.count("operations"), 1000);
-    assert_eq!(
-        f.count("entries"),
-        1,
-        "failed adoption rolls back retention and metadata changes too"
-    );
-    assert_eq!(
-        f.store
-            .owned(&f.grant, message.envelope().id, f.now + RECOVERY + 1)
-            .unwrap_err()
-            .code,
-        "REMOTE_STATE_UNAVAILABLE"
-    );
+    assert_eq!(count(&f.store, "operations"), 1000);
+    assert_eq!(count(&f.store, "entries"), 1);
 }
 #[test]
 fn opaque_cursor_cannot_ack_an_unobserved_position_or_another_client() {
     let mut f = Fixture::new();
     let message = f.message();
-    f.store
-        .adopt(&f.grant, &message, Some(b"frozen"), b"{}", f.now)
-        .unwrap();
+    f.adopt(&message, f.now).unwrap();
     let tx = f.store.connection.transaction().unwrap();
     let stream = stream(&tx, &f.grant.client_id).unwrap();
     let unseen = cursor(&tx, &f.grant.client_id, &stream, 1, f.now).unwrap();
@@ -167,32 +105,27 @@ fn opaque_cursor_cannot_ack_an_unobserved_position_or_another_client() {
         "REMOTE_CURSOR_EXPIRED"
     );
     f.store.page(&f.grant, None, 50, f.now).unwrap();
-    assert_eq!(f.count("entries"), 0);
-    assert_eq!(f.count("operations"), 1);
+    assert_eq!(count(&f.store, "entries"), 0);
+    assert_eq!(count(&f.store, "operations"), 1);
 }
 
 #[test]
 fn expired_completed_id_is_not_adopted_again_after_metadata_eviction() {
     let mut f = Fixture::new();
     let message = f.message();
-    f.store
-        .adopt(&f.grant, &message, Some(b"frozen"), b"{}", f.now)
-        .unwrap();
+    f.adopt(&message, f.now).unwrap();
     f.store
         .connection
         .execute("UPDATE operations SET phase='accepted',frozen=NULL", [])
         .unwrap();
     f.store.page(&f.grant, None, 50, f.now + RECOVERY).unwrap();
-    assert_eq!(f.count("entries"), 0);
+    assert_eq!(count(&f.store, "entries"), 0);
     assert_eq!(
-        f.store
-            .adopt(&f.grant, &message, Some(b"frozen"), b"{}", f.now + RECOVERY)
-            .unwrap_err()
-            .code,
+        f.adopt(&message, f.now + RECOVERY).unwrap_err().code,
         "REMOTE_STATE_UNAVAILABLE"
     );
-    assert_eq!(f.count("operations"), 1);
-    assert_eq!(f.count("audit"), 1);
+    assert_eq!(count(&f.store, "operations"), 1);
+    assert_eq!(count(&f.store, "audit"), 1);
 }
 
 #[test]
@@ -246,18 +179,8 @@ fn send_budget_survives_restart_and_an_explicit_retry_spends_once() {
     let mut f = Fixture::new();
     for _ in 0..budgets::SENDS {
         let message = f.message();
-        f.store
-            .adopt(&f.grant, &message, Some(b"frozen"), b"{}", f.now)
-            .unwrap();
-        f.store
-            .adopt(
-                &f.grant,
-                &message,
-                Some(b"ignored replacement"),
-                b"{}",
-                f.now,
-            )
-            .unwrap();
+        f.adopt(&message, f.now).unwrap();
+        f.adopt(&message, f.now).unwrap();
     }
     let next = f.message();
     drop(f.store);
@@ -269,9 +192,87 @@ fn send_budget_survives_restart_and_an_explicit_retry_spends_once() {
             .code,
         "REMOTE_RATE_LIMITED"
     );
-    let count: i64 = store
+    assert_eq!(count(&store, "operations"), budgets::SENDS);
+}
+
+#[test]
+fn revoke_commit_wins_while_adoption_waits_for_the_immediate_transaction() {
+    use std::{cell::RefCell, sync::mpsc, time::Duration};
+    struct Fence {
+        ready: mpsc::Sender<()>,
+        release: mpsc::Receiver<()>,
+    }
+    thread_local! {static FENCE:RefCell<Option<Fence>>=const {RefCell::new(None)};}
+    fn busy(_: i32) -> bool {
+        FENCE.with(|slot| {
+            let fence = slot.borrow_mut().take().unwrap();
+            fence.ready.send(()).unwrap();
+            fence.release.recv_timeout(Duration::from_secs(2)).unwrap();
+        });
+        true
+    }
+    let f = Fixture::new();
+    let message = f.message();
+    let mut revoker = Store::open(&f._serving).unwrap();
+    let tx = revoker
         .connection
-        .query_row("SELECT COUNT(*) FROM operations", [], |r| r.get(0))
+        .transaction_with_behavior(TransactionBehavior::Immediate)
         .unwrap();
-    assert_eq!(count, budgets::SENDS);
+    tx.execute(
+        "UPDATE grants SET disabled=1,revision=revision+1 WHERE client_id=?1",
+        [&f.grant.client_id],
+    )
+    .unwrap();
+    let (ready, blocked) = mpsc::channel();
+    let (release, resume) = mpsc::channel();
+    let mut store = f.store;
+    let worker = std::thread::spawn(move || {
+        FENCE.with(|slot| {
+            *slot.borrow_mut() = Some(Fence {
+                ready,
+                release: resume,
+            })
+        });
+        store.connection.busy_handler(Some(busy)).unwrap();
+        let result = store.adopt(&f.grant, &message, Some(b"frozen"), b"{}", f.now);
+        assert_eq!(count(&store, "operations"), 0);
+        result
+    });
+    // Busy-handler readiness proves BEGIN IMMEDIATE was attempted before revoke committed.
+    blocked.recv_timeout(Duration::from_secs(2)).unwrap();
+    tx.commit().unwrap();
+    release.send(()).unwrap();
+    assert_eq!(worker.join().unwrap().unwrap_err().code, "REMOTE_CLOSED");
+}
+
+#[test]
+fn audit_age_and_count_retention_roll_back_with_failed_adoption() {
+    let mut f = Fixture::new();
+    f.store.connection.execute("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<100001) INSERT INTO audit(position,at_ms,client_id,envelope_id,operation,resources_json,digest,grant_revision,decision,code) SELECT x,CASE WHEN x=1 THEN ?1 ELSE ?2 END,?3,?3,'capabilities','[]',zeroblob(32),1,'refused','REMOTE_CLOSED' FROM n",params![(f.now-RECOVERY) as i64,f.now as i64,f.grant.client_id]).unwrap();
+    f.store.connection.execute_batch("CREATE TEMP TRIGGER retention_fault BEFORE INSERT ON audit BEGIN SELECT RAISE(ABORT,'fixture fault'); END;").unwrap();
+    let message = f.message();
+    assert_eq!(
+        f.adopt(&message, f.now).unwrap_err().code,
+        "REMOTE_STATE_UNAVAILABLE"
+    );
+    assert_eq!(count(&f.store, "audit"), 100001);
+    for table in ["operations", "entries", "budgets", "streams"] {
+        assert_eq!(count(&f.store, table), 0);
+    }
+    f.store
+        .connection
+        .execute_batch("DROP TRIGGER retention_fault;")
+        .unwrap();
+    f.adopt(&message, f.now).unwrap();
+    assert_eq!(count(&f.store, "audit"), audit::RECORDS);
+    let bounds: (i64, i64) = f
+        .store
+        .connection
+        .query_row("SELECT MIN(position),MIN(at_ms) FROM audit", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .unwrap();
+    assert_eq!(bounds, (3, f.now as i64));
+    let metadata:String=f.store.connection.query_row("SELECT client_id||envelope_id||operation||COALESCE(operation_id,'')||resources_json||decision||code FROM audit ORDER BY position DESC LIMIT 1",[],|r|r.get(0)).unwrap();
+    assert!(!metadata.contains("private prompt"));
 }

@@ -4449,12 +4449,14 @@ normal messages; restart never revives an old row. `authority` consumes the exis
 grant fields as typed direct/hold and all/selected-agent policy, refusing malformed
 or unknown authority without changing pairing's producer. Unsafe state fails closed
 before the door binds. Schema 4 adds metadata streams, separate request ownership,
-fixed-window budgets and append-only audit. Metadata lasts at most 24 hours/1000 entries
+fixed-window budgets and immutable audit records. Journal authorization reads the persisted
+grant inside its IMMEDIATE transaction. Metadata lasts at most 24 hours/1000 entries
 per client; acked prefixes compact sooner. Ownership reads expire after 30 days without
 renewal on reads/ack. Expired records remain bounded ID fences, so pruning never permits
 re-adoption; at 1000 ownership records/client new adoption refuses. Frozen pending intent
-is bounded to 64 MiB/client and 256 MiB total. Audit and budget key counts are each bounded
-to 100,000; capacity/write failure refuses before adoption. Public operation transitions
+is bounded to 64 MiB/client and 256 MiB total. Audit retains at most 30 days/the newest 100,000 records; pruning and append share
+the adoption/refusal transaction. Budget keys are bounded to 100,000. Write or
+ownership/budget capacity failure refuses before adoption. Public operation transitions
 and frozen-payload release are not wired yet. Colab keeps its own copy of the layout
 code until a shared leaf exists (#1041).
 

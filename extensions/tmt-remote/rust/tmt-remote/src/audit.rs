@@ -1,4 +1,4 @@
-//! Append-only bounded local metadata, committed with its owning state change.
+//! Immutable metadata with bounded retention, committed with its owning state change.
 use crate::{admission, canonical, error::RemoteError, store::database};
 use rusqlite::{Transaction, params};
 
@@ -16,12 +16,6 @@ pub(crate) struct AuditMetadata<'a> {
     pub code: &'a str,
 }
 pub(crate) fn append(tx: &Transaction<'_>, event: AuditMetadata<'_>) -> Result<(), RemoteError> {
-    let count: i64 = tx
-        .query_row("SELECT COUNT(*) FROM audit", [], |r| r.get(0))
-        .map_err(database)?;
-    if count >= RECORDS {
-        return Err(database("audit capacity"));
-    }
     if !canonical::is_core_id(event.client)
         || !canonical::is_core_id(event.request)
         || event
@@ -37,6 +31,15 @@ pub(crate) fn append(tx: &Transaction<'_>, event: AuditMetadata<'_>) -> Result<(
     {
         return Err(database("invalid audit metadata"));
     }
+    tx.execute(
+        "DELETE FROM audit WHERE at_ms<=?1",
+        [event
+            .time
+            .checked_sub(crate::journal::RECOVERY)
+            .map_or(-1, |time| time as i64)],
+    )
+    .map_err(database)?;
+    tx.execute("DELETE FROM audit WHERE position IN (SELECT position FROM audit ORDER BY position DESC LIMIT -1 OFFSET ?1)",[RECORDS-1]).map_err(database)?;
     let operation = if admission::scope(event.operation).is_some() {
         event.operation
     } else {

@@ -434,9 +434,10 @@ impl Store {
         Ok(sequence)
     }
 }
-const GRANT_COLUMNS: &str = "client_id, public_key, kind, origin, name, agents, scopes, mode,
+pub(crate) const GRANT_COLUMNS: &str =
+    "client_id, public_key, kind, origin, name, agents, scopes, mode,
     issued_at_ms, expires_at_ms, revision, disabled";
-fn grant_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Grant> {
+pub(crate) fn grant_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Grant> {
     let key: Vec<u8> = r.get(1)?;
     let scopes: String = r.get(6)?;
     Ok(Grant {
