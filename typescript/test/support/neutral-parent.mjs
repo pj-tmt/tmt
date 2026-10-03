@@ -2,6 +2,7 @@
 // as its own process-group leader, after the harness acknowledges ownership.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
 
 const [mode, ...args] = process.argv.slice(2);
 const script = import.meta.filename;
@@ -19,6 +20,33 @@ function complete(value) {
 function reportError(error) {
   complete({ error: { message: error.message, code: error.code ?? 'NEUTRAL_PARENT_FAILED' } });
   process.exit(1);
+}
+
+function executablePath(executable) {
+  const candidates = executable.includes('/')
+    ? [executable]
+    : (process.env.PATH ?? '/usr/bin:/bin')
+        .split(path.delimiter)
+        .map((directory) => path.join(directory || '.', executable));
+  let denied;
+  for (const candidate of candidates) {
+    try {
+      // Node 22 aborts on a failed execve instead of throwing an errno. Fixture
+      // publication owns stable files; check access immediately before exec.
+      fs.accessSync(candidate, fs.constants.X_OK);
+      if (!fs.statSync(candidate).isFile())
+        throw Object.assign(new Error(`Not an executable file: ${candidate}`), { code: 'EACCES' });
+      return candidate;
+    } catch (error) {
+      if (executable.includes('/')) throw error;
+      if (error.code === 'EACCES') denied ??= error;
+      else if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
+    }
+  }
+  throw (
+    denied ??
+    Object.assign(new Error(`Executable not found on PATH: ${executable}`), { code: 'ENOENT' })
+  );
 }
 
 if (mode === 'relay') {
@@ -95,7 +123,7 @@ if (mode === 'relay') {
     try {
       // execve closes non-standard descriptors, so the product never receives
       // the harness control protocol or an environment-based guard override.
-      process.execve(executable, [executable, ...argv], process.env);
+      process.execve(executablePath(executable), [executable, ...argv], process.env);
     } catch (error) {
       reportError(error);
     }

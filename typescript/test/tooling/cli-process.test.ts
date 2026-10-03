@@ -288,6 +288,30 @@ process.exit(17);
   });
 });
 
+it('resolves a scenario executable on its declared PATH and preserves access errors', async () => {
+  await withSandbox(async (sandbox) => {
+    const bin = path.join(sandbox.root, 'bin');
+    fs.mkdirSync(bin);
+    const command = path.join(bin, 'scenario-command');
+    writeExecutable(command, '#!/bin/sh\nprintf "%s" "$1"\n', 0o755);
+    const selected = {
+      ...sandbox,
+      cli: { executable: 'scenario-command', args: [] },
+      env: { ...sandbox.env, PATH: `${bin}${path.delimiter}${sandbox.env.PATH}` },
+    };
+    expect(await runCli(selected, ['argument with spaces'])).toEqual({
+      status: 0,
+      signal: null,
+      stdout: 'argument with spaces',
+      stderr: '',
+    });
+    fs.chmodSync(command, 0o644);
+    await expect(runCli(selected, [])).rejects.toMatchObject({ code: 'EACCES' });
+    fs.unlinkSync(command);
+    await expect(runCli(selected, [])).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});
+
 it('relays a selected CLI signal rather than converting it to an exit code', async () => {
   await withSandbox(async (sandbox) => {
     const result = await runCli(

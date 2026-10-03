@@ -4026,7 +4026,9 @@ harness stops and verifies both groups, including readiness arriving during
 cleanup. Closing the acknowledgement descriptor cancels an unstarted bootstrap.
 Inherited stdin/stdout/stderr preserve CLI bytes, while separate bounded control
 descriptors convey ownership, errors and the relayed exit code or signal; exec
-closes them before product execution. Reparenting and spawn are inside the
+closes them before product execution. The bootstrap resolves executable names
+against the scenario's PATH and checks access before exec, preserving structured
+spawn errors on the pinned Node runtime. Reparenting and spawn are inside the
 existing execution deadline; an unknown adopter fails visibly. Native caller
 isolation tests retain real shared-host guard positive controls. This boundary
 does not alter Rust fixtures or Docker's intentional runtime ancestry.
