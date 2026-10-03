@@ -5,7 +5,7 @@ use crate::{
     text,
 };
 use ratatui::{buffer::Buffer, style::Style};
-use tmt_cli_style::{Depth, Role, Theme, theme::screen};
+use tmt_cli_style::{Depth, Role, Theme, grid::Align, theme::screen};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -34,6 +34,24 @@ pub fn paint<'a>(
     depth: Depth,
     mut selected_style: impl FnMut(Role) -> Style,
 ) -> Vec<Hit<'a>> {
+    paint_with(cells, buffer, |_, role, selected| {
+        (
+            if selected {
+                selected_style(role)
+            } else {
+                screen::style(theme, role, depth)
+            },
+            Align::Left,
+        )
+    })
+}
+/// Paint resolved geometry with caller-owned decoration and alignment. The
+/// callback index is the cell's preorder position; this adds no application policy.
+pub fn paint_with<'a>(
+    cells: &[Cell<'a>],
+    buffer: &mut Buffer,
+    mut decorate: impl FnMut(usize, Role, bool) -> (Style, Align),
+) -> Vec<Hit<'a>> {
     let area = buffer.area;
     let bounds = Rect {
         x: i32::from(area.x),
@@ -43,7 +61,7 @@ pub fn paint<'a>(
     };
     let mut inherited = Vec::with_capacity(cells.len());
     let mut hits = Vec::new();
-    for cell in cells {
+    for (index, cell) in cells.iter().enumerate() {
         let (role, selected, id, row, cut) = cell
             .parent
             .map_or((Role::Text, false, None, None, false), |index| {
@@ -59,11 +77,7 @@ pub fn paint<'a>(
         if visible.width == 0 || visible.height == 0 {
             continue;
         }
-        let style = if selected {
-            selected_style(role)
-        } else {
-            screen::style(theme, role, depth)
-        };
+        let (style, align) = decorate(index, role, selected);
         for y in visible.y..visible.y + visible.height as i32 {
             for x in visible.x..visible.x + visible.width as i32 {
                 let target = &mut buffer[(x as u16, y as u16)];
@@ -88,20 +102,25 @@ pub fn paint<'a>(
         } else {
             cell.text_width
         };
-        for (line, logical) in text::lines(value, cell.text_width, cell.node.style.text_flow)
-            .iter()
-            .enumerate()
+        for (line, logical) in
+            text::fit_lines(value, cell.text_width, cell.node.style.text_flow, align)
+                .iter()
+                .enumerate()
         {
             let y = i64::from(cell.content.y) + line as i64;
             if y < i64::from(clip.y) || y >= i64::from(clip.y) + i64::from(clip.height) {
                 continue;
             }
             let visual = if cut {
-                text::fit(
+                text::fit_line(
                     logical,
-                    usize::from(width),
-                    cell.node.style.text_flow == TextFlow::Middle,
-                    true,
+                    width,
+                    if cell.node.style.text_flow == TextFlow::Middle {
+                        TextFlow::Middle
+                    } else {
+                        TextFlow::Truncate
+                    },
+                    align,
                 )
             } else {
                 logical.clone()

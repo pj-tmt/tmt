@@ -653,3 +653,38 @@ cutoff after publication can lose a reminder; it is never blindly retried.
 At-most-once applies while the cache survives: loss/corruption restarts grace,
 and changed content starts a new generation. This is best-effort context, not a
 notification queue. Board reminder-setting controls are a separate slice.
+
+## Offline markup authoring
+
+`tmt sq layout validate board.xml` checks an authoring file only; add `--json`
+for a structured result. Success exits 0, invalid/unreadable files exit 1, and
+invalid command syntax exits 2. It does not discover core, read Squad config, run
+providers or open a terminal. **The board does not load these files.** Board rows
+and pane composition still come from the existing Squad settings.
+
+The `squad-projected-v1` schema declares `$.squad.name` and `$.rows` (a collection).
+With `each="$.rows" as="row"`, each row declares stable `row.id`, scalar `name`,
+`presence`, `pending`, and `fields`/`colors` with valid Squad row field names.
+Field names and sources reuse the row/config owners; IDs must bind stable IDs.
+Binding checks repeat bodies even without data. Sources reuse column `from`/`format`
+in lexical `row` scope. Provider field names are checked syntactically offline;
+provider configuration/data availability is not checked. Direct binds retain display text.
+
+```xml
+<tmt-view version="1" class="flex-col">
+  <tmt-repeat each="$.rows" as="row">
+    <tmt-row id-bind="row.id" row-bind="row.id" class="grid grid-cols-[12_1fr] gap-1">
+      <tmt-cell bind="row.name"/>
+      <tmt-cell bind="row.fields.task" wrap="true"/>
+    </tmt-row>
+  </tmt-repeat>
+</tmt-view>
+```
+
+Integers are terminal cells: `w-4` means 4 cells, unlike Tailwind's rem scale.
+Use `flex`/`flex-col`, `grid`, `grid-cols-[12_30%_1fr]`,
+`grid-cols-[minmax(4,1fr)_8]`, `col-span-N`, `gap-N`, cell padding and bounds.
+A cut column keeps at least four cells or hides whole; Squad chooses priority tracks before sizing.
+Admission bounds: 256 KiB XML, depth 32, 20,000 parser/expanded nodes, 20,000
+repeat iterations and 8 MiB bound text/ID bytes. The offline check validates the
+template; runtime expansion limits require data and are not simulated here.

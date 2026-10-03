@@ -143,6 +143,53 @@ const squadVersion = /^version = "([^"]+)"$/m.exec(
 )?.[1];
 
 describe('squad extension', () => {
+  it('checks layout files offline without core, configuration or board startup', async () => {
+    await withSandbox(async (sandbox) => {
+      mkdirSync(sandbox.globalDir, { recursive: true });
+      writeFileSync(path.join(sandbox.globalDir, 'squad.toml'), 'invalid [');
+      sandbox.env.TMT_EXECUTABLE = 'relative-core-is-invalid';
+      const offline = { ...sandbox, cli: { executable: squadExecutable, args: [] } };
+      const file = path.join(sandbox.cwd, 'board.xml');
+      writeFileSync(
+        file,
+        "<tmt-view version='1'><tmt-repeat each='$.rows' as='row'><tmt-cell bind='row.fields.task'/></tmt-repeat></tmt-view>"
+      );
+      const before = existsSync(sandbox.database);
+      const valid = await runCli(offline, ['layout', 'validate', file, '--json']);
+      expect(valid.status).toBe(0);
+      expect(JSON.parse(valid.stdout)).toEqual({
+        valid: true,
+        file,
+        version: 1,
+        schema: 'squad-projected-v1',
+      });
+      const human = await runCli(offline, ['layout', 'validate', file]);
+      expect(human.status).toBe(0);
+      expect(human.stdout).toContain('Valid layout:');
+      expect(human.stderr).toBe('');
+      writeFileSync(
+        file,
+        "<tmt-view version='1'><tmt-repeat each='$.rows' as='row'><tmt-cell bind='row.fields.Bad'/></tmt-repeat></tmt-view>"
+      );
+      const invalid = await runCli(offline, ['layout', 'validate', file, '--json']);
+      expect(invalid.status).toBe(1);
+      expect(JSON.parse(invalid.stdout).error).toMatchObject({
+        code: 'LAYOUT_INVALID',
+        message: expect.stringContaining(`${file}:1:`),
+      });
+      writeFileSync(file, ' '.repeat(256 * 1024 + 1));
+      expect((await runCli(offline, ['layout', 'validate', file, '--json'])).status).toBe(1);
+      unlinkSync(file);
+      expect(
+        JSON.parse((await runCli(offline, ['layout', 'validate', file, '--json'])).stdout).error
+          .code
+      ).toBe('LAYOUT_IO');
+      expect((await runCli(offline, ['layout', 'validate', '--json'])).status).toBe(2);
+      expect(existsSync(sandbox.database)).toBe(before);
+      expect(readFileSync(path.join(sandbox.globalDir, 'squad.toml'), 'utf8')).toBe('invalid [');
+    });
+  });
+
   it('config show reports effective sources without writing or executing configured commands', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);

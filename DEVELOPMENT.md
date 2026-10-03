@@ -1279,6 +1279,13 @@ Decode the cell/style diff and attribute every change to the PR's approved behav
 review hit identities and list bytes too. Unexplained changes block handoff.
 Normal tests never write the fixture; it contains no host paths or clocks.
 
+Row paint changes run `cargo test --locked -p tmt-squad board::view` and the shared
+paint tests for caller decoration, recorded-width alignment and clipped scoped hits.
+Before replacing a renderer, compare literal buffers (all themes/depths), click
+coverage and frozen parity; retain comparison evidence in the PR.
+`layout::tests` and native Squad tests cover offline authoring validation with
+invalid core/config inputs, located errors, size bounds and human/JSON exit codes.
+
 Composition changes also run `cargo test --locked -p tmt-squad board::composition`:
 literal nested/folded/tiny rectangles, tabs reservation, cache transitions and
 non-overlap accompany a 6,006-case preset/fold fingerprint captured from the
