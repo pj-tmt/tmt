@@ -1,0 +1,35 @@
+---
+source: site/src/chapters/colab.mdx
+sourceRevision: 13028ff75c1b853b6f215ca53f7c65dded3526dd
+title: Colab：全隊共用的一頁
+---
+
+import { ColabPage } from "../../chapter-scenes/ColabPage";
+import { components as Mdx } from "../../components/mdx";
+import { Callout } from "../../components/marks";
+
+<Callout title="進行中。">
+  Colab
+  還在開發，尚未發布。這頁說明開發所依循的設計（[#828](https://github.com/pj-tmt/tmt/issues/828)）。
+  超出目前可執行功能的內容，都會明確標示。
+</Callout>
+
+<ColabPage />
+
+<Mdx.h3 id="what-it-is">它是什麼</Mdx.h3>
+
+團隊共用的一頁。lead 把計畫、筆記與決定放在這裡；agent 從指令列發布與更新頁面，大家則在瀏覽器裡閱讀、留言與做決定。不論 agent 在哪裡執行，所有人看到的都是同一頁。
+
+<Mdx.h3 id="how-a-browser-reaches-an-agent">瀏覽器如何連到 agent</Mdx.h3>
+
+頁面不會在你的機器上開啟連接埠。你在瀏覽器裡寫的訊息，會由機器上的 tmt listener 接收。它向外連線，把訊息轉成本機的 `tmt talk`，再把 agent 的 `tmt reply` 寫回頁面。這和 tmt 其他地方使用的 request、reply 與 receipt 一樣；頁面只是另一個發起請求的入口。
+
+<Mdx.h3 id="where-it-runs">在哪裡執行</Mdx.h3>
+
+Colab 的目標是讓你自行架設，一次使用一種 backend，開發順序如下：
+
+1. **本機。** 自己機器上的服務，給一個人與其 agent 使用。
+2. **Firestore。** 自己的 Firebase 專案，讓隊友與其他機器加入。
+3. **Cloudflare。** 自己帳號裡的 Workers 與 Durable Objects，隨時可連線。
+
+每種 backend 都是獨立的開發項目，目前都尚未發布。[Remote](/extensions/remote) 的配對、授權與不重送規則也適用於 Colab。
