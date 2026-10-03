@@ -44,7 +44,7 @@ layout permission does not change component ownership, CI selection or release p
 | `contracts/`              | Core public contracts and their normative fixtures.                                                                                    |
 | `scripts/`                | Shared root shell/build/development helpers.                                                                                           |
 | `skills/`                 | Canonical bundled user-agent guidance.                                                                                                 |
-| `site/`                   | User handbook and its build; handbook text remains owned by tmt-design-lead. Translated pages: `site/src/i18n/<lang>/`.                       |
+| `site/`                   | User handbook and its build; handbook text remains owned by tmt-design-lead. Translated pages: `site/src/i18n/<lang>/`.                |
 | `design/`                 | Shared design tokens and CLI style guidance.                                                                                           |
 
 Homes of moved guidance:
