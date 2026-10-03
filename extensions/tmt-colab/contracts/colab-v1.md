@@ -880,6 +880,54 @@ The grant mode comes from the remote trust grant: `direct` (the default)
 dispatches right after the fence, `hold` keeps the send held for local
 `approve`.
 
+### Implemented browser preview foundation (#1312)
+
+The private app exports a trusted-parent `AskPreview` component over a
+`FrozenAsk` admitted-selection input. The caller still owns page/role,
+source/render, same-member and current machine/grant admission; neither a
+renderer message nor a claimed member is admitted by this primitive. The
+production page has no selection/threads entry point or agent send wiring yet.
+The component is exercised through a test-only browser entry, never a sample
+agent route in the production application.
+
+Capture copies the selection/message IDs and destination, strips the URL
+fragment, refuses credentialed/non-HTTP URLs and invalid Unicode, formats one
+exact message, and enforces the composed core request bound (1 MiB, or a lower
+caller-supplied bound). The final preview includes page title/link, quote and
+comment; controls and Unicode formatting characters have a separate escaped
+view. The original UTF-8 is unchanged. Capture allocates one operation UUID
+unless the caller supplies an already-frozen one. Signing uses the field order
+above with sorted unique message IDs, the exact final digest, an explicit grant
+reference and a one-hour default / 24-hour maximum validity. Grant references
+are supplied by the caller, not inferred from Remote's client ID. The existing
+non-extractable extension key and strict signature primitives are reused.
+
+`AskAttempt` permits one explicit attempt through a caller-injected, contract-
+shaped `RemoteClient` port. There is no live adapter or Remote keyring access.
+Without a port, Send is disabled and signing/storage never starts. With a test
+port, trusted Send persists an immutable local draft in the existing Colab
+IndexedDB store under the device/operation key before calling it. A Web Lock
+serializes adoption across tabs. The stored record contains only signed input
+and signature; the input binds the message digest. Quote, comment and final
+message bytes stay in memory and are never written to this store. Identical
+signed metadata returns the existing draft; changed input or signature is
+`INTENT_CONFLICT`. An existing draft yields uncertain without another send,
+including after reload. This metadata is not the native bridge ledger or
+encrypted own-stream publication, and no schema/version
+migration is introduced. Storage failure or expiry before the port call has no
+send effect. Repeated clicks share one promise; a lost or miscorrelated response
+becomes uncertain. There is no retry, local approval or result publication path.
+
+Delivery labels come only from the caller's Remote delivery projection;
+missing evidence remains unavailable. Held is distinct from accepted, and
+accepted is not an agent final. Closing the component ends its observation,
+not recipient work. The browser component requires a trusted click; page messages
+and programmatic DOM clicks never start it. This foundation does not satisfy L5:
+#1055 owns the operation runtime/SDK, and later Colab slices own the native
+ledger/fence, own streams, live integration and real-binary acceptance.
+Independent bytes/signatures are frozen in `vectors/send-preview-v1.json`;
+`vectors/send-preview-reference.py` owns regeneration.
+
 ### Member machines
 
 A member with commenter or editor role may Ask agent, but only agents on a

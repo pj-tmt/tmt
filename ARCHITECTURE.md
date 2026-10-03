@@ -4330,6 +4330,23 @@ The source UI rejects a stale editing base instead of overwriting unseen changes
 The parent independently checks projections and terminates the Worker on failure
 or deadline. No keys or transport capabilities enter it; this is resource
 containment, not a security sandbox.
+The app's `ask-intent` owner captures an already-admitted selection/destination,
+freezes exact UTF-8 and scoped LP signing inputs, and uses the existing opaque
+extension key; it neither infers member/grant authority nor reads live source
+while signing. `ask-preview` is a minimal trusted-parent component, independent
+of renderer messaging and not yet wired to production selection/threads.
+`ask-attempt` owns one explicit attempt and immutable draft adoption using the
+existing IndexedDB transaction/Web Lock boundary. A stored draft prevents a
+second send and preserves uncertainty. It stores only signed input and signature;
+the input binds a message digest, and plaintext message bytes stay in memory.
+This metadata is not the native bridge ledger or encrypted own-stream publication.
+`ask-remote` is only the contract-shaped injected port. The production app has no live
+operation adapter: #1055 and later L5 slices own runtime adoption, native
+ledger/fencing, reply attribution/publication and real-binary acceptance.
+Test-only deterministic ports/browser mounting stay under the app's test home,
+while independent send vectors/oracle stay under the Colab contract. No schema,
+Remote/core behavior dependency or public native command is added.
+
 The trusted parent owns routing, source display and render lifecycle; only captured
 HTML enters an opaque `allow-scripts` iframe. Its default browser canvas is opaque
 white with a light color scheme, independent of the surrounding chrome theme;
