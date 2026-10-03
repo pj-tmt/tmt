@@ -3081,7 +3081,7 @@ uses the `fmt` block in its Vite configuration; shared docs use the tooling form
 
 ## Remote pilot development
 
-The local-build-only remote crate is a foreground owner-device door. It performs
+The remote crate is a foreground owner-device door. It performs
 two public startup reads (capabilities and `storage.root`), creates or reopens
 its private `<dataRoot>/remote/` state (0700 directory; 0600 machine key,
 SQLite database and locks), then admits the signed dispatch/recovery subset. The
@@ -3159,7 +3159,13 @@ core without fake output; its test-only grant seeding happens solely in Remote s
 while serve and owned children are stopped.
 The [channel contract](contracts/remote-channel-v1.md) is
 proposed; [the separately owned browser shell](#browser-add-on-shell)
-uses only a stub. No official remote installer/release exists.
+uses only a stub. Cargo-dist is enabled for `tmt-remote`, with the same three
+shared archive files as Squad (`LICENSE`, `NATIVE-INSTALL.md` and
+`THIRD-PARTY-NOTICES.txt`) and no skills or companion files. The browser assets
+and wordlist are embedded. Packaging configuration does not establish published
+archive availability: publication and installed-archive acceptance remain separate
+gates. Enabling cargo-dist does not start `tmt remote serve` or modify
+`<dataRoot>/remote/`.
 
 ```bash
 (cd rust && cargo build --offline --locked -p tmt-remote)
