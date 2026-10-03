@@ -4101,7 +4101,8 @@ Archive, installer, verifier and publication procedures belong to
 
 ### Main release cuts
 
-A release is a product-prefixed tag on a main commit. Hourly allocation captures
+A release is a product-prefixed tag on a main commit. `release.yml` admits main
+pushes by cadence, with hourly backup and manual dispatch. Allocation captures
 main once and reserves each released component's next alpha number from drafts
 and tags; each allocated tag owns an independent pipeline. New work is measured
 from the newest allocated ancestor cut, whether draft or published. Failed drafts
