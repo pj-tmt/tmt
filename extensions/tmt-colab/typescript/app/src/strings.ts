@@ -1,5 +1,8 @@
 /** English chrome catalog; page content and fixture text are not UI strings. */
 export const text = {
+  otherTab: 'Colab is open in another tab.',
+  useHere: 'Use here',
+  oneTab: 'Only one tab per browser stays connected. Your work is saved.',
   ask: 'Ask agent',
   asks: 'Page asks',
   askSelection: 'Select text in the page to ask your agent.',

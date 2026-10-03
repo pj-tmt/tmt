@@ -1,5 +1,7 @@
 import { expect, it, vi } from 'vite-plus/test';
 import type { LiveSessionOwner } from '../src/live.js';
+import { InactiveTabError, type TabOwnership } from '../src/active-tab.js';
+import type { RemoteClient } from '../src/ask-remote.js';
 import { mountedTransport } from '../src/mounted.js';
 const setup = vi.hoisted(() => {
   const first = { deviceId: 'device', remoteSession: { id: 'first' } };
@@ -7,7 +9,9 @@ const setup = vi.hoisted(() => {
   return {
     first,
     second,
-    sdk: {},
+    sdk: { reopenSession: vi.fn(async () => ({})), certifyKey: vi.fn(async () => ({})) },
+    signals: [] as AbortSignal[],
+    ports: [] as RemoteClient[],
     events: [] as string[],
     register: vi.fn(),
     verify: vi.fn(async () => {}),
@@ -36,11 +40,13 @@ vi.mock('../src/live.js', () => ({
       _bootstrap: unknown,
       _registration: unknown,
       _page: unknown,
-      _signal: unknown,
-      _remote: unknown,
+      signal: AbortSignal,
+      remote: RemoteClient,
       owner: LiveSessionOwner,
     ) {
       setup.events.push('connection');
+      setup.signals.push(signal);
+      setup.ports.push(remote);
       setup.owner = owner;
     }
     async snapshot() {
@@ -57,8 +63,14 @@ it('replaces a verified mounted session once for concurrent reconnects and creat
     setup.events.push(`remote:${session.id}`);
     return {};
   });
-  const mounted = await mountedTransport();
-  expect(setup.register).toHaveBeenCalledExactlyOnceWith(expect.any(URL), setup.sdk);
+  const mounted = await mountedTransport({ active: true, run: (action) => action() });
+  expect(setup.register).toHaveBeenCalledExactlyOnceWith(
+    expect.any(URL),
+    expect.objectContaining({
+      reopenSession: expect.any(Function),
+      certifyKey: expect.any(Function),
+    }),
+  );
   await mounted.transport.page('page', new AbortController().signal);
   expect(setup.events).toEqual(['remote:first', 'connection']);
   let release!: (value: typeof setup.second) => void;
@@ -89,4 +101,59 @@ it('replaces a verified mounted session once for concurrent reconnects and creat
   await expect(setup.owner!.reconnect(setup.second as never)).rejects.toThrow();
   expect(setup.remote).toHaveBeenCalledTimes(2);
   expect(await setup.owner!.reconnect(setup.first as never)).toBe(replacement);
+});
+
+it('inactive ownership closes all page signals and fences every Remote method, certification and session reconnect', async () => {
+  setup.sdk.reopenSession.mockClear();
+  setup.sdk.certifyKey.mockClear();
+  setup.signals.length = 0;
+  setup.ports.length = 0;
+  const call = vi.fn(async () => ({}));
+  setup.remote.mockReset().mockResolvedValue({
+    context: call,
+    listAgents: call,
+    send: call,
+    operation: call,
+    result: call,
+  });
+  setup.register.mockReset().mockImplementation(async (_mount, sdk) => {
+    await sdk.reopenSession();
+    await sdk.certifyKey('sign', new Uint8Array(32));
+    return setup.first;
+  });
+  let active = true;
+  const ownership: TabOwnership = {
+    get active() {
+      return active;
+    },
+    async run(action) {
+      if (!active) throw new InactiveTabError();
+      return action();
+    },
+  };
+  const mounted = await mountedTransport(ownership);
+  await mounted.transport.page('page');
+  const remote = setup.ports[0];
+  const sdk = setup.register.mock.calls[0][1];
+  active = false;
+  mounted.close();
+  expect(setup.signals[0].aborted).toBe(true);
+  for (const result of [
+    remote.context(),
+    remote.listAgents(),
+    remote.send({ operationId: 'op', agentId: 'agent', message: 'message' }),
+    remote.operation('op'),
+    remote.result('request'),
+  ])
+    await expect(result).rejects.toBeInstanceOf(InactiveTabError);
+  await expect(setup.owner!.reconnect(setup.first as never)).rejects.toBeInstanceOf(
+    InactiveTabError,
+  );
+  await expect(sdk.reopenSession()).rejects.toBeInstanceOf(InactiveTabError);
+  await expect(sdk.certifyKey('sign', new Uint8Array(32))).rejects.toBeInstanceOf(InactiveTabError);
+  await expect(mounted.transport.page('page')).rejects.toBeInstanceOf(InactiveTabError);
+  expect(call).not.toHaveBeenCalled();
+  expect(setup.sdk.reopenSession).toHaveBeenCalledOnce();
+  expect(setup.sdk.certifyKey).toHaveBeenCalledOnce();
+  expect(setup.register).toHaveBeenCalledOnce();
 });

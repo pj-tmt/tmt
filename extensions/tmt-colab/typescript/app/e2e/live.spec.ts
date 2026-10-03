@@ -109,7 +109,7 @@ async function wire(
   await context.route('**/sdk/remote-v1.js*', (route) =>
     route.fulfill({
       contentType: 'text/javascript',
-      body: `export async function reopenSession(){await window.fixtureKeys;} export async function certifyKey(purpose,bytes){return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'}}`,
+      body: `export async function reopenSession(){sessionStorage.setItem('test:reopens',String(Number(sessionStorage.getItem('test:reopens')??0)+1));await window.fixtureKeys;} export async function certifyKey(purpose,bytes){return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'}}`,
     }),
   );
   await context.route(`**${mount}api/session`, (route) =>
@@ -759,28 +759,20 @@ async function wire(
   };
 }
 
-test('two same-device tabs edit one durable stream, chunk, reload and retry exact accepted bytes', async ({
+test('same-device tabs explicitly take over one durable stream without reopen ping-pong', async ({
   page,
   context,
 }) => {
   const f = await wire(context),
     other = await context.newPage();
-  for (const tab of [page, other]) {
-    await tab.goto(mount);
-    await tab.getByRole('link', { name: new RegExp(v.page) }).click();
-    await expect(tab.getByRole('heading', { name: 'Live fixture', exact: true })).toBeVisible();
-    await tab.getByRole('button', { name: 'Source', exact: true }).click();
-  }
-  expect(
-    await page.evaluate(
-      async () =>
-        (await navigator.locks.query()).held?.filter((lock) => lock.name?.startsWith('writer:'))
-          .length,
-    ),
-  ).toBe(1);
+  const reopens = (tab: typeof page) =>
+    tab.evaluate(() => Number(sessionStorage.getItem('test:reopens') ?? 0));
+  await page.goto(mount);
+  await page.getByRole('link', { name: new RegExp(v.page) }).click();
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' }),
   ).toBeVisible();
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
   await page.screenshot({ path: '/tmp/1252-live-light.png', fullPage: true });
   await page.getByRole('button', { name: 'Change color theme' }).click();
   await expect(page.locator('iframe')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
@@ -789,15 +781,30 @@ test('two same-device tabs edit one durable stream, chunk, reload and retry exac
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: '/tmp/1252-live-mobile.png', fullPage: true });
   await page.setViewportSize({ width: 1280, height: 720 });
-  await page.getByRole('button', { name: 'Change color theme' }).click();
   await page.getByRole('textbox').fill('<h1>First</h1>');
   await page.getByRole('button', { name: 'Save source' }).click();
-  await expect(other.getByRole('textbox')).toHaveValue('<h1>First</h1>');
+  await expect(page.frameLocator('iframe').getByRole('heading', { name: 'First' })).toBeVisible();
+  await other.goto(mount);
+  await other.getByRole('link', { name: new RegExp(v.page) }).click();
+  await expect(page.getByTestId('colab-inactive')).toContainText('Colab is open in another tab.');
+  await expect(page.locator('iframe')).toHaveCount(0);
   await expect(other.frameLocator('iframe').getByRole('heading', { name: 'First' })).toBeVisible();
+  await expect.poll(() => f.connections).toBe(1);
+  expect(await reopens(page)).toBe(1);
+  expect(await reopens(other)).toBe(1);
+  await page
+    .getByRole('button', { name: 'Use here' })
+    .evaluate((button: HTMLButtonElement) => button.click());
+  expect(await reopens(page)).toBe(1);
+  await page.screenshot({
+    path: '/private/tmp/colab-1110-design/colab-inactive.png',
+    fullPage: true,
+  });
+  await other.getByRole('button', { name: 'Source', exact: true }).click();
   const large = '<h1>Large</h1>' + 'x'.repeat(50_000);
   await other.getByRole('textbox').fill(large);
   await other.getByRole('button', { name: 'Save source' }).click();
-  await expect(page.getByRole('textbox')).toHaveValue(large);
+  await expect(other.frameLocator('iframe').getByRole('heading', { name: 'Large' })).toBeVisible();
   expect(f.chunked).toBe(1);
   f.dropNext();
   await other.getByRole('textbox').fill('<h1>Recovered</h1>');
@@ -808,43 +815,59 @@ test('two same-device tabs edit one durable stream, chunk, reload and retry exac
   await expect(other.getByRole('textbox')).toHaveValue('<h1>Recovered</h1>');
   await other.getByRole('textbox').fill('<h1>After reload</h1>');
   await other.getByRole('button', { name: 'Save source' }).click();
-  await expect(page.getByRole('textbox')).toHaveValue('<h1>After reload</h1>');
-  await expect(other.getByRole('button', { name: 'Save source' })).toBeDisabled();
+  await expect(
+    other.frameLocator('iframe').getByRole('heading', { name: 'After reload' }),
+  ).toBeVisible();
   await f.settled();
   expect(f.retries).toBe(1);
   expect(f.entries.map((row) => row.seq)).toEqual(['1', '2', '3', '4', '5']);
   const before = f.hellos;
   f.resync();
-  await expect.poll(() => f.hellos).toBe(before + 2);
+  await expect.poll(() => f.hellos).toBe(before + 1);
   await expect(
     other.frameLocator('iframe').getByRole('heading', { name: 'After reload' }),
   ).toBeVisible();
+  expect(await reopens(other)).toBe(2);
+  expect(await reopens(page)).toBe(1);
   await f.ownUpdate();
-  for (const tab of [page, other]) {
-    await expect(tab.getByRole('status')).toContainText('Comments and activity are not displayed');
-    await expect(tab.locator('iframe')).toHaveCount(1);
-    await expect(tab.getByRole('textbox')).toHaveJSProperty('readOnly', false);
-  }
+  await expect(other.getByRole('status')).toContainText('Comments and activity are not displayed');
+  await page.getByRole('button', { name: 'Use here' }).click();
+  await expect(other.getByTestId('colab-inactive')).toBeVisible();
+  await expect(other.locator('iframe')).toHaveCount(0);
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'After reload' }),
+  ).toBeVisible();
+  expect(await reopens(page)).toBe(2);
+  expect(await reopens(other)).toBe(2);
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
   await page.getByRole('textbox').fill('<h1>Across own</h1>');
   await page.getByRole('button', { name: 'Save source' }).click();
-  await expect(other.getByRole('textbox')).toHaveValue('<h1>Across own</h1>');
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Across own' }),
+  ).toBeVisible();
   expect(f.entries.at(-1)!.seq).toBe('7');
-  await Promise.all(
-    [page, other].map((tab) => tab.getByRole('link', { name: 'Space home' }).click()),
-  );
+  await other.getByRole('button', { name: 'Use here' }).click();
+  await expect(page.getByTestId('colab-inactive')).toBeVisible();
+  await expect(
+    other.frameLocator('iframe').getByRole('heading', { name: 'Across own' }),
+  ).toBeVisible();
+  expect(await reopens(other)).toBe(3);
+  expect(await reopens(page)).toBe(2);
+  await other.getByRole('link', { name: 'Space home' }).click();
   await expect.poll(() => f.connections).toBe(0);
-  await expect
-    .poll(() =>
-      page.evaluate(
-        async () =>
-          (await navigator.locks.query()).held?.filter((lock) => lock.name?.startsWith('writer:'))
-            .length,
-      ),
-    )
-    .toBe(0);
+  expect(
+    await page.evaluate(
+      async () =>
+        (await navigator.locks.query()).held?.filter((lock) => lock.name?.startsWith('writer:'))
+          .length,
+    ),
+  ).toBe(0);
+  await other.close();
+  await expect(page.getByTestId('colab-inactive')).toBeVisible();
+  expect(await reopens(page)).toBe(2);
 });
 
-test('chunked epoch baseline opens identical source in two tabs, survives edits and reload', async ({
+test('chunked epoch baseline survives explicit tab takeover, edits and reload', async ({
   page,
   context,
 }) => {
@@ -860,14 +883,23 @@ test('chunked epoch baseline opens identical source in two tabs, survives edits 
     await tab.getByRole('button', { name: 'Source', exact: true }).click();
     await expect(tab.getByRole('textbox')).toHaveValue(source);
   }
+  await expect(page.getByTestId('colab-inactive')).toBeVisible();
   const next = source.replace('Reset baseline', 'New epoch edit');
-  await page.getByRole('textbox').fill(next);
-  await page.getByRole('button', { name: 'Save source' }).click();
-  await expect(other.getByRole('textbox')).toHaveValue(next);
+  await other.getByRole('textbox').fill(next);
+  await other.getByRole('button', { name: 'Save source' }).click();
+  await expect(
+    other.frameLocator('iframe').getByRole('heading', { name: 'New epoch edit' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Use here' }).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'New epoch edit' }),
+  ).toBeVisible();
+  await expect(other.getByTestId('colab-inactive')).toBeVisible();
   await other.reload();
   await expect(
     other.frameLocator('iframe').getByRole('heading', { name: 'New epoch edit' }),
   ).toBeVisible();
+  await expect(page.getByTestId('colab-inactive')).toBeVisible();
 });
 for (const invalid of ['commitment', 'source', 'descriptor', 'oldEpoch'] as const)
   test(`signed reset rejects ${invalid} without partial renderer publication`, async ({
@@ -1022,7 +1054,11 @@ test('signed catchup publishes detached own maps for two authors while source st
     async ({ pageId, device }) => {
       const path = '/src/mounted.ts',
         { mountedTransport } = await import(path);
-      const { transport } = await mountedTransport();
+      // This isolated read-admission probe supplies test-owned activation.
+      const { transport, close } = await mountedTransport({
+        active: true,
+        run: <T>(action: () => Promise<T>) => action(),
+      });
       const snapshot = await transport.page(pageId);
       try {
         const own = structuredClone(snapshot.own);
@@ -1037,6 +1073,7 @@ test('signed catchup publishes detached own maps for two authors while source st
         return { own, subscriptionIsDetached, source: snapshot.source };
       } finally {
         snapshot.binding?.close();
+        close();
       }
     },
     { pageId: v.page, device: v.device },
@@ -1114,12 +1151,9 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   const html = await download('page.html');
   expect(html).toEqual(Buffer.from(source, 'utf8'));
   await expect(panel.getByRole('status')).toContainText('One file requested');
-  const other = await context.newPage();
-  await other.goto(mount);
-  await other.getByRole('link', { name: new RegExp(v.page) }).click();
-  await other.getByRole('button', { name: 'Source', exact: true }).click();
-  await other.getByRole('textbox').fill('<h1>New live page</h1>');
-  await other.getByRole('button', { name: 'Save source' }).click();
+  // A committed edit after preparation must not replace the frozen download.
+  await page.getByRole('textbox').fill('<h1>New live page</h1>');
+  await page.getByRole('button', { name: 'Save source' }).click();
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'New live page' }),
   ).toBeVisible();
@@ -1162,7 +1196,6 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   await download('page.html');
   await page.getByRole('link', { name: 'Space home' }).click();
   await expect.poll(urlCount).toBe(0);
-  await other.close();
   await expect.poll(() => f.connections).toBe(0);
 });
 

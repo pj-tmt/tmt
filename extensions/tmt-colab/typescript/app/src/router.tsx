@@ -53,25 +53,43 @@ const blocked = createRoute({
   },
 });
 
-function Shell() {
-  const [dark, setDark] = useState(matchMedia('(prefers-color-scheme: dark)').matches);
+export function AppHeader({ linked = true }: { linked?: boolean }) {
+  const [dark, setDark] = useState(() =>
+    document.documentElement.dataset.theme
+      ? document.documentElement.dataset.theme === 'dark'
+      : matchMedia('(prefers-color-scheme: dark)').matches,
+  );
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   }, [dark]);
+  const brand = (
+    <>
+      {text.product}
+      <span>tmt</span>
+    </>
+  );
+  return (
+    <header className="masthead">
+      {linked ? (
+        <Link className="brand" to="/">
+          {brand}
+        </Link>
+      ) : (
+        <span className="brand">{brand}</span>
+      )}
+      <span className="local">
+        {location.pathname.startsWith('/r/') ? text.mounted : text.local}
+      </span>
+      <button className="theme" aria-label={text.theme} onClick={() => setDark(!dark)}>
+        {dark ? '◐' : '◑'}
+      </button>
+    </header>
+  );
+}
+function Shell() {
   return (
     <>
-      <header className="masthead">
-        <Link className="brand" to="/">
-          {text.product}
-          <span>tmt</span>
-        </Link>
-        <span className="local">
-          {location.pathname.startsWith('/r/') ? text.mounted : text.local}
-        </span>
-        <button className="theme" aria-label={text.theme} onClick={() => setDark(!dark)}>
-          {dark ? '◐' : '◑'}
-        </button>
-      </header>
+      <AppHeader />
       <main>
         <Outlet />
       </main>

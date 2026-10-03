@@ -335,3 +335,42 @@ it.each(['callback', 'message', 'typed error'] as const)(
     }
   },
 );
+
+it('mounted ownership loss closes the Ask controller, observer and tunnel without session recovery', async () => {
+  asks.instances.length = 0;
+  asks.signals.length = 0;
+  const lifetime = new AbortController();
+  const reconnect = vi.fn();
+  const live = new Live(
+    new URL('https://example.test/colab/'),
+    { space: 'space', owner: new Uint8Array(32) } as Bootstrap,
+    {
+      deviceId: 'device',
+      keys: { sign: {}, signPublic: new Uint8Array(32) },
+    } as unknown as Registration,
+    { pageId: 'page', epoch: '1', sharing: 'private' } as PageInfo,
+    lifetime.signal,
+    {} as RemoteClient,
+    { reconnect },
+  );
+  try {
+    await live.snapshot();
+    live.subscribe(
+      () => {},
+      () => {},
+    );
+    const controller = asks.instances[0],
+      connection = connections.at(-1)!;
+    expect(asks.signals).toHaveLength(1);
+    lifetime.abort();
+    expect(asks.signals[0].aborted).toBe(true);
+    expect(controller.close).toHaveBeenCalledOnce();
+    expect(connection.close).toHaveBeenCalledOnce();
+    controller.options.sessionEnded?.();
+    connection.failed(new Error('Sync disconnected'));
+    expect(reconnect).not.toHaveBeenCalled();
+    expect(asks.instances).toHaveLength(1);
+  } finally {
+    live.close();
+  }
+});

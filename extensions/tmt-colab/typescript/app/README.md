@@ -46,6 +46,12 @@ Remote's verified device-name prefix, while the transport excludes it because
 Remote adds it. Re-check and the visible-page observer read the original operation;
 uncertain asks may be abandoned without retrying dispatch.
 
+A paired browser has one active Colab tab per mount in v1. Loading a tab or
+choosing Use here announces takeover through BroadcastChannel before registration
+opens a Remote session. A Web Lock holds ownership until existing Remote calls
+finish. Inactive tabs close their page bindings and observers and show a calm
+notice; they never reopen or reconnect themselves.
+
 Registration retains the verified Remote session. Tunnel disconnects and resyncs
 reopen sync using that same session and Remote adapter, rebuilding only the Ask
 controller. An explicit Remote session fault triggers coalesced mounted session
