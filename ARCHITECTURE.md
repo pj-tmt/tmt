@@ -4691,7 +4691,8 @@ state. Invalid explicit or embedded inventories return `COLAB_APP_UNAVAILABLE`;
 missing/incomplete checkout output keeps the owner-only build hint. The build
 script optionally reads `TMT_COLAB_APP_DIR`, validates the complete generated build
 including notices, and snapshots bytes into Cargo's output directory before
-emitting its sorted embedded table. Absent input generates an empty table; invalid
+emitting its sorted embedded table. The native source collector explicitly admits this generated const include only in `tmt-colab/assets.rs`, alongside Office's bounded inventory.
+Absent input generates an empty table; invalid
 supplied input fails compilation. `app_inventory` shares route/type, HTML-entry
 and 128-file/16-MiB admission between build and runtime. Disk loads retain directory-
 anchored no-follow opens. HTTP resolves exact in-memory keys, never disk paths.
