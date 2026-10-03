@@ -140,6 +140,7 @@ export class Admission {
       const secret = await envelope.open(h, this.registration.keys.enc, this.owner);
       try {
         requireValue(this.root === null);
+        // wrap.open returns copy(..., 32), satisfying the opaque root's import-length precondition.
         this.root = await crypto.subtle.importKey('raw', secret, 'HKDF', false, ['deriveBits']);
       } finally {
         secret.fill(0);
