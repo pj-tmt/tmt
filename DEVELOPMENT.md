@@ -1603,6 +1603,9 @@ native positive control. Child processes are finite, are stopped and reaped
 before fixture deletion, and receive signals only when they are task-owned.
 Tests never use host tmux, global provider state, or process-wide environment
 mutation as setup.
+A settled or deleted batch is not process completion: retain each detached worker's
+exact process incarnation and confirm its exit in scenario cleanup before returning
+from the sandbox callback.
 
 Office companion scenarios are grouped under `test/native/office-*.test.ts`; retained-install
 fixtures use `__native-install` without acquiring or publishing a product release.
