@@ -28,6 +28,8 @@ pub mod identity_status;
 pub mod interrupt;
 mod json_document;
 #[cfg(unix)]
+pub mod mcp;
+#[cfg(unix)]
 pub mod native_install;
 #[cfg(unix)]
 pub mod notes;

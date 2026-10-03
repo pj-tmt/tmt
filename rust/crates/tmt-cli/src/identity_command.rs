@@ -297,43 +297,7 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
     let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     let terminal = stdout.terminal();
     if mode.json {
-        let document = match report {
-            Report::Status(report) => report.value(),
-            Report::Created(result) => {
-                json!({"identity": identity_document(&result.identity), "created": result.created})
-            }
-            Report::Shown(identity, resume) => {
-                let mut document = json!({"identity": identity_document(&identity)});
-                if let Some(resume) = resume {
-                    document["resume"] = resume;
-                }
-                document
-            }
-            Report::Listed(identities) => {
-                json!({"identities": identities.iter().map(identity_document).collect::<Vec<_>>()})
-            }
-            Report::MetadataSet {
-                identity_id,
-                key,
-                value,
-                changed,
-            } => json!({"identityId": identity_id, "key": key, "value": value, "changed": changed}),
-            Report::MetadataGet {
-                identity_id,
-                key,
-                value,
-            } => json!({"identityId": identity_id, "key": key, "value": value}),
-            Report::MetadataList {
-                identity_id,
-                metadata,
-            } => json!({"identityId": identity_id,
-                "metadata": tmt_adapters::identity_projection::metadata_value(&metadata)}),
-            Report::MetadataRemoved {
-                identity_id,
-                key,
-                removed,
-            } => json!({"identityId": identity_id, "key": key, "removed": removed}),
-        };
+        let document = document(&report);
         writeln!(stdout, "{document}")?;
     } else {
         match report {
@@ -426,3 +390,49 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
         &[""],
         &[],
     )];
+
+fn document(report: &Report) -> serde_json::Value {
+    match report {
+        Report::Status(report) => report.value(),
+        Report::Created(result) => {
+            json!({"identity": identity_document(&result.identity), "created": result.created})
+        }
+        Report::Shown(identity, resume) => {
+            let mut document = json!({"identity": identity_document(identity)});
+            if let Some(resume) = resume {
+                document["resume"] = resume.clone();
+            }
+            document
+        }
+        Report::Listed(identities) => {
+            json!({"identities": identities.iter().map(identity_document).collect::<Vec<_>>()})
+        }
+        Report::MetadataSet {
+            identity_id,
+            key,
+            value,
+            changed,
+        } => json!({"identityId": identity_id, "key": key, "value": value, "changed": changed}),
+        Report::MetadataGet {
+            identity_id,
+            key,
+            value,
+        } => json!({"identityId": identity_id, "key": key, "value": value}),
+        Report::MetadataList {
+            identity_id,
+            metadata,
+        } => json!({"identityId": identity_id,
+                "metadata": tmt_adapters::identity_projection::metadata_value(metadata)}),
+        Report::MetadataRemoved {
+            identity_id,
+            key,
+            removed,
+        } => json!({"identityId": identity_id, "key": key, "removed": removed}),
+    }
+}
+
+pub(crate) fn list_document(paths: &ConfigPaths) -> Result<serde_json::Value, Failure> {
+    let mut storage = Storage::open(&paths.database).map_err(unavailable)?;
+    let pending = operation(&mut storage, IdentityRequest::List(Vec::new()), None);
+    after_cleanup(pending, || storage.close()).map(|report| document(&report))
+}

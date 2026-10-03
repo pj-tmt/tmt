@@ -31,6 +31,7 @@ mod identity_context;
 mod init_command;
 mod install_command;
 mod invocation;
+mod mcp_command;
 mod native_install_command;
 mod native_upgrade_command;
 mod notes_command;
@@ -130,6 +131,7 @@ fn write_exact(
 
 fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
     match parsed.invocation {
+        Invocation::Mcp { identity } => return mcp_command::execute(&identity),
         Invocation::Api => {
             return api_command::execute();
         }

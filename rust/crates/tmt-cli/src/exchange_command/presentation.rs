@@ -86,7 +86,7 @@ fn prompt_document(prompt: &RequestPrompt) -> Value {
     }
 }
 
-fn document(report: &Report) -> Value {
+pub(super) fn document(report: &Report) -> Value {
     let mut value = json!({"identity": identity_document(&report.identity)});
     match &report.result {
         ResultKind::List(page) => {

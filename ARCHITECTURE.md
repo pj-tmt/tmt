@@ -51,7 +51,8 @@ Homes of moved guidance:
 
 Core public process and request/response contracts live in `contracts/extension-api.md`
 and `contracts/request-response-v1.md`; the Remote channel contract lives in
-`contracts/remote-channel-v1.md`. CLI style guidance lives in `design/cli-style.md`.
+`contracts/remote-channel-v1.md`. The local MCP wire is owned by
+`contracts/mcp-v1.md`. CLI style guidance lives in `design/cli-style.md`.
 Release-verification procedures belong to
 [DEVELOPMENT's release section](DEVELOPMENT.md#native-release-verification).
 
@@ -1284,6 +1285,25 @@ Inspection does not acknowledge work or renew retention. Dispatch operation IDs
 recover immutable acceptance; replay never wakes again. Clients must recover a
 receipt or current room revision after interrupted writes, not invent a new
 operation ID and resend. See [extension API usage](contracts/extension-api.md).
+
+### Local MCP (v1)
+
+`tmt mcp --identity <saved-name-or-uuid>` is an agent-launched stdio read interface
+for the existing exchange. The [MCP contract](contracts/mcp-v1.md) owns its wire,
+schemas, bounds and qualified protocol revisions. `tmt-adapters::mcp` owns typed
+admission, lifecycle and bounded framing; `tmt-cli::mcp_command` pins one saved
+identity UUID and application data root, then composes the existing identity,
+inbox, incoming X, result and API dispatch-receipt command owners in-process.
+The same JSON encoders serve the CLI and tools. Identity selection is local
+attribution, not same-user authentication; incoming reads retain participant
+scope. No MCP-only exchange state, persistence, dependency or retry semantics
+is introduced. There are no writing tools or provider setup in this slice.
+
+This process is separate from the private Claude channel server, whose framing
+and behavior remain unchanged. It provides no runtime enrollment, push wake,
+network listener or remote authentication. Native channels and the proposed
+remote door retain their own owners. Each call closes storage before publishing;
+EOF and framing failure end only this stdio invocation.
 
 ### Extension hooks (v1)
 
