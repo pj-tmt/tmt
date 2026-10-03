@@ -1,0 +1,42 @@
+---
+source: site/src/chapters/extensions.mdx
+sourceRevision: 573180706bac968a9ebb6f0924b5796d2c3b47f5
+title: 擴充套件新增指令，不另開特例
+---
+
+import { Cmd } from "../../components/Cmd";
+import { components as Mdx } from "../../components/mdx";
+import { St } from "../../components/marks";
+
+PATH 上任何名為 `tmt-<name>` 的程式，都能用 `tmt <name>` 執行，就像 gcloud 的元件會新增指令一樣。內建指令一律優先，所以擴充套件不能取代 `talk` 或 `run`。擴充套件透過 tmt 的指令、JSON 輸出與 hook 使用 tmt，和其他程式走的是同一個入口。
+
+<Cmd>{`
+$ tmt sq board         # 執行 tmt-squad board
+$ tmt help             # 列出找到的擴充套件
+$ tmt sq <Tab>         # 補完由擴充套件處理
+`}</Cmd>
+
+<Mdx.h3 id="install-update-and-remove">安裝、更新與移除</Mdx.h3>
+
+下面的擴充套件都用同一種方式安裝。每個都有自己的版本，各自更新。移除時會刪除指令與 skill，保留資料。
+
+<Cmd>{`
+$ tmt extension install squad     # 變更前先詢問你
+$ tmt extension ls                # 已安裝的套件與版本；--check 會檢查更新
+$ tmt upgrade                     # CLI、skill 與已安裝的官方擴充套件
+$ tmt extension upgrade squad     # 只更新 Squad
+$ tmt extension rm squad          # 保留你的資料
+`}</Cmd>
+
+`tmt upgrade` 也會更新你已安裝的官方擴充套件，各自沿用自己的 channel 與釘選版本，並一次詢問你是否全部更新；`--yes` 會跳過詢問。它不會安裝尚未安裝的擴充套件；其中一個失敗，也不會撤銷其他套件的更新。`tmt extension upgrade <name> --unpin` 會解除版本釘選。
+
+如果擴充套件附帶給 agent 的 skill，安裝時會詢問一次是否加入；`--skills` 會直接加入，不再詢問。要自行開發，請看[建立擴充套件](/develop/extensions)。PATH 上任何 `tmt-<name>` 都能運作，不必透過 `tmt extension`。
+
+<Mdx.h3 id="known-extensions">現有的擴充套件</Mdx.h3>
+
+| 指令           | 用途                                                                                         | 狀態                        |
+| -------------- | -------------------------------------------------------------------------------------------- | --------------------------- |
+| tmt squad · sq | lead、各自在 worktree 裡工作的成員，以及查看與切換成員的 board。[Squad →](/extensions/squad) | <St kind="done">Alpha</St>  |
+| tmt colab      | 團隊共用的頁面，放計畫、筆記與決定。[Colab →](/extensions/colab)                             | <St kind="now">進行中</St>  |
+| tmt meet       | 你與 agent 的文字會議，內建於 Squad。[Meet →](/extensions/meet)                              | <St kind="next">規劃中</St> |
+| tmt remote     | 透過你自己的 backend，與其他機器上的 agent 對話並控制它們。[Remote →](/extensions/remote)    | <St kind="next">設計中</St> |
