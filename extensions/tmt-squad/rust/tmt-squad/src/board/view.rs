@@ -1770,6 +1770,7 @@ mod tests {
             squad: Some("product".into()),
             view: Ok(View {
                 token_rate: None,
+                home_rate: Default::default(),
                 home: None,
             derived: Default::default(),
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": sections}),
@@ -2438,6 +2439,7 @@ columns = [{ name = "member", width = "30%" },
             squad: Some("product".into()),
             view: Ok(View {
                 token_rate: None,
+                home_rate: Default::default(),
                 home: None,
             derived: Default::default(),
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": [

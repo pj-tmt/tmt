@@ -183,6 +183,16 @@ impl Meter {
             .member(id, self.milliseconds(now), self.settings.windows[index])
     }
 
+    pub fn retain(&mut self, input: &Input) {
+        self.rate.retain(input);
+    }
+
+    /// Raw squad totals reuse the member histories, independent of the selected summary.
+    pub fn total(&self, index: usize, now: Instant) -> Option<Reading> {
+        self.rate
+            .reading(self.milliseconds(now), self.settings.windows[index])
+    }
+
     pub fn model(&self, id: &str) -> Option<&str> {
         self.rate.model(id)
     }
