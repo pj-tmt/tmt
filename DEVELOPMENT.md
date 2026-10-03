@@ -1660,6 +1660,12 @@ Tab parity is checked by `built_in_board_documents_equal_ls_tab_documents` and
 and `ls --tab` must have identical projected documents and row-grid metadata,
 including hidden squads/tabs, source section deduplication, repeated user section
 matches, cross-squad memberships, and partial-read failure/recovery evidence.
+`board::home::tests` verifies the board-only retained model against that same
+aggregate document and text, shared section matches, per-squad membership
+counts, request/observed age provenance, bounded acquisition calls and partial
+failure recovery. The model does not change painting; frozen board parity stays
+unchanged. Use an isolated `XDG_CACHE_HOME` when testing board observation.
+
 User tab validation happens during Config reading, including hidden definitions. `--tab` conflicts
 with `--squad` and `--refresh-fields`; aggregate reads do not run providers.
 

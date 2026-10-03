@@ -1764,6 +1764,7 @@ mod tests {
             squad: Some("product".into()),
             view: Ok(View {
                 token_rate: None,
+                home: None,
             derived: Default::default(),
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": sections}),
                 rows: columns(),
@@ -2427,6 +2428,7 @@ columns = [{ name = "member", width = "30%" },
             squad: Some("product".into()),
             view: Ok(View {
                 token_rate: None,
+                home: None,
             derived: Default::default(),
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": [
                     {"title": null, "rows": [row("auth-fix", "blocked", "rotate tokens", json!({
