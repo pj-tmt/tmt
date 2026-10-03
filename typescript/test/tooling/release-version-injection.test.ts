@@ -181,6 +181,52 @@ describe('mechanical version injection', () => {
       'Resolved product version'
     );
   });
+  it('rejects a newly inherited workspace member whose captured lock row is not the dev version', () => {
+    const f = fixture();
+    const manifest = 'rust/crates/new-member/Cargo.toml';
+    mkdirSync(dirname(join(f.root, manifest)), { recursive: true });
+    writeFileSync(
+      join(f.root, manifest),
+      '[package]\nname = "new-member"\nversion.workspace = true\n'
+    );
+    const lock = `${readFileSync(join(f.root, 'rust/Cargo.lock'), 'utf8')}\n[[package]]\nname = "new-member"\nversion = "5.0.0-alpha.49"\n`;
+    writeFileSync(join(f.root, 'rust/Cargo.lock'), lock);
+    const metadata = {
+      workspace_members: [...f.metadata.workspace_members, 'new-member'],
+      packages: [
+        ...f.metadata.packages,
+        {
+          id: 'new-member',
+          name: 'new-member',
+          version: '5.0.0-dev',
+          manifest_path: join(f.root, manifest),
+        },
+      ],
+    };
+    const snapshot = captureVersionState({
+      root: f.root,
+      files: [...Object.keys(f.snapshot.hashes), manifest],
+      metadata,
+      product: 'cli',
+      tag: f.snapshot.tag,
+      cut: f.snapshot.cut,
+      map: f.map,
+    });
+    expect(snapshot.packages).toContain('new-member');
+    injectVersion(f.root, snapshot);
+    writeFileSync(
+      join(f.root, 'rust/Cargo.lock'),
+      lock.replaceAll('5.0.0-dev', snapshot.version).replace('5.0.0-alpha.49', snapshot.version)
+    );
+    const resolved = {
+      ...metadata,
+      packages: metadata.packages.map((p) => ({
+        ...p,
+        version: snapshot.packages.includes(p.name) ? snapshot.version : p.version,
+      })),
+    };
+    expect(() => verifyVersionState(f.root, snapshot, resolved)).toThrow('5.0.0-alpha.49');
+  });
   it.each(['source', 'dependency', 'checksum', 'manifest', 'comment', 'driver'])(
     'rejects unrelated %s changes',
     (change) => {
