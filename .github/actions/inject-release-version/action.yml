@@ -59,7 +59,15 @@ runs:
         cargo +1.97.0 fetch --locked --manifest-path "$source_checkout/rust/Cargo.toml"
         snapshot="$RUNNER_TEMP/release-version-state.json"
         node "$tooling_checkout/typescript/scripts/release-version-injection.mjs" prepare "$source_checkout" "$snapshot" "$PRODUCT" "$RELEASE_TAG"
-        cargo +1.97.0 update --offline --workspace --manifest-path "$source_checkout/rust/Cargo.toml"
+        if node -e 'const s=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); process.exit(s.oldVersion === s.version ? 1 : 0)' "$snapshot"; then
+          # The changed source must reject the stale lock before its implied update.
+          if cargo +1.97.0 metadata --offline --locked --manifest-path "$source_checkout/rust/Cargo.toml" --format-version 1 > "$RUNNER_TEMP/stale-lock.json" 2> "$RUNNER_TEMP/stale-lock.log"; then
+            echo 'Injected version incorrectly accepted a stale lockfile.' >&2
+            exit 1
+          fi
+          grep -Eq 'cannot update the lock file.*because --locked was passed|lock file.*needs to be updated' "$RUNNER_TEMP/stale-lock.log"
+          cargo +1.97.0 update --offline --workspace --manifest-path "$source_checkout/rust/Cargo.toml"
+        fi
         node "$tooling_checkout/typescript/scripts/release-version-injection.mjs" verify "$source_checkout" "$snapshot"
         printf 'snapshot=%s\n' "$snapshot" >> "$GITHUB_OUTPUT"
     - name: Recheck version-only source and resolved lock after the stage
