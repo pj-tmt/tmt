@@ -130,25 +130,6 @@
           "jsonpath": "$.package[?(@.name.value=='tmt-squad')].version"
         }
       ]
-    },
-    "rust/crates/tmt-driver-herdr": {
-      "release-type": "simple",
-      "prerelease-type": "alpha",
-      "component": "tmt-driver-herdr",
-      "bootstrap-sha": "6ed7f3f9f0070076d4ca78e9fcc2f4de4457fbbd",
-      "include-component-in-tag": true,
-      "extra-files": [
-        {
-          "type": "toml",
-          "path": "Cargo.toml",
-          "jsonpath": "$.package.version"
-        },
-        {
-          "type": "toml",
-          "path": "/rust/Cargo.lock",
-          "jsonpath": "$.package[?(@.name.value=='tmt-driver-herdr')].version"
-        }
-      ]
     }
   }
 }

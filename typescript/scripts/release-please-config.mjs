@@ -214,7 +214,6 @@ export function generateReleasePleaseConfig({ components, workspace }) {
       'release-type': 'simple',
       'prerelease-type': 'alpha',
       component: component.package,
-      ...(component.bootstrapSha ? { 'bootstrap-sha': component.bootstrapSha } : {}),
       'include-component-in-tag': includeComponent,
       ...(exclude.length > 0 ? { 'exclude-paths': exclude } : {}),
       'extra-files': extraFiles,

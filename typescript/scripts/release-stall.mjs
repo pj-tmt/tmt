@@ -9,7 +9,6 @@ import { postPublicationIssueTitles } from './release-publish.mjs';
 import { releaseNoteLinks } from './release-pr-safety.mjs';
 import {
   attributeReleaseConsumption,
-  applyBootstrapCutoffs,
   assertReleasePleaseApi,
   loadPinnedReleasePlease,
 } from './release-please-run.mjs';
@@ -179,7 +178,6 @@ export async function planReleaseCommits({ client, components, releases }) {
   };
   attributeReleaseConsumption(github, components);
   const manifest = await api.Manifest.fromManifest(github, 'main');
-  applyBootstrapCutoffs(manifest, components);
   const candidates = await manifest.buildPullRequests();
   return candidates.map((candidate) => {
     const links = releaseNoteLinks(candidate.body.toString());

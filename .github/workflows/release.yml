@@ -179,7 +179,6 @@ jobs:
         product:
           - cli
           - squad
-          - driver-herdr
     permissions:
       # Draft releases are only listed for a token that can push; starting a run needs actions.
       contents: write

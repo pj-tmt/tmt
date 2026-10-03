@@ -29,11 +29,11 @@ describe('native release publication policy', () => {
         { cwd: os.tmpdir(), encoding: 'utf8', timeout: 10_000, maxBuffer: 64 * 1024 }
       );
       expect(result.error).toBeUndefined();
-      expect(result.status).toBe(product === 'office' ? 1 : 0);
+      expect(result.status).toBe(['office', 'driver-herdr'].includes(product) ? 1 : 0);
       expect(result.stdout).toBe('');
       expect(result.stderr).toBe(
-        product === 'office'
-          ? 'office is not released (release: false in .github/components.json).\n'
+        ['office', 'driver-herdr'].includes(product)
+          ? `${product} is not released (release: false in .github/components.json).\n`
           : ''
       );
     }

@@ -101,105 +101,6 @@ async function fixture(
 }
 
 describe('release PR linked-commit gate', () => {
-  it('anchors first driver notes at bootstrap using the pinned first-release renderer', () =>
-    fixture(async ({ reader, commit, anchor, old, directory }) => {
-      const driverPath = 'rust/crates/tmt-driver-herdr';
-      const config = JSON.parse(
-        readFileSync(path.join(directory, 'release-please-config.json'), 'utf8')
-      );
-      config.packages[driverPath]['bootstrap-sha'] = anchor;
-      writeFileSync(path.join(directory, 'release-please-config.json'), JSON.stringify(config));
-      writeFileSync(
-        path.join(directory, '.release-please-manifest.json'),
-        JSON.stringify({ [driverPath]: '0.1.0-alpha.0' })
-      );
-      const base = commit('fix: first driver correction', `${driverPath}/src/lib.rs`);
-      const { DefaultChangelogNotes, parseConventionalCommits } = loadReleasePleaseCommitRules();
-      const render = (previousTag?: string) =>
-        new DefaultChangelogNotes().buildNotes(
-          parseConventionalCommits([
-            {
-              sha: base,
-              message: 'fix: first driver correction',
-              files: [`${driverPath}/src/lib.rs`],
-            },
-          ]),
-          {
-            owner: 'pj-tmt',
-            repository: 'tmt',
-            targetBranch: 'main',
-            version: '0.1.0-alpha.1',
-            currentTag: 'tmt-driver-herdr-v0.1.0-alpha.1',
-            previousTag,
-          }
-        );
-      const body = await render('tmt-driver-herdr-v0.1.0-alpha.0');
-      expect(body).toContain('tmt-driver-herdr-v0.1.0-alpha.0...tmt-driver-herdr-v0.1.0-alpha.1');
-      const check = (text: string, head = base) =>
-        checkReleaseNotes({ pr: pr(text, 'tmt-driver-herdr'), base: head, components, reader });
-      expect(await check(body)).toEqual({ tag: null, bootstrapSha: anchor, linkedCommits: 1 });
-      for (const sha of [old, anchor])
-        await expect(check(body.replace(base, sha))).rejects.toThrow('outside');
-      await expect(
-        check(body.replace(base, commit('future', `${driverPath}/future`)))
-      ).rejects.toThrow('outside');
-      await expect(
-        check(
-          body
-            .split('\n')
-            .filter((line) => !line.includes('/commit/'))
-            .join('\n')
-        )
-      ).rejects.toThrow('COVERAGE');
-      await expect(
-        check(body.replace('tmt-driver-herdr-v0.1.0-alpha.0...', 'v5.0.0-alpha.34...'))
-      ).rejects.toThrow('first-release compare');
-      await expect(check(body.replaceAll('0.1.0-alpha.1', 'next'))).rejects.toThrow(
-        'first-release version'
-      );
-      config.packages[driverPath]['bootstrap-sha'] = [anchor];
-      writeFileSync(path.join(directory, 'release-please-config.json'), JSON.stringify(config));
-      const invalid = commit('chore: malformed bootstrap');
-      await expect(check(body, invalid)).rejects.toThrow('Invalid bootstrap SHA');
-      delete config.packages[driverPath]['bootstrap-sha'];
-      writeFileSync(path.join(directory, 'release-please-config.json'), JSON.stringify(config));
-      const missing = commit('chore: no bootstrap');
-      await expect(check(body, missing)).rejects.toThrow('No published driver-herdr anchor');
-      config.packages[driverPath]['bootstrap-sha'] = old;
-      writeFileSync(path.join(directory, 'release-please-config.json'), JSON.stringify(config));
-      writeFileSync(
-        path.join(directory, '.release-please-manifest.json'),
-        JSON.stringify({ [driverPath]: '0.0.0' })
-      );
-      const zero = commit('chore: zero manifest seed');
-      const plain = await render();
-      expect(plain).not.toContain('/compare/');
-      expect((await check(plain, zero))?.bootstrapSha).toBe(old);
-      await expect(check(body, zero)).rejects.toThrow('first-release compare');
-    }));
-
-  it('uses an established driver release even when bootstrap is invalid', () =>
-    fixture(async ({ reader, commit, anchor, directory }) => {
-      const driverPath = 'rust/crates/tmt-driver-herdr';
-      const config = JSON.parse(
-        readFileSync(path.join(directory, 'release-please-config.json'), 'utf8')
-      );
-      config.packages[driverPath]['bootstrap-sha'] = 'invalid';
-      writeFileSync(path.join(directory, 'release-please-config.json'), JSON.stringify(config));
-      const base = commit('fix: established driver', `${driverPath}/src/lib.rs`);
-      const tag = 'tmt-driver-herdr-v0.1.0-alpha.1';
-      reader.git(['tag', tag, anchor]);
-      expect(
-        await checkReleaseNotes({
-          pr: pr(notes(base, tag), 'tmt-driver-herdr'),
-          base,
-          components,
-          reader,
-          releases: [published(tag)],
-        })
-      ).toEqual({ tag, linkedCommits: 1 });
-    }));
-
   it('accepts CLI and Squad notes with their own latest published anchors', () =>
     fixture(async ({ reader, base }) => {
       expect(await checkReleaseNotes({ pr: pr(notes(base)), base, components, reader })).toEqual({
@@ -748,11 +649,7 @@ describe('HEADGREEN release PR discovery', () => {
 });
 
 const squadRoot = components.find((component) => component.name === 'squad')!.owns[0];
-const manifest = {
-  '.': '5.0.0-alpha.35',
-  [squadRoot]: '0.1.0-alpha.9',
-  'rust/crates/tmt-driver-herdr': '0.1.0-alpha.0',
-};
+const manifest = { '.': '5.0.0-alpha.35', [squadRoot]: '0.1.0-alpha.9' };
 const draftTags = ['v5.0.0-alpha.35', 'tmt-squad-v0.1.0-alpha.9'];
 function draftReader(releases: unknown[], refs: unknown[] = []): SafetyReader {
   return {

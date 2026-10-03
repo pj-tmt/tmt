@@ -27,8 +27,3 @@ export function preserveUnchangedReleasePullRequests(
 ): GitHub;
 
 export function holdTaglessDraftCandidates(manifest: Manifest, heldPaths: unknown): Manifest;
-
-export function applyBootstrapCutoffs(
-  manifest: Manifest,
-  components: ComponentMap['components']
-): Manifest;

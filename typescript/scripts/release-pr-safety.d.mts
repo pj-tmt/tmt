@@ -21,7 +21,7 @@ export function checkReleaseNotes(input: {
   components: ComponentMap['components'];
   reader: SafetyReader;
   releases?: unknown[];
-}): Promise<{ tag: string | null; bootstrapSha?: string; linkedCommits: number } | null>;
+}): Promise<{ tag: string; linkedCommits: number } | null>;
 export function verifyReleasePrNotes(input: {
   eventName: string;
   event: unknown;

@@ -10,10 +10,11 @@ repository.workspace = true
 # The Herdr host driver (#479, #570): an out-of-process driver built on the
 # protocol crate alone, with tmt-invoke as its bounded process owner. It holds
 # no TMT behavior; core keeps every decision (contracts/driver-protocol-v1.md).
-# This package owns the only driver executable. Until #1084, the CLI archive
-# carries this package's binary as a companion.
+# This package owns the only driver executable. The CLI archive carries it
+# through the first standalone Herdr release. Release cut (#1399) activates
+# this package with the component map; until then cargo-dist must opt out.
 [package.metadata.dist]
-dist = true
+dist = false
 [dependencies]
 semver.workspace = true
 serde_json.workspace = true

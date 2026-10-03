@@ -85,10 +85,12 @@ describe('per-product release run (native-release.yml)', () => {
         0o700
       );
       const search = `${directory}${path.delimiter}${process.env.PATH ?? ''}`;
-      for (const prepare of ['true', 'false']) {
+      for (const [product, prepare] of ['office', 'driver-herdr'].flatMap((product) =>
+        ['true', 'false'].map((prepare) => [product, prepare])
+      )) {
         const result = spawnSync('/bin/sh', ['-eu', '-c', shell], {
           cwd: repository,
-          env: { PATH: search, PRODUCT: 'office', PREPARE: prepare },
+          env: { PATH: search, PRODUCT: product, PREPARE: prepare },
           encoding: 'utf8',
           timeout: 10_000,
         });
@@ -96,10 +98,10 @@ describe('per-product release run (native-release.yml)', () => {
         expect(result.status).toBe(1);
         expect(result.stdout).toBe('');
         expect(result.stderr.trim()).toBe(
-          'office is not released (release: false in .github/components.json).'
+          `${product} is not released (release: false in .github/components.json).`
         );
       }
-      for (const product of ['cli', 'squad', 'driver-herdr']) {
+      for (const product of ['cli', 'squad']) {
         const output = path.join(directory, product);
         const result = spawnSync('/bin/sh', ['-eu', '-c', shell], {
           cwd: repository,
