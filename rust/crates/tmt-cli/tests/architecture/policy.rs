@@ -26,8 +26,6 @@ const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
     ("tmt-cli", "insta", None),                 // command rendering snapshots
     ("tmt-cli", "proc-macro2", None),           // architecture syntax fixtures
     ("tmt-cli", "toml_edit", None),             // audited unsafe-boundary manifest policy
-    ("tmt-test-support", "serde_json", None),   // release TOML example JSON boundary
-    ("tmt-test-support", "toml_edit", None),    // formatting-preserving release TOML example
     ("tmt-cli", "syn", None),                   // architecture AST checks
     ("tmt-cli", "tmt-office-model", None),      // Office parser fixtures
     ("tmt-cli", "tmt-driver-protocol", None),   // Herdr driver conformance harness
@@ -234,6 +232,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         "tmt-extension-state" => &["nix"],
         // Case-2 publication reuses the neutral bounded process owner only.
         "tmt-test-support" => &["tmt-invoke"],
+        // Private release tooling owns only TOML edits and their JSON transport.
+        "tmt-release-tool" => &["serde_json", "toml_edit"],
         // Taffy owns flex/grid geometry; text owns shared grapheme measurement/fitting.
         "tmt-tui" => &[
             "roxmltree",
@@ -305,6 +305,9 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         .iter()
         .filter_map(|d| {
             let dependency = d["name"].as_str().expect("Cargo dependency name");
+            if dependency == "tmt-release-tool" {
+                return Some(format!("{name}: release tooling cannot be a product dependency"));
+            }
             if d["kind"] == "dev" && !["tmt-invoke", "tmt-tui", "tmt-extension-state"].contains(&name) {
                 let target = d["target"].as_str();
                 let entry = format!("({name:?}, {dependency:?}, {target:?}),");
@@ -328,7 +331,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             // the source-layer checks through a new external crate alias.
             let unreviewed = !allowed.contains(&dependency)
                 || !d["rename"].is_null()
-                || (name == "tmt-test-support" && !d["kind"].is_null() && d["kind"] != "normal");
+                || (["tmt-test-support", "tmt-release-tool"].contains(&name)
+                    && !d["kind"].is_null() && d["kind"] != "normal");
             unreviewed.then(|| {
                 format!(
                     "{name}: unreviewed production dependency {dependency} (kind={}, target={}, rename={})",
@@ -350,6 +354,21 @@ pub fn test_support_package_violations(package: &Value) -> Vec<String> {
     }
     if package["metadata"]["dist"]["dist"] != false {
         violations.push("tmt-test-support: dist must be false".into());
+    }
+    violations
+}
+
+/// Release tooling is build infrastructure, never a published or distributed product.
+pub fn release_tool_package_violations(package: &Value) -> Vec<String> {
+    if package["name"] != "tmt-release-tool" {
+        return Vec::new();
+    }
+    let mut violations = Vec::new();
+    if package["publish"] != serde_json::json!([]) {
+        violations.push("tmt-release-tool: publish must be false".into());
+    }
+    if package["metadata"]["dist"]["dist"] != false {
+        violations.push("tmt-release-tool: dist must be false".into());
     }
     violations
 }

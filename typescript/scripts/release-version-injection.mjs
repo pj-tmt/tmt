@@ -22,7 +22,7 @@ const hash = (root, file) =>
 const read = (root, file) => readFileSync(resolve(root, file), 'utf8');
 const TOOL = resolve(
   process.env.CARGO_TARGET_DIR ?? fileURLToPath(new URL('../../rust/target', import.meta.url)),
-  'debug/examples/release-version'
+  'debug/release-version'
 );
 // The developer-only Rust helper owns TOML parsing and formatting-preserving edits.
 function tomlCommand(args, source) {

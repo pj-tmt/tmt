@@ -24,7 +24,8 @@
         "rust/crates/tmt-tui",
         "rust/crates/tmt-extension-state",
         "rust/crates/tmt-test-support",
-        "rust/crates/tmt-driver-herdr"
+        "rust/crates/tmt-driver-herdr",
+        "rust/crates/tmt-release-tool"
       ],
       "migrations": ["rust/crates/tmt-adapters/src/storage/migrations.rs"]
     },
@@ -117,6 +118,10 @@
       "owns": ["rust/crates/tmt-driver-herdr"],
       "release": false,
       "bootstrapSha": "6ed7f3f9f0070076d4ca78e9fcc2f4de4457fbbd"
+    },
+    "tmt-release-tool": {
+      "owns": ["rust/crates/tmt-release-tool"],
+      "release": false
     }
   },
   "rules": [

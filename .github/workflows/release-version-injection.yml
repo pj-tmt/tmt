@@ -7,14 +7,14 @@ on:
       - '.github/workflows/release-version-injection.yml'
       - 'typescript/scripts/release-version-injection.*'
       - 'typescript/test/tooling/release-version-injection.test.ts'
-      - 'rust/crates/tmt-test-support/examples/release-version.rs'
+      - 'rust/crates/tmt-release-tool/**'
   push:
     branches: [main]
     paths:
       - '.github/workflows/release-version-injection.yml'
       - 'typescript/scripts/release-version-injection.*'
       - 'typescript/test/tooling/release-version-injection.test.ts'
-      - 'rust/crates/tmt-test-support/examples/release-version.rs'
+      - 'rust/crates/tmt-release-tool/**'
 
 permissions:
   contents: read
@@ -94,9 +94,9 @@ jobs:
           export RUSTUP_TOOLCHAIN=1.97.0
           cargo fetch --manifest-path rust/Cargo.toml --locked
           export CARGO_NET_OFFLINE=true
-          cargo build --locked -p tmt-test-support --example release-version --manifest-path rust/Cargo.toml
+          cargo build --locked -p tmt-release-tool --bin release-version --manifest-path rust/Cargo.toml
           if [ "$PRODUCT" = cli ] && [ "$TARGET" = x86_64-unknown-linux-musl ]; then
-            cargo test --locked -p tmt-test-support --example release-version --manifest-path rust/Cargo.toml
+            cargo test --locked -p tmt-release-tool --bin release-version --manifest-path rust/Cargo.toml
             (cd typescript && pnpm exec vp test run --config vitest.config.ts test/tooling/release-cut.test.ts test/tooling/release-version-injection.test.ts)
           fi
           if [ "$PRODUCT" = cli ]; then tag=v5.0.0-alpha.999; binary=tmt;

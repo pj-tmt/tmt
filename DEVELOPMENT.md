@@ -2118,14 +2118,14 @@ the version/source/lock gate is a failure, not permission to broaden its allowed
 diff. Review `release-injection-<product>-<target>` artifacts and job summaries.
 No release secrets or publication privileges enter these PR jobs.
 The ordinary Unit tests job also runs the injection fixtures. Its existing Linux
-x64 runtime producer builds the Rust TOML example as a separate
+x64 runtime producer builds the private Rust TOML tool as a separate
 `release-version-fixture` artifact; the tooling job downloads it to
-`rust/target/debug/examples` and restores executable permission before tests.
+`rust/target/debug` and restores executable permission before tests.
 
 Run targeted fixture checks, then the tooling quality and affected workflow checks:
 
 ```bash
-(cd rust && cargo build --locked -p tmt-test-support --example release-version && cargo test --locked -p tmt-test-support --example release-version)
+(cd rust && cargo build --locked -p tmt-release-tool --bin release-version && cargo test --locked -p tmt-release-tool --bin release-version)
 (cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/release-cut.test.ts test/tooling/release-version-injection.test.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/repository-layout.test.ts)
 (cd typescript && corepack pnpm check:tooling)
 actionlint .github/workflows/release-cut.yml .github/workflows/release-version-injection.yml .github/workflows/native-release.yml
@@ -2148,8 +2148,8 @@ old-path publications can add evidence but do not gate it. Herdr's independent
 private version boundary is a fixture until the switch enables it for release-cut.
 
 For an authorized local native spike, follow the existing heavy-build/disk rules
-and use one target directory. Build the developer-only `tmt-test-support`
-`release-version` example first; the Node gate finds it under that target's `debug/examples/`
+and use one target directory. Build the private `tmt-release-tool`
+`release-version` binary first; the Node gate finds it under that target's `debug/`
 (or the default `rust/target`). Invoke `release-version-injection.mjs prepare
 <checkout> <snapshot-outside-checkout> <product> <tag>`, run the full stale-lock
 probe and offline workspace lock update, then `verify <checkout> <snapshot>`.

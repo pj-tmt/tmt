@@ -1,5 +1,5 @@
 [package]
-name = "tmt-test-support"
+name = "tmt-release-tool"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,11 +10,13 @@ repository.workspace = true
 [package.metadata.dist]
 dist = false
 
-[dependencies]
-tmt-invoke.workspace = true
+[[bin]]
+name = "release-version"
+path = "src/main.rs"
 
-[dev-dependencies]
-signal-hook.workspace = true
+[dependencies]
+serde_json.workspace = true
+toml_edit.workspace = true
 
 [lints]
 workspace = true

@@ -299,3 +299,8 @@ gates, the markers and the procedures; this section owns who may publish what.
   published releases for tooling changes, never a publishing dispatch. Keep the
   post-publication Project dispatch gated on successful smoke and historical failure issues
   visible to the release monitor. Never dispatch publication to recover a smoke failure.
+
+The private `tmt-release-tool` binary supplies the mechanical TOML injection gate;
+its build or verification never grants publishing authorization. Follow
+[DEVELOPMENT](../../../DEVELOPMENT.md#release-cut-shadow-verification) for the procedure.
+

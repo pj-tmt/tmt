@@ -389,7 +389,7 @@ jobs:
         working-directory: typescript
         env:
           TMT_TEST_CLI: '{"executable":"${{ github.workspace }}/rust/target/release/tmt","args":[]}'
-          TMT_TEST_STORAGE_PROBE: '{"executable":"${{ github.workspace }}/rust/target/debug/examples/storage-probe","args":[]}'
+          TMT_TEST_STORAGE_PROBE: '{"executable":"${{ github.workspace }}/rust/target/debug/storage-probe","args":[]}'
           NATIVE_OFFICE_SELECTED: ${{ needs.changes.outputs.native_office }}
         run: |
           if [ "$NATIVE_OFFICE_SELECTED" = true ]; then
@@ -506,9 +506,9 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: release-version-fixture
-          path: rust/target/debug/examples
+          path: rust/target/debug
       - name: Make the Rust TOML helper executable
-        run: chmod +x rust/target/debug/examples/release-version
+        run: chmod +x rust/target/debug/release-version
       - name: Download the native caller launcher for tooling tests
         uses: actions/download-artifact@v4
         with:
@@ -627,13 +627,13 @@ jobs:
       - name: Build the Rust TOML helper for tooling fixtures
         if: matrix.target == 'x86_64-unknown-linux-musl'
         working-directory: rust
-        run: cargo build --locked -p tmt-test-support --example release-version
+        run: cargo build --locked -p tmt-release-tool --bin release-version
       - name: Share the Rust TOML helper with tooling tests
         if: matrix.target == 'x86_64-unknown-linux-musl'
         uses: actions/upload-artifact@v4
         with:
           name: release-version-fixture
-          path: rust/target/debug/examples/release-version
+          path: rust/target/debug/release-version
           if-no-files-found: error
           retention-days: 1
       - name: Build the native caller launcher for tooling tests

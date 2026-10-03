@@ -840,31 +840,95 @@ fn every_workspace_crate_reviews_new_dev_dependencies() {
 }
 
 #[test]
-fn release_toml_example_dependencies_are_exact_dev_edges() {
+fn release_toml_tool_dependencies_are_private_production_edges() {
     for name in ["serde_json", "toml_edit"] {
         assert!(
             policy::dependency_violations(&package(
-                "tmt-test-support",
-                vec![dependency(name, "dev", None, None)]
+                "tmt-release-tool",
+                vec![dependency(name, "normal", None, None)]
             ))
             .is_empty()
         );
         for (kind, target, rename) in [
-            ("normal", None, None),
             ("build", None, None),
-            ("dev", Some("cfg(unix)"), None),
-            ("dev", None, Some("release_tool")),
+            ("dev", None, None),
+            ("normal", None, Some("release_tool")),
         ] {
             assert_eq!(
                 policy::dependency_violations(&package(
-                    "tmt-test-support",
+                    "tmt-release-tool",
                     vec![dependency(name, kind, target, rename)]
                 ))
                 .len(),
-                1,
-                "{name}: {kind} {target:?} {rename:?}"
+                1
             );
         }
+        assert_eq!(
+            policy::dependency_violations(&package(
+                "tmt-test-support",
+                vec![dependency(name, "dev", None, None)]
+            ))
+            .len(),
+            1
+        );
+    }
+    for owner in [
+        "tmt-cli",
+        "tmt-core",
+        "tmt-adapters",
+        "tmt-squad",
+        "tmt-office",
+        "tmt-remote",
+        "tmt-colab",
+        "tmt-test-support",
+        "tmt-release-tool",
+    ] {
+        for kind in ["normal", "build", "dev"] {
+            for (target, rename) in [(None, None), (Some("cfg(unix)"), Some("release_tool"))] {
+                assert_eq!(
+                    policy::dependency_violations(&package(
+                        owner,
+                        vec![dependency("tmt-release-tool", kind, target, rename)]
+                    ))
+                    .len(),
+                    1,
+                    "{owner}/{kind}"
+                );
+            }
+        }
+    }
+    for kind in ["normal", "build", "dev"] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                "tmt-release-tool",
+                vec![dependency("tmt-cli", kind, None, None)]
+            ))
+            .len(),
+            1
+        );
+    }
+}
+
+#[test]
+fn release_tool_cannot_be_published_or_distributed() {
+    let valid =
+        json!({"name":"tmt-release-tool", "publish":[], "metadata":{"dist":{"dist":false}}});
+    assert!(policy::release_tool_package_violations(&valid).is_empty());
+    for publish in [Value::Null, json!(["crates-io"])] {
+        let mut invalid = valid.clone();
+        invalid["publish"] = publish;
+        assert_eq!(
+            policy::release_tool_package_violations(&invalid),
+            ["tmt-release-tool: publish must be false"]
+        );
+    }
+    for dist in [Value::Null, json!(true)] {
+        let mut invalid = valid.clone();
+        invalid["metadata"]["dist"]["dist"] = dist;
+        assert_eq!(
+            policy::release_tool_package_violations(&invalid),
+            ["tmt-release-tool: dist must be false"]
+        );
     }
 }
 

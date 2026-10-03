@@ -55,7 +55,7 @@ runs:
         # Helper and release builds share this job's Cargo target; the helper is tooling only.
         export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$tooling_checkout/rust/target}"
         cargo +1.97.0 fetch --locked --manifest-path "$tooling_checkout/rust/Cargo.toml"
-        cargo +1.97.0 build --offline --locked -p tmt-cli --example release-version --manifest-path "$tooling_checkout/rust/Cargo.toml"
+        cargo +1.97.0 build --offline --locked -p tmt-release-tool --bin release-version --manifest-path "$tooling_checkout/rust/Cargo.toml"
         cargo +1.97.0 fetch --locked --manifest-path "$source_checkout/rust/Cargo.toml"
         snapshot="$RUNNER_TEMP/release-version-state.json"
         node "$tooling_checkout/typescript/scripts/release-version-injection.mjs" prepare "$source_checkout" "$snapshot" "$PRODUCT" "$RELEASE_TAG"

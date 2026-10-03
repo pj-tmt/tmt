@@ -38,7 +38,7 @@ layout permission does not change component ownership, CI selection or release p
 | Repository root           | Short entry points, contributor guidance, license and required repository/tool configuration; no product source or generated evidence. |
 | `.agents/`                | Repository contributor procedures.                                                                                                     |
 | `.github/`                | Component ownership, layout allowlist, workflows, shared Actions and isolated release tooling.                                         |
-| `rust/`                   | Native CLI, core, adapters, shared Rust leaves, private fixtures and the release archive note; extensions retain their own crates.     |
+| `rust/`                   | Native CLI, core, adapters, shared Rust leaves, private fixtures, release tooling and the release archive note; extensions retain their own crates.     |
 | `typescript/`             | Private developer tooling, tests and shared fixture support; no product-runtime fallback.                                              |
 | `extensions/<extension>/` | Feature-owned runtimes, contracts, skills, documentation and assets.                                                                   |
 | `contracts/`              | Core public contracts and their normative fixtures.                                                                                    |
@@ -63,6 +63,10 @@ Release-verification procedures belong to
   is part of the installer contract, so the name stays. Runtime performance probes
   are in [DEVELOPMENT](DEVELOPMENT.md#optional-performance-probes). No top-level
   exception remains.
+
+The infra-owned Rust paths include `rust/crates/tmt-release-tool`, the private
+release-version TOML binary. It is excluded from CLI release roots and has its own
+non-released component entry, like `rust/crates/tmt-test-support`.
 
 New homes or exceptions require an infra-reviewed proposal with a component owner
 and bounded responsibility. Update this map and the JSON allowlist together;
@@ -4159,9 +4163,6 @@ consumers. Only Adapters, CLI, Squad, Office, Colab and Office Command may decla
 its canonical untargeted dev-dependency; no production or build edge may consume
 it. The architecture guard checks those exact edges, production references and
 publication metadata. Its only production dependency is the neutral `tmt-invoke` leaf.
-Its developer-only `release-version` example owns the release TOML tool described
-[below](#release-cut-shadow), with exact untargeted `serde_json`/`toml_edit` dev edges;
-these dependencies cannot enter the library or become production/build edges.
 Its separate `colab-runtime-fixture` example is the reviewed native stand-in
 for archive and public-install verifier sensitivity. Embedded tiny app bytes and
 argument-selected defects belong to this executable, with scenario assertions in
@@ -4428,10 +4429,12 @@ discovers Cargo inheritance, edits only the selected version declaration, and
 verifies full offline locked resolution against the tag. All tracked source
 hashes, the exact manifest edit and semantic lock entries are checked; only local
 package versions and their implied qualified dependency references may change.
-The developer-only `tmt-test-support` example `release-version` is the single TOML owner:
+The infra-owned private crate `rust/crates/tmt-release-tool` supplies the
+`release-version` binary as the single TOML owner:
 workspace-pinned `toml_edit` parses manifests/locks and preserves formatting and
-comments while editing the version. It is not a shipped product command.
-The Linux x64 runtime producer transfers this example as a separate fixture
+comments while editing the version. It has only `serde_json` and `toml_edit` dependencies, is neither published nor
+distributed, and no product crate may depend on it in any dependency kind.
+The Linux x64 runtime producer transfers this tool as a separate fixture
 artifact to ordinary tooling tests; product runtime artifacts retain their existing shape.
 The dist plan, build manifest and extracted binary must agree with the tag. The
 four-host PR workflow builds fixture versions without committing, tagging,

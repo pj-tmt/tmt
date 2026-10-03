@@ -46,15 +46,15 @@ describe('release-cut shadow workflow boundaries', () => {
     const build = job(ci, 'native-runtime-build');
     const tests = job(ci, 'unit-tests');
     expect(tests).toContain('needs: [changes, native-runtime-build]');
-    expect(build).toContain('cargo build --locked -p tmt-test-support --example release-version');
+    expect(build).toContain('cargo build --locked -p tmt-release-tool --bin release-version');
     expect(build).toContain("if: matrix.target == 'x86_64-unknown-linux-musl'");
     expect(build).toContain('name: release-version-fixture');
-    expect(build).toContain('path: rust/target/debug/examples/release-version');
+    expect(build).toContain('path: rust/target/debug/release-version');
     expect(build).toContain('if-no-files-found: error');
     expect(tests).toContain('name: release-version-fixture');
-    expect(tests).toContain('path: rust/target/debug/examples');
-    expect(tests).toContain('chmod +x rust/target/debug/examples/release-version');
-    expect(tests.indexOf('chmod +x rust/target/debug/examples/release-version')).toBeLessThan(
+    expect(tests).toContain('path: rust/target/debug');
+    expect(tests).toContain('chmod +x rust/target/debug/release-version');
+    expect(tests.indexOf('chmod +x rust/target/debug/release-version')).toBeLessThan(
       tests.indexOf('pnpm test:run')
     );
   });
@@ -65,12 +65,8 @@ describe('release-cut shadow workflow boundaries', () => {
     for (const host of ['macos-15', 'macos-15-intel', 'ubuntu-24.04-arm', 'ubuntu-24.04'])
       expect(injection).toContain(`runner: ${host}`);
     expect(injection).toContain('cargo update --offline --workspace');
-    expect(injection).toContain(
-      'cargo build --locked -p tmt-test-support --example release-version'
-    );
-    expect(injection).toContain(
-      'cargo test --locked -p tmt-test-support --example release-version'
-    );
+    expect(injection).toContain('cargo build --locked -p tmt-release-tool --bin release-version');
+    expect(injection).toContain('cargo test --locked -p tmt-release-tool --bin release-version');
     expect(injection).toContain('release-version-injection.mjs artifact');
     expect(injection).not.toMatch(/contents: write|actions: write|secrets\.|workflow_dispatch/);
   });

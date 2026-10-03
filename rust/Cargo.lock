@@ -3036,6 +3036,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tmt-release-tool"
+version = "5.0.0-dev"
+dependencies = [
+ "serde_json",
+ "toml_edit",
+]
+
+[[package]]
 name = "tmt-remote"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -3088,10 +3096,8 @@ dependencies = [
 name = "tmt-test-support"
 version = "5.0.0-dev"
 dependencies = [
- "serde_json",
  "signal-hook 0.4.4",
  "tmt-invoke",
- "toml_edit",
 ]
 
 [[package]]
