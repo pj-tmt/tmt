@@ -66,22 +66,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.tag }}
-          path: release-source
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.23.2
       - name: Install from the public release
-        env:
-          PRODUCT: ${{ inputs.product }}
-          RELEASE_TAG: ${{ inputs.tag }}
-          TARGET: ${{ matrix.target }}
-        run: |
-          node typescript/scripts/verify-public-install.mjs --product "$PRODUCT" --tag "$RELEASE_TAG" \
-            --source release-source --target "$TARGET" --result-file "$RUNNER_TEMP/smoke-result.json"
+        uses: ./.github/actions/public-install-smoke
+        with:
+          product: ${{ inputs.product }}
+          tag: ${{ inputs.tag }}
+          target: ${{ matrix.target }}
       - name: Keep the host conclusion
         if: always()
         uses: actions/upload-artifact@v4

@@ -1980,8 +1980,11 @@ retains the issue and does not schedule recovery.
 
 One Linux job waits until the last selected reset plus one second, bounded at 60 minutes;
 each selected target then repeats the public install on its matching host with `--retry`,
-which allows one acquisition attempt without another rate-limit retry. The source dispatch
-finishes promptly; the long wait runs solely in the independent workflow, whose
+which allows one acquisition attempt without another rate-limit retry. Source and retry
+install jobs share `.github/actions/public-install-smoke`: it owns the tag data
+checkout, Node setup and verifier invocation, including any host architecture wrapper.
+Fixtures require the source matrix's target/runner pairs to equal the retry planner's `TARGETS`.
+The source dispatch finishes promptly; the long wait runs solely in the independent workflow, whose
 source-run/attempt/product/tag `public-install-retry-...` group never holds `release-<product>`
 and cannot block the next release. Only the planner has `actions: read` to verify the source
 run/jobs and download its artifacts;

@@ -16,12 +16,12 @@ import { isAlphaVersion, versionOfTag } from './release-versions.mjs';
 import { parseRateLimitDiagnostic } from './verify-public-install.mjs';
 
 const MAX_WAIT_MS = 60 * 60_000;
-const TARGETS = {
+export const TARGETS = Object.freeze({
   'aarch64-apple-darwin': 'macos-15',
   'x86_64-apple-darwin': 'macos-15-intel',
   'aarch64-unknown-linux-musl': 'ubuntu-24.04-arm',
   'x86_64-unknown-linux-musl': 'ubuntu-24.04',
-};
+});
 
 /** Dispatch inputs select evidence, never supply a replacement host conclusion. */
 export function parseRetryRequest(input) {

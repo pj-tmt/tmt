@@ -114,22 +114,13 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          ref: ${{ matrix.tag }}
-          path: release-source
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.23.2
       - name: Re-prove the anonymous public install once
-        env:
-          PRODUCT: ${{ matrix.product }}
-          RELEASE_TAG: ${{ matrix.tag }}
-          TARGET: ${{ matrix.target }}
-        run: |
-          node typescript/scripts/verify-public-install.mjs --product "$PRODUCT" --tag "$RELEASE_TAG" \
-            --source release-source --target "$TARGET" --retry --result-file "$RUNNER_TEMP/smoke-result.json"
+        uses: ./.github/actions/public-install-smoke
+        with:
+          product: ${{ matrix.product }}
+          tag: ${{ matrix.tag }}
+          target: ${{ matrix.target }}
+          retry: 'true'
       - name: Keep the retry host conclusion
         if: always()
         uses: actions/upload-artifact@v4

@@ -3799,6 +3799,9 @@ run/job evidence through REST, plans affected targets only, waits outside the pu
 and reconciles one anonymous re-proof with the original host conclusions. It shares
 the smoke owner's diagnostic parser and `release-publish.mjs`'s issue lifecycle;
 it owns neither acquisition classification nor publication.
+The source and retry host jobs use `.github/actions/public-install-smoke` for tag data
+checkout, Node setup and verifier execution. Host architecture wrappers belong to this
+shared entry; tooling tests require the source target/runner matrix to match the retry planner.
 
 Docker E2E `harness.ts` retains scenario imports; `harness/fixture.ts` owns
 fixture resources and process registries.

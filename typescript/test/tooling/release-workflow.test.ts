@@ -625,6 +625,7 @@ describe('publication (native-release-bundle.yml)', () => {
 describe('public install smoke (native-release-smoke.yml)', () => {
   const smoke = job(smokeWorkflow, 'smoke');
   const report = job(smokeWorkflow, 'report');
+  const host = read('.github/actions/public-install-smoke/action.yml');
   const upgrade = read('.github/workflows/native-release-upgrade.yml');
   const targets = (workflow: string) =>
     [...workflow.matchAll(/- target: (\S+)\n\s+runner: (\S+)/g)].map(([, target, runner]) => [
@@ -668,12 +669,19 @@ describe('public install smoke (native-release-smoke.yml)', () => {
     expect(smokeWorkflow.match(/^ {6}actions: write$/gm)).toHaveLength(1);
     expect(job(smokeWorkflow, 'retry-dispatch')).toContain('actions: write');
     // The tag is checked out as data beside this repository's own code, and nothing of it runs.
-    expect(smoke.match(/uses: actions\/checkout@v4/g)).toHaveLength(2);
-    expect(smoke).toContain('ref: ${{ inputs.tag }}\n          path: release-source');
-    expect(smoke.match(/persist-credentials: false/g)).toHaveLength(2);
-    expect(smoke).toContain('node typescript/scripts/verify-public-install.mjs');
-    expect(smoke).toContain('--source release-source');
-    expect(smoke).not.toMatch(/release-source\/(typescript|scripts)/);
+    expect(smoke.match(/uses: actions\/checkout@v4/g)).toHaveLength(1);
+    expect(smoke).toContain('uses: ./.github/actions/public-install-smoke');
+    expect(smoke).toContain('tag: ${{ inputs.tag }}');
+    expect(smoke).toContain('target: ${{ matrix.target }}');
+    expect(smoke.match(/persist-credentials: false/g)).toHaveLength(1);
+    expect(host.match(/uses: actions\/checkout@v4/g)).toHaveLength(1);
+    expect(host).toContain('ref: ${{ inputs.tag }}\n        path: release-source');
+    expect(host.match(/persist-credentials: false/g)).toHaveLength(1);
+    expect(host).toContain('node typescript/scripts/verify-public-install.mjs');
+    expect(host).toContain('--source release-source');
+    expect(host).not.toMatch(
+      /GH_TOKEN|GITHUB_TOKEN|continue-on-error|release-source\/(typescript|scripts)/
+    );
   });
 
   it('keeps what failed as data and reports it with the only issue write access, in a job of its own', () => {

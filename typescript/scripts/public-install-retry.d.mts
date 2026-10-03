@@ -1,6 +1,16 @@
 import type { SmokeResult } from './verify-public-install.mjs';
 import type { SmokeRecoveryApi } from './release-publish.mjs';
 
+export const TARGETS: Readonly<
+  Record<
+    | 'aarch64-apple-darwin'
+    | 'x86_64-apple-darwin'
+    | 'aarch64-unknown-linux-musl'
+    | 'x86_64-unknown-linux-musl',
+    string
+  >
+>;
+
 export interface RetryHost {
   product: string;
   tag: string;

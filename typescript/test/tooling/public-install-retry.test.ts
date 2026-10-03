@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
@@ -10,11 +11,13 @@ import {
   parseRetryRequest,
   validateRetrySource,
   ghSmokeRetryApi,
+  TARGETS as RETRY_TARGETS,
   type RetryHost,
   type RetrySource,
 } from '../../scripts/public-install-retry.mjs';
 import { parseRateLimitDiagnostic } from '../../scripts/verify-public-install.mjs';
 import { ghPublishApi } from '../../scripts/release-publish.mjs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 
 const NOW = 1791000000000;
 const TAG = 'v5.0.0-alpha.43';
@@ -184,6 +187,18 @@ describe('deferred anonymous public-install retry', () => {
     expect(selected.matrix.include.map(({ target, runner }) => ({ target, runner }))).toEqual(
       expected
     );
+  });
+
+  it('pins the source smoke matrix to TARGETS, including every target and runner', () => {
+    const original = readFileSync(
+      new URL('../../../.github/workflows/native-release-smoke.yml', import.meta.url),
+      'utf8'
+    );
+    const rows = [...original.matchAll(/- target: (\S+)\n\s+runner: (\S+)/g)].map(
+      ([, target, runner]) => [target, runner]
+    );
+    expect(rows).toHaveLength(Object.keys(RETRY_TARGETS).length);
+    expect(Object.fromEntries(rows)).toEqual(RETRY_TARGETS);
   });
 
   it('comments with both runs before closing the recovered infrastructure issue', () => {
@@ -378,6 +393,60 @@ describe('independent smoke-retry workflow', () => {
     'utf8'
   );
   const retry = workflow.split('\n  retry:\n')[1].split('\n  report:\n')[0];
+  const host = readFileSync(
+    new URL('../../../.github/actions/public-install-smoke/action.yml', import.meta.url),
+    'utf8'
+  );
+  it.each(['false', 'true', 'invalid'])(
+    'passes the shared host arguments with retry=%s',
+    (retryMode) => {
+      const root = mkdtempSync(path.join(os.tmpdir(), 'public-install-host-'));
+      const record = path.join(root, 'arguments');
+      try {
+        writeExecutable(
+          path.join(root, 'node'),
+          '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$RECORD_FILE"\n',
+          0o755
+        );
+        const script = host.split('      run: |\n')[1].replace(/^        /gm, '');
+        const result = spawnSync('/bin/bash', ['-e', '-o', 'pipefail', '-c', script], {
+          env: {
+            PATH: `${root}:/usr/bin:/bin`,
+            RECORD_FILE: record,
+            PRODUCT: 'cli',
+            RELEASE_TAG: TAG,
+            TARGET: TARGETS[0],
+            RETRY: retryMode,
+            RUNNER_TEMP: root,
+          },
+          encoding: 'utf8',
+          timeout: 10_000,
+        });
+        if (retryMode === 'invalid') {
+          expect(result.status).toBe(1);
+          expect(existsSync(record)).toBe(false);
+        } else {
+          expect(result.status).toBe(0);
+          expect(readFileSync(record, 'utf8').trim().split('\n')).toEqual([
+            'typescript/scripts/verify-public-install.mjs',
+            '--product',
+            'cli',
+            '--tag',
+            TAG,
+            '--source',
+            'release-source',
+            '--target',
+            TARGETS[0],
+            ...(retryMode === 'true' ? ['--retry'] : []),
+            '--result-file',
+            path.join(root, 'smoke-result.json'),
+          ]);
+        }
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  );
   it('uses an explicit main dispatch, independently of suppressed workflow_run events and release concurrency', () => {
     expect(workflow).toContain('workflow_dispatch:');
     expect(workflow).not.toContain('workflow_run:');
@@ -411,13 +480,37 @@ describe('independent smoke-retry workflow', () => {
   it('keeps acquisition token-free on matching hosts, uses tag checkout only as data and disables further retries', () => {
     expect(retry).toContain('matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}');
     expect(retry).toContain('runs-on: ${{ matrix.runner }}');
-    expect(retry).toContain('ref: ${{ matrix.tag }}\n          path: release-source');
-    expect(retry.match(/persist-credentials: false/g)).toHaveLength(2);
-    expect(retry).toContain('--retry --result-file');
+    expect(retry).toContain('uses: ./.github/actions/public-install-smoke');
+    expect(retry).toContain("retry: 'true'");
+    expect(retry).toContain('tag: ${{ matrix.tag }}');
+    expect(retry).toContain('target: ${{ matrix.target }}');
+    expect(retry.match(/persist-credentials: false/g)).toHaveLength(1);
+    expect(host).toContain('ref: ${{ inputs.tag }}\n        path: release-source');
+    expect(host).toContain('persist-credentials: false');
+    expect(host).toContain('node-version: 22.23.2');
+    expect(host).toContain('true) retry_args=(--retry)');
+    expect(host).toContain("default: 'false'");
+    expect(host).toContain('node typescript/scripts/verify-public-install.mjs');
     expect(retry).not.toMatch(
       /GH_TOKEN|GITHUB_TOKEN|issues: write|release-source\/(scripts|typescript)/
     );
     expect(retry).not.toContain('continue-on-error');
+    expect(host).not.toMatch(
+      /GH_TOKEN|GITHUB_TOKEN|continue-on-error|release-source\/(scripts|typescript)/
+    );
+  });
+  it('uses the same shared host entry for original and retry so architecture wrappers cannot drift', () => {
+    const smoke = readFileSync(
+      new URL('../../../.github/workflows/native-release-smoke.yml', import.meta.url),
+      'utf8'
+    )
+      .split('\n  smoke:\n')[1]
+      .split('\n  report:\n')[0];
+    for (const entry of [smoke, retry]) {
+      expect(entry).toContain('uses: ./.github/actions/public-install-smoke');
+      expect(entry).not.toMatch(/setup-node|verify-public-install\.mjs|arch -|node /);
+    }
+    expect(smoke).not.toContain("retry: 'true'");
   });
 });
 
