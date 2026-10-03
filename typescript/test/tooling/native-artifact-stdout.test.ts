@@ -55,13 +55,27 @@ printf 'vite diagnostics\\n'`
         'cargo-about',
         `if [ "\${1:-}" = --version ]; then printf 'cargo-about 0.9.2\\n'; else
 test "$2" = --manifest-path
-test "$3" = '${manifest}'
+if [ '${product}' = cli ] && [ "$3" = crates/tmt-driver-herdr/Cargo.toml ]; then :; else test "$3" = '${manifest}'; fi
 test -f "$3"
-printf 'Rust license notice\\n' > target/native-notices/THIRD-PARTY-NOTICES.txt
+for argument do output=$argument; done
+printf 'Rust license notice\\n' > "$output"
 printf 'notice diagnostics\\n'
 fi`
       );
-      tool(bin, 'cargo', `printf 'path+file:///fixture#tmt-office@0.1.0-alpha.2\\n'`);
+      const driverManifest = path.join(root, 'rust/crates/tmt-driver-herdr/Cargo.toml');
+      mkdirSync(path.dirname(driverManifest), { recursive: true });
+      writeFileSync(driverManifest, '# Companion package fixture\n');
+      tool(
+        bin,
+        'cargo',
+        `if [ "$1" = pkgid ]; then printf 'path+file:///fixture#tmt-${product}@0.1.0-alpha.2\\n'; else
+test "$1 $2 $3 $4 $5 $6" = 'build --locked -p tmt-driver-herdr --bin tmt-driver-herdr'
+mkdir -p target/aarch64-apple-darwin/dist
+printf 'driver package bytes\\n' > target/aarch64-apple-darwin/dist/tmt-driver-herdr
+chmod +x target/aarch64-apple-darwin/dist/tmt-driver-herdr
+printf 'companion build diagnostics\\n'
+fi`
+      );
       tool(
         bin,
         'dist',
@@ -77,9 +91,17 @@ fi`
       else expect(result.stderr).not.toContain('vite diagnostics');
       expect(result.stderr).toContain('notice diagnostics');
       expect(result.stderr).toContain('dist diagnostics');
+      if (product === 'cli') {
+        expect(result.stderr).toContain('companion build diagnostics');
+        const companion = path.join(root, 'rust/target/native-companion/tmt-driver-herdr');
+        expect(readFileSync(companion, 'utf8')).toBe('driver package bytes\n');
+        expect(statSync(companion).mode & 0o111).not.toBe(0);
+      } else expect(result.stderr).not.toContain('companion build diagnostics');
       expect(
         readFileSync(path.join(root, 'rust/target/native-notices/THIRD-PARTY-NOTICES.txt'), 'utf8')
-      ).toBe(`Rust license notice\n${product === 'office' ? 'SPA license notice\n' : ''}`);
+      ).toBe(
+        `Rust license notice\n${product === 'office' ? 'SPA license notice\n' : product === 'cli' ? 'Rust license notice\n' : ''}`
+      );
     }
   );
 });

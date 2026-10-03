@@ -76,9 +76,9 @@ fn private_hook_binding_lookup_and_locator_have_one_owner_each() {
 #[test]
 fn the_herdr_driver_is_referenced_only_by_its_bin() {
     let call = "fn main() { tmt_driver_herdr::serve_call(); }";
-    assert_exact(&[syntax("tmt-cli", "tmt-driver-herdr.rs", call)], &[]);
     assert_exact(&[syntax("tmt-driver-herdr", "main.rs", call)], &[]);
     for (package, file, code) in [
+        ("tmt-cli", "tmt-driver-herdr.rs", call),
         ("tmt-cli", "main.rs", call),
         (
             "tmt-cli",

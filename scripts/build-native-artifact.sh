@@ -40,6 +40,14 @@ case "$product" in
   cli) tag="v$version" ;;
   *) tag="tmt-$product-v$version" ;;
 esac
+# The CLI carries the independently owned binary until #1084. Build it once
+# from its package, then let cargo-dist include it without a second bin target.
+if [ "$product" = cli ]; then
+  cargo build --locked -p tmt-driver-herdr --bin tmt-driver-herdr \
+    --profile dist --target "$target" --target-dir "$repo/rust/target" 1>&2
+  mkdir -p target/native-companion
+  cp -p "target/$target/dist/tmt-driver-herdr" target/native-companion/tmt-driver-herdr
+fi
 # cargo-dist checks its own version against dist-workspace.toml.
 cd "$repo"
 dist generate --check --target "$target" --tag "$tag" 1>&2
@@ -53,6 +61,12 @@ esac
 cargo-about generate --manifest-path "$product_manifest" \
   --config about.toml --target "$target" --locked --offline --fail about.hbs \
   --output-file target/native-notices/THIRD-PARTY-NOTICES.txt 1>&2
+if [ "$product" = cli ]; then
+  cargo-about generate --manifest-path crates/tmt-driver-herdr/Cargo.toml \
+    --config about.toml --target "$target" --locked --offline --fail about.hbs \
+    --output-file target/native-notices/HERDR-NOTICES.txt 1>&2
+  cat target/native-notices/HERDR-NOTICES.txt >> target/native-notices/THIRD-PARTY-NOTICES.txt
+fi
 if [ "$product" = office ]; then
   # Vite owns the inventory of dependencies actually included in the SPA bundle.
   test -s "$TMT_OFFICE_SPA_DIR/THIRD-PARTY-NOTICES.txt"

@@ -110,7 +110,6 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         "tmt-cli" => &[
             "tmt-office-command",
-            "tmt-driver-herdr",
             "tmt-command-output",
             "tmt-cli-style",
             "tmt-core",
@@ -710,13 +709,12 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 ));
             }
             // The Herdr driver runs only as its own executable. Its standalone
-            // main calls the library entrypoint; tmt-cli retains the companion
-            // bin until #1084, never calling the driver in-process.
+            // main calls the library entrypoint. The CLI archive carries that
+            // executable until #1084, never calling the driver in-process.
             if root == "tmt_driver_herdr"
-                && !((source.package == "tmt-cli" && source.file == "tmt-driver-herdr.rs")
-                    || (source.package == "tmt-driver-herdr"
-                        && source.file == "main.rs"
-                        && module == "serve_call"))
+                && !(source.package == "tmt-driver-herdr"
+                    && source.file == "main.rs"
+                    && module == "serve_call")
             {
                 violations.push(format!(
                     "{location}: tmt_driver_herdr belongs only to the tmt-driver-herdr bin"
