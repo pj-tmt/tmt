@@ -112,9 +112,9 @@ it('rejects credentials, invalid Unicode, noncanonical scope/list and over-limit
     }),
   ).toThrow();
   expect(() => FrozenAsk.capture(selection(), { ...destination(), grantRevision: '01' })).toThrow();
-  const base = preview().finalBytes().length;
+  const base = preview().deliveredBytes().length;
   const exact = { ...selection(), comment: selection().comment + 'x'.repeat(REQUEST_BYTES - base) };
-  expect(FrozenAsk.capture(exact, destination()).finalBytes()).toHaveLength(REQUEST_BYTES);
+  expect(FrozenAsk.capture(exact, destination()).deliveredBytes()).toHaveLength(REQUEST_BYTES);
   expect(() =>
     FrozenAsk.capture({ ...exact, comment: exact.comment + 'x' }, destination()),
   ).toThrow();

@@ -118,3 +118,41 @@ it('bounds aggregate content and all own state rather than allocating 4 MiB per 
   expect(Object.keys(after.own)).toEqual([a]);
   expect(after.own[a].replies.large).toHaveLength(2 * 1024 * 1024);
 });
+
+it('prepares immutable own records without publishing until the durable append is admitted', async () => {
+  const run = await worker();
+  const value = {
+    version: 1,
+    kind: 'ask-state',
+    operationId: a,
+    revision: '1',
+    state: 'dispatching',
+    requestId: null,
+    reason: null,
+  };
+  const prepared = await run({
+    type: 'prepare-own',
+    writer: a,
+    root: 'messages',
+    key: `${a}:1`,
+    value,
+  });
+  expect(prepared.own[a].messages[`${a}:1`]).toEqual(value);
+  expect((await run({ type: 'apply', updates: [] })).own).toEqual({});
+  const admitted = await run({
+    type: 'apply',
+    updates: [],
+    own: [{ writer: a, update: prepared.update }],
+  });
+  expect(admitted.own[a].messages[`${a}:1`]).toEqual(value);
+  await expect(
+    run({
+      type: 'prepare-own',
+      writer: a,
+      root: 'messages',
+      key: `${a}:1`,
+      value: { ...value, state: 'accepted' },
+    }),
+  ).rejects.toThrow('immutable');
+  expect((await run({ type: 'apply', updates: [] })).own).toEqual(admitted.own);
+});

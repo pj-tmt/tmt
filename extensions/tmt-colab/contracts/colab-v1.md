@@ -6,7 +6,7 @@ add dependencies, register a product, deploy a backend or execute agent work.
 The terms MUST, MUST NOT and SHOULD express implementation requirements.
 
 This document owns colab wire values, cryptography, membership, page state,
-sync, renderer admission and bridge policy. [Architecture](../../../ARCHITECTURE.md#colab-extension-proposal)
+sync, renderer admission and bridge policy. [Architecture](../../../ARCHITECTURE.md#colab-extension)
 owns placement and dependency direction. The [public extension API](../../../contracts/extension-api.md)
 owns core resources, request/dispatch behavior, errors, limits and retention;
 colab MUST use that API rather than redefine it. The
@@ -1036,157 +1036,139 @@ machine's grant. Altered transcripts/devices/offers/tags MUST reject.
 
 ## Explicit Send and bridge ledger
 
-**Channel boundary: split.** Explicit Send and the ledger stay; dispatch and recovery use remote operations.
+**Channel boundary: split.** Trusted browser Send and the encrypted own-stream
+ledger belong to Colab; Remote owns operations, grants, hold approval, dedup and
+receipt recovery. Local v1 uses the asking browser directly. There is no native
+bridge ledger, native Ask route or additional SQLite migration.
+The browser wraps the same verified Session held by registration and Live with
+Remote's operations helper. The wrapper opens nothing and never reopens on
+uncertainty: the helper resyncs its sequence and reads the original operation ID.
+Only session end makes Live reconnect; recovery then uses the new shared session.
 
-Comments, sync, replay, compaction and HTML scripts MUST NOT dispatch agent work.
-Only explicit Send in trusted parent UI signs an immutable intent after showing
-the exact final text, agent UUID, destination machine/online state, that the
-ask and its reply are visible to everyone who can see the page and, only under a
-`hold` grant, that the send waits for local approval.
-All effectful actions (Send, share, approve, delete) live in trusted parent
-chrome. The canvas retains a visible boundary and the selection popover is
-parent-drawn and clamped to it. Ask agent is a separate confirmed step from
-Comment; page-drawn controls never execute trusted effects. Screen layout,
-visual tokens and navigation remain owned by design section 13. The preview
-contains the selected quote, comment, page title and link without fragment.
-Freeze exactly the preview bytes seen by the sender, including when live render
-is paused; never silently replace them with current source before signing.
+Only explicit Send in trusted parent chrome dispatches agent work. Comments,
+sync, replay, compaction, reload and renderer messages MUST NOT dispatch. Ask
+agent is separate from Comment. The parent freezes the admitted quote/comment,
+page title, fragment-free HTTP(S) URL and chosen agent/machine before signing.
+Credentialed URLs and malformed Unicode refuse. Paused rendering or later edits
+cannot replace frozen text. The preview displays destination UUIDs, verified
+presence, exact delivered UTF-8 and a separate escaped control-character view;
+it warns that the ask and reply are visible to everyone with page access.
+
+Remote prepends its contract-defined `[remote: <device name>]` line and LF. The
+parent includes that line in the delivered preview, while signing and sending
+only the frozen message below it. The verified device name and grant revision
+and session expiry are pinned to the preview; rename, revision change or session
+end refuses Send from the pending preview.
+No second prefix or post-preview formatter is permitted. Delivery readiness is
+unavailable when Remote supplies no reviewed delivery projection; presence never
+becomes channel readiness. The production adapter ignores unknown delivery data.
+Grant mode and expiry are shown only when supplied by verified Remote evidence;
+missing policy remains unavailable, with no inferred hold warning.
 
 The canonical send input is LP(`tmt-colab-send-v1`, version, space, page, thread,
-messageIds, machine, agent, operationId, finalBytesDigest, senderDevice, grantId,
-grantRevision, issuedAt, expiresAt). The device signs it and stores the exact
-final UTF-8 bytes in its encrypted own stream. Default intent validity is one
-hour, maximum 24 hours. Enforce the linked core request limit on final bytes;
-message-body bounds alone do not bound a composed request. A mutable Yjs field
-is not execution authority.
+messageIds, machine, agent, operationId, finalBytesDigest, senderDevice,
+grantRevision, grantExpiresAt, issuedAt, expiresAt). `grantRevision` and the
+verified session expiry reference the actual Remote grant; no fabricated grant
+or client ID is used. `grantExpiresAt` is canonical millisecond text or `none`
+when the verified session has no expiry. The sender is the certified asking device.
+The digest binds exact unprefixed transport bytes. Sorted unique message IDs use
+the existing list framing. The non-extractable extension signing key signs these
+bytes. Default validity is one hour, maximum 24 hours. The mounted controller
+caps composed delivered messages at 64 KiB, below core's request bound, and
+checks expiry again after durable own publication and immediately before Send.
+A mutable Yjs field is never execution authority.
 
-For each operation ID the durable bridge ledger transitions:
+Before any Remote call, a per-device/operation Web Lock reserves immutable signed
+metadata in existing Colab IndexedDB and publishes the exact signed input,
+signature and final bytes in the asking device's encrypted own stream. Plaintext
+final bytes are not duplicated in the local metadata record. Same ID and signed
+input returns the existing operation without sending; changed input/signature
+is `INTENT_CONFLICT`. Interrupted reservation cannot authorize a second effect.
+The existing Writer owns both namespaces, shared sequence/signing, durable exact
+ciphertext staging and append retry. No second stream owner or keyring is added.
+
+The browser ledger publishes `dispatching` before one signed Remote
+`dispatch.create`, with envelope ID equal to the frozen operation UUID, anonymous
+originator, one agent UUID and exact unprefixed message. Remote owns dispatch
+admission and core owns acceptance/advisory wake/final retention. Accepted is not
+an agent final. Valid states are:
 
 ```text
-fence → dispatching → accepted | failed | uncertain   (direct grant, default)
-fence → held → dispatching                            (hold grant, after approve)
-fence | held → refused | expired
-uncertain → accepted (receipt recovery) | abandoned
-uncertain → dispatching (explicit eligible retry only)
+dispatching -> accepted | held | uncertain | failed | refused | cancelled | expired
+held -> accepted | uncertain | refused | cancelled
+uncertain -> accepted | held | refused | cancelled | abandoned
 ```
 
-The fence checks signature/device chain, current local grant revision,
-revocation/expiry, intent window, self machine ID, space/page, selected agent
-scope, sender authority at the latest locally verified head, and operation dedup.
-Same ID/digest returns recorded state; different digest is `INTENT_CONFLICT`.
-Run the fence under the bridge lock immediately before dispatch; under a `hold`
-grant also run it at adoption into held. Approval does not extend validity.
-Revocation while held or offline blocks dispatch.
+Remote governs hold approval and rechecks its own grant at release. Local v1
+does not supply a Colab page-policy hook at later approval. Browser observation
+never dispatches or approves. Timeout, interrupted output or reopened
+`dispatching` becomes uncertain. Recovery uses only `operation.show` with the
+original ID; absence remains uncertain. No same-ID retry or replacement operation
+is offered in v1. Explicit abandon records `MAY_HAVE_BEEN_DELIVERED`; it neither
+proves absence nor cancels recipient work.
 
-Persist dispatching, then call public `dispatch.create` with frozen operation ID,
-recipient UUID and exact bytes, anonymous originator. Core owns request/wake
-semantics. A valid receipt becomes accepted; a definite core failure becomes
-failed; timeout, lost output or crash becomes uncertain. Restarted dispatching
-records become uncertain, never automatically resend.
+### Own-stream Ask records
 
-Recovery reads `dispatch.show`: found becomes accepted; not found stays uncertain.
-An explicit same-ID/bytes retry reruns the full fence and requires the original
-child confirmed stopped. Within one live bridge invocation the process owner
-reports `Cleanup::Confirmed`. Retry is eligible only on `Confirmed`; any other
-started-failure cleanup, including `CallerOwned`, disables retry and keeps the
-entry uncertain. Colab uses only default fresh-group invocation for core and
-decoder children, so it never receives `CallerOwned`. `NotStarted` means no
-call was made and retains the normal fence/approval path. After a bridge crash today's API does not establish
-original-child identity/termination, so retry remains disabled with that reason.
-No shared API extension is assumed. Abandon stops local tracking and says “may
-still have been delivered”; it neither proves non-delivery nor cancels accepted
-work. No automatic new operation or repeated wake is permitted.
+Ask records are inert JSON values in the existing per-writer own Yjs roots:
 
-The grant mode comes from the remote trust grant: `direct` (the default)
-dispatches right after the fence, `hold` keeps the send held for local
-`approve`.
+| Root/key                             | Value                                                                                 |
+| ------------------------------------ | ------------------------------------------------------------------------------------- |
+| `intents[operationId]`               | `{version:1,kind:"ask",signed:{operationId,senderDevice,input,signature,finalBytes}}` |
+| `messages[operationId+":"+revision]` | `{version:1,kind:"ask-state",operationId,revision,state,requestId,reason}`            |
+| `replies[operationId]`               | `{version:1,kind:"ask-reply",operationId,requestId,agentId,body}`                     |
 
-### Implemented browser preview foundation (#1312)
+Binary fields use canonical base64url. State revisions are positive canonical
+decimal strings, ordered numerically. `requestId` and `reason` are explicitly
+null when absent. Reasons are bounded sanitized codes, never raw transport
+errors. Records are immutable under the parent-owned publication API.
 
-The private app exports a trusted-parent `AskPreview` component over a
-`FrozenAsk` admitted-selection input. The caller still owns page/role,
-source/render, same-member and current machine/grant admission; neither a
-renderer message nor a claimed member is admitted by this primitive. The
-production page has no selection/threads entry point or agent send wiring yet.
-The component is exercised through a test-only browser entry, never a sample
-agent route in the production application.
+Viewers admit the encrypted own envelope and its writer chain before interpreting
+records. They verify the intent's signature and message digest, space/page,
+operation ID and sender-to-stream binding. State/reply records join only to an
+intent in that same authenticated stream. State revisions respect the state
+machine and preserve an established request ID. Reply agent UUID and request ID
+must match the intent and accepted receipt correlation. Content author claims
+cannot choose another writer or agent. The native isolated own decoder validates
+Ask syntax/digests and bounds; it holds no keys or dispatch capability. General
+threads/comments UI is separate from the minimal Ask panel.
 
-Capture copies the selection/message IDs and destination, strips the URL
-fragment, refuses credentialed/non-HTTP URLs and invalid Unicode, formats one
-exact message, and enforces the composed core request bound (1 MiB, or a lower
-caller-supplied bound). The final preview includes page title/link, quote and
-comment; controls and Unicode formatting characters have a separate escaped
-view. The original UTF-8 is unchanged. Capture allocates one operation UUID
-unless the caller supplies an already-frozen one. Signing uses the field order
-above with sorted unique message IDs, the exact final digest, an explicit grant
-reference and a one-hour default / 24-hour maximum validity. Grant references
-are supplied by the caller, not inferred from Remote's client ID. The existing
-non-extractable extension key and strict signature primitives are reused.
+Only the asking device observes its unresolved operations and publishes finals,
+through Remote's device-owned result operation and request IDs already in its
+admitted ledger. Empty finals are valid. The page copy is exact UTF-8, bounded
+to 16 KiB; a larger retained core final yields `REPLY_TOO_LARGE`, with no silently
+truncated copy. Unavailable core history yields `RESULT_UNAVAILABLE`. Core remains
+final/retention authority; page copies follow page access and retention.
 
-`AskAttempt` permits one explicit attempt through a caller-injected, contract-
-shaped `RemoteClient` port. There is no live adapter or Remote keyring access.
-Without a port, Send is disabled and signing/storage never starts. With a test
-port, trusted Send persists an immutable local draft in the existing Colab
-IndexedDB store under the device/operation key before calling it. A Web Lock
-serializes adoption across tabs. The stored record contains only signed input
-and signature; the input binds the message digest. Quote, comment and final
-message bytes stay in memory and are never written to this store. Identical
-signed metadata returns the existing draft; changed input or signature is
-`INTENT_CONFLICT`. An existing draft yields uncertain without another send,
-including after reload. This metadata is not the native bridge ledger or
-encrypted own-stream publication, and no schema/version
-migration is introduced. Storage failure or expiry before the port call has no
-send effect. Repeated clicks share one promise; a lost or miscorrelated response
-becomes uncertain. There is no retry, local approval or result publication path.
+Read-only observation resumes on load and after Send/re-check, uses 2-second to
+30-second backoff while visible, pauses hidden pages and resumes when visible,
+and stops after a two-hour operation horizon. After that, explicit re-check
+remains available. Closing the asking browser delays page publication until it
+reopens; it never cancels work. Synchronization and other viewers cannot perform
+result reads as the asking Remote device.
 
-Delivery labels come only from the caller's Remote delivery projection;
-missing evidence remains unavailable. Held is distinct from accepted, and
-accepted is not an agent final. Closing the component ends its observation,
-not recipient work. The browser component requires a trusted click; page messages
-and programmatic DOM clicks never start it. This foundation does not satisfy L5:
-#1055 owns the operation runtime/SDK, and later Colab slices own the native
-ledger/fence, own streams, live integration and real-binary acceptance.
-Independent bytes/signatures are frozen in `vectors/send-preview-v1.json`;
-`vectors/send-preview-reference.py` owns regeneration.
+The browser `RemoteClient` adapter consumes Remote's served operations SDK and
+its verified session/responses. It does not compose raw envelopes, read Remote
+storage or invoke core directly. Uncertainty recovers on the existing session;
+only session end requires Live to replace it before original-ID recovery. Frozen byte/signature vectors live in
+`vectors/send-preview-v1.json`, with independent Python regeneration.
 
 ### Member machines
 
-A member with commenter or editor role may Ask agent, but only agents on a
-machine of their own; the owner's agents answer only the owner. The member's
-browser holds a device paired with that machine through remote, and the ask
-travels as an ordinary remote operation under that machine's own grant, as the
-[remote channel contract](../../../contracts/remote-channel-v1.md#extension-channel-api)
-defines. The owner's machine never executes it, and page membership adds no
-operation scope anywhere. Owner machines keep `bridge.add`.
+Local v1 is owner-only: mounted writers are certified devices of the pinned
+revision-1 owner member on this machine. The asking browser sends under its own
+paired Remote grant to that same machine; page membership creates no agent
+permission. Read-only page viewers receive the admitted Ask records without
+Remote result credentials. Reply attribution combines the admitted asking device
+and its signed intent's agent/machine UUID, never an author name in reply content.
+The page copy is published by that asking device, not a native machine stream.
 
-To write into the page, the member's machine joins as one of that member's
-certified devices through the ordinary device chain and holds the member's role;
-it needs no owner statement. Before dispatch its bridge also checks that the
-asking page device and its own page device resolve to the same member at its
-latest verified log head, so a page intent cannot name another principal's
-machine. Member removal or role reduction revokes that machine's page device
-with the member's other devices.
-
-Asks and replies are recorded in the page's own-namespace streams under the page
-epoch key, attributed from the signed stream: the ask to the member, the reply
-to "<agent> on <member>'s machine". Content fields never name the author.
-Everyone who can see the page sees them, like comments; there is no private
-ask. The asker sees the destination machine's online state, and offline asks
-wait and expire as above.
-
-`devices revoke` revokes machine-local grants immediately. Member removal on
-that machine also revokes corresponding grants in the same local transaction.
-Removal elsewhere takes effect locally only after the bridge verifies the log;
-UI MUST disclose that delay. Page membership and agent grants are separate.
-
-Bridge replies belong only to operations in its ledger and its own signed stream,
-correlated by operation ID. It reads core only for request IDs it created, observes
-`changes.cursor` and retrieves finals with `requests.show`. Core remains the
-final/retention authority; the encrypted page copy respects core's final-size
-bound. A page-supplied request ID MUST NOT enable arbitrary result reads.
-Cloud bridges connect outward as bridge members; offline sends wait and expire,
-showing “waiting for <machine>”. The user's own computers share a Firestore
-space; there is no separate relay.
+Cross-member machines and Colab before-effect page/member fencing at held/offline
+adoption belong to the cloud stage. They require the asking page device and the
+destination's certified page device to resolve to the same member at the latest
+locally verified owner head, with current role/page/epoch and Remote grant policy.
+Owner-machine fallback is forbidden. Page authorization and Remote agent grants
+remain separate. Local v1 does not claim that cross-member or delayed-approval
+page-policy fence, offline automatic dispatch or native reply publication.
 
 ## Renderer and live anchors
 

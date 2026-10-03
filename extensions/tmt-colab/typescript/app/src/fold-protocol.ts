@@ -9,6 +9,13 @@ export type FoldCommand =
   | { type: 'checkpoint'; update: Uint8Array; writer?: string }
   | { type: 'prepare'; source: string; base?: string }
   | {
+      type: 'prepare-own';
+      writer: string;
+      root: 'intents' | 'messages' | 'replies';
+      key: string;
+      value: JsonValue;
+    }
+  | {
       type: 'baseline';
       update: Uint8Array;
       title: string;

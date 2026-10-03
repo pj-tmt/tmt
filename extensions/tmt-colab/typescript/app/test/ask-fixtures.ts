@@ -22,7 +22,8 @@ export function destination(): AskDestination {
     agent: id(6),
     agentName: 'Deterministic agent',
     delivery: 'channel',
-    grantId: id(7),
+    grantExpiresAt: null,
+    deviceName: 'Fixture browser',
     grantRevision: '1',
     mode: 'direct',
   };
@@ -32,6 +33,16 @@ export class RemoteDouble implements RemoteClient {
   sends: SendInput[] = [];
   reads: string[] = [];
   mode: 'accepted' | 'held' | 'throw' | 'wrong_id' = 'accepted';
+  async context() {
+    return {
+      machineId: id(5),
+      deviceId: id(4),
+      grantRevision: '1',
+      deviceName: 'Fixture browser',
+      expiresAtMs: null,
+      mode: null,
+    };
+  }
   async listAgents() {
     return [{ id: id(6), name: 'Deterministic agent', delivery: 'channel' as const }];
   }
