@@ -741,6 +741,89 @@ fn echo(closed: mpsc::Sender<Vec<u8>>) -> Behavior {
 }
 
 #[test]
+fn websocket_subprotocol_offer_and_selected_value_pass_through_unchanged() {
+    const READER: &str = "colab-reader-v1.Token_012-AbC";
+    // Preserve internal whitespace as well as every offered value and its order.
+    let offer = format!("colab-sync-v1,  {READER}");
+    for selected in ["colab-sync-v1", READER] {
+        let door = Mounted::new(Arc::new(NoSessions));
+        let extension = door.extension(Arc::new(move |mut stream, seen| {
+            seen.push(request(&mut stream));
+            let reply = String::from_utf8(SWITCH.to_vec())
+                .unwrap()
+                .replace("colab-sync-v1", selected);
+            stream.write_all(reply.as_bytes()).unwrap();
+        }));
+        let upgrade = UPGRADE.replace("colab-sync-v1", &offer);
+        let reply = door.send(
+            door.get(
+                &door.at("/x/colab/sync"),
+                &format!("Origin: {}\r\n{upgrade}", door.origin),
+            )
+            .as_bytes(),
+        );
+        let (head, _) = reply.split_once("\r\n\r\n").unwrap();
+        assert!(head.starts_with("HTTP/1.1 101"));
+        let returned: Vec<_> = head
+            .split("\r\n")
+            .filter_map(|line| line.strip_prefix("sec-websocket-protocol: "))
+            .collect();
+        assert_eq!(returned, [selected], "only the extension's selected value");
+        let seen = extension.seen.all();
+        assert_eq!(seen.len(), 1);
+        let forwarded: Vec<_> = seen[0]
+            .split("\r\n")
+            .filter_map(|line| line.strip_prefix("sec-websocket-protocol: "))
+            .map(str::as_bytes)
+            .collect();
+        assert_eq!(forwarded, [offer.as_bytes()], "byte-identical offer");
+    }
+}
+
+#[test]
+fn websocket_upgrade_strips_forged_door_headers_with_or_without_owner_session() {
+    for cookie in ["tmt_door=other", OWNER] {
+        let door = Mounted::new(Arc::new(OneOwner));
+        let extension = door.extension(replying(SWITCH));
+        let reply = door.send(
+            door.get(
+                &door.at("/x/colab/sync"),
+                &format!(
+                    "Origin: {}\r\nCookie: {cookie}\r\n{UPGRADE}TMT-Device-Context: forged\r\nTMT-Device-Event: 1\r\nTMT-Mount: /x/evil/\r\n",
+                    door.origin
+                ),
+            )
+            .as_bytes(),
+        );
+        assert!(reply.starts_with("HTTP/1.1 101"), "upgrade admitted");
+        let seen = extension.seen.all();
+        assert_eq!(seen.len(), 1);
+        assert!(!seen[0].contains("forged"));
+        assert!(!seen[0].contains("/x/evil/"));
+        assert!(!seen[0].contains("tmt-device-event:"));
+        assert!(!seen[0].contains("cookie:"));
+        let mounts: Vec<_> = seen[0]
+            .split("\r\n")
+            .filter_map(|line| line.strip_prefix("tmt-mount: "))
+            .collect();
+        assert_eq!(mounts, [format!("{}/x/colab/", door.prefix)]);
+        let contexts: Vec<_> = seen[0]
+            .split("\r\n")
+            .filter_map(|line| line.strip_prefix("tmt-device-context: "))
+            .collect();
+        if cookie == OWNER {
+            assert_eq!(contexts.len(), 1, "only the door's owner context");
+            let context: serde_json::Value = serde_json::from_str(contexts[0]).unwrap();
+            assert_eq!(context["owner"], true);
+            assert_eq!(context["deviceId"], "00000000-0000-4000-8000-000000000004");
+            assert_eq!(context["grantRevision"], 3);
+        } else {
+            assert!(contexts.is_empty(), "no context without an owner session");
+        }
+    }
+}
+
+#[test]
 fn websocket_bytes_pass_through_unchanged_and_close_with_either_side() {
     let (closed, ended) = mpsc::channel();
     let mut door = Mounted::new(Arc::new(NoSessions));
