@@ -3969,6 +3969,16 @@ with a separate release-SHA checkout for CLI expected skills and migration count
 archives, manifest, version and recorded digests remain unchanged. The existing planner
 shares held-draft validation with `hold`, but rerun skips no gate; failed reruns preserve
 the marker and finish validates its tag, SHA and gate before clearing it after all gates pass.
+Each CLI `prove` host additionally selects the adapter-owned real-archive upgrade
+acceptance test over the same digest-checked archives after its installer/migration
+proof. Release tooling compiles the adapter lib-test binary and rejects empty
+discovery or execution. Acquisition is injected; real old/new executables supply
+managed skills and conflict/repair behavior. Identical skill text skips only
+differential content-transition evidence. On an owner-authorized rerun, the
+release-source checkout owns historical applicability: source predating the test
+reports `predates; not applicable`, while current main's test code owns execution
+for applicable sources. This exception leaves installer/migration and public smoke
+gates intact. DEVELOPMENT owns invocation, compilation bounds and logs.
 The [release skill](.agents/skills/tmt-release/SKILL.md#automated-alpha-publication) owns rerun authorization. When a draft's bundle is
 attached the pipeline evaluates the publication gates (channel, commit, immutability,
 monotonic, migration, upgrade) in write-token jobs that run `main`'s code and only read the release

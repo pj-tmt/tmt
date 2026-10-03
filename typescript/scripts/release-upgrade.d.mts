@@ -41,6 +41,22 @@ export function proveStaged(input: {
   skill?: string;
   sourceRoot?: string;
 }): { previous: string | null };
+export const ACCEPTANCE_TEST: string;
+export function acceptanceApplicability(sourceRoot: string): 'applicable' | 'predates';
+export function proveArchiveAcceptance(input: {
+  directory: string;
+  product: string;
+  tag: string;
+  target: string;
+  sourceRoot?: string;
+  execute?: (
+    executable: string,
+    args: string[],
+    options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number }
+  ) => string;
+  environment?: NodeJS.ProcessEnv;
+  report?: (message: string) => void;
+}): { outcome: 'nothing' | 'predates' | 'proved' };
 export const PROOF_FILES: readonly string[];
 export function assessUpgrade(input: {
   plan: { previous: string | null };

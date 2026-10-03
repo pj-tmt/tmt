@@ -2015,13 +2015,33 @@ ended and the first thing it said. A failed host keeps its log as an artifact, a
 bounded line (it reads the logs as data, because the release commit's own scripts wrote them);
 the `upgrade` hold marker carries that reason with the run URL.
 
-The automated proof does not run `tmt upgrade` or a public installer: the candidate has no
-published release for `tmt upgrade` to find, and production has no test endpoint. By hand,
-in an isolated HOME and prefix, install the previous published version with its own public
-installer. Then run the candidate installer's `__native-install` over that prefix, and run
-the candidate's `tmt upgrade` against a receipt with that version's online
-(`github-release`) provenance. Both must succeed and leave the superseded receipt
-unchanged. Receipts written by older releases stay readable: v5.0.0-alpha.2 through
+For CLI, each `prove` host also runs the real-archive adapter acceptance test after
+the installer/migration proof, using the same digest-checked previous and candidate
+archives. `release-upgrade.mjs acceptance` compiles only `tmt-adapters`' lib tests
+with two Cargo workers, no debug information or incremental compilation, then
+requires exactly one discovered and executed passing ignored test. The existing
+read-only `native-rust` dependency cache is restored without another writer. The
+job retains its ten-minute timeout; compile duration and the test's output appear
+in the run summary and proof log. A compiler, discovery or test failure fails the
+upgrade gate. Extension proofs do not compile or run this CLI test.
+
+The adapter proof injects canonical acquisition responses into the release's
+upgrade adapter and executes real old/new binaries in isolated state. It verifies
+receipt provenance, download cleanup, retained old bytes, exact candidate skill
+bytes, conflict preservation, partial refresh failure and repair. If the two
+embedded skill texts match, only differential content-transition coverage is
+reported as skipped; the other assertions still run. An owner-authorized rerun
+compiles current main's repaired tooling. If its separate `release-source`
+checkout predates the test, this sub-proof reports `predates; not applicable`
+without blocking the rerun or claiming a pass. The installer/migration proof
+remains required; a missing release-source checkout is an error.
+
+Neither pre-publication proof runs public `tmt upgrade` downloads or a public
+installer: the candidate has no published release to find, and production has no
+test endpoint. The post-publication smoke below retains that separate live proof.
+For manual installer coverage, use an isolated HOME and prefix to install the
+previous published version with its public installer, then the candidate's
+installer. Preserve the superseded receipt. Receipts written by older releases stay readable: v5.0.0-alpha.2 through
 alpha.6 and Office 0.1.0-alpha.1 through alpha.3 record the pre-rename repository
 `wkh237/tmux-team`, which receipt reading accepts as the official one (#492).
 
@@ -2108,8 +2128,9 @@ prefixes, never a user's installed command or app data. The invoking executable
 must be the active release; an unmanaged checkout binary fails before networking.
 Production has no test endpoint or TLS bypass. API fixtures inject only the
 adapter's acquisition boundary; actual local TLS fixtures use test-only trust.
-Test old/new real release archives separately from synthetic tar fixtures, with
-different embedded skills, to prove the newly active executable supplies refresh.
+Test old/new real release archives separately from synthetic tar fixtures. Use
+different embedded skills for differential proof that the newly active executable
+supplies refresh; identical text still permits the remaining upgrade assertions.
 
 Channel discovery uses GitHub's product-prefixed `git/matching-refs/tags/<prefix>`
 API and exact-tag release metadata, independent of the repository's total release
@@ -2180,8 +2201,8 @@ generate target-filtered notices through cargo-about and retain complete texts.
 rcgen/rustls local-server fixtures are dev-only, not production endpoint options.
 
 The explicit actual-archive acceptance test requires separately versioned,
-matching-host cargo-dist artifacts with different embedded skills. It is ignored
-by ordinary tests, not counted as release proof until selected and passed:
+matching-host cargo-dist artifacts. It is ignored by ordinary tests and explicitly
+selected by the CLI release upgrade proof. A manual invocation is:
 
 ```sh
 TMT_UPGRADE_OLD_ARCHIVE=/absolute/old/archive.tar.gz \
@@ -2189,8 +2210,9 @@ TMT_UPGRADE_OLD_MANIFEST=/absolute/old/manifest.json \
 TMT_UPGRADE_NEW_ARCHIVE=/absolute/new/archive.tar.gz \
 TMT_UPGRADE_NEW_MANIFEST=/absolute/new/manifest.json \
 TMT_UPGRADE_TARGET=aarch64-apple-darwin \
-cargo test --locked --manifest-path rust/Cargo.toml -p tmt-adapters \
-  cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts -- --ignored
+CARGO_BUILD_JOBS=2 cargo test --locked --manifest-path rust/Cargo.toml -p tmt-adapters --lib \
+  native_install::upgrade::artifact_tests::cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts \
+  -- --exact --ignored --nocapture
 ```
 
 Require one selected passing test, not an empty filtered run. This test injects
@@ -2198,6 +2220,8 @@ canonical acquisition responses but executes real old/new binaries, managed
 skill installation, partial hidden refresh and repair in scrubbed task-owned
 state. It does not claim to contact a public release or exercise the public CLI
 over a fake production endpoint. Run the independent artifact verifier too.
+Identical embedded text prints a skipped differential content-transition result;
+candidate-byte equality, conflict preservation and repair are still required.
 
 #### Offline composition
 

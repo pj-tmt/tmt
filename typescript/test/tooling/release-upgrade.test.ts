@@ -9,6 +9,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import type { DraftAsset, DraftRelease } from '../../scripts/release-draft-assets.mjs';
 import {
   PROOF_FILES,
+  ACCEPTANCE_TEST,
+  acceptanceApplicability,
   archiveTargets,
   assessUpgrade,
   combineFailures,
@@ -16,6 +18,7 @@ import {
   fetchUpgrade,
   ghAssetDownloader,
   proveStaged,
+  proveArchiveAcceptance,
   releaseCommit,
   selectAssets,
   selectPrevious,
@@ -395,6 +398,157 @@ describe('fetchUpgrade and proveStaged', () => {
     expect(value(args, '--target')).toBe(target);
     expect(value(args, '--skill')).toBe('release-source/skills/tmux-team/SKILL.md');
     expect(value(args, '--source-root')).toBe('/candidate-source');
+  });
+
+  describe('real-archive adapter acceptance', () => {
+    const binary = '/task-owned/tmt-adapters-tests';
+    const compiled = JSON.stringify({
+      reason: 'compiler-artifact',
+      target: { name: 'tmt_adapters' },
+      profile: { test: true },
+      executable: binary,
+    });
+    const listed = `${ACCEPTANCE_TEST}: test\n\n1 test, 0 benchmarks\n`;
+    const passed =
+      'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out; finished in 0.01s\n';
+    const input = () => ({
+      directory: fetchInto('cli', 'v5.0.0-alpha.9').directory,
+      product: 'cli',
+      tag: 'v5.0.0-alpha.9',
+      target: TARGET,
+      sourceRoot: undefined,
+      environment: { CARGO_TARGET_DIR: '/shared/task-target' },
+    });
+
+    it('compiles the adapter only, binds verified archives, and executes exactly the ignored test', () => {
+      const calls: { executable: string; args: string[]; env: NodeJS.ProcessEnv }[] = [];
+      const fixture = input();
+      const result = proveArchiveAcceptance({
+        ...fixture,
+        execute: (executable, args, options) => {
+          calls.push({ executable, args, env: options.env });
+          return [compiled, listed, passed][calls.length - 1];
+        },
+      });
+      expect(result).toEqual({ outcome: 'proved' });
+      expect(calls).toHaveLength(3);
+      expect(calls[0].executable).toBe('cargo');
+      expect(calls[0].args).toContain('--no-run');
+      expect(calls[0].args).toContain('tmt-adapters');
+      expect(calls[0].args).not.toContain('--release');
+      expect(calls[0].env.CARGO_BUILD_JOBS).toBe('2');
+      expect(calls[0].env.CARGO_TARGET_DIR).toBe('/shared/task-target');
+      expect(calls[0].env.TMT_UPGRADE_OLD_ARCHIVE).toBe(
+        path.join(fixture.directory, TARGET, 'previous', `tmt-cli-${TARGET}.tar.gz`)
+      );
+      expect(calls[0].env.TMT_UPGRADE_NEW_MANIFEST).toBe(
+        path.join(fixture.directory, TARGET, 'candidate', 'dist-manifest.json')
+      );
+      expect(calls[1].executable).toBe(binary);
+      expect(calls[1].args).toEqual([ACCEPTANCE_TEST, '--exact', '--ignored', '--list']);
+      expect(calls[2].args).toEqual([ACCEPTANCE_TEST, '--exact', '--ignored', '--nocapture']);
+    });
+
+    it.each(['', `${compiled}\n${compiled}`])(
+      'rejects missing or ambiguous compiled test binaries',
+      (output) => {
+        expect(() => proveArchiveAcceptance({ ...input(), execute: () => output })).toThrow(
+          'Expected exactly one tmt-adapters lib-test executable'
+        );
+      }
+    );
+
+    it.each(['0 tests, 0 benchmarks\n', `${listed}\nother: test\n`])(
+      'rejects empty or extra test discovery',
+      (listing) => {
+        let call = 0;
+        expect(() =>
+          proveArchiveAcceptance({ ...input(), execute: () => [compiled, listing][call++] })
+        ).toThrow('Expected exactly one discovered real-archive upgrade acceptance test');
+        expect(call).toBe(2);
+      }
+    );
+
+    it.each([
+      'test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out;',
+      'test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 42 filtered out;',
+    ])('refuses a successful process that executed no acceptance test', (output) => {
+      let call = 0;
+      expect(() =>
+        proveArchiveAcceptance({ ...input(), execute: () => [compiled, listed, output][call++] })
+      ).toThrow('Expected exactly one passing executed real-archive upgrade acceptance test');
+    });
+
+    it('preserves compiler and test execution failures', () => {
+      for (const failingCall of [0, 2]) {
+        let call = 0;
+        expect(() =>
+          proveArchiveAcceptance({
+            ...input(),
+            execute: () => {
+              if (call === failingCall) throw new Error('owned process failed');
+              return [compiled, listed, passed][call++];
+            },
+          })
+        ).toThrow('owned process failed');
+      }
+    });
+
+    it('rechecks staged digests before any compile or historical exemption', () => {
+      const fixture = input();
+      writeFileSync(
+        path.join(fixture.directory, TARGET, 'candidate', 'dist-manifest.json'),
+        'corrupted'
+      );
+      let calls = 0;
+      expect(() =>
+        proveArchiveAcceptance({
+          ...fixture,
+          sourceRoot: '/missing-source',
+          execute: () => {
+            calls++;
+            return '';
+          },
+        })
+      ).toThrow('does not match its recorded digest');
+      expect(calls).toBe(0);
+    });
+
+    it('reports predates as not applicable only for the release-source checkout on a rerun', () => {
+      const sourceRoot = mkdtempSync(path.join(root, 'historical-source-'));
+      const messages: string[] = [];
+      let calls = 0;
+      expect(
+        proveArchiveAcceptance({
+          ...input(),
+          sourceRoot,
+          execute: () => {
+            calls++;
+            return '';
+          },
+          report: (message) => messages.push(message),
+        })
+      ).toEqual({ outcome: 'predates' });
+      expect(calls).toBe(0);
+      expect(messages.join('\n')).toMatch(/predates; not applicable/);
+      expect(messages.join('\n')).not.toContain('acceptance: passed');
+      expect(acceptanceApplicability(sourceRoot)).toBe('predates');
+      const source = path.join(
+        sourceRoot,
+        'rust/crates/tmt-adapters/src/native_install/upgrade_artifact_tests.rs'
+      );
+      mkdirSync(path.dirname(source), { recursive: true });
+      writeFileSync(source, 'fn unrelated_test() {}');
+      expect(acceptanceApplicability(sourceRoot)).toBe('predates');
+      writeFileSync(
+        source,
+        'fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {}'
+      );
+      expect(acceptanceApplicability(sourceRoot)).toBe('applicable');
+      expect(() => acceptanceApplicability(path.join(sourceRoot, 'missing-checkout'))).toThrow(
+        'release-source checkout is missing'
+      );
+    });
   });
 
   it('drives an extension with the staged CLI', () => {

@@ -133,8 +133,11 @@ procedures referenced below; DEVELOPMENT owns ordinary native checks.
   its own publications). Do not equate a
   downloadable CI bundle with a published or accepted release.
 - Every CLI or extension release also passes the guide's upgrade from the last
-  published release (its public installer, then the candidate's installer and
-  `tmt upgrade`), not only a fresh install. Old receipts must stay readable.
+  published release, not only a fresh install. Old receipts must stay readable.
+  The pre-publication CLI proof requires installation, migration and real-archive
+  adapter acceptance on all four hosts. Follow the guide's distinction between
+  injected acquisition, skipped differential skill coverage for identical text,
+  older-source rerun applicability and separate public installer/upgrade smoke.
 - For curl bootstrap, follow the guide's native curl bootstrap verification.
   Generate from final verified cargo-dist artifacts and invoke the existing
   native publisher; do not enable a competing stock installer. Test an actual

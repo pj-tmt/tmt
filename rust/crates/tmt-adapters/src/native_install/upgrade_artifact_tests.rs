@@ -331,9 +331,9 @@ fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {
     assert_eq!(fs::read(first_target.join("SKILL.md")).unwrap(), new_skill);
     assert_eq!(fs::read(second_target.join("SKILL.md")).unwrap(), new_skill);
     if skill_text_changed {
-        eprintln!("skill-content transition: passed (old and candidate text differ)");
+        println!("skill-content transition: passed (old and candidate text differ)");
     } else {
-        eprintln!(
+        println!(
             "skill-content transition: skipped (old and candidate text are identical); \
              candidate-byte equality, conflict preservation and repair passed"
         );

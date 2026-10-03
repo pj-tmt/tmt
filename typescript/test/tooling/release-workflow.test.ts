@@ -504,6 +504,35 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
     expect(prove.indexOf('warm-xcrun')).toBeGreaterThan(0);
     expect(prove.indexOf('warm-xcrun')).toBeLessThan(prove.indexOf('release-upgrade.mjs prove'));
   });
+
+  it('requires CLI adapter acceptance after the existing proof on every host, with bounded compilation and read-only caching', () => {
+    const prove = job(upgrade, 'prove');
+    expect(prove).toContain('timeout-minutes: 10');
+    expect(prove).toMatch(
+      /name: Install Rust for CLI adapter acceptance\n {8}if: inputs.product == 'cli'/
+    );
+    expect(prove).toMatch(
+      /name: Restore Rust dependencies for CLI adapter acceptance\n {8}if: inputs.product == 'cli'/
+    );
+    expect(prove).toContain('shared-key: native-rust');
+    expect(prove).toContain('save-if: false');
+    expect(prove).toMatch(
+      /name: Prove the real-archive CLI upgrade adapter\n {8}if: inputs.product == 'cli'/
+    );
+    expect(prove.indexOf('release-upgrade.mjs acceptance')).toBeGreaterThan(
+      prove.indexOf('release-upgrade.mjs prove')
+    );
+    expect(prove).toContain('2>&1 | tee -a "$RUNNER_TEMP/upgrade-proof.log"');
+    expect(prove).not.toContain('continue-on-error:');
+    expect(prove).toContain('CARGO_TARGET_DIR: ${{ github.workspace }}/rust/target');
+    const acceptance = prove.slice(
+      prove.indexOf('- name: Prove the real-archive CLI upgrade adapter'),
+      prove.indexOf('- name: Keep the log')
+    );
+    expect(acceptance).toContain('if [ "$CURRENT_TOOLING" = true ]; then');
+    expect(acceptance).toContain('source_args=(--source-root "$GITHUB_WORKSPACE/release-source")');
+    expect(acceptance).toContain('--directory "$RUNNER_TEMP/upgrade" "${source_args[@]}"');
+  });
 });
 
 describe('publication gates (native-release-bundle.yml)', () => {

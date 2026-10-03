@@ -30,6 +30,7 @@ import {
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { runPackedCommand } from './packed-command.mjs';
 import { archivePrefix } from './native-release-policy.mjs';
 import { ghApi } from './release-draft-assets.mjs';
 import { compareVersions, publishedReleases, versionOfTag } from './release-versions.mjs';
@@ -146,13 +147,8 @@ export function fetchUpgrade({ releases, download, product, tag, directory }) {
   return plan;
 }
 
-/**
- * The prove step, over the directory `fetchUpgrade` wrote. Every file is checked against the
- * digest in the plan again, since it crossed a job boundary, and `run` executes the product's
- * verifier script over the target's files and throws when it fails. Returns the previous tag, or
- * null when there was nothing to upgrade from.
- */
-export function proveStaged({ directory, product, tag, target, run, skill, sourceRoot }) {
+/** Both proofs recheck fetch's staged digests before consuming matching-host archives. */
+function stagedUpgrade({ directory, product, tag, target }) {
   const plan = JSON.parse(readFileSync(path.join(directory, PLAN), 'utf8'));
   if (plan.product !== product || plan.tag !== tag) {
     throw new Error(`The staged assets are for ${plan.tag}, not for ${tag}.`);
@@ -176,6 +172,18 @@ export function proveStaged({ directory, product, tag, target, run, skill, sourc
   };
   const now = staged('candidate', product);
   const before = staged('previous', product);
+  return {
+    previous: plan.previous,
+    now,
+    before,
+    driver: product === 'cli' ? null : staged('driver', 'cli'),
+  };
+}
+
+/** Run the existing installer/migration verifier; return null for the first product release. */
+export function proveStaged({ directory, product, tag, target, run, skill, sourceRoot }) {
+  const { previous, now, before, driver } = stagedUpgrade({ directory, product, tag, target });
+  if (!previous) return { previous: null };
   const common = [
     '--archive',
     now.archive,
@@ -197,7 +205,6 @@ export function proveStaged({ directory, product, tag, target, run, skill, sourc
       ...(sourceRoot ? ['--source-root', sourceRoot] : []),
     ]);
   } else {
-    const driver = staged('driver', 'cli');
     run('verify-native-extension-upgrade.mjs', [
       ...common,
       '--product',
@@ -208,7 +215,116 @@ export function proveStaged({ directory, product, tag, target, run, skill, sourc
       driver.manifest,
     ]);
   }
-  return { previous: plan.previous };
+  return { previous };
+}
+
+export const ACCEPTANCE_TEST =
+  'native_install::upgrade::artifact_tests::cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts';
+const ACCEPTANCE_SOURCE = 'rust/crates/tmt-adapters/src/native_install/upgrade_artifact_tests.rs';
+
+/** The release's source, rather than repaired rerun tooling, decides historical applicability. */
+export function acceptanceApplicability(sourceRoot) {
+  if (!existsSync(sourceRoot)) throw new Error('The release-source checkout is missing.');
+  const file = path.join(sourceRoot, ACCEPTANCE_SOURCE);
+  return existsSync(file) &&
+    /fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts\(\)/.test(
+      readFileSync(file, 'utf8')
+    )
+    ? 'applicable'
+    : 'predates';
+}
+
+/** Compile only the adapter's lib tests, then require one discovered and one executed real-archive test. */
+export function proveArchiveAcceptance({
+  directory,
+  product,
+  tag,
+  target,
+  sourceRoot,
+  execute = runPackedCommand,
+  environment = process.env,
+  report = () => {},
+}) {
+  if (product !== 'cli') throw new Error('The adapter archive acceptance proof is CLI-only.');
+  const { previous, now, before } = stagedUpgrade({ directory, product, tag, target });
+  if (!previous) {
+    report('Real-archive adapter acceptance: not applicable (no previous published CLI release).');
+    return { outcome: 'nothing' };
+  }
+  if (sourceRoot && acceptanceApplicability(sourceRoot) === 'predates') {
+    report(
+      'Real-archive adapter acceptance: predates; not applicable (release source predates the test). Existing installer/migration proof remains required.'
+    );
+    return { outcome: 'predates' };
+  }
+  const root = path.resolve(here, '../..');
+  const env = {
+    ...environment,
+    CARGO_BUILD_JOBS: '2',
+    CARGO_PROFILE_DEV_DEBUG: '0',
+    CARGO_INCREMENTAL: '0',
+    TMT_UPGRADE_OLD_ARCHIVE: before.archive,
+    TMT_UPGRADE_OLD_MANIFEST: before.manifest,
+    TMT_UPGRADE_NEW_ARCHIVE: now.archive,
+    TMT_UPGRADE_NEW_MANIFEST: now.manifest,
+    TMT_UPGRADE_TARGET: target,
+  };
+  const started = performance.now();
+  const compiled = execute(
+    'cargo',
+    [
+      'test',
+      '--quiet',
+      '--locked',
+      '--manifest-path',
+      'rust/Cargo.toml',
+      '-p',
+      'tmt-adapters',
+      '--lib',
+      '--no-run',
+      '--message-format=json',
+    ],
+    { cwd: root, env, timeoutMs: 600_000 }
+  );
+  report(
+    `Real-archive adapter acceptance compile: ${Math.ceil((performance.now() - started) / 1000)} seconds.`
+  );
+  const binaries = compiled
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line))
+    .filter(
+      (item) =>
+        item.reason === 'compiler-artifact' &&
+        item.target.name === 'tmt_adapters' &&
+        item.profile.test &&
+        item.executable
+    )
+    .map((item) => item.executable);
+  if (binaries.length !== 1)
+    throw new Error('Expected exactly one tmt-adapters lib-test executable.');
+  const options = { cwd: root, env, timeoutMs: 120_000 };
+  const listed = execute(binaries[0], [ACCEPTANCE_TEST, '--exact', '--ignored', '--list'], options);
+  const tests = listed.split('\n').filter((line) => line.endsWith(': test'));
+  if (tests.length !== 1 || tests[0] !== `${ACCEPTANCE_TEST}: test`) {
+    throw new Error('Expected exactly one discovered real-archive upgrade acceptance test.');
+  }
+  const output = execute(
+    binaries[0],
+    [ACCEPTANCE_TEST, '--exact', '--ignored', '--nocapture'],
+    options
+  );
+  report(output.trim());
+  if (
+    !/^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured; \d+ filtered out;/m.test(output)
+  ) {
+    throw new Error('Expected exactly one passing executed real-archive upgrade acceptance test.');
+  }
+  report(
+    `Real-archive adapter acceptance: passed (${previous} -> ${tag}, ${target}); acquisition injected, real old/new binaries executed.`
+  );
+  return { outcome: 'proved' };
 }
 
 /**
@@ -327,6 +443,19 @@ function main(argv, environment) {
     if (environment.GITHUB_STEP_SUMMARY)
       appendFileSync(environment.GITHUB_STEP_SUMMARY, `${line}\n`);
   };
+  if (command === 'acceptance') {
+    required(['product', 'tag', 'target', 'directory']);
+    proveArchiveAcceptance({
+      directory: path.resolve(values.directory),
+      product: values.product,
+      tag: values.tag,
+      target: values.target,
+      sourceRoot: values['source-root'],
+      environment,
+      report,
+    });
+    return;
+  }
   if (command === 'prove') {
     // Offline by design: the release's own code runs here, so no token and no GitHub.
     required(['product', 'tag', 'target', 'directory']);
@@ -420,7 +549,7 @@ function main(argv, environment) {
         : `No published ${values.product} release precedes ${values.tag}; nothing was fetched.`
     );
   } else {
-    throw new Error('Usage: release-upgrade.mjs resolve|fetch|assess|prove|reason --tag TAG ...');
+    throw new Error('Usage: release-upgrade.mjs resolve|fetch|assess|prove|acceptance|reason --tag TAG ...');
   }
 }
 
