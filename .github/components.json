@@ -10,6 +10,7 @@
     "releaseConsumers: a private leaf adds its owned changes to named packaged products, including products awaiting activation, without replacing matching released-root membership; ownership, CI scope and version updates remain independent.",
     "A private component may declare release:false, with or without a Cargo package; it owns files but gets no release. Binary targets require explicit package.metadata.dist.dist=false; library-only crates need no opt-out. A crate that inherits the workspace version keeps its Cargo.lock entry in the release of the component that owns rust/Cargo.toml, whoever owns the crate.",
     "releaseStatus: only with release:false; never means no released product contains this leaf and forbids releaseConsumers, parked means explicitly deferred publication. Absence means awaiting activation. This does not change CI selection.",
+    "initialVersion: owner-approved first alpha seed; requiresCliSha: supporting CLI registration commit that must be in its newest published release before a first product cut.",
     "bootstrapSha: first-release history boundary for the release cut (#1399); the last commit before the component existed, kept unchanged."
   ],
   "components": {
@@ -71,11 +72,13 @@
     },
     "colab-client": {
       "owns": ["extensions/tmt-colab/typescript/colab-client"],
-      "release": false
+      "release": false,
+      "releaseConsumers": ["tmt-colab"]
     },
     "remote-client": {
       "owns": ["extensions/tmt-remote/typescript/remote-client"],
-      "release": false
+      "release": false,
+      "releaseConsumers": ["tmt-remote"]
     },
     "tmt-test-support": {
       "releaseStatus": "never",
@@ -97,18 +100,25 @@
     "tmt-colab": {
       "package": "tmt-colab",
       "owns": ["extensions/tmt-colab"],
-      "release": false
+      "release": true,
+      "bootstrapSha": "b9ea8cdfe477a596934a59a5b7eb066fbe755ebb",
+      "initialVersion": "0.1.0-alpha.1",
+      "requiresCliSha": "ffea6da78361e5ea3df75b9da55fd0ea0c8a973d"
     },
     "tmt-remote": {
       "owns": ["extensions/tmt-remote/rust"],
-      "release": false,
+      "release": true,
       "selectedBy": [
         "rust/crates/tmt-extension-state/**",
         "typescript/test/e2e/remote-operations.e2e.test.ts",
         "typescript/test/e2e/remote-recovery.e2e.test.ts",
         "typescript/test/support/remote-device.ts",
         "typescript/test/support/remote-owner.ts"
-      ]
+      ],
+      "package": "tmt-remote",
+      "bootstrapSha": "ffb5f32154f0f910d4b27287d5da70abbbc4f386",
+      "initialVersion": "0.1.0-alpha.1",
+      "requiresCliSha": "ffea6da78361e5ea3df75b9da55fd0ea0c8a973d"
     },
     "driver-herdr": {
       "package": "tmt-driver-herdr",

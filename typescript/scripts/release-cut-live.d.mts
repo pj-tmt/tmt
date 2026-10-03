@@ -35,5 +35,6 @@ export function runReleaseCuts(input: {
 }): Promise<{
   cut: string;
   mode: string;
+  components: CutRow[];
   actions: { product: string; status: string; reason?: string; tag?: string; cut?: string }[];
 }>;

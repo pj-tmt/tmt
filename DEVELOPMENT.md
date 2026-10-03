@@ -2759,78 +2759,13 @@ supporting CLI alpha before testing either public install/upgrade with it.
 Colab's #1421 embeds the built app in its executable; these synthetic fixtures
 prove installer lifecycle, not that embedding or installed SPA serving.
 
-#### Colab packaging wiring (parked)
+#### Remote and Colab packaging
 
-Colab selection is prepared with tag `tmt-colab-v<version>`, prerelease publication
-and `latest=false`. It remains `release:false` / `dist=false`; neither preparation
-nor publication accepts it. App embedding (#1421) and core registration (#1423)
-are implemented. Activation belongs to the infra lead after a supporting CLI alpha
-is published and real archive acceptance passes. The wiring
-tests use a native tiny-app fixture, not a released Colab binary.
-
-`scripts/build-native-artifact.sh <target> colab` installs frozen dependencies with
-`corepack pnpm@10.33.0`, builds `@tmt/colab-app`, requires its index/assets and
-nonempty `THIRD-PARTY-NOTICES.txt`, exports the absolute dist path as
-`TMT_COLAB_APP_DIR`, and keeps that complete dist stable through Cargo compilation.
-Colab's build script owns inventory validation. Native notices append the exact
-Vite notices after cargo-about. No app directory is installed alongside the binary.
-The release Cargo wrapper receives `TMT_NATIVE_PRODUCT=colab` and rejects a build
-without an absolute existing `TMT_COLAB_APP_DIR` before invoking Cargo. Ordinary
-local Cargo builds retain the development fallback; invalid supplied inventories
-fail in Colab's build script.
-
-Run fixture checks without Docker or a release build:
-
-```sh
-(cd rust && cargo build --locked -p tmt-test-support --example colab-runtime-fixture)
-(cd typescript && corepack pnpm@10.33.0 exec vp test run --config vitest.config.ts test/tooling/colab-runtime-proof.test.ts test/tooling/native-runtime-proof.test.ts test/tooling/cli-process.test.ts test/tooling/native-artifact-stdout.test.ts test/tooling/native-cargo.test.ts test/tooling/native-release-policy.test.ts test/tooling/plan-release-builds.test.ts test/tooling/verify-public-install.test.ts test/tooling/release-workflow.test.ts)
-(cd typescript && corepack pnpm@10.33.0 check:tooling)
-sh -n scripts/build-native-artifact.sh
-sh -n scripts/native-cargo.sh
-actionlint .github/workflows/native-release.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-smoke.yml .github/workflows/native-release-upgrade.yml
-```
-
-The Rust example is selected from `rust/target/debug/examples/colab-runtime-fixture`
-or an explicit absolute `TMT_TEST_COLAB_FIXTURE` when using a separate Cargo target.
-Tests publish that built binary through the executable fixture owner and select
-defects by `--fixture-variant`; they never compile during execution. Positive
-and mutated binaries exercise exact embedded bytes, placeholder/startup rejection,
-combined-notice omissions and graceful process/socket cleanup. This is proof of
-the verifier, not Colab's app/crypto/browser acceptance.
-Cleanup-denial tests require a subsequent group-absence observation before
-excusing a macOS exit race; unconfirmed absence fails and retains isolated state.
-
-Only Colab verification loads its app proof. The raw CLI verifier's minimal musl
-image retains its existing copied inputs; `native-runtime-proof.test.ts` reproduces
-that image closure without Docker and checks that an eager Colab import fails.
-Planner subprocess tests select their own GitHub output/summary files or clear
-those variables when asserting stdout, so they cannot write into the CI step's
-files. Process fixtures publish complete readiness JSON by rename before observers
-read it; process and group absence remain required cleanup postconditions.
-
-After the prerequisites, reserve the shared host's heavy slot before an actual
-matching-host archive build. Keep `release:false` and `dist:false` until activation
-is authorized. For the independent verifier, build the expected Vite app from the
-same frozen source and move its dist outside the checkout before execution, as the
-final bundle job does. Pass its new absolute path only to the verifier:
-
-```sh
-node typescript/scripts/verify-native-artifact.mjs --product colab \
-  --manifest /absolute/colab-manifest.json \
-  --archive /absolute/tmt-colab-aarch64-apple-darwin.tar.gz \
-  --target aarch64-apple-darwin --app-dir /absolute/expected-colab-app \
-  --notices /absolute/combined-notices.txt --license LICENSE
-```
-
-The extracted binary is copied to a fresh directory and serves without `--app-dir`,
-checkout output or pnpm on PATH. Exact HTML, every expected asset and frontend
-notices must match; archived notices must contain both Rust and frontend texts.
-Archive proof injects only core storage-root discovery; public-install smoke uses
-its installed CLI and the same serving/cleanup proof after install/list. All state
-is disposable, and all child processes stop before its removal. Public smoke uses
-the shared [read-only acquisition credential boundary](#explicit-multi-platform-release-preparation);
-the relocated Colab process receives no credential. Subsequent releases retain
-the shared previous-release extension upgrade gate.
+Remote and Colab are released native products with fixed `0.1.0-dev` source versions.
+They use independent `tmt-remote-v` and `tmt-colab-v` alpha tags, prerelease publication
+and `latest=false`. Release verification, first-cut prerequisites and commands belong to the
+[release skill's product procedure](.agents/skills/tmt-release/references/main-cuts.md#remote-and-colab-products).
+Installer fixtures prove lifecycle behavior; actual archive and public-install gates prove distribution.
 
 ### Native curl bootstrap verification
 
@@ -3081,7 +3016,7 @@ uses the `fmt` block in its Vite configuration; shared docs use the tooling form
 
 ## Remote pilot development
 
-The local-build-only remote crate is a foreground owner-device door. It performs
+The remote crate is a foreground owner-device door. It performs
 two public startup reads (capabilities and `storage.root`), creates or reopens
 its private `<dataRoot>/remote/` state (0700 directory; 0600 machine key,
 SQLite database and locks), then admits the signed dispatch/recovery subset. The
@@ -3159,7 +3094,13 @@ core without fake output; its test-only grant seeding happens solely in Remote s
 while serve and owned children are stopped.
 The [channel contract](contracts/remote-channel-v1.md) is
 proposed; [the separately owned browser shell](#browser-add-on-shell)
-uses only a stub. No official remote installer/release exists.
+uses only a stub. Cargo-dist is enabled for `tmt-remote`, with the same three
+shared archive files as Squad (`LICENSE`, `NATIVE-INSTALL.md` and
+`THIRD-PARTY-NOTICES.txt`) and no skills or companion files. The browser assets
+and wordlist are embedded. Packaging configuration does not establish published
+archive availability: publication and installed-archive acceptance remain separate
+gates. Enabling cargo-dist does not start `tmt remote serve` or modify
+`<dataRoot>/remote/`.
 
 ```bash
 (cd rust && cargo build --offline --locked -p tmt-remote)
@@ -3991,11 +3932,11 @@ its trusted main checkout. Workflow callers prepare the locked Cargo cache with
 `cargo fetch --locked` from `rust/` before offline acquisition and the full tooling
 test suite. Exported-cut cleanup tests create their own temporary Git repository,
 without requiring shared checkout history. Fixture callers without a Cargo
-checkout may omit the workspace argument; production callers always supply it. Style and invoke require CLI and Squad release evidence; TUI
+checkout may omit the workspace argument; production callers always supply it. Style and invoke require CLI, Squad, Remote and Colab release evidence; TUI
 requires only Squad evidence. Existing historical Office tags remain evidence even while Office
 publication is parked. Components without a native publication policy stay
 Merged with an explicit waiting reason. `release:false` alone is never evidence
-that work needs no release: Colab, Remote and Herdr remain awaiting activation.
+that work needs no release: Herdr remains awaiting activation; activated Remote and Colab wait for their published containing tags.
 The component map's optional `releaseStatus` is valid only with `release:false`:
 `never` marks test support as contained in no release and forbids consumers;
 `parked` marks Office. Never-only changes reconcile to Done. Waits confined to parked products

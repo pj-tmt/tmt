@@ -54,7 +54,7 @@ describe('CI area selection', () => {
         ),
         'tmt-remote'
       )
-    ).toBe(false);
+    ).toBe(true);
     const rows = explainCiSelection(paths);
     for (const row of rows) {
       expect(row.owner).toBe('tmt-remote');
@@ -298,7 +298,7 @@ describe('component map', () => {
     ['extensions/tmt-squad/rust/src/lib.rs', ['squad']],
     ['extensions/tmt-squad-other/rust/src/lib.rs', ['cli']],
     ['extensions/tmt-office/src/lib.rs', []],
-    ['extensions/tmt-colab/rust/src/lib.rs', []],
+    ['extensions/tmt-colab/rust/src/lib.rs', ['tmt-colab']],
     ['rust/crates/tmt-test-support/src/lib.rs', []],
     ['typescript/test/native/squad.test.ts', ['cli']],
   ])('finds released root membership independently of CI ownership for %s', (file, names) => {
@@ -2274,7 +2274,7 @@ describe('required CI gate', () => {
 });
 
 it.each(['Cargo.toml', 'src/store.rs', 'tests/state.rs'])(
-  'keeps private Colab Rust %s in full workspace CI',
+  'keeps released Colab Rust %s in full workspace CI',
   (suffix) => {
     const files = ['extensions/tmt-colab/rust/tmt-colab/' + suffix];
     expect(explainCiSelection(files)).toMatchObject([
@@ -2288,6 +2288,6 @@ it.each(['Cargo.toml', 'src/store.rs', 'tests/state.rs'])(
         ),
         'tmt-colab'
       )
-    ).toBe(false);
+    ).toBe(true);
   }
 );

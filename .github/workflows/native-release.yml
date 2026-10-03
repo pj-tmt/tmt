@@ -16,6 +16,7 @@ on:
           - cli
           - squad
           - driver-herdr
+          - remote
           - colab
       tag:
         description: Exact allocated draft tag to build and publish (turn prepare off)

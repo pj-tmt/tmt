@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        product: [cli, squad]
+        product: [cli, squad, remote, colab]
         target:
           [
             aarch64-apple-darwin,
@@ -114,7 +114,7 @@ jobs:
           export PATH="$HOME/.tmt-packaging/bin:$PATH"
           export RUSTUP_TOOLCHAIN=1.97.0 CARGO_NET_OFFLINE=true
           tag="$RELEASE_TAG"
-          binary=tmt-squad
+          binary="tmt-$PRODUCT"
           if [ "$PRODUCT" = cli ]; then binary=tmt; fi
           snapshot="$RUNNER_TEMP/release-version-state.json"
           TMT_NATIVE_REAL_CARGO=$(command -v cargo)

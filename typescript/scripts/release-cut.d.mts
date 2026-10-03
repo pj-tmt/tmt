@@ -81,7 +81,6 @@ export function planReleaseCuts(input: {
   workspace?: CargoWorkspace;
   git: (args: string[]) => string;
   date?: string;
-  initialVersions?: Record<string, string>;
   /** Owner-dispatched product versions; native publication authorization remains independent. */
   versions?: Record<string, string>;
 }): Promise<CutPlan>;

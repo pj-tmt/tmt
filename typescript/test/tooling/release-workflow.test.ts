@@ -83,7 +83,7 @@ describe('release version gate workflow boundaries', () => {
   it('keeps native injection on pinned PR heads and all four hosts, with no publishing privileges', () => {
     const injection = read('.github/workflows/release-version-injection.yml');
     expect(injection).toContain('github.event.pull_request.head.sha || github.sha');
-    expect(injection).toContain('product: [cli, squad]');
+    expect(injection).toContain('product: [cli, squad, remote, colab]');
     for (const host of ['macos-15', 'macos-15-intel', 'ubuntu-24.04-arm', 'ubuntu-24.04'])
       expect(injection).toContain(`runner: ${host}`);
     const action = read('.github/actions/inject-release-version/action.yml');
@@ -152,7 +152,7 @@ describe('per-tag release run (native-release.yml)', () => {
     expect(job(run, 'plan')).toContain('retry, hold and rerun need prepare turned off.');
   });
 
-  it('refuses parked Office and Colab before preparation or draft planning, retaining released products', () => {
+  it('refuses parked Office and Herdr before preparation or draft planning, retaining released products', () => {
     const plan = job(run, 'plan');
     expect(plan).toContain(
       'node typescript/scripts/native-release-policy.mjs require-released "$PRODUCT"'
@@ -173,7 +173,7 @@ describe('per-tag release run (native-release.yml)', () => {
         0o700
       );
       const search = `${directory}${path.delimiter}${process.env.PATH ?? ''}`;
-      for (const [product, prepare] of ['office', 'driver-herdr', 'colab'].flatMap((product) =>
+      for (const [product, prepare] of ['office', 'driver-herdr'].flatMap((product) =>
         ['true', 'false'].map((prepare) => [product, prepare])
       )) {
         const result = spawnSync('/bin/sh', ['-eu', '-c', shell], {
@@ -189,7 +189,7 @@ describe('per-tag release run (native-release.yml)', () => {
           `${product} is not released (release: false in .github/components.json).`
         );
       }
-      for (const product of ['cli', 'squad']) {
+      for (const product of ['cli', 'squad', 'remote', 'colab']) {
         const output = path.join(directory, product);
         const result = spawnSync('/bin/sh', ['-eu', '-c', shell], {
           cwd: repository,
@@ -240,7 +240,9 @@ describe('per-tag release run (native-release.yml)', () => {
 
 describe('release bundle pipeline (native-release-bundle.yml)', () => {
   it('builds Colab with frozen embedded assets and verifies outside the checkout fallback', () => {
-    expect(run).toMatch(/options:\n {10}- cli\n {10}- squad\n {10}- driver-herdr\n {10}- colab/);
+    expect(run).toMatch(
+      /options:\n {10}- cli\n {10}- squad\n {10}- driver-herdr\n {10}- remote\n {10}- colab/
+    );
     expect(job(bundle, 'build')).toContain(
       "if: inputs.product == 'office' || inputs.product == 'colab'"
     );
@@ -359,7 +361,7 @@ describe('live main release cuts (release.yml)', () => {
     );
   });
   it('keeps owner versions explicit and parked products out of manual selection', () => {
-    expect(release).toContain('options: [all, cli, squad]');
+    expect(release).toContain('options: [all, cli, squad, remote, colab]');
     expect(release).toContain('VERSION: ${{ inputs.version }}');
     expect(release).not.toContain('driver-herdr');
     expect(release).toContain('release-cut-plan.json');

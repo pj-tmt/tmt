@@ -59,9 +59,8 @@ describe('release build plan', () => {
       timeout: 10_000,
     });
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toBe('matrix={"include":[]}\nany=false\n');
-    expect(result.stderr).toContain('No draft release needs a build.');
-    expect(result.stderr).toContain('colab is not released');
+    expect(result.stdout).toContain('any=true\n');
+    expect(result.stdout).toContain('tmt-colab-v0.1.0-alpha.1');
   });
 
   it('plans every draft of the product that has no bundle, oldest first, whatever order GitHub lists them', () => {
@@ -495,7 +494,7 @@ describe('plan-release-builds.mjs', () => {
     expect(resume.summary).toContain('await their gates and publication');
   });
 
-  it.each(['office', 'driver-herdr', 'colab'])(
+  it.each(['office', 'driver-herdr', 'remote', 'colab'])(
     'plans no run for parked %s until its map activates it',
     (product) => {
       const directory = mkdtempSync(path.join(os.tmpdir(), 'plan-components-'));
@@ -504,13 +503,16 @@ describe('plan-release-builds.mjs', () => {
           components: Record<string, { release?: boolean; releaseStatus?: string }>;
         };
         const drafts = [[draft(`tmt-${product}-v0.1.0-alpha.5`, '1', [BUNDLE_ASSET])]];
-        // The committed map parks this product, so its draft is left alone.
-        const result = run(['--product', product], drafts);
+        const component =
+          map.components[['remote', 'colab'].includes(product) ? `tmt-${product}` : product];
+        component.release = false;
+        const parked = path.join(directory, 'parked-components.json');
+        writeFileSync(parked, JSON.stringify(map));
+        const result = run(['--product', product, '--components', parked], drafts);
         expect(result.status).toBe(0);
         expect(result.output).toBe('matrix={"include":[]}\nany=false\n');
         expect(result.summary).toContain(`**Left alone** (${product} is not released`);
         // A map that releases it plans the run.
-        const component = map.components[product === 'colab' ? 'tmt-colab' : product];
         component.release = true;
         delete component.releaseStatus;
         const released = path.join(directory, 'components.json');

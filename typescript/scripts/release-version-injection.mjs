@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync, lstatSync, readlinkSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseComponentMap } from './ci-scope.mjs';
-import { releasePolicy } from './native-release-policy.mjs';
+import { componentOfProduct, releasePolicy } from './native-release-policy.mjs';
 import { syntheticAlphaVersion, versionOfTag } from './release-versions.mjs';
 
 const LOCK = 'rust/Cargo.lock';
@@ -49,7 +49,7 @@ const normalizeLock = (lock) => ({
 
 /** Builds a version-only edit contract from the source, not a release manifest/config. */
 export function captureVersionState({ root, files, metadata, product, tag, cut, map }) {
-  const component = map.components.find((c) => c.name === product);
+  const component = componentOfProduct(map, product);
   if (!component?.package || component.release === false)
     throw new Error('Injection requires a released component package.');
   const crates = metadata.packages.filter((p) => metadata.workspace_members.includes(p.id));

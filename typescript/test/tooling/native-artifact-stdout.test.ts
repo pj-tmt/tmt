@@ -113,7 +113,7 @@ fi`
 }
 
 describe('native artifact stdout', () => {
-  it.each(['cli', 'office', 'squad', 'driver-herdr', 'colab'])(
+  it.each(['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'])(
     'reserves stdout and selects the %s notice manifest',
     (product) => {
       const { root, bin, script } = artifactFixture(product);
@@ -148,7 +148,7 @@ describe('native artifact stdout', () => {
       );
     }
   );
-  it.each(['cli', 'office', 'squad', 'driver-herdr', 'colab'])(
+  it.each(['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'])(
     'generates %s notices without building the companion or invoking cargo-dist',
     (product) => {
       const { bin, script } = artifactFixture(product);
@@ -163,7 +163,7 @@ describe('native artifact stdout', () => {
       expect(noticeOnly.stderr).not.toContain('companion build diagnostics');
     }
   );
-  it.each(['cli', 'office', 'squad', 'driver-herdr', 'colab'])(
+  it.each(['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'])(
     'rejects a corrupted license before generating %s notices',
     (product) => {
       const { root, bin, script } = artifactFixture(product);
@@ -182,7 +182,7 @@ describe('native artifact stdout', () => {
       expect(corrupted.stderr).toContain('Vendored taffy license checksum mismatch');
     }
   );
-  it.each(['cli', 'office', 'squad', 'driver-herdr', 'colab'])(
+  it.each(['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'])(
     'rejects taffy version drift before generating %s notices',
     (product) => {
       const { root, bin, script } = artifactFixture(product);

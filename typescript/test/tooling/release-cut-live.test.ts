@@ -18,7 +18,7 @@ import { writeReleaseWorkspace } from '../support/release-workspace-fixture.js';
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
 
-function fixture() {
+function fixture(activateExtensions = false) {
   const root = mkdtempSync(join(tmpdir(), 'release-live-test-'));
   roots.push(root);
   const command = (args: string[]) => {
@@ -55,10 +55,35 @@ function fixture() {
       },
     })
   );
+  const fixtureMap = () => command(['show', 'HEAD:.github/components.json']);
   writeReleaseWorkspace(root);
   const previous = commit('chore: initial fixture');
   command(['tag', 'v5.0.0-alpha.48']);
   command(['tag', 'tmt-squad-v0.1.0-alpha.14']);
+  if (activateExtensions) {
+    const registry = JSON.parse(fixtureMap());
+    for (const product of ['remote', 'colab']) {
+      registry.components[`tmt-${product}`] = {
+        package: `tmt-${product}`,
+        owns: [`extensions/tmt-${product}`],
+        bootstrapSha: previous,
+        initialVersion: '0.1.0-alpha.1',
+        requiresCliSha: previous,
+      };
+    }
+    registry.components['colab-app'] = {
+      owns: ['extensions/tmt-colab/typescript/app'],
+      release: false,
+      releaseConsumers: ['tmt-colab'],
+    };
+    registry.components['remote-client'] = {
+      owns: ['extensions/tmt-remote/typescript/remote-client'],
+      release: false,
+      releaseConsumers: ['tmt-remote'],
+    };
+    writeFileSync(join(root, '.github/components.json'), JSON.stringify(registry));
+    writeReleaseWorkspace(root, ['remote', 'colab']);
+  }
   writeFileSync(join(root, 'cli.txt'), 'feature');
   writeFileSync(join(root, 'extensions/squad/feature.txt'), 'feature');
   const cut = commit('feat: shared feature');
@@ -104,6 +129,95 @@ function fixture() {
 }
 
 describe('live release cut lifecycle', () => {
+  it('automatically allocates both approved first alphas using prefixed component identities', async () => {
+    const f = fixture(true);
+    const result = await runReleaseCuts({ ...f, live: true });
+    for (const product of ['remote', 'colab']) {
+      expect(result.actions).toContainEqual({
+        product,
+        status: 'created',
+        tag: `tmt-${product}-v0.1.0-alpha.1`,
+        cut: f.cut,
+      });
+      expect(f.client.dispatch).toHaveBeenCalledWith(product, `tmt-${product}-v0.1.0-alpha.1`);
+    }
+    expect(
+      result.components
+        .filter((row) => ['remote', 'colab'].includes(row.product))
+        .every((row) => row.previous === f.previous)
+    ).toBe(true);
+    expect(f.command(['tag', '--list', 'tmt-remote-v*'])).toBe('');
+    expect(f.command(['tag', '--list', 'tmt-colab-v*'])).toBe('');
+  });
+  it('holds a first product cut until the newest published CLI contains its registration', async () => {
+    const f = fixture(true);
+    const registry = JSON.parse(f.command(['show', 'HEAD:.github/components.json']));
+    for (const product of ['remote', 'colab'])
+      registry.components[`tmt-${product}`].requiresCliSha = f.cut;
+    writeFileSync(join(f.root, '.github/components.json'), JSON.stringify(registry));
+    const later = f.commit('feat: require installed product registration');
+    f.command(['update-ref', 'refs/remotes/origin/main', later]);
+    vi.mocked(f.client.main).mockReturnValue(later);
+    f.state.cut = later;
+    const blocked = await runReleaseCuts({ ...f, live: true });
+    for (const [product, tag] of [
+      ['cli', 'v5.0.0-alpha.49'],
+      ['squad', 'tmt-squad-v0.1.0-alpha.15'],
+    ]) {
+      expect(blocked.actions).toContainEqual({ product, status: 'created', tag, cut: later });
+      expect(f.client.dispatch).toHaveBeenCalledWith(product, tag);
+    }
+    expect(blocked.actions.some((action) => action.status === 'failed')).toBe(false);
+    for (const product of ['remote', 'colab'])
+      expect(blocked.actions).toContainEqual({
+        product,
+        status: 'blocked',
+        reason: expect.stringContaining('predates registration'),
+      });
+    for (const product of ['remote', 'colab']) {
+      expect(f.client.dispatch).not.toHaveBeenCalledWith(product, expect.anything());
+      expect(f.releases.some((release) => release.tag_name.startsWith(`tmt-${product}-v`))).toBe(
+        false
+      );
+    }
+    f.command(['tag', 'v5.0.0-alpha.49', f.cut]);
+    f.releases.push({
+      id: 99,
+      tag_name: 'v5.0.0-alpha.49',
+      draft: false,
+      target_commitish: f.cut,
+      assets: [],
+    });
+    const admitted = await runReleaseCuts({ ...f, live: true });
+    for (const product of ['remote', 'colab'])
+      expect(admitted.actions).toContainEqual({
+        product,
+        status: 'created',
+        tag: `tmt-${product}-v0.1.0-alpha.1`,
+        cut: later,
+      });
+  });
+  it.each(['remote', 'colab'])(
+    'selects %s explicitly and advances from its published first cut without reusing the seed',
+    async (product) => {
+      const f = fixture(true);
+      const first = await runReleaseCuts({ ...f, live: true, product });
+      const tag = `tmt-${product}-v0.1.0-alpha.1`;
+      expect(first.actions).toEqual([{ product, status: 'created', tag, cut: f.cut }]);
+      f.releases.find((release) => release.tag_name === tag)!.draft = false;
+      f.command(['tag', tag]);
+      writeFileSync(join(f.root, `extensions/tmt-${product}/feature.txt`), 'next feature');
+      const later = f.commit('feat: product follow-up');
+      f.command(['update-ref', 'refs/remotes/origin/main', later]);
+      vi.mocked(f.client.main).mockReturnValue(later);
+      f.state.cut = later;
+      const next = await runReleaseCuts({ ...f, live: true, product });
+      expect(next.actions).toEqual([
+        { product, status: 'created', tag: `tmt-${product}-v0.1.0-alpha.2`, cut: later },
+      ]);
+      expect(next.components.find((row) => row.product === product)?.previousTag).toBe(tag);
+    }
+  );
   it('cuts exactly the owner-selected product and explicit version while keeping publication gates', async () => {
     const f = fixture();
     const result = await runReleaseCuts({

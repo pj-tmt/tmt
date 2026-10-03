@@ -13,14 +13,15 @@ import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
 import { withReleaseSandbox } from '../support/native-installation.js';
+const { productOfComponent } = (await import(
+  new URL('../../scripts/native-release-policy.mjs', import.meta.url).href
+)) as { productOfComponent: (name: string) => string };
 import { createArtifact, type ArtifactFixture } from '../support/native-artifact.js';
 
 const INSTALL_PROCESS_BUDGET_MS = 15_000;
-// Registration precedes publication. Remove each entry here when infra activates its component.
-const registeredBeforePublication = ['remote', 'colab'];
 
 describe('tmt extension install surface', () => {
-  it('offers every released extension and the explicitly registered publication prerequisites', async () => {
+  it('offers every released extension', async () => {
     const { components } = JSON.parse(
       readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
     ) as { components: Record<string, { owns: string[]; package?: string; release?: boolean }> };
@@ -31,7 +32,7 @@ describe('tmt extension install surface', () => {
           component.package &&
           component.release !== false
       )
-      .map(([name]) => name)
+      .map(([name]) => productOfComponent(name))
       .sort();
     expect(released.length).toBeGreaterThan(0);
     await withSandbox(async (sandbox) => {
@@ -48,37 +49,13 @@ describe('tmt extension install surface', () => {
         extensions: { name: string; installed: boolean }[];
       };
       expect(listed.extensions.every((extension) => !extension.installed)).toBe(true);
-      expect(listed.extensions.map((extension) => extension.name).sort()).toEqual(
-        [...released, ...registeredBeforePublication].sort()
-      );
+      expect(listed.extensions.map((extension) => extension.name).sort()).toEqual(released);
       expectError(
         await runCli(sandbox, ['extension', 'install', 'driver-herdr', '--yes', '--json']),
         'EXTENSION_UNKNOWN'
       );
     });
   });
-
-  it.each(registeredBeforePublication)(
-    'lists registered but not yet published %s without acquisition',
-    async (name) => {
-      await withSandbox(async (sandbox) => {
-        const prefix = path.join(sandbox.root, 'absent prefix');
-        const listed = await runCli(sandbox, ['extension', 'ls', '--prefix', prefix, '--json']);
-        expect(listed.status).toBe(0);
-        expect(parseWholeStdout(listed).extensions).toContainEqual({
-          name,
-          installed: false,
-          version: null,
-          channel: null,
-          pinned: null,
-          commands: [`tmt-${name}`],
-          shadowedBy: [],
-        });
-        expect(existsSync(prefix)).toBe(false);
-        expect(existsSync(sandbox.globalDir)).toBe(false);
-      });
-    }
-  );
 
   it.each(['remote', 'colab'] as const)(
     'installs and upgrades %s without starting it or modifying its private state',

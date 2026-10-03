@@ -2,7 +2,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
-export function writeReleaseWorkspace(root: string): void {
+export function writeReleaseWorkspace(root: string, extensions: string[] = []): void {
   const packages = [
     {
       name: 'tmt-cli',
@@ -17,6 +17,13 @@ export function writeReleaseWorkspace(root: string): void {
       version: '0.1.0-dev',
     },
   ];
+  for (const product of extensions)
+    packages.push({
+      name: `tmt-${product}`,
+      directory: `extensions/tmt-${product}/rust/tmt-${product}`,
+      member: `../extensions/tmt-${product}/rust/tmt-${product}`,
+      version: '0.1.0-dev',
+    });
   mkdirSync(join(root, 'rust'), { recursive: true });
   writeFileSync(
     join(root, 'rust/Cargo.toml'),

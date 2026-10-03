@@ -139,7 +139,7 @@ does not authorize publication or replace artifact acceptance.
   public installer before promoting README instructions. Publish with the
   bundle's `release-publication.json` flags: the CLI release is a normal release
   whose latest selection follows the main cut authorization contract above;
-  Office, Squad and Herdr releases retain their product prerelease policy and never
+  Office, Squad, Remote, Colab and Herdr releases retain their product prerelease policy and never
   become latest. After
   a manual publication, run the [publication readback](references/main-cuts.md#manual-publication-readback) (the pipeline checks
   its own publications). Do not equate a
@@ -173,30 +173,20 @@ does not authorize publication or replace artifact acceptance.
 
 ## Archive contents and install facts
 
-Colab's single-executable packaging route is prepared, with its app embedded by
-the Colab-owned `TMT_COLAB_APP_DIR` build boundary and frontend notices appended
-to Rust notices. Embedding (#1421) and core registration (#1423) are implemented.
-It remains parked: a published supporting CLI alpha and actual-archive acceptance
-precede separately authorized activation. Follow [Colab packaging verification](../../../DEVELOPMENT.md#colab-packaging-wiring-parked)
-for fixture-only proof versus real archive/public-install evidence; do not treat
-a tiny embedded-app fixture as delivery of the Colab product.
-For proof/fixture changes, run `colab-runtime-proof.test.ts` and the complete
-`verify-public-install.test.ts` through the tooling Vitest config, with the native
-CLI/Herdr prerequisites and built `tmt-test-support` `colab-runtime-fixture` example.
-Use absolute `TMT_TEST_COLAB_FIXTURE` for a separate Cargo target. Startup errors
-wait for child `close` and drained stdio under the existing deadline/stream limits;
-the regression holds the immediate native diagnostic until `exit` and checks
-classification and state cleanup. Accepted HTTP fixture sockets use blocking I/O
-with read/write timeouts, including on Darwin, which inherits the listener's
-nonblocking flag. The native-accept/header barrier covers premature peer close/EPIPE.
+Remote and Colab are activated native alpha products. Remote embeds its device SDK;
+Colab embeds its app, including used `colab-client` code, through `TMT_COLAB_APP_DIR`
+and appends frontend notices to Rust notices. Follow the
+[product verification procedure](references/main-cuts.md#remote-and-colab-products).
+Their first cuts require a published supporting CLI containing registration;
+archive, installation and public-smoke gates still establish delivery.
 
-- Every product archive (CLI, Office, Squad) carries its executable, `LICENSE`,
+- Every native product archive carries its executable, `LICENSE`,
   `NATIVE-INSTALL.md` and `THIRD-PARTY-NOTICES.txt`. The installer enforces this
   inventory (`tmt-core`'s `native_install/product.rs`), so adding, renaming or
   dropping an entry is an installer-contract change with an upgrade proof, not a
   documentation edit. The CLI release may also carry optional companion executables.
 - The archive's `NATIVE-INSTALL.md` is sourced from `rust/archive/NATIVE-INSTALL.md`
-  through `dist-workspace.toml` and the Squad package include. Keep it a short,
+  through `dist-workspace.toml` and extension package includes. Keep it a short,
   product-neutral offline note without version numbers: user guidance belongs to the
   handbook, and the onboarding test runs the note's PATH block in Bash and Zsh.
 - Release targets are macOS x64/arm64 (build deployment target 11.0) and Linux
@@ -230,14 +220,14 @@ matches practice. The
 [native release verification section](../../../DEVELOPMENT.md#native-release-verification) owns the
 gates, the markers and the procedures; this section owns who may publish what.
 
-- Covered: an alpha draft of the CLI, Office or Squad (a version `X.Y.Z-alpha.N`, enforced by
+- Covered: an alpha draft of a released native product (a version `X.Y.Z-alpha.N`, enforced by
   the `channel` gate and again by the publish command) that the pipeline built from `main`,
   verified and attached, of a component that is released (`release: false` in the component map
   parks one), and that passes every publication gate. A new SQLite migration does not hold an
   alpha: migrations are forward-only, and the `migration` gate only reports the new entries in
   its summary. The CLI alpha is published as a
   normal release; its latest convergence follows the main cut contract above.
-  Office and Squad retain the bundle's prerelease policy and never become latest.
+  Extensions and drivers retain the bundle's prerelease policy and never become latest.
 - Still the owner's explicit authorization: stable releases and anything outside the alpha
   channel; a release from a branch line; a draft that any gate holds, and in particular a
   breaking change (a `!` or `BREAKING CHANGE:` commit), which always pauses for the owner's

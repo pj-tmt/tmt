@@ -274,7 +274,7 @@ describe('immutable plans and independent cuts', () => {
         'canonical'
       );
     await expect(planReleaseCuts({ ...fixture, versions: { parked: '1.0.0' } })).rejects.toThrow(
-      'unreleased'
+      'Unknown native product'
     );
   });
   it('computes a cut/version/notes with ordinary tag ancestry, without a mutation client', async () => {
@@ -421,17 +421,38 @@ describe('immutable plans and independent cuts', () => {
       previousTag: 'v5.0.0',
     });
   });
-  it('uses a validated bootstrap cut and an explicitly supplied first alpha seed, never Cargo versions', async () => {
+  it.each(['0.1.0', '0.1.0-dev', '0.1.0-alpha.01', '0.1.0-alpha.9007199254740991'])(
+    'refuses invalid first-cut seed %s',
+    (initialVersion) => {
+      expect(() =>
+        parseComponentMap(
+          JSON.stringify({
+            components: { cli: { ...definitions.cli, bootstrapSha: sha(0), initialVersion } },
+          })
+        )
+      ).toThrow('initialVersion');
+    }
+  );
+  it('requires the package and bootstrap boundary for a first-cut seed', () => {
+    expect(() =>
+      parseComponentMap(
+        JSON.stringify({
+          components: { cli: { ...definitions.cli, initialVersion: '5.0.0-alpha.1' } },
+        })
+      )
+    ).toThrow('initialVersion');
+  });
+  it('uses the component map bootstrap and approved first alpha seed, never Cargo versions', async () => {
     const fixture = planningFixture();
     fixture.metadata.releases = [];
     fixture.map = parseComponentMap(
       JSON.stringify({
         components: {
-          cli: { ...definitions.cli, bootstrapSha: sha(0) },
+          cli: { ...definitions.cli, bootstrapSha: sha(0), initialVersion: '5.0.0-alpha.1' },
         },
       })
     );
-    const result = await planReleaseCuts({ ...fixture, initialVersions: { cli: '5.0.0-alpha.1' } });
+    const result = await planReleaseCuts(fixture);
     expect(result.components[0]).toMatchObject({
       previous: sha(0),
       version: '5.0.0-alpha.1',

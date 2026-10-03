@@ -235,7 +235,7 @@ export async function verifyNativeRuntime({
 
     const run = (args) => runPackedCommand(executable, args, { cwd, env });
     assert(
-      ['cli', 'office', 'squad', 'driver-herdr', 'colab'].includes(product),
+      ['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'].includes(product),
       'Unknown native runtime product'
     );
     const proveHerdr = (driver, expectedVersion) => {
@@ -257,6 +257,16 @@ export async function verifyNativeRuntime({
       assert(!fs.existsSync(xdg), 'Driver probe must not initialize config state');
       assert.deepEqual(fs.readdirSync(home), [], 'Driver probe must not create home state');
       assert.deepEqual(fs.readdirSync(cwd), [], 'Driver probe must not create workspace state');
+      return;
+    }
+    if (product === 'remote') {
+      assert.equal(run(['--version']).trim(), `remote ${version}`, `${subject} version mismatch`);
+      const help = run(['--help']);
+      for (const command of ['serve', 'pair', 'devices'])
+        assert(new RegExp(`^ {2}${command} +`, 'm').test(help), `${subject} missing ${command}`);
+      assert(!fs.existsSync(xdg), 'Remote probes must not initialize config state');
+      assert.deepEqual(fs.readdirSync(home), [], 'Remote probes must not create home state');
+      assert.deepEqual(fs.readdirSync(cwd), [], 'Remote probes must not create workspace state');
       return;
     }
     if (product === 'colab') {

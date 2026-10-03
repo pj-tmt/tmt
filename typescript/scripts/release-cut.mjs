@@ -7,8 +7,13 @@ import parser from '@conventional-commits/parser';
 import presetFactory from 'conventional-changelog-conventionalcommits';
 import writer from 'conventional-changelog-writer';
 import { ownerOf, releasedComponentsForPath } from './ci-scope.mjs';
-import { productOfTag, releasePolicy } from './native-release-policy.mjs';
-import { compareVersions, versionOfTag } from './release-versions.mjs';
+import {
+  componentOfProduct,
+  productOfComponent,
+  productOfTag,
+  releasePolicy,
+} from './native-release-policy.mjs';
+import { compareVersions, publishedReleases, versionOfTag } from './release-versions.mjs';
 import { readReleaseSourceAtRef } from './release-source-at-ref.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 
@@ -100,6 +105,7 @@ export function parseReleaseCommits(commits) {
 /** Ownership is the component map's responsibility, including private-leaf consumers. */
 export function attributeCutCommits(commits, map, product, workspace) {
   const byName = new Map(map.components.map((c) => [c.name, c]));
+  const componentName = componentOfProduct(map, product).name;
   const selected = new Map();
   for (const commit of commits) {
     if (
@@ -107,8 +113,8 @@ export function attributeCutCommits(commits, map, product, workspace) {
         const owner = ownerOf(path, map);
         return (
           releasedComponentsForPath(path, map, workspace).some(
-            (component) => component.name === product
-          ) || byName.get(owner)?.releaseConsumers.includes(product)
+            (component) => component.name === componentName
+          ) || byName.get(owner)?.releaseConsumers.includes(componentName)
         );
       })
     )
@@ -272,17 +278,12 @@ export function releaseCutHistory({ releases, product, cut, git, excludeTag = ''
   };
 }
 
-export async function planReleaseCuts({
-  metadata,
-  map,
-  workspace,
-  git,
-  date,
-  initialVersions = {},
-  versions = {},
-}) {
+export async function planReleaseCuts({ metadata, map, workspace, git, date, versions = {} }) {
   for (const [product, version] of Object.entries(versions)) {
-    if (!map.components.some((c) => c.name === product && c.package && c.release !== false))
+    if (
+      !componentOfProduct(map, product).package ||
+      componentOfProduct(map, product).release === false
+    )
       throw new Error(`Explicit version names an unreleased component ${product}.`);
     if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-alpha\.(0|[1-9]\d*))?$/.test(version))
       throw new Error('An explicit cut version must be a canonical stable or alpha version.');
@@ -309,18 +310,20 @@ export async function planReleaseCuts({
     if (component.release === false || !component.package) continue;
     const row = { product: component.name, cut, status: 'blocked' };
     try {
-      const { tagPrefix } = releasePolicy(component.name);
+      const product = productOfComponent(component.name);
+      row.product = product;
+      const { tagPrefix } = releasePolicy(product);
       const history = releaseCutHistory({
         releases: metadata.releases,
-        product: component.name,
+        product,
         cut,
         git,
       });
       if (
-        !versions[component.name] &&
+        !versions[product] &&
         metadata.releases.some(
           (release) =>
-            productOfTag(release.tag_name) === component.name && release.target_commitish === cut
+            productOfTag(release.tag_name) === product && release.target_commitish === cut
         )
       ) {
         Object.assign(row, {
@@ -331,31 +334,44 @@ export async function planReleaseCuts({
         components.push(row);
         continue;
       }
-      if (!history.previous && (!component.bootstrapSha || !initialVersions[component.name]))
+      if (!history.previous && (!component.bootstrapSha || !component.initialVersion))
         throw new Error('First cut needs bootstrapSha and an owner-approved initial version.');
+      if (!history.previous && component.requiresCliSha) {
+        const cli = publishedReleases(metadata.releases, 'cli')[0];
+        const reason = `First ${product} cut requires a published supporting CLI containing registration ${component.requiresCliSha}.`;
+        if (!cli) throw new Error(reason);
+        const cliSha = git(['rev-parse', '--verify', `refs/tags/${cli.tag_name}^{commit}`]).trim();
+        if (!SHA.test(cliSha)) throw new Error('Missing supporting CLI tag commit.');
+        try {
+          git(['merge-base', '--is-ancestor', component.requiresCliSha, cliSha]);
+        } catch (error) {
+          if (error.cause?.status !== 1) throw error;
+          throw new Error(`${reason} Newest published CLI ${cli.tag_name} predates registration.`);
+        }
+      }
       const previous = history.previous?.sha ?? component.bootstrapSha;
       if (!SHA.test(previous)) throw new Error('Missing previous product cut commit.');
       const previousVersion = history.highestVersion;
       if (
-        versions[component.name] &&
+        versions[product] &&
         previousVersion &&
-        compareVersions(versions[component.name], previousVersion) <= 0
+        compareVersions(versions[product], previousVersion) <= 0
       )
         throw new Error('Explicit cut version must advance every allocated product version.');
       const allocatedPrevious = history.previousAllocated?.sha ?? previous;
       const pendingCommits = attributeCutCommits(
         readCutRange(git, allocatedPrevious, cut),
         map,
-        component.name,
+        product,
         workspace
       );
       // Use the same renderer visibility contract before choosing a new version.
       const pending = await renderCutNotes({
         commits: pendingCommits,
         repository,
-        version: previousVersion ?? initialVersions[component.name],
+        version: previousVersion ?? component.initialVersion,
         previousTag: history.previous?.tag,
-        tag: `${tagPrefix}${previousVersion ?? initialVersions[component.name]}`,
+        tag: `${tagPrefix}${previousVersion ?? component.initialVersion}`,
         date,
       });
       if (!pending.commits.length) {
@@ -369,8 +385,8 @@ export async function planReleaseCuts({
         continue;
       }
       const version =
-        versions[component.name] ??
-        (previousVersion ? nextAlphaVersion(previousVersion) : initialVersions[component.name]);
+        versions[product] ??
+        (previousVersion ? nextAlphaVersion(previousVersion) : component.initialVersion);
       if (!previousVersion) nextAlphaVersion(version);
       const tag = `${tagPrefix}${version}`;
       const notesInput = {
@@ -383,7 +399,7 @@ export async function planReleaseCuts({
       const commits =
         allocatedPrevious === previous
           ? pendingCommits
-          : attributeCutCommits(readCutRange(git, previous, cut), map, component.name, workspace);
+          : attributeCutCommits(readCutRange(git, previous, cut), map, product, workspace);
       const notes = await renderCutNotes({
         ...notesInput,
         commits,
@@ -394,7 +410,7 @@ export async function planReleaseCuts({
         version,
         tag,
         status: notes.commits.length ? 'proposed' : 'no-releasable-commits',
-        authorization: notes.breaking || versions[component.name] ? 'owner-required' : 'alpha',
+        authorization: notes.breaking || versions[product] ? 'owner-required' : 'alpha',
       });
     } catch (error) {
       row.reason = error.message;

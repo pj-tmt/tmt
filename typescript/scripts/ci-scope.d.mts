@@ -12,6 +12,8 @@ export interface ComponentMap {
     readonly release?: boolean;
     readonly releaseStatus?: 'never' | 'parked';
     readonly bootstrapSha?: string;
+    readonly initialVersion?: string;
+    readonly requiresCliSha?: string;
     readonly releaseConsumers: readonly string[];
     readonly owns: readonly string[];
     readonly excludes: readonly string[];
