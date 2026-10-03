@@ -4442,12 +4442,8 @@ parser/renderer dependencies produce notes for the releasable first-parent commi
 across the shared range below; linked SHAs equal that set by construction.
 A short serialized allocation section counts existing drafts and Git tags to
 reserve the next alpha number; each allocated tag then owns its independent pipeline. Explicit owner-selected
-versions must advance it. The component map owns the permanent `bootstrapSha` boundary
-and owner-approved `initialVersion` for a first cut. Optional `requiresCliSha` blocks
-that cut until the newest published CLI contains the registration commit.
-`native-release-policy.mjs` maps component identities such as `tmt-colab` to
-canonical workflow products such as `colab`; cut, injection and Project evidence
-share this mapping without changing ownership or CI selection.
+versions must advance it; first release requires a map-owned reviewed bootstrap and seed.
+Cut, injection and Project evidence share the native policy's component-to-product mapping.
 Authorization belongs to the [release skill](.agents/skills/tmt-release/SKILL.md).
 
 `cargo-workspace.mjs::readCargoWorkspace` is the shared Cargo reader: callers
@@ -4522,9 +4518,8 @@ Never-shipped leaves have no consumers and require no release; changes confined 
 them reconcile to Done. Only waits confined to parked products reconcile to Done with
 one `ships with the first <product> release` line per waited-on product
 (`Office` today); any other wait keeps Merged. Available published
-evidence is retained. An absent marker on an unreleased product means not yet activated, preserving
-Herdr waits. Remote and Colab paths wait for their own published containing tags.
-`colab-app` and its bundled `colab-client` declare consumer `tmt-colab`;
+evidence is retained. Unactivated Herdr waits; Remote and Colab require containing tags.
+`colab-app` and bundled `colab-client` declare consumer `tmt-colab`;
 `remote-client` declares its embedding product `tmt-remote`. Private
 consumers may name a packaged product awaiting activation, but never a never-shipped one. Closed-issue status definitions belong to
 [Project tracking](DEVELOPMENT.md#project-tracking). Issues labeled `epic` are
@@ -4908,13 +4903,9 @@ its implementation slices land; the `canonical` and `remote-client` builders bel
 follow the channel contract's device enrollment, receipt-proof and fingerprint rules.
 `firestore` and `cloudflare` are not permitted until their edge admission and
 encryption profile are specified. Core never owns a listener or remote state. Core recognizes Remote as an
-official installation product; archive publication and cargo-dist activation
-remain separate gates. Remote is a released component with an independent development version and alpha tag identity. Cargo-dist packages `tmt-remote` as an
-independent native archive containing the executable, `LICENSE`,
-`NATIVE-INSTALL.md` and `THIRD-PARTY-NOTICES.txt`, with no companions or skills.
-The pairing page, device SDK and fingerprint wordlist are embedded in the binary.
-Archive publication remains gated separately from packaging; enabling cargo-dist
-does not publish a release or start the foreground door.
+official installation product. Its archive embeds the pairing page, SDK and wordlist
+without companions or skills. Packaging and publication
+retain separate gates owned by the [release skill](.agents/skills/tmt-release/SKILL.md).
 For shell ownership, see the [browser add-on shell](#browser-add-on-shell).
 
 The private [`remote-client`](extensions/tmt-remote/typescript/remote-client/README.md)
