@@ -1,0 +1,63 @@
+---
+source: site/src/chapters/drv-claude.mdx
+sourceRevision: a9b20d9dd287fd5dd0da493c0642d1a70df12d69
+title: Claude Code
+---
+
+import { Cmd } from "../../components/Cmd";
+import { components as Mdx } from "../../components/mdx";
+import { DriverCard } from "../../components/samples";
+
+<DriverCard
+  name="Claude Code"
+  kind="runtime driver"
+  spec={[
+    [
+      "認得什麼",
+      "透過 Claude Code 文件中定義的 SessionStart 與 SessionEnd hook，取得每段對話的 id。",
+    ],
+    [
+      "恢復",
+      <>
+        <code>tmt resume &lt;name&gt;</code> 會用同一個模型重新開啟屬於這個 identity
+        的對話，而不只是資料夾裡最新的那一段。
+      </>,
+    ],
+    ["Context", "session 啟動時會收到簡短摘要：它是誰，以及有哪些事在等它。"],
+    ["設定", <code>tmt setup claude</code>],
+  ]}
+/>
+
+<Mdx.h3 id="connect-it">接上 tmt</Mdx.h3>
+
+<Cmd>{`
+$ tmt setup claude          # 列出確切的設定變更，再詢問你
+$ tmt run reviewer claude   # 以 "reviewer" 的名稱啟動 Claude Code
+$ tmt resume reviewer       # 重新開啟 reviewer 自己的對話
+`}</Cmd>
+
+Setup 會為 tmt 加入三個 Claude Code hook（session 開始、session 結束、提交 prompt），不會變更設定中的其他內容。hook 不會阻擋 Claude Code：如果 tmt 太慢或找不到，session 仍會正常啟動，只是不會收到摘要。`tmt setup claude --remove` 會移除這些 hook。
+
+<Mdx.h3 id="what-you-get">能用的功能</Mdx.h3>
+
+- **恢復時回到正確的對話**，即使多個 agent 在同一個資料夾裡工作也一樣。
+- **啟動時的簡短摘要：** agent 的名稱、角色，以及有哪些事在等它。
+- 在 `tmt ls` 與窗格徽章中顯示**執行中或已結束**。
+
+<Mdx.h3 id="message-channel">訊息通道</Mdx.h3>
+
+tmt 預設會把請求貼進 agent 的窗格。啟動 Claude Code 時，也可以選擇改用它的訊息通道：
+
+<Cmd>{`
+$ tmt run --channel reviewer claude   # 選項放在名稱前面；不能搭配 --resume
+`}</Cmd>
+
+需要 Claude Code 2.x 系列的 2.1.285 或更新版本。tmt 會在啟動任何程式前檢查：版本太舊，或指令不在它能規劃啟動的範圍內，就會拒絕，不會啟動任何程式。尚未測試過通道的新版本會在啟動時向 stderr 輸出提示。Claude 啟動時也會顯示自己的開發通道警告。tmt 只為這次啟動加上通道，不會變更你的 Claude 設定。
+
+- **加入通道的窗格絕不會收到貼上的訊息。** 每個指令都遵守這點：`talk`、reply 通知，以及直接指定窗格位址，都會使用通道或停止。如果通道無法傳送請求（尚未就緒、無法連線，或這次啟動已結束），`talk` 會告知沒有送出、也沒有貼上，請求則留在 agent 的 inbox 等待。
+- **沒有 receipt。** Claude 不會確認收到通道訊息。寫入成功時，`talk` 會回報送達尚未確認，並繼續等待 agent 的 `tmt reply`。tmt 不會重送。
+- **啟動的程式當掉後，紀錄可能仍會留下。** 如果 tmt 無法確認這次啟動的 Claude 是否還在窗格裡執行，`talk` 會拒絕貼上，並列出用來檢查或復原的 `tmt channel` 指令。`tmt channel inspect` 會顯示紀錄指向的內容。確認窗格裡沒有任何屬於這次啟動的 Claude 後，再執行列出的 `tmt channel recover`。它只會移除那筆紀錄，不會停止程式或貼上任何內容；除非能確認紀錄中的所有程式都已消失，否則會拒絕執行。重複執行也安全。
+
+<Mdx.h3 id="usage-counters">用量計數</Mdx.h3>
+
+`tmt setup claude --usage` 會加入一個每輪結束時執行的 hook，記錄 Claude 的 context 大小與已完成請求使用的 token 數；欄位請看[用量計數](/drivers#usage-counters)。Claude Code 不會回報 context window，所以 `windowTokens` 會保持空白。hook 第一次讀到對話檔案時，計數會從檔案末尾開始；每個新請求只計算一次，不會補算之前的輪次。
