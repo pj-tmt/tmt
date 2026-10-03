@@ -2770,7 +2770,8 @@ schema-1 rows and byte-for-byte database preservation on newer-schema refusal.
 Exact mutation outcomes are capped at 32 MiB; exceeding the cap rolls back.
 Callers must propagate transaction-method errors and perform live request,
 certificate, policy and baseline admission before committing authority changes.
-No management mutation route, CLI transition or baseline producer is enabled here.
+No management mutation route or CLI transition is enabled here; baseline production
+is available separately through the isolated decoder library.
 
 ```bash
 (cd rust && cargo build --offline --locked -p tmt-cli -p tmt-colab)
@@ -2886,6 +2887,31 @@ budgets are separate from the two-second production budget. macOS must report
 `memory limit unavailable`; only Linux enforces the child address-space limit.
 Tests cover cleared environment, input/output backpressure, role/namespace and
 projection rejection, dependency/delete-set preservation and writer attribution.
+
+`Decoder::produce_baseline` accepts exact UTF-8 source bytes, title and source
+digest from the owner's authenticated fold. It returns one fresh update-v1,
+source digest and commitment after child materialization verification. Persist
+and distribute these exact bytes; calling the producer again creates a new
+struct identity. The caller still owns log/page/epoch admission and signing.
+`verify_baseline` checks a supplied update/commitment against that view in the
+same child. Source is capped at 2 MiB, title at 256 KiB, and update-v1 at source
+plus title caps plus 1 KiB framing. Both modes retain 4 MiB serialized streams,
+the two-second deadline and cleanup fencing. Verification sends the update,
+authenticated source digest and title; the child reconstructs the exact source
+and checks its digest and commitment without sending a second source copy.
+Tests produce and verify at exactly the 2 MiB source cap and reject 2 MiB + 1.
+Check the independent minimal update-v1/commitment oracle with:
+
+```bash
+python3 extensions/tmt-colab/contracts/vectors/baseline-reference.py
+(cd rust && cargo test --offline --locked -p tmt-colab --test decoder baseline_)
+```
+
+Frozen vectors include empty, CRLF and Unicode/NUL fixture text; those code
+points are intentional exact-byte test data. The oracle imports no product code
+or third-party libraries. The Rust producer matches it at a test-only fixed
+client ID; real-child tests verify those bytes and concurrent clients applying
+one production baseline. This does not prove browser/epoch-transition wiring.
 
 The exact yrs 0.28.0 dependency brings smallstr 0.3.1.
 [RUSTSEC-2026-0215](https://rustsec.org/advisories/RUSTSEC-2026-0215.html) is an

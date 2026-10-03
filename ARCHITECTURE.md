@@ -4351,6 +4351,15 @@ Only `decoder/child.rs` imports pinned yrs 0.28.0 in production, enforced by the
 architecture guard. The private `__decoder` entry runs before CLI/data-root
 routing. It declares namespace roots, checks materialized types and projection
 bounds, and merges only supplied author updates, never the baseline/shared document.
+The same runner produces current-view baselines from caller-authenticated exact
+UTF-8 source/title and source digest, using a fresh document once. It decodes the
+result into a second fresh document and checks exact materialization before
+returning update bytes, source digest and the domain-framed commitment. Baseline
+verification checks the supplied commitment and exact materialization through the
+same child. The parent checks input/output binding and hashes without Yjs access.
+Production identities are fresh; a fixed identity exists only in vector tests.
+The caller persists/distributes that identical update and owns descriptor signing,
+encryption and atomic epoch admission. This does not wire a server transition.
 The caller retains live-log/role/operation admission and owns one runner per page.
 
 The [contract limits](extensions/tmt-colab/contracts/colab-v1.md#decoder-isolation-compaction-and-limits)

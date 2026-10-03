@@ -2,8 +2,8 @@
 use super::*;
 use std::io::{Read, Write};
 use yrs::{
-    Any, Doc, GetString, Map, MapRef, Out, ReadTxn, Root, Text, TextRef, Transact, Update,
-    updates::decoder::Decode,
+    Any, Doc, GetString, Map, MapRef, Out, ReadTxn, Root, StateVector, Text, TextRef, Transact,
+    Update, updates::decoder::Decode,
 };
 
 pub(super) fn run() -> std::process::ExitCode {
@@ -40,6 +40,9 @@ fn execute() -> Result<(), DecodeFault> {
     if input.len() > STREAM_BYTES {
         return Err(DecodeFault::InvalidInput);
     }
+    if std::env::args().nth(2).as_deref() == Some("baseline") {
+        return baseline(&input);
+    }
     let wire: WireBatch = serde_json::from_slice(&input).map_err(|_| DecodeFault::InvalidInput)?;
     if wire.version != 1 || wire.updates.len() > UPDATES {
         return Err(DecodeFault::InvalidInput);
@@ -74,6 +77,43 @@ fn execute() -> Result<(), DecodeFault> {
             .apply_update(update)
             .map_err(|_| DecodeFault::Rejected)?;
     }
+    let projection = project(&doc, wire.namespace)?;
+    // Merge the author update set, never encode the materialized shared document.
+    let merged = yrs::merge_updates_v1(updates.iter().map(Vec::as_slice))
+        .map_err(|_| DecodeFault::Rejected)?;
+    if merged.len() > UPDATE_BYTES {
+        return Err(DecodeFault::Rejected);
+    }
+    let reply = WireResult {
+        version: 1,
+        namespace: wire.namespace,
+        input_hash: URL_SAFE_NO_PAD.encode(Sha256::digest(&input)),
+        merged: URL_SAFE_NO_PAD.encode(merged),
+        projection,
+        memory_limit: memory_limit(),
+        pid: std::process::id(),
+    };
+    write_reply(&reply)
+}
+fn write_reply(reply: &impl Serialize) -> Result<(), DecodeFault> {
+    let output = serde_json::to_vec(reply).map_err(|_| DecodeFault::InvalidOutput)?;
+    if output.len() > STREAM_BYTES {
+        return Err(DecodeFault::InvalidOutput);
+    }
+    tmt_cli_style::stream::stdout(true)
+        .write_all(&output)
+        .map_err(|_| DecodeFault::InvalidOutput)
+}
+
+fn diagnostic(message: &str) {
+    let _ = writeln!(tmt_cli_style::stream::stderr(), "{message}");
+}
+
+fn project(doc: &Doc, namespace: Namespace) -> Result<Value, DecodeFault> {
+    let names: &[&str] = match namespace {
+        Namespace::Content => &["html", "meta"],
+        Namespace::Own => &["threads", "messages", "intents", "replies"],
+    };
     let txn = doc.transact();
     if txn.store().pending_update().is_some()
         || txn.store().pending_ds().is_some()
@@ -122,31 +162,108 @@ fn execute() -> Result<(), DecodeFault> {
         }
     }
     let projection = Value::Object(roots);
-    validate_projection(wire.namespace, &projection)?;
-    // Merge the author update set, never encode the materialized shared document.
-    let merged = yrs::merge_updates_v1(updates.iter().map(Vec::as_slice))
-        .map_err(|_| DecodeFault::Rejected)?;
-    if merged.len() > UPDATE_BYTES {
+    validate_projection(namespace, &projection)?;
+    Ok(projection)
+}
+fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
+    let wire: WireBaseline =
+        serde_json::from_slice(input).map_err(|_| DecodeFault::InvalidInput)?;
+    if wire.version != 1 {
+        return Err(DecodeFault::InvalidInput);
+    }
+    let digest = binary(&wire.source_digest, 32)?;
+    if digest.len() != 32 || wire.title.len() > BASELINE_TITLE_BYTES {
+        return Err(DecodeFault::InvalidInput);
+    }
+    let (update, expected_source, expected_commitment) = match wire.action {
+        BaselineAction::Produce {} => {
+            let source = binary(&wire.source, BASELINE_BYTES)?;
+            validate_view(&source, &wire.title, &digest)?;
+            let source_text =
+                std::str::from_utf8(&source).map_err(|_| DecodeFault::InvalidInput)?;
+            (
+                fresh_baseline(Doc::new(), source_text, &wire.title),
+                Some(source),
+                None,
+            )
+        }
+        BaselineAction::Verify { update, commitment } => {
+            // Verification transmits the update once. Materialized source must
+            // match the authenticated fold's digest before commitment admission.
+            if !wire.source.is_empty() {
+                return Err(DecodeFault::InvalidInput);
+            }
+            (
+                binary(&update, BASELINE_UPDATE_BYTES)?,
+                None,
+                Some(binary(&commitment, 32)?),
+            )
+        }
+    };
+    if update.len() > BASELINE_UPDATE_BYTES {
         return Err(DecodeFault::Rejected);
     }
-    let reply = WireResult {
+    // Decode into a second fresh document. Exact text, title, roots, types and
+    // absence of pending dependencies must agree before returning any result.
+    let doc = Doc::new();
+    doc.get_or_insert_text("html");
+    doc.get_or_insert_map("meta");
+    doc.transact_mut()
+        .apply_update(Update::decode_v1(&update).map_err(|_| DecodeFault::Rejected)?)
+        .map_err(|_| DecodeFault::Rejected)?;
+    let projection = project(&doc, Namespace::Content)?;
+    let source_text = projection["html"].as_str().ok_or(DecodeFault::Rejected)?;
+    validate_view(source_text.as_bytes(), &wire.title, &digest)?;
+    if projection["meta"] != serde_json::json!({"title":wire.title})
+        || expected_source.is_some_and(|source| source != source_text.as_bytes())
+    {
+        return Err(DecodeFault::Rejected);
+    }
+    let commitment = baseline_commitment(source_text.as_bytes(), &update)?;
+    if expected_commitment.is_some_and(|expected| expected.as_slice() != commitment) {
+        return Err(DecodeFault::Rejected);
+    }
+    write_reply(&WireBaselineResult {
         version: 1,
-        namespace: wire.namespace,
-        input_hash: URL_SAFE_NO_PAD.encode(Sha256::digest(&input)),
-        merged: URL_SAFE_NO_PAD.encode(merged),
-        projection,
+        input_hash: URL_SAFE_NO_PAD.encode(Sha256::digest(input)),
+        source_digest: URL_SAFE_NO_PAD.encode(digest),
+        commitment: URL_SAFE_NO_PAD.encode(commitment),
+        update: URL_SAFE_NO_PAD.encode(update),
         memory_limit: memory_limit(),
         pid: std::process::id(),
-    };
-    let output = serde_json::to_vec(&reply).map_err(|_| DecodeFault::InvalidOutput)?;
-    if output.len() > STREAM_BYTES {
-        return Err(DecodeFault::InvalidOutput);
-    }
-    tmt_cli_style::stream::stdout(true)
-        .write_all(&output)
-        .map_err(|_| DecodeFault::InvalidOutput)
+    })
+}
+fn fresh_baseline(doc: Doc, source: &str, title: &str) -> Vec<u8> {
+    let html = doc.get_or_insert_text("html");
+    let meta = doc.get_or_insert_map("meta");
+    let mut txn = doc.transact_mut();
+    html.insert(&mut txn, 0, source);
+    meta.insert(&mut txn, "title", title);
+    txn.encode_state_as_update_v1(&StateVector::default())
 }
 
-fn diagnostic(message: &str) {
-    let _ = writeln!(tmt_cli_style::stream::stderr(), "{message}");
+#[cfg(test)]
+mod baseline_tests {
+    use super::*;
+    #[test]
+    fn fresh_baseline_matches_independent_update_v1_vectors() {
+        let vectors: Value = serde_json::from_str(include_str!(
+            "../../../../contracts/vectors/baseline-v1.json"
+        ))
+        .unwrap();
+        for vector in vectors.as_array().unwrap() {
+            let source = vector["source"].as_str().unwrap();
+            let title = vector["title"].as_str().unwrap();
+            let update = fresh_baseline(Doc::with_client_id(1159), source, title);
+            assert_eq!(URL_SAFE_NO_PAD.encode(&update), vector["update"]);
+            assert_eq!(
+                URL_SAFE_NO_PAD.encode(Sha256::digest(source.as_bytes())),
+                vector["sourceDigest"]
+            );
+            assert_eq!(
+                URL_SAFE_NO_PAD.encode(baseline_commitment(source.as_bytes(), &update).unwrap()),
+                vector["commitment"]
+            );
+        }
+    }
 }
