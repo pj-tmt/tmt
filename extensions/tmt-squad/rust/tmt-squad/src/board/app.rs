@@ -1137,7 +1137,7 @@ impl App {
         let sources = derived
             .notes
             .as_ref()
-            .map_or(&[][..], |notes| notes.3.as_slice());
+            .map_or(&[][..], |notes| notes.sources.as_slice());
         self.note_cursors
             .borrow_mut()
             .entry(key.clone())
@@ -1565,7 +1565,7 @@ impl App {
                 let mut cursors = self.note_cursors.borrow_mut();
                 let cursor = cursors.entry(key.clone()).or_default();
                 if let Some(notes) = &view.derived.borrow().notes {
-                    cursor.select_visual(text, &notes.3, *visual);
+                    cursor.select_visual(text, &notes.sources, *visual);
                     cursor.follow = true;
                 }
             }

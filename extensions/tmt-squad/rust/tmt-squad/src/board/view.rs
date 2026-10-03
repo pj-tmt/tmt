@@ -1081,9 +1081,7 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
     let rebuilt = derived
         .notes
         .as_ref()
-        .is_none_or(|(cached_width, cached_look, _, _)| {
-            *cached_width != width || *cached_look != look
-        });
+        .is_none_or(|notes| notes.width != width || notes.look != look);
     if rebuilt {
         let (lines, sources) = match &view.notes {
             Notes::Text(text) if view.render == NotesRender::Markdown => {
@@ -1106,9 +1104,15 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
                 Vec::new(),
             ),
         };
-        derived.notes = Some((width, look, lines, sources));
+        derived.notes = Some(super::derived::NotebookLines {
+            width,
+            look,
+            lines,
+            sources,
+        });
     }
-    let (_, _, lines, sources) = derived.notes.as_ref().expect("prepared notes");
+    let notes = derived.notes.as_ref().expect("prepared notes");
+    let (lines, sources) = (&notes.lines, &notes.sources);
     let mut selected = None;
     let mut marked = std::collections::BTreeSet::new();
     if let (Some(key), Notes::Text(text)) = (&app.current, &view.notes) {
@@ -4370,7 +4374,7 @@ lines = [
                 .notes
                 .as_ref()
                 .unwrap()
-                .3
+                .sources
                 .clone();
             for (area, at) in app.note_hits.borrow().iter() {
                 if sources[*at] == 0 {
@@ -4505,7 +4509,7 @@ lines = [
             .notes
             .as_ref()
             .unwrap()
-            .2
+            .lines
             .clone();
         draw(&app, 25, 12);
         assert_ne!(
@@ -4517,7 +4521,7 @@ lines = [
                 .notes
                 .as_ref()
                 .unwrap()
-                .2,
+                .lines,
             lines
         );
         app.apply(crate::board::app::tests::snapshot("product", json!([])));

@@ -3572,6 +3572,8 @@ marker or blanks before wrapping, keeping text aligned without clipping.
 Notes annotations reuse the ordinary composer and annotation sender, addressed
 to the current lead and tagged with the source line number and a bounded quoted
 excerpt. Opening, canceling or submitting an empty composer sends nothing.
+The `[<squad> · notes L<one-based line> <JSON quote>] ` tag is the contract
+between the annotation sender and request projection; display quotes are separate.
 `requests::apply` projects only the user's open notes annotations to the current
 lead as optional `squad.noteAnnotations` (`requestId`, zero-based `line`, `quote`),
 using the existing bounded room history. The painter marks the nearest matching

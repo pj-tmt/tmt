@@ -106,6 +106,10 @@ cell).
   one section with `title: null` containing every member except the lead. With
   user sections, members that match none follow in a final `title: null`
   section.
+- `squad.noteAnnotations` is optional: open notebook-line requests from the
+  recorded user to the current lead, as `{requestId, line, quote}` with a
+  zero-based source `line` and bounded sanitized `quote`. It is absent when
+  none are observed; the shared bounded history also governs board markers.
 - Each row has `id`, `name`, `lifetime`, `presence` (`active`, `offline` or
   `unknown`), `pane`, `activity` (self-reported status, or null), `state`,
   `pending`, `fields` (the `squad.<name>.*` values except the internal
