@@ -5,18 +5,24 @@
 //! session for the same device or idle expiry, and reopening is a silent
 //! signed `session.open` from the device key.
 use crate::{
+    admission::{self, BindingAction, MessagePermit, MessageRefusal},
     canonical::{self, Envelope},
     crypto,
+    error::RemoteError,
     mount::{Admitted, DeviceContext, IdleClock, SessionState, Sessions},
     pairing::now_ms,
     state::MachineKey,
     store::{Grant, Store, uuid_v4},
+    wire::SignedMessage,
 };
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -28,23 +34,6 @@ pub const CLOCK_SKEW: Duration = Duration::from_secs(60);
 pub const IDLE: Duration = Duration::from_secs(12 * 60 * 60);
 /// Bound on remembered `session.open` nonces; beyond it opens refuse.
 const NONCES: usize = 4096;
-const FIELDS: [&str; 15] = [
-    "version",
-    "profile",
-    "kind",
-    "id",
-    "correlationId",
-    "machineId",
-    "windowId",
-    "clientId",
-    "sessionId",
-    "sequence",
-    "timestampMs",
-    "origin",
-    "operation",
-    "payload",
-    "signature",
-];
 
 pub struct DoorSessions {
     machine_id: String,
@@ -67,6 +56,8 @@ struct Live {
     nonces: HashMap<(String, String), u64>,
 }
 struct Session {
+    id: String,
+    busy: Arc<AtomicBool>,
     token: Option<[u8; 32]>,
     grant_revision: u64,
     state: Arc<SessionState>,
@@ -79,7 +70,7 @@ pub struct Opened {
 }
 /// The admitted parts of a `session.open` control.
 struct Control {
-    id: String,
+    message: SignedMessage,
     grant: Grant,
     nonce: String,
 }
@@ -122,6 +113,10 @@ impl DoorSessions {
             .transpose()
             .ok()?;
         let session_id = uuid_v4().ok()?;
+        let payload = json!({"sessionId":session_id,"serverTimeMs":now,"grantRevision":control.grant.revision,"expiresAtMs":control.grant.expires_at_ms});
+        let response = self
+            .signed_response(&control.message, &session_id, 1, &payload, now)
+            .ok()?;
         {
             let mut live = self.live.lock().ok()?;
             let validity = 2 * CLOCK_SKEW.as_millis() as u64;
@@ -130,6 +125,11 @@ impl DoorSessions {
             if live.nonces.contains_key(&key) || live.nonces.len() >= NONCES {
                 return None;
             }
+            self.store
+                .lock()
+                .ok()?
+                .start_session(&control.grant, &session_id, &self.window_id, now)
+                .ok()?;
             live.nonces.insert(key, now + validity);
             // One session per device: a newer one ends the previous session
             // and its tunnels without widening scope.
@@ -141,64 +141,26 @@ impl DoorSessions {
             live.by_client.insert(
                 control.grant.client_id.clone(),
                 Session {
+                    id: session_id.clone(),
+                    busy: Arc::new(AtomicBool::new(false)),
                     token: hash,
                     grant_revision: control.grant.revision,
                     state: Arc::new(SessionState::with_clock(Arc::clone(&self.clock))),
                 },
             );
         }
-        let payload = json!({
-            "sessionId": session_id,
-            "serverTimeMs": now,
-            "grantRevision": control.grant.revision,
-            "expiresAtMs": control.grant.expires_at_ms,
-        })
-        .to_string()
-        .into_bytes();
-        let id = uuid_v4().ok()?;
-        let envelope = Envelope {
-            kind: "response",
-            id: &id,
-            correlation_id: Some(&control.id),
-            machine_id: &self.machine_id,
-            window_id: &self.window_id,
-            client_id: &control.grant.client_id,
-            session_id: &session_id,
-            sequence: "1",
-            timestamp_ms: now,
-            origin: &control.grant.origin,
-            operation: "session.open",
-            payload: &payload,
-        };
-        let signature = self.machine_key.sign(&canonical::envelope(&envelope).ok()?);
-        let response = json!({
-            "version": 1,
-            "profile": "local-v1",
-            "kind": "response",
-            "id": id,
-            "correlationId": control.id,
-            "machineId": self.machine_id,
-            "windowId": self.window_id,
-            "clientId": control.grant.client_id,
-            "sessionId": session_id,
-            "sequence": "1",
-            "timestampMs": now,
-            "origin": control.grant.origin,
-            "operation": "session.open",
-            "payload": canonical::base64url(&payload),
-            "signature": canonical::base64url(&signature),
-        });
         Some(Opened {
-            response: response.to_string().into_bytes(),
-            cookie: token.map(|t| {
+            response,
+            cookie: token.map(|token| {
                 format!(
                     "{COOKIE}={}; Path={}; HttpOnly; SameSite=Strict",
-                    canonical::base64url(&t),
+                    canonical::base64url(&token),
                     self.cookie_path
                 )
             }),
         })
     }
+
     /// End the device's session and close its tunnels.
     pub fn end_device(&self, client_id: &str) {
         if let Ok(mut live) = self.live.lock() {
@@ -208,67 +170,225 @@ impl DoorSessions {
     /// Strict envelope admission against the live grant. The signature is
     /// checked last over the exact canonical bytes; nothing is recorded here.
     fn control(&self, request_origin: Option<&str>, body: &[u8], now: u64) -> Option<Control> {
-        let Value::Object(wire) = serde_json::from_slice(body).ok()? else {
-            return None;
-        };
-        if wire.len() != FIELDS.len() || !FIELDS.iter().all(|f| wire.contains_key(*f)) {
+        let message = SignedMessage::decode(body, crate::limits::PAIR_BODY_BYTES)?;
+        let envelope = message.envelope();
+        if envelope.kind != "control" || envelope.operation != "session.open" {
             return None;
         }
-        let text = |name: &str| wire.get(name)?.as_str();
-        let timestamp = wire.get("timestampMs")?.as_u64()?;
-        if wire.get("version")?.as_u64()? != 1
-            || !wire.get("correlationId")?.is_null()
-            || text("profile")? != "local-v1"
-            || text("kind")? != "control"
-            || text("operation")? != "session.open"
-            || text("machineId")? != self.machine_id
-            || text("windowId")? != self.window_id
-            || text("sessionId")? != "new"
-            || text("sequence")? != "0"
-            || now.abs_diff(timestamp) > CLOCK_SKEW.as_millis() as u64
+        let grant = self.authenticate(request_origin, &message, now)?;
+        let nonce = client_nonce(&message.input)?;
+        Some(Control {
+            message,
+            grant,
+            nonce,
+        })
+    }
+}
+impl DoorSessions {
+    fn authenticate(
+        &self,
+        request_origin: Option<&str>,
+        message: &SignedMessage,
+        now: u64,
+    ) -> Option<Grant> {
+        let envelope = message.envelope();
+        if envelope.machine_id != self.machine_id
+            || envelope.window_id != self.window_id
+            || now.abs_diff(envelope.timestamp_ms) > CLOCK_SKEW.as_millis() as u64
         {
             return None;
         }
-        let grant = self.store.lock().ok()?.grant(text("clientId")?).ok()??;
-        let origin = text("origin")?;
-        if !live(&grant, now) || origin != grant.origin {
+        let grant = self.store.lock().ok()?.grant(envelope.client_id).ok()??;
+        if !grant.live_at(now) || envelope.origin != grant.origin {
             return None;
         }
-        // A browser or add-on sends its exact Origin; a CLI sends none. A
-        // browser grant is bound to this door's own origin.
         let origin_matches = match grant.kind.as_str() {
-            "cli" => request_origin.is_none(),
-            "browser" => origin == self.door_origin && request_origin == Some(origin),
-            _ => request_origin == Some(origin),
+            "cli" => request_origin.is_none() && envelope.origin == "cli",
+            "browser" => {
+                envelope.origin == self.door_origin && request_origin == Some(envelope.origin)
+            }
+            "addon" => request_origin == Some(envelope.origin),
+            _ => false,
         };
         if !origin_matches {
             return None;
         }
-        let payload = canonical::base64url_decode(text("payload")?).ok()?;
-        let nonce = client_nonce(&payload)?;
-        let signature = canonical::base64url_bytes(text("signature")?, 64).ok()?;
-        let id = text("id")?;
-        let signed = canonical::envelope(&Envelope {
-            kind: "control",
-            id,
-            correlation_id: None,
+        crypto::verify_signature(
+            &grant.public_key,
+            &canonical::envelope(&envelope).ok()?,
+            &message.signature,
+        )
+        .ok()?;
+        Some(grant)
+    }
+    /// This boundary is available to the later journal owner. Routes still
+    /// refuse normal application work until that owner is wired.
+    pub fn admit(
+        self: &Arc<Self>,
+        action: BindingAction,
+        request_origin: Option<&str>,
+        bytes: &[u8],
+        payload_limit: usize,
+    ) -> Result<MessagePermit, MessageRefusal> {
+        let message =
+            SignedMessage::decode(bytes, payload_limit).ok_or(MessageRefusal::Unauthenticated)?;
+        let now = now_ms().map_err(|_| MessageRefusal::Unauthenticated)?;
+        let grant = self
+            .authenticate(request_origin, &message, now)
+            .ok_or(MessageRefusal::Unauthenticated)?;
+        let (busy, state) = {
+            let mut live = self
+                .live
+                .lock()
+                .map_err(|_| MessageRefusal::Unauthenticated)?;
+            let session = live
+                .by_client
+                .get(&grant.client_id)
+                .ok_or(MessageRefusal::Unauthenticated)?;
+            if session.id != message.envelope().session_id
+                || session.grant_revision != grant.revision
+            {
+                return Err(MessageRefusal::Unauthenticated);
+            }
+            if session.state.idle() >= self.idle {
+                remove(&mut live, &grant.client_id);
+                return Err(MessageRefusal::Unauthenticated);
+            }
+            (Arc::clone(&session.busy), Arc::clone(&session.state))
+        };
+        let deny = |code, text| admission::refusal(self, &message, code, text);
+        if !action.matches(&message) {
+            return Err(deny(
+                "REMOTE_INPUT_INVALID",
+                "Route and signed operation disagree.",
+            ));
+        }
+        let Some(scope) = admission::scope(message.envelope().operation) else {
+            return Err(deny(
+                "REMOTE_INPUT_INVALID",
+                "Operation is not remotely callable.",
+            ));
+        };
+        if scope.is_some_and(|scope| !grant.permits_scope(scope)) {
+            return Err(deny(
+                "REMOTE_SCOPE_DENIED",
+                "Device scope does not admit this operation.",
+            ));
+        }
+        if busy
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Err(deny("REMOTE_REPLAY", "A message is already in flight."));
+        }
+        let consume = self
+            .store
+            .lock()
+            .map_err(|_| {
+                RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote state is unavailable.")
+            })
+            .and_then(|mut store| {
+                let envelope = message.envelope();
+                store.consume_sequence(
+                    envelope.client_id,
+                    envelope.session_id,
+                    envelope.window_id,
+                    envelope.sequence.parse().expect("canonical sequence"),
+                    now,
+                )
+            });
+        if let Err(error) = consume {
+            busy.store(false, Ordering::Release);
+            return Err(deny(&error.code, "Message sequence could not be admitted."));
+        }
+        let authority = grant.authority().map_err(|_| {
+            busy.store(false, Ordering::Release);
+            MessageRefusal::Unauthenticated
+        })?;
+        state.touch();
+        Ok(MessagePermit {
+            message,
+            grant,
+            authority,
+            sessions: Arc::clone(self),
+            busy,
+        })
+    }
+    pub(crate) fn revalidate(
+        &self,
+        expected: &Grant,
+        message: &SignedMessage,
+        now: u64,
+    ) -> Result<(), RemoteError> {
+        let live = self.live.lock().map_err(|_| {
+            RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote session is unavailable.")
+        })?;
+        if !live
+            .by_client
+            .get(&expected.client_id)
+            .is_some_and(|session| {
+                session.id == message.envelope().session_id && session.state.idle() < self.idle
+            })
+        {
+            return Err(RemoteError::new("REMOTE_CLOSED", "Device session ended."));
+        }
+        let current = self
+            .store
+            .lock()
+            .map_err(|_| {
+                RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote state is unavailable.")
+            })?
+            .grant(&expected.client_id)?;
+        if !current.is_some_and(|grant| grant.revision == expected.revision && grant.live_at(now)) {
+            return Err(RemoteError::new("REMOTE_CLOSED", "Device authority ended."));
+        }
+        Ok(())
+    }
+    pub(crate) fn response(
+        &self,
+        request: &SignedMessage,
+        payload: &Value,
+    ) -> Result<Vec<u8>, RemoteError> {
+        let input = request.envelope();
+        let now = now_ms()?;
+        let sequence = self
+            .store
+            .lock()
+            .map_err(|_| {
+                RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote state is unavailable.")
+            })?
+            .response_sequence(input.client_id, input.session_id, &self.window_id)?;
+        self.signed_response(request, input.session_id, sequence, payload, now)
+    }
+    fn signed_response(
+        &self,
+        request: &SignedMessage,
+        session_id: &str,
+        sequence: u64,
+        payload: &Value,
+        now: u64,
+    ) -> Result<Vec<u8>, RemoteError> {
+        let input = request.envelope();
+        let id = uuid_v4()?;
+        let sequence = sequence.to_string();
+        let payload = serde_json::to_vec(payload).expect("JSON value");
+        let envelope = Envelope {
+            kind: "response",
+            id: &id,
+            correlation_id: Some(input.id),
             machine_id: &self.machine_id,
             window_id: &self.window_id,
-            client_id: &grant.client_id,
-            session_id: "new",
-            sequence: "0",
-            timestamp_ms: timestamp,
-            origin,
-            operation: "session.open",
+            client_id: input.client_id,
+            session_id,
+            sequence: &sequence,
+            timestamp_ms: now,
+            origin: input.origin,
+            operation: input.operation,
             payload: &payload,
-        })
-        .ok()?;
-        crypto::verify_signature(&grant.public_key, &signed, &signature).ok()?;
-        Some(Control {
-            id: id.to_owned(),
-            grant,
-            nonce,
-        })
+        };
+        let bytes = canonical::envelope(&envelope)
+            .map_err(|_| RemoteError::new("REMOTE_INPUT_INVALID", "Invalid response envelope."))?;
+        Ok(json!({"version":1,"profile":"local-v1","kind":"response","id":id,"correlationId":input.id,"machineId":self.machine_id,"windowId":self.window_id,"clientId":input.client_id,"sessionId":session_id,"sequence":sequence,"timestampMs":now,"origin":input.origin,"operation":input.operation,"payload":canonical::base64url(&payload),"signature":canonical::base64url(&self.machine_key.sign(&bytes))}).to_string().into_bytes())
     }
 }
 impl Sessions for DoorSessions {
@@ -293,7 +413,8 @@ impl Sessions for DoorSessions {
         };
         let grant = self.store.lock().ok()?.grant(&client_id).ok().flatten();
         let now = now_ms().ok()?;
-        let Some(grant) = grant.filter(|g| live(g, now) && g.revision == revision) else {
+        let Some(grant) = grant.filter(|grant| grant.live_at(now) && grant.revision == revision)
+        else {
             self.end_device(&client_id);
             return None;
         };
@@ -311,9 +432,6 @@ impl Sessions for DoorSessions {
         })
     }
 }
-fn live(grant: &Grant, now: u64) -> bool {
-    !grant.disabled && grant.expires_at_ms.is_none_or(|expiry| expiry > now)
-}
 fn remove(live: &mut Live, client_id: &str) {
     if let Some(session) = live.by_client.remove(client_id) {
         session.state.end();
@@ -323,19 +441,17 @@ fn remove(live: &mut Live, client_id: &str) {
     }
 }
 /// Exactly `{"clientNonce":"<32 lowercase hex>"}`.
-fn client_nonce(payload: &[u8]) -> Option<String> {
-    let Value::Object(object) = serde_json::from_slice::<Value>(payload).ok()? else {
-        return None;
-    };
-    let object: Map<String, Value> = object;
+fn client_nonce(payload: &Value) -> Option<String> {
+    let object = payload.as_object()?;
     let nonce = object.get("clientNonce")?.as_str()?;
     (object.len() == 1
         && nonce.len() == 32
         && nonce
             .bytes()
-            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')))
     .then(|| nonce.to_owned())
 }
+
 /// The single `tmt_door` value in a `Cookie` header; duplicates resolve to none.
 fn cookie_token(header: &str) -> Option<Vec<u8>> {
     let mut values = header

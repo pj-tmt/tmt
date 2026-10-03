@@ -268,6 +268,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "tmt-cli-style",
             "tmt-invoke",
             "clap",
+            "serde",
             "serde_json",
             "getrandom",
             "httparse",
