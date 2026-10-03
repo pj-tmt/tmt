@@ -3641,7 +3641,9 @@ adapter. Undefined/invalid schemes are plain and cannot dispatch.
 Only user-file `[links] scheme = "run program {path}"` grants a custom program:
 validated literal executable and one argv element per template, no shell or
 option injection. Reload replaces that authority. Existing detached spawn/reaper
-owns programs; explicit local paths use a canonical filesystem path opener route.
+owns programs; absolute local paths reveal after canonicalization: macOS uses
+`open -R`, configured/Linux openers receive only the containing directory.
+Relative paths are inert; opening files requires a user-defined custom scheme.
 Neither parsing nor paint opens files, fetches URLs or invokes commands.
 Its mapped rendering retains each painted line's notebook source line without a
 second Markdown parser. `App` keeps one notes cursor per visible/hidden squad,

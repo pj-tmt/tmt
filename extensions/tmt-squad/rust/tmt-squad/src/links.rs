@@ -25,9 +25,12 @@ impl Kind {
     pub fn label(&self) -> &'static str {
         match self {
             Self::Web => "web",
-            Self::Github => "GitHub",
+            Self::Github => "github",
             Self::File(_) => "file",
-            Self::Tmt { .. } => "tmt",
+            Self::Tmt {
+                verb: Verb::Reply, ..
+            } => "answer",
+            Self::Tmt { verb, .. } => verb.name(),
             Self::Custom { .. } => "configured",
         }
     }
@@ -62,7 +65,7 @@ pub fn classify(target: &str, handlers: &Handlers) -> Option<Kind> {
         });
         return Some(if github { Kind::Github } else { Kind::Web });
     }
-    if target.starts_with('/') || target.starts_with("./") || target.starts_with("../") {
+    if target.starts_with('/') {
         return Some(Kind::File(decode(target)?));
     }
     if let Some(path) = target.strip_prefix("file://") {
@@ -150,6 +153,8 @@ mod tests {
             "tmt:back/name",
             "#412",
             "file://host/etc/passwd",
+            "./relative",
+            "../relative",
         ] {
             assert!(classify(target, &handlers).is_none(), "{target}");
         }
@@ -162,8 +167,8 @@ mod tests {
             Some(Kind::Web)
         );
         assert_eq!(
-            classify("./my%20file", &handlers),
-            Some(Kind::File("./my file".into()))
+            classify("/my%20file", &handlers),
+            Some(Kind::File("/my file".into()))
         );
         assert_eq!(
             classify("tmt:answer/auth-fix?text=hello%20%24%28id%29", &handlers),

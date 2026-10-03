@@ -386,7 +386,9 @@ Built-ins are `tmt:jump/back/talk/answer/open/copy/annotate`; except `back`, app
 optionally prefilled by bounded percent-encoded `?text=`; Enter submits, Esc cancels.
 Custom programs require your own `[links]` entries such as
 `gh = "run gh issue view {path}"`: argv only, one argument per template, no shell.
-Bare #N remains plain; full GitHub issue/PR URLs are selectable.
+Bare #N remains plain; full GitHub issue/PR URLs are selectable. Absolute file
+links reveal after resolving symlinks; configured openers get only the containing
+directory. Relative paths stay plain. Opening files requires a custom scheme.
 
 In focused notes, the annotate binding (`a` by default) opens a composer addressed
 to the lead, quoting the line number and a bounded excerpt. Enter sends only

@@ -33,7 +33,6 @@ struct Renderer<'a> {
     heading: bool,
     link: Option<usize>,
     links: Vec<Link>,
-    destination: Option<String>,
     handlers: &'a crate::links::Handlers,
     /// Numbering for each open list; None for bullets.
     lists: Vec<Option<u64>>,
@@ -195,7 +194,6 @@ impl Renderer<'_> {
             Event::Start(Tag::Emphasis) => self.italic += 1,
             Event::End(TagEnd::Emphasis) => self.italic = self.italic.saturating_sub(1),
             Event::Start(Tag::Link { dest_url, .. }) => {
-                self.destination = Some(dest_url.to_string());
                 if let Some(kind) = crate::links::classify(&dest_url, self.handlers) {
                     self.link = Some(self.links.len());
                     self.links.push(Link {
@@ -206,16 +204,7 @@ impl Renderer<'_> {
                     });
                 }
             }
-            Event::End(TagEnd::Link) => {
-                self.source_line = self
-                    .starts
-                    .partition_point(|start| *start < range.end)
-                    .saturating_sub(1);
-                if let Some(url) = self.destination.take() {
-                    self.push(&format!(" ({url})"), self.look.role(Role::Dim));
-                }
-                self.link = None;
-            }
+            Event::End(TagEnd::Link) => self.link = None,
             Event::Text(text) => {
                 let style = self.style();
                 self.push(&text, style);
@@ -310,7 +299,6 @@ pub(super) fn render_links(
         italic: 0,
         heading: false,
         link: None,
-        destination: None,
         links: Vec::new(),
         handlers,
         lists: Vec::new(),
@@ -370,12 +358,9 @@ fn wrap(block: Block, width: usize) -> (Vec<(Line<'static>, usize)>, Vec<LinkHit
             used = block.indent;
         }
         let mut piece = String::new();
-        for character in word.chars() {
+        for character in body.chars() {
             let size = character.width().unwrap_or(0);
             if used + size > width {
-                if character == ' ' {
-                    continue;
-                }
                 line.push(Span::styled(std::mem::take(&mut piece), style));
                 lines.push((Line::from(std::mem::take(&mut line)), source_line));
                 source_line = source;
@@ -401,6 +386,13 @@ fn wrap(block: Block, width: usize) -> (Vec<(Line<'static>, usize)>, Vec<LinkHit
             used += size;
         }
         line.push(Span::styled(piece, style));
+        if word.ends_with(' ') && used < width {
+            line.push(Span::styled(
+                " ",
+                style.remove_modifier(Modifier::UNDERLINED),
+            ));
+            used += 1;
+        }
     }
     lines.push((Line::from(line), source_line));
     (lines, hits)
@@ -437,7 +429,7 @@ mod tests {
         let linked = render_mapped("[alpha\nbeta](https://example.com)", 9, Look::default());
         assert!(
             linked.sources.windows(2).all(|pair| pair[0] <= pair[1]),
-            "a multiline link target belongs to its closing source line"
+            "multiline link labels preserve source order"
         );
     }
 
@@ -445,15 +437,26 @@ mod tests {
     fn link_cells_follow_unicode_wrap_and_undefined_schemes_stay_plain() {
         let mapped = render_links(
             "- [界 **wide** `code`](tmt:jump/auth-fix) [evil](javascript:x) #412",
-            14,
+            10,
             Look::default(),
             &crate::links::Handlers::new(),
         );
         assert_eq!(mapped.links.len(), 1);
         assert_eq!(mapped.links[0].target, "tmt:jump/auth-fix");
+        assert!(!text(&mapped.lines).join(" ").contains("tmt:jump"));
+        assert!(
+            mapped
+                .lines
+                .iter()
+                .flat_map(|line| &line.spans)
+                .all(
+                    |span| !span.style.add_modifier.contains(Modifier::UNDERLINED)
+                        || !span.content.ends_with(' ')
+                )
+        );
         assert!(mapped.hits.iter().any(|hit| hit.line > 0));
         for hit in &mapped.hits {
-            assert!(hit.start >= 2 && hit.end <= 14 && hit.start < hit.end);
+            assert!(hit.start >= 2 && hit.end <= 10 && hit.start < hit.end);
             assert_eq!(hit.link, 0);
         }
         assert!(
@@ -508,7 +511,7 @@ mod tests {
                 "",
                 "• tokens: waiting on Ben",
                 "  • login vs sweep",
-                "• see PR 412 (https://x/412)",
+                "• see PR 412",
                 "",
                 "1. first",
                 "2. second",

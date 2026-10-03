@@ -98,7 +98,7 @@ pub enum Request {
         program: Option<Vec<String>>,
     },
     Run(Vec<String>),
-    OpenFile {
+    RevealFile {
         path: String,
         opener: Option<Vec<String>>,
     },
@@ -1253,7 +1253,7 @@ impl App {
                 link: link.target,
                 opener: view.opener.clone(),
             }),
-            Kind::File(path) => Effect::Act(Request::OpenFile {
+            Kind::File(path) => Effect::Act(Request::RevealFile {
                 path,
                 opener: view.opener.clone(),
             }),
