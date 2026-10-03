@@ -12,25 +12,43 @@ import { Badge, States } from "../../components/samples";
 <Terms>
   <dt>identity</dt>
   <dd>
-    <code>reviewer</code>{" "}
-    のような、継続して使う名前です。名前はグローバルで、フォルダーごとではありません。
-    保存済みの名前（<code>-s</code>
-    ）はペインがなくなっても残り、一時的な名前はペインとともに使用が終了します。
+    {
+      <Mdx.p>
+        <code>reviewer</code>
+        {
+          " のような、継続して使う名前です。名前はグローバルで、フォルダーごとではありません。保存済みの名前（"
+        }
+        <code>-s</code>
+        {"）はペインがなくなっても残り、一時的な名前はペインと一緒に消えます。"}
+      </Mdx.p>
+    }
   </dd>
   <dt>binding</dt>
   <dd>
-    identity が今いる場所です。たとえば、1 つの tmux ペインです。 2 つの agent
-    のどちらが呼び出し元か判断できない場合、tmt は推測しません。
+    <Mdx.p>
+      {
+        "identity が今いる場所です。たとえば、1 つの tmux ペインです。2 つの agent のどちらが呼び出し元か判断できない場合、tmt は推測しません。"
+      }
+    </Mdx.p>
   </dd>
   <dt>driver</dt>
   <dd>
-    特定の種類のプログラムについて tmt が把握する情報です。tmux driver はペインを、Claude Code と
-    Codex の driver は会話と hook を把握します。
+    <Mdx.p>
+      {
+        "特定の種類のプログラムについて tmt が把握する情報です。tmux driver はペインを、Claude Code と Codex の driver は会話と hook を把握します。"
+      }
+    </Mdx.p>
   </dd>
   <dt>extension</dt>
   <dd>
-    <code>tmt &lt;name&gt;</code> を追加する、<code>tmt-&lt;name&gt;</code>{" "}
-    という名前の任意のプログラムです。 Squad もその 1 つです。
+    {
+      <Mdx.p>
+        <code>tmt &lt;name&gt;</code>
+        {" を追加する、"}
+        <code>tmt-&lt;name&gt;</code>
+        {" という名前の任意のプログラムです。Squad もその 1 つです。"}
+      </Mdx.p>
+    }
   </dd>
 </Terms>
 
