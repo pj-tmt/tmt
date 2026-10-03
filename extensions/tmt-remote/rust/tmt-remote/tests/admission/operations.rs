@@ -30,10 +30,12 @@ impl Core {
         fs::write(root.join("core.py"),r#"import sys,json,pathlib
 root=pathlib.Path(__file__).parent
 args=sys.argv[1:]
-if args[0] in ('list','check'):
+if args[0] in ('list','check','identity'):
     with (root/'calls').open('a') as f: f.write(json.dumps({'operation':args[0],'argv':args})+'\n')
 if args[0]=='list':
     print((root/'agents').read_text());sys.exit(0)
+if args==['identity','list','--json']:
+    print((root/'identities').read_text());sys.exit(0)
 if args[0]=='check':
     print(json.dumps({'target':args[1],'pane':'%fixture','lines':int(args[-1]),'output':'bounded capture'}));sys.exit(0)
 wire=json.load(sys.stdin)
@@ -505,6 +507,10 @@ fn named_reads_project_authority_and_preserve_empty_final_without_dispatch() {
     );
     let core = Core::new();
     fs::write(core.root.join("agents"), json!({"identities":[{"id":permitted,"name":"Allowed","presence":"active","pane":"%secret","cwd":"/secret","profile":{"secret":true},"delivery":{"state":"channel"}},{"id":other,"name":"Other","presence":"offline"}]}).to_string()).unwrap();
+    fs::write(
+        core.root.join("identities"),
+        json!({"identities":[{"id":permitted,"name":"Allowed","canonicalName":"allowed","lifetime":"saved"},{"id":other,"name":"Other","canonicalName":"other","lifetime":"saved"}]}).to_string(),
+    ).unwrap();
     let operations = core.operations();
     let session = owner.open();
     let mut sequence = 0;
@@ -536,7 +542,16 @@ fn named_reads_project_authority_and_preserve_empty_final_without_dispatch() {
         read("check", json!({"agentId":permitted,"lines":5}))["output"],
         "bounded capture"
     );
-    let calls = core.calls().len();
+    let observations = core.calls();
+    assert_eq!(
+        observations[observations.len() - 2]["argv"],
+        json!(["identity", "list", "--json"])
+    );
+    assert_eq!(
+        observations.last().unwrap()["argv"],
+        json!(["check", "Allowed", "--json", "--lines", "5"])
+    );
+    let calls = observations.len();
     for (op, input) in [
         ("check", json!({"agentId":other})),
         (
