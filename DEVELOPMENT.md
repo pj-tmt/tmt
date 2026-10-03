@@ -3493,6 +3493,35 @@ tunnels under the sync lock before acknowledgment. The registration suite checks
 the callback; the socket suite checks owner-signed rotation and live tunnel cleanup.
 The callback is not a browser management capability.
 
+### Colab management verification
+
+Management admission tests run with the native package gates above. Focused commands:
+
+```sh
+(cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-colab management)
+(cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-colab --test socket management)
+```
+
+DTO tests use real strict signatures and exact framed bytes, including expiry
+boundaries, wrong sender, duplicate/unknown fields, computed-field rejection,
+canonical encodings, sorted page scopes and retention bounds. Mounted socket tests
+use real temporary SQLite/keyring state and the existing foreground fixture. They
+prove signed owner outcomes, replay after later commits, changed-byte conflicts,
+stale heads, root-local IPC without fabricated context, no-effect denial of forwarded
+context/event headers before payload parsing, epoch/Reset subscription closure, link
+add/remove/Reset, seed non-disclosure and rollback on receipt failure. Page-policy
+cases prove signed sharing/history/retention, public epoch/key publication from
+trusted loopback composition, archived read access and deleted-peer closure/data
+purge. The fixture uses the injected test decoder configuration. Lifecycle cases run twice and remove their socket
+and state; no Docker, real user identities or core calls are involved.
+
+The local library service is the offline composition seam, while the reserved
+`/.tmt/colab/management` route is the serving CLI seam. Do not bypass the foreground
+sync owner with independent database mutations. Public management commands are #1307;
+this slice adds their transport, not installed CLI usage. Request/response DTOs and
+link-seed relay restrictions are owned by
+[colab-v1](extensions/tmt-colab/contracts/colab-v1.md#local-management-admission-1306).
+
 ### Colab stream sync verification
 
 Run `(cd rust && cargo test --offline --locked -p tmt-colab --test sync)` for
