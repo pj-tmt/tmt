@@ -10,6 +10,8 @@ export function readCargoWorkspace(root, { runner = runPackedCommand } = {}) {
       'cargo',
       [
         'metadata',
+        // Suppress informational package-cache lock waits; errors remain strict.
+        '--quiet',
         '--format-version',
         '1',
         '--offline',
