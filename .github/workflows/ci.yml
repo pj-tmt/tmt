@@ -355,6 +355,7 @@ jobs:
         working-directory: rust
         run: |
           cargo build --locked -p tmt-squad
+          cargo build --locked -p tmt-remote -p tmt-colab --bins
           cargo build --locked --example storage-probe --example runtime-caller-fixture
           cargo build --locked --release -p tmt-cli -p tmt-driver-herdr --bins
       - name: Build Squad process fixtures
@@ -362,6 +363,7 @@ jobs:
         working-directory: rust
         run: |
           cargo build --locked -p tmt-squad
+          cargo build --locked -p tmt-remote -p tmt-colab --bins
           cargo build --locked --release -p tmt-cli -p tmt-driver-herdr --bins
       - name: Download the verified Office companion
         if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_office == 'true'

@@ -1424,6 +1424,12 @@ build both packages; the shared raw-runtime artifact carries both executables,
 and tooling restores executable mode after download. Drivers are independent
 release components, outside the `tmt extension` inventory.
 
+Shared extension archive scenarios also require the debug Squad, Remote and Colab
+executables. Both full and Squad-scoped process CI run those scenarios and build
+Squad followed by `cargo build --locked -p tmt-remote -p tmt-colab --bins`.
+Keep these fixture builds in the process job itself; another job's workspace build
+or a warm local target does not supply its executables.
+
 Squad context fixtures separate successful core-invocation evidence from deadline
 termination. Cold/fresh reads and a promptly returning stale-context sentinel
 assert the cache-only gate independently. Timeout scenarios establish a gated
