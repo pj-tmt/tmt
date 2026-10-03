@@ -2,6 +2,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect } from 'vite-plus/test';
 import { parseWholeStdout, runCli, withSandbox, type Sandbox } from './cli-process.js';
+import { syntheticAlphaVersion } from '../../scripts/release-versions.mjs';
+import { workspaceVersion } from './workspace-version.js';
 import type { ArtifactFixture } from './native-artifact.js';
 
 /** Installation and upgrade tests use a real, mechanically injected synthetic alpha CLI. */
@@ -12,7 +14,7 @@ export function withReleaseSandbox<T>(callback: (sandbox: Sandbox) => T | Promis
     async (sandbox) => {
       const version = await runCli(sandbox, ['--version']);
       expect(version.status, version.stderr).toBe(0);
-      expect(version.stdout.trim()).toBe('5.0.0-alpha.999999');
+      expect(version.stdout.trim()).toBe(syntheticAlphaVersion(workspaceVersion('tmt-cli')));
       return callback(sandbox);
     },
     {

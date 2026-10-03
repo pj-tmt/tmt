@@ -3,9 +3,8 @@ import assert from 'node:assert/strict';
 import { appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseComponentMap } from './ci-scope.mjs';
-import { releasePolicy, productOfTag } from './native-release-policy.mjs';
-import { planReleaseBuilds } from './plan-release-builds.mjs';
+import { readReleaseSourceAtRef } from './release-source-at-ref.mjs';
+import { releasePolicy } from './native-release-policy.mjs';
 import { planReleaseCuts } from './release-cut.mjs';
 import { readCutMetadata } from './release-cut-read.mjs';
 import { runPackedCommand } from './packed-command.mjs';
@@ -78,8 +77,9 @@ export function createCutClient({ repository, token, ref }, execute = runPackedC
         'make_latest=false',
       ]);
     },
-    dispatch: (product) => {
-      releasePolicy(product);
+    dispatch: (product, tag) => {
+      if (!tag || !tag.startsWith(releasePolicy(product).tagPrefix))
+        throw new Error('Dispatch needs its allocated product tag.');
       api('actions/workflows/native-release.yml/dispatches', 'POST', [
         '-f',
         'ref=main',
@@ -87,6 +87,8 @@ export function createCutClient({ repository, token, ref }, execute = runPackedC
         `inputs[product]=${product}`,
         '-f',
         'inputs[prepare]=false',
+        '-f',
+        `inputs[tag]=${tag}`,
       ]);
     },
   };
@@ -107,11 +109,19 @@ function verifiedDraft(release, row, body) {
 }
 
 /** Drafts survive dispatch failure. Existing held/failed drafts are never automatically retried. */
-export async function runReleaseCuts({ client, git, live = false, date, product, version }) {
+export async function runReleaseCuts({
+  client,
+  git,
+  live = false,
+  date,
+  product,
+  version,
+  root = ROOT,
+}) {
   const cut = client.main();
   git(['fetch', '--quiet', 'origin', 'main', '--tags']);
   git(['merge-base', '--is-ancestor', cut, 'refs/remotes/origin/main']);
-  const map = parseComponentMap(git(['show', `${cut}:.github/components.json`]));
+  const { map, workspace } = readReleaseSourceAtRef(cut, { root, warm: true });
   if (
     product &&
     !map.components.some((c) => c.name === product && c.package && c.release !== false)
@@ -121,7 +131,7 @@ export async function runReleaseCuts({ client, git, live = false, date, product,
   const versions = version ? { [product]: version } : {};
   const metadata = client.metadata(cut);
   const cutDate = date ?? metadata.capturedAt?.slice(0, 10);
-  const plan = await planReleaseCuts({ metadata, map, git, date: cutDate, versions });
+  const plan = await planReleaseCuts({ metadata, map, workspace, git, date: cutDate, versions });
   if (plan.unavailable) throw new Error(plan.unavailable);
   const actions = [];
   for (const row of plan.components) {
@@ -129,78 +139,17 @@ export async function runReleaseCuts({ client, git, live = false, date, product,
     try {
       // A fresh bounded read precedes each component mutation. Other components progress independently.
       const fresh = live ? client.metadata(cut) : metadata;
-      const checked = await planReleaseCuts({ metadata: fresh, map, git, date: cutDate, versions });
+      const checked = await planReleaseCuts({
+        metadata: fresh,
+        map,
+        workspace,
+        git,
+        date: cutDate,
+        versions,
+      });
       if (checked.unavailable) throw new Error(checked.unavailable);
       const current = checked.components.find((item) => item.product === row.product);
       if (!current) throw new Error('Component disappeared from fresh cut plan.');
-      const drafts = fresh.releases.filter(
-        (release) => release.draft === true && productOfTag(release.tag_name) === row.product
-      );
-      if (drafts.length) {
-        if (version) {
-          actions.push({
-            product: row.product,
-            status: 'in-flight',
-            reason: 'Explicit cut waits for the existing component draft.',
-          });
-          continue;
-        }
-        const active = fresh.runs.some(
-          (run) => run.display_title === `Native release: ${row.product}`
-        );
-        // Unknown active-run identity also blocks recovery, as it blocks new cuts in the planner.
-        const unknown = fresh.runs.some(
-          (run) => !map.components.some((c) => run.display_title === `Native release: ${c.name}`)
-        );
-        if (active || unknown) {
-          actions.push({ product: row.product, status: 'in-flight', reason: current.reason });
-          continue;
-        }
-        if (drafts.length !== 1)
-          throw new Error('Multiple component drafts require investigation.');
-        const release = client.release(drafts[0].id);
-        assert.equal(release.id, drafts[0].id, 'Draft identity changed during recovery.');
-        assert.equal(release.tag_name, drafts[0].tag_name, 'Draft tag changed during recovery.');
-        assert.equal(
-          release.target_commitish,
-          drafts[0].target_commitish,
-          'Draft target changed during recovery.'
-        );
-        assert.equal(release.draft, true, 'Draft published during recovery.');
-        if (
-          !Array.isArray(release.assets) ||
-          release.assets.some((asset) => typeof asset.name !== 'string')
-        )
-          throw new Error(
-            'Draft assets unavailable; recovery cannot infer bundle/hold/failure state.'
-          );
-        if (client.tagged(release.tag_name)) {
-          actions.push({
-            product: row.product,
-            status: 'parked',
-            reason: 'Draft already has a git tag; investigate before recovery.',
-          });
-          continue;
-        }
-        const pending = planReleaseBuilds({ releases: [release], product: row.product });
-        if (pending.builds.length || pending.awaiting.length) {
-          git([
-            'merge-base',
-            '--is-ancestor',
-            release.target_commitish,
-            'refs/remotes/origin/main',
-          ]);
-          if (live) client.dispatch(row.product);
-          actions.push({
-            product: row.product,
-            status: live ? 'resumed' : 'would-resume',
-            tag: release.tag_name,
-          });
-        } else {
-          actions.push({ product: row.product, status: 'parked', reason: current.reason });
-        }
-        continue;
-      }
       if (current.status !== 'proposed') {
         actions.push({ product: row.product, status: current.status, reason: current.reason });
         continue;
@@ -216,7 +165,7 @@ export async function runReleaseCuts({ client, git, live = false, date, product,
         verifiedDraft(client.release(created.id), row, body);
         if (client.tagged(row.tag))
           throw new Error('Draft unexpectedly has a tag before publication.');
-        client.dispatch(row.product);
+        client.dispatch(row.product, row.tag);
       }
       actions.push({
         product: row.product,

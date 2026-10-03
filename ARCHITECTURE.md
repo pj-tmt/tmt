@@ -4342,7 +4342,9 @@ A release is a product-prefixed tag on a main commit X. `release.yml` evaluates
 released components on main pushes and daily recovery; main's crates retain fixed
 development versions. `release-cut.mjs` is the pure cut planner, and
 `release-cut-live.mjs` owns bounded REST draft creation and native dispatch. The
-adapter captures main HEAD once, reads the component map and Cargo graph at X,
+adapter captures main HEAD once, exports tracked X, warms its locked dependencies
+with the pinned acquisition toolchain, then reads its component map and offline
+Cargo graph,
 and rechecks draft/run state immediately before each component mutation. Missing
 history, incomplete pagination or unknown active-run identity fails closed.
 
@@ -4350,8 +4352,9 @@ Attribution adds product binary transitive normal/build workspace dependencies t
 the shared released-root membership rule; dev dependencies do not count. Private
 non-Rust consumers remain additive. CI selection is unchanged. Pinned conventional
 parser/renderer dependencies produce notes for the releasable first-parent commits
-in (previous published product tag, X]; linked SHAs equal that set by construction.
-The latest published tag supplies the next alpha number. Explicit owner-selected
+in (newest published ancestor product tag, X]; linked SHAs equal that set by construction.
+A short serialized allocation section counts existing drafts and Git tags to
+reserve the next alpha number; each allocated tag then owns its independent pipeline. Explicit owner-selected
 versions must advance it; first release requires a reviewed bootstrap and seed.
 Authorization belongs to the [release skill](.agents/skills/tmt-release/SKILL.md).
 
@@ -4363,18 +4366,22 @@ directories, binary targets, dist metadata and workspace edges by dependency
 kind, with a cycle-safe closure operation and injectable command runner. Version
 inheritance and editing stay with the Rust `release-version` tool (`toml_edit`).
 
-A releasable component with nothing in flight gets one tagless draft targeting X,
-then its native-release run. Each product batches later main commits independently.
-A durable draft permits dispatch recovery; tagged, held, failed or uncertain drafts
-are left for investigation. No release PR, merge-queue release hold or version
-commit mediates a cut. Publication creates the tag on X after all gates pass.
+Each releasable cut gets one tagless draft targeting X and one tag-keyed native
+pipeline. Notes, migrations and breaking authorization cover (newest published ancestor, X]. Existing drafts, running pipelines
+and failed cuts never prevent later cuts; failed drafts stay unpublished. Automatic allocation at an already-cut product/X is idempotent; a later X remains
+independent. Concurrent cuts may have overlapping notes until publication advances
+the shared ancestor boundary. CLI publication converges GitHub latest to the highest published CLI version;
+extensions never change latest. Ordering gates and owner operations belong to the release skill.
+No release PR, merge-queue release hold or version commit mediates a cut. Publication
+creates its tag on X after every gate passes.
 
 `release-version-injection.mjs` owns the checkout version contract. It discovers
 Cargo inheritance, edits only the selected version declaration, and verifies full
 offline locked resolution. Every tracked source hash, exact manifest bytes and
 semantic lock entry is checked; only local versions and their implied qualified
-dependency references may change. Already-versioned reruns and tagless development
-preparation require byte-identical source and lock. Build, assembly, archive proof
+dependency references may change. Already-versioned reruns require byte-identical source and lock. Tagless
+preparation follows the non-publishing synthetic-version contract in the release
+skill and passes the same source, artifact and installation gates. Build, assembly, archive proof
 and upgrade proof including CLI adapter acceptance each recheck this contract;
 dist plan, build manifest and extracted binary must agree with the captured tag.
 
@@ -4401,14 +4408,13 @@ release App token owns bounded batched Project/closing-PR GraphQL reads and fiel
 writes; `GITHUB_TOKEN` reads the complete paginated published release catalog.
 Only trusted main tooling executes. A full-history checkout supplies each merged
 closing PR's first-parent changed paths and tags containing its merge commit.
-`ci-scope.ownerOf` and the component map own product attribution. Private-leaf
-`releaseConsumers` add consumers to the released packaged roots returned by
-`ci-scope.releasedComponentsForPath`, which matches `owns`/`excludes` and adds the
-Cargo normal/build workspace closure independently of CI `selectedBy`. Thus Office
-model/command/service changes require CLI evidence; Office runtime/storage/pairing
-and dev-only test support do not. This release attribution does not change CI selection. Style and invoke therefore retain CLI membership alongside
-Squad; the explicitly CLI-excluded TUI leaf belongs only to Squad. Native release
-policy and version helpers own product/tag identities. Notes, commit types and recency windows are not evidence.
+The updater exports today's main HEAD once and reads its component map and Cargo
+graph once for the entire sweep. Product attribution reuses the shared membership
+rule described in [Main release cuts](#main-release-cuts), including normal/build
+linked dependencies and explicit non-Rust consumers. Historical closing commits
+supply paths and ancestry, not historical attribution rules. Native release policy
+and version helpers own product/tag identities. Notes, commit types and recency
+windows are not evidence.
 
 For each affected product, the earliest publication whose tag contains all of
 that issue's closing merge commits is the canonical `Released in` entry. Every
@@ -4457,7 +4463,6 @@ evidence go to stdout and the job summary with zero exit status, including summa
 write failures. [Development](DEVELOPMENT.md#conventional-pr-title-rollout) owns the
 separate enforcement cutover. Title reporting neither restarts ordinary PR CI nor
 owns release attribution.
-
 
 `release.yml` never publishes. `native-release-upgrade.yml` proves, for a draft or
 published release, its upgrade from the last published release of the same product on the

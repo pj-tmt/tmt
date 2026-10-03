@@ -378,7 +378,6 @@ jobs:
         uses: ./.github/actions/inject-release-version
         with:
           product: cli
-          tag: v5.0.0-alpha.999999
       - name: Build the synthetic alpha installation fixture in debug mode
         if: needs.changes.outputs.native_scope == 'full' || contains(needs.changes.outputs.scoped_native_tests, 'extension-install.test.ts')
         working-directory: rust
@@ -386,7 +385,8 @@ jobs:
           set -euo pipefail
           started=$SECONDS
           cargo build --offline --locked -p tmt-cli --bin tmt
-          test "$(target/debug/tmt --version)" = 5.0.0-alpha.999999
+          expected=$(node -pe 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).version' "$RUNNER_TEMP/release-version-state.json")
+          test "$(target/debug/tmt --version)" = "$expected"
           mkdir -p target/debug/native-release-fixture
           cp target/debug/tmt target/debug/native-release-fixture/tmt
           cp target/release/tmt-driver-herdr target/debug/native-release-fixture/tmt-driver-herdr

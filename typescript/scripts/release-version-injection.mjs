@@ -7,7 +7,7 @@ import { relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseComponentMap } from './ci-scope.mjs';
 import { releasePolicy } from './native-release-policy.mjs';
-import { versionOfTag } from './release-versions.mjs';
+import { syntheticAlphaVersion, versionOfTag } from './release-versions.mjs';
 
 const LOCK = 'rust/Cargo.lock';
 const WORKSPACE = 'rust/Cargo.toml';
@@ -55,8 +55,8 @@ export function captureVersionState({ root, files, metadata, product, tag, cut, 
   const crates = metadata.packages.filter((p) => metadata.workspace_members.includes(p.id));
   const selected = crates.filter((p) => p.name === component.package);
   if (selected.length !== 1) throw new Error('Missing or ambiguous product Cargo package.');
-  // Tagless preparation verifies the captured development version without editing it.
-  tag ||= `${releasePolicy(product).tagPrefix}${selected[0].version}`;
+  // Tagless preparation uses the shared synthetic proof version; it creates no release tag.
+  tag ||= `${releasePolicy(product).tagPrefix}${syntheticAlphaVersion(selected[0].version)}`;
   const version = versionOfTag(tag, product);
   if (
     !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(

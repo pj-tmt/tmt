@@ -104,7 +104,6 @@ jobs:
         uses: ./.github/actions/inject-release-version
         with:
           product: ${{ matrix.product }}
-          tag: ${{ matrix.product == 'cli' && 'v5.0.0-alpha.999' || 'tmt-squad-v0.1.0-alpha.999' }}
       - name: Build and prove the injected native archive
         env:
           PRODUCT: ${{ matrix.product }}

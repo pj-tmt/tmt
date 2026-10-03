@@ -31,8 +31,9 @@ const fail = (message) => { process.stderr.write(message); process.exit(1); };
 const [command, sub] = args;
 if (command === 'api') {
   const url = args[1];
-  if (args.includes('--paginate')) out([state.drafts]);
+  if (args.includes('--paginate')) out([state.drafts.length ? state.drafts : state.published ? [state.published] : []]);
   else if (url.includes('/releases/tags/')) state.published ? out(state.published) : fail('HTTP 404');
+  else if (url.includes('/releases/') && args.includes('PATCH')) { state.latest = state.published; fs.writeFileSync(process.env.FAKE_GH_STATE, JSON.stringify(state)); out(state.latest); }
   else if (url.endsWith('/releases/latest')) state.latest ? out(state.latest) : fail('HTTP 404');
   else if (url.includes('/commits/')) state.tagCommit ? out({ sha: state.tagCommit }) : fail('HTTP 404');
   else if (url.includes('/issues?state=open')) out(state.openIssues ?? []);
@@ -44,6 +45,10 @@ if (command === 'api') {
   else fail('unexpected api call: ' + url);
 } else if (command === 'release' && sub === 'edit') {
   if (state.editFails) fail('HTTP 422');
+  const tag = args[2];
+  state.drafts = state.drafts.map(release => release.tag_name === tag ? { ...release, draft: false } : release);
+  state.published = state.drafts.find(release => release.tag_name === tag);
+  fs.writeFileSync(process.env.FAKE_GH_STATE, JSON.stringify(state));
 } else if (command === 'release' && sub === 'download') {
   if (state.downloadFails) fail('HTTP 502');
   const directory = args[args.indexOf('--dir') + 1];
@@ -155,7 +160,7 @@ describe('release-publish.mjs publish', () => {
     const result = run(publish);
     expect(result.status).toBe(0);
     expect(result.output).toBe('published=true\n');
-    expect(result.summary).toContain('--draft=false --prerelease=false --latest=true');
+    expect(result.summary).toContain('--draft=false --prerelease=false --latest=false');
     expect(calls().filter(([command, sub]) => command === 'release' && sub === 'edit')).toEqual([
       [
         'release',
@@ -165,7 +170,7 @@ describe('release-publish.mjs publish', () => {
         'wkh237/tmt',
         '--draft=false',
         '--prerelease=false',
-        '--latest=true',
+        '--latest=false',
       ],
     ]);
   });

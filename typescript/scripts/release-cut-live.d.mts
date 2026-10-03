@@ -13,7 +13,7 @@ export interface CutClient {
   release(id: number): DraftRelease;
   tagged(tag: string): boolean;
   draft(input: { tag: string; cut: string; body: string; product: string }): DraftRelease;
-  dispatch(product: string): void;
+  dispatch(product: string, tag: string): void;
 }
 export function createCutClient(
   input: { repository: string; token: string; ref: string },
@@ -31,6 +31,7 @@ export function runReleaseCuts(input: {
   date?: string;
   product?: string;
   version?: string;
+  root?: string;
 }): Promise<{
   cut: string;
   mode: string;

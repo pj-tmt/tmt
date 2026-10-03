@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
@@ -13,6 +13,30 @@ const read = (relative: string) => readFileSync(path.join(repository, relative),
 const run = read('.github/workflows/native-release.yml');
 const bundle = read('.github/workflows/native-release-bundle.yml');
 const smokeWorkflow = read('.github/workflows/native-release-smoke.yml');
+
+describe('independent release-tag concurrency guard', () => {
+  it('keys every publishing pipeline concurrency group on the allocated tag', () => {
+    const directory = path.join(repository, '.github/workflows');
+    for (const file of readdirSync(directory).filter((file) => /release.*\.yml$/.test(file))) {
+      const workflow = read(`.github/workflows/${file}`);
+      const groups = [...workflow.matchAll(/^\s*group:\s*(.+)$/gm)].map((match) => match[1]);
+      if (file === 'release.yml') {
+        expect(groups).toEqual(['release-cut']); // Only allocation is serialized.
+      } else if (file !== 'project-release.yml' && file !== 'release-version-injection.yml') {
+        for (const group of groups) expect(group, `${file}: ${group}`).toContain('inputs.tag');
+      }
+    }
+    expect(run).not.toContain('group: release-${{ inputs.product }}');
+    expect(run).toContain('--tag "$RELEASE_TAG"');
+  });
+  it('does not reintroduce product-wide draft or pipeline refusals in the cut owner', () => {
+    const planner = read('typescript/scripts/release-cut.mjs');
+    const live = read('typescript/scripts/release-cut-live.mjs');
+    expect(planner + live).not.toMatch(
+      /draft is in flight|Native release is queued|status: 'in-flight'|drafts\.length/
+    );
+  });
+});
 
 describe('release version gate workflow boundaries', () => {
   it('builds and transfers the Rust TOML helper before ordinary tooling injection fixtures', () => {
@@ -49,7 +73,8 @@ describe('release version gate workflow boundaries', () => {
     expect(processTests).toContain(
       "contains(needs.changes.outputs.scoped_native_tests, 'extension-install.test.ts')"
     );
-    expect(processTests).toContain('tag: v5.0.0-alpha.999999');
+    expect(processTests).toContain('release-version-state.json');
+    expect(processTests).not.toContain('tag: v5.0.0-alpha.999999');
     expect(processTests).toContain('cargo build --offline --locked -p tmt-cli --bin tmt');
     expect(processTests).toContain('phase: verify');
     expect(processTests).toContain('git diff --exit-code HEAD --');
@@ -92,10 +117,10 @@ const job = (workflow: string, name: string) => {
   return found as string;
 };
 
-describe('per-product release run (native-release.yml)', () => {
-  it('holds the whole run in one queued group per product, and never a group on a job', () => {
+describe('per-tag release run (native-release.yml)', () => {
+  it('holds one allocated tag in a queued group without serializing other tags', () => {
     expect(run).toMatch(
-      /^concurrency:\n {2}group: release-\$\{\{ inputs\.product \}\}\n {2}cancel-in-progress: false$/m
+      /^concurrency:\n {2}group: release-\$\{\{ inputs\.tag \|\| inputs\.retry \|\| inputs\.hold \|\| inputs\.rerun \|\| github\.run_id \}\}\n {2}cancel-in-progress: false$/m
     );
     // A group on the jobs of a matrix replaces each pending leg with the next one, so the
     // oldest draft would be dropped (measured on a throwaway branch).
@@ -105,7 +130,7 @@ describe('per-product release run (native-release.yml)', () => {
     expect(bundle).not.toMatch(/^concurrency:/m);
   });
 
-  it('plans from the drafts after it holds the group, then builds them oldest first, one at a time', () => {
+  it('plans only the exact tag after acquiring that tag group', () => {
     const plan = job(run, 'plan');
     expect(plan).toContain("if: github.ref == 'refs/heads/main'");
     expect(plan).toContain('typescript/scripts/plan-release-builds.mjs');
@@ -113,7 +138,7 @@ describe('per-product release run (native-release.yml)', () => {
     expect(plan).toContain('--retry "$RETRY"');
     const bundleJob = job(run, 'bundle');
     expect(bundleJob).toContain('needs: plan');
-    expect(bundleJob).toMatch(/max-parallel: 1/);
+    expect(bundleJob).not.toMatch(/max-parallel: 1/);
     expect(bundleJob).toMatch(/fail-fast: false/);
     expect(bundleJob).toContain('matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}');
     expect(bundleJob).toContain('uses: ./.github/workflows/native-release-bundle.yml');
@@ -172,6 +197,7 @@ describe('per-product release run (native-release.yml)', () => {
             PATH: search,
             PRODUCT: product,
             PREPARE: 'true',
+            RELEASE_TAG: '',
             RETRY: '',
             HOLD: '',
             RERUN: '',
@@ -749,8 +775,12 @@ describe('the release run releases a hold (native-release.yml)', () => {
     expect(run).toMatch(
       /hold:\n {8}description:[^\n]*\n {8}required: false\n {8}default: ''\n {8}type: string/
     );
-    expect(plan).toContain('--product "$PRODUCT" --retry "$RETRY" --hold "$HOLD" --rerun "$RERUN"');
-    expect(plan).toContain('if [ -n "$RETRY" ] || [ -n "$HOLD" ] || [ -n "$RERUN" ]; then');
+    expect(plan).toContain(
+      '--product "$PRODUCT" --tag "$RELEASE_TAG" --retry "$RETRY" --hold "$HOLD" --rerun "$RERUN"'
+    );
+    expect(plan).toContain(
+      'if [ -n "$RELEASE_TAG" ] || [ -n "$RETRY" ] || [ -n "$HOLD" ] || [ -n "$RERUN" ]; then'
+    );
     expect(job(run, 'bundle')).toContain(
       "hold: ${{ inputs.hold != '' && inputs.hold == matrix.tag }}"
     );

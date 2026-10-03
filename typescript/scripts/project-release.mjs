@@ -4,8 +4,9 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { productOfTag, archivePrefix, releasePolicy } from './native-release-policy.mjs';
 import { compareVersions, versionOfTag } from './release-versions.mjs';
+import { readReleaseSourceAtRef } from './release-source-at-ref.mjs';
+import { runPackedCommand } from './packed-command.mjs';
 import { ownerOf, parseComponentMap, releasedComponentsForPath } from './ci-scope.mjs';
-import { readCargoWorkspace } from './cargo-workspace.mjs';
 
 export const PROJECT_ID = 'PVT_kwDOFBKkD84BlZ_A';
 export const LIMITS = { graphql: 200, rest: 20, pages: 20, prs: 2000, batch: 25 };
@@ -429,7 +430,7 @@ export function reconcile({
   repository,
   dryRun,
   projectId = PROJECT_ID,
-  workspace = readCargoWorkspace(fileURLToPath(new URL('../../', import.meta.url))),
+  workspace,
   git = gitEvidence(),
   map = parseComponentMap(
     readFileSync(new URL('../../.github/components.json', import.meta.url), 'utf8')
@@ -529,8 +530,13 @@ export function main(env = process.env) {
     repository: env.GITHUB_REPOSITORY,
   });
   try {
+    const root = fileURLToPath(new URL('../../', import.meta.url));
+    const sha = runPackedCommand('git', ['rev-parse', 'HEAD'], { cwd: root, env }).trim();
+    const { map, workspace } = readReleaseSourceAtRef(sha, { root, warm: true });
     const result = reconcile({
       api,
+      map,
+      workspace,
       repository: env.GITHUB_REPOSITORY,
       dryRun: env.GITHUB_EVENT_NAME === 'workflow_dispatch' ? env.DRY_RUN !== 'false' : false,
     });

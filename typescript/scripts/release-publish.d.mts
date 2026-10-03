@@ -1,6 +1,8 @@
 import type { ReleaseApi } from './release-draft-assets.mjs';
 
 export interface PublishApi extends ReleaseApi {
+  latestRelease(): { tag_name: string } | null;
+  setLatest(tag: string): void;
   publish(tag: string, flags: readonly string[]): void;
 }
 
@@ -21,6 +23,7 @@ export interface PublishedRelease {
 }
 
 export interface PublishedApi {
+  listReleases(): readonly { tag_name: string; draft: boolean }[];
   getRelease(tag: string): PublishedRelease | null;
   latestRelease(): PublishedRelease | null;
   tagCommit(tag: string): string | null;
@@ -46,17 +49,25 @@ export function publishBlocker(input: {
   tag: string;
   released?: boolean;
 }): string;
+export function convergeCliLatest(input: {
+  api: PublishApi;
+  tag: string;
+  attempts?: number;
+  wait?: () => void;
+}): string;
 export function publishDraft(input: {
   api: PublishApi;
   product: string;
   tag: string;
   released?: boolean;
+  wait?: () => void;
 }): {
   flags: string[];
 };
 export function checkPublishedRelease(input: {
   release: PublishedRelease;
   latest: PublishedRelease | null;
+  highestCliTag?: string | null;
   tagCommit: string | null;
   product: string;
   tag: string;

@@ -13,6 +13,8 @@ import type { CutMetadata } from '../../scripts/release-cut.mjs';
 import { parseComponentMap } from '../../scripts/ci-scope.mjs';
 import { checkMigration, releaseCommits } from '../../scripts/publication-gates.mjs';
 
+import { writeReleaseWorkspace } from '../support/release-workspace-fixture.js';
+
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
 
@@ -53,6 +55,7 @@ function fixture() {
       },
     })
   );
+  writeReleaseWorkspace(root);
   const previous = commit('chore: initial fixture');
   command(['tag', 'v5.0.0-alpha.48']);
   command(['tag', 'tmt-squad-v0.1.0-alpha.14']);
@@ -114,7 +117,7 @@ describe('live release cut lifecycle', () => {
       { product: 'cli', status: 'created', tag: 'v5.1.0-alpha.0', cut: f.cut },
     ]);
     expect(f.client.draft).toHaveBeenCalledTimes(1);
-    expect(f.client.dispatch).toHaveBeenCalledExactlyOnceWith('cli');
+    expect(f.client.dispatch).toHaveBeenCalledExactlyOnceWith('cli', 'v5.1.0-alpha.0');
   });
   it('refuses version selection without a product and selection of parked products before mutation', async () => {
     const f = fixture();
@@ -124,31 +127,6 @@ describe('live release cut lifecycle', () => {
     await expect(
       runReleaseCuts({ ...f, live: true, product: 'driver-herdr', version: '1.0.0' })
     ).rejects.toThrow('unreleased');
-    expect(f.client.draft).not.toHaveBeenCalled();
-    expect(f.client.dispatch).not.toHaveBeenCalled();
-  });
-  it('does not resume an older draft as a substitute for an explicit owner-selected cut', async () => {
-    const f = fixture();
-    f.releases.push({
-      id: 999,
-      draft: true,
-      tag_name: 'v5.0.0-alpha.49',
-      target_commitish: f.cut,
-      assets: [],
-    });
-    const result = await runReleaseCuts({
-      ...f,
-      live: true,
-      product: 'cli',
-      version: '6.0.0-alpha.0',
-    });
-    expect(result.actions).toEqual([
-      {
-        product: 'cli',
-        status: 'in-flight',
-        reason: 'Explicit cut waits for the existing component draft.',
-      },
-    ]);
     expect(f.client.draft).not.toHaveBeenCalled();
     expect(f.client.dispatch).not.toHaveBeenCalled();
   });
@@ -201,6 +179,30 @@ describe('live release cut lifecycle', () => {
       expect(f.command(['tag', '--list', draft.tag_name])).toBe('');
     }
   });
+  it('keeps the published ancestor range after an unpublished failed cut, with an independent tag', async () => {
+    const f = fixture();
+    await runReleaseCuts({ ...f, live: true });
+    const failed = f.releases.find((release) => release.tag_name === 'v5.0.0-alpha.49')!;
+    failed.assets = [{ name: 'verification-failed.json' }];
+    writeFileSync(join(f.root, 'cli.txt'), 'later fix');
+    const later = f.commit('fix: next independent cut');
+    f.command(['update-ref', 'refs/remotes/origin/main', later]);
+    f.state.cut = later;
+    vi.mocked(f.client.main).mockReturnValue(later);
+    const result = await runReleaseCuts({ ...f, live: true });
+    expect(result.actions[0]).toMatchObject({
+      status: 'created',
+      tag: 'v5.0.0-alpha.50',
+      cut: later,
+    });
+    const next = f.releases.find((release) => release.tag_name === 'v5.0.0-alpha.50')!;
+    expect([...next.body!.matchAll(/\/commit\/([a-f0-9]{40})/g)].map((match) => match[1])).toEqual([
+      later,
+      f.cut,
+    ]);
+    expect(failed.draft).toBe(true);
+    expect(failed.assets).toEqual([{ name: 'verification-failed.json' }]);
+  });
   it('dry-run has no draft or dispatch mutation', async () => {
     const f = fixture();
     const result = await runReleaseCuts(f);
@@ -218,20 +220,16 @@ describe('live release cut lifecycle', () => {
     expect(draft.target_commitish).toBe(f.cut);
     expect(draft.body).not.toContain(later);
   });
-  it('recovers dispatch failure from the existing draft without creating another version', async () => {
+  it('does not create a duplicate cut at the same X after an uncertain dispatch', async () => {
     const f = fixture();
     vi.mocked(f.client.dispatch).mockImplementationOnce(() => {
       throw new Error('uncertain dispatch');
     });
-    const first = await runReleaseCuts({ ...f, live: true });
-    expect(first.actions[0]).toMatchObject({ status: 'failed', reason: 'uncertain dispatch' });
-    expect(first.actions[1].status).toBe('created');
-    const before = f.releases.filter((r) => r.draft);
+    await runReleaseCuts({ ...f, live: true });
     vi.mocked(f.client.draft).mockClear();
     const second = await runReleaseCuts({ ...f, live: true });
-    expect(second.actions.map((a) => a.status)).toEqual(['resumed', 'resumed']);
+    expect(second.actions.map((a) => a.status)).toEqual(['already-cut', 'already-cut']);
     expect(f.client.draft).not.toHaveBeenCalled();
-    expect(f.releases.filter((r) => r.draft)).toEqual(before);
   });
   it('never retries an uncertain create inside the run, while another component can progress', async () => {
     const f = fixture();
@@ -242,40 +240,26 @@ describe('live release cut lifecycle', () => {
     expect(result.actions.map((a) => a.status)).toEqual(['failed', 'created']);
     expect(f.client.draft).toHaveBeenCalledTimes(2);
     expect(f.client.dispatch).toHaveBeenCalledTimes(1);
-    expect(f.client.dispatch).toHaveBeenCalledWith('squad');
+    expect(f.client.dispatch).toHaveBeenCalledWith('squad', 'tmt-squad-v0.1.0-alpha.15');
   });
   it.each(['publication-held.json', 'verification-failed.json'])(
-    'never automatically retries a draft with %s',
+    'a prior draft with %s never blocks a later cut or gets retried',
     async (name) => {
       const f = fixture();
       f.releases.push({
-        id: 3,
+        id: 999,
         draft: true,
         tag_name: 'v5.0.0-alpha.49',
-        target_commitish: f.cut,
-        assets: [
-          { name },
-          ...(name === 'publication-held.json' ? [{ name: 'release-publication.json' }] : []),
-        ],
+        target_commitish: f.previous,
+        assets: [{ name }],
       });
+      f.state.runs!.push({ id: 1, status: 'in_progress', display_title: 'unknown pipeline' });
       const result = await runReleaseCuts({ ...f, live: true });
-      expect(result.actions[0].status).toBe('parked');
-      expect(f.client.dispatch).not.toHaveBeenCalledWith('cli');
-      expect(vi.mocked(f.client.draft).mock.calls.every(([args]) => args.product !== 'cli')).toBe(
-        true
-      );
+      expect(result.actions[0]).toMatchObject({ status: 'created', tag: 'v5.0.0-alpha.50' });
+      expect(f.client.dispatch).toHaveBeenCalledWith('cli', 'v5.0.0-alpha.50');
+      expect(f.releases.find((r) => r.id === 999)?.assets).toEqual([{ name }]);
     }
   );
-  it('an active CLI run blocks CLI only; an unknown active run blocks every product', async () => {
-    const f = fixture();
-    f.state.runs!.push({ id: 1, status: 'in_progress', display_title: 'Native release: cli' });
-    const first = await runReleaseCuts({ ...f, live: true });
-    expect(first.actions.map((a) => a.status)).toEqual(['blocked', 'created']);
-    vi.mocked(f.client.draft).mockClear();
-    f.state.runs!.push({ id: 2, status: 'queued', display_title: 'ambiguous run' });
-    await runReleaseCuts({ ...f, live: true });
-    expect(f.client.draft).not.toHaveBeenCalled();
-  });
   it.each(['tag', 'target', 'notes', 'published'])(
     'a changed %s after create fails before dispatch',
     async (change) => {
@@ -320,7 +304,7 @@ describe('live cut REST boundary', () => {
       cut: 'a'.repeat(40),
       body: 'notes\nline',
     });
-    client.dispatch('cli');
+    client.dispatch('cli', 'v5.0.0-alpha.49');
     expect(execute.mock.calls[0][1]).toContain('target_commitish=' + 'a'.repeat(40));
     expect(execute.mock.calls[0][1]).toContain('draft=true');
     expect(execute.mock.calls[0][1]).toContain('body=notes\nline');

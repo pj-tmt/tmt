@@ -289,12 +289,10 @@ describe('checkMonotonic', () => {
     );
   });
 
-  it('holds a release that is equal to or older than one already published', () => {
-    for (const tag of ['v5.0.0-alpha.8', 'v5.0.0-alpha.7', 'v4.9.9']) {
-      const result = checkMonotonic({ releases, product: 'cli', tag });
-      expect(result.ok, tag).toBe(false);
-      expect(result.reason).toContain('v5.0.0-alpha.8 is already published');
-    }
+  it('holds a duplicate alpha, but permits older unique alphas independently of publication order', () => {
+    expect(checkMonotonic({ releases, product: 'cli', tag: 'v5.0.0-alpha.8' }).ok).toBe(false);
+    expect(checkMonotonic({ releases, product: 'cli', tag: 'v5.0.0-alpha.7' }).ok).toBe(true);
+    expect(checkMonotonic({ releases, product: 'cli', tag: 'v4.9.9' }).ok).toBe(false);
   });
 });
 

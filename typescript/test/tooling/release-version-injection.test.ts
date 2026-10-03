@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { syntheticAlphaVersion } from '../../scripts/release-versions.mjs';
 import { parseComponentMap } from '../../scripts/ci-scope.mjs';
 import {
   captureVersionState,
@@ -95,7 +96,7 @@ function fixture(product = 'cli') {
 
 describe('mechanical version injection', () => {
   it.each(['cli', 'squad'])(
-    'gates tagless %s preparation without changing source or lock bytes',
+    'injects a synthetic alpha for tagless %s preparation through the unchanged source gate',
     (product) => {
       const f = fixture(product);
       const snapshot = captureVersionState({
@@ -107,13 +108,30 @@ describe('mechanical version injection', () => {
         cut: f.snapshot.cut,
         map: f.map,
       });
-      const before = readFileSync(join(f.root, 'rust/Cargo.lock'));
-      expect(snapshot.version).toBe(snapshot.oldVersion);
+      Object.assign(f.snapshot, snapshot);
+      expect(snapshot.version).toBe(syntheticAlphaVersion(snapshot.oldVersion));
       injectVersion(f.root, snapshot);
-      expect(verifyVersionState(f.root, snapshot, f.metadata).changed).toEqual([]);
-      expect(readFileSync(join(f.root, 'rust/Cargo.lock'))).toEqual(before);
-      writeFileSync(join(f.root, 'rust/Cargo.lock'), `${before.toString()}\n# unreviewed\n`);
-      expect(() => verifyVersionState(f.root, snapshot, f.metadata)).toThrow('Source differs');
+      expect(() => verifyVersionState(f.root, snapshot, f.metadata)).toThrow('implied lock');
+      f.updateLock();
+      expect(verifyVersionState(f.root, snapshot, f.resolveMetadata()).changed).toEqual(
+        ['rust/Cargo.lock', snapshot.manifest].sort()
+      );
+      writeFileSync(join(f.root, 'rust/crates/tmt-cli/src/main.rs'), 'fn unreviewed() {}\n');
+      expect(() => verifyVersionState(f.root, snapshot, f.resolveMetadata())).toThrow(
+        'Source differs'
+      );
+    }
+  );
+  it.each(['5.0.0-dev', '0.1.0-dev', '5.0.0', '5.0.0-alpha.42'])(
+    'uses only the committed core of %s for synthetic preparation',
+    (version) => {
+      expect(syntheticAlphaVersion(version)).toBe(`${version.split('-')[0]}-alpha.999999`);
+    }
+  );
+  it.each(['unversioned', '5.0', '9'.repeat(400) + '.0.0'])(
+    'rejects unusable committed preparation version %s',
+    (version) => {
+      expect(() => syntheticAlphaVersion(version)).toThrow();
     }
   );
   it('reproves already-versioned historical reruns without rewriting the manifest or lock', () => {

@@ -4,7 +4,6 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runPackedCommand } from './packed-command.mjs';
 
-const ACTIVE = ['queued', 'in_progress', 'requested', 'waiting', 'pending'];
 const SHA = /^[a-f0-9]{40}$/;
 
 export function readCutMetadata(
@@ -27,23 +26,14 @@ export function readCutMetadata(
       })
     );
   };
-  const list = (path, key) => {
+  const list = (path) => {
     const rows = [];
-    let total;
     for (let page = 1; page <= 10; page += 1) {
       const result = get(`${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`);
-      const batch = key ? result[key] : result;
+      const batch = result;
       if (!Array.isArray(batch) || batch.length > 100) throw new Error('Invalid shadow REST page.');
-      if (key) {
-        if (!Number.isSafeInteger(result.total_count) || result.total_count < 0)
-          throw new Error('Missing native-run count.');
-        total ??= result.total_count;
-        if (result.total_count !== total)
-          throw new Error('Native-run state changed during discovery.');
-      }
       rows.push(...batch);
       if (batch.length < 100) {
-        if (key && rows.length !== total) throw new Error('Incomplete native-run discovery.');
         const ids = rows.map((row) => row.id);
         if (ids.some((id) => !Number.isSafeInteger(id)) || new Set(ids).size !== ids.length)
           throw new Error('Missing or duplicate shadow REST records.');
@@ -61,11 +51,6 @@ export function readCutMetadata(
   }));
   if (releases.some((r) => typeof r.draft !== 'boolean' || typeof r.tag_name !== 'string'))
     throw new Error('Invalid release metadata.');
-  const runs = ACTIVE.flatMap((status) =>
-    list(`actions/workflows/native-release.yml/runs?status=${status}`, 'workflow_runs')
-  );
-  if (new Set(runs.map((run) => run.id)).size !== runs.length)
-    throw new Error('Native-run state changed during discovery.');
   return {
     schema: 1,
     repository,
@@ -73,12 +58,6 @@ export function readCutMetadata(
     draftVisibility: 'trusted',
     capturedAt: new Date().toISOString(),
     releases,
-    runs: runs.map(({ id, status, display_title, html_url }) => ({
-      id,
-      status,
-      display_title,
-      html_url,
-    })),
   };
 }
 

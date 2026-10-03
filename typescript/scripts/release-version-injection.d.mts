@@ -22,7 +22,7 @@ export function captureVersionState(input: {
   files: string[];
   metadata: InjectionMetadata;
   product: string;
-  /** Empty or absent means a version-preserving preparation checkout. */
+  /** Empty or absent means the shared synthetic non-publishing preparation version. */
   tag?: string;
   cut: string;
   map: ComponentMap;

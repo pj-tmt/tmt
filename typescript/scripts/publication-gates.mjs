@@ -20,12 +20,16 @@ import { spawnSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { parseComponentMap } from './ci-scope.mjs';
-import { attributeCutCommits, parseReleaseCommits, readCutRange } from './release-cut.mjs';
+import { readReleaseSourceAtRef } from './release-source-at-ref.mjs';
+import { componentOfProduct } from './native-release-policy.mjs';
+import {
+  attributeCutCommits,
+  parseReleaseCommits,
+  readCutRange,
+  releaseCutHistory,
+} from './release-cut.mjs';
 import { BUNDLE_ASSET, FAILURE_ASSET, HOLD_ASSET } from './plan-release-builds.mjs';
 import { clearHold, ghApi, readHold, recordHold } from './release-draft-assets.mjs';
-import { selectPrevious } from './release-upgrade.mjs';
-import { componentOfProduct } from './native-release-policy.mjs';
 import {
   compareVersions,
   isAlphaVersion,
@@ -99,8 +103,13 @@ export function checkImmutability({ releases }) {
     : fail(`the newest published release ${newest.tag_name} is not immutable`);
 }
 
-/** `latest` cannot move backwards: the candidate must be newer than everything published. */
+/** Stable latest remains monotonic; alpha tags are unique and never move latest. */
 export function checkMonotonic({ releases, product, tag }) {
+  if (isAlphaVersion(versionOfTag(tag, product))) {
+    return releases.some((release) => release.draft !== true && release.tag_name === tag)
+      ? fail(`${tag} is already published`)
+      : pass('unique alpha tag; latest selection is verified independently');
+  }
   const [newest] = publishedReleases(releases, product);
   if (!newest) return pass('no published release of the product yet');
   return compareVersions(versionOfTag(tag, product), versionOfTag(newest.tag_name, product)) > 0
@@ -156,7 +165,7 @@ export function isBreaking({ subject, body = '', breaking = false }) {
 /**
  * Holds a release that carries a breaking change, and outside the alpha channel one that carries
  * a new migration: `counts` are the entries of each of the component's migration files at the
- * candidate's commit and at the last published release's (`previous.counts`), `commits` the
+ * candidate's commit and at its previous ancestor cut (`previous.counts`), `commits` the
  * release's own commits. An alpha publishes its migrations, which are forward-only, so it only
  * reports them.
  */
@@ -258,16 +267,18 @@ function fileCount(sha, file) {
 }
 
 /** Publication sees the same cut range, additive consumers and nested breaks as the notes. */
-export function releaseCommits({ from, to, product, map }, readGit = git) {
-  return attributeCutCommits(readCutRange(readGit, from, to), map, product).map((commit) => ({
-    sha: commit.sha,
-    subject: commit.message.split('\n')[0],
-    body: commit.message,
-    breaking: parseReleaseCommits([commit]).some((parsed) => parsed.notes.length > 0),
-  }));
+export function releaseCommits({ from, to, product, map, workspace }, readGit = git) {
+  return attributeCutCommits(readCutRange(readGit, from, to), map, product, workspace).map(
+    (commit) => ({
+      sha: commit.sha,
+      subject: commit.message.split('\n')[0],
+      body: commit.message,
+      breaking: parseReleaseCommits([commit]).some((parsed) => parsed.notes.length > 0),
+    })
+  );
 }
 
-function earlyChecks({ product, tag, release, releases, repository, map }) {
+function earlyChecks({ product, tag, release, releases, repository, map, workspace }) {
   const sha = release.target_commitish;
   const component = componentOfProduct(map, product);
   return {
@@ -295,10 +306,16 @@ function earlyChecks({ product, tag, release, releases, repository, map }) {
     monotonic: () => checkMonotonic({ releases, product, tag }),
     migration: () => {
       const alpha = isAlphaVersion(versionOfTag(tag, product));
-      const previousRelease = selectPrevious({ releases, product, candidateTag: tag });
+      const previousCut = releaseCutHistory({
+        releases,
+        product,
+        cut: sha,
+        git,
+        excludeTag: tag,
+      }).previous;
       const count = (at) =>
         Object.fromEntries(component.migrations.map((file) => [file, fileCount(at, file)]));
-      if (!previousRelease) {
+      if (!previousCut) {
         return checkMigration({
           files: component.migrations,
           counts: {},
@@ -307,16 +324,18 @@ function earlyChecks({ product, tag, release, releases, repository, map }) {
           alpha,
         });
       }
-      const previousSha = git([
-        'rev-parse',
-        '--verify',
-        `refs/tags/${previousRelease.tag_name}^{commit}`,
-      ]).trim();
+      const previousSha = previousCut.sha;
       return checkMigration({
         files: component.migrations,
         counts: count(sha),
-        previous: { tag: previousRelease.tag_name, counts: count(previousSha) },
-        commits: releaseCommits({ from: previousSha, to: sha, product: component.name, map }),
+        previous: { tag: previousCut.tag, counts: count(previousSha) },
+        commits: releaseCommits({
+          from: previousSha,
+          to: sha,
+          product,
+          map,
+          workspace,
+        }),
         alpha,
       });
     },
@@ -398,7 +417,7 @@ function main(argv, environment) {
   };
 
   if (command === 'early') {
-    const map = parseComponentMap(readFileSync('.github/components.json', 'utf8'));
+    const { map, workspace } = readReleaseSourceAtRef(sha, { root: process.cwd(), warm: true });
     if (values.rerun && values['release-hold'])
       throw new Error('Rerun and release-hold are separate runs.');
     let skip = '';
@@ -425,6 +444,7 @@ function main(argv, environment) {
         releases,
         repository,
         map,
+        workspace,
       }),
       skip: EARLY_GATES.includes(skip) ? skip : '',
     });

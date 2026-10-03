@@ -1,21 +1,19 @@
-// Plans release cuts in shadow mode. This module has no network/mutation interface.
+// Plans release cuts without mutation. This module has no network/mutation interface.
 import assert from 'node:assert/strict';
-import { appendFileSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { appendFileSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { tmpdir } from 'node:os';
-import { readCargoWorkspace } from './cargo-workspace.mjs';
 import parser from '@conventional-commits/parser';
 import presetFactory from 'conventional-changelog-conventionalcommits';
 import writer from 'conventional-changelog-writer';
-import { ownerOf, parseComponentMap, releasedComponentsForPath } from './ci-scope.mjs';
-import { releasePolicy } from './native-release-policy.mjs';
-import { compareVersions, publishedReleases, versionOfTag } from './release-versions.mjs';
+import { ownerOf, releasedComponentsForPath } from './ci-scope.mjs';
+import { productOfTag, releasePolicy } from './native-release-policy.mjs';
+import { compareVersions, versionOfTag } from './release-versions.mjs';
+import { readReleaseSourceAtRef } from './release-source-at-ref.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const SHA = /^[a-f0-9]{40}$/;
-const ACTIVE = new Set(['queued', 'in_progress', 'requested', 'waiting', 'pending']);
 const nodes = (node) => [node, ...(node.children ?? []).flatMap(nodes)];
 const content = (message, node) =>
   message.slice(node.position.start.offset, node.position.end.offset);
@@ -108,11 +106,9 @@ export function attributeCutCommits(commits, map, product, workspace) {
       commit.files.some((path) => {
         const owner = ownerOf(path, map);
         return (
-          owner === product ||
           releasedComponentsForPath(path, map, workspace).some(
             (component) => component.name === product
-          ) ||
-          byName.get(owner)?.releaseConsumers.includes(product)
+          ) || byName.get(owner)?.releaseConsumers.includes(product)
         );
       })
     )
@@ -214,12 +210,60 @@ export function readCutRange(git, previous, cut) {
   return commits;
 }
 
+/** Allocated drafts and Git tags reserve versions; only published ancestor releases delimit notes/migrations. */
+export function releaseCutHistory({ releases, product, cut, git, excludeTag = '' }) {
+  const { tagPrefix } = releasePolicy(product);
+  const tags = git(['tag', '--list', `${tagPrefix}*`])
+    .trim()
+    .split('\n')
+    .filter(Boolean);
+  const allocated = new Map();
+  for (const tag of tags) {
+    if (productOfTag(tag) === product && tag !== excludeTag)
+      allocated.set(tag, { tag, tagged: true });
+  }
+  for (const release of releases) {
+    if (productOfTag(release.tag_name) !== product || release.tag_name === excludeTag) continue;
+    const existing = allocated.get(release.tag_name);
+    allocated.set(release.tag_name, {
+      tag: release.tag_name,
+      tagged: existing?.tagged || !release.draft,
+      sha: release.target_commitish,
+      published: !release.draft,
+    });
+  }
+  const ordered = [...allocated.values()].sort((a, b) =>
+    compareVersions(versionOfTag(b.tag, product), versionOfTag(a.tag, product))
+  );
+  let previous = null;
+  for (const entry of ordered) {
+    if (!entry.published) continue;
+    const sha = entry.tagged
+      ? git(['rev-parse', '--verify', `refs/tags/${entry.tag}^{commit}`]).trim()
+      : entry.sha;
+    // Old symbolic-target drafts reserve their numbers without inventing a source boundary.
+    if (!SHA.test(sha ?? '')) {
+      if (entry.tagged) throw new Error('Missing product tag commit.');
+      continue;
+    }
+    try {
+      git(['merge-base', '--is-ancestor', sha, cut]);
+    } catch (error) {
+      if (error.cause?.status !== 1) throw error;
+      continue;
+    }
+    previous = { tag: entry.tag, sha };
+    break;
+  }
+  return { highestVersion: ordered[0] && versionOfTag(ordered[0].tag, product), previous };
+}
+
 export async function planReleaseCuts({
   metadata,
   map,
+  workspace,
   git,
   date,
-  workspace,
   initialVersions = {},
   versions = {},
 }) {
@@ -240,12 +284,11 @@ export async function planReleaseCuts({
     return {
       cut,
       repository,
-      mode: 'shadow',
+      mode: 'plan',
       unavailable: metadata.evidenceError ?? 'Draft visibility unavailable.',
       components: [],
     };
-  if (!Array.isArray(metadata.releases) || !Array.isArray(metadata.runs))
-    throw new Error('Incomplete shadow metadata.');
+  if (!Array.isArray(metadata.releases)) throw new Error('Incomplete shadow metadata.');
   git(['merge-base', '--is-ancestor', cut, 'refs/remotes/origin/main']);
   const components = [];
   for (const component of map.components) {
@@ -253,46 +296,38 @@ export async function planReleaseCuts({
     const row = { product: component.name, cut, status: 'blocked' };
     try {
       const { tagPrefix } = releasePolicy(component.name);
-      const active = metadata.runs.filter((run) => ACTIVE.has(run.status));
-      const unknown = active.some((run) => {
-        const product = /^Native release: ([\w-]+)$/.exec(run.display_title ?? '')?.[1];
-        return !map.components.some((component) => component.name === product);
+      const history = releaseCutHistory({
+        releases: metadata.releases,
+        product: component.name,
+        cut,
+        git,
       });
       if (
-        unknown ||
-        active.some((run) => run.display_title === `Native release: ${component.name}`)
-      )
-        throw new Error(
-          unknown
-            ? 'Active native release has no reliable product identity.'
-            : 'Native release is queued/running for this component.'
-        );
-      if (
+        !versions[component.name] &&
         metadata.releases.some(
           (release) =>
-            release.draft === true &&
-            release.tag_name.startsWith(tagPrefix) &&
-            /^\d/.test(release.tag_name.slice(tagPrefix.length))
+            productOfTag(release.tag_name) === component.name && release.target_commitish === cut
         )
-      )
-        throw new Error(
-          'Component draft is in flight; tagged/unexpected drafts also require investigation.'
-        );
-      const previousRelease = publishedReleases(metadata.releases, component.name)[0];
-      if (!previousRelease && (!component.bootstrapSha || !initialVersions[component.name]))
+      ) {
+        Object.assign(row, {
+          status: 'already-cut',
+          reason:
+            'This component already has a release cut at X; later main cuts remain independent.',
+        });
+        components.push(row);
+        continue;
+      }
+      if (!history.previous && (!component.bootstrapSha || !initialVersions[component.name]))
         throw new Error('First cut needs bootstrapSha and an owner-approved initial version.');
-      const previous = previousRelease
-        ? git(['rev-parse', '--verify', `refs/tags/${previousRelease.tag_name}^{commit}`]).trim()
-        : component.bootstrapSha;
-      if (!SHA.test(previous)) throw new Error('Missing published product tag commit.');
-      const previousVersion =
-        previousRelease && versionOfTag(previousRelease.tag_name, component.name);
+      const previous = history.previous?.sha ?? component.bootstrapSha;
+      if (!SHA.test(previous)) throw new Error('Missing previous product cut commit.');
+      const previousVersion = history.highestVersion;
       const version =
         versions[component.name] ??
-        (previousRelease ? nextAlphaVersion(previousVersion) : initialVersions[component.name]);
-      if (previousRelease && compareVersions(version, previousVersion) <= 0)
-        throw new Error('Explicit cut version must advance the latest published product version.');
-      if (!previousRelease) nextAlphaVersion(version); // validate the explicitly supplied alpha seed
+        (previousVersion ? nextAlphaVersion(previousVersion) : initialVersions[component.name]);
+      if (previousVersion && compareVersions(version, previousVersion) <= 0)
+        throw new Error('Explicit cut version must advance every allocated product version.');
+      if (!previousVersion) nextAlphaVersion(version);
       const tag = `${tagPrefix}${version}`;
       const commits = attributeCutCommits(
         readCutRange(git, previous, cut),
@@ -304,13 +339,13 @@ export async function planReleaseCuts({
         commits,
         repository,
         version,
-        previousTag: previousRelease?.tag_name,
+        previousTag: history.previous?.tag,
         tag,
         date,
       });
       Object.assign(row, notes, {
         previous,
-        previousTag: previousRelease?.tag_name,
+        previousTag: history.previous?.tag,
         version,
         tag,
         status: notes.commits.length ? 'proposed' : 'no-releasable-commits',
@@ -321,12 +356,12 @@ export async function planReleaseCuts({
     }
     components.push(row);
   }
-  return { cut, repository, mode: 'shadow', mapDigest: map.digest, components };
+  return { cut, repository, mode: 'plan', mapDigest: map.digest, components };
 }
 
 export function renderCutSummary(plan) {
   const lines = [
-    '## Release cut (shadow only)',
+    '## Release cut (read only)',
     '',
     `Cut: \`${plan.cut}\``,
     '',
@@ -352,29 +387,19 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   try {
     const [file, ...extra] = process.argv.slice(2);
     if (!file || extra.length)
-      throw new Error('Usage: release-cut.mjs <metadata.json> (shadow only)');
+      throw new Error('Usage: release-cut.mjs <metadata.json> (read only)');
     const metadata = JSON.parse(readFileSync(file, 'utf8'));
     const git = (args) =>
       runPackedCommand('git', args, { cwd: ROOT, env: process.env, timeoutMs: 10_000 }).trimEnd();
     // All release decisions use the map from the captured cut, never a later main checkout.
-    const map = parseComponentMap(git(['show', `${metadata.cut}:.github/components.json`]));
-    // Cargo must read the same immutable cut as the map, not the running checkout.
-    const directory = mkdtempSync(join(tmpdir(), 'tmt-cut-workspace-'));
-    let plan;
-    try {
-      const archive = join(directory, 'source.tar');
-      git(['archive', '--format=tar', `--output=${archive}`, metadata.cut]);
-      runPackedCommand('tar', ['-xf', archive, '-C', directory], { cwd: ROOT, env: process.env });
-      plan = await planReleaseCuts({
-        metadata,
-        map,
-        git,
-        workspace: readCargoWorkspace(directory),
-        date: metadata.capturedAt?.slice(0, 10),
-      });
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
+    const { map, workspace } = readReleaseSourceAtRef(metadata.cut, { warm: true });
+    const plan = await planReleaseCuts({
+      metadata,
+      map,
+      workspace,
+      git,
+      date: metadata.capturedAt?.slice(0, 10),
+    });
     console.log(JSON.stringify(plan, null, 2));
     if (process.env.GITHUB_STEP_SUMMARY)
       appendFileSync(process.env.GITHUB_STEP_SUMMARY, renderCutSummary(plan));

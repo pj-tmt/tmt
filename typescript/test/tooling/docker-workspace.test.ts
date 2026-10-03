@@ -2,11 +2,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vite-plus/test';
-import { readWorkspace } from '../../scripts/cargo-workspace.mjs';
+import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
 import { imports } from '../support/source-imports.js';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
-const { crates } = readWorkspace(root);
+const { packages: crates } = readCargoWorkspace(root);
 it.each([
   ['typescript/test/e2e/Dockerfile', 'native-tests', '/native'],
   ['typescript/test/native/artifact.Dockerfile', 'build', '/workspace'],

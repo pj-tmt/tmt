@@ -230,6 +230,7 @@ function planningFixture() {
   };
   const git = vi.fn((args: string[]) => {
     if (args[0] === 'merge-base') return '';
+    if (args[0] === 'tag') return '';
     if (args[0] === 'rev-parse') return sha(0);
     if (args[0] === 'log') return `${sha(1)}\0feat: feature\n\0\n`;
     if (args[0] === 'show') return `${sha(0)} ${sha(8)}`;
@@ -238,7 +239,7 @@ function planningFixture() {
   });
   return { metadata, git, map, date: '2026-10-03' };
 }
-describe('immutable plans and in-flight guards', () => {
+describe('immutable plans and independent cuts', () => {
   it('accepts an owner-selected advancing stable/core version without authorizing publication', async () => {
     const fixture = planningFixture();
     for (const version of ['5.0.0', '5.1.0-alpha.0', '6.0.0']) {
@@ -273,7 +274,7 @@ describe('immutable plans and in-flight guards', () => {
   it('computes a cut/version/notes with ordinary tag ancestry, without a mutation client', async () => {
     const fixture = planningFixture();
     const result = await planReleaseCuts(fixture);
-    expect(result.mode).toBe('shadow');
+    expect(result.mode).toBe('plan');
     expect(result.components.map((c) => [c.product, c.status])).toEqual([
       ['cli', 'proposed'],
       ['squad', 'no-releasable-commits'],
@@ -289,33 +290,35 @@ describe('immutable plans and in-flight guards', () => {
     expect(diffs.every(([args]) => args.at(-2) === sha(0))).toBe(true);
   });
   it.each(['queued', 'in_progress', 'requested', 'waiting', 'pending'])(
-    'blocks only a known product for native status %s',
+    'does not refuse a new cut for native status %s or an unrelated active run',
     async (status) => {
       const fixture = planningFixture();
-      fixture.metadata.runs!.push({ id: 1, status, display_title: 'Native release: cli' });
+      fixture.metadata.runs!.push({ id: 1, status, display_title: 'ambiguous pipeline' });
+      fixture.metadata.releases!.push({
+        tag_name: 'v5.0.0-alpha.47',
+        draft: true,
+        target_commitish: sha(0),
+      });
       const result = await planReleaseCuts(fixture);
-      expect(result.components[0].reason).toContain('queued/running');
-      expect(result.components[1].status).toBe('no-releasable-commits');
+      expect(result.components[0]).toMatchObject({
+        status: 'proposed',
+        tag: 'v5.0.0-alpha.48',
+        previousTag: 'v5.0.0-alpha.46',
+      });
     }
   );
-  it('blocks ambiguous/unknown native runs and component drafts; completed runs do not hold a cut', async () => {
-    for (const title of ['Native release artifacts', 'Native release: unknown']) {
-      const fixture = planningFixture();
-      fixture.metadata.runs!.push({ id: 1, status: 'waiting', display_title: title });
-      expect((await planReleaseCuts(fixture)).components.every((c) => c.status === 'blocked')).toBe(
-        true
-      );
-    }
+  it('counts orphan Git tags as well as drafts before allocating an alpha number', async () => {
     const fixture = planningFixture();
-    fixture.metadata.runs!.push({
-      id: 1,
-      status: 'completed',
-      display_title: 'Native release: cli',
-    });
-    fixture.metadata.releases!.push({ tag_name: 'tmt-squad-v0.1.0-alpha.14', draft: true });
+    const original = fixture.git.getMockImplementation()!;
+    fixture.git.mockImplementation((args) =>
+      args[0] === 'tag' ? 'v5.0.0-alpha.49' : original(args)
+    );
     const result = await planReleaseCuts(fixture);
-    expect(result.components[0].status).toBe('proposed');
-    expect(result.components[1].reason).toContain('draft is in flight');
+    expect(result.components[0]).toMatchObject({
+      status: 'proposed',
+      tag: 'v5.0.0-alpha.50',
+      previousTag: 'v5.0.0-alpha.46',
+    });
   });
   it('reports missing first-release seed, stable authorization and unavailable evidence explicitly', async () => {
     const fixture = planningFixture();
@@ -385,7 +388,7 @@ describe('bounded REST-only state acquisition', () => {
     token: 'private-fixture-token',
     draftVisibility: 'trusted',
   };
-  it('fully paginates releases, reads every active status, and never exports credentials', () => {
+  it('fully paginates allocated releases and never exports credentials', () => {
     const execute = vi.fn((executable: string, args: string[]) => {
       expect(executable).toBe('gh');
       expect(args.at(-1)).toBe('GET');
@@ -404,10 +407,10 @@ describe('bounded REST-only state acquisition', () => {
     });
     const result = readCutMetadata(input, execute);
     expect(result.releases).toHaveLength(101);
-    expect(execute).toHaveBeenCalledTimes(7);
+    expect(execute).toHaveBeenCalledTimes(2);
     expect(JSON.stringify(result)).not.toContain(input.token);
   });
-  it('refuses invisible drafts, incomplete pages/counts, duplicate records and missing statuses', () => {
+  it('refuses invisible drafts, incomplete pages and duplicate records', () => {
     expect(() => readCutMetadata({ ...input, draftVisibility: '' })).toThrow('visibility');
     expect(() =>
       readCutMetadata(input, () =>
@@ -420,16 +423,6 @@ describe('bounded REST-only state acquisition', () => {
         )
       )
     ).toThrow('pagination');
-    for (const page of [
-      { workflow_runs: [], total_count: 1 },
-      { workflow_runs: [], total_count: undefined },
-    ]) {
-      expect(() =>
-        readCutMetadata(input, (_exe, args) =>
-          JSON.stringify(args[1].includes('/releases?') ? [] : page)
-        )
-      ).toThrow();
-    }
     expect(() => readCutMetadata(input, () => JSON.stringify([{ id: 1 }, { id: 1 }]))).toThrow(
       'duplicate'
     );

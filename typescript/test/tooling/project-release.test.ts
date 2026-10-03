@@ -3,6 +3,8 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vite-plus/test';
+import { fileURLToPath } from 'node:url';
+import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
 import { parseComponentMap } from '../../scripts/ci-scope.mjs';
 import {
   affectedProducts,
@@ -29,6 +31,7 @@ const repository = 'pj-tmt/tmt';
 const map = parseComponentMap(
   readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
 );
+const workspace = readCargoWorkspace(fileURLToPath(new URL('../../../', import.meta.url)));
 // Synthetic files live only in temporary repositories; derive the product root from the map.
 const squadRoot = map.components.find((component) => component.name === 'squad')!.owns[0];
 const connection = (nodes: unknown[], cursor: string | null = null) => ({
@@ -390,7 +393,7 @@ describe('full repository-state release sweep', () => {
         components: map.components.filter((component) => component.name !== leaf),
       };
       expect(affectedProducts([file], before)).toEqual({ products: ['cli'], unpublished: [] });
-      expect(affectedProducts([file], map)).toEqual({
+      expect(affectedProducts([file], map, workspace)).toEqual({
         products: ['cli', 'squad'],
         unpublished: [],
       });
@@ -402,7 +405,7 @@ describe('full repository-state release sweep', () => {
   );
 
   it('keeps the explicitly excluded TUI leaf attributed only to Squad', () => {
-    expect(affectedProducts(['rust/crates/tmt-tui/src/lib.rs'], map)).toEqual({
+    expect(affectedProducts(['rust/crates/tmt-tui/src/lib.rs'], map, workspace)).toEqual({
       products: ['squad'],
       unpublished: [],
     });
@@ -417,7 +420,14 @@ describe('full repository-state release sweep', () => {
         git(['tag', 'tmt-squad-v0.1.0-alpha.1']);
         const releases = [release('tmt-squad-v0.1.0-alpha.1')];
         const api = stateApi(project(), releases, new Map([['issue-1', [closingPr(1, sha)]]]));
-        const input = { api, repository, dryRun: true, git: gitEvidence({ cwd: directory }), map };
+        const input = {
+          api,
+          repository,
+          dryRun: true,
+          git: gitEvidence({ cwd: directory }),
+          map,
+          workspace,
+        };
         expect(reconcile(input).rows[0]).toMatchObject({
           status: 'Merged',
           text: 'tmt-squad 0.1.0-alpha.1',
@@ -437,7 +447,8 @@ describe('full repository-state release sweep', () => {
     expect(
       affectedProducts(
         ['docs/fixture.md', 'typescript/test/native/squad.test.ts', 'rust/crates/tmt-tui/a.rs'],
-        map
+        map,
+        workspace
       )
     ).toEqual({ products: ['cli', 'squad'], unpublished: [] });
     expect(affectedProducts(['extensions/tmt-office/a.rs'], map).products).toEqual(['office']);

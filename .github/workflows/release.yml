@@ -55,6 +55,14 @@ jobs:
       - name: Install reviewed release parsing and rendering dependencies
         working-directory: typescript
         run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Install the pinned metadata toolchain
+        run: rustup toolchain install 1.97.0 --profile minimal
+      - name: Restore dependency cache for locked source acquisition
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: false
       - name: Decide whether this run changes anything
         id: mode
         env:

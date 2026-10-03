@@ -18,6 +18,8 @@ import { planReleaseBuilds } from '../../scripts/plan-release-builds.mjs';
 import type { DraftRelease } from '../../scripts/release-draft-assets.mjs';
 import { REQUIRED_CONTEXTS } from '../../scripts/publication-gates.mjs';
 
+import { writeReleaseWorkspace } from '../support/release-workspace-fixture.js';
+
 const script = fileURLToPath(new URL('../../scripts/publication-gates.mjs', import.meta.url));
 const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const MIGRATIONS = 'rust/crates/tmt-adapters/src/storage/migrations.rs';
@@ -101,6 +103,7 @@ function scenario(options: Scenario = {}) {
     path.join(repositoryRoot, '.github/components.json'),
     path.join(repo, '.github/components.json')
   );
+  writeReleaseWorkspace(repo);
   writeFileSync(path.join(repo, MIGRATIONS), list(2));
   writeFileSync(path.join(repo, 'rust/lib.rs'), 'fn a() {}\n');
   git('add', '-A');
@@ -182,6 +185,7 @@ function scenario(options: Scenario = {}) {
       cwd: repo,
       encoding: 'utf8',
       env: {
+        ...process.env,
         PATH: `${bin}${path.delimiter}${process.env.PATH}`,
         FAKE_GH_STATE: stateFile,
         GITHUB_REPOSITORY: 'wkh237/tmt',

@@ -1,3 +1,4 @@
+import type { CargoWorkspace } from './cargo-workspace.mjs';
 import type { ComponentMap } from './ci-scope.mjs';
 export const REQUIRED_CONTEXTS: readonly string[];
 export const EARLY_GATES: readonly string[];
@@ -41,7 +42,13 @@ export function checkMonotonic(input: {
 export function countMigrations(source: string): number;
 export function isBreaking(input: { subject: string; body?: string; breaking?: boolean }): boolean;
 export function releaseCommits(
-  input: { from: string; to: string; product: string; map: ComponentMap },
+  input: {
+    from: string;
+    to: string;
+    product: string;
+    map: ComponentMap;
+    workspace?: CargoWorkspace;
+  },
   readGit?: (args: string[]) => string
 ): { sha: string; subject: string; body: string; breaking: boolean }[];
 export function checkMigration(input: {

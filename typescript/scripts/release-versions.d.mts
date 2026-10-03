@@ -1,3 +1,5 @@
+/** Synthetic version for non-publishing rehearsals and installation fixtures. */
+export function syntheticAlphaVersion(committedVersion: string): string;
 export interface PublishedRelease {
   readonly tag_name: string;
   readonly draft?: boolean;

@@ -5,7 +5,7 @@ inputs:
     description: Released component
     required: true
   tag:
-    description: Exact draft tag; empty for a tagless preparation with development versions
+    description: Exact draft tag; empty for a synthetic, non-publishing preparation
     required: false
     default: ''
   source-root:
@@ -22,7 +22,7 @@ inputs:
     default: prepare
 outputs:
   tag:
-    description: Draft tag or captured development tag for preparation
+    description: Draft tag or synthetic proof tag for preparation
     value: ${{ steps.inject.outputs.tag }}
   snapshot:
     description: Version-only source/lock contract outside the source checkout

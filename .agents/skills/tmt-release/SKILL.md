@@ -30,14 +30,38 @@ draft and native verification; it never overrides a publication gate.
 A first alpha also needs the product owner's authorization and reviewed activation
 under #1418. The CLI/Squad switch grants no parked-product activation. Keep hold,
 retry and rerun authorization below, required merge checks, every publication
-proof and immutable releases intact. A component's draft/run in flight blocks only
-that component, never main merges. Missing draft visibility, tag or active-run
-identity requires investigation, not an assumed idle product.
+proof and immutable releases intact. Missing draft visibility or history requires
+investigation, never an incomplete allocation catalog.
+
+Independent tags never wait for a prior component draft or pipeline. Failed drafts
+stay unpublished without holding later cuts; retries, hold releases and reruns
+remain owner-authorized operations on one exact tag. Alpha publication requires a
+unique unpublished tag/version; stable publication retains the existing monotonic
+gate. CLI alphas keep `prerelease=false`: every CLI publication initially uses
+`latest=false`, then bounded read/correct/readback rounds converge latest to the
+highest published CLI version. A stale publisher corrects again to the current
+maximum; disagreement after the bound fails visibly. Extensions remain prereleases
+with `latest=false`. Public smoke proves `releases/latest/download/install.sh` for
+the highest CLI, or the versioned installer for an older out-of-order cut. Managed
+alpha discovery must still choose the highest eligible version. Upgrade proofs use the newest published version
+**below** the candidate, preserve candidate > previous and downgrade rejection,
+and retain every four-host artifact/installation/adapter proof. Notes, migration comparison and breaking authorization share one boundary: the
+newest **published** ancestor release of the component. Failed or running drafts
+reserve numbers but never advance that boundary. Concurrent cuts can therefore
+repeat note items; inherited unpublished migrations remain counted and inherited
+unapproved breaking changes stay held by the existing owner gate.
+
+Non-publishing `prepare` rehearsals and installation fixtures derive
+`<committed major.minor.patch>-alpha.999999` through the single
+`release-versions.syntheticAlphaVersion` helper. This deliberately synthetic
+version is never a real cut or publication target. Preparation keeps the draft
+tag empty, creates no Git tag, and runs every source, archive and installation
+gate against the injected version. It adds no dispatch input and authorizes no
+product activation. The procedure belongs to DEVELOPMENT.
 
 The private release tool's mechanical source/lock proof grants no publishing
 permission. Do not commit injected versions back to main, create tags early,
 replace public assets or replay publication to recover a smoke failure.
-
 
 ## Conventional PR titles
 
@@ -104,8 +128,9 @@ does not authorize publication or replace artifact acceptance.
   immutable draft-to-published GitHub release and verifies its attestation and
   public installer before promoting README instructions. Publish with the
   bundle's `release-publication.json` flags: the CLI release is a normal release
-  marked latest (the README's `releases/latest/download/install.sh` depends on
-  it); Office, Squad and Herdr driver releases stay prereleases with `--latest=false`. After
+  whose latest selection follows the main cut authorization contract above;
+  Office, Squad and Herdr releases retain their product prerelease policy and never
+  become latest. After
   a manual publication, run the guide's `--check-latest` check (the pipeline checks
   its own publications). Do not equate a
   downloadable CI bundle with a published or accepted release.
@@ -121,8 +146,8 @@ does not authorize publication or replace artifact acceptance.
   distinction between injected acquisition, skipped differential skill coverage for identical text,
   older-source rerun applicability and separate public installer/upgrade smoke.
   A standalone driver uses previous/candidate archives and the current published
-  CLI's path approval surface. Herdr remains parked until release cut (#1399)
-  activates it, as DEVELOPMENT documents.
+  CLI's path approval surface. Herdr remains parked; product activation and its first alpha belong to #1418
+  and require owner authorization.
 - For curl bootstrap, follow the guide's native curl bootstrap verification.
   Generate from final verified cargo-dist artifacts and invoke the existing
   native publisher; do not enable a competing stock installer. Test an actual
@@ -192,8 +217,8 @@ gates, the markers and the procedures; this section owns who may publish what.
   parks one), and that passes every publication gate. A new SQLite migration does not hold an
   alpha: migrations are forward-only, and the `migration` gate only reports the new entries in
   its summary. The CLI alpha is published as a
-  normal release marked latest; Office and Squad alphas as prereleases with `--latest=false`,
-  as the bundle's `release-publication.json` says.
+  normal release; its latest convergence follows the main cut contract above.
+  Office and Squad retain the bundle's prerelease policy and never become latest.
 - Still the owner's explicit authorization: stable releases and anything outside the alpha
   channel; a release from a branch line; a draft that any gate holds, and in particular a
   breaking change (a `!` or `BREAKING CHANGE:` commit), which always pauses for the owner's
@@ -229,4 +254,3 @@ gates, the markers and the procedures; this section owns who may publish what.
   published releases for tooling changes, never a publishing dispatch. Keep the
   post-publication Project dispatch gated on successful smoke and historical failure issues
   visible to the release monitor. Never dispatch publication to recover a smoke failure.
-

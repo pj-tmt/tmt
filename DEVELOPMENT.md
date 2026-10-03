@@ -1454,8 +1454,8 @@ TMT_TEST_STORAGE_PROBE='{"executable":"/absolute/checkout/rust/target/debug/exam
 ```
 
 Installation and upgrade sandboxes use the one `withReleaseSandbox` helper in
-`test/support/native-installation.ts`. They require a real debug CLI injected to
-synthetic `5.0.0-alpha.999999`, at the selected Cargo target's
+`test/support/native-installation.ts`. They require a real debug CLI injected to the shared non-publishing preparation
+version, at the selected Cargo target's
 `debug/native-release-fixture/tmt`, with its Herdr companion beside it. They never
 label a development executable as an alpha or relax channel checks. CI builds
 this fixture only when the existing native test selection includes installation
@@ -1466,7 +1466,9 @@ development CLI.
 
 For local installation-fixture preparation, start with a clean, committed task
 checkout and follow the [version-injection procedure](#main-release-cuts) using
-`product=cli`, tag `v5.0.0-alpha.999999` and a snapshot outside the checkout. Build
+`product=cli`, an empty tag and a snapshot outside the checkout. The
+[release skill](.agents/skills/tmt-release/SKILL.md#main-cut-authorization) owns the
+synthetic-version rule. Build
 only `tmt-cli --bin tmt` in debug mode, copy it and the independently built Herdr
 companion into `debug/native-release-fixture/`, and verify the source gate again.
 After that succeeds, restore only `rust/Cargo.toml` and `rust/Cargo.lock` from the
@@ -2092,11 +2094,11 @@ owns authorization. The following commands describe the procedure, never grant
 permission to dispatch publishing work.
 
 On main pushes and the daily schedule, `release.yml` captures main HEAD, complete
-draft/native-run metadata and the component map/Cargo graph at that cut. Inspect
+draft/tag allocation metadata and the component map/Cargo graph at that cut. Inspect
 its summary and `release-cut-plan` artifact for proposed tag, notes, linked SHAs,
-cut and skip/recovery reason. Missing draft visibility, pagination, history or
-active-run identity is a blocked plan. A component in flight does not block other
-components or main merges.
+cut and skip reason. Missing draft visibility, pagination or history is a
+blocked plan. Allocation is serialized; inspect each tag-specific native pipeline
+independently. Failed drafts stay unpublished without blocking later cuts.
 
 For an owner-authorized explicit version, dispatch `release.yml` on main with
 `product=cli|squad`, `version=<canonical stable or alpha version>` and
@@ -2119,7 +2121,8 @@ four native hosts. It reuses `.github/actions/inject-release-version`, fetches
 locked dependencies, captures the source/version contract, proves full locked
 metadata rejects a changed-version stale lock, updates only implied entries
 offline, then verifies the source, dist plan/build and extracted binary. Tagless
-preparation and already-versioned reruns require zero source/lock changes.
+preparation uses the shared synthetic version and retains the same gates.
+Already-versioned reruns require zero source/lock changes.
 `--no-deps` inheritance discovery cannot replace full offline locked verification.
 Review `release-injection-<product>-<target>` artifacts and job summaries. No release
 secrets or publication privileges enter PR jobs. The runtime producer transfers
@@ -2141,7 +2144,7 @@ For authorized local proof, follow the shared-host build/disk rules and use one
 Cargo target. Build `tmt-release-tool` first; Node finds its `release-version`
 binary at that target's `debug/` (or default `rust/target/debug/`). Run
 `release-version-injection.mjs prepare <checkout> <snapshot-outside-checkout>
-<product> <tag>`; an empty tag preserves the captured development version. When
+<product> <tag>`; an empty tag selects the shared non-publishing preparation version. When
 versions differ, demonstrate stale-lock rejection with full `cargo metadata
 --offline --locked`, then `cargo update --offline --workspace` and `verify
 <checkout> <snapshot>`. Do not rewrite an already-versioned lock. After assembly,
@@ -2345,7 +2348,7 @@ reported on the post-publication failure issue. There is no smoke-level rate-lim
 retry or deferred retry workflow. The verifier redacts the credential before writing
 bounded reasons, diagnostics, summaries or result artifacts and checks its isolated
 home, state, temporary files and installation prefix for persisted credentials.
-The CLI latest-installer read still retries only an older alpha than the just-published
+The CLI latest-installer read retries only an older alpha than the highest just-published
 tag (three reads, two 20-second waits); unchanged lag fails, while a newer or malformed
 version and download errors fail immediately. Install jobs have a 25-minute bound and
 read-only contents permissions; a separate issue writer reports failures with all four
@@ -2364,7 +2367,7 @@ evidence, with the daily sweep as a safety net.
 Fixture-only checks (no live install, dispatch or Docker):
 
 ```bash
-(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/verify-public-install.test.ts test/tooling/release-publish.test.ts test/tooling/release-workflow.test.ts test/tooling/release-stall.test.ts test/tooling/xcrun-warmup.test.ts test/tooling/intel-verification.test.ts test/tooling/repository-layout.test.ts)
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/verify-public-install.test.ts test/tooling/release-publish.test.ts test/tooling/release-workflow.test.ts test/tooling/xcrun-warmup.test.ts test/tooling/intel-verification.test.ts test/tooling/repository-layout.test.ts)
 (cd typescript && corepack pnpm check:tooling)
 actionlint .github/workflows/native-release-smoke.yml .github/workflows/public-install-smoke-pr.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release.yml .github/workflows/native-intel.yml
 ```
@@ -2374,24 +2377,20 @@ with `issues: write` comments on, or opens, the issue of the checks above; nothi
 back. Both `publish` and `published` run `main`'s code and never the release commit's: `publish`
 holds the write token, `published` only read access and `issues: write`; the install legs have
 neither. A run that stopped before it published is completed by the
-next run of the product: it plans every complete draft without a hold again and evaluates its
-gates again. A bundle prepared without a draft (`prepare`) never publishes.
+next owner-authorized dispatch of that exact tag; it evaluates the complete draft
+again without selecting another tag. A bundle prepared without a draft (`prepare`) never publishes.
 
 For a manual publication, verify the selected product run's exact commit and all required PR
 checks, and enable GitHub release immutability before creating a draft release.
 
 Each bundle carries `release-publication.json` from
 `typescript/scripts/native-release-policy.mjs`; create the draft with its
-`flags` (`gh release create <tag> --draft <flags> …`). The CLI release is
-published as a normal release with `--latest=true`, so
-`releases/latest/download/install.sh` reaches its installer; alpha status stays
-in the version and title. Office and Squad releases keep `--prerelease` and
-`--latest=false` and can never become latest. `tmt upgrade` accepts a CLI
-pre-release published either way (earlier alphas were flagged prereleases) but
-never a stable CLI flagged prerelease, and accepts an extension release only when
-its flag matches whether its version is a pre-release
-(`Product::accepts_prerelease_flag`). After a manual publication, check
-`node typescript/scripts/release-policy.mjs --check-latest "$(gh api repos/pj-tmt/tmt/releases/latest --jq .tag_name)"`. A CLI
+`flags` (`gh release create <tag> --draft <flags> …`). Publication flags and channel
+authorization belong to the [release skill](.agents/skills/tmt-release/SKILL.md).
+CLI smoke proves the public latest installer for the highest published version;
+an older independent cut uses its versioned installer. The managed updater must
+select the highest eligible alpha. After a manual stable CLI
+publication, check `node typescript/scripts/release-policy.mjs --check-latest "$(gh api repos/pj-tmt/tmt/releases/latest --jq .tag_name)"`. A CLI
 release attaches its four tar.gz archives, final `dist-manifest.json`,
 `tmt-installer.sh` and the byte-identical `install.sh` (the name the one-line
 install uses); an Office release uses the independent `tmt-office-v<version>`
@@ -3077,7 +3076,6 @@ written down. Extension-owned skills
 no-op, core and cross-owner claims, force backup, Office adoption, removal by
 owner (all skills or a named subset) and drift. Runtime/linkage proof shared by archive
 and raw verification lives in `typescript/scripts/native-runtime-proof.mjs`.
-
 
 ## Conventional PR-title rollout
 

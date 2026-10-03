@@ -84,17 +84,14 @@
     },
     "tmt-tui": {
       "owns": ["rust/crates/tmt-tui"],
-      "releaseConsumers": ["squad"],
       "release": false
     },
     "tmt-cli-style": {
       "owns": ["rust/crates/tmt-cli-style"],
-      "releaseConsumers": ["squad"],
       "release": false
     },
     "tmt-invoke": {
       "owns": ["rust/crates/tmt-invoke"],
-      "releaseConsumers": ["squad"],
       "release": false
     },
     "tmt-colab": {
