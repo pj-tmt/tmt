@@ -25,3 +25,5 @@ Product limits are named in `src/limits.rs`, not in guides.
   stream sync, isolated decoder, page source and export, browser containment.
 - [references/acceptance.md](references/acceptance.md): the Ask agent real-binary
   acceptance suite and its harness.
+- [references/ask-agent.md](references/ask-agent.md): the browser-direct Ask agent
+  modules, invariants and tests.
