@@ -1,7 +1,7 @@
 {
   "$source": {
     "source": "site/src/lang/strings.ts",
-    "sourceRevision": "03b536e0b424ea20f22f9ffa99dea681217e09e3"
+    "sourceRevision": "69dbf4e8cb3b0ee9e608d84b7eac3a1e121167d8"
   },
   "ui": {
     "notTranslated": "まだ翻訳されていないため、このページは英語で表示しています。",
@@ -29,7 +29,15 @@
     "handoff": {
       "label": "異なる provider 間でリクエストをやり取りするデモです。Claude Code で動く reviewer が、Codex で動く builder に tmt talk で diff のレビューを依頼します。リクエストを受け取った Codex は、tmt reply と渡された receipt で返信します。その返信が Claude Code に戻ります。リクエスト ID と receipt が、リクエストと返信を結び付けます。",
       "request": "リクエスト",
-      "tied": "receipt が返信とリクエストを結び付けます"
+      "tied": "receipt が返信とリクエストを結び付けます",
+      "result": "結果",
+      "spatial": "3D のやり取り",
+      "flat": "静止画のやり取り",
+      "steps": "やり取りの手順",
+      "play": "再生",
+      "pause": "一時停止",
+      "local": "TMT / ローカルのやり取り",
+      "note": "説明用の出力 · Claude Code + Codex · tmux または Herdr"
     },
     "concepts": {
       "items": [

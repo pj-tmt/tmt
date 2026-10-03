@@ -1,0 +1,71 @@
+---
+source: site/src/chapters/dev-driver.mdx
+sourceRevision: df52e69eff63def1e94f755a164446f1b4498e22
+title: driver を作る
+---
+
+import { Callout, Terms } from "../../components/marks";
+import { components as Mdx } from "../../components/mdx";
+
+driver は、tmt がまだ知らないプログラムの扱い方を教えます。
+
+<Callout title="計画中です。">
+  現在の driver は tmt に組み込まれており、新しいものは tmt
+  リポジトリへの貢献として追加します。この章は、誰でも公開できる独立したパッケージにするという今後の方針を説明します。Herdr
+  はすでにこの方式です。driver は tmt に同梱され、`tmt driver install herdr`
+  で許可すると動きます。以下のプロトコルは今後変わる可能性があります。通信形式の定義は
+  [contracts/driver-protocol-v1.md](https://github.com/pj-tmt/tmt/blob/main/contracts/driver-protocol-v1.md)
+  にあります。
+</Callout>
+
+<Mdx.h3 id="two-kinds">2種類の driver</Mdx.h3>
+
+<Terms>
+  <dt>host driver</dt>
+  <dd>
+    agent
+    の実行場所と入力方法を扱います。ペインの指定、入力の配信、出力の取得、フォーカスの切り替えを担います。tmux
+    は組み込みの host driver で、Herdr は最初の外部 host driver です。
+  </dd>
+  <dt>runtime driver</dt>
+  <dd>
+    1種類の agent
+    プログラムを扱います。識別方法、呼び出し元が属する会話、起動、再開、終了を把握します。Claude
+    Code と Codex は組み込みです。
+  </dd>
+</Terms>
+
+<Mdx.h3 id="a-driver-is-a-program">driver はプログラム</Mdx.h3>
+
+driver は `tmt-driver-<name>` という実行ファイルです。tmt は操作ごとに `tmt-driver-<name> __tmt-driver <protocol> <operation>` として1回実行し、標準入力で1つの JSON リクエストを渡し、標準出力から `{"ok": …}` または `{"error": {"code", "message"}}` という1つの JSON 応答を読みます。貼り付けがペインに届いたか判断できない場合は uncertain とし、再試行しません。操作ごとに期限と出力上限を設けるので、停止した driver や大量に出力する driver が tmt を待たせ続けることはありません。操作は配信や検索ごとのまとまりです。プロセスの起動は約1.5ミリ秒で、tmux コマンド1回より短い時間です。
+
+最初の呼び出しは必ず `capabilities` です。対応するプロトコルのバージョン、driver の種類、名前、バージョン、実装した操作を返します。tmt は双方が対応する最も新しいプロトコルを使い、少なくとも1リリースは前のプロトコルにも対応する方針です。そのため、driver が tmt と同じ日に更新される必要はありません。
+
+組み込みの driver も同じインターフェースの内側に置き、インストールした driver と tmt に同梱した driver を同様に扱います。
+
+<Mdx.h3 id="what-tmt-keeps">tmt が担うこと</Mdx.h3>
+
+driver の出力は信頼できない入力として扱います。tmt は制限付きで解析し、すべての ID と対象を自身のルールで検証し、表示前にテキストを整えます。信頼に関わる判断は tmt に残します。
+
+- **binding の検証。** tmt が driver の返した確認情報を照合します。driver が検証済みと宣言するだけでは、呼び出し元を信頼しません。
+- **配信の安全性。** `!` の保護、貼り付けと Enter の段階的な実行、uncertain な送信の報告を担います。
+- **保存。** driver は tmt のデータベースを開かず、tmt はデータのパスやトークンを渡しません。これは契約であり OS の保証ではないため、driver が従うことを前提にはしません。
+- **同意。** agent の設定変更は、引き続きユーザーの同意後に `tmt setup` で行います。
+
+<Mdx.h3 id="taking-over-from-a-built-in-driver-planned">
+  組み込み driver の担当を引き継ぐ（計画中）
+</Mdx.h3>
+
+runtime driver は、より高い優先度を宣言して、組み込み driver が認識するプログラムを担当できるようにする予定です。たとえば追加機能を持つコミュニティ製の Claude Code driver が、組み込み版を置き換えられます。変更は見える形にし、インストール時には引き継ぐ対象をすべて表示し、`tmt driver ls` ではどの driver がどのプログラムを担当するかを示します。組み込み driver の名前は使えません。インストールした2つの driver が同じプログラムを担当することもできず、ユーザーが片方を削除します。
+
+<Mdx.h3 id="rules-every-driver-follows">すべての driver が守るルール</Mdx.h3>
+
+- **宣言ではなく確認情報を使います。** provider のセッション ID は、既存の binding との対応を示すだけです。identity を作成したり移したりしません。
+- **共有 host を区別します。** 複数の会話が1つのプロセスを共有する場合、完全な一致だけを認めます。分からなければ推測せず、その旨を伝えます。
+- **hook は agent を妨げません。** 制限時間内に必ず正常終了します。失敗時も agent はコンテキストなしで通常どおり起動します。
+- **送信失敗時は状況を伝えます。** not sent、uncertain、denied、awaiting approval のどれかを示します。uncertain は agent に入力が届いた可能性があるという意味です。tmt は自動で再試行せず、driver も再試行すべきではありません。
+- **保存する状態は新しく小さく保ちます。** 更新するのは hook の確認情報だけです。identity の削除、プログラムの切り替え、バージョン不一致、driver の削除で破棄します。会話の全文、引数、秘密情報は保存しません。
+
+<Mdx.h3 id="publish-it">公開する</Mdx.h3>
+
+runtime driver は拡張機能と同様に、独自のバージョンでパッケージ化してリリースする予定です。現在は `tmt driver install <path>` が、実行内容を表示してから host driver の実行ファイルを許可します。プロトコルの契約と適合テスト一式は、最初の外部 driver とともに提供する予定です。
