@@ -1956,6 +1956,44 @@ The smoke job has a 25-minute bound. Infrastructure-only failures open a separat
 broken release. Mixed or real failures retain the post-publication failure issue. Both
 conclusions fail the job and retain artifacts from all four hosts. Missing or malformed
 host evidence cannot establish an infrastructure-only failure; nothing is silently accepted.
+The host artifacts are qualified by product, tag and target and retain the classified
+diagnostic and its parsed UTC reset epoch. After a failed main `Native release artifacts`
+or manually dispatched `Native release smoke` run completes,
+`native-release-smoke-retry.yml` automatically re-proves eligible affected targets once.
+`public-install-retry.mjs` requires four distinct matching-host results per tag, validates
+the exact diagnostic through the smoke owner's parser, and selects only the classified
+failed acquisition targets. Unclassified hosts are never retried. Missing timing,
+inconsistent evidence or a reset more than 60 minutes away keeps the original failure.
+Host artifacts record their run attempt; artifacts from an earlier attempt cannot
+prove the current one. A partial manual rerun without four current-attempt results
+retains the issue and does not schedule recovery.
+
+One Linux job waits until the last selected reset plus one second, bounded at 60 minutes;
+each selected target then repeats the public install on its matching host with `--retry`,
+which allows one acquisition attempt without another rate-limit retry. The wait starts
+in a separate workflow after the originating run releases `release-<product>`. Its
+source-run-specific `public-install-retry-...` concurrency group cannot block the next
+release. Only the planner has `actions: read` to download the originating artifacts;
+install legs have `contents: read`, no token on the acquisition path, and tag checkouts
+read solely as data. A separate `issues: write` reporter reconciles retry evidence with
+all original hosts. Full recovery comments on and closes the infrastructure issue,
+naming both runs; repeated classified failures, real failures and missing retry evidence
+retain failure reporting. Real post-publication issues are never closed by this retry.
+Recovery also leaves an infrastructure issue open when its latest reporter-owned
+failure names a different run. Shared hosted-runner quota can be exhausted again
+after the reset; that result stays failed.
+Original failed jobs remain failed, and a failed retry also fails its run. A newer release
+appearing during the wait can still fail the existing latest-installer/version checks;
+the retry does not relax them or rerun publication.
+
+Fixture-only checks for smoke and deferred reset recovery (no live install or dispatch):
+
+```bash
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/verify-public-install.test.ts test/tooling/public-install-retry.test.ts test/tooling/release-publish.test.ts test/tooling/release-workflow.test.ts)
+(cd typescript && corepack pnpm check:tooling)
+actionlint .github/workflows/native-release-smoke.yml .github/workflows/native-release-smoke-retry.yml .github/workflows/native-release-bundle.yml
+```
+
 A failed leg keeps its failed checks as data, and a final job
 with `issues: write` comments on, or opens, the issue of the checks above; nothing is rolled
 back. Both `publish` and `published` run `main`'s code and never the release commit's: `publish`

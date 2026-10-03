@@ -30,11 +30,17 @@ const out = (value) => process.stdout.write(typeof value === 'string' ? value : 
 const fail = (message) => { process.stderr.write(message); process.exit(1); };
 const [command, sub] = args;
 if (command === 'api') {
-  const url = args[args.length - 1];
+  const url = args[1];
   if (args.includes('--paginate')) out([state.drafts]);
   else if (url.includes('/releases/tags/')) state.published ? out(state.published) : fail('HTTP 404');
   else if (url.endsWith('/releases/latest')) state.latest ? out(state.latest) : fail('HTTP 404');
   else if (url.includes('/commits/')) state.tagCommit ? out({ sha: state.tagCommit }) : fail('HTTP 404');
+  else if (url.includes('/issues?state=open')) out(state.openIssues ?? []);
+  else if (url.endsWith('/issues') && args.includes('POST')) {
+    if (state.issueFails) fail('HTTP 403');
+    out({ number: 77 });
+  }
+  else if (url.endsWith('/comments') && args.includes('POST')) out({ id: 1 });
   else fail('unexpected api call: ' + url);
 } else if (command === 'release' && sub === 'edit') {
   if (state.editFails) fail('HTTP 422');
@@ -46,13 +52,6 @@ if (command === 'api') {
   if (state.attestationFails) fail('attestation not found');
 } else if (command === 'release' && sub === 'verify-asset') {
   if ((state.badAssets ?? []).includes(path.basename(args[3]))) fail('does not contain subject');
-} else if (command === 'issue' && sub === 'list') {
-  out(state.openIssues ?? []);
-} else if (command === 'issue' && sub === 'create') {
-  if (state.issueFails) fail('HTTP 403');
-  out('https://github.com/wkh237/tmt/issues/77\\n');
-} else if (command === 'issue' && sub === 'comment') {
-  // recorded only
 } else {
   fail('unexpected gh call: ' + args.join(' '));
 }
@@ -282,7 +281,7 @@ describe('release-publish.mjs verify', () => {
     expect(result.summary).toContain(
       '- passed `assets`: gh release verify-asset passed for 3 assets'
     );
-    expect(fake.calls().some(([command]) => command === 'issue')).toBe(false);
+    expect(fake.calls().some(([, endpoint]) => endpoint.includes('/issues'))).toBe(false);
   });
 
   it('opens an issue and fails the run when an asset does not verify', () => {
@@ -292,9 +291,11 @@ describe('release-publish.mjs verify', () => {
     expect(result.summary).toContain('- FAILED `assets`');
     expect(result.summary).toContain('dist-manifest.json: does not contain subject');
     expect(result.stderr).toContain('Opened issue #77.');
-    const created = fake.calls().find(([command, sub]) => command === 'issue' && sub === 'create');
-    expect(created).toContain('Release v5.0.0-alpha.9 failed its post-publication checks');
-    const body = created?.[created.indexOf('--body') + 1];
+    const created = fake
+      .calls()
+      .find((call) => call[1] === 'repos/wkh237/tmt/issues' && call.includes('POST'));
+    expect(created).toContain('title=Release v5.0.0-alpha.9 failed its post-publication checks');
+    const body = created?.find((arg) => arg.startsWith('body='))?.slice(5);
     expect(body).toContain('dist-manifest.json: does not contain subject');
     expect(body).toContain('Run: https://github.com/wkh237/tmt/actions/runs/42');
     expect(body).toContain('Nothing was rolled back');
@@ -328,9 +329,11 @@ describe('release-publish.mjs verify', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Commented on issue #12.');
     const calls = fake.calls();
-    expect(calls.some(([command, sub]) => command === 'issue' && sub === 'create')).toBe(false);
-    expect(calls.find(([command, sub]) => command === 'issue' && sub === 'comment')?.[2]).toBe(
-      '12'
+    expect(
+      calls.some((call) => call[1] === 'repos/wkh237/tmt/issues' && call.includes('POST'))
+    ).toBe(false);
+    expect(calls.find((call) => call[1] === 'repos/wkh237/tmt/issues/12/comments')).toContain(
+      'POST'
     );
   });
 
@@ -375,13 +378,15 @@ describe('release-publish.mjs report', () => {
     'https://github.com/wkh237/tmt/actions/runs/42',
   ];
   const leave = (directory: string, target: string, content: string) => {
-    const folder = path.join(directory, 'smoke-failures', `smoke-failures-${target}`);
+    const folder = path.join(directory, 'smoke-failures', `smoke-failures-cli-${TAG}-${target}`);
     mkdirSync(folder, { recursive: true });
     writeFileSync(path.join(folder, 'smoke-result.json'), content);
   };
   const issueBody = (calls: string[][]) => {
-    const created = calls.find(([command, sub]) => command === 'issue' && sub === 'create');
-    return created?.[created.indexOf('--body') + 1] ?? '';
+    const created = calls.find(
+      (call) => call[1] === 'repos/wkh237/tmt/issues' && call.includes('POST')
+    );
+    return created?.find((arg) => arg.startsWith('body='))?.slice(5) ?? '';
   };
 
   it('opens the issue of the post-publication checks with each host’s failed checks', () => {
@@ -407,8 +412,10 @@ describe('release-publish.mjs report', () => {
     expect(result.stderr).toContain('Opened issue #77.');
     expect(result.summary).toContain('- FAILED `install (x86_64-unknown-linux-musl)`');
     const calls = fake.calls();
-    const created = calls.find(([command, sub]) => command === 'issue' && sub === 'create');
-    expect(created).toContain('Release v5.0.0-alpha.9 failed its post-publication checks');
+    const created = calls.find(
+      (call) => call[1] === 'repos/wkh237/tmt/issues' && call.includes('POST')
+    );
+    expect(created).toContain('title=Release v5.0.0-alpha.9 failed its post-publication checks');
     const body = issueBody(calls);
     expect(body).toContain(
       '- `tmt upgrade (aarch64-apple-darwin)`: it reports 5.0.0-alpha.8, not 5.0.0-alpha.9'
@@ -430,9 +437,9 @@ describe('release-publish.mjs report', () => {
     );
     const result = fake.run(report(fake.directory));
     expect(result.stderr).toContain('Commented on issue #12.');
-    expect(fake.calls().some(([command, sub]) => command === 'issue' && sub === 'create')).toBe(
-      false
-    );
+    expect(
+      fake.calls().some((call) => call[1] === 'repos/wkh237/tmt/issues' && call.includes('POST'))
+    ).toBe(false);
   });
 
   it('still reports a failure when no result file can be read, and keeps text to one line', () => {

@@ -238,6 +238,11 @@ gates, the markers and the procedures; this section owns who may publish what.
   the native classified rate-limit diagnostic, within DEVELOPMENT's attempt/reset-wait
   bounds; exhausted rate limits keep a failed job with a separate infrastructure issue,
   while any real or mixed failure keeps the release-failure conclusion. Keep the separate
+  deferred affected-target re-proof outside the native run's `release-<product>` group:
+  use the smoke-retry completion workflow, its 60-minute reset bound and one acquisition
+  attempt. Complete original and retry evidence is required before the issue owner
+  comments with both runs and closes an infrastructure issue. Neither a failed original
+  job nor a failed retry becomes green, and real failure issues stay open. Keep the
   bounded latest-installer lag retry for an older alpha, and pin the consumed native
   diagnostic format in fixture tests. Never dispatch
   publication to recover a public smoke rate limit.

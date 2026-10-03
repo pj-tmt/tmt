@@ -1,0 +1,153 @@
+name: Native release smoke retry
+
+# Completion starts a new run after native-release.yml releases release-<product>.
+# This workflow never calls or dispatches publication, and cannot trigger itself.
+on:
+  workflow_run:
+    workflows: [Native release artifacts, Native release smoke]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-install-retry-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      retry: ${{ steps.plan.outputs.retry }}
+    steps:
+      # Only trusted default-branch tooling runs; source artifacts and release tags are data.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+          pattern: smoke-failures-*
+          path: ${{ runner.temp }}/original-smoke
+      - name: Plan only classified affected targets
+        id: plan
+        env:
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/original-smoke"
+          node typescript/scripts/public-install-retry.mjs plan --directory "$RUNNER_TEMP/original-smoke" --plan "$RUNNER_TEMP/retry-plan.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: public-install-retry-plan
+          overwrite: true
+          path: ${{ runner.temp }}/retry-plan.json
+          if-no-files-found: error
+          retention-days: 1
+
+  wait:
+    needs: plan
+    if: needs.plan.outputs.retry == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - uses: actions/download-artifact@v4
+        with:
+          name: public-install-retry-plan
+          path: ${{ runner.temp }}/plan
+      - name: Wait for all selected resets (at most 60 minutes)
+        run: node typescript/scripts/public-install-retry.mjs wait --plan "$RUNNER_TEMP/plan/retry-plan.json"
+
+  retry:
+    needs: [plan, wait]
+    if: needs.plan.outputs.retry == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ matrix.tag }}
+          path: release-source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Re-prove the anonymous public install once
+        env:
+          PRODUCT: ${{ matrix.product }}
+          RELEASE_TAG: ${{ matrix.tag }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          node typescript/scripts/verify-public-install.mjs --product "$PRODUCT" --tag "$RELEASE_TAG" \
+            --source release-source --target "$TARGET" --retry --result-file "$RUNNER_TEMP/smoke-result.json"
+      - name: Keep the retry host conclusion
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-retry-${{ matrix.product }}-${{ matrix.tag }}-${{ matrix.target }}
+          overwrite: true
+          path: ${{ runner.temp }}/smoke-result.json
+          if-no-files-found: ignore
+          retention-days: 1
+
+  report:
+    needs: [plan, wait, retry]
+    if: ${{ !cancelled() && needs.plan.outputs.retry == 'true' && needs.wait.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - uses: actions/download-artifact@v4
+        with:
+          name: public-install-retry-plan
+          path: ${{ runner.temp }}/plan
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: smoke-retry-*
+          path: ${{ runner.temp }}/retry-smoke
+      - name: Report failures or close the recovered infrastructure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORIGINAL_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/attempts/${{ github.event.workflow_run.run_attempt }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/retry-smoke"
+          node typescript/scripts/public-install-retry.mjs report --plan "$RUNNER_TEMP/plan/retry-plan.json" \
+            --directory "$RUNNER_TEMP/retry-smoke" --original-run-url "$ORIGINAL_RUN_URL" \
+            --retry-run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
