@@ -69,7 +69,15 @@ fn run_selected(
     selector: identity_context::Selector,
     operation: ExchangeOperation,
 ) -> Result<Report, Failure> {
-    let mut storage = Storage::open(&paths.database).map_err(unavailable)?;
+    let mut storage = Storage::open(&paths.database).map_err(|error| {
+        Failure::storage_access(
+            error,
+            &paths.global_dir,
+            "No exchange attention was changed.",
+            "X_ERROR",
+            "Could not complete the exchange operation.",
+        )
+    })?;
     let pending = (|| {
         let identity = identity_context::resolve(&mut storage, selector).map_err(|error| {
             if error.code == "IDENTITY_ERROR" {

@@ -1616,6 +1616,16 @@ re-approval, timeout rollback and registry capacity. `DriverProcess::locations` 
 boundary for approval and future setup consumers. Runtime launch/hooks and the
 kill/restart delivery case belong to PR B2, not approval evidence.
 
+`test/native/storage-denial.test.ts` covers denied-directory storage opens across
+core command families and API notebook reads, with byte/mode preservation,
+corrupt/non-database controls and writable recovery. A CLI-created seed is copied
+into each command's isolated sandbox so each denial/recovery check has its own
+bounded test deadline. `check-routing` uses a private
+real socket under a foreign parent locale and proves byte-identical UTF-8 capture
+before and after denial. Its Docker-only root case drops the refusing CLI to
+`nobody`; the fixture retains ownership and cleanup of the server. Locale variables
+are never changed by production tmux execution.
+
 The suite covers grammar, configuration-before-effects, identity metadata and
 binding lifecycle, role/preamble, response/receipts, exchanges/attention, inbox listening, talk,
 local Office board grammar/persistence, managed skills and native installation. It uses bounded process budgets,

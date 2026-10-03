@@ -68,8 +68,18 @@ fn run(operation: RoomOperation) -> Result<DispatchReceipt, Failure> {
     .load()
     .map_err(Failure::from)?
     .settings;
-    let mut storage =
-        Storage::open(paths.database).map_err(|error| failure(error.into(), &operation_id))?;
+    let mut storage = Storage::open(&paths.database).map_err(|error| {
+        Failure::storage_access(
+            error,
+            &paths.global_dir,
+            "Nothing was queued.",
+            "STORAGE_UNAVAILABLE",
+            "Dispatch could not be confirmed. Do not create a new operation merely to retry.",
+        )
+        .suggestion(format!(
+            "Retain operation ID {operation_id}; retry only the same composition."
+        ))
+    })?;
     let pending = (|| {
         let room = super::resolve(&mut storage, &room)?;
         if room.member_ids.is_empty() {

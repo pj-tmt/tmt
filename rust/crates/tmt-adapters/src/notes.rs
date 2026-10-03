@@ -58,11 +58,32 @@ impl NotebookError {
 
 /// The browser selects an identity, never a path. Reading does not initialize notes.
 pub fn read(paths: &ConfigPaths, identity_id: &str) -> Result<Notebook, NotebookError> {
-    if !tmt_core::dispatch::canonical_id(identity_id) {
-        return Err(NotebookError::InvalidIdentity);
+    read_with_open_error(paths, identity_id).map_err(|error| match error {
+        NotebookReadError::Open(_) => NotebookError::Unavailable,
+        NotebookReadError::Notebook(error) => error,
+    })
+}
+
+pub(crate) enum NotebookReadError {
+    Open(crate::storage::StorageError),
+    Notebook(NotebookError),
+}
+
+impl From<NotebookError> for NotebookReadError {
+    fn from(error: NotebookError) -> Self {
+        Self::Notebook(error)
     }
-    let mut storage = crate::storage::Storage::open(paths.database.clone())
-        .map_err(|_| NotebookError::Unavailable)?;
+}
+
+pub(crate) fn read_with_open_error(
+    paths: &ConfigPaths,
+    identity_id: &str,
+) -> Result<Notebook, NotebookReadError> {
+    if !tmt_core::dispatch::canonical_id(identity_id) {
+        return Err(NotebookError::InvalidIdentity.into());
+    }
+    let mut storage =
+        crate::storage::Storage::open(&paths.database).map_err(NotebookReadError::Open)?;
     let pending = storage.find_active_identity_by_id(identity_id);
     let closed = storage.close();
     let identity = pending

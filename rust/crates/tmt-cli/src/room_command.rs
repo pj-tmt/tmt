@@ -80,7 +80,15 @@ fn run(operation: RoomOperation) -> Result<Report, Failure> {
     let paths = ConfigPaths::discover().map_err(|error| {
         Failure::new("CONFIG_ERROR", "Could not resolve configuration paths.", 1).caused_by(error)
     })?;
-    let mut storage = Storage::open(paths.database).map_err(|error| failure(error.into()))?;
+    let mut storage = Storage::open(&paths.database).map_err(|error| {
+        Failure::storage_access(
+            error,
+            &paths.global_dir,
+            "No room was changed.",
+            "STORAGE_UNAVAILABLE",
+            "Could not access room storage.",
+        )
+    })?;
     let pending = (|| match operation {
         RoomOperation::Dispatch { .. } => unreachable!("dispatch has its own composition"),
         RoomOperation::Create(name) => room::create(&mut storage, name)

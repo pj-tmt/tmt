@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vite-plus/test';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 import { durableState } from './identity-state-oracle.js';
 import { installTmuxTrace } from './tmux-trace.js';
+import { expectError, runCli, withSandbox } from '../support/cli-process.js';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 
 const inputLog = { mode: 'input-log' } as const;
 
@@ -81,6 +83,128 @@ describe('current-server diagnostic routing', { concurrent: false }, () => {
       const missing = await fixture.runJsonCli(['check', '%999999']);
       expect(missing).toMatchObject({ code: 3, json: { error: { code: 'PANE_NOT_FOUND' } } });
     }, inputLog);
+  });
+
+  it('reports typed storage denial after bound-caller preflight without launching or rebinding', async () => {
+    await withE2EFixture(async (fixture) => {
+      expect(await fixture.runJsonCli(['name', '-s', 'Existing'])).toMatchObject({ code: 0 });
+      const before = durableState(fixture);
+      const metadata = fixture.paneMetadata();
+      const marker = path.join(fixture.workspace, 'must-not-launch');
+      fs.chmodSync(fixture.globalDir, 0o500);
+      try {
+        for (const args of [['whoami'], ['name', 'NewIdentity']]) {
+          expect(await fixture.runJsonCli(args)).toMatchObject({
+            code: 1,
+            stderr: '',
+            json: { error: { code: 'STORAGE_NOT_WRITABLE' } },
+          });
+        }
+        const launch = await fixture.runCli([
+          'run',
+          'NewIdentity',
+          '/bin/sh',
+          '-c',
+          `touch '${marker}'`,
+        ]);
+        expect(launch.code).toBe(1);
+        expect(launch.stdout).toBe('');
+        expect(launch.stderr).toContain(fixture.globalDir);
+        expect(launch.stderr).toContain('No command was launched');
+        expect(fs.existsSync(marker)).toBe(false);
+        expect(fixture.paneMetadata()).toBe(metadata);
+        expect(durableState(fixture)).toEqual(before);
+      } finally {
+        fs.chmodSync(fixture.globalDir, 0o700);
+      }
+      expect(await fixture.runJsonCli(['whoami'])).toMatchObject({ code: 0 });
+    }, inputLog);
+  });
+
+  it('keeps UTF-8 capture byte-identical and classifies real socket denial under a foreign locale', async () => {
+    const fixtures: E2EFixture[] = [];
+    await withE2EFixture(async (fixture) => {
+      fixtures.push(fixture);
+      const marker = 'UTF-8: 日本語 café 🦀';
+      await seedDiagnostic(fixture, marker);
+      const baseline = await fixture.runJsonCli<Capture>(['check', fixture.pane, '0']);
+      expect(baseline.code).toBe(0);
+      expect(baseline.json?.output).toContain(marker);
+      const before = durableState(fixture);
+      await withSandbox(async (sandbox) => {
+        // Pin the owned socket across the root/nobody UID change; -L selects
+        // a different tmux UID directory for each effective user.
+        const wrapperDir = path.join(sandbox.cwd, 'bin');
+        fs.mkdirSync(wrapperDir);
+        writeExecutable(
+          path.join(wrapperDir, 'tmux'),
+          '#!/bin/sh\nexec "$TMT_TEST_REAL_TMUX" -S "$TMT_TEST_SOCKET" "$@"\n'
+        );
+        const env = {
+          ...sandbox.env,
+          PATH: `${wrapperDir}${path.delimiter}${sandbox.env.PATH}`,
+          TMT_TEST_REAL_TMUX: fixture.tmuxPath,
+          TMT_TEST_SOCKET: fixture.socketPath,
+          TMUX: `${fixture.socketPath},${fixture.serverPid},0`,
+          TMUX_PANE: fixture.pane,
+          LANG: 'fr_FR.UTF-8',
+          LC_ALL: 'fr_FR.UTF-8',
+        };
+        const selected = { ...sandbox, env };
+        const captured = await runCli(selected, ['check', fixture.pane, '0', '--json']);
+        expect(captured.status).toBe(0);
+        expect(captured.stderr).toBe('');
+        expect(Buffer.from(JSON.parse(captured.stdout).output, 'utf8')).toEqual(
+          Buffer.from(baseline.json!.output, 'utf8')
+        );
+        const missing = await runCli(selected, ['check', '%999999', '--json']);
+        expect(missing.status).toBe(3);
+        expectError(missing, 'PANE_NOT_FOUND');
+        // Root can bypass socket mode bits. In the isolated Docker fixture only,
+        // run the refusal as nobody so OS permission evidence is exercised.
+        const unprivileged = process.getuid!() === 0;
+        for (const directory of [sandbox.root, sandbox.globalDir, fixture.root, fixture.socketRoot])
+          fs.chmodSync(directory, 0o755);
+        const socketMode = fs.statSync(fixture.socketPath).mode & 0o777;
+        fs.chmodSync(fixture.socketPath, 0o000);
+        try {
+          const denied = await runCli(
+            {
+              ...selected,
+              cli: unprivileged
+                ? {
+                    executable: '/usr/bin/setpriv',
+                    args: [
+                      '--reuid=65534',
+                      '--regid=65534',
+                      '--clear-groups',
+                      sandbox.cli.executable,
+                      ...sandbox.cli.args,
+                    ],
+                  }
+                : sandbox.cli,
+            },
+            ['name', 'DeniedSocket', '--json']
+          );
+          expect(denied.status, JSON.stringify(denied)).toBe(1);
+          expect(denied.stderr).toBe('');
+          expectError(denied, 'TMUX_PERMISSION_DENIED');
+        } finally {
+          fs.chmodSync(fixture.socketPath, socketMode);
+        }
+        expect(durableState(fixture)).toEqual(before);
+        const recovered = await runCli(selected, ['check', fixture.pane, '0', '--json']);
+        expect(recovered.status).toBe(0);
+        expect(Buffer.from(JSON.parse(recovered.stdout).output, 'utf8')).toEqual(
+          Buffer.from(baseline.json!.output, 'utf8')
+        );
+      });
+    }, inputLog);
+    for (const fixture of fixtures) {
+      expect(fs.existsSync(fixture.socketRoot)).toBe(false);
+      expect(fixture.serverProcessIsRunning()).toBe(false);
+      expect(fixture.mockProcessIsRunning()).toBe(false);
+    }
   });
 
   it.each([false, true])(

@@ -179,7 +179,15 @@ fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
     .map_err(Failure::from)?
     .settings
     .pane_badge;
-    let mut storage = Storage::open(&paths.database).map_err(storage_failure)?;
+    let mut storage = Storage::open(&paths.database).map_err(|error| {
+        Failure::storage_access(
+            error,
+            &paths.global_dir,
+            "No command was launched.",
+            "IDENTITY_ERROR",
+            "Could not access launch identity state.",
+        )
+    })?;
     let pending = run_bound(
         &mut storage,
         &paths,

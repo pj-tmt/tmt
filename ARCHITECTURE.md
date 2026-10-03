@@ -1297,7 +1297,9 @@ Extensions use `TMT_EXECUTABLE` rather than assuming an installed binary path.
 The CLI owns bounded stdin acquisition (EOF within five seconds), JSON publication
 and exit status. `tmt-adapters::api` owns envelope admission and composition.
 Its `api.rs` facade retains the dispatcher, protocol bounds, settings selection
-and storage lifetime. Private `api/` modules own operation-family inputs and
+and storage lifetime. API faults retain typed storage-open causes for CLI presentation,
+including notebook reads. Other in-process consumers retain their existing fault
+projection; adapters never depend on command output. Private `api/` modules own operation-family inputs and
 composition for requests, dispatch, rooms, notes, changes, identity hooks, skills,
 references and identity status. Identity, room, request history, dispatch and
 notes retain their existing domain, transaction and resource encoders. The same
@@ -2309,6 +2311,11 @@ are not retried by this policy.
 It classifies OS-denied writes and SQLite read-only/WAL failures as a typed
 not-writable error; a generic CANTOPEN needs independent permission evidence.
 An existing data directory without owner write permission is reported, not repaired.
+Public core command storage-open failures reuse `tmt-command-output::Failure::storage_access`.
+Only the typed not-writable cause changes the command's public code to
+`STORAGE_NOT_WRITABLE`; other causes retain command-specific diagnostics.
+Best-effort provider hooks, context snapshots and internal workers retain their
+existing absence/diagnostic policies. Office composition is outside this projection.
 CLI failure projection names the selected data directory and preserves the
 pre-transport versus uncertain-delivery distinction. The tmux adapter similarly
 classifies socket access denial before CLI presentation.
@@ -2612,7 +2619,13 @@ command deadline, I/O, spawn, output-limit and signal failures through the host
 port as `RECONCILIATION_FAILED` (exit 1), rather than `PANE_NOT_FOUND` (exit 3).
 A completed unsuccessful lookup or a successful reply without a valid pane ID
 still yields no target; socket denial remains `TMUX_PERMISSION_DENIED` (exit 1),
-and failed cleanup is never suppressed. Optional caller evidence retains its
+and failed cleanup is never suppressed. A failed socket-connect diagnostic supplies
+only the socket path: metadata/search errors and effective-user write-access checks
+confirm OS denial, independently of localized strerror text. Missing paths and
+accessible sockets cannot become denial merely because stderr says permission denied.
+The adapter preserves all child locale variables, including `LC_ALL` and `LC_CTYPE`,
+so diagnostics do not alter UTF-8 capture/send or a newly started server's panes.
+Optional caller evidence retains its
 best-effort absence policy. A failed paste or Enter is an
 uncertain delivery and is never retried as if unsent.
 Message delivery changes ASCII `!` to fullwidth `！` to avoid agent bash-mode
