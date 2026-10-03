@@ -759,6 +759,114 @@ async function wire(
   };
 }
 
+test('Ask publishes owner own envelopes through production Connection before Remote dispatch', async ({
+  page,
+  context,
+}) => {
+  const f = await wire(context),
+    agentId = '00000000-0000-4000-8000-000000000006',
+    requestId = 'req_00000000-0000-4000-8000-000000000007',
+    reply = 'Wire reply <script>inert</script>';
+  let sends = 0;
+  let deliveredMessage: string | null = null;
+  let operationId: string | null = null;
+  // Only Remote and the signed sync server are doubles: registration, controller,
+  // Worker preparation, Writer, Connection, receipts and projection are production.
+  await context.route('**/sdk/remote-v1.js*', (route) =>
+    route.fulfill({
+      contentType: 'text/javascript',
+      body: `export async function reopenSession(){await window.fixtureKeys;return {sessionId:'fixture-session',serverTimeMs:Date.now(),grantRevision:'1',expiresAtMs:null}}
+export async function certifyKey(purpose,bytes){return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'}}
+export function operations(){return {
+listAgents:async()=>[{id:'${agentId}',name:'Wire agent',presence:'active'}],
+send:async(input)=>(await fetch('/test-wire-send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)})).json(),
+operation:async(operationId)=>({state:'accepted',operationId,requestId:'${requestId}'}),
+result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.stringify(reply)}})
+}}`,
+    }),
+  );
+  await context.route('**/sdk/mount', (route) =>
+    route.fulfill({
+      json: {
+        machineId: '00000000-0000-4000-8000-000000000005',
+        windowId: 'fixture',
+        address: 'fixture',
+        extension: 'colab',
+        mount,
+      },
+    }),
+  );
+  await context.route('**/test-wire-send', async (route) => {
+    const input = route.request().postDataJSON();
+    await f.settled();
+    const own = new Y.Doc();
+    try {
+      for (const row of f.entries.slice(1)) {
+        const envelope = c.Envelope.fromJson(c.binary(row.envelope, 400 * 1024)),
+          header = c.decodeHeader(envelope.header()).context;
+        expect(header.namespace).toBe('own');
+        expect(header.authorDevice).toBe(v.device);
+        Y.applyUpdate(own, await envelope.open(header, hex(v.epochKey), hex(v.public)));
+      }
+      const intent = own.getMap('intents').get(input.operationId) as {
+        signed: { signature: string; input: string; finalBytes: string };
+      };
+      expect(intent).toBeDefined();
+      expect(
+        await c.strictVerify(
+          hex(v.public),
+          c.binary(intent.signed.signature, 64, 64),
+          c.binary(intent.signed.input, 16 * 1024),
+        ),
+      ).toBe(true);
+      expect(c.decodeText(c.binary(intent.signed.finalBytes, 64 * 1024))).toBe(input.message);
+      expect([...own.getMap('messages').values()]).toContainEqual(
+        expect.objectContaining({ operationId: input.operationId, state: 'dispatching' }),
+      );
+      expect(input.agentId).toBe(agentId);
+      expect(deliveredMessage).toBe(`[remote: Fixture]\n${input.message}`);
+      operationId = input.operationId;
+      sends++;
+      await route.fulfill({ json: { state: 'accepted', operationId, requestId } });
+    } finally {
+      own.destroy();
+    }
+  });
+  await page.goto(mount);
+  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
+  await expect(heading).toBeVisible();
+  await heading.evaluate((node) => {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    getSelection()!.removeAllRanges();
+    getSelection()!.addRange(range);
+  });
+  await page.getByTestId('ask-action').click();
+  await page.getByTestId('ask-agent-option').getByRole('radio').check();
+  await page.getByRole('button', { name: 'Ask agent — preview', exact: true }).click();
+  deliveredMessage = await page.getByTestId('ask-preview-text').textContent();
+  await page.getByTestId('ask-send').click();
+  await expect(page.getByTestId('ask-reply')).toHaveText(reply);
+  expect(sends).toBe(1);
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
+  await expect(page.getByTestId('ask-state')).toHaveAttribute('data-state', 'accepted');
+  await expect(page.getByTestId('ask-reply-attribution')).toContainText('Reply from Wire agent');
+  await expect(page.getByTestId('ask-panel').locator('script')).toHaveCount(0);
+  await expect(heading).toHaveText('Live fixture');
+  await f.settled();
+  expect(f.entries.map((row) => row.seq)).toEqual(['1', '2', '3', '4', '5']);
+  await page.reload();
+  await expect(page.getByTestId('ask-reply')).toHaveText(reply);
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
+  await expect(heading).toHaveText('Live fixture');
+  await f.settled();
+  expect(sends).toBe(1);
+  expect(f.entries).toHaveLength(5);
+  await page.getByRole('link', { name: 'Space home' }).click();
+  await expect.poll(() => f.connections).toBe(0);
+});
+
 test('same-device tabs explicitly take over one durable stream without reopen ping-pong', async ({
   page,
   context,
