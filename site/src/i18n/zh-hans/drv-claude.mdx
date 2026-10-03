@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drv-claude.mdx
-sourceRevision: a9b20d9dd287fd5dd0da493c0642d1a70df12d69
+sourceRevision: 44f7c122826138af7e784079ba61766762cba41f
 title: Claude Code
 ---
 
@@ -34,6 +34,12 @@ $ tmt resume reviewer       # 重新打开 reviewer 自己的会话
 `}</Cmd>
 
 setup 为 tmt 添加三个 Claude Code 钩子（会话开始、会话结束和提交提示词），不会修改其他设置。这些钩子不会阻塞 Claude Code：如果 tmt 响应慢或不存在，会话仍会正常启动，只是不带摘要。`tmt setup claude --remove` 可以移除这些钩子。
+
+设置了 `CLAUDE_CONFIG_DIR` 时，tmt 会用该文件夹存放 Claude 的设置和技能，并从中读取会话记录，不再使用 `~/.claude`。相对路径以运行 tmt 时所在的文件夹为起点。
+
+setup 不会编辑符号链接指向的设置文件，也不会修改链接或目标。若仍要添加 tmt 钩子，请先备份链接指向的文件。然后将 `CLAUDE_CONFIG_DIR` 指向一个空文件夹，运行 `tmt setup claude`，再将生成的 tmt 钩子条目手动复制到实际使用的设置文件中。
+
+如果 tmt 无法识别会话结束的原因，就不会据此认定会话已结束，而会检查 Claude 进程本身。
 
 <Mdx.h3 id="what-you-get">你会得到什么</Mdx.h3>
 

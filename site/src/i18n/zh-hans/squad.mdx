@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: b40cddd71fed227a9a62d6ae2d8b410c0160f81e
+sourceRevision: b0bd9ca6a2c24f3e09501d5d4082179f6b31f0e5
 title: Squad：lead、成员和一个看板
 ---
 
@@ -142,6 +142,21 @@ o = "tab"
 
 `tmt sq config show` 在命令行输出相同内容：不加参数时显示看板默认值，`--squad product` 显示单个 squad，`--tab all`（也可为 `leads` 或你命名的标签页）显示单个标签页。两个选项一次只用一个。`--json` 提供完整值及各自来源。
 
+<Mdx.h3 id="change-settings-from-the-command-line">从命令行修改设置</Mdx.h3>
+
+`tmt sq config set` 检查设置并将其保存到 `squad.toml`：
+
+<Cmd>{`
+$ tmt sq config set notes.render plain --squad product
+$ tmt sq config set board.refresh 10s --squad product
+$ tmt sq config set board.hidden_columns '["pr_link"]' --squad product
+$ tmt sq config set tabs.hide '["leads"]'
+`}</Cmd>
+
+大多数设置属于单个 squad，因此要加上 `--squad`。标签页顺序和隐藏的标签页（`tabs.*`）始终是全局设置。`board.refresh` 默认也是全局设置，除非指定 squad。列表用 JSON 表示。tmt 会拒绝无效值；如果文件在读取后发生变化，也会拒绝写入。注释和其他设置保持原样。修改 split 的窗格、方向或尺寸时，会将整个布局保存到文件中，之后的预设变更不会覆盖它。嵌套 split、命令、状态模式和提醒只能通过编辑文件来修改。
+
+`board.hidden_columns` 可以隐藏看板中的列，不改变网格。跨列单元格会缩到仍然显示的列上。如果某个设置会隐藏一个单元格的所有列，tmt 就会拒绝。设为 `[]` 可重新显示全部列。`tmt sq ls` 隐藏相同的列，`--json` 仍包含所有值。
+
 <Mdx.h3 id="board-views">看板视图</Mdx.h3>
 
 视图安排窗格及其初始折叠状态，同时保留 squad 的状态、行、数据提供程序、提醒、token 计量器和主题。用 `tmt sq view ls`（或直接用 `tmt sq view`）列出五个内置视图：
@@ -175,6 +190,10 @@ notes 窗格显示 lead 自己的笔记本，也就是 `tmt notes path --identit
 点击笔记中的一行可将光标放在该行。笔记窗格获得焦点后（点击一行，或按 Tab 切换过来），↑↓ 或 j/k 移动一行，PgUp/PgDn 移动一页，g/G 或 Home/End 跳到首行或末行。换行显示的长行仍作为一整行高亮。lead 编辑笔记本后，光标会留在相同文本上；滚轮滚动不会移动光标。
 
 在一行上按 `a`，向 lead 发送关于这行的批注。输入提示会显示行号和一小段引用；输入消息后按 Enter，或按 Esc 取消。lead 回答之前，该行会显示 `✎`。笔记本本身仍然只读。
+
+笔记中的链接也可以使用。Tab 和 Shift-Tab 在链接之间移动（除非你为 Tab 绑定了其他操作），底部一行会显示所选链接的内容和目标。Enter 打开链接；用鼠标时，第一次点击选中，第二次点击打开。Esc 清除选择。笔记没有链接时，Tab 像往常一样切到下一个窗格。网址和完整的 GitHub issue 或 PR 链接可以打开。绝对文件路径只会在所在文件夹中显示该文件，绝不会打开文件本身。相对路径、单独的 `#12` 和未知类型的链接仍显示为普通文本。
+
+笔记本还可以链接到看板操作：`tmt:jump/<member>`、`tmt:open/<member>`、`tmt:copy/<member>`、`tmt:talk/<member>`、`tmt:answer/<member>`、`tmt:annotate/<member>` 和 `tmt:back`。`<member>` 是当前 squad 中成员或 lead 的名称或 ID。其他名称不会触发操作，并会显示原因。talk、answer 和 annotate 打开常规输入提示；链接含有 `?text=…` 时会预填文本。按下 Enter 之前不会发送。要从链接运行自己的程序，请在 `squad.toml` 的 `[links]` 下添加条目，例如 `gh = "run gh issue view {path}"`。之后，笔记中的 `gh:1234` 链接就会运行 `gh issue view 1234`。tmt 直接运行程序，不经过 shell。
 
 detail 窗格在成员字段下方只读显示所选成员自己的笔记本，使用与 lead 笔记相同的 Markdown 样式。已保存但没有笔记本的成员显示 `(no notes yet)`；临时成员显示 `(temporary identity: no notebook)`。每个成员都应在自己的笔记本顶部保留同样简短的 **Current state** 部分。leads 和 all 标签页仍然只显示行。
 
@@ -259,7 +278,7 @@ Y = "copy - [{name}]({pr_link}) {state}"
 看板在每一层都采用相同的布局方式，因此一套规则就能解释全部布局。每个成员行都使用同一个列网格，行之间对齐，方便一眼比较成员。一行数据可以占多个显示行，每个显示行中的单元格都可以跨多列。
 
 - **列**可设置固定宽度，或 `min`/`max` 与剩余空间中的 `grow` 份额；还可设置 `align`、在 `end` 或 `middle` 处 `truncate`（中间截断适合路径和链接），以及 `priority`。可增长的列从 `min` 开始（未设置时为 4 格），不会超过 `max`；一列达到 `max` 后，剩余空间分给其他列。窄屏下，各列先缩到 `min`。如果整行仍放不下，就从最高 `priority` 开始逐列隐藏，直到剩余列能完整放下；没有 `priority` 的列不会隐藏。最后一列至少保留 4 格，否则隐藏。
-- **显示行**：`lines` 指定一行数据占多少个显示行，以及每个显示行的内容。每个显示行列出所用的列，单元格可以通过 `span` 跨多列，因此第二个显示行可以在任务下方显示成员正在等你处理的事项。后续显示行没有内容时会省略。
+- **显示行**：`lines` 指定一行数据占多少个显示行，以及每个显示行的内容。每个显示行列出所用的列，单元格可以通过 `span` 跨多列，因此第二个显示行可以在任务下方显示成员正在等你处理的事项。后续显示行没有内容时会省略。单元格也可以指定主题 `token` 作为颜色，例如 `{ field = "pending", span = 3, token = "waiting" }`。Team 预设采用了这种设置，让成员需要你处理的事项显示为 waiting 颜色。其他预设保持原有颜色，除非你添加 token。单元格的 token 优先于列的 `color` 阈值。token 是主题中的名称，不是具体颜色值。空值仍然暗显，选中时仍会高亮整行。
 - **值的来源**：默认显示成员同名的 squad 字段，也可用 `from` 绑定到成员自己的 tmt 数据：`member`、`presence`、`cwd`、`target`、`session.driver`、`session.model`、`session.usage.tokens`、`session.usage.remaining`（driver 报告窗口大小时，为上下文窗口减去已用 token）、`meta.<key>` 或 `meta.squad.<field>`。所有 driver 使用相同路径，因此成员从 Claude 切换到 Codex 后仍可保留这些列。`format` 将值显示为 `text`、`tokens`（`487k`）、`age`（`5m`）或 `count`（`12,345`）。分区、筛选和排序使用同一个值，数字按数值排序。缺失值显示为 `–`，这是看板统一表示“这里没有内容”的标记。Squad 自身的字段（`member`、`role`、`state`、`pending`、`note`）不能绑定。列还可以按值给单元格着色：`color = [{ at = 400000, token = "review" }, { at = 600000, token = "blocked" }]` 为每个单元格选取其数值达到的最高 `at` 对应的主题 token。颜色只是装饰，没有颜色时值的含义也相同。
 - **百分比宽度**类似 CSS。`width = "30%"` 是看板扣除边框和行标记后的内部宽度比例，不是固定列占用后剩余空间的比例；列间距另计。百分比之和最多为 100%，`min` 和 `max` 仍按格数计算。要分配剩余空间，使用类似 CSS `fr` 的 `grow`。没有显示行使用的末尾列不单独占宽度，但其值仍可填入其他单元格。隐藏一列后，会为剩余列重新计算份额。
 - **单元格默认不换行。** 放不下的文本用 `…` 截断，宽度按终端实际显示计算，因此中文和 emoji 可以对齐。为列设置 `overflow = "wrap"` 后，可换行显示最多 `max_lines` 行（1–8，默认 2）；如果仍放不下，最后一行用 `…` 截断。续行与单元格起点对齐，选择、翻页、滚动和点击都按实际可见行处理。跨列单元格使用第一列的设置。旧的 `[squad.<name>.columns]` 写法也支持百分比宽度和 `overflow`。
