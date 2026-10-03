@@ -723,7 +723,7 @@ fn all_view(
     let bindings = config.bindings_for_tab(ALL, false, &[])?;
     let view = View {
         token_rate: None,
-        home: Some(home.value()),
+        home: Some(home),
         derived: Default::default(),
         rows: loaded.rows,
         render: NotesRender::Markdown,
@@ -1064,9 +1064,9 @@ esac
             );
             assert_eq!(view.home.is_some(), key == ALL);
             if let Some(home) = &view.home {
-                assert_eq!(home["squads"].as_array().unwrap().len(), 2);
-                assert_eq!(home["summary"]["members"], 2);
-                assert_eq!(home["summary"]["waiting"], 1);
+                assert_eq!(home.squads.len(), 2);
+                assert_eq!(home.summary.members, 2);
+                assert_eq!(home.summary.waiting, 1);
             }
             assert_eq!(view.rows.value()["columns"], listed["columns"]);
             assert_eq!(view.rows.value()["lines"], listed["lines"]);

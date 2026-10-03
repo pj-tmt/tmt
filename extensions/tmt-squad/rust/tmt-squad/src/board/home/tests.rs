@@ -70,20 +70,17 @@ fn row(id: &str, name: &str, state: &str) -> Value {
 fn document(name: &str, lead: Value, rows: Vec<Value>) -> Value {
     json!({"squad": {"name": name, "lead": lead}, "sections": [{"rows": rows}]})
 }
-fn value(home: Home) -> Value {
-    home.value()
-}
 
 #[test]
 fn empty_and_quiet_home_keep_only_current_sections_and_squad_order() {
     let f = Fixture::new("");
-    let empty = value(model(&[], &f.acquired(&[]), 100));
-    assert_eq!(empty["summary"]["members"], 0);
-    assert_eq!(empty["sections"].as_array().unwrap().len(), 2);
-    assert_eq!(empty["sections"][0]["key"], "needs-you");
-    assert_eq!(empty["sections"][1]["key"], "blocked");
-    assert_eq!(empty["squads"], json!([]));
-    assert!(!empty["incomplete"].as_bool().unwrap());
+    let empty = model(&[], &f.acquired(&[]), 100);
+    assert_eq!(empty.summary.members, 0);
+    assert_eq!(empty.sections.len(), 2);
+    assert_eq!(empty.sections[0].key, "needs-you");
+    assert_eq!(empty.sections[1].key, "blocked");
+    assert!(empty.squads.is_empty());
+    assert!(!empty.incomplete);
     let acquired = f.acquired(&[
         (
             "hidden",
@@ -102,22 +99,32 @@ fn empty_and_quiet_home_keep_only_current_sections_and_squad_order() {
             ),
         ),
     ]);
-    let home = value(model(&["shown".into()], &acquired, 100));
+    let home = model(&["shown".into()], &acquired, 100);
     assert_eq!(
-        home["summary"],
-        json!({"members":3,"waiting":0,"blocked":0,"review":1,"working":1,"idle":1})
+        home.summary,
+        Counts {
+            members: 3,
+            waiting: 0,
+            blocked: 0,
+            review: 1,
+            working: 1,
+            idle: 1
+        }
     );
-    assert_eq!(home["squads"][0]["squad"], "shown");
-    assert_eq!(home["squads"][1]["squad"], "hidden");
-    assert_eq!(home["squads"][0]["lead"]["name"], "lead");
-    assert_eq!(home["squads"][0]["pressing"]["name"], "worker");
-    assert!(
-        home["sections"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|section| section["rows"] == json!([]))
+    assert_eq!(home.squads[0].squad, "shown");
+    assert_eq!(
+        home.squads[0].counts,
+        Counts {
+            members: 2,
+            review: 1,
+            idle: 1,
+            ..Default::default()
+        }
     );
+    assert_eq!(home.squads[1].squad, "hidden");
+    assert_eq!(home.squads[0].lead.as_ref().unwrap()["name"], "lead");
+    assert_eq!(home.squads[0].pressing.as_ref().unwrap()["name"], "worker");
+    assert!(home.sections.iter().all(|section| section.rows.is_empty()));
 }
 
 #[test]
@@ -139,37 +146,42 @@ fn shared_sections_deduplicate_within_a_squad_and_keep_cross_squad_memberships()
         .unwrap()
         .push(json!({"rows":[waiting.clone(),pending]}));
     let acquired = f.acquired(&[("a", a), ("b", document("b", Value::Null, vec![waiting]))]);
-    let home = value(model(&["a".into(), "b".into()], &acquired, 100));
-    assert_eq!(home["summary"]["members"], 4);
-    assert_eq!(home["summary"]["waiting"], 3);
-    assert_eq!(home["summary"]["blocked"], 3);
-    let needs = home["sections"][0]["rows"].as_array().unwrap();
+    let home = model(&["a".into(), "b".into()], &acquired, 100);
+    assert_eq!(home.summary.members, 4);
+    assert_eq!(home.summary.waiting, 3);
+    assert_eq!(home.summary.blocked, 3);
+    let needs = &home.sections[0].rows;
     assert_eq!(needs.len(), 3);
-    assert_eq!(needs[0]["member"]["name"], "asker");
-    assert_eq!(needs[0]["age"], json!({"source":"request","since_ms":20}));
-    assert_eq!(needs[0]["lead"], "pending-lead");
+    assert_eq!(needs[0].member["name"], "asker");
     assert_eq!(
-        needs[0]["member"]["waitingOnYou"][0]["preview"],
+        needs[0].age,
+        Some(Age {
+            source: AgeSource::Request,
+            since_ms: 20
+        })
+    );
+    assert_eq!(needs[0].lead.as_deref().unwrap(), "pending-lead");
+    assert_eq!(
+        needs[0].member["waitingOnYou"][0]["preview"],
         "private question"
     );
-    assert_eq!(needs[1]["member"]["name"], "pending-lead");
-    assert_eq!(
-        needs[1]["age"],
-        Value::Null,
-        "pending text cannot establish age"
-    );
-    assert_eq!(needs[2]["squad"], "b");
+    assert_eq!(needs[1].member["name"], "pending-lead");
+    assert_eq!(needs[1].age, None, "pending text cannot establish age");
+    assert_eq!(needs[2].squad, "b");
     // Shared user sections retain overlapping matches; a waiting blocked
     // member appears in both while squad summary counts it once per state.
-    let blocked = home["sections"][1]["rows"].as_array().unwrap();
+    let blocked = &home.sections[1].rows;
     assert_eq!(blocked.len(), 3);
-    assert_eq!(blocked[0]["member"]["id"], "A");
-    assert_eq!(blocked[1]["member"]["id"], "B");
+    assert_eq!(blocked[0].member["id"], "A");
+    assert_eq!(blocked[1].member["id"], "B");
     assert_eq!(
-        blocked[1]["age"],
-        json!({"source":"observed","since_ms":30})
+        blocked[1].age,
+        Some(Age {
+            source: AgeSource::Observed,
+            since_ms: 30
+        })
     );
-    assert_eq!(home["squads"][0]["pressing"]["id"], "A");
+    assert_eq!(home.squads[0].pressing.as_ref().unwrap()["id"], "A");
 }
 
 #[test]
@@ -190,14 +202,14 @@ fn ages_require_authoritative_nonfuture_timestamps_and_partial_is_visible() {
     acquired
         .failures
         .push(json!({"source":"inbox","error":{"code":"FAILED"}}));
-    let home = value(model(&[], &acquired, 100));
-    for section in home["sections"].as_array().unwrap() {
-        for row in section["rows"].as_array().unwrap() {
-            assert_eq!(row["age"], Value::Null);
+    let home = model(&[], &acquired, 100);
+    for section in &home.sections {
+        for row in &section.rows {
+            assert!(row.age.is_none());
         }
     }
-    assert_eq!(home["incomplete"], true);
-    assert_eq!(home["failures"][0]["source"], "inbox");
+    assert!(home.incomplete);
+    assert_eq!(home.failures[0]["source"], "inbox");
 }
 
 fn squads() -> Vec<Squad> {
@@ -256,23 +268,19 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
         crate::status::text(&home_public.document, terminal),
         crate::status::text(&public.document, terminal)
     );
-    let home = value(home);
-    assert_eq!(home["summary"]["members"], 2);
-    assert_eq!(home["summary"]["blocked"], 2);
-    assert_eq!(home["summary"]["waiting"], 1);
-    assert_eq!(home["incomplete"], true);
+    assert_eq!(home.summary.members, 2);
+    assert_eq!(home.summary.blocked, 2);
+    assert_eq!(home.summary.waiting, 1);
+    assert!(home.incomplete);
     assert_eq!(
-        home["sections"][0]["rows"][0]["age"],
-        json!({"source":"request","since_ms":20})
+        home.sections[0].rows[0].age,
+        Some(Age {
+            source: AgeSource::Request,
+            since_ms: 20
+        })
     );
-    assert_eq!(home["sections"][1]["rows"][0]["member"]["name"], "worker-a");
-    assert!(
-        home["sections"][1]["rows"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|row| row["age"].is_null())
-    );
+    assert_eq!(home.sections[1].rows[0].member["name"], "worker-a");
+    assert!(home.sections[1].rows.iter().all(|row| row.age.is_none()));
 }
 
 #[test]
@@ -298,10 +306,9 @@ fn failed_roster_and_inbox_are_reported_and_recovery_replaces_the_partial_model(
     };
     let (public, home) = load(&f.core, &f.config, &squads(), &[], Some(&me)).unwrap();
     assert_eq!(public.document["partial"], true);
-    let home = value(home);
-    assert_eq!(home["failures"].as_array().unwrap().len(), 2);
-    assert_eq!(home["squads"].as_array().unwrap().len(), 1);
-    assert_eq!(home["squads"][0]["squad"], "b");
+    assert_eq!(home.failures.len(), 2);
+    assert_eq!(home.squads.len(), 1);
+    assert_eq!(home.squads[0].squad, "b");
     fs::remove_file(f.root.join("inbox-fail")).unwrap();
     fs::remove_file(f.root.join("a-fail")).unwrap();
     fs::write(f.root.join("inbox"), "{\"items\":[],\"more\":false}").unwrap();

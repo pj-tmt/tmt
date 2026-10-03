@@ -3550,10 +3550,13 @@ selected row on the leads tab, the row's `lead` field on the all tab; it then
 takes the ordinary jump request, so the popup closes and `back` returns.
 
 `board::home` retains a board-only summary, shared-filter attention sections and
-compact squad-line model on the aggregate `View`; other views carry no home data.
+compact squad-line model as typed `View.home: Option<home::Home>`; other views
+carry no home data.
 It reuses `tab_view` acquisition and the user-tab section pipeline. Its optional
-observed ages come from the existing per-squad observer around that same roster
-read, respecting the reminders policy without extra core commands. Request ages
+observed ages come from the existing staleness observer: the home tab starts
+one for every squad before its roster read and records afterward, writing its
+observation cache under the held per-squad lock when enabled and available.
+It respects the reminders policy without extra core commands. Request ages
 use shared-inbox timestamps; pending-only rows have no age. The source aggregate
 document and `ls --tab all` JSON/text remain unchanged. The retained model does
 not yet change board painting or actions.

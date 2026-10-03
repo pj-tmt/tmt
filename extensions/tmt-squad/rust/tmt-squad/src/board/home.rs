@@ -13,7 +13,7 @@ use crate::{
 };
 use serde_json::{Value, json};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct Counts {
     pub members: usize,
     pub waiting: usize,
@@ -23,20 +23,27 @@ pub struct Counts {
     pub idle: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum AgeSource {
     Request,
     Observed,
 }
 
 /// The painter can advance age without acquiring data or inventing a timestamp.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Age {
     pub source: AgeSource,
     pub since_ms: u64,
 }
 
 #[derive(Debug)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Retained for the #1292 home painter in the next PR."
+    )
+)]
 pub struct MemberRow {
     pub squad: String,
     /// Retains the public request projection for the existing answer composer.
@@ -47,6 +54,13 @@ pub struct MemberRow {
 }
 
 #[derive(Debug)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Retained for the #1292 home painter in the next PR."
+    )
+)]
 pub struct MemberSection {
     /// Stable section keys, independent of display text or cursor position.
     pub key: String,
@@ -54,6 +68,13 @@ pub struct MemberSection {
 }
 
 #[derive(Debug)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Retained for the #1292 home painter in the next PR."
+    )
+)]
 pub struct SquadLine {
     pub squad: String,
     pub lead: Option<Value>,
@@ -62,48 +83,19 @@ pub struct SquadLine {
 }
 
 #[derive(Debug)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Retained for the #1292 home painter in the next PR."
+    )
+)]
 pub struct Home {
     pub summary: Counts,
     pub sections: Vec<MemberSection>,
     pub squads: Vec<SquadLine>,
     pub failures: Vec<Value>,
     pub incomplete: bool,
-}
-
-impl Counts {
-    fn value(&self) -> Value {
-        json!({"members": self.members, "waiting": self.waiting,
-            "blocked": self.blocked, "review": self.review,
-            "working": self.working, "idle": self.idle})
-    }
-}
-
-impl Home {
-    /// Internal board projection, kept separate from the public all document.
-    pub fn value(self) -> Value {
-        let sections = self.sections.into_iter().map(|section| {
-            let rows = section.rows.into_iter().map(|row| {
-                let age = row.age.map(|age| json!({
-                    "source": match age.source { AgeSource::Request => "request", AgeSource::Observed => "observed" },
-                    "since_ms": age.since_ms,
-                }));
-                json!({"squad": row.squad, "member": row.member, "lead": row.lead, "age": age})
-            }).collect::<Vec<_>>();
-            json!({"key": section.key, "rows": rows})
-        }).collect::<Vec<_>>();
-        let squads = self
-            .squads
-            .into_iter()
-            .map(|squad| {
-                json!({
-                    "squad": squad.squad, "lead": squad.lead,
-                    "counts": squad.counts.value(), "pressing": squad.pressing,
-                })
-            })
-            .collect::<Vec<_>>();
-        json!({"summary": self.summary.value(), "sections": sections,
-            "squads": squads, "failures": self.failures, "incomplete": self.incomplete})
-    }
 }
 
 pub fn load(

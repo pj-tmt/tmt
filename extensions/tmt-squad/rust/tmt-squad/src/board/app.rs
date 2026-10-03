@@ -30,7 +30,7 @@ pub struct View {
     /// The `status --json` document, so the board and `status` never differ.
     pub document: Value,
     /// Retained home composition; only the aggregate board view owns it.
-    pub home: Option<Value>,
+    pub home: Option<super::home::Home>,
     pub(super) derived: RefCell<super::derived::Derived>,
     pub rows: crate::rows::Rows,
     pub board: Board,
@@ -1682,12 +1682,26 @@ pub(crate) mod tests {
         let mut app = App::new(Some("product".into()));
         let mut home = snapshot(super::super::ALL, json!([]));
         home.tabs.push(super::super::ALL.into());
-        home.view.as_mut().unwrap().home = Some(json!({"summary": {"members": 7}}));
+        home.view.as_mut().unwrap().home = Some(super::super::home::Home {
+            summary: super::super::home::Counts {
+                members: 7,
+                ..Default::default()
+            },
+            sections: Vec::new(),
+            squads: Vec::new(),
+            failures: Vec::new(),
+            incomplete: false,
+        });
         app.apply(home);
         assert_eq!(app.current.as_deref(), Some("product"));
         assert!(app.view.is_none());
         assert_eq!(
-            app.cache[super::super::ALL].home.as_ref().unwrap()["summary"]["members"],
+            app.cache[super::super::ALL]
+                .home
+                .as_ref()
+                .unwrap()
+                .summary
+                .members,
             7
         );
     }
