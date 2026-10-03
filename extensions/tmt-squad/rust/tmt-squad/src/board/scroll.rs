@@ -192,7 +192,7 @@ impl Scrolls {
                 parts.push(format!("↑ {above}"));
             }
             if below > 0 {
-                parts.push(format!("↓ {below}"));
+                parts.push(format!("{below} more ↓"));
             }
             let indicator = Rect {
                 y: area.y + viewport as u16,

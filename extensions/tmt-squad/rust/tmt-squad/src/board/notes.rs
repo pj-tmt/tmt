@@ -193,6 +193,27 @@ impl Notebooks {
     }
 }
 
+/// Display-only quote; the durable annotation tag retains the source text.
+pub(super) fn display_quote(text: &str) -> String {
+    let text = text.trim();
+    let text = ["- ", "* ", "+ "]
+        .into_iter()
+        .find_map(|prefix| text.strip_prefix(prefix))
+        .or_else(|| {
+            let digits = text.bytes().take_while(u8::is_ascii_digit).count();
+            (digits > 0)
+                .then(|| text.get(digits..))
+                .flatten()
+                .and_then(|rest| rest.strip_prefix(". ").or_else(|| rest.strip_prefix(") ")))
+        })
+        .unwrap_or(text);
+    if text.chars().count() > 48 {
+        format!("{}…", text.chars().take(47).collect::<String>())
+    } else {
+        text.to_owned()
+    }
+}
+
 /// Selection belongs to notebook content; Scrolls remains the viewport owner.
 #[derive(Default)]
 pub(super) struct NotesCursor {
@@ -276,6 +297,18 @@ impl NotesCursor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_quote_strips_list_prefixes_without_changing_the_source() {
+        for source in ["- item", "* item", "+ item", "12. item", "2) item"] {
+            assert_eq!(display_quote(source), "item");
+        }
+        assert_eq!(display_quote("path-name"), "path-name");
+        assert_eq!(
+            display_quote(&"字".repeat(49)),
+            format!("{}…", "字".repeat(47))
+        );
+    }
 
     #[test]
     fn paging_and_clicks_keep_the_chosen_wrapped_continuation() {

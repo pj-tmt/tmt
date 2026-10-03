@@ -3565,10 +3565,10 @@ second Markdown parser. `App` keeps one notes cursor per visible/hidden squad,
 anchored to the complete sanitized source line (nearest match for duplicates,
 clamped position after deletion), with a continuation offset for wrapped lines.
 Cursor movement and click placement reveal the painted line through `Scrolls`;
-wheel scrolling suspends following until cursor movement. The focused painted
-line uses the existing selection background/reverse fallback. Only visible lines
-are decorated, and open annotations reserve a two-cell gutter before wrapping so
-the sent marker cannot clip notebook content.
+wheel scrolling suspends following until cursor movement. Every painted
+continuation of the selected source line uses the existing selection background/reverse fallback across the pane
+width. Only visible lines are decorated; a fixed two-cell gutter holds the sent
+marker or blanks before wrapping, keeping text aligned without clipping.
 Notes annotations reuse the ordinary composer and annotation sender, addressed
 to the current lead and tagged with the source line number and a bounded quoted
 excerpt. Opening, canceling or submitting an empty composer sends nothing.

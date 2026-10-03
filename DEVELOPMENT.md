@@ -1583,7 +1583,9 @@ unsupported constructs, wrapped continuation paging/click placement, resize,
 content insertion/deletion, duplicate anchors and per-line annotation composer
 cancellation/empty submission. Request projection tests cover bounded escaped
 quotes, sender/current-lead checks and marker removal after an answer. A
-painted-cell regression proves markers cannot clip wrapped content. Check the
+painted-cell regression proves markers cannot clip wrapped content; selection
+covers each wrapped continuation to the pane edge. Display-only annotation
+quotes strip list prefixes and truncate without changing durable source tags. Check the
 focused cursor and sent marker in `tmt`, `tmt-light` and `NO_COLOR`; notes keep
 the shared `Scrolls` viewport owner.
 

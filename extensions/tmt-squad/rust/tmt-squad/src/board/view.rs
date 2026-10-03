@@ -1076,12 +1076,7 @@ pub(super) fn notebook_lines(
 fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     let Some(view) = &app.view else { return };
-    let gutter = view.document["squad"]["noteAnnotations"]
-        .as_array()
-        .is_some_and(|items| !items.is_empty());
-    let width = usize::from(area.width)
-        .saturating_sub(if gutter { 2 } else { 0 })
-        .max(1);
+    let width = usize::from(area.width).saturating_sub(2).max(1);
     let mut derived = view.derived.borrow_mut();
     let rebuilt = derived
         .notes
@@ -1123,9 +1118,9 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
             cursor.reconcile(text);
         }
         if app.focused_pane() == Some(Pane::Notes) {
-            selected = cursor.visual(sources);
+            selected = Some(cursor.source);
             if cursor.follow
-                && let Some(line) = selected
+                && let Some(line) = cursor.visual(sources)
             {
                 app.scrolls
                     .reveal_range(Pane::Notes, line..line + 1, area, lines.len());
@@ -1159,21 +1154,26 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
         look.role(Role::Dim),
         |at, line| {
             let mut line = line.clone();
-            let is_selected = Some(at) == selected;
+            let is_selected = sources.get(at).copied() == selected && selected.is_some();
             if is_selected {
                 line.style = look.selection();
                 for span in &mut line.spans {
                     span.style = look.row_span(true, span.style, false);
                 }
             }
-            if gutter {
-                line.spans.insert(
-                    0,
-                    Span::styled(
-                        if marked.contains(&at) { "✎ " } else { "  " },
-                        look.row_span(is_selected, look.role(Role::Muted), false),
-                    ),
-                );
+            line.spans.insert(
+                0,
+                Span::styled(
+                    if marked.contains(&at) { "✎ " } else { "  " },
+                    look.row_span(is_selected, look.role(Role::Muted), false),
+                ),
+            );
+            if is_selected {
+                let rest = usize::from(area.width).saturating_sub(line.width());
+                line.spans.push(Span::styled(
+                    " ".repeat(rest),
+                    look.row_span(true, Style::default(), false),
+                ));
             }
             line
         },
@@ -4080,7 +4080,7 @@ lines = [
         let before = draw(&app, 60, 11);
         assert!(before.iter().any(|line| line.contains("line 01")));
         assert!(
-            before.iter().any(|line| line.contains("↓ 25")),
+            before.iter().any(|line| line.contains("25 more ↓")),
             "an overflowing pane says how much is below: {before:#?}"
         );
         // Rows is focused; the wheel over the notes (right half) moves them.
@@ -4092,7 +4092,7 @@ lines = [
             "{after:#?}"
         );
         assert!(after.iter().any(|line| line.contains("line 07")));
-        assert!(after.iter().any(|line| line.contains("↑ 6  ↓ 19")));
+        assert!(after.iter().any(|line| line.contains("↑ 6  19 more ↓")));
         wheel(&mut app, 45, 5, false);
         assert!(
             draw(&app, 60, 11)
@@ -4264,7 +4264,11 @@ lines = [
             Effect::None
         );
         let input = app.input.as_ref().unwrap();
-        assert!(input.prompt.contains("notes L4"));
+        assert!(
+            input
+                .prompt
+                .starts_with("note for sol · L4 “selected source")
+        );
         assert!(input.text.is_empty());
         assert_eq!(
             app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
@@ -4335,7 +4339,9 @@ lines = [
                     vec![Pane::Rows, Pane::Notes],
                     vec![50, 50],
                 ),
-                Notes::Text("selected\nother".into()),
+                Notes::Text(
+                    "selected source line that wraps across multiple painted rows\nother".into(),
+                ),
             );
             app.view.as_mut().unwrap().look = crate::look::Look {
                 theme: tmt_cli_style::Theme::new(base),
@@ -4348,13 +4354,34 @@ lines = [
             let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
             terminal.draw(|frame| render(frame, &app)).unwrap();
             let (hit, _) = app.note_hits.borrow()[0];
-            let cell = &terminal.backend().buffer()[(hit.x + 2, hit.y)];
+            let cell = &terminal.backend().buffer()[(hit.x + hit.width - 1, hit.y)];
             let selection = app.look().selection();
             assert_eq!(cell.bg, selection.bg.unwrap_or_default());
             assert_eq!(
                 cell.modifier.contains(Modifier::REVERSED),
                 selection.bg.is_none()
             );
+            let sources = app
+                .view
+                .as_ref()
+                .unwrap()
+                .derived
+                .borrow()
+                .notes
+                .as_ref()
+                .unwrap()
+                .3
+                .clone();
+            for (area, at) in app.note_hits.borrow().iter() {
+                if sources[*at] == 0 {
+                    let cell = &terminal.backend().buffer()[(area.x + area.width - 1, area.y)];
+                    assert_eq!(cell.bg, selection.bg.unwrap_or_default());
+                    assert_eq!(
+                        cell.modifier.contains(Modifier::REVERSED),
+                        selection.bg.is_none()
+                    );
+                }
+            }
             assert!(
                 draw(&app, 60, 12)
                     .iter()

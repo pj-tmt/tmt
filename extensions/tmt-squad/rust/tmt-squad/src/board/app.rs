@@ -1109,21 +1109,21 @@ impl App {
             return self.say("This squad has no lead to annotate for.");
         };
         let squad = self.current.clone().unwrap_or_default();
-        let row = {
+        let (row, prompt) = {
             let mut cursors = self.note_cursors.borrow_mut();
             let cursor = cursors.entry(squad.clone()).or_default();
             cursor.reconcile(text);
-            crate::requests::note_row(
-                &squad,
-                cursor.source,
-                text.split('\n').nth(cursor.source).unwrap_or_default(),
+            let source = text.split('\n').nth(cursor.source).unwrap_or_default();
+            (
+                crate::requests::note_row(&squad, cursor.source, source),
+                format!(
+                    "note for {to} · L{} “{}”",
+                    cursor.source + 1,
+                    super::notes::display_quote(source)
+                ),
             )
         };
-        self.ask(
-            format!("note on {row} for {to}"),
-            Compose::Annotate { to, row },
-            squad,
-        )
+        self.ask(prompt, Compose::Annotate { to, row }, squad)
     }
 
     fn move_note(&self, step: Step) {

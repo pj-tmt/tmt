@@ -349,8 +349,9 @@ Arrow keys or j/k move between displayed lines; PgUp/PgDn page, and
 Home/End or g/G select the first/last line. The cursor follows unchanged source
 text when notes refresh (nearest match for duplicates, clamped after deletion).
 The wheel scrolls independently; moving the cursor brings it back into view.
-The selected displayed line uses the existing selection appearance, including
-reverse video with `NO_COLOR`.
+Every displayed continuation of the selected source line uses the full-width
+selection appearance, including reverse video with `NO_COLOR`. A fixed two-cell
+gutter holds the sent marker or blanks, so notebook text stays aligned.
 
 In focused notes, the annotate binding (`a` by default) opens a composer addressed
 to the lead, quoting the line number and a bounded excerpt. Enter sends only
