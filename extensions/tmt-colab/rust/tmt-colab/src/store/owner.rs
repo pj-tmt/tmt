@@ -1,5 +1,8 @@
 //! Owner authority persistence, not session or transition-policy admission.
 //! All mutations use one writer transaction; exact results survive lost replies.
+pub(crate) mod epoch;
+pub use epoch::{Cut, StoredBaseline};
+
 use super::{Store, sequence};
 use crate::Result;
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
@@ -30,7 +33,7 @@ pub struct Mutation<'a> {
     pub digest: [u8; 32],
     pub expected_revision: u64,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Recipient {
     pub kind: String,

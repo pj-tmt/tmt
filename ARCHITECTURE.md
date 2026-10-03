@@ -4135,7 +4135,7 @@ device context, certificates and silent session reopening.
 
 **Status: persistence, foreground socket executable, isolated decoder and model foundation implemented;
 the stream sync library is available without socket wiring; owner-browser registration is implemented;
-the browser page preview runs on a local adapter; backend work remains proposed.** The local-build-only pilot lives under
+the owner-local epoch engine is implemented; the browser page preview runs on a local adapter; backend work remains proposed.** The local-build-only pilot lives under
 `extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
 owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
 bridge policy and acceptance gates. The #828 design owns product/UI choices;
@@ -4269,13 +4269,37 @@ ciphertext or an encrypted-at-rest guarantee; the root seed stays in Keyring.
 `store::schema` owns append-only migrations. Schema 2 adds authority tables and
 preserves schema-1 ciphertext/receipts/checkpoints. Schema 3 adds `device_registrations`
 (device ID, binding bytes, revocation flag and highest remote grant revision),
-preserving previous rows. Newer schemas fail with a
+preserving previous rows. Schema 4 adds immutable `baselines` (descriptor and encrypted object by page/epoch), counted in the existing page ciphertext quota. Newer schemas fail with a
 typed fault before database mutation. Tests own isolated directories and SQL
 oracles for preservation, rollback, concurrent head fencing and durable replay.
-Sync composition and owner transition policy remain later slices.
+Sync composition and membership/link transition policy remain later slices.
 The executable depends on the reviewed invoke/style leaves and pinned
 storage/network/crypto primitives, never core, adapter, Remote or Office crates. Its component is excluded from release;
 workspace checks and Docker build contexts include its manifest.
+
+### Owner-local epoch transitions
+
+`fold` verifies the retained owner hash chain and derives historical page/issuer
+policy from signed statements. A SQLite read snapshot captures epoch keys,
+namespace cuts, certificates, checkpoints and tails. It verifies object scope,
+signatures, issuer chains, writer roles and reduction cuts before decrypting;
+content merges and per-writer own-root validation use the isolated decoder.
+Stored baselines must match the signed descriptor, ciphertext hash, exact source,
+title and commitment. Only epoch 1 may start without a baseline.
+
+`transitions::Engine` owns one reusable decoder per page. Local root-authorized
+`epoch.advance` produces the fresh baseline after releasing the read snapshot.
+Its writer transaction rechecks the retained head, page epoch, every namespace
+cut and device projection before checkpoint pins, signing or state changes.
+Moving snapshots retry at most three times, then return `STALE_HEAD`. The signed
+statement, secret, immutable encrypted baseline, eligible remaining-recipient
+wraps, page epoch and exact operation receipt commit together. The management
+member is included on every page; revoked/expired devices and private-page links
+receive no wrap. Keyring seals baseline objects with the pinned management key;
+that private key never leaves Keyring. Store provides scoped baseline retrieval,
+whose remote caller still owns access/history admission. Decoder batch limits
+fail closed rather than truncating a fold. This library has no management route;
+membership/device transitions and links/Reset remain the next #1157 slices.
 
 ### Foreground composition and owner registration
 
@@ -4334,8 +4358,7 @@ No cookie or unsigned frame establishes the caller's principal.
 The #1166 extension remains in this same transport owner. Store owns scoped
 transactional namespace/cursor reads and refuses unknown or pruned cursors;
 receipts survive pruning. Admission supplies the verified retained owner head
-through `Store::owner_head` and an optional scoped baseline descriptor. Baseline
-production/persistence/object retrieval remain #1157. Catchup emits metadata once,
+through `Store::owner_head` and an optional scoped baseline descriptor. Baseline production and scoped persistence/retrieval belong to the owner-local epoch engine; remote admission/composition remain caller-owned. Catchup emits metadata once,
 then one checkpoint/tail object per lazy page and a final empty page. Each page
 rescans namespace positions; the final page and live subscription commit under
 the server lock so appends during paging are not missed. Inventory is bounded

@@ -36,6 +36,12 @@ const MIGRATIONS: &[&str] = &[
     CREATE TABLE device_registrations(device_id TEXT PRIMARY KEY, binding BLOB,
         revoked INTEGER NOT NULL CHECK(revoked IN (0,1)), grant_revision TEXT NOT NULL);
     "#,
+    // Schema 4: immutable epoch baselines; descriptors are owner-log commitments.
+    r#"
+    CREATE TABLE baselines(page TEXT NOT NULL, epoch TEXT NOT NULL, descriptor BLOB NOT NULL,
+        envelope BLOB NOT NULL, PRIMARY KEY(page,epoch),
+        FOREIGN KEY(page,epoch) REFERENCES epoch_secrets(page,epoch));
+    "#,
 ];
 
 pub(super) fn check_version(connection: &Connection) -> StoreResult<u32> {

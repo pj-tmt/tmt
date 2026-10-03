@@ -451,8 +451,10 @@ fn schema_two_authority_rows_survive_registration_migration() {
             r.get(0)
         })
         .unwrap();
-    db.execute_batch("DROP TABLE device_registrations; PRAGMA user_version=2;")
-        .unwrap();
+    db.execute_batch(
+        "DROP TABLE baselines; DROP TABLE device_registrations; PRAGMA user_version=2;",
+    )
+    .unwrap();
     let store = Store::open(&f.layout).unwrap();
     let after: Vec<u8> = db
         .query_row("SELECT record FROM devices WHERE id=?", [DEVICE], |r| {
@@ -464,7 +466,7 @@ fn schema_two_authority_rows_survive_registration_migration() {
     assert_eq!(
         db.pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
             .unwrap(),
-        3
+        4
     );
     store.close().unwrap();
 }

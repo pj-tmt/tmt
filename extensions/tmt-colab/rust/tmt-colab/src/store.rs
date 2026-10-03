@@ -455,7 +455,7 @@ fn unfrozen(c: &Connection, s: StreamScope<'_>) -> StoreResult<()> {
     }
     Ok(())
 }
-fn capacity(c: &Connection, page: &str, added: usize, receipt: bool) -> StoreResult<()> {
+pub(super) fn capacity(c: &Connection, page: &str, added: usize, receipt: bool) -> StoreResult<()> {
     let (bytes, count): (i64, i64) = c.query_row(
         "SELECT COALESCE(sum(length(payload)),0),count(*) FROM receipts WHERE page=?",
         [page],
@@ -466,7 +466,13 @@ fn capacity(c: &Connection, page: &str, added: usize, receipt: bool) -> StoreRes
         [page],
         |r| r.get(0),
     )?;
+    let baselines: i64 = c.query_row(
+        "SELECT COALESCE(sum(length(envelope)),0) FROM baselines WHERE page=?",
+        [page],
+        |r| r.get(0),
+    )?;
     if bytes
+        .saturating_add(baselines)
         .saturating_add(checkpoints)
         .saturating_add(added as i64)
         > limits::PAGE_BYTES as i64

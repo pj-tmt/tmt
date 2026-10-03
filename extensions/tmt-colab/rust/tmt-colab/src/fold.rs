@@ -1,0 +1,534 @@
+//! Owner-local authenticated fold. The opaque sync server never calls this module.
+use crate::{
+    Result,
+    decoder::{BaselineInput, Decoder, Namespace, Role, UpdateBatch},
+    keyring::Keyring,
+    store::{
+        Store,
+        owner::{Cut, Device, OwnerFault, Recipient, StoredBaseline},
+    },
+};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
+use tmt_colab_model::{
+    certificate, object,
+    payload::{self, Payload},
+    statement, stream_cut, values,
+};
+
+#[derive(Clone)]
+pub(crate) struct Issuer {
+    pub recipient: Recipient,
+    pub statement_hash: [u8; 32],
+    pub revision: u64,
+}
+#[derive(Clone)]
+pub(crate) struct Authority {
+    pub head: statement::Head,
+    pub recipients: Arc<BTreeMap<(String, String), Issuer>>,
+    pub revoked_devices: Arc<BTreeSet<String>>,
+    pub epoch: u64,
+    pub link_mode: bool,
+    pub active: bool,
+}
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct BaselineBody {
+    pub source: String,
+    pub update: String,
+}
+pub(crate) struct Snapshot {
+    pub authority: Authority,
+    pub epoch: u64,
+    pub cuts: Vec<Cut>,
+    pub secret: [u8; 32],
+    pub devices: Vec<Device>,
+    states: Vec<Authority>,
+    payloads: Vec<Payload>,
+    baseline: Option<StoredBaseline>,
+    objects: Vec<(usize, crate::store::owner::epoch::StoredObject)>,
+}
+pub(crate) struct View {
+    pub source: String,
+    pub title: String,
+}
+impl Snapshot {
+    pub fn capture(store: &Store, key: &Keyring, page: &str) -> Result<Self> {
+        store.owner_read(&key.space_id, &key.owner_public(), |tx| {
+            let (states, payloads) = verify_log(&tx.log()?, key, page)?;
+            let authority = states.last().ok_or(OwnerFault::Invalid)?.clone();
+            let epoch = tx.current_epoch(page)?;
+            if tx.head() != Some(&authority.head) || !authority.active || epoch != authority.epoch {
+                return Err(OwnerFault::Invalid.into());
+            }
+            for payload in &payloads {
+                let cuts = match payload {
+                    Payload::MemberRole(p) => Some(p.cuts.as_slice()),
+                    Payload::MemberRemove(p) => Some(p.cuts.as_slice()),
+                    Payload::LinkRemove(p) => Some(p.cuts.as_slice()),
+                    Payload::DeviceRevoke(p) => Some(p.cuts.as_slice()),
+                    _ => None,
+                };
+                for cut in cuts
+                    .into_iter()
+                    .flatten()
+                    .filter(|c| c.page_id == page && c.epoch == epoch.to_string())
+                {
+                    tx.validate_retained_cut(cut)?;
+                }
+            }
+            let secret = tx.epoch_secret(page, epoch)?.ok_or(OwnerFault::Invalid)?;
+            let cuts = tx.cuts(page, epoch)?;
+            let mut objects = Vec::new();
+            for (index, cut) in cuts.iter().enumerate() {
+                for object in tx.cut_objects(cut)? {
+                    objects.push((index, object));
+                }
+            }
+            if objects.len() > crate::decoder::UPDATES {
+                return Err(OwnerFault::Capacity.into());
+            }
+            Ok(Self {
+                authority,
+                epoch,
+                cuts,
+                secret,
+                devices: tx.devices()?,
+                states,
+                payloads,
+                baseline: tx.baseline(page, epoch)?,
+                objects,
+            })
+        })
+    }
+    pub fn materialize(&self, key: &Keyring, page: &str, decoder: &mut Decoder) -> Result<View> {
+        let mut baseline = Vec::new();
+        if let Some(saved) = &self.baseline {
+            let d = payload::decode_baseline(&saved.descriptor)?;
+            let rev = values::decimal(&d.membership_revision, false)?;
+            let Payload::EpochAdvance(advance) = self
+                .payloads
+                .get(usize::try_from(rev - 1).map_err(|_| OwnerFault::Invalid)?)
+                .ok_or(OwnerFault::Invalid)?
+            else {
+                return Err(OwnerFault::Invalid.into());
+            };
+            let envelope = object::Envelope::from_json(&saved.envelope)?;
+            let h = object::Header::decode(envelope.header())?;
+            let expected = &advance.baseline;
+            if d.page_id != page
+                || d.epoch != self.epoch.to_string()
+                || d.source_digest != expected.source_digest
+                || d.baseline_commitment != expected.baseline_commitment
+                || d.title != expected.title
+                || d.object_envelope_hash != expected.object_envelope_hash
+                || d.membership_revision != expected.membership_revision
+                || h.context != baseline_context(key, page, self.epoch, rev)?
+                || values::binary(&d.object_envelope_hash, 32)? != envelope.hash()?
+            {
+                return Err(OwnerFault::Invalid.into());
+            }
+            let body: BaselineBody = serde_json::from_slice(&object::open(
+                &envelope,
+                &h.context,
+                &self.secret,
+                &key.management_member()?.signing_key,
+            )?)?;
+            baseline = values::binary(&body.update, crate::decoder::BASELINE_UPDATE_BYTES)?;
+            decoder.verify_baseline(
+                BaselineInput {
+                    source: body.source.as_bytes(),
+                    title: &d.title,
+                    source_digest: binary32(&d.source_digest)?,
+                },
+                &baseline,
+                binary32(&d.baseline_commitment)?,
+                None,
+            )?;
+        } else if self.epoch != 1 {
+            return Err(OwnerFault::Invalid.into());
+        }
+        let mut updates = Vec::new();
+        let mut own_updates: BTreeMap<String, Vec<Vec<u8>>> = BTreeMap::new();
+        for (index, stored) in &self.objects {
+            let cut = &self.cuts[*index];
+            let envelope = object::Envelope::from_json(&stored.bytes)?;
+            let h = object::Header::decode(envelope.header())?;
+            let c = &h.context;
+            let revision = values::decimal(&c.membership_revision, false)?;
+            let at_write = self
+                .states
+                .get(usize::try_from(revision - 1).map_err(|_| OwnerFault::Invalid)?)
+                .ok_or(OwnerFault::Invalid)?;
+            if c.space != key.space_id
+                || c.page != page
+                || c.epoch != self.epoch.to_string()
+                || c.author_device != cut.stream
+                || c.namespace != cut.namespace
+                || c.kind
+                    != if stored.checkpoint {
+                        "checkpoint"
+                    } else {
+                        "update"
+                    }
+                || c.stream_seq != stored.seq.to_string()
+                || c.prev_hash != stored.previous
+                || envelope.hash()? != stored.hash
+                || at_write.epoch != self.epoch
+                || at_write.revoked_devices.contains(&c.author_device)
+            {
+                return Err(OwnerFault::Invalid.into());
+            }
+            let bridge = at_write
+                .recipients
+                .get(&("bridge".into(), cut.stream.clone()));
+            let (issuer, key_bytes) = if let Some(bridge) = bridge {
+                if c.namespace != "own" {
+                    return Err(OwnerFault::Invalid.into());
+                }
+                (bridge, bridge.recipient.signing_key)
+            } else {
+                let device = self
+                    .devices
+                    .iter()
+                    .find(|d| {
+                        certificate::Chain::from_json(&d.chain)
+                            .and_then(|ch| Ok(ch.certificate()?.device_id == c.author_device))
+                            .unwrap_or(false)
+                    })
+                    .ok_or(OwnerFault::Invalid)?;
+                let chain = certificate::Chain::from_json(&device.chain)?;
+                let cert = chain.certificate()?;
+                let issuer = at_write
+                    .recipients
+                    .get(&(cert.issuer_kind.into(), cert.issuer_id.into()))
+                    .ok_or(OwnerFault::Invalid)?;
+                verify_chain(&chain, issuer, key, revision)?;
+                (issuer, *cert.signing_key)
+            };
+            if !eligible(&issuer.recipient, at_write, page)
+                || (c.namespace == "content" && issuer.recipient.role.as_deref() != Some("editor"))
+                || issuer.recipient.role.as_deref() == Some("viewer")
+            {
+                return Err(OwnerFault::Invalid.into());
+            }
+            // Every later authority reduction must commit this exact prefix.
+            for (index, payload) in self
+                .payloads
+                .iter()
+                .enumerate()
+                .skip(usize::try_from(revision).map_err(|_| OwnerFault::Invalid)?)
+            {
+                let affected = match payload {
+                    Payload::MemberRole(p)
+                        if issuer.recipient.kind == "member"
+                            && p.member_id == issuer.recipient.id
+                            && role_rank(role_name(&p.role))
+                                < role_rank(
+                                    self.states[index - 1]
+                                        .recipients
+                                        .get(&("member".into(), p.member_id.clone()))
+                                        .ok_or(OwnerFault::Invalid)?
+                                        .recipient
+                                        .role
+                                        .as_deref()
+                                        .ok_or(OwnerFault::Invalid)?,
+                                ) =>
+                    {
+                        Some(p.cuts.as_slice())
+                    }
+                    Payload::MemberRemove(p)
+                        if issuer.recipient.kind == "member"
+                            && p.member_id == issuer.recipient.id =>
+                    {
+                        Some(p.cuts.as_slice())
+                    }
+                    Payload::LinkRemove(p)
+                        if issuer.recipient.kind == "link" && p.link_id == issuer.recipient.id =>
+                    {
+                        Some(p.cuts.as_slice())
+                    }
+                    Payload::DeviceRevoke(p) if p.device_id == c.author_device => {
+                        Some(p.cuts.as_slice())
+                    }
+                    _ => None,
+                };
+                if let Some(cuts) = affected {
+                    let bound = cuts
+                        .iter()
+                        .find(|p| {
+                            p.page_id == page
+                                && p.epoch == c.epoch
+                                && p.namespace == c.namespace
+                                && values::binary(&p.cut, 1024)
+                                    .and_then(|bytes| {
+                                        Ok(stream_cut::decode(&bytes)?.stream_id == c.author_device)
+                                    })
+                                    .unwrap_or(false)
+                        })
+                        .ok_or(OwnerFault::Invalid)?;
+                    let bytes = values::binary(&bound.cut, 1024)?;
+                    let committed = stream_cut::decode(&bytes)?;
+                    if stored.seq > values::decimal(committed.tail_head_seq, true)?
+                        || (stored.checkpoint
+                            && (stored.seq != values::decimal(committed.checkpoint_seq, true)?
+                                || committed.checkpoint_hash != Some(&stored.hash)))
+                    {
+                        return Err(OwnerFault::Invalid.into());
+                    }
+                }
+            }
+            let plaintext = object::open(&envelope, c, &self.secret, &key_bytes)?;
+            if c.namespace == "content" {
+                updates.push(plaintext);
+            } else {
+                own_updates
+                    .entry(c.author_device.clone())
+                    .or_default()
+                    .push(plaintext);
+            }
+        }
+        if baseline.len() > crate::decoder::BASELINE_BYTES
+            || updates.iter().map(Vec::len).sum::<usize>() > crate::decoder::UPDATE_BYTES
+        {
+            return Err(OwnerFault::Capacity.into());
+        }
+        for own in own_updates.values() {
+            if own.iter().map(Vec::len).sum::<usize>() > crate::decoder::UPDATE_BYTES {
+                return Err(OwnerFault::Capacity.into());
+            }
+            let refs = own.iter().map(Vec::as_slice).collect::<Vec<_>>();
+            decoder.decode(
+                UpdateBatch {
+                    namespace: Namespace::Own,
+                    baseline: &[],
+                    updates: &refs,
+                },
+                Role::Commenter,
+                None,
+            )?;
+        }
+        let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+        let folded = decoder.decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline,
+                updates: &refs,
+            },
+            Role::Editor,
+            None,
+        )?;
+        Ok(View {
+            source: folded.projection["html"]
+                .as_str()
+                .ok_or(OwnerFault::Invalid)?
+                .into(),
+            title: folded.projection["meta"]["title"]
+                .as_str()
+                .unwrap_or("")
+                .into(),
+        })
+    }
+}
+fn verify_log(
+    log: &[statement::Envelope],
+    key: &Keyring,
+    page: &str,
+) -> Result<(Vec<Authority>, Vec<Payload>)> {
+    let mut states: Vec<Authority> = Vec::new();
+    let mut payloads = Vec::new();
+    let mut recipients: Arc<BTreeMap<(String, String), Issuer>> = Arc::new(BTreeMap::new());
+    let mut revoked_devices = Arc::new(BTreeSet::new());
+    let mut epoch: u64 = 1;
+    let mut link_mode = false;
+    let mut active = true;
+    for item in log {
+        let verified = item.verify_next(
+            &key.space_id,
+            &key.owner_public(),
+            states.last().map(|s| &s.head),
+        )?;
+        let mut addition = None;
+        match &verified.payload {
+            Payload::MemberAdd(p) => {
+                addition = Some(recipient(
+                    "member",
+                    &p.member_id,
+                    Some(role_name(&p.role)),
+                    &p.sign_key,
+                    &p.enc_key,
+                    p.pages.as_slice(),
+                )?)
+            }
+            Payload::LinkAdd(p) => {
+                addition = Some(recipient(
+                    "link",
+                    &p.link_id,
+                    Some(role_name(&p.role)),
+                    &p.link_sign_key,
+                    &p.link_enc_key,
+                    p.pages.as_slice(),
+                )?)
+            }
+            Payload::BridgeAdd(p) => {
+                addition = Some(recipient(
+                    "bridge",
+                    &p.machine_id,
+                    None,
+                    &p.machine_sign_key,
+                    &p.enc_key,
+                    p.pages.as_slice(),
+                )?)
+            }
+            Payload::MemberRole(p) => {
+                Arc::make_mut(&mut recipients)
+                    .get_mut(&("member".into(), p.member_id.clone()))
+                    .ok_or(OwnerFault::Invalid)?
+                    .recipient
+                    .role = Some(role_name(&p.role).into())
+            }
+            Payload::MemberRemove(p) => {
+                Arc::make_mut(&mut recipients)
+                    .get_mut(&("member".into(), p.member_id.clone()))
+                    .ok_or(OwnerFault::Invalid)?
+                    .recipient
+                    .revoked = true
+            }
+            Payload::LinkRemove(p) => {
+                Arc::make_mut(&mut recipients)
+                    .get_mut(&("link".into(), p.link_id.clone()))
+                    .ok_or(OwnerFault::Invalid)?
+                    .recipient
+                    .revoked = true
+            }
+            Payload::DeviceRevoke(p) => {
+                Arc::make_mut(&mut revoked_devices).insert(p.device_id.clone());
+            }
+            Payload::EpochAdvance(p) if p.page_id == page => {
+                let next = values::decimal(&p.epoch, false)?;
+                if epoch.checked_add(1) != Some(next) {
+                    return Err(OwnerFault::Invalid.into());
+                }
+                epoch = next;
+            }
+            Payload::PageShare(p) if p.page_id == page => {
+                link_mode = matches!(p.mode, payload::ShareMode::Link)
+            }
+            Payload::Archive(p) | Payload::Delete(p) if p.page_id == page => active = false,
+            _ => {}
+        }
+        if let Some(recipient) = addition {
+            let id = (recipient.kind.clone(), recipient.id.clone());
+            if Arc::make_mut(&mut recipients)
+                .insert(
+                    id,
+                    Issuer {
+                        recipient,
+                        statement_hash: item.hash()?,
+                        revision: verified.head.revision,
+                    },
+                )
+                .is_some()
+            {
+                return Err(OwnerFault::Invalid.into());
+            }
+        }
+        states.push(Authority {
+            head: verified.head,
+            recipients: recipients.clone(),
+            revoked_devices: revoked_devices.clone(),
+            epoch,
+            link_mode,
+            active,
+        });
+        payloads.push(verified.payload);
+    }
+    let member = key.management_member()?;
+    if states.last().is_none_or(|s| s.head.owner_member != member) {
+        return Err(OwnerFault::WrongOwner.into());
+    }
+    Ok((states, payloads))
+}
+fn recipient(
+    kind: &str,
+    id: &str,
+    role: Option<&str>,
+    signing: &str,
+    encryption: &str,
+    pages: &[String],
+) -> Result<Recipient> {
+    Ok(Recipient {
+        kind: kind.into(),
+        id: id.into(),
+        role: role.map(str::to_owned),
+        signing_key: binary32(signing)?,
+        encryption_key: binary32(encryption)?,
+        pages: pages.to_vec(),
+        revoked: false,
+    })
+}
+pub(crate) fn eligible(r: &Recipient, a: &Authority, page: &str) -> bool {
+    !r.revoked
+        && a.active
+        && ((r.kind == "member" && r.id == a.head.owner_member.id)
+            || r.pages.iter().any(|p| p == page))
+        && (r.kind != "link" || a.link_mode)
+}
+pub(crate) fn verify_chain(
+    chain: &certificate::Chain,
+    issuer: &Issuer,
+    key: &Keyring,
+    revision: u64,
+) -> Result<()> {
+    let cert = chain.certificate()?;
+    if cert.space != key.space_id
+        || values::decimal(cert.membership_revision, false)? > revision
+        || values::decimal(cert.membership_revision, false)? < issuer.revision
+        || cert.issuer_kind != issuer.recipient.kind
+        || cert.issuer_id != issuer.recipient.id
+    {
+        return Err(OwnerFault::Invalid.into());
+    }
+    chain.verify(&issuer.statement_hash, &cert, &issuer.recipient.signing_key)?;
+    Ok(())
+}
+pub(crate) fn baseline_context(
+    key: &Keyring,
+    page: &str,
+    epoch: u64,
+    revision: u64,
+) -> Result<object::Context> {
+    Ok(object::Context {
+        space: key.space_id.clone(),
+        page: page.into(),
+        epoch: epoch.to_string(),
+        kind: "html".into(),
+        namespace: "content".into(),
+        author_device: key.management_member()?.id,
+        membership_revision: revision.to_string(),
+        stream_seq: "0".into(),
+        prev_hash: [0; 32],
+    })
+}
+pub(crate) fn binary32(text: &str) -> Result<[u8; 32]> {
+    values::binary(text, 32)?
+        .try_into()
+        .map_err(|_| OwnerFault::Invalid.into())
+}
+fn role_name(role: &payload::Role) -> &'static str {
+    match role {
+        payload::Role::Viewer => "viewer",
+        payload::Role::Commenter => "commenter",
+        payload::Role::Editor => "editor",
+    }
+}
+fn role_rank(role: &str) -> u8 {
+    match role {
+        "editor" => 2,
+        "commenter" => 1,
+        _ => 0,
+    }
+}
