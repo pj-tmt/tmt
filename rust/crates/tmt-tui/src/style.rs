@@ -140,7 +140,10 @@ pub(crate) fn admit(kind: Kind, attrs: &BTreeMap<String, String>) -> Result<Cell
         max_width: None,
         columns: Default::default(),
         col_span: 1,
-        direction: if matches!(kind, Kind::View | Kind::Col) {
+        direction: if matches!(
+            kind,
+            Kind::View | Kind::Col | Kind::Modal | Kind::Scroll | Kind::KeyHelp
+        ) {
             Direction::Column
         } else {
             Direction::Row

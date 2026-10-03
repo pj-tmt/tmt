@@ -1269,8 +1269,26 @@ fractional boundaries, shared text budgets, resize restoration and cut clipping.
 Paint tests cover grapheme-safe cuts/wrap/clamp, inherited Theme/Depth roles,
 caller-owned selection, clipped identity precedence, wide edge blanks and
 recorded-width/fractional measure–paint agreement. Run the architecture test for
-dependency changes, and
-`cargo test --locked -p tmt-squad` for its in-memory source adapter and frozen
+component and dependency changes. Component tests also cover opaque modal buffers,
+focus close/replacement restoration, key/mouse capture and Ctrl-C, typed key-help
+sections, Unicode label alignment, stacked descriptions, fixed footer/status/position,
+visual-line scrolling and clipped hits under resize/content shrink/tiny areas.
+`components::surface::compile` follows `parse`, lowers `tmt-modal`, `tmt-scroll`
+and `tmt-key-help` into primitive binding templates, and eagerly checks generated
+depth/node budgets and schemas. A component surface has one literal-ID modal,
+one literal-ID scroll body and optional direct `tmt-text slot="footer"`/`"status"`
+children; components cannot occur in repeats yet. Primitive content can repeat.
+`tmt-key-help id="keys" bind="$.help"` uses `KeyHelp::schema()` and the typed
+section/entry model's `value()`; applications supply effective keys, descriptions
+and names. Use `placement="body"` for references, `"center"` for small overlays,
+or `"docked"` for prompts. `surface::render` accepts caller-owned ScrollState,
+body Rect/Buffer, RenderStyle (Theme/Depth) and selection styling. It returns
+visible scoped hits; route current input through `app::route` before base handlers.
+The caller performs effects, owns editable-field behavior, invalidates old hits on
+resize/data changes, and may keep component state behind one RefCell for an
+immutable application render interface. `components::footer` fits priority-ordered
+effective-key hints as whole pairs. The shared style guideline owns roles/sizing.
+Run `cargo test --locked -p tmt-squad` for its in-memory source adapter and frozen
 board/list parity fixture, projected and retained-view loading identities,
 coverage, priority and CSS clamp/default-min mapping. Board fitting uses the shared grapheme owner;
 CLI lists retain their scalar fitter. `text::measure` width is a capped upper
