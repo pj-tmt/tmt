@@ -4,6 +4,8 @@
 mod app;
 mod changes;
 mod composition;
+#[cfg(test)]
+mod cronboard;
 mod derived;
 mod help;
 mod home;
