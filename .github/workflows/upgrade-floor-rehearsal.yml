@@ -74,6 +74,16 @@ jobs:
         run: |
           cargo +1.97.0 install cargo-dist --version 0.32.0 --locked --root "$HOME/.tmt-packaging"
           cargo +1.97.0 install cargo-about --version 0.9.2 --features cli --locked --root "$HOME/.tmt-packaging"
+      - name: Transfer pinned Linux assembly tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: tar -czf "$RUNNER_TEMP/packaging-tools.tar.gz" -C "$HOME/.tmt-packaging" bin/dist bin/cargo-about
+      - uses: actions/upload-artifact@v4
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        with:
+          name: floor-assembly-tools
+          path: ${{ runner.temp }}/packaging-tools.tar.gz
+          if-no-files-found: error
+          retention-days: 7
       - name: Build actual main archive with a verified fixture version
         env:
           TARGET: ${{ matrix.target }}
@@ -130,11 +140,16 @@ jobs:
           workspaces: release-source/rust
           shared-key: native-rust
           save-if: false
-      - uses: actions/cache/restore@v4
+      - uses: actions/download-artifact@v4
         with:
-          path: ~/.tmt-packaging
-          key: native-tools-${{ runner.os }}-${{ runner.arch }}-rust1.97-dist0.32.0-about0.9.2
-          fail-on-cache-miss: true
+          name: floor-assembly-tools
+          path: ${{ runner.temp }}/assembly-tools
+      - name: Extract pinned assembly tools
+        run: |
+          mkdir "$RUNNER_TEMP/packaging"
+          tar -xzf "$RUNNER_TEMP/assembly-tools/packaging-tools.tar.gz" -C "$RUNNER_TEMP/packaging"
+          test "$("$RUNNER_TEMP/packaging/bin/dist" --version)" = 'cargo-dist 0.32.0'
+          test "$("$RUNNER_TEMP/packaging/bin/cargo-about" --version)" = 'cargo-about 0.9.2'
       - uses: actions/download-artifact@v4
         with:
           pattern: floor-candidate-*
@@ -145,7 +160,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          export PATH="$HOME/.tmt-packaging/bin:$PATH"
+          export PATH="$RUNNER_TEMP/packaging/bin:$PATH"
           export RUSTUP_TOOLCHAIN=1.97.0
           cargo fetch --locked --manifest-path release-source/rust/Cargo.toml
           cargo build --locked --manifest-path release-source/rust/Cargo.toml -p tmt-test-support --example release-version
