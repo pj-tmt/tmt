@@ -162,10 +162,17 @@ impl Registration {
         keyring: Keyring,
         decoder_program: std::path::PathBuf,
     ) -> Result<Self> {
+        Self::with_decoder_config(store, keyring, crate::decoder::Config::new(decoder_program))
+    }
+    pub fn with_decoder_config(
+        store: Store,
+        keyring: Keyring,
+        decoder_config: crate::decoder::Config,
+    ) -> Result<Self> {
         Ok(Self {
             store,
             keyring,
-            engine: Engine::new(decoder_program)?,
+            engine: Engine::with_decoder_config(decoder_config)?,
         })
     }
     pub fn close(self) -> Result<()> {

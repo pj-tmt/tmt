@@ -3110,7 +3110,10 @@ reopen replay, stale writes, tampered signatures/chains/descriptors, role/epoch/
 root denial, revoked/expired-device exclusion and rollback on baseline/wrap
 write failure. FIFO barriers pause the real child while a second SQLite writer
 appends: one moving snapshot retries successfully; three return `STALE_HEAD`
-without authority changes. No Docker or fixed sleep is involved.
+without authority changes. Their Engine receives the shared test-only decoder
+configuration: 60 seconds per invocation and a 30-second FIFO readiness bound.
+These are scheduling headroom for semantic tests, not production limits. The
+worker is joined on failure as well as success. No Docker or fixed sleep is involved.
 
 Schema 4 adds `baselines(page, epoch, descriptor, envelope)` with a composite
 primary key and an epoch-secret foreign key. Earlier tables are unchanged;
@@ -3252,12 +3255,35 @@ run its real-child tests with an isolated test environment:
 (cd rust && cargo test --offline --locked -p tmt-cli --test architecture)
 ```
 
+Semantic decoder tests inject `decoder::Config` through Decoder, Engine or
+Registration, using the shared `tests/support` 60-second invocation budget.
+This also covers direct private-child wire tests, baseline size/materialization,
+checkpoint vectors, socket revocation folds, and export library capture and
+epoch-rotation tests; device-event clients allow 60 seconds for a response. Export CLI tests exercise
+the production constructor and retain its two-second limit.
+Production constructors keep the two-second deadline and all byte/memory caps.
+The timeout cases retain two seconds, use a FIFO-blocked child with a readiness
+signal and an explicit-release positive control, and assert exactly `Deadline`.
+Large-input backpressure interrupts only after FIFO readiness and asserts exactly
+`Interrupted`; output-flood cases assert exactly `OutputLimit(Stdout)` with the
+semantic budget. All require confirmed cleanup, recorded PID disappearance and
+reuse of the same runner. Changing the reuse budget does not clear the cleanup fence.
+
+For load verification, compile first, then repeat the affected decoder,
+transition and socket tests under at most two owned CPU burners, bounded to
+180 seconds per run. The supervisor must terminate and reap every burner on
+success, failure or interruption. Retain commands, start/end load and full logs
+outside the repository. Run with `CARGO_BUILD_JOBS=2` and a private
+`CARGO_TARGET_DIR`; do not use Docker or release builds for this proof.
+
 The decoder test retains #830 archive provenance and runs 261 seeded cases twice,
 using one second per case and 45 seconds per suite. The six saved timeout/panic
 dumps must match the original generator. Successful child PIDs must be gone;
-timeout/output-limit cleanup must be confirmed before owner reuse. These fixture
-budgets are separate from the two-second production budget. macOS must report
-`memory limit unavailable`; only Linux enforces the child address-space limit.
+timeout/output-limit cleanup must be confirmed before owner reuse. Successful
+reuse controls get the semantic-test budget; hostile-case and suite budgets stay
+unchanged. These fixture budgets are separate from the two-second production
+budget. macOS must report `memory limit unavailable`; only Linux enforces the
+child address-space limit.
 Tests cover cleared environment, input/output backpressure, role/namespace and
 projection rejection, dependency/delete-set preservation and writer attribution.
 

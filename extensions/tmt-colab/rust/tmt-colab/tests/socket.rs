@@ -1,6 +1,7 @@
 //! Colab's owner-only socket on real Unix sockets: framing bounds, the device
 //! context from the remote door, the colab-sync-v1 handshake, tunnel bounds,
 //! capacity and shutdown.
+mod support;
 use std::{
     fs,
     io::{Read, Write},
@@ -87,8 +88,12 @@ impl Running {
         let space = key.space_id.clone();
         let store = Store::open(&layout).unwrap();
         store.create_page(PAGE).unwrap();
-        let mut registration =
-            Registration::new(store, key, env!("CARGO_BIN_EXE_tmt-colab").into()).unwrap();
+        let mut registration = Registration::with_decoder_config(
+            store,
+            key,
+            support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+        )
+        .unwrap();
         for id in [DEVICE, OTHER] {
             registration
                 .register(Some(&context(id)), &registration_body(id), now())
@@ -122,7 +127,11 @@ impl Running {
         socket
     }
     fn request(&self, request: &str) -> String {
+        self.request_with_timeout(request, Duration::from_secs(3))
+    }
+    fn request_with_timeout(&self, request: &str, timeout: Duration) -> String {
         let mut socket = self.connect();
+        socket.set_read_timeout(Some(timeout)).unwrap();
         socket.write_all(request.as_bytes()).unwrap();
         let mut response = String::new();
         socket.read_to_string(&mut response).unwrap();
@@ -404,7 +413,7 @@ impl Running {
         (self.frame("append",json!({"streamId":id,"seq":seq.to_string(),"envelopeHash":values::encode_binary(&hash),"envelope":values::encode_binary(&bytes)})),bytes,hash)
     }
     fn event(&self, path: &str, header: &str, body: &str) -> String {
-        self.request(&format!("POST {path} HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{header}\r\n{body}",body.len()))
+        self.request_with_timeout(&format!("POST {path} HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{header}\r\n{body}",body.len()), support::DECODER_DEADLINE)
     }
     fn oracle(&self) -> rusqlite::Connection {
         rusqlite::Connection::open(self.root.join("colab/space.db")).unwrap()
