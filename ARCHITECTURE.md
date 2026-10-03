@@ -60,7 +60,7 @@ product-neutral `rust/archive/NATIVE-INSTALL.md`.
 
 The `typescript` pnpm workspace has one lockfile, retained Node tooling and tests,
 the `@tmt/office` SPA, the `@tmt/office-service` trusted pairing service,
-the private `@tmt/browser-addon` demo shell and `@tmt/remote-client` device SDK,
+the private, parked `@tmt/browser-addon` demo shell (#1056) and `@tmt/remote-client` device SDK,
 the private `@tmt/colab-client` WebCrypto primitive library, and
 `@tmt/colab-app` local page preview.
 The two Office packages live under `extensions/tmt-office/typescript` as
@@ -639,39 +639,6 @@ advisory-browser details live in the
 Publication reuses the native aggregate's scope-skip proof with check-suite
 provenance rather than recomputing historical selection or accepting bare skips.
 
-## Browser add-on shell
-
-`extensions/tmt-remote/typescript/browser-addon` is a private Chrome MV3 shell
-in the existing TypeScript workspace/lockfile, not an installed native product
-or a working remote channel. Its composition currently uses a clearly marked
-local demo stub; no crypto, pairing, network or core operations are implemented.
-The shell's types-only `remote-client.ts` is a UI port agreed with the remote
-owner, not a second wire contract or SDK. Future composition may import the
-public SDK; views never import its transport internals.
-
-Browser context-menu clicks and trusted popup actions capture only a top-frame
-selection, URL and title through `activeTab`/`scripting`; `contextMenus` adds the
-selection entry point. There are no host permissions, page-message handlers,
-external connectivity or permanent content scripts. Exact plain-text message
-formatting and escaped hidden-character presentation belong to `message.ts`.
-Source URL admission requires HTTP(S) without username/password; invalid sources
-are refused unchanged before preview, menu persistence or intent freezing,
-including restored captures and intents.
-The popup freezes the reviewed agent UUID, message and operation UUID before
-calling the client. Its origin-owned IndexedDB retains one frozen intent and
-menu capture; restoration retains intent without sending. The shell exports journal schema
-and key constants; IndexedDB ownership and worker-readiness fallback helpers are test-only.
-Explicit status recovery never sends. Held operations have no request ID. Explicit retry keeps the same ID and bytes;
-starting another message does not cancel submitted work. Replies render as text.
-The stub's status transitions are UI evidence, never server security acceptance.
-
-The shell's Chromium profile and loopback page fixture are disposable test
-owners. Its separate workflow selects shell and consumed tooling changes,
-fails on empty test discovery and does not narrow unknown-path checks. The component map assigns this package
-to a private `release: false` owner and selects no native/Office jobs for it. The release generator rejects native crates
-under a private owner and excludes the shell from CLI releases. Native remote
-product registration remains a later slice.
-
 ## Runtime layers
 
 The Rust crates have deliberately narrow responsibilities. Module-level rules for
@@ -1141,313 +1108,29 @@ leaf neither discovers roots nor accesses core state or provider configuration.
 
 ## Remote extension pilot
 
-`extensions/tmt-remote/rust/tmt-remote` is a separate executable reached as
-`tmt remote`. Core registers official installer support; the current binary
-remains source-only until packaging and publication pass their separate gates. `main` owns style/foreground composition and two bounded
-startup calls: capabilities and `storage.root`. `core::CoreClient` owns fixed public `api`/`ls`
-subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
-`rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation; its other reviewed leaves are `tmt-cli-style` and `tmt-extension-state`. Request-carried launch options preserve environment inheritance by default or explicitly clear it and copy only named allowlisted caller variables, preserving OS-string bytes and leaving the caller environment unchanged. This policy is configured through the existing invocation entry point; it supplies no memory sandbox or resource-limit guarantee. `LaunchOptions::process_group` defaults to `New`, preserving owned group creation/termination. Explicit `InheritCaller` omits group creation; a started failure detaches and returns `Cleanup::CallerOwned` without signalling or waiting for cleanup. Pre-start failures remain `NotStarted`. The caller must supervise that group. Squad's context wrapper retains its live group-leader check and whole-group abort on a started failure; capture/deadlines/caps remain invoke-owned. Ordinary Squad, Remote and Colab calls use `New`. The shared 20 ms `PULSE` bounds stop-flag observation latency; each wait is also bounded by the remaining request deadline.
+`extensions/tmt-remote` is a separate executable run as `tmt remote`. It reaches
+core only through the public process/JSON API (fixed `api`/`ls` subprocesses of
+the supplied absolute `TMT_EXECUTABLE`, run by `tmt-invoke`) and owns the private
+`<dataRoot>/remote/` subtree through the
+[shared extension state layout](#shared-extension-state-layout). Core never owns a
+listener or Remote state and only registers Remote as an installable product; its
+archive embeds the pairing page, SDK and wordlist with no companions or skills, and
+publication gates belong to the [release skill](.agents/skills/tmt-release/SKILL.md).
+Colab has no door of its own: Remote mounts its owner-only socket under
+`/r/<prefix>/x/colab/` and keeps Host/Origin, pairing, cookie and live-grant
+admission. [`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns
+the wire, pairing, session, operations and extension channel API. The door serves
+the browser SDK `remote-v1.js` (built from `remote-client`), which gives mounted
+pages `reopenSession`, `operations(session)` and `certifyKey`; its README owns
+the caller-facing recovery rules. The
+[Remote skill](.agents/skills/tmt-remote/SKILL.md) owns module internals.
+System-wide invariants:
 
-`http::Door` is the colab loopback door relocated under remote (#1039). It owns
-IPv4-loopback sockets, joined workers, strict HTTP/1.1 framing, exact numeric
-Host admission (no alias, so DNS rebinding fails), the origin-form target
-grammar that keeps the operation routes and the mount space apart,
-header/connection bounds, a door-owned maximum body that handlers can only
-narrow, a 32 MiB in-flight body budget reserved before any body byte is read
-(bounding unauthenticated memory), absolute acquisition/response deadlines and
-shutdown that closes retained sockets before joining workers. It has no
-CoreClient/storage reference. A `Handler` admits each framed head (route,
-Origin, cookie and body limit) before any body byte is read. `routes::Routes`
-is that handler for the machine's stable `/r/<prefix>/` binding routes and the
-20-attempt-per-minute unauthenticated budget; `limits` names the binding bounds.
-`transport::Transport` moves append/subscribe/ack envelopes and their HTTP Origin
-to one message owner. `wire` owns bounded strict JSON admission (including duplicate
-members at every payload depth) and preserves exact payload bytes for signatures.
-`admission` and `DoorSessions` verify live device/session authority, scope and route,
-serialize one normal message per session, and durably consume its expected sequence.
-`journal` owns client/machine/incarnation-scoped MAC cursors, metadata catch-up and
-monotonic observed-prefix checkpoints. Subscribe/ack return signed batches/checkpoints;
-controls never create journal entries. Long polls recheck live authority after each wake
-and wake on session replacement/end or door shutdown. Foreground composition supplies
-`operations`, which admits strict single-recipient anonymous `dispatch.create`,
-journal-owned `dispatch.show`/`operation.show`, and the named public reads `agents.list`,
-`identities.status`, `check`, `requests.show` and `result`. Signed discovery advertises
-this implemented subset. Agent listing projects only permitted UUID/name/presence and
-core-published delivery; status/check restrict UUID inputs to the grant's allowlist.
-Result state follows public request history, including an empty retained final, with
-no terminal completion fallback. Bounded reads hold an authorized transaction against
-cross-process revocation. Other application operations remain refused. The frozen public
-core envelope includes
-one device provenance line. Adoption commits the exact intent digest, recipient references,
-audit and direct/held state before effects. Direct sends and explicit same-ID retries
-recover through core `dispatch.show` before any `dispatch.create`; read-only operation
-observation never retries. Core owns immutable acceptance, its one-shot advisory wake
-and enrolled-pane input protection. Remote treats wake uncertainty separately from
-accepted request IDs and never infers readiness from terminal output.
-
-`approval` owns local held-operation confirmation through the existing owner-only
-control socket. `tmt remote approve <operationId>` shows frozen source/recipient/message
-and requires one explicit confirmation; `cancel` and refusal create no core request.
-The IMMEDIATE held claim has one winner. Grant revision/liveness, talk scope and recipient
-policy are checked again at the transaction-held core invocation fence. SQLite authority
-writers wait 40 seconds, beyond both 15-second core calls and their cleanup margin, so
-revocation can wait for an in-flight effect to release its fence. Stop/restart
-cancel unconfirmed holds. After a possible effect, failure preserves the original ID
-and frozen intent as uncertain; accepted/cancelled operations release their prompt copy.
-Transitions retain bounded signed metadata without copying prompt/final text into audit.
-
-Foreground serve explicitly makes its private lock inheritable by the existing
-`tmt-invoke` child. Closing the parent's file never explicitly unlocks the shared lease;
-restart cannot acquire it while an original invocation survives owner death. Confirmed
-child termination plus definitive core absence permits only an explicit retry of the
-same ID and bytes. Unconfirmed cleanup disables writes until a fresh lease-owning run.
-The effect's `dispatching` audit row is uncommitted during the core call; a crash
-mid-call leaves no such row. Recovery uses the already committed adoption/frozen intent
-and core's idempotent operation ID, never assumes an absent audit row means no effect.
-The runner and core are unchanged. Native tests exercise real signatures/private SQLite
-with deterministic public-process fixtures and a SIGKILL lease probe; they do not claim
-isolated real-core/private-tmux/mock-agent acceptance.
-`audit` writes bounded, sanitized metadata in the adoption/refusal transaction;
-`budgets` persists fixed-window call/send/approval counters without resetting on clock
-rollback. No core DB is opened. The foreground door has no default deadline;
-it runs until interrupted. Colab has no door of its own; remote
-mounts its owner-only socket.
-
-`state::Layout` delegates remote's private `<dataRoot>/remote/` subtree to the
-[extension state leaf](#shared-extension-state-layout). `MachineKey` retains the
-lock-guarded create-only Ed25519 machine key
-(`machine.key`, a software file with no hardware claim). `state::Layout` supplies
-one foreground serve lock per data root. `store::Store` owns `remote.db` (SQLite) and opens only
-with the `state::Serving` proof that the serve lock is held: while serve runs it
-is the database's only opener and writer, and every other path (pairing, device
-management) reaches remote state only through serve, over its owner-only control socket.
-Without a running serve, `tmt remote devices` takes the serve lock itself, so
-the database still has one opener. Its
-schema history uses core's `_migrations` table (append-only, recorded names must
-match, a newer history refuses) with `foreign_keys=ON`. Unlike core's shared
-WAL database it keeps `journal_mode=DELETE`, since there is no concurrent
-reader, and `synchronous=FULL`, so committed grants and receipts survive power
-loss. Schema 1 creates the machine identity once: a UUIDv4 machine ID and the
-`/r/<32 lowercase hex>` route prefix, both stable across restarts and neither a
-credential. Schema 2 adds `grants`, with one live grant per device key. Schema 3 adds per-device session/run IDs and independent decimal-string client
-and machine counters. A signed session open replaces its row, starting client input
-at 1 and machine responses at 2 after the open response. Counter exhaustion never
-wraps. These rows survive interruption, but only in-memory live sessions authorize
-normal messages; restart never revives an old row. `authority` consumes the existing
-grant fields as typed direct/hold and all/selected-agent policy, refusing malformed
-or unknown authority without changing pairing's producer. Unsafe state fails closed
-before the door binds. Schema 4 adds metadata streams, separate request ownership,
-fixed-window budgets and immutable audit records. Journal authorization reads the persisted
-grant inside its IMMEDIATE transaction. Metadata lasts at most 24 hours/1000 entries
-per client; acked prefixes compact sooner. Ownership reads expire after 30 days without
-renewal on reads/ack. Expired records remain bounded ID fences, so pruning never permits
-re-adoption; at 1000 ownership records/client new adoption refuses. Frozen pending intent
-is bounded to 64 MiB/client and 256 MiB total. Audit retains at most 30 days/the newest 100,000 records; pruning and append share
-the adoption/refusal transaction. Budget keys are bounded to 100,000. Write or
-ownership/budget capacity failure refuses before adoption. Public operation transitions
-and frozen-payload release are not wired yet. Remote retains its state error codes
-and messages while delegating filesystem operations to the shared leaf.
-
-`control::Control` binds `<dataRoot>/remote/control.sock` (0600, in the 0700
-state directory) under the serve lock and speaks one JSON object per line; a
-stale socket from an earlier serve is replaced, anything else refuses. Its
-operations are `pair` (for `tmt remote pair`) and `devices`, `revoke` and `rename` (for
-`tmt remote devices`). `pairing::Pairing` owns the single offer
-of the current run (window): a random 16-byte code and 128-bit challenge held only
-in serve's memory, a ten-minute deadline, and its phase (open, pinned candidate,
-confirmed). `/pair` admits strict enrollment JSON (exactly the contract fields,
-strict base64url, the request Origin equal to a browser/add-on's proposed origin
-and absent for `cli`, and a `browser` origin equal to this door's own origin),
-verifies the full HMAC and the possession signature, pins
-the first valid candidate and reports it to the pairing client with its four
-fingerprint words. Identical candidates coalesce and competing ones refuse;
-three failed code proofs, owner refusal, the pairing client leaving, expiry, a
-replacing offer and stop end the offer and erase the code. A `/pair` request
-waits for the owner up to 20 seconds, then answers 202 `{"state":"pending"}`
-so the device retries the exact candidate; every refusal is a generic 404.
-Confirmation inserts the default grant (all agents, the default scopes,
-`direct`, no expiry) in one transaction under the offer lock, derives
-`K_response` and `serverProof` over the exact receipt JSON, erases the code and
-keeps only the candidate, receipt and proof for exact-retry recovery until the
-original deadline. A failed grant write ends the offer with no grant.
-
-`pages::Pages` serves the browser assets at the door root, disjoint from `/r/`
-and the route prefix: the pairing page at `/pair/<descriptor>` (strict CSP, same-origin
-script only), the device SDK module at `/sdk/remote-v1.js` and `/sdk/mount`,
-which answers a same-origin page's path with this run's machine and window and
-the extension whose mount contains it, from `Mounts::extension_of`. That lookup
-scopes honest use only; mounted extensions share one trust domain. The SDK
-module and page are embedded with `include_str!` from the crate's `assets/`;
-`remote-v1.js` is built from `remote-client` (below) and Code quality rebuilds it
-and fails on any difference.
-
-`session::DoorSessions` admits the signed `session.open` control on
-`/r/<prefix>/append`: exactly the envelope fields, this machine and window, a live
-grant (not revoked, not expired), the envelope and request Origin equal to the
-grant origin (a `browser` grant to this door's own origin; none for `cli`), a
-timestamp within 60 seconds, a `{clientNonce}` payload whose nonce was not used
-by that device within two minutes, and the device signature over the canonical
-bytes. It answers a machine-signed response and, for a `browser` device, sets
-the `tmt_door` cookie (256-bit token, `Path=/r/<prefix>/x/`, HttpOnly, SameSite=Strict)
-whose SHA-256 is all serve keeps. Sessions live in serve memory, one per device:
-a newer session, revocation, 12 hours without use or stop ends one, and
-reopening is another signed `session.open`. `DoorSessions` supplies one monotonic
-idle clock to each `mount::SessionState`; session creation, mounted requests,
-tunnel activity and idle checks share it. Production uses `Instant::now`, while
-the socket-test harness can freeze and advance it without changing wall-clock
-signature/grant admission or production bounds. Every refusal is the generic 404.
-`/r/` routes refuse any cookie, so a cookie alone never reaches an operation or
-pairing. `devices::Devices` lists grants and revokes one by disabling it and
-advancing its revision before acknowledging, then ends the device's session.
-Rename shares pairing's pure name validator, changes only presentation, advances
-the revision only when the name changes, and ends old-revision sessions for silent
-reopening. Revoked grants cannot be renamed. Neither mutation exceeds the JSON
-integer revision bound.
-
-`devices::DeviceEvents` owns one joined worker over current durable grants: each
-sweep delivers disabled tombstones and current names through `mount::Mounts` on
-the existing owner-only socket. There is no journal, cursor or persisted delivery
-state. A committed mutation wakes the worker; successful periodic replay recovers
-extension restarts, and failed sweeps use bounded backoff. Socket I/O happens
-outside the store lock and command acknowledgment. `Mounts` owns private socket
-admission, nonblocking connect, bounded HTTP callback and 2xx acknowledgment;
-the callback's reserved subtree is refused by browser forwarding and its marker
-header is never forwarded from clients. Consumers own durable revision deduplication
-and extension cleanup as specified in the
-[device-event contract](contracts/remote-channel-v1.md#extension-channel-api).
-Shutdown wakes backoff and joins the bounded in-flight attempt before state release.
-
-`site::Site` is the door's handler: the mount space `/r/<prefix>/x/` goes to
-`mount::Mounts`, `/pair/` and `/sdk/` to `pages::Pages`, all others to the
-`/r/` binding, whose exact routes never overlap the mount space; the root `/x/`
-is a plain 404. Mounting under the unpredictable machine prefix keeps the door
-cookie (scoped to it) from other loopback listeners at a guessable path, and
-mounted replies keep `no-referrer` (or a narrower `same-origin`) so the prefix
-does not leak in `Referer`. Mounts forward `/r/<prefix>/x/<extension>/` to
-`<dataRoot>/<extension>/door.sock` only for allowlisted extensions (exactly
-`colab` in this slice; a general enabled-extension registry is later work)
-and only when that socket and its directory are owned by the user, grant
-nothing to group/other and are not symlinks. Remote owns admission: the
-door's exact Origin for every request except top-level GET navigation and
-for every upgrade, a method allowlist and per-extension request/reply bounds.
-It forwards the path below the prefix, a small header allowlist and a
-`tmt-mount` header, never the door-session cookie; it adds `tmt-device-context`
-(ASCII JSON of the extension channel API's owner device context, including the
-grant's device public key) only when the
-`mount::Sessions` port (`DoorSessions` in serve) resolves the door cookie to an
-owner session, and never copies one from a client. Each resolution rechecks the
-grant's revocation, revision and expiry; without a live session a request is
-forwarded as non-owner. A tunnel opened under a session closes within one
-100 ms poll when that session ends, and its traffic counts as session use.
-The extension owns its reply: status, content type, CSP and other headers pass
-through; the door only fills absent security defaults and drops `Set-Cookie`.
-Replies stream one chunk at a time. WebSocket upgrades are spliced as unparsed
-bytes in both directions with bounded per-direction buffers, on a tunnel thread
-outside the door's edge sockets so open pages cannot starve `/r/`, pairing or
-page loads. Each extension has its own tunnel cap (colab: 16) and idle bound
-(colab: 120 s without bytes either way); a full pool refuses the upgrade with
-503 and `retry-after`. A tunnel also ends when either side closes or pending
-bytes stall past their bound, and door shutdown closes and joins every tunnel
-before its workers. `Sec-Fetch-Site: cross-site` is refused when present. A
-missing or unsafe socket is 404, an unreachable one 503 and a malformed
-extension reply 502. Mounted traffic makes no core call and never reaches `/r/`.
-
-`canonical` owns pure decoded-value local-v1 envelope framing and the
-`tmt-device-pair-v1` device enrollment and possession framing (kinds `addon`,
-`browser` with a loopback door origin, which `Pairing` binds to this door, and
-`cli`; the device proposes
-no agents, scopes, mode or expiry), the pairing-code text codec (26 base32
-symbols, separators limited to ASCII spaces and hyphens) and the four-word key
-fingerprint over the pinned BIP-39 English list in
-`extensions/tmt-remote/rust/tmt-remote/assets/bip39-english.txt`, the
-`tmt-ext-cert-v1` extension key certificate bytes, and the mounted
-extension-name grammar that `mount` also uses. `crypto` owns strict Ed25519
-verification, full HMAC-SHA256 verification and pure `K_response`/`serverProof`
-derivation. Neither module has I/O, clock, storage or CoreClient access. Pairing and message
-admission compose these pure primitives; valid bytes alone grant no authority. Remote-generated IDs remain UUIDv4.
-Byte construction and valid signatures establish no authority.
-Rust tests consume the independent Python canonical fixtures read-only; Rust-owned
-RFC/Python/WebCrypto vectors exercise cryptographic validity separately, including fixed
-extension-certificate signatures and domain, extension, purpose, key and time binding. The codec
-dependencies are the contract's pinned Ed25519 and HMAC primitives, the existing
-pinned SHA-256 dependency and the workspace `base64` engine configured for strict
-unpadded base64url (no padding, no trailing bits), whose refusals have shared
-oracle vectors. Real Chrome MV3 security and browser
-interoperability remain later gates; local Node conformance does not replace them.
-
-[`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns the proposed
-remote channel: one device identity, trust grants (direct by default, hold opt-in),
-the admitted operations, the extension channel API (device context, route mounting,
-opaque relay, operations, agent status) and backends/deploy. Extensions such as colab
-are apps on remote and consume that API instead of shipping their own door, sign-in,
-pairing or backends. Pairing/authentication/log/SDK behavior remains proposed until
-its implementation slices land; the `canonical` and `remote-client` builders below
-follow the channel contract's device enrollment, receipt-proof and fingerprint rules.
-`firestore` and `cloudflare` are not permitted until their edge admission and
-encryption profile are specified. Core never owns a listener or remote state. Core recognizes Remote as an
-official installation product. Its archive embeds the pairing page, SDK and wordlist
-without companions or skills. Packaging and publication
-retain separate gates owned by the [release skill](.agents/skills/tmt-release/SKILL.md).
-For shell ownership, see the [browser add-on shell](#browser-add-on-shell).
-
-The private [`remote-client`](extensions/tmt-remote/typescript/remote-client/README.md)
-TypeScript module owns decoded-value envelope, device enrollment, possession and
-`tmt-ext-cert-v1` signing-byte builders, the `K_response`/`serverProof` HMAC inputs,
-pairing-code decoding and fingerprint indexes, with independent exact-byte/SHA-256
-fixtures shared with the Rust tests. Its `device` module is the device SDK: a
-non-extractable WebCrypto Ed25519 device key (the caller persists the opaque
-handle), the pairing link parser and client that accepts the machine key only after
-`serverProof` verifies, the `session.open` client that verifies the machine-signed
-response, and extension key certification. Network access goes through an
-injected fetch. Its browser entry (`src/browser.ts`) is what the door serves:
-`vp build` on the aliased Vite core in library mode bundles it, the canonical
-builders and the pinned BIP-39 list into one unminified ES module in the crate's `assets/`. It runs the
-pairing page (fragment removed first, words shown before the owner confirms, the
-key's opaque handle kept in this origin's IndexedDB) and gives mounted pages
-`reopenSession`, `operations(session, {timeoutMs?})` and `certifyKey`, whose extension
-comes from `/sdk/mount`, never from the caller. The operations helper exposes
-`dispatch.create`, `operation.show`, `result` and `agents.list`; scope-free
-`capabilities` is used internally for sequence synchronization. A private session
-channel retains the signer, pinned machine key and independent sequence counters;
-all helper instances for that session share one serialized request lane. Responses
-must verify their signature, audience, session, operation, correlation and increasing
-machine sequence before their state is exposed. The caller owns durable dispatch IDs
-and intent; the SDK freezes serialized payload bytes in memory before signing and
-stores no dispatch intent in IndexedDB. Unknown outcomes throw the exported
-`ClientError`, preserving the original dispatch ID. Recovery observes
-`operation(originalId)` in the existing session. After unknown outcomes or signed
-refusals, the next call first probes read-only `capabilities` at n+1, retrying
-once at n only on a verified sequence refusal, then performs the caller's call. It never guesses a third sequence, reopens or
-automatically dispatches. Exhausted recovery reports `sequence_unavailable` so the
-caller can reopen explicitly; reopening ends that session's live sync tunnel.
-Verified pre-effect refusals return a refused state on send/observation; read calls
-throw the exported typed `RefusalError`. Generic pre-admission 404 signals
-`REMOTE_SESSION_ENDED`. The SDK README owns the exported error unions and caller
-recovery procedure. Listing forwards optional core-published delivery unchanged.
-Every `certifyKey` call signs a new `tmt-ext-cert-v1` certificate
-with the same device key and current `issuedAtMs`; verifiers own freshness.
-The paired record stores no certificate cache; legacy records with an extra
-`certificates` field still load without migration. The browser SDK exposes no
-principal: mounted pages ask their extension backend, which uses the door-forwarded
-`tmt-device-context` for that request. Remote-generated IDs remain UUIDv4, as defined by the channel
-contract. Syntax validation establishes no authority. It uses standard UTF-8 and
-WebCrypto primitives and runs in the existing Code quality job: the independent
-Python oracle must pass before the workspace-pinned Vite+ test runner runs, and the SDK
-tests drive it against a node:crypto stand-in door. A Playwright Chromium smoke
-(`test:browser`, in the path-filtered Remote pairing page workflow) pairs a real
-browser with a real `tmt remote serve` and checks the cookie, the forwarded
-device context, both certificate purposes, silent session reopening, and a direct
-send/operation/result read using a deterministic public-core fixture, then verifies that
-revocation removes owner context and refuses reopening while retained signatures remain valid.
-
-The #1055 acceptance suite uses E2EFixture through `harness.ts`.
-Its `remote-device` peer is test-only, pinned to independent Python/WebCrypto
-vectors and imports no SDK. `remote-owner` consumes fixture coordinates and owns selected
-real core/Remote binaries, isolated HOME/XDG/private tmux, HTTP and joined process teardown.
-Its transparent test-only `TMT_EXECUTABLE` wrapper forwards exact argv/stdin/actual output;
-grants may be seeded only in Remote's database after serve and owned core children stop,
-never in core storage. Integrated acceptance is limited to #1055's six bullets plus one
-permitted/refused read scenario.
+- Unauthenticated traffic gets one generic refusal and learns no inventory.
+- Every effect rechecks the persisted grant inside its write transaction; revocation orders after an in-flight effect.
+- Uncertainty or timeout never resends and never mints a new operation ID; recovery reads core by the same ID.
+- Enrolled panes are never pasted to; core's send-time guard decides, never terminal output.
+- The serve lease is inherited by invocation children, so restart cannot overlap an orphaned effect.
 
 ## Colab extension
 
