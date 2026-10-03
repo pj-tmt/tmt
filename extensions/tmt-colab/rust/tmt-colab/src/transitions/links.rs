@@ -35,34 +35,39 @@ impl Engine {
         request: LinkRequest<'_>,
         now: u64,
     ) -> std::result::Result<Vec<u8>, TransitionError> {
-        let result = (|| {
-            let (remove, add, seed) = match request.action {
-                LinkAction::Add(spec) => (None, Some(recipient(key, &spec)?), None),
-                LinkAction::Remove { link_id } => (Some(link_id), None, None),
-                LinkAction::Reset {
-                    link_id,
-                    replacement,
-                } => {
-                    let add = replacement
-                        .as_ref()
-                        .map(|spec| recipient(key, spec))
-                        .transpose()?;
-                    (Some(link_id), add, replacement.map(|spec| spec.seed))
-                }
-            };
-            self.change(
-                store,
-                key,
-                request.operation_id,
-                request.expected_revision,
-                Action::Link { remove, add, seed },
-                now,
-            )
-            .map(|(outcome, _)| outcome)
-        })();
-        result.map_err(TransitionError::from_error)
+        self.apply(
+            store,
+            key,
+            super::OwnerRequest {
+                operation_id: request.operation_id,
+                expected_revision: request.expected_revision,
+                action: super::OwnerAction::Link(request.action),
+                transport_digest: None,
+                scope: None,
+            },
+            now,
+        )
+        .map(|applied| applied.outcome)
     }
 }
+pub(super) fn action<'a>(key: &Keyring, action: LinkAction<'a>) -> crate::Result<Action<'a>> {
+    let (remove, add, seed) = match action {
+        LinkAction::Add(spec) => (None, Some(recipient(key, &spec)?), None),
+        LinkAction::Remove { link_id } => (Some(link_id), None, None),
+        LinkAction::Reset {
+            link_id,
+            replacement,
+        } => {
+            let add = replacement
+                .as_ref()
+                .map(|spec| recipient(key, spec))
+                .transpose()?;
+            (Some(link_id), add, replacement.map(|spec| spec.seed))
+        }
+    };
+    Ok(Action::Link { remove, add, seed })
+}
+
 fn recipient(key: &Keyring, spec: &LinkSpec<'_>) -> crate::Result<Recipient> {
     let keys = link::Keys::derive(spec.seed, &key.space_id, spec.id)?;
     Ok(Recipient {

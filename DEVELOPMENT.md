@@ -3062,6 +3062,15 @@ receipts, projections, wraps and returned outcomes reject raw, base64url and hex
 seed leakage. Link seeds are borrowed owner-local inputs; tests never claim this
 library seam admits unsigned browser management requests.
 
+Runner verification uses the same `--test transitions` suite. Real-store cases
+cover transport-bound and root-local retries, unchanged legacy digests, scope
+match/mismatch, conflicting replay, revoked-target replay and the original signed
+head after subsequent writes and reopening. Existing membership/link/epoch cases
+continue through their thin `Engine::apply` wrappers, including late-write rollback
+and moving-snapshot retries. `OwnerRequest.scope = None` preserves root-local
+composition; a browser management caller must admit its live signature/session
+and supply its transport digest and scope. No management route is added here.
+
 ### Colab owner registration verification
 
 Run `(cd rust && cargo test --offline --locked -p tmt-colab --test registration)`

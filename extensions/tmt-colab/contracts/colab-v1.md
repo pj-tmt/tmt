@@ -311,6 +311,22 @@ the resulting statements and transition. A request cannot supply an unverified
 baseline to be signed. The browser verifies returned owner-signed statements
 through the usual log admission; a transport success alone is not a new head.
 
+The root-local engine exposes `OwnerRequest` / `OwnerAction` through
+`Engine::apply`. An admitted management caller supplies an optional exact
+transport digest and `RequestScope {initiating_page, affected_pages}`. Scope IDs
+are sorted/unique and the initiating page belongs to the affected set. Scoped
+member removal/role changes and link removal/Reset match the target's stored page
+assignment during planning and the in-transaction recheck. Page actions bind a
+singleton page set. An absent scope is reserved for root-local composition.
+The replay digest purpose-separates normalized action, scope and transport bytes;
+an exact replay returns the original outcome and signed head, and conflicting
+bytes/scope return `CONFLICT`. A fresh scope mismatch returns `STALE_HEAD`.
+With neither transport nor scope, existing root-local digests remain unchanged.
+The runner prerequisite implements member/link/device/epoch dispatch; its reserved
+page-policy actions return `UNAVAILABLE` until the #1160 policy slice lands.
+This API is not transport admission. The caller serializes through sync first,
+then Registration; no request-carried field grants signing authority.
+
 On cloud backends membership, sharing, rotation and other root-signed changes
 require the owner's machine online. The cloud service never holds the root key
 or signs in its place. An offline management request remains unavailable; it
