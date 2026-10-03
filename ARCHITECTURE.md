@@ -4205,6 +4205,10 @@ keyring. Registration/discovery/catchup follow the Colab contract. The owner-onl
 TOFU exception pins the root per origin/mount and keeps the space in the fragment.
 Verified log bytes persist before dependent state; the client admits author chains
 and device wraps, importing unwrapped roots as non-extractable HKDF handles.
+The client object primitives accept those opaque HKDF/deriveBits handles alongside
+32-byte roots, with identical derivation labels and cipher inputs. The importing
+caller owns the root-length check because WebCrypto hides a handle's input length;
+seal/open validate its algorithm, usage and non-extractability without exporting it.
 The bounded metadata probe closes after catchup; absent wraps, invalid registration/
 pins, stream objects and reset baselines remain blocking states. The native
 placeholder is unchanged: #1248/#1250/#1253 own bootstrap/refresh/assets;

@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from 'node:fs';
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import * as c from '../src/index.js';
 const fixture = JSON.parse(
   readFileSync(new URL('../../../contracts/vectors/model-v1.json', import.meta.url), 'utf8'),
@@ -148,4 +148,46 @@ describe('colab browser values and immutable crypto', () => {
     const pair = (await crypto.subtle.generateKey('X25519', true, ['deriveBits'])) as CryptoKeyPair;
     await expect(c.RecipientKey.fromHandle(pair.privateKey, new Uint8Array(32))).rejects.toThrow();
   });
+});
+
+it('opaque HKDF roots seal/open exactly the frozen raw-root envelope', async () => {
+  const root = await crypto.subtle.importKey('raw', hex(fixture.master), 'HKDF', false, [
+    'deriveBits',
+  ]);
+  const { context, objectId } = c.decodeHeader(hex(fixture.header)),
+    key = await signer();
+  await expect(crypto.subtle.exportKey('raw', root)).rejects.toThrow();
+  const entropy = vi.spyOn(crypto, 'getRandomValues');
+  // Test-only entropy control reproduces the existing vector. Product seal still owns IDs.
+  entropy.mockImplementation(<T extends ArrayBufferView | null>(value: T): T => {
+    expect(value).toBeInstanceOf(Uint8Array);
+    const bytes = value as Uint8Array;
+    expect(bytes.length).toBe(32);
+    bytes.set(hex(objectId));
+    return value;
+  });
+  try {
+    for (const input of [hex(fixture.master), root]) {
+      const sealed = await c.Envelope.seal(context, input, key, hex(fixture.plaintext));
+      expect(sealed.toJson()).toEqual(frozen().toJson());
+      expect(await sealed.hash()).toEqual(hex(fixture.envelopeHash));
+      expect(await sealed.open(context, root, hex(fixture.public))).toEqual(hex(fixture.plaintext));
+    }
+  } finally {
+    entropy.mockRestore();
+  }
+  const wrongUsage = await crypto.subtle.importKey('raw', hex(fixture.master), 'HKDF', false, [
+    'deriveKey',
+  ]);
+  const wrongAlgorithm = await crypto.subtle.importKey(
+    'raw',
+    hex(fixture.master),
+    'AES-GCM',
+    false,
+    ['encrypt'],
+  );
+  for (const invalid of [wrongUsage, wrongAlgorithm]) {
+    await expect(c.Envelope.seal(context, invalid, key, hex(fixture.plaintext))).rejects.toThrow();
+    await expect(frozen().open(context, invalid, hex(fixture.public))).rejects.toThrow();
+  }
 });

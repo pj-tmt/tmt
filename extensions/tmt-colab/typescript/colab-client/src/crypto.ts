@@ -66,10 +66,29 @@ export async function hmac(key: Uint8Array, input: Uint8Array): Promise<Bytes> {
   ]);
   return new Uint8Array(await crypto.subtle.sign('HMAC', native, bytes));
 }
-export async function hkdf(key: Uint8Array, info: Uint8Array): Promise<Bytes> {
-  const k = copy(key, 32),
+/**
+ * A 32-byte root or a non-extractable HKDF/deriveBits handle imported from one.
+ * WebCrypto hides handle input length; the importing caller must validate 32 bytes.
+ * Handles remain opaque and are never exported by these primitives.
+ */
+export type RootSecret = Uint8Array | CryptoKey;
+export function rootSecret(value: RootSecret): RootSecret {
+  if (value instanceof Uint8Array) return copy(value, 32);
+  requireValue(
+    value.type === 'secret' &&
+      !value.extractable &&
+      value.algorithm.name === 'HKDF' &&
+      value.usages.includes('deriveBits'),
+  );
+  return value;
+}
+export async function hkdf(key: RootSecret, info: Uint8Array): Promise<Bytes> {
+  const k = rootSecret(key),
     bytes = copy(info);
-  const native = await crypto.subtle.importKey('raw', k, 'HKDF', false, ['deriveBits']);
+  const native =
+    k instanceof Uint8Array
+      ? await crypto.subtle.importKey('raw', copy(k), 'HKDF', false, ['deriveBits'])
+      : k;
   return new Uint8Array(
     await crypto.subtle.deriveBits(
       { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(), info: bytes },

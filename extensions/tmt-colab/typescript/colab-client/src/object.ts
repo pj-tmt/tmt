@@ -15,7 +15,15 @@ import {
   text,
   type Bytes,
 } from './bytes.js';
-import { digest, hkdf, sign, signingKey, strictVerify } from './crypto.js';
+import {
+  digest,
+  hkdf,
+  rootSecret,
+  sign,
+  signingKey,
+  strictVerify,
+  type RootSecret,
+} from './crypto.js';
 import { strictJson } from './json.js';
 const SUITE = 'aes256gcm-hkdfsha256-ed25519-v1',
   MAX = 16 * 1024 * 1024;
@@ -160,7 +168,7 @@ export class Envelope {
   /** No caller ID or fixture seed API. A new seal always consumes WebCrypto entropy. */
   static async seal(
     context: Context,
-    secret: Uint8Array,
+    secret: RootSecret,
     signer: CryptoKey,
     plaintext: Uint8Array,
   ): Promise<Envelope> {
@@ -171,7 +179,7 @@ export class Envelope {
     ).join('');
     const h = header(context, id);
     requireValue(plaintext.length <= ceiling(h));
-    const root = copy(secret, 32),
+    const root = rootSecret(secret),
       input = copy(plaintext);
     const key = await crypto.subtle.importKey(
       'raw',
@@ -190,12 +198,12 @@ export class Envelope {
     return new Envelope(h, ct, await sign(signer, await signatureInput(h, ct)));
   }
   /** Caller first admits current log, device chain, role, epoch and stream order. */
-  async open(expected: Context, secret: Uint8Array, devicePublic: Uint8Array): Promise<Bytes> {
+  async open(expected: Context, secret: RootSecret, devicePublic: Uint8Array): Promise<Bytes> {
     const h = copy(this.#header),
       ct = copy(this.#ciphertext),
       sig = copy(this.#signature);
     requireValue(equal(h, header(expected, decodeHeader(h).objectId)));
-    const root = copy(secret, 32),
+    const root = rootSecret(secret),
       publicKey = copy(devicePublic, 32);
     requireValue(await strictVerify(publicKey, sig, await signatureInput(h, ct)));
     const key = await crypto.subtle.importKey(
