@@ -291,11 +291,14 @@ Examples:
 - On a terminal whose width is known, rows never wrap. Detail columns (paths,
   previews) are truncated with `…` first, then names. Marks and fixed columns
   never truncate. Piped output is never truncated.
-- Every aligned view takes its column widths from one solver, `grid::solve`,
-  and fits cells with `grid::fit`, so lists and extension boards size columns
-  the same way. Widths are display cells (wide characters count two). A column
-  has a basis (its width or widest content), `min`/`max`, a `grow` share of
-  what is left, a shrink tier (lower tiers shrink first, widest first) and an
+- CLI lists and tables take their column widths from `grid::solve` and fit
+  cells with `grid::fit`. The Squad board compiles row tracks into admitted
+  markup and sizes them with Taffy after its priority pre-step; its shared
+  grapheme fitter preserves the resulting logical text widths and clips.
+  Board percentages use the content box before gaps, while CLI lists use the
+  remaining width after gaps. Widths are display cells (wide characters count
+  two). A column has a basis (its width or widest content), `min`/`max`, a
+  `grow` share of what is left, a shrink tier (lower tiers shrink first, widest first) and an
   optional `priority` (the highest steps aside first once minimums do not
   fit). Equal inputs always give equal widths; ties go by column order. A cell
   cut short ends in `…`, or keeps both ends for paths and links
