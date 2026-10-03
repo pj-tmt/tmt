@@ -27,7 +27,7 @@ fn open_enforces_connection_features_and_private_files() {
         storage.health().unwrap(),
         StorageHealth {
             path: fixture.database.clone(),
-            schema_version: 44,
+            schema_version: 45,
             journal_mode: "wal",
             foreign_keys: true,
             busy_timeout_ms: 5000,
@@ -165,7 +165,7 @@ fn concurrent_openers_commit_each_migration_only_once() {
     initial.pragma_update(None, "journal_mode", "WAL").unwrap();
     initial.close().unwrap();
     for result in concurrent_opens(&fixture) {
-        assert_eq!(result.unwrap(), 44);
+        assert_eq!(result.unwrap(), 45);
     }
     assert_complete_history(&fixture);
 }
@@ -175,7 +175,7 @@ fn cold_open_race_initializes_wal_for_every_caller() {
     for _ in 0..4 {
         let fixture = Fixture::new();
         for result in concurrent_opens(&fixture) {
-            assert_eq!(result.unwrap(), 44);
+            assert_eq!(result.unwrap(), 45);
         }
         assert_complete_history(&fixture);
     }
@@ -211,7 +211,7 @@ fn assert_complete_history(fixture: &Fixture) {
     let count: i64 = verification
         .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(count, 44);
+    assert_eq!(count, 45);
     let check: String = verification
         .query_row("PRAGMA integrity_check", [], |row| row.get(0))
         .unwrap();

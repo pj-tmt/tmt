@@ -123,7 +123,7 @@ fn session_upgrade_preserves_binding_and_rolls_back_observations_with_history() 
         .execute_batch("DROP TRIGGER reject_session_migration;")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 44);
+    assert_eq!(storage.health().unwrap().schema_version, 45);
     let row = oracle.query_row(
         "SELECT id, identity_id, pane_id, bound_at, last_verified_at, runtime_state, last_transition FROM bindings",
         [], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, Option<String>>(6)?)),
@@ -180,7 +180,7 @@ fn driver_state_upgrade_keeps_remembered_sessions_without_state() {
     .unwrap();
     old.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 44);
+    assert_eq!(storage.health().unwrap().schema_version, 45);
     storage.close().unwrap();
     let oracle = Connection::open(&path).unwrap();
     let row: (String, Option<String>, Option<i64>, Option<i64>) = oracle
@@ -192,4 +192,66 @@ fn driver_state_upgrade_keeps_remembered_sessions_without_state() {
         )
         .unwrap();
     assert_eq!(row, ("session".into(), None, None, None));
+}
+
+#[test]
+fn channel_upgrade_preserves_legacy_state_and_validates_preference() {
+    let directory = TestDirectory::new();
+    let path = directory.path.join("schema44.db");
+    let mut old = Connection::open(&path).unwrap();
+    test_support::seed_history(&mut old);
+    apply_identity_lifetime(&mut old, &MIGRATIONS[8]).unwrap();
+    for (index, migration) in MIGRATIONS[9..44].iter().enumerate() {
+        apply_version(&mut old, index as u32 + 10, migration).unwrap();
+    }
+    old.execute_batch("INSERT INTO identity_session_preferences (identity_id,preferred_harness,remembered_harness,runtime_mode,provider_session_id) VALUES ('old-id','claude','claude','default','session');
+        CREATE TRIGGER reject_channel_migration BEFORE INSERT ON _migrations WHEN NEW.version=45 BEGIN SELECT RAISE(ABORT, 'injected channel migration failure'); END;").unwrap();
+    old.close().unwrap();
+    assert_eq!(
+        Storage::open(&path).err().unwrap().migration_version,
+        Some(45)
+    );
+    let oracle = Connection::open(&path).unwrap();
+    assert_eq!(oracle.query_row("SELECT count(*) FROM pragma_table_info('identity_session_preferences') WHERE name='channel'", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+    oracle
+        .execute_batch("DROP TRIGGER reject_channel_migration")
+        .unwrap();
+    let mut storage = Storage::open(&path).unwrap();
+    assert_eq!(
+        oracle
+            .query_row(
+                "SELECT provider_session_id,channel FROM identity_session_preferences",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<bool>>(1)?))
+            )
+            .unwrap(),
+        ("session".into(), None)
+    );
+    for value in ["2", "-1", "'channel'", "0.5"] {
+        assert!(
+            oracle
+                .execute(
+                    &format!("UPDATE identity_session_preferences SET channel={value}"),
+                    []
+                )
+                .is_err()
+        );
+    }
+    let cursor = || {
+        oracle
+            .query_row("SELECT value FROM change_cursor WHERE id=1", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap()
+    };
+    let before = cursor();
+    oracle
+        .execute("UPDATE identity_session_preferences SET channel=1", [])
+        .unwrap();
+    assert_eq!(cursor(), before + 1);
+    oracle
+        .execute("UPDATE identity_session_preferences SET channel=1", [])
+        .unwrap();
+    assert_eq!(cursor(), before + 1);
+    storage.close().unwrap();
 }

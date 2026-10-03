@@ -20,12 +20,13 @@ pub enum HookFormat {
     SessionHooksJson,
 }
 
-/// The opt-in turn-end hook that records context usage (#519), as a setup
-/// request. Without a choice, setup keeps whatever TMT hook is installed: a
-/// re-run never turns usage on or off by itself.
+/// Turn-end context and consumption collection. Default setup installs it
+/// unless the setup record preserves a disabled installation. Keep is the
+/// internal, settings-only inspection/removal policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum UsageHook {
     #[default]
+    Default,
     Keep,
     Install,
     Remove,

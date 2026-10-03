@@ -14,19 +14,20 @@ use tmt_adapters::{
 
 pub fn execute(
     provider: Option<String>,
+    status: bool,
     remove: bool,
     usage: UsageHook,
     yes: bool,
     mode: OutputMode,
 ) -> io::Result<u8> {
-    match run(provider.as_deref(), remove, usage, yes, mode) {
+    match run(provider.as_deref(), status, remove, usage, yes, mode) {
         Ok(()) => Ok(0),
         Err(error) => error.publish(mode),
     }
 }
 
-/// What the opt-in usage hook reads, shown wherever setup plans it.
-const USAGE_NOTE: &str = "Usage: after each turn, TMT reads token counts from the end of the agent's own transcript; no transcript content is stored.";
+/// What the usage hook reads, shown wherever setup plans it.
+const USAGE_NOTE: &str = "Context and consumption: after each turn, TMT reads token counts from the agent's own transcript; no transcript content is stored.";
 
 fn failure(error: impl std::error::Error + 'static) -> Failure {
     Failure::new("SETUP_ERROR", error.to_string(), 1).caused_by(error)
@@ -34,13 +35,19 @@ fn failure(error: impl std::error::Error + 'static) -> Failure {
 
 fn run(
     provider: Option<&str>,
+    status: bool,
     remove: bool,
     usage: UsageHook,
     yes: bool,
     mode: OutputMode,
 ) -> Result<(), Failure> {
     let drivers = Registry::builtin();
+    if status {
+        return show_status(&drivers, provider, mode);
+    }
     let environment = SetupEnvironment::capture(&drivers).map_err(failure)?;
+    let global = ConfigPaths::discover().map_err(Failure::from)?.global_dir;
+    let recorded = record::read(&global).map_err(failure)?;
     if provider.is_none() {
         let mut output = tmt_cli_style::stream::stdout(mode.json);
         let terminal = output.terminal();
@@ -64,6 +71,7 @@ fn run(
                 .map_err(failure)?
                 .to_path_buf();
             let before = setup::read_settings(&path).map_err(failure)?;
+            let usage = record::usage_policy(&recorded, provider.name(), &path, usage);
             setup::plan(
                 provider,
                 path,
@@ -81,9 +89,7 @@ fn run(
         .into_iter()
         .next()
         .expect("one selected provider plan");
-    // An unreadable record is preserved and stops setup before any change.
-    let global = ConfigPaths::discover().map_err(Failure::from)?.global_dir;
-    record::read(&global).map_err(failure)?;
+    // The record was validated before planning any settings changes.
     // Removing only the usage hook is a removal too.
     let removing = remove || (plan.usage_before && !plan.usage);
     if !mode.json {
@@ -101,6 +107,8 @@ fn run(
         }
         if plan.usage {
             writeln!(output, "{USAGE_NOTE}").map_err(failure)?;
+        } else if !remove {
+            writeln!(output, "{}", collection_off(plan.provider)).map_err(failure)?;
         }
     }
     if !crate::consent::ask(
@@ -129,6 +137,7 @@ fn run(
                 driver: plan.provider.to_owned(),
                 settings: plan.change.path.clone(),
                 launcher: plan.launcher.clone(),
+                usage: Some(plan.usage),
             },
         )
     };
@@ -149,10 +158,7 @@ fn run(
         if let Some(warning) = &warning {
             document["warnings"] = json!([warning]);
         }
-        // Additive: present only while the usage hook is installed.
-        if plan.usage {
-            document["usage"] = json!(true);
-        }
+        collection_document(&mut document, plan.provider, plan.usage);
         writeln!(output, "{document}").map_err(failure)?;
     } else {
         if plan.change.changed() {
@@ -180,14 +186,77 @@ fn run(
     Ok(())
 }
 
+fn collection_off(provider: &str) -> String {
+    format!(
+        "{provider}: consumption collection is off; enable it with: tmt setup {provider} --usage"
+    )
+}
+
+fn collection_document(document: &mut serde_json::Value, provider: &str, enabled: bool) {
+    document["usage"] = json!(enabled);
+    if !enabled {
+        document["diagnostic"] = json!(collection_off(provider));
+    }
+}
+
+/// Settings-only inspection: no consent, provider execution, record adoption or DB.
+fn show_status(
+    drivers: &Registry,
+    provider: Option<&str>,
+    mode: OutputMode,
+) -> Result<(), Failure> {
+    let selected: Vec<_> = match provider {
+        Some(name) => drivers.find(name).into_iter().collect(),
+        None => drivers.with_hooks().collect(),
+    };
+    let mut integrations = Vec::new();
+    for driver in selected {
+        let path = setup::provider_settings(driver).map_err(failure)?;
+        let before = setup::read_settings(&path).map_err(failure)?;
+        // Keep validates installed entries without proposing a usage opt-in.
+        let plan = setup::plan(
+            driver,
+            path.clone(),
+            before,
+            std::path::PathBuf::from("/"),
+            false,
+            UsageHook::Keep,
+        )
+        .map_err(failure)?;
+        let mut row = json!({"provider": driver.name(), "settingsPath": path});
+        collection_document(&mut row, driver.name(), plan.usage_before);
+        integrations.push(row);
+    }
+    let mut output = tmt_cli_style::stream::stdout(mode.json);
+    if mode.json {
+        writeln!(output, "{}", json!({"integrations": integrations})).map_err(failure)?;
+    } else {
+        for row in integrations {
+            let provider = row["provider"].as_str().expect("driver name");
+            if row["usage"] == true {
+                writeln!(output, "{provider}: consumption collection is on").map_err(failure)?;
+            } else {
+                writeln!(output, "{}", collection_off(provider)).map_err(failure)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
-pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
-    &[crate::cli_style_tests::HintSpec::core(
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "{provider}: consumption collection is off; enable it with: tmt setup {provider} --usage",
+        &[""],
+        &[("{provider}", "codex")],
+    ),
+    crate::cli_style_tests::HintSpec::core(
         "run tmt setup {} again",
         &[" again"],
         &[("{}", "codex")],
-    )];
+    ),
+];
 
 #[cfg(test)]
 pub(crate) use guided::PRINTED_HINTS as GUIDED_HINTS;

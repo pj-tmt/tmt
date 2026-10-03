@@ -48,8 +48,12 @@ for pane death.
 Check the selected executable's help instead of inferring capabilities from
 a remembered version number.
 
-The opt-in `tmt setup --usage` hook can expose `resume.usage` (context size) and
-optional `resume.consumption` in ls/identity JSON. Consumption reports cumulative
+Consented `tmt setup` includes the Stop hook by default, exposing
+`resume.usage` (context size) and
+optional `resume.consumption` in ls/identity JSON. `--no-usage` disables
+collection and preserves the choice; `--usage` enables it again. Legacy recorded
+lifecycle-only installs stay off until explicitly enabled. Inspect without
+changes using `tmt setup [provider] --status`. Consumption reports cumulative
 completed-request counters; measure changes within an epoch. Cached input
 already belongs to input.
 Use its epoch/sequence and completeness/gap evidence, never context-size
@@ -695,11 +699,17 @@ Resume still needs the hook-recorded session; naming preserves it but never gues
 one. Save to keep resume coordinates across pane loss. Naming an enrolled launch
 neither restarts its channel nor enables paste fallback.
 
-The driver advertises its channel default: Codex and Claude remain opt-in.
-`--no-channel` chooses plain paste delivery for
-one launch, while `--channel` requires enrollment or fails. The flags conflict
-and go before the name for both run and exact resume. Default uses the original
-plain command without channel enrollment. Live or unconfirmed
+Fresh launches use the driver's channel default: Codex and Claude remain opt-in.
+An admitted fresh launch remembers its channel/plain choice. Exact resume
+reuses it; explicit `--channel`/`--no-channel` on resume updates the remembered
+choice after successful admission. Opt in once with `tmt resume --channel <name>`;
+failed Required enrollment leaves the choice unchanged. Resume without flags
+preserves it. Legacy records without a choice use the driver default. A remembered channel
+requires successful enrollment and never silently falls back to paste.
+`--no-channel` chooses and remembers plain paste delivery, while `--channel`
+requires enrollment or fails before recording an enabled choice. The flags conflict
+and go before the name for both run and exact resume. A fresh default launch uses
+the original plain command without channel enrollment. Live or unconfirmed
 enrollment evidence remains terminal; never paste or resend into an enrolled
 pane after a refused or uncertain channel outcome. Codex owns an extra private
 app-server and supervisor per enrolled foreground, cleaned on exit and Ctrl-C.
@@ -731,7 +741,8 @@ that fails before the provider confirms the session marks it stale; a stale
 session needs `tmt resume --retry <name>` or `tmt resume --forget <name>`. Never
 combine `--resume` with an explicit command, and never resend a task after a
 failed resume. Codex's opt-in channel resumes the exact selected thread, never
-a fresh substitute. Default uses plain exact resume; `--channel` fails if
+a fresh substitute. Claude exact resume also creates a fresh channel enrollment
+when selected. `--channel` fails if
 enrollment cannot finish safely before startup. Fresh channel attachment on
 Codex 0.160.0 currently fails (#1198); use plain launch until it is fixed. Details:
 <https://pj-tmt.github.io/tmt/working#tmt-resume>.

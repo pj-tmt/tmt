@@ -310,8 +310,12 @@ Working/idle are the last admitted main-turn start/end from TMT's synchronous
 setup-written provider hooks, while core process evidence can establish ended.
 Missing proof gives unknown. Timestamps are local accepted observation times;
 `lastActivityMs` is not a heartbeat and has no stalled threshold. Provider-only
-extras are currently empty. The opt-in `tmt setup --usage` Stop hook supplies end
-events; absent end events never cause an inferred idle transition. Extensions
+extras are currently empty. The Stop hook included in consented `tmt setup`
+supplies end events. `--no-usage` disables collection and preserves that choice;
+`--usage` re-enables it. Legacy recorded lifecycle-only installs remain disabled
+until explicitly enabled. `tmt setup [provider] --status` reports the installed
+collection state without changing it. Absent end events never cause an inferred
+idle transition. Extensions
 must use this public projection rather than inspect core state.
 
 Public `ls --json` also exposes the remembered driver's optional

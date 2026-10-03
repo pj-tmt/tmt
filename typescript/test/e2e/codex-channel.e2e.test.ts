@@ -416,6 +416,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
   ] as Array<[boolean | 'default', string]>) {
     it(`exact resume mode=${mode} ${failure || 'uses the remembered thread'} without substitution`, async () => {
       await withE2EFixture(async (f) => {
+        const usesChannel = mode !== false;
         const first = start(f, 'Resume', true);
         await ready(f, first);
         const original = records(f)[0].record.ready.thread;
@@ -437,7 +438,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
           first.pane,
           true
         );
-        if (mode === true && failure) {
+        if (usesChannel && failure) {
           expect(
             await waitForFileContent(resumed.status, { description: 'strict exact-resume refusal' })
           ).toBe('1');
@@ -448,13 +449,14 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
           expect(f.capture(200, resumed.pane)).not.toContain('uses paste delivery:');
           return;
         }
+        resumed.channel = usesChannel;
         await ready(f, resumed);
         expect(events(resumed, 'thread-start')).toEqual([]);
-        expect(events(resumed, 'thread-resume')).toHaveLength(mode === true ? 1 : 0);
-        if (mode === true) expect(events(resumed, 'thread-resume')[0].thread).toBe(original);
+        expect(events(resumed, 'thread-resume')).toHaveLength(usesChannel ? 1 : 0);
+        if (usesChannel) expect(events(resumed, 'thread-resume')[0].thread).toBe(original);
         const trace = installTmuxTrace(f);
         expect((await talk(f, 'Resume', 'resumed message')).code).toBe(0);
-        if (mode !== true) {
+        if (!usesChannel) {
           expect(records(f)).toEqual([]);
           expect(events(resumed, 'started')[0].args).toEqual(['resume', original, '--no-daemon']);
           expect(
@@ -478,6 +480,62 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       });
     }, 60000);
   }
+
+  it.each([0, null])(
+    'flagless and failed explicit channel resume preserve channel=%s',
+    async (remembered) => {
+      await withE2EFixture(async (f) => {
+        const first = start(f, 'PlainResume', false);
+        await ready(f, first);
+        await quit(first);
+        const original = '55555555-5555-4555-8555-555555555555';
+        // The protocol peer has no lifecycle hooks; seed its exact remembered session.
+        sql(f, (db) =>
+          db
+            .prepare(
+              `UPDATE identity_session_preferences SET remembered_harness='codex', runtime_mode='embedded', provider_session_id=?, channel=? WHERE identity_id=(SELECT id FROM identities WHERE name='PlainResume')`
+            )
+            .run(original, remembered)
+        );
+        const preference = () =>
+          sql(f, (db) =>
+            db
+              .prepare(
+                `SELECT channel,provider_session_id FROM identity_session_preferences WHERE identity_id=(SELECT id FROM identities WHERE name='PlainResume')`
+              )
+              .get()
+          );
+        expect(preference()).toEqual({ channel: remembered, provider_session_id: original });
+        const plain = start(f, 'PlainResume', 'default', {}, first.pane, true);
+        await ready(f, plain);
+        expect(events(plain, 'started')[0].args).toEqual(['resume', original, '--no-daemon']);
+        expect(records(f)).toEqual([]);
+        await quit(plain);
+        expect(preference()).toEqual({ channel: remembered, provider_session_id: original });
+        const resumed = start(
+          f,
+          'PlainResume',
+          true,
+          { MOCK_RESUME_FAILURE: 'refused' },
+          first.pane,
+          true
+        );
+        expect(
+          await waitForFileContent(resumed.status, {
+            description: 'explicit channel enrollment refused',
+          })
+        ).toBe('1');
+        expect(events(resumed, 'thread-resume')).toHaveLength(1);
+        expect(events(resumed, 'thread-resume')[0].thread).toBe(original);
+        expect(events(resumed, 'started')).toEqual([]);
+        expect(events(resumed, 'thread-start')).toEqual([]);
+        expect(preference()).toEqual({ channel: remembered, provider_session_id: original });
+        expect(records(f)).toEqual([]);
+        expect(f.capture(200, resumed.pane)).not.toContain('uses paste delivery:');
+      });
+    },
+    60000
+  );
 
   it('explicit opt-in channel hooks preserve the foreground and remembered model through exact resume', async () => {
     await withE2EFixture(async (f) => {
@@ -756,7 +814,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       sql(f, (db) =>
         db
           .prepare(
-            `UPDATE identity_session_preferences SET preferred_harness=NULL,
+            `UPDATE identity_session_preferences SET preferred_harness=NULL, channel=NULL,
         remembered_harness=NULL, runtime_mode=NULL, provider_session_id=NULL`
           )
           .run()
@@ -778,7 +836,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
             .run(record.bindingId).changes
         ).toBe(1);
         db.prepare(
-          `UPDATE identity_session_preferences SET preferred_harness=NULL,
+          `UPDATE identity_session_preferences SET preferred_harness=NULL, channel=NULL,
           remembered_harness=NULL, runtime_mode=NULL, provider_session_id=NULL`
         ).run();
       });

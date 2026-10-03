@@ -21,6 +21,31 @@ pub struct RecordedHooks {
     pub settings: PathBuf,
     /// The stable launcher the hook commands run.
     pub launcher: PathBuf,
+    /// None is a legacy record, which did not retain explicit usage choices.
+    pub usage: Option<bool>,
+}
+
+/// Resolve the default from the same installation record used by uninstall.
+/// Legacy lifecycle-only records cannot distinguish an old opt-out, so keep
+/// them disabled until the user explicitly enables collection.
+pub fn usage_policy(
+    entries: &[RecordedHooks],
+    driver: &str,
+    settings: &Path,
+    requested: super::UsageHook,
+) -> super::UsageHook {
+    use super::UsageHook;
+    if requested != UsageHook::Default {
+        return requested;
+    }
+    match entries
+        .iter()
+        .find(|entry| entry.driver == driver && entry.settings == settings)
+    {
+        Some(entry) if entry.usage == Some(false) => UsageHook::Remove,
+        Some(entry) if entry.usage.is_none() => UsageHook::Keep,
+        _ => UsageHook::Install,
+    }
 }
 
 pub fn path(global: &Path) -> PathBuf {
@@ -59,7 +84,9 @@ pub fn read(global: &Path) -> io::Result<Vec<RecordedHooks>> {
     let mut hooks = entries
         .iter()
         .map(|entry| {
-            let fields = entry.as_object().filter(|fields| fields.len() == 3);
+            let fields = entry.as_object().filter(|fields| {
+                fields.len() == 3 || (fields.len() == 4 && fields.contains_key("usage"))
+            });
             let text = |key: &str| {
                 fields
                     .and_then(|fields| fields.get(key))
@@ -78,6 +105,10 @@ pub fn read(global: &Path) -> io::Result<Vec<RecordedHooks>> {
                 driver: text("driver")?.to_owned(),
                 settings: absolute("settings")?,
                 launcher: absolute("launcher")?,
+                usage: entry
+                    .get("usage")
+                    .map(|value| value.as_bool().ok_or_else(|| invalid(&file)))
+                    .transpose()?,
             })
         })
         .collect::<io::Result<Vec<_>>>()?;
@@ -123,11 +154,15 @@ fn update(global: &Path, change: impl FnOnce(&mut Vec<RecordedHooks>)) -> io::Re
     let hooks = entries
         .iter()
         .map(|entry| {
-            Ok(json!({
+            let mut document = json!({
                 "driver": entry.driver,
                 "settings": entry.settings.to_str().ok_or_else(|| invalid(&file))?,
                 "launcher": entry.launcher.to_str().ok_or_else(|| invalid(&file))?,
-            }))
+            });
+            if let Some(usage) = entry.usage {
+                document["usage"] = json!(usage);
+            }
+            Ok(document)
         })
         .collect::<io::Result<Vec<_>>>()?;
     let bytes = serde_json::to_vec_pretty(&json!({"version": 1, "hooks": hooks}))
@@ -146,6 +181,7 @@ mod tests {
             driver: driver.into(),
             settings: settings.into(),
             launcher: "/stable/bin/tmt".into(),
+            usage: None,
         }
     }
 
@@ -185,10 +221,56 @@ mod tests {
     }
 
     #[test]
+    fn usage_choice_is_scoped_persisted_and_explicitly_overridden() {
+        use crate::setup::UsageHook::{Default, Install, Keep, Remove};
+        let root = TestDirectory::new();
+        let mut entry = hooks("claude", "/home/.claude/settings.json");
+        assert_eq!(
+            usage_policy(&[], &entry.driver, &entry.settings, Default),
+            Install
+        );
+        assert_eq!(
+            usage_policy(&[entry.clone()], &entry.driver, &entry.settings, Default),
+            Keep
+        );
+        entry.usage = Some(false);
+        remember(&root.path, entry.clone()).unwrap();
+        let entries = read(&root.path).unwrap();
+        assert_eq!(
+            usage_policy(&entries, &entry.driver, &entry.settings, Default),
+            Remove
+        );
+        assert_eq!(
+            usage_policy(&entries, &entry.driver, &entry.settings, Install),
+            Install
+        );
+        assert_eq!(
+            usage_policy(&entries, "codex", &entry.settings, Default),
+            Install
+        );
+        assert_eq!(
+            usage_policy(&entries, &entry.driver, Path::new("/other"), Default),
+            Install
+        );
+        entry.usage = Some(true);
+        remember(&root.path, entry.clone()).unwrap();
+        assert_eq!(
+            usage_policy(
+                &read(&root.path).unwrap(),
+                &entry.driver,
+                &entry.settings,
+                Default
+            ),
+            Install
+        );
+    }
+
+    #[test]
     fn an_invalid_record_fails_closed_and_is_preserved() {
         let root = TestDirectory::new();
         for document in [
             "not json",
+            r#"{"version":1,"hooks":[{"driver":"claude","settings":"/s","launcher":"/t","usage":null}]}"#,
             r#"{"version":2,"hooks":[]}"#,
             r#"{"version":1,"hooks":[{"driver":"claude","settings":"relative","launcher":"/t"}]}"#,
             r#"{"version":1,"hooks":[{"driver":"claude","settings":"/s"}]}"#,

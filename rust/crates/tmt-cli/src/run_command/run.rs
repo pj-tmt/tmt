@@ -148,14 +148,22 @@ pub(super) fn run_bound(
         .and_then(|harness| registry.lifecycle(harness))
         .unwrap_or(&NoLifecycle);
     // Policy is selected once; the driver only advertises its Default choice.
-    let mode = channel;
+    let remembered_channel = launch
+        .resumed
+        .as_ref()
+        .filter(|session| preferences.preferred_harness.as_ref() == Some(&session.harness))
+        .and(preferences.channel);
+    let mode = super::channel::resume_mode(channel, launch.resumed.is_some(), remembered_channel);
+    let remember_channel =
+        launch.resumed.is_none() || channel != crate::invocation::ChannelMode::Default;
     let mut channel = preflight(
         &registry,
         mode,
         claim.as_ref(),
         &launch.command.executable,
         paths,
-    )?;
+    )
+    .map_err(|error| channel_preflight_failure(error, channel, mode, name))?;
     host.resolve_servers(storage).map_err(endpoint_failure)?;
     let bound = if auto_named {
         binding::bind_auto_identity(storage, &mut host.session(), pane, name, save)
@@ -428,6 +436,11 @@ pub(super) fn run_bound(
             if !records.set_session_state(&binding.id, &current.session, &next)? {
                 return Ok(None);
             }
+            if remember_channel && claim.is_some() {
+                let mut preferences = records.session_preferences(&binding.identity_id)?;
+                preferences.channel = Some(lease.enrolled());
+                records.set_session_preferences(&binding.identity_id, &preferences)?;
+            }
             Ok(next.key.map(|key| (key, next.state)))
         })
         .unwrap_or(None);
@@ -598,9 +611,32 @@ fn finish(
     })
 }
 
+/// Inherited channel policy stays required, but the user can explicitly override it.
+pub(super) fn channel_preflight_failure(
+    error: Failure,
+    requested: crate::invocation::ChannelMode,
+    effective: crate::invocation::ChannelMode,
+    name: &str,
+) -> Failure {
+    use crate::invocation::ChannelMode;
+    if requested == ChannelMode::Default && effective == ChannelMode::Required {
+        let name = crate::output::shell_word(name);
+        error.suggestion(format!(
+            "This session was launched with a message channel; resume without it: tmt resume --no-channel -- {name}"
+        ))
+    } else {
+        error
+    }
+}
+
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "This session was launched with a message channel; resume without it: tmt resume --no-channel -- {name}",
+        &[""],
+        &[],
+    ),
     crate::cli_style_tests::HintSpec::core(
         "'{name}' is both an identity and a registered command. Use `tmt run {name} {name}` to launch that identity, or `tmt run <new-name> {name}` for a new one.",
         &["`", "`"],
