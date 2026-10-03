@@ -349,6 +349,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         environment: &crate::skill_installation::ProviderEnvironment,
         previous: Option<&tmt_core::binding::session::DriverState>,
         now_ms: u64,
+        deadline: std::time::Instant,
     ) -> Option<tmt_core::binding::session::DriverState> {
         let root = environment.home().join(".claude/projects");
         let path = turn.transcript.as_deref()?;
@@ -358,11 +359,16 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
             previous.and_then(crate::runtime::driver_state::state_consumption);
         let consumption = (usage.is_some() || previous_consumption.is_some())
             .then(|| {
+                // Spend only half the remaining hook budget; leave the rest
+                // for state handling and the hook owner's commit guard.
+                let start = std::time::Instant::now();
+                let scan_deadline = start + deadline.saturating_duration_since(start) / 2;
                 crate::runtime::consumption::claude(
                     &root,
                     path,
                     previous_consumption.as_ref(),
                     now_ms,
+                    scan_deadline,
                 )
             })
             .flatten();

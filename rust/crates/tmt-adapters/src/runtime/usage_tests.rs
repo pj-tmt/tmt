@@ -94,9 +94,13 @@ fn read(
 ) -> Option<DriverState> {
     let turn = driver.lifecycle.decode_turn(&stop(transcript)).unwrap();
     let environment = ProviderEnvironment::from_parts(home, home, Vec::new(), []);
-    driver
-        .lifecycle
-        .turn_state(&turn, &environment, previous, NOW)
+    driver.lifecycle.turn_state(
+        &turn,
+        &environment,
+        previous,
+        NOW,
+        std::time::Instant::now() + std::time::Duration::from_secs(2),
+    )
 }
 
 #[test]
@@ -256,7 +260,13 @@ fn codex_reads_the_last_token_count_and_its_window() {
     assert!(
         driver
             .lifecycle
-            .turn_state(&turn, &environment, None, NOW)
+            .turn_state(
+                &turn,
+                &environment,
+                None,
+                NOW,
+                std::time::Instant::now() + std::time::Duration::from_secs(2)
+            )
             .is_some()
     );
 }
