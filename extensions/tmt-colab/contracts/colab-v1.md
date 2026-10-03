@@ -1174,9 +1174,10 @@ not reconstructed payloads or a new raw-JSON hash.
 
 Membership pages contain at most 64 entries and 60 KiB of encoded inline data;
 the first page additionally respects its metadata/baseline wire budget. When the
-first page references a baseline object, inline statements may fit that budget,
-but any statement reference is deferred to the next membership page. Baseline
-chunks stay consecutive first, so there is only one pending assembly.
+first page supplies a `baselineObject` (inline or referenced), inline statements
+may fit that budget, but any statement reference is deferred to the next
+membership page. Baseline chunks, if any, stay consecutive first, so there is
+only one pending assembly.
 
 Statement envelope admission uses the existing model cap:
 `floor((768 KiB + 1 KiB) * 4 / 3) + 2 KiB`, or 1,051,989 bytes and at most 33

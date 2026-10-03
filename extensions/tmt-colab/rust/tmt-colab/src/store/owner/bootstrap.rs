@@ -13,6 +13,7 @@ impl OwnerTransaction<'_> {
         after: u64,
         target: &statement::Head,
         budget: usize,
+        allow_reference: bool,
     ) -> Result<MembershipPage> {
         let current = self.head().ok_or(super::super::Fault::ResyncRequired)?;
         if after > target.revision || current.revision < target.revision {
@@ -56,9 +57,11 @@ impl OwnerTransaction<'_> {
             if length <= 0 || length > crate::limits::STATEMENT_BYTES as i64 {
                 return Err(OwnerFault::Capacity.into());
             }
-            // A reference occupies its own page. Finish earlier inline entries
-            // before loading this envelope; exact bytes stay bounded by SQL.
-            if length > crate::limits::CHUNK_BYTES as i64 && !statements.is_empty() {
+            // A reference occupies its own page. Defer it when the caller's
+            // page supplies a baseline, or finish earlier inline entries first.
+            if length > crate::limits::CHUNK_BYTES as i64
+                && (!allow_reference || !statements.is_empty())
+            {
                 break;
             }
             let bytes: Vec<u8> = self.tx.query_row(

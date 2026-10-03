@@ -4785,8 +4785,8 @@ membership revisions resync; byte/count caps reject rather than truncate.
 Large membership entries reference their model statement hash and reuse the lazy
 transfer queue, frame credit and single client assembly. The stored statement
 cap is checked before loading; complete bytes pass owner-log verification before
-head advancement or persistence. A referenced first-page baseline finishes before
-any statement reference is delivered on a later membership page.
+head advancement or persistence. A first-page baseline, inline or referenced,
+finishes before any statement reference is delivered on a later membership page.
 A non-null first-page baseline descriptor includes its exact encrypted
 `baselineObject`, inline or through the same consecutive lazy chunk transfer.
 Store checks descriptor/object lengths before copying; transport binds the stored

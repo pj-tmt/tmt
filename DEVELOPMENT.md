@@ -3222,6 +3222,7 @@ retry/catchup, read-only `/api/session` and `/api/pages` owner discovery,
 130-revision exact-byte membership paging and unknown-revision resync,
 large signed statements through exact chunks across the eight-frame credit window,
 resumed first-page references and SQL-side statement-size refusal,
+inline/chunked baseline-first ordering before statements for fresh/resumed clients,
 strict event bodies/header/path, failed-revoke rollback, replay
 without writes, active/pre-hello tunnel closure, cap/idle bounds and shutdown.
 Tests inject private temporary roots and verify socket removal; they use no

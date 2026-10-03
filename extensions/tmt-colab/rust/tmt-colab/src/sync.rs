@@ -636,6 +636,7 @@ impl<A: Admission> State<A> {
                     limits::WS_FRAME_BYTES
                         .saturating_sub(overhead + 64)
                         .min(60 * 1024),
+                    fields.get("baselineObject").is_none(),
                 )
             })
             .map_err(bootstrap_error)?;
@@ -678,7 +679,7 @@ impl<A: Admission> State<A> {
             let membership = self
                 .store
                 .owner_read(&scope.space, &catchup.owner, |tx| {
-                    tx.membership_page(catchup.revision, &catchup.head, 60 * 1024)
+                    tx.membership_page(catchup.revision, &catchup.head, 60 * 1024, true)
                 })
                 .map_err(bootstrap_error)?;
             let text = wire::output(
