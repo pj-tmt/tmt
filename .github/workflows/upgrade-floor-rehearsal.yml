@@ -1,6 +1,8 @@
 name: Upgrade floor PR rehearsal
 
 # Temporary #1455 acceptance only: no secrets, release/tag mutation or dispatch.
+# Run 37142099941 built all four archives and pinned tools from CANDIDATE_SHA.
+# Reuse those unchanged artifacts while fixing assembly; every proof rechecks digests.
 on:
   pull_request:
     paths:
@@ -8,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: upgrade-floor-rehearsal-${{ github.event.pull_request.number }}
@@ -19,102 +22,8 @@ env:
   MACOSX_DEPLOYMENT_TARGET: '11.0'
 
 jobs:
-  build:
-    name: Rehearsal build (${{ matrix.target }})
-    strategy:
-      fail-fast: false
-      matrix: &hosts
-        include:
-          - target: aarch64-apple-darwin
-            runner: macos-15
-          - target: x86_64-apple-darwin
-            runner: macos-15
-          - target: aarch64-unknown-linux-musl
-            runner: ubuntu-24.04-arm
-          - target: x86_64-unknown-linux-musl
-            runner: ubuntu-24.04
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.CANDIDATE_SHA }}
-          persist-credentials: false
-          path: release-source
-      - uses: ./.github/actions/setup-tooling
-      - name: Install frozen tooling
-        working-directory: typescript
-        run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Install native dependencies
-        if: runner.os == 'Linux'
-        uses: ./.github/actions/apt-install
-        with:
-          packages: musl-tools
-      - name: Install pinned Rust
-        run: rustup toolchain install 1.97.0 --profile minimal --target '${{ matrix.target }}'
-      - name: Select isolated Cargo target
-        run: echo "CARGO_TARGET_DIR=$GITHUB_WORKSPACE/release-source/rust/target" >> "$GITHUB_ENV"
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: release-source/rust
-          shared-key: native-cli-${{ matrix.target }}
-          save-if: false
-      - name: Restore packaging tools
-        id: tools
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.tmt-packaging
-          key: native-tools-${{ runner.os }}-${{ runner.arch }}-rust1.97-dist0.32.0-about0.9.2
-      - name: Build missing pinned packaging tools
-        if: steps.tools.outputs.cache-hit != 'true'
-        run: |
-          cargo +1.97.0 install cargo-dist --version 0.32.0 --locked --root "$HOME/.tmt-packaging"
-          cargo +1.97.0 install cargo-about --version 0.9.2 --features cli --locked --root "$HOME/.tmt-packaging"
-      - name: Transfer pinned Linux assembly tools
-        if: matrix.target == 'x86_64-unknown-linux-musl'
-        run: tar -czf "$RUNNER_TEMP/packaging-tools.tar.gz" -C "$HOME/.tmt-packaging" bin/dist bin/cargo-about
-      - uses: actions/upload-artifact@v4
-        if: matrix.target == 'x86_64-unknown-linux-musl'
-        with:
-          name: floor-assembly-tools
-          path: ${{ runner.temp }}/packaging-tools.tar.gz
-          if-no-files-found: error
-          retention-days: 7
-      - name: Build actual main archive with a verified fixture version
-        env:
-          TARGET: ${{ matrix.target }}
-        run: |
-          set -euo pipefail
-          export PATH="$HOME/.tmt-packaging/bin:$PATH"
-          export RUSTUP_TOOLCHAIN=1.97.0
-          cargo fetch --locked --manifest-path release-source/rust/Cargo.toml
-          cargo build --locked --manifest-path release-source/rust/Cargo.toml -p tmt-test-support --example release-version
-          snapshot="$RUNNER_TEMP/version-state.json"
-          node typescript/scripts/release-version-injection.mjs prepare "$PWD/release-source" "$snapshot" cli "$CANDIDATE_TAG"
-          cargo update --offline --workspace --manifest-path release-source/rust/Cargo.toml
-          node typescript/scripts/release-version-injection.mjs verify "$PWD/release-source" "$snapshot"
-          release-source/scripts/build-native-artifact.sh "$TARGET" cli > "$RUNNER_TEMP/$TARGET-dist-manifest.json"
-          node typescript/scripts/release-version-injection.mjs verify "$PWD/release-source" "$snapshot"
-          cp "$RUNNER_TEMP/$TARGET-dist-manifest.json" release-source/target/distrib/
-          cp release-source/rust/target/native-notices/THIRD-PARTY-NOTICES.txt "release-source/target/distrib/$TARGET-notices.txt"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: floor-candidate-${{ matrix.target }}
-          path: |
-            release-source/target/distrib/*.tar.gz
-            release-source/target/distrib/*.sha256
-            release-source/target/distrib/*-dist-manifest.json
-            release-source/target/distrib/*-notices.txt
-          if-no-files-found: error
-          retention-days: 7
-
   assemble:
     name: Assemble rehearsal assets
-    needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -143,6 +52,8 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: floor-assembly-tools
+          run-id: 37142099941
+          github-token: ${{ github.token }}
           path: ${{ runner.temp }}/assembly-tools
       - name: Extract pinned assembly tools
         run: |
@@ -153,6 +64,8 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           pattern: floor-candidate-*
+          run-id: 37142099941
+          github-token: ${{ github.token }}
           merge-multiple: true
           path: release-source/target/distrib
       - name: Merge with cargo-dist and stage recorded sources
@@ -173,7 +86,8 @@ jobs:
             export TMT_NATIVE_REAL_CARGO
             export CARGO="$PWD/scripts/native-cargo.sh"
             dist plan --tag "$CANDIDATE_TAG" --output-format=json --no-local-paths > "$RUNNER_TEMP/plan.json"
-            dist build --tag "$CANDIDATE_TAG" --artifacts global --output-format=json --no-local-paths > target/distrib/dist-manifest.json
+            dist build --tag "$CANDIDATE_TAG" --artifacts global --output-format=json --no-local-paths > "$RUNNER_TEMP/dist-manifest.json"
+            cp "$RUNNER_TEMP/dist-manifest.json" target/distrib/dist-manifest.json
           )
           node typescript/scripts/generate-native-bootstrap.mjs --manifest release-source/target/distrib/dist-manifest.json --archive-dir release-source/target/distrib --plan "$RUNNER_TEMP/plan.json" > release-source/target/distrib/install.sh
           sh -n release-source/target/distrib/install.sh
@@ -211,7 +125,16 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      matrix: *hosts
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-15
+          - target: x86_64-apple-darwin
+            runner: macos-15
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
