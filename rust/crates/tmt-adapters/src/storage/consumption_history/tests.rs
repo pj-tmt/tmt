@@ -7,7 +7,7 @@ fn shared_seed_fixture_excludes_open_counter() {
     ))
     .unwrap();
     let directory = crate::test_support::TestDirectory::new();
-    let mut storage = Storage::open(&directory.path.join("history.sqlite")).unwrap();
+    let mut storage = Storage::open(directory.path.join("history.sqlite")).unwrap();
     let id = fixture["request"]["input"]["identityIds"][0]
         .as_str()
         .unwrap();
@@ -320,5 +320,36 @@ fn first_gap_baseline_retains_known_following_delta_without_claiming_coverage() 
     assert_eq!(row["outputTokens"], 5);
     assert_eq!(row["coveredMs"], 0);
     assert_eq!(row["complete"], false);
+    storage.close().unwrap();
+}
+
+#[test]
+fn invalid_cached_delta_creates_gap_instead_of_freezing_future_reads() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    source(&storage, &id);
+    record_sample(
+        storage.connection().unwrap(),
+        &id,
+        Some(latest(10, 5, 1, 6000)),
+        6000,
+    )
+    .unwrap();
+    let mut adjusted = latest(10, 6, 2, 11000);
+    adjusted.consumption.cached_input_tokens = 1;
+    record_sample(storage.connection().unwrap(), &id, Some(adjusted), 11000).unwrap();
+    let mut next = latest(14, 8, 3, 16000);
+    next.consumption.cached_input_tokens = 1;
+    record_sample(storage.connection().unwrap(), &id, Some(next), 16000).unwrap();
+    let history = storage
+        .consumption_history(std::slice::from_ref(&id), &[15000], 120, 20000)
+        .unwrap();
+    let rows = history["identities"][0]["windows"][0]["buckets"]
+        .as_array()
+        .unwrap();
+    assert_eq!(rows[1]["gap"], true);
+    assert_eq!(rows[1]["coveredMs"], 0);
+    assert_eq!(rows[2]["inputTokens"], 4);
+    assert_eq!(rows[2]["outputTokens"], 2);
     storage.close().unwrap();
 }

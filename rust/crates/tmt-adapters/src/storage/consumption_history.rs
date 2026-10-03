@@ -332,6 +332,8 @@ fn record_sample(
             && next.consumption.input_tokens >= old.consumption.input_tokens
             && next.consumption.output_tokens >= old.consumption.output_tokens
             && next.consumption.cached_input_tokens >= old.consumption.cached_input_tokens
+            && next.consumption.cached_input_tokens - old.consumption.cached_input_tokens
+                <= next.consumption.input_tokens - old.consumption.input_tokens
             && (next.consumption.sequence != old.consumption.sequence
                 || next.consumption == old.consumption)
     });

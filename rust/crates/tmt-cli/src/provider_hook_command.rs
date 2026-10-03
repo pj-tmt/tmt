@@ -464,7 +464,7 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
             .preferences
             .remembered
             .as_ref()
-            .is_some_and(|r| &r.harness == &harness && &r.provider_session == event.session())
+            .is_some_and(|r| r.harness == harness && &r.provider_session == event.session())
     {
         let locator = lifecycle.consumption_locator(input.as_bytes(), &environment);
         storage
@@ -662,16 +662,16 @@ fn observe_prompt(
             )
         })
         .or_else(|| reading.as_ref().and_then(|(state, _)| state.clone()));
-    if next.is_some() || reading.is_some() {
-        if !commit_observation(
+    if (next.is_some() || reading.is_some())
+        && !commit_observation(
             &paths,
             &stored,
             next,
             reading.map(|(_, reading)| reading),
             deadline,
-        )? {
-            return Err(());
-        }
+        )?
+    {
+        return Err(());
     }
     if context.is_empty() {
         return Ok(String::new());

@@ -306,15 +306,15 @@ for (const provider of providers) {
         `${command}; printf '%s' "$?" > ${quote(status)}`,
       ]);
       fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+      await fixture.waitFor(
+        () => fs.existsSync(appendReady),
+        10000,
+        'prompt baseline before append'
+      );
       const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
         readonly: true,
       });
       try {
-        await fixture.waitFor(
-          () => fs.existsSync(appendReady),
-          10000,
-          'prompt baseline before append'
-        );
         expect(fs.existsSync(report)).toBe(false);
         fs.appendFileSync(transcript, provider.appended);
         const latest = () =>
@@ -352,10 +352,20 @@ for (const provider of providers) {
         fs.writeFileSync(appendReady, 'continue');
         await fixture.waitFor(() => fs.existsSync(stopReady), 2000, 'held Stop checkpoint');
         await fixture.waitFor(
-          () =>
-            Math.floor(Date.now() / 5000) * 5000 > Math.floor(observed.sampled_at_ms / 5000) * 5000,
+          () => {
+            const through = Math.floor(Date.now() / 5000) * 5000;
+            const coverage = database
+              .prepare(
+                'SELECT SUM(covered_ms) AS covered FROM consumption_buckets WHERE identity_id=? AND from_ms<?'
+              )
+              .get(observed.identity_id, through) as { covered: number | null };
+            return (
+              through > Math.floor(observed.sampled_at_ms / 5000) * 5000 &&
+              (coverage.covered ?? 0) > 0
+            );
+          },
           7000,
-          'sample bucket closed'
+          'sample bucket closed with confirmed coverage'
         );
         const request = {
           version: 1,
