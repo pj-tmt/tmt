@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn sources_follow_independent_layers_and_preserve_the_document() {
         let cfg = config(
-            "# kept\n[board]\nview='notes'\nrefresh='1m'\n[board.token_rate]\nevery='10s'\nwindow='5s'\n[squad.x.board]\nrefresh='off'\n[squad.x.theme]\nbase='mono'\nworking='blue'\n[bind]\no='run touch /never-execute'\n",
+            "# kept\n[board]\nview='notes'\nrefresh='1m'\n[board.token_rate]\nevery='10s'\nwindow='1m'\n[squad.x.board]\nrefresh='off'\n[squad.x.theme]\nbase='mono'\nworking='blue'\n[bind]\no='run touch /never-execute'\n",
         );
         let before = cfg.document.to_string();
         let shown = cfg.settings(Some("x"), true, None).unwrap();
