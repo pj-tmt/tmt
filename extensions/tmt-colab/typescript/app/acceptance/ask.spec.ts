@@ -20,19 +20,23 @@ import type { AcceptanceWorld } from './harness/world.js';
 
 // #1110 Ask agent real-binary acceptance. The Ask UI, Remote operations (#1497),
 // the page (`tmt colab page create`, #1522), the recipient and `tmt reply` are all
-// real; the page exists before the paired browsers register. The bodies pass in an
-// isolated build that includes #1517 and #1522; the cases are disabled here only
-// until #1522 is on this branch (NEEDS_CREATE). Two cases stay disabled with a
-// finding: a restarted Remote locks out the paired browser (BLOCKED_RESTART), and
-// the held case waits for a Remote-provided hold fixture.
+// real; the page exists before the paired browsers register. The bodies pass against
+// a build that includes #1517 and the Remote restart recovery; the cases are disabled
+// here only until #1517 (the Remote operations SDK) is on this branch (AWAITS_1517).
+// The held case waits for a Remote-provided hold fixture.
 //
 // Architecture: no native bridge ledger. The asker's browser calls Remote
 // operations as its paired device and records the ask, its states and the
 // reply in its own Colab stream. v1 is owner-only.
 
-const NEEDS_CREATE = ' (disabled until #1522 `tmt colab page create` is on this branch)';
-const BLOCKED_RESTART = 'blocked: a restarted Remote locks out the paired browser';
+const AWAITS_1517 = ' (disabled until #1517, the Remote operations SDK, is on this branch)';
 const PAGE_HTML = '<h1>Ask acceptance</h1><p id="quote">Exact selected sentence for the agent.</p>';
+
+/** Recover the paired session after a Remote restart through the page's own Reconnect. */
+async function reconnect(page: Page) {
+  await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
+  await expect(page.getByTestId('ask-action')).toBeVisible({ timeout: 60_000 });
+}
 
 async function scenario(world: AcceptanceWorld, options: { gated?: boolean } = {}) {
   const door = await startDoor(world, await freePort());
@@ -54,7 +58,7 @@ const askerName = 'asker-browser';
 test.describe('Ask agent real-binary acceptance (#1110)', () => {
   test.afterEach(disposeActiveWorlds);
 
-  test.fixme(`direct send: previewed bytes reach the recipient exactly once and the reply shows in a second viewer${NEEDS_CREATE}`, async () => {
+  test.fixme(`direct send: previewed bytes reach the recipient exactly once and the reply shows in a second viewer${AWAITS_1517}`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world);
       await selectInRenderer(s.askerPage, '#quote');
@@ -88,7 +92,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
     });
   });
 
-  test.fixme(`browser reload restores the ask from its own stream with the same operation ID and no second wake${NEEDS_CREATE}`, async () => {
+  test.fixme(`browser reload restores the ask from its own stream with the same operation ID and no second wake${AWAITS_1517}`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world, { gated: true });
       await selectInRenderer(s.askerPage, '#quote');
@@ -111,7 +115,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
     });
   });
 
-  test.fixme(`remote restart after the core accepted recovers via operation.show with no second wake (${BLOCKED_RESTART})`, async () => {
+  test.fixme(`remote restart after the core accepted recovers via operation.show with no second wake${AWAITS_1517}`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world);
       await selectInRenderer(s.askerPage, '#quote');
@@ -123,10 +127,10 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       await s.door.remote.kill();
       world.releaseBarrier();
       await restartRemote(world, s.door);
-      // The page keeps its dead Remote session until the user re-checks: the
-      // read ends the session, Registration replaces it, and the replacement
-      // observes the original operation ID (read-only, never a resend).
-      await s.askerPage.getByRole('button', { name: 'Re-check delivery' }).click();
+      // Remote's sessions are in memory: the page shows "Sync disconnected" and the
+      // explicit Reconnect reopens the paired session, then reloads. The restored
+      // ask observes the original operation ID (read-only, never a resend).
+      await reconnect(s.askerPage);
       await expect(askState(s.askerPage, ask.operationId)).toHaveAttribute(
         'data-state',
         'accepted',
@@ -138,7 +142,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
     });
   });
 
-  test.fixme(`remote restart before dispatch stays uncertain with no new dispatch; abandon records MAY_HAVE_BEEN_DELIVERED (${BLOCKED_RESTART})`, async () => {
+  test.fixme(`remote restart before dispatch stays uncertain with no new dispatch; abandon records MAY_HAVE_BEEN_DELIVERED${AWAITS_1517}`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world);
       await selectInRenderer(s.askerPage, '#quote');
@@ -150,13 +154,15 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       // nothing is dispatched (releasing it would let the dispatch run).
       await s.door.remote.kill();
       process.kill(parked.pid as number, 'SIGKILL');
+      await restartRemote(world, s.door);
+      // The in-flight send only times out after the SDK's own deadline, so the user
+      // reconnects; the restored ask is uncertain, never resent, and operation.show
+      // finds nothing: only re-check or abandon remain.
+      await reconnect(s.askerPage);
       await expect(askState(s.askerPage, ask.operationId)).toHaveAttribute(
         'data-state',
         'uncertain',
-        { timeout: 45_000 },
       );
-      await restartRemote(world, s.door);
-      // operation.show finds nothing: the ask stays uncertain; only re-check or abandon.
       await s.askerPage.getByRole('button', { name: 'Re-check delivery' }).click();
       await expect(askState(s.askerPage, ask.operationId)).toHaveAttribute(
         'data-state',
@@ -173,7 +179,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
     });
   });
 
-  test.fixme(`colab restart keeps the ask and delivers the reply from the own stream once${NEEDS_CREATE}`, async () => {
+  test.fixme(`colab restart keeps the ask and delivers the reply from the own stream once${AWAITS_1517}`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world, { gated: true });
       await selectInRenderer(s.askerPage, '#quote');
@@ -193,7 +199,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
     });
   });
 
-  test.fixme(`revoking the asker device refuses a later send and creates no recipient work${NEEDS_CREATE}`, async () => {
+  test.fixme(`revoking the asker device refuses a later send and creates no recipient work${AWAITS_1517}`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world);
       await selectInRenderer(s.askerPage, '#quote');
@@ -214,7 +220,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
     });
   });
 
-  test.fixme(`two tabs of one paired browser: the newer tab takes the session, the older shows the notice, and "Use here" takes it back with no duplicate wake${NEEDS_CREATE}`, async () => {
+  test.fixme(`two tabs of one paired browser: the newer tab takes the session, the older shows the notice, and "Use here" takes it back with no duplicate wake${AWAITS_1517}`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world);
       // The scenario's tab is A. Tab B is a second tab of the same paired browser.

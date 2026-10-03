@@ -53,14 +53,18 @@ browsers register: each paired device registers when it first opens the app.
 ## Cases
 
 `ask.spec.ts` holds the Ask cases: direct send with exact bytes and a second viewer, browser
-reload, Colab restart, device revocation and two tabs of one browser (one active tab, "Use here"
-takes it back). They drive the real Ask UI (`selectInRenderer`, `previewAsk`, `send`,
-`askEntry`, `askState`). On this branch they are `test.fixme` until #1522 (`page create`) is
-merged; against #1517 and #1522 they pass. Two cases stay `fixme` with a finding: a restarted
-Remote keeps sessions and door cookies in memory, so a paired browser's reload gets Colab's
-private guidance page and an open page stays disconnected with Re-check disabled (colab-2 is
-fixing it: the guidance page reopens the session once); and the held case waits for a
-Remote-provided hold fixture, with held behavior covered by unit tests. Enable a case by making its body pass, never with
+reload, Remote restart after the core accepted, Remote restart before dispatch, Colab restart,
+device revocation and two tabs of one browser (one active tab, "Use here" takes it back). They
+drive the real Ask UI (`selectInRenderer`, `previewAsk`, `send`, `askEntry`, `askState`). On
+this branch they are `test.fixme` until #1517 (the Remote operations SDK) is merged; against
+#1517 they pass. A restarted Remote keeps sessions and door cookies in memory, so the page
+shows "Sync disconnected" and the restart cases recover through its own Reconnect button
+(`reconnect(page)`: the SDK reopens the paired session once, then the page reloads). The
+restored ask is observed read-only under its original operation ID: accepted, or uncertain
+with abandon recorded as `MAY_HAVE_BEEN_DELIVERED`, never a second dispatch. An in-flight send
+stays "dispatching" until the SDK deadline, so a case reconnects instead of waiting for it.
+The held case waits for a Remote-provided hold fixture, with held behavior covered by unit
+tests. Enable a case by making its body pass, never with
 a stand-in. Assert the recipient's text equals the previewed text, including the
 `[remote: <device>]` line, and that no delivery state is shown (presence only).
 
