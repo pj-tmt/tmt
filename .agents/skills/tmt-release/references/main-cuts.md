@@ -1,7 +1,7 @@
 # Main release cuts
 
-The [architecture](../../../../ARCHITECTURE.md#main-release-cuts) owns the cut and source
-contract; the [release skill](../SKILL.md#main-cut-authorization)
+The [architecture](../../../../ARCHITECTURE.md#main-release-cuts) owns the release
+model; this reference owns the cut/source tooling contract and procedures; the [release skill](../SKILL.md#main-cut-authorization)
 owns authorization.
 
 On the hourly schedule (minute 17 UTC) or a manual dispatch, `release.yml` captures main HEAD, complete
@@ -121,6 +121,35 @@ Run the actionlint and injection checks above for workflow changes. Reserve the
 shared host's heavy slot before a local release archive build; fixture proofs do
 not authorize Docker, release dispatch, publication or hosted deployment.
 
+## Cut and source tooling
+
+`release-cut.mjs` is the pure planner; `release-cut-live.mjs` owns bounded REST
+catalog acquisition, draft creation and native dispatch. Capture main once,
+export its tracked tree, fetch locked dependencies with the pinned acquisition
+toolchain, then read the map and offline Cargo graph at that cut. Recheck the
+complete catalog immediately before each component mutation; incomplete metadata
+or history fails closed. First releases need a map-owned reviewed bootstrap boundary and
+seed. Cut, injection and Project evidence share native policy's component-to-product mapping. Notes link exactly the releasable first-parent commits in the published
+ancestor range through the shared component attribution; parser/renderer pins
+are developer dependencies, not runtime owners.
+
+`cargo-workspace.mjs::readCargoWorkspace(root, {runner})` owns offline locked
+format-version-1 metadata acquisition, with no Git logic or handwritten manifest
+parser. It exposes resolved versions, manifest paths/directories, binary targets,
+dist metadata and normal/build/dev workspace edges with cycle-safe closure.
+The private infra-owned `tmt-release-tool` owns TOML parsing and
+format-preserving version edits (`serde_json`/`toml_edit` only); it is neither
+published nor distributed, and no product may depend on it in any dependency
+kind. Runtime fixture producers transfer it separately.
+
+`release-version-injection.mjs` captures every tracked hash, exact manifest bytes
+and semantic lock entry. Only the selected local version declaration and implied
+qualified dependency references may change. Build, assembly, archive and upgrade
+proofs each recheck this contract, including CLI adapter acceptance. Dist plan,
+build manifest and extracted binary must agree. Already-versioned reruns require
+byte-identical source and lock. Preparation uses the skill's non-publishing
+synthetic version and keeps the same source/artifact/installation gates.
+
 ## Native pipeline selection
 
 `native-release.yml` selects one exact allocated tag with `prepare` off and
@@ -183,7 +212,7 @@ from the unchanged candidate under test without rebuilding or replacing its asse
 
 When every gate passes, the `publish` job publishes the draft. `release-publish.mjs publish`
 reads the draft again and refuses unless its version is an alpha, its component is released
-(`release: false` in `.github/components.json` parks a component: the cut planner creates nothing
+(`release: false` in `.github/components.json` disables release for a component: the cut planner creates nothing
 for it and the native planner leaves its drafts alone and this command refuses them, so a draft that
 predates the flag cannot publish), and it carries the bundle and neither
 `publication-held.json` nor `verification-failed.json`; then publication applies the
@@ -241,3 +270,44 @@ It verifies public immutable state, the exact tag commit, product flags, latest
 CLI selection, the completeness marker, release attestation and every downloaded
 asset's attestation. A failed readback needs diagnosis; never republish immutable
 assets or move a public tag.
+
+## Packed verifier cleanup
+
+Packed verifiers use bounded synchronous subprocesses and own their isolated process
+groups. A terminated `spawnSync` result establishes direct-child termination. Cleanup
+signals the owned group before temporary-state deletion. A teardown `EPERM` is tolerable
+only after direct termination and a subsequent group probe reports `ESRCH`; a live or
+unknown group or another signal error preserves the original failure. Never relax status,
+signal, stream or deadline assertions. Negative fixtures own and clean their descendants;
+this policy remains separate from the native sandbox's asynchronous cleanup protocol.
+
+For `typescript/scripts/packed-command.mjs` changes run
+`test/tooling/packed-command.test.ts` and `test/tooling/release-cut-live.test.ts` through `vp test run --config vitest.config.ts`, then
+`pnpm check:tooling`. Keep the negative controls, confirmed-absence proof and original subprocess deadlines.
+
+## Project release tracking
+
+`project-release.mjs` owns delivery evidence separately from publication. Follow
+[DEVELOPMENT's procedure](../../../../DEVELOPMENT.md#project-release-tracking)
+for token setup, request bounds, dry-run review and focused verification.
+
+Each sweep executes trusted main tooling, exports current main once and reads its map and
+Cargo graph once. Full-history closing merges supply changed paths and containing-tag
+ancestry, not historical attribution rules. Native release policy/version helpers own
+product identities; notes, commit types and recency windows are not release evidence.
+For each affected product choose the earliest publication whose tag contains every closing
+merge. Only complete product coverage permits `Released`; otherwise retain available
+publication evidence and `Merged`. Private components await their consumers' releases.
+Only never-shipped work or waits confined to parked products reconcile to `Done`, with
+`ships with the first <product> release` for each parked wait. An absent status marker
+preserves activation waits; private consumers cannot name a never-shipped product.
+
+Leave open issues, PR items, other repositories and project membership unchanged.
+Recompute both owned fields, correcting stale terminal states and historical text. Complete
+discovery and the dry-run plan precede bounded batched mutations and one Project readback.
+Correct false terminal status before replacing evidence; write valid release evidence before
+promoting to `Released`. Partial writes converge on the next authoritative full sweep,
+including recovery from built-in close/merge workflow writes. Runs serialize project-wide
+but do not claim atomic exclusion of external writers. Discovery caps fail before writes,
+never silently truncate. The daily sweep recovers missed dispatches and genuine smoke
+failures without authorizing publication or a publishing-workflow replay.

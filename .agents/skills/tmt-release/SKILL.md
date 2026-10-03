@@ -21,14 +21,16 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
 ## Main cut authorization
 
 The [architecture](../../../ARCHITECTURE.md#main-release-cuts) owns the release
-model; the [main-cut reference](references/main-cuts.md) owns its procedure.
+model; the [main-cut reference](references/main-cuts.md) owns allocation, source
+verification and pipeline procedures. The [CI reference](references/ci-selection.md)
+owns selection, workers and cache policy.
 Automatic cuts and publication cover only released products on their existing
 alpha core version. Stable releases, major/minor changes, breaking releases and
 any manual publication require the owner. An explicit version on a cut requests a
 draft and native verification; it never overrides a publication gate.
 
 A first alpha also needs the product owner's authorization and reviewed activation
-under #1418. The CLI/Squad switch grants no parked-product activation. Keep hold,
+under #1418. No existing-product authorization grants a new product activation. Keep hold,
 retry and rerun authorization below, required merge checks, every publication
 proof and immutable releases intact. Missing draft visibility or history requires
 investigation, never an incomplete allocation catalog.
@@ -97,6 +99,8 @@ procedure](../../../DEVELOPMENT.md#project-release-tracking) for full dry-run ta
 review, request and GraphQL point-cost reporting, exact verification commands and
 activation evidence.
 A tracking dispatch never authorizes publication or a publishing-workflow replay.
+The component map distinguishes explicitly parked products from those awaiting
+activation; `release:false` alone never means Done.
 
 ## Promotion and prerelease checks
 
@@ -104,8 +108,8 @@ Read the complete [native release verification section](../../../DEVELOPMENT.md#
 before archive, installer, upgrade, bootstrap or publication work. It owns the
 procedures referenced below; DEVELOPMENT owns ordinary native checks.
 
-For packed verifier process-runner changes, follow DEVELOPMENT's
-[packed cleanup checks](../../../DEVELOPMENT.md#packed-verifier-process-cleanup).
+For packed verifier process-runner changes, follow the
+[packed cleanup checks](references/main-cuts.md#packed-verifier-cleanup).
 Preserve its real absence and surviving-group controls; synthetic fixture success
 does not authorize publication or replace artifact acceptance.
 
@@ -156,7 +160,7 @@ does not authorize publication or replace artifact acceptance.
   distinction between injected acquisition, skipped differential skill coverage for identical text,
   older-source rerun applicability and separate public installer/upgrade smoke.
   A standalone driver uses previous/candidate archives and the current published
-  CLI's path approval surface. Herdr remains parked; product activation and its first alpha belong to #1418
+  CLI's path approval surface. Herdr awaits activation; product activation and its first alpha belong to #1418
   and require owner authorization.
 - For curl bootstrap, follow the guide's native curl bootstrap verification.
   Generate from final verified cargo-dist artifacts and invoke the existing
@@ -167,7 +171,7 @@ does not authorize publication or replace artifact acceptance.
   not permission to delete old state or silently uninstall another manager.
 - Tags, GitHub Releases, npm publishing, and npm dist-tags are separate operations that require explicit authorization; this skill never assumes permission for them. The one standing authorization is the release pipeline's alpha publication below.
 - Update user-facing installation or channel documentation whenever a version change would make it inaccurate.
-- The v5 root npm package is private developer tooling, not a product distribution.
+- The nested v5 TypeScript package is private developer tooling, not a product distribution.
   Do not restore npm publishing or a download wrapper without a separately scoped
   distribution decision. Historical v4 publishing uses that branch's own rules.
 

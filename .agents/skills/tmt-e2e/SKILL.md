@@ -80,3 +80,9 @@ or silently expand the tracked feature's acceptance criteria.
 ## Verification
 
 Prefer the repository's documented E2E command through [`typescript/scripts/run-e2e.mjs`](../../../typescript/scripts/run-e2e.mjs). Confirm failures propagate as non-zero exit codes, and inspect cleanup behavior when tests fail—not only when they pass.
+
+## Infrastructure reference
+
+Use [test-boundaries.md](references/test-boundaries.md) when changing executable
+publication, native ancestry/input isolation or harness cleanup. It owns helper
+responsibilities and failure behavior; ARCHITECTURE keeps the shared invariants.
