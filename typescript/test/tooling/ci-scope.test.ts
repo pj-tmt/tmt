@@ -528,13 +528,26 @@ describe('component map', () => {
         'a fixture file name, not the repository README',
       'site/src/chapters/dev-extension.mdx': 'the handbook site links to the contract on GitHub',
     };
+    const layout = JSON.parse(
+      readFileSync(path.join(repository, '.github/repository-layout.json'), 'utf8')
+    ) as { languageExceptions: Record<string, string> };
+    // The handbook site links to the contract on GitHub in each listed translation too.
+    const translatedDevExtensionMentions = new Set(
+      Object.keys(layout.languageExceptions).map((directory) => `${directory}/dev-extension.mdx`)
+    );
     // Only files that contain ".md" at all can name prose.
     const candidates = runPackedCommand('git', ['grep', '-l', '-z', '-I', '-F', '.md', '--', '.'], {
       cwd: repository,
       env: process.env,
     })
       .split('\0')
-      .filter((file: string) => file && !file.endsWith('.md') && !(file in mentions));
+      .filter(
+        (file: string) =>
+          file &&
+          !file.endsWith('.md') &&
+          !(file in mentions) &&
+          !translatedDevExtensionMentions.has(file),
+      );
     expect(candidates.length).toBeGreaterThan(20);
     const readers: string[] = [];
     for (const file of candidates) {
