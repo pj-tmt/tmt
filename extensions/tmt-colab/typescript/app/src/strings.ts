@@ -1,5 +1,8 @@
 /** English chrome catalog; page content and fixture text are not UI strings. */
 export const text = {
+  reconnect: 'Reconnect',
+  reconnectFailed:
+    'Could not reconnect. Open this page from a paired browser, or pair with tmt remote pair.',
   otherTab: 'Colab is open in another tab.',
   useHere: 'Use here',
   oneTab: 'Only one tab per browser stays connected. Your work is saved.',

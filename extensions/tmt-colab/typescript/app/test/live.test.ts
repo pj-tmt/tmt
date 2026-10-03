@@ -374,3 +374,41 @@ it('mounted ownership loss closes the Ask controller, observer and tunnel withou
     live.close();
   }
 });
+
+it('explicit recovery stops Live, Ask and observation before reopening, with no automatic retry', async () => {
+  const registration = {
+    deviceId: 'device',
+    keys: { sign: {}, signPublic: new Uint8Array(32) },
+  } as unknown as Registration;
+  let connection: (typeof connections)[number];
+  let ask: (typeof asks.instances)[number];
+  let signal: AbortSignal;
+  const recover = vi.fn(async () => {
+    expect(connection.close).toHaveBeenCalledOnce();
+    expect(ask.close).toHaveBeenCalledOnce();
+    expect(signal.aborted).toBe(true);
+    return false;
+  });
+  const reconnect = vi.fn();
+  const live = new Live(
+    new URL('https://example.test/colab/'),
+    { space: 'space', owner: new Uint8Array(32) } as Bootstrap,
+    registration,
+    { pageId: 'page', epoch: '1', sharing: 'private' } as PageInfo,
+    undefined,
+    {} as RemoteClient,
+    { reconnect, recover },
+  );
+  live.subscribe(
+    () => {},
+    () => {},
+  );
+  await live.snapshot();
+  connection = connections.at(-1)!;
+  ask = asks.instances.at(-1)!;
+  signal = asks.signals.at(-1)!;
+  expect(await live.reconnect()).toBe(false);
+  expect(await live.reconnect()).toBe(false);
+  expect(recover).toHaveBeenCalledOnce();
+  expect(reconnect).not.toHaveBeenCalled();
+});

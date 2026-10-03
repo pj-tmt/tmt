@@ -22,6 +22,7 @@ export interface PageSnapshot extends PageSummary {
 }
 export interface PageBinding {
   readonly ask?: AskBinding;
+  reconnect?(): Promise<boolean>;
   subscribe(publish: (value: PageView) => void, failed: (error: Error) => void): () => void;
   edit(source: string, base: string): Promise<void>;
   export(): Promise<ExportBundle>;
