@@ -34,10 +34,8 @@ fn fixture_command(root: &std::path::Path) -> RuntimeCommand {
     RuntimeCommand {
         executable: path.into_os_string(),
         args: vec![
-            "-s".into(),
-            "read-only".into(),
-            "-a".into(),
-            "on-request".into(),
+            "resume".into(),
+            "22222222-2222-4222-8222-222222222222".into(),
         ],
     }
 }
@@ -51,24 +49,53 @@ fn fake_server() {
     }
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     eprintln!("  listening on: ws://{}", listener.local_addr().unwrap());
-    let (stream, _) = listener.accept().unwrap();
-    stream.set_read_timeout(Some(START)).unwrap();
-    let mut socket = tungstenite::accept(stream).unwrap();
-    let init: Value = serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
-    assert_eq!(init["method"], "initialize");
-    socket
-        .send(tungstenite::Message::text(
-            json!({"id":init["id"],"result":{"userAgent":"tmt/0.159.3 (fixture)"}}).to_string(),
-        ))
-        .unwrap();
-    let initialized: Value =
-        serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
-    assert_eq!(initialized["method"], "initialized");
-    let start: Value = serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
-    assert_eq!(start["method"], "thread/start");
-    assert_eq!(start["params"]["sandbox"], "read-only");
-    assert_eq!(start["params"]["approvalPolicy"], "on-request");
-    socket.send(tungstenite::Message::text(json!({"id":start["id"],"result":{"cwd":start["params"]["cwd"],"thread":{"id":"22222222-2222-4222-8222-222222222222"}}}).to_string())).unwrap();
+    for stage in 0..2 {
+        let (stream, _) = listener.accept().unwrap();
+        stream.set_read_timeout(Some(START)).unwrap();
+        let mut socket = tungstenite::accept(stream).unwrap();
+        let init: Value = serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
+        assert_eq!(init["method"], "initialize");
+        socket
+            .send(tungstenite::Message::text(
+                json!({"id":init["id"],"result":{"userAgent":"tmt/0.159.3 (fixture)"}}).to_string(),
+            ))
+            .unwrap();
+        let initialized: Value =
+            serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
+        assert_eq!(initialized["method"], "initialized");
+        let request: Value =
+            serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
+        if request["method"] == "thread/resume" {
+            assert_eq!(
+                request["params"]["threadId"],
+                "22222222-2222-4222-8222-222222222222"
+            );
+            assert!(request["params"].get("sandbox").is_none());
+            assert!(request["params"].get("approvalPolicy").is_none());
+            socket.send(tungstenite::Message::text(json!({"id":request["id"],"result":{"cwd":request["params"]["cwd"],"thread":{"id":"22222222-2222-4222-8222-222222222222"}}}).to_string())).unwrap();
+            break;
+        }
+        assert_eq!(
+            request["method"], "thread/loaded/list",
+            "fresh owner never starts or resumes a thread"
+        );
+        let data = if stage == 0 {
+            json!([])
+        } else {
+            json!(["22222222-2222-4222-8222-222222222222"])
+        };
+        socket
+            .send(tungstenite::Message::text(
+                json!({"id":request["id"],"result":{"data":data}}).to_string(),
+            ))
+            .unwrap();
+        if stage == 1 {
+            let request: Value =
+                serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
+            assert_eq!(request["method"], "thread/read");
+            socket.send(tungstenite::Message::text(json!({"id":request["id"],"result":{"thread":{"id":"22222222-2222-4222-8222-222222222222","cwd":std::env::current_dir().unwrap(),"ephemeral":false}}}).to_string())).unwrap();
+        }
+    }
     // Stay alive until the original process owner terminates this endpoint.
     let _ = listener.accept();
 }
@@ -136,7 +163,7 @@ fn run_lifetime(explicit: bool, published: bool) {
         )
     });
     let start = Start {
-        resume_session: None,
+        resume_session: Some("22222222-2222-4222-8222-222222222222".into()),
         executable: command.executable.as_bytes().to_vec(),
         args: command
             .args
@@ -153,7 +180,10 @@ fn run_lifetime(explicit: bool, published: bool) {
     .unwrap();
     let ready: Ready =
         serde_json::from_slice(&read_frame(&mut control, Instant::now() + START).unwrap()).unwrap();
-    assert_eq!(ready.session, "22222222-2222-4222-8222-222222222222");
+    assert_eq!(
+        ready.session.as_deref(),
+        Some("22222222-2222-4222-8222-222222222222")
+    );
     if published {
         store
             .foreground(&record, &owner(foreground.0.id()))
@@ -230,7 +260,7 @@ fn startup_failure_cleans_only_owned_record_without_waiting_for_eof() {
     .unwrap();
     store.create(&record, |_| RuntimeLiveness::Alive).unwrap();
     let start = Start {
-        resume_session: None,
+        resume_session: Some("22222222-2222-4222-8222-222222222222".into()),
         executable: fixture.path.join("absent").as_os_str().as_bytes().to_vec(),
         args: vec![],
         cwd: fixture.path.as_os_str().as_bytes().to_vec(),
@@ -264,7 +294,7 @@ impl Write for ReadyOutput {
                 self.stream.write_all(b"{}")?;
             } else {
                 let mut ready: Ready = serde_json::from_slice(bytes)?;
-                ready.session = "44444444-4444-4444-8444-444444444444".into();
+                ready.session = Some("44444444-4444-4444-8444-444444444444".into());
                 self.stream.write_all(&serde_json::to_vec(&ready)?)?;
             }
         } else {
@@ -291,7 +321,7 @@ fn rejected_ready_retires_without_a_foreground_handoff() {
         store.create(&record, |_| RuntimeLiveness::Alive).unwrap();
         let command = fixture_command(&root);
         let start = Start {
-            resume_session: None,
+            resume_session: Some("22222222-2222-4222-8222-222222222222".into()),
             executable: command.executable.as_bytes().to_vec(),
             args: command
                 .args
@@ -390,7 +420,7 @@ fn ready_write_failure_retires_but_post_frame_flush_failure_preserves() {
         store.create(&record, |_| RuntimeLiveness::Alive).unwrap();
         let command = fixture_command(&root);
         let start = Start {
-            resume_session: None,
+            resume_session: Some("22222222-2222-4222-8222-222222222222".into()),
             executable: command.executable.as_bytes().to_vec(),
             args: command
                 .args
@@ -437,4 +467,106 @@ fn ready_write_failure_retires_but_post_frame_flush_failure_preserves() {
         }
         assert!(!store.generation_directory(&record).unwrap().exists());
     }
+}
+
+#[test]
+fn fresh_foreground_discovers_once_and_publishes_only_after_admission() {
+    let fixture = TestDirectory::new();
+    let root = fixture.path.canonicalize().unwrap();
+    let store = Store::open(&root).unwrap();
+    let record = Record::new(
+        "11111111-1111-4111-8111-111111111111",
+        &owner(std::process::id()),
+    )
+    .unwrap();
+    store.create(&record, |_| RuntimeLiveness::Alive).unwrap();
+    let mut command = fixture_command(&root);
+    command.args = vec![
+        "-s".into(),
+        "read-only".into(),
+        "-a".into(),
+        "on-request".into(),
+    ];
+    let mut lease = Lease::from_record(
+        store,
+        record.clone(),
+        &command,
+        &root,
+        None,
+        Instant::now() + START,
+    )
+    .unwrap();
+    assert!(lease.session().is_none());
+    assert!(!lease.command().args.iter().any(|a| a == "resume"));
+    assert!(lease.command().args.iter().any(|a| a == "--remote"));
+    let foreground = ChildGuard(Command::new("/bin/sleep").arg("30").spawn().unwrap());
+    let incarnation = owner(foreground.0.id());
+    let mut supervisor = Supervisor {
+        store: Store::at(&root),
+        record: record.clone(),
+        control: None,
+        job: None,
+        command: lease.command().clone(),
+        environment: lease.environment().to_vec(),
+        session: None,
+    };
+    supervisor.foreground_started(&incarnation).unwrap();
+    assert!(supervisor.record.ready.is_none());
+    assert_eq!(
+        supervisor.session.as_ref().unwrap().as_str(),
+        "22222222-2222-4222-8222-222222222222"
+    );
+    ChannelEnrollment::foreground_admitted(&mut supervisor, &incarnation).unwrap();
+    assert!(supervisor.record.ready.is_some());
+    // No endpoint connection or uniqueness check happens after binding; the
+    // fixture accepts no further protocol requests after the one-time gate.
+    assert!(ChannelEnrollment::foreground_admitted(&mut supervisor, &incarnation).is_err());
+    let generation = supervisor
+        .store
+        .generation_directory(&supervisor.record)
+        .unwrap();
+    drop(foreground);
+    lease.withdraw().unwrap();
+    assert!(!generation.exists());
+    assert!(supervisor.store.read(&record.binding_id).unwrap().is_none());
+}
+
+#[test]
+fn fresh_gate_requires_unique_thread_and_explicit_non_ephemeral_metadata() {
+    let id = "22222222-2222-4222-8222-222222222222";
+    let session = ProviderSessionId::new(id).unwrap();
+    assert!(
+        loaded_thread(&json!({"result":{"data":[]}}))
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        loaded_thread(&json!({"result":{"data":[id]}})).unwrap(),
+        Some(session.clone())
+    );
+    for response in [
+        json!({}),
+        json!({"result":{"data":[id,id]}}),
+        json!({"result":{"data":[{}]}}),
+        json!({"result":{"data":["not-a-uuid"]}}),
+        json!({"error":{},"result":{"data":[id]}}),
+    ] {
+        assert!(loaded_thread(&response).is_err());
+    }
+    let response = json!({"result":{"thread":{"id":id,"cwd":"/owned","ephemeral":false}}});
+    assert!(verify_thread(&response, &session, std::path::Path::new("/owned")).is_ok());
+    for field in ["id", "cwd", "ephemeral"] {
+        let mut malformed = response.clone();
+        malformed["result"]["thread"]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        assert!(verify_thread(&malformed, &session, std::path::Path::new("/owned")).is_err());
+    }
+    for flag in [json!(true), json!(null), json!("false")] {
+        let mut malformed = response.clone();
+        malformed["result"]["thread"]["ephemeral"] = flag;
+        assert!(verify_thread(&malformed, &session, std::path::Path::new("/owned")).is_err());
+    }
+    assert!(verify_thread(&response, &session, std::path::Path::new("/other")).is_err());
 }

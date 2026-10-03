@@ -22,7 +22,7 @@ use std::{
 };
 use subprocess::{Exec, ExecExt, Job, JobExt, Redirection};
 
-const CLEANUP_TIMEOUT: Duration = Duration::from_secs(1);
+pub(crate) const CLEANUP_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub struct CommandRequest<'a> {
     pub program: &'a OsStr,

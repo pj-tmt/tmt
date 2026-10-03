@@ -19,6 +19,16 @@ pub mod server;
 pub mod supervisor;
 pub mod transport;
 
+/// Keep work plus the process owner's cleanup inside the installed hook timeout.
+pub const HOOK_TIMEOUT_MARGIN: std::time::Duration = std::time::Duration::from_millis(500);
+pub const MAXIMUM_HOOK_TOTAL_DURATION: std::time::Duration =
+    std::time::Duration::from_secs(crate::runtime::hook_protocol::HOOK_TIMEOUT_SECONDS)
+        .saturating_sub(HOOK_TIMEOUT_MARGIN);
+pub const MAXIMUM_HOOK_WORK_DURATION: std::time::Duration =
+    MAXIMUM_HOOK_TOTAL_DURATION.saturating_sub(crate::process::CLEANUP_TIMEOUT);
+pub const MAXIMUM_HOOK_ADMISSION_DURATION: std::time::Duration = std::time::Duration::from_secs(1);
+const MAXIMUM_FRESH_DISCOVERY_DURATION: std::time::Duration = std::time::Duration::from_secs(5);
+
 pub use crate::runtime::hook_protocol::encode_context;
 use serde::Deserialize;
 use tmt_core::binding::session::{
@@ -373,6 +383,28 @@ pub fn record_client_exit(
 pub struct CodexLifecycle;
 
 impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
+    fn hook_work_duration(&self) -> Option<std::time::Duration> {
+        (std::env::var_os(channel_context::BINDING_ENV).is_some()
+            && std::env::var_os(channel_context::GENERATION_ENV).is_some())
+        .then_some(MAXIMUM_HOOK_WORK_DURATION)
+    }
+    fn wait_for_hook_admission(
+        &self,
+        payload: &[u8],
+        deadline: std::time::Instant,
+    ) -> Result<(), crate::runtime::lifecycle::LifecycleUnavailable> {
+        channel_hooks::wait_for_admission(payload, deadline)
+    }
+    fn activity_process(
+        &self,
+        current: &BindingSessionState,
+        observed: &ProcessIncarnation,
+        session: &ProviderSessionId,
+        host: crate::runtime::lifecycle::HostEvidence,
+        deadline: std::time::Instant,
+    ) -> Option<ProcessIncarnation> {
+        channel_hooks::activity_process(current, observed, session, host, deadline)
+    }
     fn reads_state(&self, version: u16) -> bool {
         crate::runtime::driver_state::reads(version)
     }

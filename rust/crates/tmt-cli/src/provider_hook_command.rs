@@ -27,33 +27,49 @@ use tmt_core::{
     endpoint::{EndpointProbe, EndpointSnapshot, ProcessIncarnation},
 };
 
-const BUDGET: Duration = Duration::from_secs(2);
+const BUDGET: Duration = Duration::from_millis(crate::invocation::MAXIMUM_HOOK_WORK_BUDGET_MS);
 const ERROR_LINE: &str = "tmt: lifecycle context unavailable; continuing without context.";
 
 /// Provider hooks always exit successfully. The existing bounded process owner
 /// terminates/reaps the internal worker on timeout; no daemon, permission hook,
 /// unbounded background thread or potentially late context write is introduced.
-pub fn execute(provider: &str, worker: bool) -> io::Result<u8> {
-    let deadline = Instant::now() + BUDGET;
+pub fn execute(provider: &str, worker: bool, work_budget_ms: Option<u64>) -> io::Result<u8> {
+    let started = Instant::now();
     // A turn end fires after every turn; its failures stay silent.
     let mut turn_end = false;
     let result = (|| {
+        let registry = RuntimeRegistry::first_party();
+        let harness = HarnessId::new(provider).map_err(|_| ())?;
+        let lifecycle = registry.lifecycle(&harness).ok_or(())?;
+        let channel_duration = (!worker).then(|| lifecycle.hook_work_duration()).flatten();
+        let duration = if worker {
+            worker_duration(work_budget_ms)
+        } else {
+            channel_duration.unwrap_or(BUDGET)
+        };
+        let deadline = started + duration;
         let input = read_stdin_bounded(
-            BUDGET,
+            if channel_duration.is_some() || work_budget_ms.is_some() {
+                deadline.saturating_duration_since(Instant::now())
+            } else {
+                BUDGET
+            },
             tmt_adapters::runtime::hook_protocol::HOOK_INPUT_LIMIT,
         )
         .map_err(|_| ())?;
-        turn_end = RuntimeRegistry::first_party()
-            .lifecycle(&HarnessId::new(provider).map_err(|_| ())?)
-            .is_some_and(|lifecycle| lifecycle.decode_turn(input.as_bytes()).is_some());
+        turn_end = lifecycle.decode_turn(input.as_bytes()).is_some();
         if worker {
             return observe(provider, &input, deadline);
         }
+        lifecycle
+            .wait_for_hook_admission(input.as_bytes(), deadline)
+            .map_err(|_| ())?;
+        let args = worker_arguments(provider, channel_duration.is_some(), deadline)?;
         let executable = std::env::current_exe().map_err(|_| ())?;
         let output = UnixCommandRunner
             .execute(CommandRequest {
                 program: executable.as_os_str(),
-                args: &["__hook".into(), provider.into(), "--worker".into()],
+                args: &args,
                 input: input.as_bytes(),
                 deadline,
                 max_output_bytes: 32 * 1024,
@@ -115,6 +131,11 @@ fn observe_turn(
         ..
     } = *bound;
     let binding = stored.entry.binding.as_ref().ok_or(())?;
+    let Some(process) =
+        lifecycle.activity_process(&binding.session, &process, &turn.session, host, deadline)
+    else {
+        return Ok(());
+    };
     if !matches!(
         evaluate_binding(&stored.entry, &EndpointProbe::Live(snapshot)),
         BindingEvidence::Active(_)
@@ -489,6 +510,11 @@ fn observe_prompt(
         ..
     } = *bound;
     let binding = stored.entry.binding.as_ref().ok_or(())?;
+    let Some(process) =
+        lifecycle.activity_process(&binding.session, &process, session, host, deadline)
+    else {
+        return Ok(String::new());
+    };
     if binding.session.state != tmt_core::binding::session::RuntimeState::Running
         || !binding.session.key.as_ref().is_some_and(|key| {
             key.incarnation == process && key.provider_session.as_ref() == Some(session)
@@ -593,4 +619,74 @@ fn commit_driver_state(
     pending
         .and_then(|changed| cleanup.map(|()| changed))
         .map_err(|_| ())
+}
+
+fn worker_arguments(
+    provider: &str,
+    shared_deadline: bool,
+    deadline: Instant,
+) -> Result<Vec<std::ffi::OsString>, ()> {
+    let mut args = vec!["__hook".into(), provider.into(), "--worker".into()];
+    if shared_deadline {
+        // The parent owns the absolute monotonic deadline. Payload bytes and
+        // the default worker protocol stay unchanged; no budget is restarted.
+        let budget = deadline
+            .saturating_duration_since(Instant::now())
+            .min(BUDGET)
+            .as_millis();
+        if budget == 0 {
+            return Err(());
+        }
+        args.extend(["--work-budget-ms".into(), budget.to_string().into()]);
+    }
+    Ok(args)
+}
+
+fn worker_duration(work_budget_ms: Option<u64>) -> Duration {
+    work_budget_ms
+        .map(Duration::from_millis)
+        .unwrap_or(BUDGET)
+        .min(BUDGET)
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+
+    #[test]
+    fn full_admission_gate_leaves_only_the_actual_worker_remainder() {
+        let started =
+            Instant::now() - tmt_adapters::drivers::codex::MAXIMUM_HOOK_ADMISSION_DURATION;
+        let deadline = started + tmt_adapters::drivers::codex::MAXIMUM_HOOK_WORK_DURATION;
+        let args = worker_arguments("codex", true, deadline).unwrap();
+        let remaining = args[4].to_str().unwrap().parse::<u64>().unwrap();
+        assert!(remaining > 0 && remaining <= 500);
+        assert_eq!(
+            worker_duration(Some(remaining)),
+            Duration::from_millis(remaining)
+        );
+        assert!(worker_arguments("codex", true, Instant::now()).is_err());
+        // No deadline argument is added to the existing plain/Claude protocol,
+        // even when the parent deadline has expired; its process owner handles it.
+        assert_eq!(
+            worker_arguments("claude", false, Instant::now()).unwrap(),
+            vec![
+                std::ffi::OsString::from("__hook"),
+                "claude".into(),
+                "--worker".into()
+            ]
+        );
+    }
+
+    #[test]
+    fn absent_worker_budget_keeps_two_seconds() {
+        assert_eq!(worker_duration(None), Duration::from_secs(2));
+    }
+
+    #[test]
+    fn worker_budget_preserves_remaining_time_and_caps_direct_calls() {
+        assert_eq!(worker_duration(Some(0)), Duration::ZERO);
+        assert_eq!(worker_duration(Some(731)), Duration::from_millis(731));
+        assert_eq!(worker_duration(Some(u64::MAX)), BUDGET);
+    }
 }

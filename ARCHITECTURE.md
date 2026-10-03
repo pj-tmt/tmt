@@ -1854,7 +1854,13 @@ provider trust approvals or unrelated `config.toml` settings.
 
 The runtime registry resolves optional `RuntimeLifecycle` implementations by
 harness ID. Drivers own payload decoding, observation proposals, context encoding,
-host classification, mode and foreground-client exit policy. CLI hook/run owners
+host classification, mode and foreground-client exit policy. The lifecycle port's
+`activity_process` maps attribution only and never rewrites the binding. Its
+no-effect default returns the observed process; Codex channels verify their private
+Ready/session/original-process evidence under the same hook deadline to attribute
+app-server prompt/Stop callbacks to the admitted foreground. These probes run
+before `turn_state`, leaving the scan half of the actual remaining deadline.
+CLI hook/run owners
 only coordinate provider-neutral evidence, process ownership and storage CAS;
 adding a lifecycle driver does not add provider switches to those coordinators.
 Commands without registered lifecycle policy retain the ordinary owned-child exit
@@ -1863,8 +1869,19 @@ unknown reasons do not establish terminal state.
 
 The provider-facing hook entrypoint always exits zero without permission/decision output.
 It supervises a short-lived internal worker through the existing process owner,
-with a two-second work budget and bounded cleanup; provider settings allow three
-seconds. This bounds process, SQLite and context work without a daemon or late
+with the existing two-second work budget and bounded cleanup for Claude/plain
+hooks; provider settings allow three seconds. Codex channel hooks request a
+shorter shared work deadline through `RuntimeLifecycle::hook_work_duration`,
+derived in the driver from that installed timeout minus the named margin and
+process cleanup reserve. Its read-only generation gate runs through
+`wait_for_hook_admission` inside that deadline, capped by the driver at one second.
+Ready, unrelated sessions and drivers with the default no-op gate do not wait.
+The CLI passes only the remaining budget to its private worker through a typed
+hidden argument; it never alters payload bytes or restarts the parent deadline.
+The worker's absolute deadline also reaches `turn_state`, so usage scans spend
+half the actual remainder. The owning [Codex contract](contracts/codex-channel-v1.md)
+defines timing and provider-version evidence. This bounds process, SQLite and
+context work without a daemon or late
 background context writer. Worker probes stay inside the supervisor-owned worker
 group. A failed worker terminates its own group before exiting; the supervisor
 owns deadline termination and reaping, so nested probes cannot escape cleanup.
@@ -2548,7 +2565,9 @@ scoped. The same contract owns this persistence definition and its launcher/cras
 `drivers/codex/server` and `attachment` own endpoint/foreground
 planning. A launch-owned process group and private capability share one
 cleanup owner; process cleanup precedes inode-checked file removal. Attachment
-planning resolves cwd once and names an exact thread. Typed exact resume travels
+planning resolves cwd once. Fresh remote TUIs create their own thread; a
+one-time loaded-list gate requires one exact non-ephemeral thread with matching
+cwd before admission. Exact resume names its supplied thread. Typed exact resume travels
 through the private supervisor startup request; Codex uses `thread/resume` and
 validates the returned UUID against the selected session before foreground
 attachment, never inferring a session from arbitrary user argv or creating a
@@ -2565,7 +2584,11 @@ confirmed foreground reap. Pre-handoff startup failures retire only after
 confirmed cleanup; a complete Ready frame may already have escaped, so a later
 flush failure retains evidence. Provider records retain the pre-spawn pane address
 and Unknown/Known foreground state; app-server readiness is never foreground
-lifetime proof. The channel contract owns takeover, pruning and recovery limits.
+lifetime proof. Fresh records retain endpoint/candidate evidence while unready.
+The shared launch owner calls the default no-op `foreground_admitted` only after
+committed Running admission of its original child and storage closure; Codex
+then publishes Ready under its generation lock. Callback failure warns and
+retains the admitted child and unready evidence, without rollback or paste. The channel contract owns takeover, pruning and recovery limits.
 `drivers/codex/recovery` implements `inspect` and `recover` through
 `Store::recover`, which removes the exact observed record under its per-binding
 lock, and cleans a generation directory file by known file (the names

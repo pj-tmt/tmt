@@ -199,6 +199,24 @@ pub(in crate::grammar) fn hook(hooked: Vec<&'static str>) -> Command {
                 .hide(true)
                 .action(ArgAction::SetTrue),
         )
+        .arg(
+            Arg::new("work-budget-ms")
+                .long("work-budget-ms")
+                .hide(true)
+                .requires("worker")
+                .value_parser(|value: &str| {
+                    if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
+                        return Err("work budget must be decimal milliseconds".to_owned());
+                    }
+                    let budget = value
+                        .parse::<u64>()
+                        .map_err(|_| "work budget is too large".to_owned())?;
+                    if budget > crate::invocation::MAXIMUM_HOOK_WORK_BUDGET_MS {
+                        return Err("work budget exceeds the worker maximum".to_owned());
+                    }
+                    Ok(budget)
+                }),
+        )
 }
 
 pub(in crate::grammar) fn upgrade() -> Command {

@@ -85,6 +85,8 @@ fn inspect(
         }
         if let Some(ready) = &record.ready {
             processes.push(&ready.server);
+        } else if let Some(fresh) = &record.fresh {
+            processes.push(&fresh.server);
         }
         let mut unknown = false;
         for process in processes {

@@ -1,5 +1,10 @@
 use super::*;
-use crate::test_support::TestDirectory;
+use crate::test_support::{TestChild, TestDirectory};
+use std::{
+    io::{BufRead, BufReader},
+    os::unix::{net::UnixStream, process::CommandExt, process::ExitStatusExt},
+    process::{Command, Stdio},
+};
 
 fn command(root: &Path, ready: bool) -> RuntimeCommand {
     let path = root.join("fake-codex");
@@ -54,6 +59,71 @@ fn owned_process_and_private_files_are_cleaned_after_success() {
         nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid as i32), None),
         Err(nix::errno::Errno::ESRCH)
     );
+}
+
+#[test]
+fn group_shutdown_kills_and_reaps_a_term_ignoring_child() {
+    let fixture = TestDirectory::new();
+    let root = fixture.path.canonicalize().unwrap();
+    let command = command(&root, true);
+    let options = LaunchOptions::parse(&command, &root).unwrap();
+    let generation = root.join("generation");
+    let mut server = OwnedServer::start(
+        &command,
+        &options,
+        &generation,
+        Instant::now() + Duration::from_secs(2),
+    )
+    .unwrap();
+    let leader = nix::unistd::Pid::from_raw(server.incarnation.pid() as i32);
+    let (mut controller, member) = UnixStream::pair().unwrap();
+    controller
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    controller
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    // The test parents this child so it can verify reaping without leaving an
+    // orphan zombie. Group membership, not parentage, is the teardown boundary.
+    let mut child = TestChild::new(
+        Command::new("/bin/sh")
+            .args(["-c", "trap '' TERM; printf 'ready\\n'; exec /bin/cat"])
+            .process_group(leader.as_raw())
+            .stdin(Stdio::from(std::os::fd::OwnedFd::from(
+                member.try_clone().unwrap(),
+            )))
+            .stdout(Stdio::from(std::os::fd::OwnedFd::from(member)))
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let member_pid = nix::unistd::Pid::from_raw(child.child.id() as i32);
+    let mut output = BufReader::new(controller.try_clone().unwrap());
+    let mut line = String::new();
+    output.read_line(&mut line).unwrap();
+    assert_eq!(line, "ready\n");
+    assert_eq!(nix::unistd::getpgid(Some(member_pid)).unwrap(), leader);
+    nix::sys::signal::kill(member_pid, nix::sys::signal::Signal::SIGTERM).unwrap();
+    controller.write_all(b"survived TERM\n").unwrap();
+    line.clear();
+    output.read_line(&mut line).unwrap();
+    assert_eq!(line, "survived TERM\n");
+    assert!(child.child.try_wait().unwrap().is_none());
+    let mut independent = TestChild::new(Command::new("/bin/sleep").arg("30").spawn().unwrap());
+
+    let started = Instant::now();
+    server.stop().unwrap();
+    assert!(started.elapsed() < Duration::from_secs(3));
+    let status = child.wait_for_exit(Duration::from_secs(2));
+    assert_eq!(status.signal(), Some(nix::libc::SIGKILL));
+    for pid in [leader, member_pid] {
+        assert_eq!(
+            nix::sys::signal::kill(pid, None),
+            Err(nix::errno::Errno::ESRCH)
+        );
+    }
+    assert!(!generation.exists());
+    assert!(independent.child.try_wait().unwrap().is_none());
 }
 
 #[test]

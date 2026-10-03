@@ -120,6 +120,8 @@ fn observe<R: CommandRunner>(
     }
     if let Some(ready) = &record.ready {
         processes.push(observe(ProcessRole::Endpoint, &ready.server));
+    } else if let Some(fresh) = &record.fresh {
+        processes.push(observe(ProcessRole::Endpoint, &fresh.server));
     }
     let all_gone = processes
         .iter()
@@ -129,7 +131,7 @@ fn observe<R: CommandRunner>(
         .ok()
         .filter(|path| fs::symlink_metadata(path).is_ok())
         .map(|path| {
-            if record.ready.is_some() && all_gone {
+            if (record.ready.is_some() || record.fresh.is_some()) && all_gone {
                 GenerationDirectory::Proven(path)
             } else {
                 GenerationDirectory::Unproven(path)
@@ -160,7 +162,7 @@ fn observe<R: CommandRunner>(
             record.launch_owner.pid, record.launch_owner.start
         ),
     };
-    if record.ready.is_none() {
+    if record.ready.is_none() && record.fresh.is_none() {
         verification.push_str(
             " Its app-server was never recorded, so its generation directory is left in place.",
         );
