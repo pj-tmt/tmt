@@ -1511,6 +1511,74 @@ Space home/CLI management expose sharing, threads, anchors, conversations,
 members, snapshots, activity/expiry and held/uncertain sends. Enrollment, member
 management and local-agent grants remain distinct controls.
 
+### Local management admission (#1306)
+
+The owner socket accepts `POST /api/management` with strict JSON containing exactly
+`request`, `payload`, and `signature`: canonical base64url of the existing framed
+management input (at most 1 KiB), exact payload JSON (at most 16 KiB), and signature64.
+The HTTP body remains bounded to 64 KiB. The registered Colab signing key verifies
+possession; no request-selected key is authoritative. The forwarded Remote context
+must be live, owner-bound, registered, unrevoked and match `senderDevice`. The request
+must match this space, use an admitted page context, and satisfy
+`issuedAt <= now < expiresAt`, with the existing ten-minute maximum window.
+
+Request payloads contain user selections only, separate from owner statement DTOs:
+
+| Operation                                      | Exact request fields                                                         |
+| ---------------------------------------------- | ---------------------------------------------------------------------------- |
+| `epoch.advance`, `page.archive`, `page.delete` | `pageId`                                                                     |
+| `page.share`, `page.history`                   | `pageId, mode`                                                               |
+| `retention.set`                                | `pageId, days` (positive safe integer or null)                               |
+| `member.add`                                   | `memberId, role, signKey, encKey, pages`                                     |
+| `member.remove`                                | `memberId, pages`                                                            |
+| `member.role`                                  | `memberId, role, pages`                                                      |
+| `link.add`                                     | `linkId, role, pages, seed`                                                  |
+| `link.remove`                                  | `linkId, pages, replacement` (required null, or a complete link-add request) |
+
+Page IDs match the framed initiating context. Page sets are sorted, unique and
+bounded to 256 generated IDs. The engine fences the affected assignment in its
+plan and writer transaction; remove/re-role scope includes the complete stored
+assignment. A non-null replacement requests atomic Reset through the link engine,
+not a new signing operation. Requests cannot supply cuts, baselines, epoch numbers,
+wraps, publishedKeys, grant revisions or signing instructions. Public publication
+is selected by trusted local composition, never a browser-supplied backend flag.
+
+Seeds are caller-held, transient inputs in the local stage: canonical base64url
+seed32. They are never persisted in statements, projections, receipts or logs.
+Before any relayed transport, the seed MUST be encrypted to the owner; plaintext
+seed payloads through a relay are forbidden. A lost caller seed requires explicit
+Reset, not regeneration during retry. Revocation of Remote devices/grants remains
+separate from these management requests.
+
+Browser replay binding is SHA256(LP(`tmt-colab-management-transport-v1`, requestBytes,
+payloadBytes, signature64)). The engine binds that digest plus normalized action and
+request scope in the existing owner-operation transaction. An exact eligible retry
+returns its stored outcome/head without fresh signing, wraps or baselines; changed
+signed bytes with the same operation ID conflict. Expired or revoked callers cannot
+recover authority by retrying. New operations fence the expected owner revision.
+
+The owner-only `POST /.tmt/colab/management` route takes exactly
+`space, page, expectedRevision, operationId, operation, payload`; revision is canonical
+positive decimal text and payload is canonical base64url of the same typed JSON.
+It is authorized solely by the owned private Unix socket, not forwarded headers;
+Remote refuses browser forwarding into `/.tmt/`. Its digest is
+SHA256(LP(`tmt-colab-local-management-transport-v1`, exactBodyBytes)). The root-local
+caller supplies no fabricated browser device. Offline CLI composition can call the
+same library service under the owner lifecycle lock; public CLI commands remain #1307.
+
+Routes serialize through the sync lock before Registration, matching append/event
+admission. The existing engine owns all transitions, atomic receipts and root signing.
+Sync rechecks live subscriptions after the callback before sending queued data.
+Success is JSON `{operationId, membershipHead:{revision, statementHash}}`, using the
+operation's committed head even after later mutations. Clients refresh and verify
+the owner log/wraps through bounded catchup; this reply is not authority. Errors are
+400 INVALID, 403 DENIED/EXPIRED, 409 CONFLICT/STALE_HEAD and 503 CAPACITY/UNAVAILABLE.
+The prerequisite runner implements member/link/epoch actions. Sharing, history,
+retention, archive and delete requests are strictly decoded but return UNAVAILABLE
+without statements or receipts until the #1160 policy slice lands. Methods other
+than POST and upgrade attempts are INVALID. Unknown reserved routes
+remain unavailable. No schema, dependency or separate replay store is added.
+
 ## Plaintext page export (#1309)
 
 Export v1 emits exactly `page.html` and `manifest.json`. Native captures one

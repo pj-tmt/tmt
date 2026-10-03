@@ -1695,3 +1695,524 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
             .starts_with("HTTP/1.1 404")
     );
 }
+
+fn management_body(
+    server: &Running,
+    id: &str,
+    revision: u64,
+    operation: &str,
+    payload: Value,
+    sender: &str,
+    issued: u64,
+) -> String {
+    let payload = serde_json::to_vec(&payload).unwrap();
+    let request = tmt_colab_model::auth::management_input(&tmt_colab_model::auth::Management {
+        space: &server.space,
+        page: PAGE,
+        expected_revision: &revision.to_string(),
+        operation_id: id,
+        operation,
+        payload: &payload,
+        sender_device: sender,
+        issued_at: issued,
+        expires_at: issued + 60_000,
+    })
+    .unwrap();
+    json!({"request":values::encode_binary(&request),"payload":values::encode_binary(&payload),
+        "signature":values::encode_binary(&signing(sender).sign(&request).to_bytes())})
+    .to_string()
+}
+fn local_management(
+    server: &Running,
+    id: &str,
+    revision: u64,
+    operation: &str,
+    payload: Value,
+) -> String {
+    json!({"space":server.space,"page":PAGE,"expectedRevision":revision.to_string(),"operationId":id,
+        "operation":operation,"payload":values::encode_binary(&serde_json::to_vec(&payload).unwrap())}).to_string()
+}
+fn management_member(id: &str, seed: u8) -> Value {
+    json!({"memberId":id,"role":"viewer","pages":[PAGE],
+        "signKey":values::encode_binary(SigningKey::from_bytes(&[seed;32]).verifying_key().as_bytes()),
+        "encKey":values::encode_binary(&tmt_colab_model::wrap::RecipientKey::from_seed(&[seed+1;32]).unwrap().public_key())})
+}
+fn management_recipient(
+    server: &Running,
+    kind: &str,
+    id: &str,
+) -> tmt_colab::store::owner::Recipient {
+    let bytes: Vec<u8> = server
+        .oracle()
+        .query_row(
+            "SELECT record FROM recipients WHERE kind=? AND id=?",
+            [kind, id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    serde_json::from_slice(&bytes).unwrap()
+}
+fn management_response(server: &Running, raw: &str, revision: &str) -> Value {
+    assert!(raw.starts_with("HTTP/1.1 200"), "{raw}");
+    let body: Value = serde_json::from_str(raw.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(body.as_object().unwrap().len(), 2);
+    assert_eq!(body["membershipHead"]["revision"], revision);
+    assert_eq!(
+        values::binary(
+            body["membershipHead"]["statementHash"].as_str().unwrap(),
+            32
+        )
+        .unwrap()
+        .len(),
+        32
+    );
+    let key = Keyring::read(&Layout::existing(&server.root).unwrap().unwrap()).unwrap();
+    let db = server.oracle();
+    let mut log = db
+        .prepare("SELECT envelope FROM membership_log ORDER BY revision")
+        .unwrap();
+    let mut head = None;
+    for bytes in log.query_map([], |r| r.get::<_, Vec<u8>>(0)).unwrap() {
+        let envelope = tmt_colab_model::statement::Envelope::from_json(&bytes.unwrap()).unwrap();
+        head = Some(
+            envelope
+                .verify_next(&server.space, &key.owner_public(), head.as_ref())
+                .unwrap()
+                .head,
+        );
+        if head.as_ref().unwrap().revision.to_string() == revision {
+            break;
+        }
+    }
+    let head = head.unwrap();
+    assert_eq!(head.revision.to_string(), revision);
+    assert_eq!(
+        values::encode_binary(&head.hash),
+        body["membershipHead"]["statementHash"]
+    );
+    body
+}
+#[test]
+fn management_owner_admission_exact_replay_local_ipc_and_epoch_close_twice() {
+    const OP: &str = "40000000-0000-4000-8000-000000000001";
+    const LOCAL: &str = "40000000-0000-4000-8000-000000000002";
+    const ADVANCE: &str = "40000000-0000-4000-8000-000000000003";
+    const STALE: &str = "40000000-0000-4000-8000-000000000004";
+    let path = tmt_colab::management::PATH;
+    let ipc = tmt_colab::management::LOCAL_PATH;
+    for _ in 0..2 {
+        let server = Running::start(Tunnels::PRODUCT);
+        server
+            .oracle()
+            .execute(
+                "INSERT INTO epoch_secrets(page,epoch,secret) VALUES (?, '00000000000000000001', ?)",
+                rusqlite::params![PAGE, [8u8; 32].as_slice()],
+            )
+            .unwrap();
+        let issued = now();
+        let payload = management_member("60000000-0000-4000-8000-000000000001", 20);
+        let body = management_body(
+            &server,
+            OP,
+            1,
+            "member.add",
+            payload.clone(),
+            DEVICE,
+            issued,
+        );
+        let header = format!("{}\r\n", owner(DEVICE));
+        let denied = server.event(path, "", &body);
+        assert!(
+            denied.starts_with("HTTP/1.1 403") && denied.ends_with("DENIED"),
+            "{denied}"
+        );
+        let wrong_device = server.event(path, &format!("{}\r\n", owner(OTHER)), &body);
+        assert!(
+            wrong_device.starts_with("HTTP/1.1 403") && wrong_device.ends_with("DENIED"),
+            "{wrong_device}"
+        );
+        let mut non_owner: Value = serde_json::from_str(&context(DEVICE)).unwrap();
+        non_owner["owner"] = false.into();
+        let non_owner_header = format!("tmt-device-context: {non_owner}\r\n");
+        assert!(
+            server
+                .event(path, &non_owner_header, &body)
+                .ends_with("DENIED")
+        );
+        let expired = management_body(
+            &server,
+            OP,
+            1,
+            "member.add",
+            payload.clone(),
+            DEVICE,
+            issued - 120_000,
+        );
+        assert!(server.event(path, &header, &expired).ends_with("EXPIRED"));
+        let mut bad_signature: Value = serde_json::from_str(&body).unwrap();
+        bad_signature["signature"] = values::encode_binary(&[0; 64]).into();
+        assert!(
+            server
+                .event(path, &header, &bad_signature.to_string())
+                .ends_with("DENIED")
+        );
+        let computed = management_body(
+            &server,
+            OP,
+            1,
+            "member.add",
+            json!({"pageId":PAGE,"cuts":[]}),
+            DEVICE,
+            issued,
+        );
+        assert!(server.event(path, &header, &computed).ends_with("INVALID"));
+        let rows = |table| {
+            server
+                .oracle()
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| {
+                    r.get::<_, i64>(0)
+                })
+                .unwrap()
+        };
+        assert_eq!(rows("membership_log"), 1);
+        assert_eq!(rows("owner_operations"), 1);
+        let response = server.event(path, &header, &body);
+        let result = management_response(&server, &response, "2");
+        assert_eq!(result["operationId"], OP);
+        let added = management_recipient(&server, "member", "60000000-0000-4000-8000-000000000001");
+        assert_eq!(added.role.as_deref(), Some("viewer"));
+        assert_eq!(added.pages, [PAGE]);
+        assert!(!added.revoked);
+        assert_eq!(rows("membership_log"), 2);
+        assert_eq!(server.event(path, &header, &body), response);
+        assert_eq!(rows("owner_operations"), 2);
+        let changed = management_body(
+            &server,
+            OP,
+            1,
+            "member.add",
+            payload.clone(),
+            DEVICE,
+            issued - 1,
+        );
+        assert!(server.event(path, &header, &changed).ends_with("CONFLICT"));
+        let stale = management_body(
+            &server,
+            STALE,
+            1,
+            "member.add",
+            management_member("60000000-0000-4000-8000-000000000003", 24),
+            DEVICE,
+            issued,
+        );
+        let stale_response = server.event(path, &header, &stale);
+        assert!(stale_response.ends_with("STALE_HEAD"), "{stale_response}");
+        assert_eq!(rows("membership_log"), 2);
+        let local = local_management(
+            &server,
+            LOCAL,
+            2,
+            "member.add",
+            management_member("60000000-0000-4000-8000-000000000002", 22),
+        );
+        // The reserved socket route is root-authorized even without a Remote device.
+        let local_added = server.event(ipc, "", &local);
+        management_response(&server, &local_added, "3");
+        assert_eq!(server.event(ipc, &non_owner_header, &local), local_added);
+        assert_eq!(
+            server.event(path, &header, &body),
+            response,
+            "replay must retain its original head after later commits"
+        );
+        assert!(
+            server
+                .request(&Running::get(ipc, ""))
+                .starts_with("HTTP/1.1 400")
+        );
+        assert!(server.event(ipc, "", &body).ends_with("INVALID"));
+        let mut peer = server.peer(DEVICE);
+        hello(&server, &mut peer, DEVICE);
+        let advance =
+            local_management(&server, ADVANCE, 3, "epoch.advance", json!({"pageId":PAGE}));
+        management_response(&server, &server.event(ipc, "", &advance), "4");
+        match peer.read() {
+            Ok(Message::Close(Some(close))) => assert_eq!(close.reason, "STALE_EPOCH"),
+            other => panic!("epoch advance did not close the subscribed peer: {other:?}"),
+        }
+        let role = management_body(
+            &server,
+            "40000000-0000-4000-8000-000000000005",
+            4,
+            "member.role",
+            json!({"memberId":"60000000-0000-4000-8000-000000000001","role":"commenter","pages":[PAGE]}),
+            DEVICE,
+            now(),
+        );
+        management_response(&server, &server.event(path, &header, &role), "5");
+        assert_eq!(
+            management_recipient(&server, "member", "60000000-0000-4000-8000-000000000001")
+                .role
+                .as_deref(),
+            Some("commenter")
+        );
+        let remove = management_body(
+            &server,
+            "40000000-0000-4000-8000-000000000006",
+            5,
+            "member.remove",
+            json!({"memberId":"60000000-0000-4000-8000-000000000001","pages":[PAGE]}),
+            DEVICE,
+            now(),
+        );
+        management_response(&server, &server.event(path, &header, &remove), "7");
+        assert!(
+            management_recipient(&server, "member", "60000000-0000-4000-8000-000000000001").revoked
+        );
+        assert_eq!(rows("membership_log"), 7);
+        assert_eq!(rows("owner_operations"), 6);
+        server
+            .oracle()
+            .execute(
+                "UPDATE device_registrations SET revoked=1 WHERE device_id=?",
+                [DEVICE],
+            )
+            .unwrap();
+        let revoked = server.event(path, &header, &body);
+        assert!(revoked.starts_with("HTTP/1.1 403") && revoked.ends_with("DENIED"));
+        assert_eq!(rows("owner_operations"), 6);
+        drop(peer);
+        let socket_path = server.path.clone();
+        drop(server);
+        assert!(!socket_path.exists());
+    }
+}
+#[test]
+fn management_receipt_failure_rolls_back_signed_membership_and_remains_retryable() {
+    const OP: &str = "50000000-0000-4000-8000-000000000001";
+    let server = Running::start(Tunnels::PRODUCT);
+    server
+        .oracle()
+        .execute(
+            "INSERT INTO epoch_secrets(page,epoch,secret) VALUES (?, '00000000000000000001', ?)",
+            rusqlite::params![PAGE, [8u8; 32].as_slice()],
+        )
+        .unwrap();
+    server.oracle().execute_batch(&format!("CREATE TRIGGER reject_management BEFORE INSERT ON owner_operations WHEN NEW.id='{OP}' BEGIN SELECT RAISE(ABORT,'injected receipt failure'); END;")).unwrap();
+    let body = management_body(
+        &server,
+        OP,
+        1,
+        "member.add",
+        management_member("60000000-0000-4000-8000-000000000001", 20),
+        DEVICE,
+        now(),
+    );
+    let header = format!("{}\r\n", owner(DEVICE));
+    let failed = server.event(tmt_colab::management::PATH, &header, &body);
+    assert!(
+        failed.starts_with("HTTP/1.1 503") && failed.ends_with("UNAVAILABLE"),
+        "{failed}"
+    );
+    assert_eq!(
+        server
+            .oracle()
+            .query_row("SELECT count(*) FROM membership_log", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        server
+            .oracle()
+            .query_row("SELECT count(*) FROM owner_operations", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    server
+        .oracle()
+        .execute_batch("DROP TRIGGER reject_management")
+        .unwrap();
+    management_response(
+        &server,
+        &server.event(tmt_colab::management::PATH, &header, &body),
+        "2",
+    );
+}
+
+#[test]
+fn management_link_add_reset_remove_fence_scope_replay_and_seed_disclosure() {
+    const OLD: &str = "70000000-0000-4000-8000-000000000001";
+    const NEW: &str = "70000000-0000-4000-8000-000000000002";
+    const ADD: &str = "80000000-0000-4000-8000-000000000001";
+    const RESET: &str = "80000000-0000-4000-8000-000000000002";
+    const REMOVE: &str = "80000000-0000-4000-8000-000000000003";
+    const BAD_SCOPE: &str = "80000000-0000-4000-8000-000000000004";
+    let server = Running::start(Tunnels::PRODUCT);
+    let layout = Layout::existing(&server.root).unwrap().unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    // Fixture setup establishes an owner-signed link policy and initial key;
+    // all tested management changes go through the mounted socket and runner.
+    let mut store = Store::open(&layout).unwrap();
+    store
+        .owner_transaction(
+            &server.space,
+            &key.owner_public(),
+            tmt_colab::store::owner::Mutation {
+                operation_id: "90000000-0000-4000-8000-000000000001",
+                digest: [19; 32],
+                expected_revision: 1,
+            },
+            |tx| {
+                let payload =
+                    serde_json::to_vec(&json!({"pageId":PAGE,"mode":"link","epoch":"1"}))?;
+                tx.append_statement(&key.sign_statement(tx.head(), "page.share", &payload)?)?;
+                tx.put_epoch_secret(PAGE, 1, &[8; 32])?;
+                Ok(b"fixture link policy".to_vec())
+            },
+        )
+        .unwrap();
+    store.close().unwrap();
+    let header = format!("{}\r\n", owner(DEVICE));
+    let link = |id, seed| json!({"linkId":id,"role":"viewer","pages":[PAGE],"seed":values::encode_binary(&[seed;32])});
+    let old_seed = values::encode_binary(&[31; 32]);
+    let new_seed = values::encode_binary(&[33; 32]);
+    let add = management_body(&server, ADD, 2, "link.add", link(OLD, 31), DEVICE, now());
+    management_response(
+        &server,
+        &server.event(tmt_colab::management::PATH, &header, &add),
+        "3",
+    );
+    assert!(!management_recipient(&server, "link", OLD).revoked);
+    let bad = management_body(
+        &server,
+        BAD_SCOPE,
+        3,
+        "link.remove",
+        json!({"linkId":OLD,"pages":[PAGE,OTHER],"replacement":null}),
+        DEVICE,
+        now(),
+    );
+    assert!(
+        server
+            .event(tmt_colab::management::PATH, &header, &bad)
+            .ends_with("STALE_HEAD")
+    );
+    let mut peer = server.peer(DEVICE);
+    hello(&server, &mut peer, DEVICE);
+    let reset_payload = json!({"linkId":OLD,"pages":[PAGE],"replacement":link(NEW,33)});
+    let reset = management_body(
+        &server,
+        RESET,
+        3,
+        "link.remove",
+        reset_payload.clone(),
+        DEVICE,
+        now(),
+    );
+    let response = server.event(tmt_colab::management::PATH, &header, &reset);
+    management_response(&server, &response, "6");
+    assert!(management_recipient(&server, "link", OLD).revoked);
+    assert!(!management_recipient(&server, "link", NEW).revoked);
+    match peer.read() {
+        Ok(Message::Close(Some(close))) => assert_eq!(close.reason, "STALE_EPOCH"),
+        other => panic!("Reset left a stale subscription alive: {other:?}"),
+    }
+    assert_eq!(
+        server.event(tmt_colab::management::PATH, &header, &reset),
+        response
+    );
+    let mut changed = reset_payload;
+    changed["replacement"]["seed"] = values::encode_binary(&[34; 32]).into();
+    let changed = management_body(&server, RESET, 3, "link.remove", changed, DEVICE, now());
+    assert!(
+        server
+            .event(tmt_colab::management::PATH, &header, &changed)
+            .ends_with("CONFLICT")
+    );
+    let remove = management_body(
+        &server,
+        REMOVE,
+        6,
+        "link.remove",
+        json!({"linkId":NEW,"pages":[PAGE],"replacement":null}),
+        DEVICE,
+        now(),
+    );
+    management_response(
+        &server,
+        &server.event(tmt_colab::management::PATH, &header, &remove),
+        "8",
+    );
+    assert!(management_recipient(&server, "link", NEW).revoked);
+    assert_eq!(
+        server
+            .oracle()
+            .query_row("SELECT count(*) FROM membership_log", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        8
+    );
+    let db = server.oracle();
+    let mut rows = db
+        .prepare(
+            "SELECT outcome FROM owner_operations UNION ALL SELECT envelope FROM membership_log",
+        )
+        .unwrap();
+    for bytes in rows.query_map([], |r| r.get::<_, Vec<u8>>(0)).unwrap() {
+        let bytes = bytes.unwrap();
+        for seed in [
+            old_seed.as_bytes(),
+            new_seed.as_bytes(),
+            [31u8; 32].as_slice(),
+            [33u8; 32].as_slice(),
+        ] {
+            assert!(
+                !bytes.windows(seed.len()).any(|part| part == seed),
+                "seed leaked into durable public output"
+            );
+        }
+    }
+    assert!(!response.contains(&old_seed) && !response.contains(&new_seed));
+}
+#[test]
+fn management_reserved_policy_requests_are_unavailable_without_partial_statements() {
+    let server = Running::start(Tunnels::PRODUCT);
+    let mut cases = vec![
+        ("page.share", json!({"pageId":PAGE,"mode":"public"})),
+        ("page.history", json!({"pageId":PAGE,"mode":"current"})),
+        ("retention.set", json!({"pageId":PAGE,"days":30})),
+        ("page.archive", json!({"pageId":PAGE})),
+        ("page.delete", json!({"pageId":PAGE})),
+    ];
+    for (operation, payload) in cases.drain(..) {
+        let body = local_management(
+            &server,
+            "90000000-0000-4000-8000-000000000002",
+            1,
+            operation,
+            payload,
+        );
+        let response = server.event(tmt_colab::management::LOCAL_PATH, "", &body);
+        assert!(
+            response.starts_with("HTTP/1.1 503") && response.ends_with("UNAVAILABLE"),
+            "{response}"
+        );
+    }
+    assert_eq!(
+        server
+            .oracle()
+            .query_row("SELECT count(*) FROM membership_log", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        server
+            .oracle()
+            .query_row("SELECT count(*) FROM owner_operations", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+}
