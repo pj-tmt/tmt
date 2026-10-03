@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,11 +10,14 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const verifier = path.join(repositoryRoot, 'scripts/verify-native-extension-upgrade.mjs');
 const installationVerifier = path.join(repositoryRoot, 'scripts/verify-native-installation.mjs');
 const PROOF_BUDGET_MS = 60_000;
+const recordingDriver = fileURLToPath(
+  new URL('../../../rust/target/debug/examples/recording-cli-fixture', import.meta.url)
+);
 
 type Artifact = Awaited<ReturnType<typeof createArtifact>>;
 
 // The proof's verifier drives the newest published CLI, so it may only use what that CLI has. The
-// driver here is the freshly built CLI behind a script that records the command it was given.
+// driver here is the freshly built CLI behind a native fixture that records its public commands.
 // Squad only: the Office installer also checks that the executable reports the version it is
 // installed as, which a built `tmt-office` can do for one version only; the verifier builds the
 // same commands for both extensions.
@@ -29,22 +32,20 @@ describe('extension upgrade proof against the real CLI', () => {
     async (_, driverCompanions) => {
       await withSandbox(async (sandbox) => {
         const log = path.join(sandbox.root, 'driver commands.log');
-        const wrapper = path.join(sandbox.root, 'recording tmt');
-        // The proof runs it with an empty PATH: only shell builtins and an absolute path are used.
-        writeExecutable(
-          wrapper,
-          `#!/bin/sh\nprintf '%s %s\\n' "$1" "$2" >> "${log}"\nexec "${sandbox.cli.executable}" "$@"\n`,
-          0o755
-        );
         expect(sandbox.cli.args).toEqual([]);
 
         const artifact = (name: string, version: string, product: 'cli' | 'squad') =>
           createArtifact(
             {
               root: path.join(sandbox.root, name),
-              // The wrapper stands in for tmt; its companions are the build's.
+              // The note travels with the native fixture through archive extraction.
+              // The verifier clears its environment and PATH before invoking it.
+              installationNote:
+                product === 'cli'
+                  ? JSON.stringify({ executable: sandbox.cli.executable, log })
+                  : undefined,
               cli: {
-                executable: wrapper,
+                executable: recordingDriver,
                 companions: driverCompanions === null ? null : path.dirname(sandbox.cli.executable),
               },
             },
@@ -71,6 +72,38 @@ describe('extension upgrade proof against the real CLI', () => {
     },
     PROOF_BUDGET_MS
   );
+});
+
+describe('native recording driver', () => {
+  it('preserves argv, input, output, cwd, empty PATH and a failing delegate status', async () => {
+    await withSandbox(async (sandbox) => {
+      const executable = path.join(sandbox.root, 'recording driver with spaces');
+      const log = path.join(sandbox.root, 'driver commands.log');
+      writeExecutable(executable, readFileSync(recordingDriver), 0o755);
+      writeFileSync(
+        path.join(sandbox.root, 'NATIVE-INSTALL.md'),
+        JSON.stringify({ executable: '/bin/sh', log })
+      );
+      const script =
+        'printf "%s\\n" "$1" "$2" "$PWD" "$PATH"; /bin/cat; printf "delegate stderr\\n" >&2; exit 23';
+      const result = await runCli(
+        {
+          ...sandbox,
+          cli: { executable, args: [] },
+          env: { ...sandbox.env, PATH: '' },
+        },
+        ['-c', script, 'fixture argv zero', 'argument with spaces', 'quote\'and"double'],
+        { stdin: 'input\0bytes\n' }
+      );
+      expect(result.status).toBe(23);
+      expect(result.signal).toBeNull();
+      expect(result.stdout).toBe(
+        `argument with spaces\nquote'and"double\n${realpathSync(sandbox.cwd)}\n\ninput\0bytes\n`
+      );
+      expect(result.stderr).toBe('delegate stderr\n');
+      expect(readFileSync(log, 'utf8')).toBe(`-c ${script}\n`);
+    });
+  });
 });
 
 describe('CLI installation proof', () => {

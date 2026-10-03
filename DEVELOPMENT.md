@@ -1438,6 +1438,24 @@ full scope builds it beside the storage probe, while Squad scope builds it expli
 Keep these fixture builds in the process job itself; another job's workspace build
 or a warm local target does not supply its executables.
 
+Extension-upgrade proofs use one native recording driver on macOS and Linux.
+Build it before running `test/native/extension-upgrade-proof.test.ts`:
+
+```sh
+cargo build --locked --manifest-path rust/Cargo.toml -p tmt-test-support --example recording-cli-fixture
+(cd typescript && corepack pnpm exec vp test run --config test/native/vitest.config.ts test/native/extension-upgrade-proof.test.ts)
+```
+
+The example is selected from `rust/target/debug/examples/recording-cli-fixture`,
+matching the host architecture (including an x64 Node/Rust pair under Rosetta).
+Both native-process CI scopes build it. The synthetic driver archive's
+`NATIVE-INSTALL.md` contains JSON with absolute `executable` and `log` fixture
+paths; the driver records the first two arguments and replaces itself with the
+selected CLI, preserving argv, stdio, cwd, environment and exit behavior.
+The note is fixture configuration, not shipped installation guidance.
+Publish the built bytes through `writeExecutable`; do not package a shell driver,
+compile during a scenario, relax exact Mach-O inspection or extend its deadline.
+
 Squad context fixtures separate successful core-invocation evidence from deadline
 termination. Cold/fresh reads and a promptly returning stale-context sentinel
 assert the cache-only gate independently. Timeout scenarios establish a gated

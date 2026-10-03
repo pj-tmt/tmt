@@ -359,6 +359,7 @@ jobs:
           cargo build --locked -p tmt-remote -p tmt-colab --bins
           echo "Built Remote/Colab process fixtures in $((SECONDS - extension_started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
           cargo build --locked --example storage-probe --example runtime-caller-fixture
+          cargo build --locked -p tmt-test-support --example recording-cli-fixture
           cargo build --locked --release -p tmt-cli -p tmt-driver-herdr --bins
       - name: Build Squad process fixtures
         if: needs.changes.outputs.native_scope == 'squad'
@@ -369,6 +370,7 @@ jobs:
           cargo build --locked -p tmt-remote -p tmt-colab --bins
           echo "Built Remote/Colab process fixtures in $((SECONDS - extension_started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
           cargo build --locked -p tmt-adapters --example runtime-caller-fixture
+          cargo build --locked -p tmt-test-support --example recording-cli-fixture
           cargo build --locked --release -p tmt-cli -p tmt-driver-herdr --bins
       - name: Download the verified Office companion
         if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_office == 'true'
