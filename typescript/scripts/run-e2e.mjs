@@ -53,6 +53,8 @@ async function removeImage() {
  */
 const FILE_LIST = /^[A-Za-z0-9._-]+( [A-Za-z0-9._-]+)*$/;
 const ADAPTER_FLAG = /^[01]$/;
+/** Cargo's parallel job limit for the image's native builds: a positive count or `default`. */
+const CARGO_JOBS = /^(?:[1-9][0-9]*|default)$/;
 
 async function main() {
   const files = process.env.TMT_E2E_FILES ?? '';
@@ -65,11 +67,17 @@ async function main() {
     console.error('TMT_E2E_ADAPTER_TESTS must be 0 or 1.');
     return 2;
   }
+  const cargoJobs = process.env.CARGO_BUILD_JOBS ?? '';
+  if (cargoJobs !== '' && !CARGO_JOBS.test(cargoJobs)) {
+    console.error('CARGO_BUILD_JOBS must be a positive integer or default.');
+    return 2;
+  }
   try {
     const buildStatus = await run('docker', [
       'build',
       '--tag',
       image,
+      ...(cargoJobs === '' ? [] : ['--build-arg', `CARGO_BUILD_JOBS=${cargoJobs}`]),
       '--file',
       dockerfile,
       repoRoot,
