@@ -48,6 +48,8 @@ export function AnnotationInput({
   title,
   publisher,
   replier,
+  initialValue,
+  onDraft,
   blocked,
   cancel,
   committed,
@@ -62,6 +64,10 @@ export function AnnotationInput({
   publisher?: string;
   /** Chat only: the agent that answered last. */
   replier?: string;
+  /** A draft kept from an earlier close of the same selection. */
+  initialValue?: string;
+  /** Reports every value, so the owner can keep an unsent draft. */
+  onDraft?(value: string): void;
   blocked: boolean;
   cancel(): void;
   committed(ref: DiscussionRef): void;
@@ -69,12 +75,12 @@ export function AnnotationInput({
 }) {
   const inputElement = useRef<HTMLTextAreaElement | null>(null);
   const [agents, setAgents] = useState<AgentDestination[]>([]);
-  const [value, setValue] = useState('');
+  const [value, setValue] = useState(initialValue ?? '');
   const [selected, setSelected] = useState<string>();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const sending = useRef(false);
-  const dirty = useRef(false);
+  const dirty = useRef(initialValue !== undefined);
   const wasBusy = useRef(false);
   const [error, setError] = useState<string>();
   const [recorded, setRecorded] = useState<DiscussionRef>();
@@ -102,6 +108,7 @@ export function AnnotationInput({
       active = false;
     };
   }, [binding, publisher, replier, chat]);
+  useEffect(() => onDraft?.(value), [value]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!dirty.current && inputElement.current) {
       inputElement.current.setSelectionRange(value.length, value.length);
