@@ -210,7 +210,9 @@ Once a draft's bundle is attached, the run evaluates the publication gates in or
 `channel` (the version is an alpha, `X.Y.Z-alpha.N`; a stable version or any other pre-release
 label such as `beta` or `rc` is held, and releasing that hold is refused: the owner publishes it
 by hand), `commit` (the release's commit is on `main` and the pull request that produced it passed
-`Code quality`, `Unit tests`, `Docker E2E` and `Native package matrix`), `immutability` (the
+`Code quality`, `Unit tests`, `Docker E2E` and `Native package matrix`, with
+scope-unselected `Unit tests` skips admitted only by the
+[CI aggregate proof](ci-selection.md)), `immutability` (the
 repository's newest published release is immutable, which shows that the setting was on; the
 workflow token cannot read the setting itself), `monotonic` (an alpha has a unique unpublished tag and version; stable
 publication remains newer than every published release of its product), `migration` (no commit of the release carries `!` or a
@@ -236,6 +238,26 @@ gate, and finish refuses a changed gate. Any failed gate leaves the original mar
 unchanged; only after all gates pass is it removed, followed by normal publication,
 attestation and public-install smoke checks. The
 [release skill](../SKILL.md#automated-alpha-publication) owns rerun authorization.
+
+For a complete draft held at `commit` because a docs-only or scoped-component PR
+intentionally skipped `Unit tests`, merge the reviewed gate repair first. Leave the
+draft, captured commit, bundle and hold marker unchanged. Ben must authorize each
+exact tag's recovery; then use `rerun=<tag>` on main with `prepare` off and its
+product to re-prove every gate using repaired main tooling. Do not use `hold` to
+bypass the commit gate, recut the version, rebuild or replace assets. A failed
+rerun preserves the original marker; successful recovery performs the normal
+upgrade, publication readback and public-install smoke proofs.
+
+For commit-gate tooling changes, run from `typescript/`:
+
+```sh
+CARGO_TARGET_DIR=<worktree-target> corepack pnpm exec vp test run --config vitest.config.ts test/tooling/publication-gates.test.ts test/tooling/publication-gates-script.test.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/dev-guide-budget.test.ts
+corepack pnpm check:tooling
+```
+
+Build `tmt-release-tool --bin release-version` in that target first for the
+source-gate fixtures. These tests exercise scope-skip evidence and durable hold
+markers without dispatching a release workflow; they grant no recovery authorization.
 
 Rerun uses the main commit selected by the dispatch for Node verifier scripts and
 their locked dependencies. Archives, manifest, version and digests come from the

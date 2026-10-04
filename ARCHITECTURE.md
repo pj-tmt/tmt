@@ -636,6 +636,8 @@ Selected missing, failed, cancelled or unexpectedly skipped work cannot satisfy 
 required gate; empty test discovery never passes. Selection, worker, cache and
 advisory-browser details live in the
 [CI reference](.agents/skills/tmt-release/references/ci-selection.md).
+Publication reuses the native aggregate's scope-skip proof with check-suite
+provenance rather than recomputing historical selection or accepting bare skips.
 
 ## Browser add-on shell
 

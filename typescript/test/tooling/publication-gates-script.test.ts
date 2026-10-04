@@ -71,6 +71,8 @@ const green = REQUIRED_CONTEXTS.map((name) => ({
   status: 'completed',
   conclusion: 'success',
   completed_at: '2026-09-30T01:00:00Z',
+  check_suite: { id: 100 },
+  app: { slug: 'github-actions' },
 }));
 
 interface Scenario {
@@ -296,6 +298,54 @@ describe('publication-gates.mjs early', () => {
     expect(uploaded('publication-held.json')).toBeNull();
     expect(calls().filter((call) => call.includes('--method'))).toEqual([]);
   });
+
+  it('passes a scope-skipped required check using the same-suite native aggregate from REST', () => {
+    const checkRuns = green.map((entry) =>
+      entry.name === 'Unit tests' ? { ...entry, conclusion: 'skipped' } : entry
+    );
+    const { run, uploaded, calls } = scenario({ checkRuns, hold: null });
+    const result = run(early);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.output).toBe('held=\nskip=\n');
+    expect(result.summary).toContain('- passed `commit`');
+    expect(uploaded('publication-held.json')).toBeNull();
+    expect(calls()).toContainEqual([
+      'api',
+      '--paginate',
+      '--slurp',
+      `repos/wkh237/tmt/commits/${'f'.repeat(40)}/check-runs`,
+    ]);
+  });
+
+  it.each(['missing', 'failure', 'cancelled', 'unexpected-skip'])(
+    'keeps a durable commit hold for %s required-check evidence',
+    (evidence) => {
+      const checkRuns = green.flatMap((entry) => {
+        if (entry.name === 'Unit tests') {
+          if (evidence === 'missing') return [];
+          return [{ ...entry, conclusion: evidence === 'unexpected-skip' ? 'skipped' : evidence }];
+        }
+        return [
+          evidence === 'unexpected-skip' && entry.name === 'Native package matrix'
+            ? { ...entry, check_suite: { id: 101 } }
+            : entry,
+        ];
+      });
+      const { run, uploaded, candidate } = scenario({ checkRuns, hold: null });
+      const result = run(early);
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.output).toBe('held=commit\nskip=\n');
+      expect(uploaded('publication-held.json')).toMatchObject({
+        tag: 'v5.0.0-alpha.9',
+        sha: candidate,
+        gate: 'commit',
+        reason:
+          evidence === 'missing'
+            ? 'required check "Unit tests" did not complete on #7'
+            : `required check "Unit tests" ${evidence === 'unexpected-skip' ? 'skipped' : evidence} on #7`,
+      });
+    }
+  );
 
   it.each(['v5.0.0', 'v5.0.0-beta.1', 'v5.0.0-rc.2'])(
     'holds the release %s at the channel gate, without gathering any other evidence',

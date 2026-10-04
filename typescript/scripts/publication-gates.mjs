@@ -70,23 +70,51 @@ export function checkChannel({ product, tag }) {
 /**
  * `pullRequest` is the merged pull request that produced the commit, with its head commit;
  * `checkRuns` are the check runs of that head. The latest completed run of a context counts, so
- * a re-run that passed replaces the failed one before it.
+ * a re-run that passed replaces the failed one before it. Only `Unit tests` may be scope-skipped:
+ * `Native package matrix` validates its exact selected/unselected result in the same Actions suite.
  */
 export function checkCommit({ sha, onMain, pullRequest, checkRuns }) {
   if (!onMain) return fail(`commit ${short(sha)} is not on main`);
   if (!pullRequest) return fail(`no merged pull request produced commit ${short(sha)}`);
+  const latestRuns = Object.fromEntries(
+    REQUIRED_CONTEXTS.map((context) => [
+      context,
+      checkRuns
+        .filter((run) => run.name === context && run.status === 'completed')
+        .sort((left, right) => Date.parse(right.completed_at) - Date.parse(left.completed_at))[0],
+    ])
+  );
   for (const context of REQUIRED_CONTEXTS) {
-    const latest = checkRuns
-      .filter((run) => run.name === context && run.status === 'completed')
-      .sort((left, right) => Date.parse(right.completed_at) - Date.parse(left.completed_at))[0];
+    const latest = latestRuns[context];
     if (!latest) {
       return fail(`required check "${context}" did not complete on #${pullRequest.number}`);
     }
     if (latest.conclusion !== 'success') {
+      const matrix = latestRuns['Native package matrix'];
+      // A bare skip is not selection evidence. The existing aggregate fails on selected skips,
+      // failures, cancellations and missing results; never borrow its proof from another suite
+      // or from before this skipped job completed (including a partial workflow rerun).
+      if (
+        context === 'Unit tests' &&
+        latest.conclusion === 'skipped' &&
+        matrix?.conclusion === 'success' &&
+        latest.app?.slug === 'github-actions' &&
+        matrix.app?.slug === 'github-actions' &&
+        Number.isSafeInteger(latest.check_suite?.id) &&
+        latest.check_suite.id > 0 &&
+        latest.check_suite.id === matrix.check_suite?.id &&
+        Date.parse(matrix.completed_at) >= Date.parse(latest.completed_at)
+      ) {
+        continue;
+      }
       return fail(`required check "${context}" ${latest.conclusion} on #${pullRequest.number}`);
     }
   }
-  return pass(`#${pullRequest.number} passed ${REQUIRED_CONTEXTS.join(', ')}`);
+  return latestRuns['Unit tests'].conclusion === 'skipped'
+    ? pass(
+        `#${pullRequest.number} satisfied ${REQUIRED_CONTEXTS.join(', ')}; Unit tests scope-skipped, validated by Native package matrix`
+      )
+    : pass(`#${pullRequest.number} passed ${REQUIRED_CONTEXTS.join(', ')}`);
 }
 
 /**

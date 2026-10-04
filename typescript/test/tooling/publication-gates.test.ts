@@ -178,6 +178,8 @@ describe('checkCommit', () => {
     status,
     conclusion,
     completed_at: at,
+    check_suite: { id: 100 },
+    app: { slug: 'github-actions' },
   });
   const green = REQUIRED_CONTEXTS.map((name) => run(name, 'success', '2026-09-30T01:00:00Z'));
   const check = (input: Partial<Parameters<typeof checkCommit>[0]>) =>
@@ -207,11 +209,95 @@ describe('checkCommit', () => {
         check({ checkRuns: [...without, run(context, 'failure', '2026-09-30T01:00:00Z')] }).reason
       ).toBe(`required check "${context}" failure on #7`);
       expect(
+        check({ checkRuns: [...without, run(context, 'cancelled', '2026-09-30T01:00:00Z')] }).reason
+      ).toBe(`required check "${context}" cancelled on #7`);
+      expect(
         check({
           checkRuns: [...without, run(context, null, '2026-09-30T01:00:00Z', 'in_progress')],
         }).ok
       ).toBe(false);
     }
+  });
+
+  const scopeSkipped = green.map((entry) =>
+    entry.name === 'Unit tests' ? { ...entry, conclusion: 'skipped' } : entry
+  );
+
+  it('satisfies scope-skipped Unit tests only with the successful same-suite native aggregate', () => {
+    expect(check({ checkRuns: scopeSkipped }).ok).toBe(true);
+    expect(check({ checkRuns: scopeSkipped }).reason).toContain('Unit tests scope-skipped');
+    // This is the existing CI contract that makes the aggregate authoritative for this skip.
+    const ci = read('.github/workflows/ci.yml');
+    expect(ci).toContain("needs.changes.outputs.native_scope == 'full'");
+    expect(ci).toContain('UNIT_RESULT: ${{ needs.unit-tests.result }}');
+    expect(ci).toContain(
+      'gate-native "$MACOS_SELECTED" "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT"'
+    );
+  });
+
+  it.each(['failure', 'cancelled', 'skipped', 'neutral'])(
+    'holds scope-skipped Unit tests when the aggregate is %s',
+    (conclusion) => {
+      const checks = scopeSkipped.map((entry) =>
+        entry.name === 'Native package matrix' ? { ...entry, conclusion } : entry
+      );
+      expect(check({ checkRuns: checks })).toEqual({
+        ok: false,
+        reason: 'required check "Unit tests" skipped on #7',
+      });
+    }
+  );
+
+  it('holds a skip without a completed aggregate', () => {
+    const without = scopeSkipped.filter((entry) => entry.name !== 'Native package matrix');
+    expect(check({ checkRuns: without }).ok).toBe(false);
+    expect(
+      check({
+        checkRuns: [
+          ...without,
+          run('Native package matrix', null, '2026-09-30T01:00:00Z', 'in_progress'),
+        ],
+      }).ok
+    ).toBe(false);
+  });
+
+  it('never accepts skips of the required aggregate or Code quality', () => {
+    for (const context of REQUIRED_CONTEXTS.filter((name) => name !== 'Unit tests')) {
+      const checks = green.map((entry) =>
+        entry.name === context ? { ...entry, conclusion: 'skipped' } : entry
+      );
+      expect(check({ checkRuns: checks })).toEqual({
+        ok: false,
+        reason: `required check "${context}" skipped on #7`,
+      });
+    }
+  });
+
+  it('holds skips with missing or mismatched suite evidence or another check provider', () => {
+    for (const context of ['Unit tests', 'Native package matrix']) {
+      for (const metadata of [
+        { check_suite: undefined },
+        { check_suite: { id: 0 } },
+        { check_suite: { id: 101 } },
+        { app: undefined },
+        { app: { slug: 'another-app' } },
+      ]) {
+        const checks = scopeSkipped.map((entry) =>
+          entry.name === context ? { ...entry, ...metadata } : entry
+        );
+        expect(check({ checkRuns: checks }).ok).toBe(false);
+      }
+    }
+  });
+
+  it('does not reuse an earlier aggregate after a later skip, even within one suite', () => {
+    const checks = [...scopeSkipped, run('Unit tests', 'skipped', '2026-09-30T02:00:00Z')];
+    expect(check({ checkRuns: checks }).ok).toBe(false);
+    expect(
+      check({
+        checkRuns: [...checks, run('Native package matrix', 'success', '2026-09-30T03:00:00Z')],
+      }).ok
+    ).toBe(true);
   });
 
   it('counts the latest run of a context, so a re-run that passed replaces a failure', () => {
