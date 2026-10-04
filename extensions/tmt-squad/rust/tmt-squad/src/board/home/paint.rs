@@ -303,6 +303,7 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
     let mut selected_range = 0..0;
     let receipt_now = std::time::Instant::now();
     let mut section = "";
+    let mut previous_lead_has_exchange = false;
     let chrome = super::leads::Chrome::new(area.width, look);
     if !entries
         .iter()
@@ -322,6 +323,15 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
     }
     for (index, entry) in entries.iter().enumerate() {
         if entry.target.section == super::LEADS {
+            let lead = app
+                .home_leads
+                .leads
+                .iter()
+                .find(|lead| {
+                    lead.squad == entry.target.squad
+                        && entry.target.member.as_deref() == Some(lead.id())
+                })
+                .expect("a lead target retains its deferred projection");
             if section != super::LEADS {
                 section = super::LEADS;
                 lines.push(Line::default());
@@ -336,18 +346,9 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                     look.role(Role::Muted),
                 ));
                 lines.push(chrome.top.clone());
-            } else if view.home_replies {
+            } else if view.home_replies && previous_lead_has_exchange && lead.exchange.is_some() {
                 lines.push(chrome.wrap(Line::default(), look, false));
             }
-            let lead = app
-                .home_leads
-                .leads
-                .iter()
-                .find(|lead| {
-                    lead.squad == entry.target.squad
-                        && entry.target.member.as_deref() == Some(lead.id())
-                })
-                .expect("a lead target retains its deferred projection");
             let selected = index == app.selected;
             let start = lines.len();
             starts.push(start);
@@ -356,7 +357,14 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                 look,
                 selected,
             ));
-            if view.home_replies {
+            let reading = app.input.as_ref().is_some_and(|input| {
+                matches!(input.compose, crate::board::app::Compose::ReadLead { .. })
+                    && input.row_send.as_ref().is_some_and(|send| {
+                        send.target == crate::board::app::RowTarget::Home(entry.target.clone())
+                    })
+            });
+            previous_lead_has_exchange = lead.exchange.is_some();
+            if view.home_replies && lead.exchange.is_some() && !reading {
                 lines.push(chrome.wrap(super::leads::preview(lead, area.width, look), look, false));
             }
             regions.push((

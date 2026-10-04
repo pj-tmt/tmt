@@ -131,6 +131,57 @@ fn lead_rows_and_footer_share_one_cursor_and_hidden_previews_remove_separators()
 }
 
 #[test]
+fn leads_without_exchanges_have_one_hit_line_and_no_adjacent_separator() {
+    for width in [160, 100, 80] {
+        let mut app = fixture();
+        app.home_leads.leads[1].exchange = None;
+        let text = lines(&draw(&app, width, 40));
+        let preview = text
+            .iter()
+            .position(|line| line.contains("asks: Approve"))
+            .unwrap();
+        assert!(text[preview + 1].contains("lead-b"));
+        assert!(text[preview + 2].starts_with('└'));
+        let target = app
+            .home_entries()
+            .iter()
+            .position(|entry| entry.target.section == LEADS && entry.target.squad == "b")
+            .unwrap();
+        assert_eq!(
+            app.hits
+                .borrow()
+                .iter()
+                .filter(|hit| hit.row == target)
+                .count(),
+            1
+        );
+        app.home_leads.leads[0].exchange = None;
+        let text = lines(&draw(&app, width, 40));
+        let heading = text
+            .iter()
+            .position(|line| line.contains("lead-a") && line.starts_with('│'))
+            .unwrap();
+        assert!(text[heading + 1].contains("lead-b"));
+        assert!(text[heading + 2].starts_with('└'));
+        for entry in app
+            .home_entries()
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| entry.target.section == LEADS)
+        {
+            assert_eq!(
+                app.hits
+                    .borrow()
+                    .iter()
+                    .filter(|hit| hit.row == entry.0)
+                    .count(),
+                1
+            );
+        }
+    }
+}
+
+#[test]
 fn expanded_body_and_answer_share_the_full_inner_band_at_every_width_and_theme() {
     for width in [160, 100, 80] {
         for (base, depth) in [
@@ -155,6 +206,17 @@ fn expanded_body_and_answer_share_the_full_inner_band_at_every_width_and_theme()
             let band = app.input_band.get().unwrap();
             assert_eq!((band.x, band.width), (1, width - 2));
             let text = lines(&buffer);
+            assert!(text[usize::from(band.y - 1)].contains("lead-a"));
+            assert!(!text.iter().any(|line| line.contains("asks: Approve")));
+            assert!(text.iter().any(|line| line.contains("The work is ready.")));
+            assert_eq!(
+                app.hits
+                    .borrow()
+                    .iter()
+                    .filter(|hit| hit.row == app.selected)
+                    .count(),
+                1
+            );
             assert!(text[usize::from(band.y + 1)].contains("First complete line"));
             assert!(
                 text[usize::from(band.y + 2)]
@@ -173,6 +235,18 @@ fn expanded_body_and_answer_share_the_full_inner_band_at_every_width_and_theme()
                     .iter()
                     .all(|hit| hit.y < band.y || hit.y >= band.bottom())
             );
+            press(&mut app, Esc);
+            let collapsed = lines(&draw(&app, width, 30));
+            assert!(collapsed.iter().any(|line| line.contains("asks: Approve")));
+            assert_eq!(
+                app.hits
+                    .borrow()
+                    .iter()
+                    .filter(|hit| hit.row == app.selected)
+                    .count(),
+                2
+            );
+            press(&mut app, Char('e'));
             press(&mut app, Char('a'));
             assert!(matches!(
                 app.input.as_ref().unwrap().compose,

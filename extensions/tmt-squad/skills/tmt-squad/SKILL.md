@@ -369,11 +369,13 @@ box. Each header has a bold name, its squad from 100 columns, and an event age
 at the right. The second line previews the message: ◆ means the lead asks you,
 … means you asked and no reply has been submitted, and ✓ means the lead replied.
 Reply wording does not change that mark. A lead with no exchange has a blank mark
-and `–` age. Partial, expired or unavailable reads remain explicit.
+and `–` age, with just one line and no blank separator around it. Partial, expired
+or unavailable reads remain explicit.
 
 `t` hides previews and the blank separators between leads, and saves the global
 `board.home_replies` choice (default `true`). `e` on a lead expands its complete
-wrapped message in the same inline band used for answers. Arrows/j/k and
+wrapped message directly below its header in the same inline band used for answers,
+replacing that row’s preview while open. Arrows/j/k and
 PgUp/PgDn scroll that body; `e` or Esc collapses it, and `a` opens an answer or
 note to that lead in the same place. Reading sends and acknowledges nothing.
 Only one band can be open.

@@ -329,7 +329,9 @@ by record when no positions were drawn.
 - `home::leads` formats the deferred projection into a square `Outline` box in the same
   line stream. Headers retain a bold name and right-aligned event age; the squad column
   starts at the shared MD breakpoint. The global replies preference removes preview
-  lines and boxed separators together. Both lead lines map to one stable cursor target;
+  lines and boxed separators together. Leads without an exchange have one header line
+  and no adjacent separator; an expanded message replaces its row preview with the
+  shared band directly below the header. All visible lead lines map to one stable cursor target;
   the audience footer sits outside the box. The shared band reservation uses the full
   inner width for lead messages and answers, with a height cap that preserves the
   selected row and overflow line. `view::header::time_marks` advances displayed lead
